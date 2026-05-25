@@ -1,0 +1,14 @@
+{
+  "id": "code-tdd",
+  "title": "Code change with TDD",
+  "goal": "Use context detector, tests, implementation, review, git commit, report.",
+  "steps": [
+    "context detect",
+    "create branch",
+    "write failing test",
+    "implement",
+    "run tests",
+    "self-review",
+    "commit"
+  ]
+}

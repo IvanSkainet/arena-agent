@@ -1,0 +1,14 @@
+{
+  "id": "browser-real-user",
+  "title": "Automated browser task",
+  "goal": "Use browser like a user: search/read/fill forms/extract results with confirmation gates.",
+  "steps": [
+    "open URL",
+    "screenshot",
+    "page dump",
+    "readability",
+    "interaction plan",
+    "extract result",
+    "report"
+  ]
+}

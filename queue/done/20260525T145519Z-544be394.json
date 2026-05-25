@@ -1,0 +1,18 @@
+{
+  "id": "20260525T145519Z-544be394",
+  "created_at": "2026-05-25T14:55:19+00:00",
+  "cmd": "echo ASYNC_STRESS_TEST_OK",
+  "cwd": null,
+  "timeout": 3600,
+  "max_output": 2000000,
+  "env": {},
+  "notes": "",
+  "started_at": "2026-05-25T14:55:20+00:00",
+  "state": "done",
+  "finished_at": "2026-05-25T14:55:20+00:00",
+  "duration_sec": 0.092,
+  "exit_code": 0,
+  "stdout": "ASYNC_STRESS_TEST_OK\n",
+  "stderr": "",
+  "truncated": false
+}

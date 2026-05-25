@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# sd-exec — запускает команду как transient user service, ВНЕ bridge cgroup.
+# Используется когда программа (chromium, firefox, игра, GUI) не может работать
+# под жёстким cgroup/seccomp нашего hardened bridge сервиса.
+#
+# Usage:
+#   sd-exec [--no-pipe] [--timeout SEC] -- <cmd> [args...]
+#   sd-exec -- chromium --headless=new --dump-dom https://example.com
+#
+# Особенности:
+#   - наследует $DISPLAY, $XAUTHORITY, $DBUS_SESSION_BUS_ADDRESS, $WAYLAND_DISPLAY
+#   - --collect: юнит чистится сам
+#   - --same-dir: pwd сохраняется
+set -euo pipefail
+PIPE="--pipe"
+TIMEOUT=""
+while [[ $# -gt 0 && "$1" != "--" ]]; do
+  case "$1" in
+    --no-pipe) PIPE=""; shift;;
+    --timeout) TIMEOUT="--property=RuntimeMaxSec=$2"; shift 2;;
+    *) echo "sd-exec: unknown opt $1" >&2; exit 2;;
+  esac
+done
+[[ "${1:-}" == "--" ]] && shift
+[[ $# -eq 0 ]] && { echo "sd-exec: missing command" >&2; exit 2; }
+
+# Прокидываем GUI/DBus env если есть
+PROPS=()
+for v in DISPLAY XAUTHORITY DBUS_SESSION_BUS_ADDRESS WAYLAND_DISPLAY XDG_RUNTIME_DIR XDG_SESSION_TYPE XDG_CURRENT_DESKTOP; do
+  [[ -n "${!v:-}" ]] && PROPS+=( -E "$v=${!v}" )
+done
+[[ -n "$TIMEOUT" ]] && PROPS+=( "$TIMEOUT" )
+
+exec systemd-run --user --quiet --wait --collect --same-dir $PIPE "${PROPS[@]}" -- "$@"

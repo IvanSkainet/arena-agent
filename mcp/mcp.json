@@ -1,0 +1,53 @@
+{
+  "mcpServers": {
+    "desktop-commander": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-desktop"
+      ],
+      "env": {}
+    },
+    "git": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-git"
+      ],
+      "env": {}
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-playwright"
+      ],
+      "env": {}
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "-q",
+        "mcp-server-fetch"
+      ],
+      "env": {}
+    },
+    "sqlite": {
+      "command": "uvx",
+      "args": [
+        "-q",
+        "mcp-server-sqlite",
+        "--db-path",
+        "C:\\Users\\Ivan\\arena-agent\\memory\\facts.db"
+      ],
+      "env": {}
+    },
+    "arena-stream": {
+      "command": "echo",
+      "args": [
+        "arena-mcp-stream runs on http://127.0.0.1:8767/mcp"
+      ],
+      "env": {}
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "id": "recovery-drill",
+  "title": "Recovery drill",
+  "goal": "Simulate new chat recovery and verify concise prompt/helper/client works.",
+  "steps": [
+    "recovery print",
+    "client doctor",
+    "bridge health",
+    "sys status",
+    "backup list"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "20260524T232358Z-244a65f4",
+  "created_at": "2026-05-24T23:23:58+00:00",
+  "cmd": "echo WINDOWS_TASK_RUNNER_OK",
+  "cwd": null,
+  "timeout": 3600,
+  "max_output": 2000000,
+  "env": {},
+  "notes": "",
+  "started_at": "2026-05-24T23:24:01+00:00",
+  "state": "done",
+  "finished_at": "2026-05-24T23:24:01+00:00",
+  "duration_sec": 0.007,
+  "exit_code": 0,
+  "stdout": "WINDOWS_TASK_RUNNER_OK\n",
+  "stderr": "",
+  "truncated": false
+}

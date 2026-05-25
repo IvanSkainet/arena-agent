@@ -1,0 +1,421 @@
+#!/usr/bin/env python3
+"""
+Arena Agent CLI (agentctl) v1.0-alpha
+Python-native dispatcher replacing the old bash script.
+"""
+import sys, os, subprocess, shutil
+import time
+
+ROOT = os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-agent"))
+BIN = os.path.join(ROOT, "bin")
+P = sys.executable if os.path.exists(sys.executable) else (shutil.which("python3") or shutil.which("python") or "python3")
+SE = os.path.join(ROOT, "scripts")
+
+def run_cmd(script, args):
+    cmd = [P, os.path.join(SE, script)] + args
+    try:
+        subprocess.run(cmd, check=True)
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+
+def run_js(script, args):
+    # Browser/GUI tools must not inherit the hardened bridge service cgroup.
+    # When called through the bridge, Chromium may SIGTRAP if launched directly.
+    # Running JS tools via a transient user systemd scope gives them a normal
+    # user-session environment while preserving stdout/stderr for the caller.
+    node_path = os.path.join(ROOT, "js", "node_modules")
+    script_path = os.path.join(SE, script)
+    env = os.environ.copy(); env["NODE_PATH"] = node_path
+    direct = ["node", script_path] + args
+    use_systemd = shutil.which("systemd-run") and not os.environ.get("ARENA_AGENT_NO_SYSTEMD_RUN")
+    if use_systemd:
+        cmd = ["systemd-run", "--user", "--quiet", "--wait", "--collect", "--pipe", "--same-dir", "env", f"NODE_PATH={node_path}", "node", script_path] + args
+        try:
+            subprocess.run(cmd, env=env, cwd=os.path.join(ROOT, "js"), check=True)
+            return
+        except subprocess.CalledProcessError:
+            # Fallback to direct execution for non-systemd environments.
+            pass
+    try:
+        subprocess.run(direct, env=env, cwd=os.path.join(ROOT, "js"), check=True)
+    except subprocess.CalledProcessError as e:
+        sys.exit(e.returncode)
+
+def print_help():
+    print("""Arena Agent CLI v1.0-alpha (Python Native)
+
+Namespaces:
+  sys     doctor|status|svc|inv|fix|harden  System diagnostics & bridge health
+  web     http|dns|tls|head|ip|robots       Web recon
+  browser smoke|shot|fp|dump|read           Browser tools
+  proj    new|use|ls|status|log|commit      Project management (git-like)
+  task    sub|run|ls|show|clean             Task queue
+  skill   ls|show|run                       Skills (Superpowers lite)
+  mem     set|get                           Memory facts
+  report  ls|idx|latest|status              Reports
+  audit   tail|stats|rotate                 Audit log
+  backup  run|ls                            Backups (compat: backups)
+  desktop shot|click|type|key|info          Native GUI control
+  commands [group]                         Compact command registry
+  client  doctor|gen|test                   Connection/UPS helpers
+  mcp     install|list|call|tools|stream-* MCP client + Streamable HTTP
+  mission list|show|new|check|stress|roadmap Scenario framework
+  sp      sync|list|show                    Superpowers Integration
+
+Usage: agentctl.py [namespace] [command] [args...]
+""")
+
+def main():
+    if len(sys.argv) < 2:
+        print_help()
+        sys.exit(2)
+        
+    ns = sys.argv[1].lower()
+    args = sys.argv[2:]
+    
+    if ns in ["h", "help", "--help", "-h"]:
+        print_help()
+    
+    elif ns in ["sys", "system", "b", "bridge"]:
+        sub = args[0] if args else "status"
+        if sub == "doctor":
+            print(f"Arena Agent Home: {ROOT}")
+            print(f"Python venv: {P}")
+            run_cmd("agentctl_extras.py", ["doctor"])
+        elif sub in ["svc", "services"]:
+            subprocess.run(["systemctl", "--user", "--no-pager", "status", "arena-local-bridge.service", "arena-task-runner.service"])
+        elif sub == "funnel":
+            subprocess.run(["tailscale", "funnel", "status"])
+        elif sub == "fix":
+            run_cmd("agentctl_extras.py", ["doctor-fix"] + args[1:])
+        elif sub == "inv":
+            import platform
+            if platform.system() == "Windows":
+                run_cmd("cross_platform_check.py", [])
+            else:
+                subprocess.run(["bash", os.path.join(SE, "inventory.sh")])
+        elif sub == "status":
+            run_cmd("agentctl_extras.py", ["status"])
+        elif sub == "update":
+            run_cmd("agentctl_extras.py", ["update"])
+        elif sub == "beep":
+            run_cmd("agentctl_extras.py", ["beep"] + args[1:])
+        else:
+            print("Invalid system command.")
+
+    elif ns in ["web", "w"]:
+        sub = args[0] if args else "help"
+        if sub == "http": run_cmd("http_probe.py", args[1:])
+        elif sub in ["head", "headers"]: run_cmd("recon_lab.py", ["headers"] + args[1:])
+        elif sub in ["dns", "tls", "tech", "robots", "sitemap"]: run_cmd("recon_lab.py", args)
+        elif sub == "ip":
+            import platform
+            if platform.system() == "Windows":
+                import urllib.request
+                print("api.ipify:", end=" ", flush=True)
+                try: print(urllib.request.urlopen("https://api.ipify.org", timeout=5).read().decode().strip())
+                except Exception as e: print(f"<err: {e}>")
+                print("ifconfig.me:", end=" ", flush=True)
+                try: print(urllib.request.urlopen("https://ifconfig.me/ip", timeout=5).read().decode().strip())
+                except Exception as e: print(f"<err: {e}>")
+                print("\nCloudflare trace:")
+
+                try:
+                    trace = urllib.request.urlopen("https://www.cloudflare.com/cdn-cgi/trace", timeout=5).read().decode().strip()
+                    print(trace)
+                except Exception as e: print(f"<err: {e}>")
+            else:
+                subprocess.run(["bash", os.path.join(SE, "recon_ip.sh")])
+        else: print("Invalid web command.")
+
+    elif ns in ["browser", "brw"]:
+        sub = args[0] if args else "smoke"
+        target = args[1] if len(args) > 1 else "https://example.com"
+        if sub in ["sm", "smoke"]: run_js("browser_smoke.js", [target])
+        elif sub in ["rp", "report"]: run_js("browser_report.js", [target])
+        elif sub in ["shot", "screenshot"]: run_js("browser_lab.js", ["screenshot", target])
+        elif sub == "dump": run_js("browser_lab.js", ["dump", target])
+        elif sub in ["fp", "fingerprint"]: run_js("browser_lab.js", ["fingerprint", target])
+        elif sub in ["meta", "metadata"]: run_js("browser_lab.js", ["metadata", target])
+        elif sub in ["read", "readability"]: run_js("readability_report.js", [target])
+        elif sub in ["py", "pyb"]:
+            subprocess.run([P, os.path.join(BIN, "py_browser.py")] + args[1:])
+        elif sub == "py-dump":   subprocess.run([P, os.path.join(BIN, "py_browser.py"), "dump", target])
+        elif sub == "py-read":   subprocess.run([P, os.path.join(BIN, "py_browser.py"), "read", target])
+        elif sub == "py-head":   subprocess.run([P, os.path.join(BIN, "py_browser.py"), "head", target])
+        elif sub == "py-search": subprocess.run([P, os.path.join(BIN, "py_browser.py"), "search"] + args[1:])
+        elif sub == "py-fetch":  subprocess.run([P, os.path.join(BIN, "py_browser.py"), "fetch", target])
+        elif sub == "sd-shot":
+            import json as _j, tempfile, platform
+            shots_dir = os.path.join(ROOT, "reports", "shots")
+            os.makedirs(shots_dir, exist_ok=True)
+            png = os.path.join(shots_dir, f"shot-{int(time.time())}.png")
+            chrome_candidates = [
+                    "chromium", "chrome", "google-chrome", "google-chrome-stable",
+                    "librewolf", "brave", "brave-browser", "firefox", "vivaldi", "yandex-browser", "opera", "tor-browser", "arc", "comet",
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Google", "Chrome", "Application", "chrome.exe"),
+                    r"C:\Program Files\LibreWolf\librewolf.exe",
+                    r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+                    r"C:\Program Files\Mozilla Firefox\firefox.exe",
+                    r"C:\Program Files\Vivaldi\Application\vivaldi.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Yandex", "YandexBrowser", "Application", "browser.exe"),
+                    r"C:\Program Files\Yandex\YandexBrowser\Application\browser.exe",
+                    r"C:\Program Files\Opera\launcher.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Programs", "Opera", "launcher.exe"),
+                    r"C:\Program Files\Tor Browser\Browser\firefox.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Arc", "Arc.exe"),
+                    r"C:\Program Files\Comet\comet.exe",
+                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    "msedge.exe"
+                ]
+            if platform.system() == "Windows":
+                chrome_candidates = [
+                    "chromium", "chrome", "google-chrome", "google-chrome-stable",
+                    "librewolf", "brave", "brave-browser", "firefox", "vivaldi", "yandex-browser", "opera", "tor-browser", "arc", "comet",
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Google", "Chrome", "Application", "chrome.exe"),
+                    r"C:\Program Files\LibreWolf\librewolf.exe",
+                    r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+                    r"C:\Program Files\Mozilla Firefox\firefox.exe",
+                    r"C:\Program Files\Vivaldi\Application\vivaldi.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Yandex", "YandexBrowser", "Application", "browser.exe"),
+                    r"C:\Program Files\Yandex\YandexBrowser\Application\browser.exe",
+                    r"C:\Program Files\Opera\launcher.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Programs", "Opera", "launcher.exe"),
+                    r"C:\Program Files\Tor Browser\Browser\firefox.exe",
+                    os.path.join(os.path.expanduser("~"), "AppData", "Local", "Arc", "Arc.exe"),
+                    r"C:\Program Files\Comet\comet.exe",
+                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    "msedge.exe"
+                ]
+            chrome_exe = next((shutil.which(c) or (c if os.path.exists(c) else None) for c in chrome_candidates if shutil.which(c) or os.path.exists(c)), None) or "chrome.exe"
+            ud = os.path.join(tempfile.gettempdir(), f"cr-{os.getpid()}")
+            cmd_args = [
+                chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
+                f"--user-data-dir={ud}", "--window-size=1366,768",
+                f"--screenshot={png}", target
+            ]
+            if platform.system() == "Windows":
+                r = subprocess.run(cmd_args, shell=True)
+            else:
+                r = subprocess.run([os.path.join(BIN, "sd-exec"), "--timeout", "45", "--"] + cmd_args)
+            print(_j.dumps({"ok": r.returncode == 0, "screenshot": png, "url": target}))
+        elif sub == "sd-dump":
+            import tempfile, platform
+            chrome_candidates = [
+                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    "msedge.exe","chromium", "chrome", "google-chrome", "google-chrome-stable"]
+            if platform.system() == "Windows":
+                chrome_candidates = [
+                    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+                    "msedge.exe",
+                    "chrome.exe",
+                    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                    r"C:\Program Files\Chromium\Application\chrome.exe",
+                    r"C:\Program Files\LibreWolf\librewolf.exe",
+                ]
+            chrome_exe = next((shutil.which(c) or (c if os.path.exists(c) else None) for c in chrome_candidates if shutil.which(c) or os.path.exists(c)), None) or "chrome.exe"
+            ud = os.path.join(tempfile.gettempdir(), f"cr-{os.getpid()}")
+            cmd_args = [
+                chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
+                f"--user-data-dir={ud}", "--dump-dom", target
+            ]
+            if platform.system() == "Windows":
+                subprocess.run(cmd_args, shell=True)
+            else:
+                subprocess.run([os.path.join(BIN, "sd-exec"), "--timeout", "45", "--"] + cmd_args)
+        else: print("Invalid browser command.")
+
+    elif ns in ["hooks", "hk"]:
+        # Hooks engine: pre/post events для skill/mission.
+        subprocess.run([P, os.path.join(BIN, "hooks_runner.py")] + (args or ["list"]))
+
+    elif ns in ["sub", "subagent"]:
+        # Subagents — изолированные исполнители задач (от Gemini CLI / Claude Code).
+        # Возвращает summary вместо засорения контекста основного LLM.
+        subprocess.run([P, os.path.join(BIN, "subagent.py")] + (args or ["list"]))
+
+    elif ns in ["recall", "rc"]:
+        # Auto-recall релевантных фактов/сессий/snapshots по запросу.
+        subprocess.run([P, os.path.join(BIN, "memory_recall.py")] + (args or ["digest"]))
+
+    elif ns == "tui":
+        # TUI control center (Hermes-style): multiline, slash autocomplete, history.
+        subprocess.run([P, os.path.join(BIN, "agentctl_tui.py")] + args)
+
+    elif ns == "agents":
+        # AGENTS.md per project (от Codex AGENTS.md / Claude Code CLAUDE.md)
+        subprocess.run([P, os.path.join(BIN, "agents_md.py")] + (args or ["ls"]))
+
+    elif ns in ["market", "marketplace"]:
+        # MCP plugin marketplace: registry|install|remove|list|test
+        subprocess.run([P, os.path.join(BIN, "mcp_marketplace.py")] + (args or ["registry"]))
+
+    elif ns == "record":
+        # Mission/desktop video recording через ffmpeg+sd-exec
+        subprocess.run([os.path.join(BIN, "mission-record")] + (args or ["status"]))
+
+    elif ns == "gateway":
+        # Web gateway для chat-платформ (запуск/health)
+        sub = args[0] if args else "info"
+        if sub == "start":
+            print("Start with: systemctl --user start arena-web-gateway.service")
+        else:
+            subprocess.run(["curl", "-sS", "http://127.0.0.1:8769/"])
+            print()
+
+    elif ns in ["exec", "x"]:
+        import platform
+        if platform.system() == "Windows":
+            subprocess.run(" ".join(args), shell=True)
+        else:
+            subprocess.run([os.path.join(BIN, "sd-exec"), "--"] + args)
+
+    elif ns == "rag":
+        run_cmd("core/local_rag.py", args)
+
+    elif ns in ["proj", "p"]:
+        sub = args[0] if args else "list"
+        if sub == "snapshot": run_cmd("core/time_machine.py", ["snapshot"])
+        elif sub == "rollback": run_cmd("core/time_machine.py", ["rollback"] + args[1:])
+        elif sub == "snapshots": run_cmd("core/time_machine.py", ["list"])
+        else: run_cmd("project_git.py", args if args else ["list"])
+
+    elif ns in ["task", "t"]:
+        sub = args[0] if args else "list"
+        if sub == "ls":
+            args = ["list"] + args[1:]
+        if sub in ["last", "retry", "clean"]:
+            run_cmd("task_maintenance.py", args)
+        else:
+            run_cmd("task_runner.py", args if args else ["list"])
+
+    elif ns in ["skill", "sk"]:
+        if args and args[0] == "from-sub":
+            # agentctl skill from-sub <sub_id> <name> [--desc X] [--mode safe|edit|full]
+            subprocess.run(["python3", os.path.join(BIN, "skill_from_sub.py")] + args[1:])
+        else:
+            if args and args[0] == "ls":
+                args = ["list"] + args[1:]
+            run_cmd("skill_runner.py", args if args else ["list"])
+
+    elif ns in ["mem", "m"]:
+        sub = args[0] if args else "recall"
+        cmd_map = {"set": "remember", "get": "recall", "remember": "remember", "recall": "recall"}
+        run_cmd("memory.py", [cmd_map.get(sub, sub)] + args[1:])
+
+    elif ns in ["report", "rp"]:
+        if args and args[0] == "ls":
+            args = ["list"] + args[1:]
+        run_cmd("report_tools.py", args if args else ["list"])
+
+    elif ns in ["audit", "au"]:
+        sub = args[0] if args else "tail"
+        if sub == "tail":
+            lines = args[1] if len(args) > 1 else "50"
+            run_cmd("audit_tool.py", ["tail", "--lines", lines])
+        else:
+            run_cmd("audit_tool.py", args)
+
+    elif ns in ["backup", "bak"]:
+        sub = args[0] if args else "run"
+        if sub in ["run", "create"]:
+            run_cmd("backup_tool.py", [])
+        else:
+            backup_dir = os.path.join(ROOT, "backups")
+            if os.path.exists(backup_dir):
+                files = sorted(os.listdir(backup_dir))
+                valid_files = [f for f in files if f != ".gitkeep"]
+                if not valid_files:
+                    print("No backups found.")
+                for f in valid_files:
+                    fp = os.path.join(backup_dir, f)
+                    size_kb = os.path.getsize(fp) / 1024
+                    print(f"  {f} ({size_kb:.2f} KB)")
+            else:
+                print("No backups folder found.")
+
+    elif ns == "desktop":
+        run_cmd("desktop_manager.py", args if args else ["info"])
+
+    
+    elif ns in ["gui", "dash", "dashboard"]:
+        print("=====================================================")
+        print("🖥️  ARENA AGENT DASHBOARD IS LIVE!")
+        print("👉 Open in browser: http://127.0.0.1:8765/gui")
+        print("=====================================================")
+
+    elif ns in ["commands", "cmds"]:
+        run_cmd("command_registry.py", args)
+    elif ns == "client":
+        run_cmd("client_tools.py", args if args else ["doctor"])
+
+    elif ns == "mcp":
+        sub = args[0] if args else "list"
+        if sub == "install" and len(args) > 1:
+            run_cmd("agentctl_extras.py", ["mcp-install"] + args[1:])
+        else:
+            run_cmd("mcp_manager.py", args if args else ["list"])
+    elif ns in ["mission", "ms", "scenario"]:
+        run_cmd("mission_manager.py", args if args else ["list"])
+        
+    elif ns == "sp":
+        run_cmd("superpowers_manager.py", args if args else ["list"])
+
+    # Shortcuts for convenience
+    elif ns == "do":
+        run_cmd("agentctl_extras.py", ["do"] + args)
+    elif ns == "tail":
+        run_cmd("agentctl_extras.py", ["tail"] + args)
+    elif ns == "find":
+        run_cmd("agentctl_extras.py", ["find"] + args)
+    elif ns == "ctx":
+        run_cmd("agentctl_extras.py", ["ctx"] + args)
+    elif ns == "status": run_cmd("agentctl_extras.py", ["status"])
+    elif ns == "remember": run_cmd("memory.py", ["remember"] + args)
+    elif ns in ["memory-remember", "mem-set"]:
+        run_cmd("memory.py", ["remember"] + args)
+    elif ns in ["memory-recall", "mem-get"]:
+        run_cmd("memory.py", ["recall"] + args)
+    elif ns == "recovery-update":
+        run_cmd("recovery_prompt.py", [])
+    elif ns == "recovery-print":
+        f=os.path.join(ROOT, "memory", "RECOVERY_PROMPT_RU.md")
+        print(open(f, encoding="utf-8").read() if os.path.exists(f) else "missing recovery prompt")
+    elif ns == "backups":
+        backup_dir = os.path.join(ROOT, "backups")
+        if os.path.exists(backup_dir):
+            files = sorted(os.listdir(backup_dir))
+            valid_files = [f for f in files if f != ".gitkeep"]
+            if not valid_files:
+                print("No backups found.")
+            for f in valid_files:
+                fp = os.path.join(backup_dir, f)
+                size_kb = os.path.getsize(fp) / 1024
+                print(f"  {f} ({size_kb:.2f} KB)")
+        else:
+            print("No backups folder found.")
+    elif ns == "report-status":
+        subprocess.run([os.path.join(ROOT, "bin", "agentctl"), "report", "status"] + args)
+    elif ns == "task-watch":
+        run_cmd("task_runner.py", ["watch"] + args)
+    elif ns == "task-submit":
+        run_cmd("task_runner.py", ["submit"] + args)
+    elif ns == "task-run":
+        run_cmd("task_runner.py", ["run-once"] + args)
+    elif ns == "task-show":
+        run_cmd("task_runner.py", ["show"] + args)
+    elif ns == "tasks":
+        run_cmd("task_runner.py", ["list"] + args)
+    
+    else:
+        print_help()
+        sys.exit(2)
+
+if __name__ == "__main__":
+    main()
+

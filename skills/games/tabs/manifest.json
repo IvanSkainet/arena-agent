@@ -1,0 +1,7 @@
+{
+  "name": "tabs",
+  "namespace": "games",
+  "description": "Optimized TABS game controller",
+  "version": "1.0.0",
+  "entrypoint": "run.py"
+}

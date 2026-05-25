@@ -1,0 +1,318 @@
+#!/usr/bin/env bash
+# Arena Agent CLI v2 — namespaced dispatcher
+# All legacy flat commands preserved as aliases for backward compat.
+set -euo pipefail
+ROOT="${ARENA_AGENT_HOME:-$HOME/arena-agent}"
+BV="${ARENA_BRIDGE_URL:-https://cachyos-x8664.tail328f18.ts.net}"
+P="$ROOT/.venv/bin/python"
+N="$ROOT/js/node_modules"
+NE="NODE_PATH=$N"
+SE="$ROOT/scripts"
+
+run_py() { shift; "$P" "$@"; }
+run_js() { cd "$ROOT/js"; NODE_PATH="$N" node "$@"; }
+run_bash() { bash "$@"; }
+
+cmd="${1:-help}"; shift || true
+
+case "$cmd" in
+  # ── NAMESPACED COMMANDS ─────────────────────────────────────
+  # bridge / b
+  b|bridge)
+    sub="${1:-status}"; shift || true
+    case "$sub" in
+      status)
+        echo "### local"; curl -fsS http://127.0.0.1:8765/health || true; echo
+        echo "### funnel"; curl --curves X25519 -fsS "$BV/health" || true; echo
+        echo "### port"; ss -ltnp 'sport = :8765' 2>/dev/null || true
+        echo "### funnel"; tailscale funnel status 2>/dev/null || true
+        echo "### svc"; systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service 2>/dev/null | sed -n '1,80p' || true ;;
+      restart) systemctl --user restart arena-local-bridge.service arena-task-runner.service; "$0" b status ;;
+      *) "$0" b status ;;
+    esac ;;
+
+  # sys / s (system)
+  sys)
+    sub="${1:-doctor}"; shift || true
+    case "$sub" in
+      doctor)
+        echo "Arena Agent Home: $ROOT"; test -d "$ROOT" && echo "home: ok" || echo "home: missing"
+        command -v python3 || true; python3 --version || true
+        command -v node || true; node --version || true
+        command -v uv || true; uv --version || true
+        test -x "$P" && "$P" --version || echo "venv: missing"
+        if test -d "$ROOT/js/node_modules/playwright-core"; then ROOT="$ROOT" NODE_PATH="$N" node -e "const p=require(require('path').join(process.env.ROOT,'js/node_modules/playwright-core/package.json')); console.log('playwright-core',p.version)"; else echo "playwright-core: missing"; fi ;;
+      svc|services) systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service | sed -n '1,140p' ;;
+      inv|inventory) "$SE/inventory.sh" ;;
+      funnel) tailscale funnel status ;;
+      fix) "$P" "$SE/agentctl_extras.py" doctor-fix "$@" ;;
+      harden) chmod -R u+rwX,go-rwx "$ROOT" "$HOME/arena-local-bridge"; chmod 600 "$HOME/arena-local-bridge/token.txt" 2>/dev/null || true; echo "hardened" ;;
+      *) "$0" sys doctor ;;
+    esac ;;
+
+  # web / w
+  w|web)
+    sub="${1:-help}"; shift || true
+    case "$sub" in
+      http) "$P" "$SE/http_probe.py" "$@" ;;
+      head|headers) "$P" "$SE/recon_lab.py" headers "$@" ;;
+      bot|robots) "$P" "$SE/recon_lab.py" robots "$@" ;;
+      sm|sitemap) "$P" "$SE/recon_lab.py" sitemap "$@" ;;
+      tech) "$P" "$SE/recon_lab.py" tech "$@" ;;
+      dns) "$P" "$SE/recon_lab.py" dns "$@" ;;
+      tls) "$P" "$SE/recon_lab.py" tls "$@" ;;
+      ip) "$SE/recon_ip.sh" ;;
+      *) echo "Usage: a w {http|headers|dns|tls|ip|robots|sitemap|tech}" >&2 ;;
+    esac ;;
+
+  # browser / brw
+  browser)
+    sub="${1:-smoke}"; shift || true
+    case "$sub" in
+      sm|smoke) run_js "$SE/browser_smoke.js" "${1:-https://example.com}" ;;
+      rp|report) run_js "$SE/browser_report.js" "${1:-https://example.com}" ;;
+      shot|screenshot) run_js "$SE/browser_lab.js" screenshot "${1:-https://example.com}" ;;
+      dump) run_js "$SE/browser_lab.js" dump "${1:-https://example.com}" ;;
+      fp|fingerprint) run_js "$SE/browser_lab.js" fingerprint "${1:-https://example.com}" ;;
+      meta|metadata) run_js "$SE/browser_lab.js" metadata "${1:-https://example.com}" ;;
+      read|readability) run_js "$SE/readability_report.js" "${1:-https://example.com}" ;;
+      *) "$0" browser smoke ;;
+    esac ;;
+
+  # recon / r
+  r|recon)
+    sub="${1:-ip}"; shift || true
+    case "$sub" in
+      dom|domain) "$P" "$SE/recon_domain.py" "$@" ;;
+      rp|report) "$P" "$SE/recon_report.py" "$@" ;;
+      ip) "$SE/recon_ip.sh" ;;
+      *) "$0" recon ip ;;
+    esac ;;
+
+  # project / p
+  p|proj)
+    sub="${1:-list}"; shift || true
+    case "$sub" in
+      new) "$P" "$SE/project_git.py" new "$@" ;;
+      use) "$P" "$SE/project_git.py" use "$@" ;;
+      cur|current) "$P" "$SE/project_git.py" current "$@" ;;
+      ls|list) "$P" "$SE/project_git.py" list "$@" ;;
+      st|status) "$P" "$SE/project_git.py" status "$@" ;;
+      rp|report) "$P" "$SE/project_git.py" report "$@" ;;
+      log) "$P" "$SE/project_git.py" log "$@" ;;
+      br|branch) "$P" "$SE/project_git.py" branch "$@" ;;
+      ci|commit) "$P" "$SE/project_git.py" commit "$@" ;;
+      gi|git-init) "$P" "$SE/project_git.py" git-init "$@" ;;
+      in|issue-new) "$P" "$SE/project_git.py" issue-new "$@" ;;
+      issues) "$P" "$SE/project_git.py" issues "$@" ;;
+      ic|issue-close) "$P" "$SE/project_git.py" issue-close "$@" ;;
+      ar|attach) "$P" "$SE/project_git.py" attach-report "$@" ;;
+      *) "$0" p list ;;
+    esac ;;
+
+  # task / t
+  t|task)
+    sub="${1:-list}"; shift || true
+    case "$sub" in
+      sub|submit) "$P" "$SE/task_runner.py" submit "$@" ;;
+      run) "$P" "$SE/task_runner.py" run-once "$@" ;;
+      watch) "$P" "$SE/task_runner.py" watch "$@" ;;
+      ls|list) "$P" "$SE/task_runner.py" list "$@" ;;
+      show) "$P" "$SE/task_runner.py" show "$@" ;;
+      last) "$P" "$SE/task_maintenance.py" last "$@" ;;
+      retry) "$P" "$SE/task_maintenance.py" retry "$@" ;;
+      clean) "$P" "$SE/task_maintenance.py" clean "$@" ;;
+      *) "$0" t list ;;
+    esac ;;
+
+  # skill / sk
+  sk|skill)
+    sub="${1:-list}"; shift || true
+    case "$sub" in
+      ls|list) "$P" "$SE/skill_runner.py" list "$@" ;;
+      show) "$P" "$SE/skill_runner.py" show "$@" ;;
+      run) "$P" "$SE/skill_runner.py" run "$@" ;;
+      new) "$P" "$SE/skill_runner.py" new "$@" ;;
+      path) "$P" "$SE/skill_runner.py" path "$@" ;;
+      *) "$0" sk list ;;
+    esac ;;
+
+  # mem / m
+  m|mem)
+    sub="${1:-recall}"; shift || true
+    case "$sub" in
+      set|remember) "$P" "$SE/memory.py" remember "$@" ;;
+      get|recall) "$P" "$SE/memory.py" recall "$@" ;;
+      *) "$0" m recall ;;
+    esac ;;
+
+  # report / rp
+  rp|report)
+    sub="${1:-list}"; shift || true
+    case "$sub" in
+      ls|list) "$P" "$SE/report_tools.py" list "$@" ;;
+      idx|index) "$P" "$SE/report_tools.py" index "$@" ;;
+      latest) "$P" "$SE/report_tools.py" latest "$@" ;;
+      st|status) mkdir -p "$ROOT/reports"; OUT="$ROOT/reports/platform-status-$(date -u +%Y%m%dT%H%M%SZ).md"; { echo "# Status"; "$0" sys doctor; "$0" b status; } > "$OUT"; chmod 600 "$OUT"; echo "$OUT" ;;
+      *) "$0" rp list ;;
+    esac ;;
+
+  # audit / au
+  au|audit)
+    sub="${1:-tail}"; shift || true
+    case "$sub" in
+      tail) "$P" "$SE/audit_tool.py" tail --lines "${1:-50}" ;;
+      stats) "$P" "$SE/audit_tool.py" stats "$@" ;;
+      rotate) "$P" "$SE/audit_tool.py" rotate "$@" ;;
+      *) "$0" au tail ;;
+    esac ;;
+
+  # backup / bak
+  bak|backup)
+    sub="${1:-run}"; shift || true
+    case "$sub" in
+      run)
+        mkdir -p "$ROOT/backups"; OUT="$ROOT/backups/arena-agent-backup-$(date -u +%Y%m%dT%H%M%SZ).tgz"
+        TMP="$(mktemp -d)"; MAN="$TMP/manifest.txt"
+        for p in arena-agent/bin arena-agent/scripts arena-agent/memory arena-agent/js/package.json .config/systemd/user/arena-local-bridge.service .config/systemd/user/arena-task-runner.service arena-local-bridge/local_bridge.py; do test -e "$HOME/$p" && echo "$p" >> "$MAN"; done
+        tar -czf "$OUT" -C "$HOME" --exclude='arena-local-bridge/token.txt' -T "$MAN"; chmod 600 "$OUT"; echo "$OUT" ;;
+      ls|list) ls -lh "$ROOT/backups" 2>/dev/null || true ;;
+      recovery) "$P" "$SE/recovery_prompt.py" ;;
+      rec-print) cat "$ROOT/memory/RECOVERY_PROMPT_RU.md" ;;
+      *) "$0" bak list ;;
+    esac ;;
+
+  # bact
+  tmux)
+    "$ROOT/.venv/bin/python" "$ROOT/scripts/tmux_manager.py" "$@" ;;
+  sp)
+    "$ROOT/.venv/bin/python" "$ROOT/scripts/superpowers_manager.py" "$@" ;;
+  mcp)
+    shift || true "$ROOT/.venv/bin/python" "$ROOT/scripts/mcp_manager.py" "$@" ;;
+  desktop)
+    "$ROOT/.venv/bin/python" "$ROOT/scripts/desktop_manager.py" "$@" ;;
+  bact) exec "$ROOT/skills/browseract/run.sh" "$@" ;;
+
+  # chat
+  chat) shift || true; exec "$P" "$SE/chat.py" "$@" ;;
+  chat-ls|chat-list) ls -1t "$ROOT/memory/sessions/"*.jsonl 2>/dev/null | head -20 ;;
+  chat-tail) shift || true; N_LINES="${1:-30}"; F="$ROOT/memory/sessions/current"; test -e "$F" && tail -n "$N_LINES" "$F" || echo "no session" ;;
+  chat-add|chat-append) shift || true; "$P" "$SE/chat_append.py" "$@" ;;
+
+  # ── SINGLE-COMMAND SHORTCUTS ────────────────────────────────
+  ctx) "$P" "$SE/agentctl_extras.py" ctx "$@" ;;
+  do) "$P" "$SE/agentctl_extras.py" do "$@" ;;
+  tail) "$P" "$SE/agentctl_extras.py" tail "$@" ;;
+  find) "$P" "$SE/agentctl_extras.py" find "$@" ;;
+  remember) "$P" "$SE/agentctl_extras.py" remember "$@" ;;
+  py) shift; exec "$P" "$@" ;;
+  pip) "$P" -m pip freeze 2>/dev/null || uv pip freeze --python "$P" ;;
+  selftest) "$0" sys doctor; "$0" b status; "$0" w http https://example.com; "$0" browser sm https://example.com; "$0" browser read https://example.com ;;
+
+  # ── LEGACY FLAT COMMANDS (backward compat) ──────────────────
+  doctor) "$0" sys doctor ;;
+  status) "$0" b status ;;
+  services) "$0" sys svc ;;
+  inventory) "$0" sys inv ;;
+  ip) "$0" w ip ;;
+  http) "$0" w http "$@" ;;
+  recon-domain) "$0" r domain "$@" ;;
+  browser-smoke) "$0" browser sm "$@" ;;
+  browser-report) "$0" browser rp "$@" ;;
+  readability) "$0" browser read "$@" ;;
+  screenshot) "$0" browser shot "$@" ;;
+  page-dump) "$0" browser dump "$@" ;;
+  browser-fingerprint) "$0" browser fp "$@" ;;
+  browser-metadata) "$0" browser meta "$@" ;;
+  dns-check) "$0" w dns "$@" ;;
+  tls-check) "$0" w tls "$@" ;;
+  headers) "$0" w head "$@" ;;
+  robots) "$0" w bot "$@" ;;
+  sitemap) "$0" w sm "$@" ;;
+  tech-detect) "$0" w tech "$@" ;;
+  project-new) "$0" p new "$@" ;;
+  project-use) "$0" p use "$@" ;;
+  project-current) "$0" p cur "$@" ;;
+  project-git-init) "$0" p gi "$@" ;;
+  project-commit) "$0" p ci "$@" ;;
+  project-log) "$0" p log "$@" ;;
+  project-branch) "$0" p br "$@" ;;
+  project-issue-new) "$0" p in "$@" ;;
+  project-issues) "$0" p issues "$@" ;;
+  project-issue-close) "$0" p ic "$@" ;;
+  project-attach-report) "$0" p ar "$@" ;;
+  project-list) "$0" p ls "$@" ;;
+  project-status) "$0" p st "$@" ;;
+  project-report) "$0" p rp "$@" ;;
+  skill-list) "$0" sk ls "$@" ;;
+  skill-show) "$0" sk show "$@" ;;
+  logs) tail -n "${1:-80}" "$HOME/.arena-local-bridge/audit.jsonl" 2>/dev/null || true ;;
+  tree) find "$ROOT" -maxdepth "${1:-2}" -printf '%M %p\n' | sort ;;
+  funnel) tailscale funnel status ;;
+  pip-freeze) "$0" pip ;;
+  tools-install)
+    cd "$ROOT"; uv pip install --python "$P" requests httpx h2 aiohttp beautifulsoup4 lxml pyyaml rich typer click tqdm python-dotenv orjson tldextract dnspython pydantic pandas numpy duckdb polars pyarrow
+    cd "$ROOT/js"; npm install --no-audit --no-fund playwright-core axios cheerio commander yaml fs-extra jsdom turndown @mozilla/readability
+    "$0" sys doctor ;;
+  service-install) systemctl --user daemon-reload; systemctl --user enable arena-local-bridge.service arena-task-runner.service; echo "enabled" ;;
+  service-start) systemctl --user start arena-local-bridge.service arena-task-runner.service; "$0" sys svc ;;
+  service-stop) systemctl --user stop arena-task-runner.service arena-local-bridge.service ;;
+  service-restart) "$0" b restart ;;
+  service-status) "$0" sys svc ;;
+  task-submit) "$0" t sub "$@" ;;
+  task-run) "$0" t run "$@" ;;
+  task-watch) "$0" t watch "$@" ;;
+  tasks) "$0" t ls "$@" ;;
+  task-show) "$0" t show "$@" ;;
+  task-last) "$0" t last "$@" ;;
+  task-retry) "$0" t retry "$@" ;;
+  task-clean) "$0" t clean "$@" ;;
+  memory-remember) "$0" m set "$@" ;;
+  memory-recall) "$0" m get "$@" ;;
+  recovery-update) "$0" bak recovery ;;
+  recovery-print) "$0" bak rec-print ;;
+  backup) "$0" bak run ;;
+  backups) "$0" bak ls ;;
+  audit-tail) "$0" au tail "$@" ;;
+  audit-stats) "$0" au stats "$@" ;;
+  audit-rotate) "$0" au rotate "$@" ;;
+  reports) "$0" rp ls "$@" ;;
+  report-index) "$0" rp idx "$@" ;;
+  report-latest) "$0" rp latest "$@" ;;
+  recon-report) "$0" r rp "$@" ;;
+  report-status) "$0" rp st ;;
+  doctor-fix) "$0" sys fix "$@" ;;
+  harden-perms) "$0" sys harden ;;
+
+  # ── HELP ────────────────────────────────────────────────────
+  help|-h|--help)
+    cat <<'H'
+agentctl — Arena Agent CLI v2
+
+Namespaces:
+  b status|restart          bridge health + services
+  sys doctor|svc|inv|fix    system diagnostics
+  w http|dns|tls|head|ip    web recon
+  browser sm|shot|fp|dump   browser tools
+  r domain|report|ip        recon
+  p new|use|ls|status|log   project (git-like)
+  t sub|run|ls|show|clean   task queue
+  sk ls|show|run            skills
+  m set|get                 memory
+  rp ls|idx|latest          reports
+  au tail|stats|rotate      audit
+  bak run|ls                backup
+  desktop shot|click|type   native GUI control
+  mcp install|list|call     MCP client
+  bact ...                  browseract
+  chat|chat-tail|chat-add   REPL
+  ctx|do|tail|find          utilities
+  selftest                  full smoke test
+
+Legacy flat commands still work: doctor, status, project-new, etc.
+H
+    ;;
+
+  *)
+    "$0" help >&2; exit 2 ;;
+esac

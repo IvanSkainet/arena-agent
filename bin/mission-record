@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# mission-record — обёртка для записи экрана через ffmpeg+sd-exec.
+#
+# Usage:
+#   mission-record start <name>            — запустить запись фоном, сохранить pid
+#   mission-record stop                    — остановить активную запись
+#   mission-record status                  — показать активную запись
+#   mission-record list                    — список всех записанных видео
+set -euo pipefail
+
+REC_DIR="${ARENA_AGENT_HOME:-$HOME/arena-agent}/reports/recordings"
+PID_FILE="$REC_DIR/.active.pid"
+META_FILE="$REC_DIR/.active.json"
+SD_EXEC="${ARENA_AGENT_HOME:-$HOME/arena-agent}/bin/sd-exec"
+
+mkdir -p "$REC_DIR"
+
+cmd="${1:-status}"
+
+case "$cmd" in
+  start)
+    name="${2:-rec}"
+    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+    out="$REC_DIR/${name}-${stamp}.mp4"
+    if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      echo "ERR: already recording (pid $(cat "$PID_FILE"))" >&2
+      exit 1
+    fi
+    DISPLAY="${DISPLAY:-:0}"
+    # bash через sd-exec, чтобы ffmpeg вышел из bridge cgroup и имел DISPLAY
+    setsid "$SD_EXEC" -- ffmpeg -y -loglevel error \
+      -f x11grab -framerate 10 -i "$DISPLAY" \
+      -vcodec libx264 -preset ultrafast -pix_fmt yuv420p \
+      "$out" </dev/null >>"$REC_DIR/.ffmpeg.log" 2>&1 &
+    pid=$!
+    echo "$pid" > "$PID_FILE"
+    printf '{"pid":%d,"out":"%s","started":"%s","name":"%s"}\n' "$pid" "$out" "$stamp" "$name" > "$META_FILE"
+    echo "{\"ok\":true,\"pid\":$pid,\"out\":\"$out\"}"
+    ;;
+  stop)
+    if [[ ! -f "$PID_FILE" ]]; then
+      echo '{"ok":false,"error":"no active recording"}'
+      exit 1
+    fi
+    pid="$(cat "$PID_FILE")"
+    # ffmpeg запускается через sd-exec -> systemd-run -> ffmpeg. Сначала
+    # пробуем мягко через pkill всех ffmpeg-потомков.
+    pkill -INT -P "$pid" 2>/dev/null || true
+    pkill -INT ffmpeg 2>/dev/null || true
+    sleep 1
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -TERM "$pid" 2>/dev/null || true
+    fi
+    out=""
+    if [[ -f "$META_FILE" ]]; then
+      out="$(python3 -c "import json; print(json.load(open('$META_FILE'))['out'])" 2>/dev/null || true)"
+    fi
+    rm -f "$PID_FILE" "$META_FILE"
+    sz=0
+    [[ -n "$out" && -f "$out" ]] && sz=$(stat -c%s "$out")
+    echo "{\"ok\":true,\"out\":\"$out\",\"size_bytes\":$sz}"
+    ;;
+  status)
+    if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+      cat "$META_FILE"
+    else
+      echo '{"active":false}'
+    fi
+    ;;
+  list)
+    ls -lt "$REC_DIR"/*.mp4 2>/dev/null | head -20 || echo "(no recordings)"
+    ;;
+  *)
+    echo "usage: mission-record {start NAME|stop|status|list}" >&2
+    exit 2
+    ;;
+esac

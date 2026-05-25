@@ -1,0 +1,10 @@
+{
+  "name": "core/snapshot",
+  "description": "Comprehensive platform archive with SHA256 manifest",
+  "args": [
+    {"name": "--out", "required": false},
+    {"name": "--include-logs", "required": false}
+  ],
+  "timeout": 120,
+  "mode": "safe"
+}

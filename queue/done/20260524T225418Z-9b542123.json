@@ -1,0 +1,18 @@
+{
+  "id": "20260524T225418Z-9b542123",
+  "created_at": "2026-05-24T22:54:18+00:00",
+  "cmd": "echo TEST_QUEUE_OK",
+  "cwd": null,
+  "timeout": 3600,
+  "max_output": 2000000,
+  "env": {},
+  "notes": "",
+  "started_at": "2026-05-24T22:54:20+00:00",
+  "state": "done",
+  "finished_at": "2026-05-24T22:54:20+00:00",
+  "duration_sec": 0.02,
+  "exit_code": 0,
+  "stdout": "TEST_QUEUE_OK\n",
+  "stderr": "",
+  "truncated": false
+}

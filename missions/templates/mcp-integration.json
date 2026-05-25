@@ -1,0 +1,13 @@
+{
+  "id": "mcp-integration",
+  "title": "MCP server integration",
+  "goal": "Install/list/test MCP server, call safe tool, document permissions and failures.",
+  "steps": [
+    "mcp list",
+    "stream health",
+    "stream init",
+    "stream tools",
+    "stream call ping",
+    "report"
+  ]
+}

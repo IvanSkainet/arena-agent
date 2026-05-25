@@ -1,0 +1,2 @@
+#!/usr/bin/env bash
+exec /usr/bin/python3 /home/ivan/arena-agent/bin/py_browser.py "$@"

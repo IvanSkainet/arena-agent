@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$HOME/arena-local-bridge"
+export ARENA_LOCAL_BRIDGE_TOKEN="$(cat "$HOME/arena-local-bridge/token.txt")"
+exec /usr/bin/python3 "$HOME/arena-local-bridge/local_bridge.py" serve \
+  --root "$HOME" \
+  --profile owner-shell \
+  --allow-any-cwd \
+  --timeout 120 \
+  --max-timeout 1800 \
+  --max-output 10485760 \
+  --max-concurrent 3

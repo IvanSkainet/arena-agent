@@ -1,0 +1,15 @@
+{
+  "id": "cli-agent-core",
+  "title": "Core CLI agent self-test",
+  "goal": "Verify bridge, task runner, MCP stream, reports, backup, recovery, clients.",
+  "steps": [
+    "sys status",
+    "mcp ping",
+    "task list",
+    "web probe",
+    "browser screenshot",
+    "report index",
+    "client doctor",
+    "backup list"
+  ]
+}

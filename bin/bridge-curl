@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+URL="${1:-https://cachyos-x8664.tail328f18.ts.net/health}"
+shift || true
+exec curl --curves X25519 -sS "$@" "$URL"

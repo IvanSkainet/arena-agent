@@ -1,0 +1,9 @@
+{
+  "name": "core/digest",
+  "description": "Compact platform snapshot for new Arena chats",
+  "args": [
+    {"name": "out_path", "required": false}
+  ],
+  "timeout": 60,
+  "mode": "safe"
+}

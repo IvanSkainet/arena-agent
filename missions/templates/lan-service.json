@@ -1,0 +1,11 @@
+{
+  "id": "lan-service",
+  "title": "Local/LAN service interaction",
+  "goal": "Discover and interact with allowed local network service/port.",
+  "steps": [
+    "define target",
+    "scan limited ports",
+    "probe HTTP/TLS",
+    "document service"
+  ]
+}

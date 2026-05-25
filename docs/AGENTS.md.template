@@ -1,0 +1,36 @@
+# AGENTS.md — project context for AI
+
+> Этот файл читается агентом при `agentctl proj use <name>`.
+> Кратко опиши: что делает проект, как с ним работать, чего НЕ делать.
+
+## Project: {name}
+
+## Purpose
+TODO: одно предложение.
+
+## Stack
+- Language: TODO
+- Build: TODO  (e.g. `make build`)
+- Test:  TODO  (e.g. `make test`)
+- Run:   TODO
+
+## Conventions
+- Code style: TODO (PEP8 / prettier / gofmt)
+- Branching: TODO
+
+## Don't
+- TODO: things the agent should NEVER do in this project.
+
+## Key files
+- `src/main.py`     — entry point
+- TODO
+
+## Useful commands
+```bash
+# build
+# test
+# deploy
+```
+
+## History / context
+TODO: paste notes here as the project evolves.

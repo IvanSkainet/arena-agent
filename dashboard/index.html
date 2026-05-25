@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Arena Agent Control Center v4</title>
+<style>
+:root{--bg:#0e1117;--panel:#161b22;--border:#30363d;--text:#c9d1d9;--mute:#8b949e;--green:#3fb950;--red:#f85149;--blue:#58a6ff;--yellow:#d29922;--purple:#a371f7;}
+*{box-sizing:border-box;margin:0;padding:0;font-family:ui-monospace,Menlo,Consolas,monospace}
+body{background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;padding:8px}
+.top{display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;flex-wrap:wrap}
+.brand{font-weight:700;color:var(--blue)}.brand .v{color:var(--mute);font-weight:400;margin-left:4px}
+.badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid}
+.ok{color:var(--green);border-color:var(--green)}.bad{color:var(--red);border-color:var(--red)}.warn{color:var(--yellow);border-color:var(--yellow)}
+.tabs{display:flex;gap:2px;margin-bottom:8px;flex-wrap:wrap}
+.tab-btn{padding:6px 14px;background:var(--panel);border:1px solid var(--border);color:var(--text);cursor:pointer;border-radius:4px 4px 0 0}
+.tab-btn.active{background:var(--bg);border-bottom-color:var(--bg);color:var(--blue);font-weight:600}
+.tab{display:none;background:var(--panel);border:1px solid var(--border);border-radius:0 6px 6px 6px;padding:12px}
+.tab.active{display:block}
+.card{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px}
+.card h3{margin-bottom:6px;color:var(--purple);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:4px 8px;font-size:12px}
+.kv b{color:var(--mute);font-weight:400}
+.btn{padding:5px 12px;background:var(--panel);border:1px solid var(--border);color:var(--text);cursor:pointer;border-radius:4px;font-size:12px}
+.btn:hover{border-color:var(--blue)}
+.btn.green{border-color:var(--green);color:var(--green)}.btn.red{border-color:var(--red);color:var(--red)}.btn.blue{border-color:var(--blue);color:var(--blue)}
+input,textarea,select{background:#0d1117;border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%}
+.row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.row>input{flex:1;min-width:180px}
+pre{background:#0d1117;border:1px solid var(--border);padding:8px;border-radius:4px;overflow:auto;max-height:480px;font-size:11px;white-space:pre-wrap;word-break:break-word}
+.shot{display:inline-block;margin:4px;border:1px solid var(--border);border-radius:4px;overflow:hidden;background:#000}
+.shot img{display:block;max-width:280px;height:auto}
+.shot .cap{padding:4px 8px;font-size:11px;color:var(--mute);background:var(--panel)}
+.tool{background:#0d1117;border:1px solid var(--border);padding:6px 8px;border-radius:4px;margin-bottom:4px;cursor:pointer}
+.tool:hover{border-color:var(--blue)}
+.tool b{color:var(--blue)}
+.tool .desc{color:var(--mute);font-size:11px}
+.mini{font-size:11px;color:var(--mute)}
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="brand">🤖 Arena Agent <span class="v">Control Center v4</span></span>
+  <span id="state" class="badge warn">connecting…</span>
+  <span class="mini" id="hostinfo"></span>
+  <span style="flex:1"></span>
+  <button class="btn" onclick="refreshAll()">↻ Refresh</button>
+  <label class="mini"><input type="checkbox" id="autoref" checked style="width:auto"> auto</label>
+  <button class="btn red" onclick="localStorage.removeItem('arena_token');location.reload()">⎋ Logout</button>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" onclick="tab('dash')">📊 Dashboard</button>
+  <button class="tab-btn" onclick="tab('terminal')">⌨ Terminal</button>
+  <button class="tab-btn" onclick="tab('mcp')">🔌 MCP</button>
+  <button class="tab-btn" onclick="tab('browser')">🌐 Browser</button>
+  <button class="tab-btn" onclick="tab('missions')">🎯 Missions</button>
+  <button class="tab-btn" onclick="tab('reports')">📁 Reports</button>
+  <button class="tab-btn" onclick="tab('memory')">🧠 Memory</button>
+  <button class="tab-btn" onclick="tab('settings')">⚙ Settings</button>
+</div>
+
+<section id="dash" class="tab active">
+  <div class="grid">
+    <div class="card"><h3>Bridge</h3><div class="kv" id="bridge_kv">—</div></div>
+    <div class="card"><h3>MCP Stream (8767)</h3><div class="kv" id="mcp_kv">—</div></div>
+    <div class="card"><h3>MCP WebSocket (8768)</h3><div class="kv" id="ws_kv">—</div></div>
+    <div class="card"><h3>Last activity</h3><pre id="recent" style="max-height:140px">—</pre></div>
+  </div>
+  <div class="card"><h3>Hardware Diagnostics (HWiNFO / AIDA64)</h3>
+    <pre id="hw_details" style="max-height: 250px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; line-height: 1.4;">loading hardware data...</pre>
+  </div>
+
+  <div class="card"><h3>Services Status</h3><pre id="svc">loading…</pre></div>
+  <div class="card"><h3>Quick actions</h3>
+    <div class="row">
+      <button class="btn green" onclick="cmd('agentctl sys status')">sys status</button>
+      <button class="btn" onclick="cmd('agentctl sys doctor')">sys doctor</button>
+      <button class="btn" onclick="cmd('agentctl backup run')">backup run</button>
+      <button class="btn" onclick="cmd('agentctl recovery-update')">recovery-update</button>
+      <button class="btn" onclick="cmd('agentctl audit stats')">audit stats</button>
+    </div>
+  </div>
+</section>
+
+<section id="terminal" class="tab">
+  <div class="card">
+    <h3>Web Terminal — bridge cgroup</h3>
+    <div class="row"><input id="termcmd" placeholder="agentctl sys status" onkeydown="if(event.key==='Enter')runTerm()">
+      <button class="btn green" onclick="runTerm()">Run</button>
+      <button class="btn" onclick="document.getElementById('out').textContent=''">Clear</button>
+    </div>
+    <div class="row mini">Подсказки:
+      <button class="btn" onclick="setCmd('agentctl exec bash -c \\'cat /proc/self/cgroup\\'')">cgroup</button>
+      <button class="btn" onclick="setCmd('agentctl browser sd-shot https://example.com')">sd-shot</button>
+      <button class="btn" onclick="setCmd('agentctl browser py-search arena --n 3')">py-search</button>
+      <button class="btn" onclick="setCmd('agentctl mcp stream-tools')">mcp tools</button>
+    </div>
+    <pre id="out"></pre>
+  </div>
+</section>
+
+<section id="mcp" class="tab">
+  <div class="card"><h3>Транспорты</h3>
+    <div class="kv">
+      <b>Streamable HTTP</b><span>POST <code>/mcp</code> on :8767</span>
+      <b>SSE legacy</b><span>GET <code>/sse</code> on :8767</span>
+      <b>WebSocket</b><span><code>ws://127.0.0.1:8768</code></span>
+    </div>
+  </div>
+  <div class="card"><h3>Tools (live)</h3><div id="tools">loading…</div></div>
+  <div class="card"><h3>Tool runner</h3>
+    <div class="row"><select id="toolname" style="flex:0 0 160px"></select>
+      <input id="toolargs" placeholder='{"query":"hello","n":3}' value='{}'>
+      <button class="btn green" onclick="runTool()">Call</button>
+    </div>
+    <pre id="toolout">—</pre>
+  </div>
+</section>
+
+<section id="browser" class="tab">
+  <div class="card"><h3>URL action</h3>
+    <div class="row"><input id="burl" placeholder="https://example.com" value="https://example.com"></div>
+    <div class="row">
+      <button class="btn green" onclick="brw('sd-shot')">📸 sd-shot (chromium)</button>
+      <button class="btn blue" onclick="brw('py-read')">📰 py-read (readability)</button>
+      <button class="btn" onclick="brw('py-dump')">📄 py-dump (text+links)</button>
+      <button class="btn" onclick="brw('py-head')">📋 py-head (HTTP)</button>
+      <button class="btn" onclick="brw('sd-dump')">📃 sd-dump (chromium DOM)</button>
+    </div>
+    <div class="row"><input id="bquery" placeholder="search query"><button class="btn" onclick="brwSearch()">🔍 py-search</button></div>
+    <pre id="bout">—</pre>
+  </div>
+  <div class="card"><h3>Recent shots</h3><div id="shots">loading…</div></div>
+</section>
+
+<section id="missions" class="tab">
+  <div class="card"><h3>Templates</h3><pre id="mlist">loading…</pre></div>
+  <div class="card"><h3>New mission</h3>
+    <div class="row"><input id="mtpl" placeholder="tabs-game"><input id="mname" placeholder="my-mission"><button class="btn green" onclick="newMission()">Create</button></div>
+    <pre id="mout">—</pre>
+  </div>
+</section>
+
+<section id="reports" class="tab">
+  <div class="card"><h3>Recent reports</h3>
+    <div class="row"><button class="btn" onclick="cmd('agentctl report ls')">Refresh</button>
+      <input id="rfilter" placeholder="grep filter"><button class="btn" onclick="filterReports()">Filter</button></div>
+    <pre id="rlist">loading…</pre>
+  </div>
+</section>
+
+<section id="memory" class="tab">
+  <div class="card"><h3>Recall</h3>
+    <div class="row"><input id="mq" placeholder="query (substring)"><button class="btn green" onclick="memGet()">Get</button></div>
+    <pre id="mres">—</pre>
+  </div>
+  <div class="card"><h3>Remember</h3>
+    <div class="row"><input id="mk" placeholder="key" style="flex:0 0 180px"><input id="mv" placeholder="value"><input id="mt" placeholder="tag1 tag2" style="flex:0 0 180px"><button class="btn green" onclick="memSet()">Set</button></div>
+    <div id="msout" class="mini">—</div>
+  </div>
+</section>
+
+<section id="settings" class="tab">
+  <div class="card"><h3>Connection</h3>
+    <div class="kv">
+      <b>Base URL</b><span id="ssurl">—</span>
+      <b>Token</b><span id="sstok">—</span>
+      <b>Profile</b><span id="ssprof">—</span>
+    </div>
+    <div class="row"><button class="btn" onclick="localStorage.removeItem('arena_token');location.reload()">Change token</button></div>
+  </div>
+  <div class="card"><h3>Sound Notification Controls</h3>
+    <p class="mini">Test different built-in sound signals natively on the system:</p>
+    <div class="row" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
+      <button class="btn green" onclick="exec('agentctl sys beep')">Success Beep</button>
+      <button class="btn orange" onclick="exec('agentctl sys beep --type warning')">Warning Beep</button>
+      <button class="btn red" onclick="exec('agentctl sys beep --type error')">Error Beep</button>
+      <button class="btn" onclick="exec('agentctl sys beep --type attention')">Attention</button>
+      <button class="btn blue" onclick="exec('agentctl sys beep --type melody')">Play Melody</button>
+    </div>
+  </div>
+
+  <div class="card"><h3>About</h3>
+    <p class="mini">Arena Agent Control Center v4 — single-page dashboard.<br>
+    Все вызовы идут через bridge <code>/v1/exec</code>. PATH bridge'а включает <code>~/arena-agent/bin</code>.<br>
+    Для команд GUI/chromium используется <code>agentctl exec</code> (выходит из cgroup bridge через <code>sd-exec</code>).</p>
+  </div>
+</section>
+
+<script>
+// Подключение
+let raw = "{{TOKEN}}";
+if (raw.startsWith('{{')) raw = localStorage.getItem('arena_token') || prompt('Bridge token');
+if (raw && !raw.startsWith('{{')) localStorage.setItem('arena_token', raw);
+const TOKEN = raw, BASE = location.origin;
+let autoRefTimer = null;
+
+const E = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+async function api(path, opts={}) {
+  const h = {'Content-Type':'application/json'};
+  if (TOKEN) h.Authorization = 'Bearer ' + TOKEN;
+  const r = await fetch(BASE + path, {...opts, headers:{...h, ...(opts.headers||{})}});
+  return r.json();
+}
+async function exec(c, timeout=120, max=80000) {
+  return api('/v1/exec', {method:'POST', body:JSON.stringify({cmd:c, timeout, max_output:max})});
+}
+function tab(id) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(t=>t.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  event.target.classList.add('active');
+  if (id==='mcp') loadTools();
+  if (id==='browser') loadShots();
+  if (id==='missions') loadMissions();
+  if (id==='reports') loadReports();
+}
+function setCmd(c){ document.getElementById('termcmd').value=c; }
+function playBeep() {
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); // gentle sound
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.12);
+  } catch (e) {
+    console.log("Audio play blocked by browser autoplay policy:", e);
+  }
+}
+async function cmd(c){
+  tab('terminal');
+  document.querySelectorAll('.tab-btn').forEach(b=>{if(b.textContent.includes('Terminal'))b.classList.add('active')});
+  const o = document.getElementById('out');
+  o.textContent += '$ ' + c + '\n';
+  try { const r = await exec(c); o.textContent += (r.stdout||'') + (r.stderr?'\nERR:'+r.stderr:'') + '\n'; }
+  catch(e){ o.textContent += 'ERR ' + e + '\n'; }
+  o.scrollTop = o.scrollHeight;
+  try { playBeep(); } catch(e) {}
+}
+// slash-commands v1
+function getSlashCommands() {
+  const py = (window.PY || 'python3');
+  const isWin = py === 'python';
+  return {
+    "/help":     "agentctl",
+    "/sys":      "agentctl sys status",
+    "/svc":      isWin ? "schtasks /query /fo TABLE | findstr /I \"Arena\"" : "systemctl --user --no-pager status arena-local-bridge arena-mcp-stream arena-mcp-ws | head -30",
+    "/health":   "curl -sS http://127.0.0.1:8765/health && echo && curl -sS http://127.0.0.1:8767/health",
+    "/tools":    "agentctl mcp stream-tools",
+    "/shot":     "agentctl browser sd-shot ",
+    "/search":   "agentctl browser py-search ",
+    "/read":     "agentctl browser py-read ",
+    "/dump":     "agentctl browser py-dump ",
+    "/skills":   "agentctl skill list",
+    "/snap":     "agentctl skill run system/sys-snapshot",
+    "/fix":      "agentctl skill run dev/auto-fix -- --dry",
+    "/research": "agentctl skill run web/research ",
+    "/hooks":    "agentctl hooks list",
+    "/mem":      "agentctl mem get ",
+    "/remember": "agentctl mem set ",
+    "/backup":   "agentctl backup run",
+    "/recovery": "agentctl recovery-update",
+    "/missions": "agentctl mission list",
+    "/cgroup":   isWin ? "" : "agentctl exec bash -c 'cat /proc/self/cgroup'",
+    "/cpcheck":  isWin ? "python %USERPROFILE%/arena-agent/scripts/cross_platform_check.py" : "python3 ~/arena-agent/scripts/cross_platform_check.py | head -40",
+  };
+}
+const SLASH = getSlashCommands();
+function expandSlash(c){
+  if (!c.startsWith("/")) return c;
+  for (const k of Object.keys(SLASH).sort((a,b)=>b.length-a.length)) {
+    if (c === k) return SLASH[k];
+    if (c.startsWith(k+" ")) return SLASH[k] + c.slice(k.length+1);
+  }
+  return c;
+}
+function setupSlash(){
+  const inp = document.getElementById("termcmd");
+  if (!inp || inp.dataset.slashReady) return;
+  inp.dataset.slashReady = "1";
+  const wrap = document.createElement("div");
+  wrap.id = "slashpop";
+  wrap.style.cssText = "position:absolute;background:#0d1117;border:1px solid var(--border);border-radius:4px;display:none;z-index:99;max-height:300px;overflow:auto;font-size:11px;min-width:300px;box-shadow:0 4px 12px rgba(0,0,0,0.5)";
+  document.body.appendChild(wrap);
+  function suggest(){
+    const v = inp.value;
+    if (!v.startsWith("/")) { wrap.style.display="none"; return; }
+    const matches = Object.keys(SLASH).filter(k => k.startsWith(v));
+    if (!matches.length) { wrap.style.display="none"; return; }
+    wrap.innerHTML = matches.map(m =>
+      "<div style='padding:5px 10px;cursor:pointer;border-bottom:1px solid var(--border)' data-c='"+m+"'>"+
+      "<b style='color:var(--blue)'>"+m+"</b> <span style='color:var(--mute);font-size:10px'>→ "+
+      SLASH[m].slice(0,70).replace(/</g,"&lt;")+"</span></div>"
+    ).join("");
+    const r = inp.getBoundingClientRect();
+    wrap.style.left = r.left+"px"; wrap.style.top = (r.bottom+2)+"px";
+    wrap.style.display = "block";
+    wrap.querySelectorAll("[data-c]").forEach(el => {
+      el.onclick = () => { inp.value = SLASH[el.dataset.c]; wrap.style.display="none"; inp.focus(); };
+    });
+  }
+  inp.addEventListener("input", suggest);
+  inp.addEventListener("blur", () => setTimeout(()=>{wrap.style.display="none"},180));
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" && inp.value.startsWith("/")) {
+      e.preventDefault();
+      const m = Object.keys(SLASH).find(k => k.startsWith(inp.value));
+      if (m) inp.value = SLASH[m];
+      wrap.style.display = "none";
+    }
+  });
+}
+async function runTerm(){
+  const raw = document.getElementById("termcmd").value.trim();
+  if (!raw) return;
+  const c = expandSlash(raw);
+  if (c !== raw) {
+    const o = document.getElementById("out");
+    o.textContent += "(slash: "+raw+" → "+c+")\n";
+  }
+  await cmd(c);
+}
+setTimeout(setupSlash, 100);
+
+async function refreshAll() {
+  try {
+    // bridge health
+    const h = await fetch(BASE+'/health').then(r=>r.json());
+    document.getElementById('state').className = 'badge ok';
+    document.getElementById('state').textContent = 'bridge ' + h.version;
+    document.getElementById('hostinfo').textContent = h.host + ' · ' + h.profile + ' · ' + (h.platform||'').split('-with-')[0];
+    document.getElementById('bridge_kv').innerHTML = Object.entries(h).map(([k,v]) => `<b>${k}</b><span>${E(JSON.stringify(v))}</span>`).join('');
+    document.getElementById('ssurl').textContent = BASE;
+    document.getElementById('sstok').textContent = TOKEN ? TOKEN.slice(0,8)+'…'+TOKEN.slice(-4) : '—';
+    document.getElementById('ssprof').textContent = h.profile;
+    window.PY = (h.platform && h.platform.toLowerCase().includes('win')) ? 'python' : 'python3';
+  } catch(e) {
+    document.getElementById('state').className = 'badge bad';
+    document.getElementById('state').textContent = 'offline';
+  }
+  // mcp stream
+  try {
+    const r = await exec('curl -sS http://127.0.0.1:8767/health', 10, 4000);
+    const j = JSON.parse(r.stdout||'{}');
+    document.getElementById('mcp_kv').innerHTML = Object.entries(j).map(([k,v]) => `<b>${k}</b><span>${E(JSON.stringify(v))}</span>`).join('');
+  } catch(e){ document.getElementById('mcp_kv').textContent = 'down'; }
+  // ws
+  try {
+    const py = window.PY || 'python3';
+    const r = await exec(py + " -c \"import socket; s=socket.socket(); s.settimeout(1); print('listening' if s.connect_ex(('127.0.0.1', 8768)) == 0 else 'down')\"", 5, 2000);
+    document.getElementById('ws_kv').innerHTML = (r.stdout||'').includes('listening') ? `<b>state</b><span style="color:var(--green)">listening on :8768</span>` : '<b>state</b><span style="color:var(--red)">down</span>';
+  } catch(e){}
+  // services
+  try {
+    const py = window.PY || 'python3';
+    let r;
+    if (py === 'python') {
+      r = await exec("schtasks /query /fo TABLE | findstr /I \"Arena\"", 10, 4000);
+    } else {
+      r = await exec('systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service arena-mcp-stream.service arena-mcp-ws.service 2>&1 | grep -E "●|Active:" | head -16', 10, 4000);
+    }
+    document.getElementById('svc').textContent = r.stdout || r.stderr || 'No service info';
+  } catch(e){}
+  // recent activity
+  try {
+    const py = window.PY || 'python3';
+    const r = await exec(py + " -c \"import os, glob; d=os.path.expanduser('~/arena-agent/reports'); files = sorted(glob.glob(os.path.join(d, '*')), key=os.path.getmtime, reverse=True); print('\n'.join([os.path.basename(f) for f in files if os.path.isfile(f)][:8]))\"", 5, 2000);
+    document.getElementById('recent').textContent = r.stdout || '—';
+  } catch(e){}
+  
+  // HWiNFO / AIDA64 details render (v8.0)
+  try {
+    const py = window.PY || 'python3';
+    const hw_path = (py === 'python') ? "%USERPROFILE%/arena-agent/scripts/hwinfo.py" : "~/arena-agent/scripts/hwinfo.py";
+    const r = await exec(py + " " + hw_path, 20, 10000);
+    const j = JSON.parse(r.stdout || '{}');
+    let hwHtml = "";
+    if (j.cpu) {
+      hwHtml += `<b>OS:</b>      <span>${E(j.os.name_pretty)} (${E(j.os.architecture)}, Uptime: ${E(j.os.uptime)})</span>\n`;
+      if (j.motherboard) hwHtml += `<b>Board:</b>   <span>${E(j.motherboard.manufacturer)} ${E(j.motherboard.product)} (BIOS: ${E(j.motherboard.bios_name)})</span>\n`;
+      hwHtml += `<b>CPU:</b>     <span>${E(j.cpu.name)} (${E(j.cpu.physical_cores)} Cores / ${E(j.cpu.logical_processors)} Threads)</span>\n`;
+      if (j.gpu) hwHtml += `<b>GPU:</b>     <span>${E(j.gpu.name)} (${E(j.gpu.vram_mb)} MB VRAM)</span>\n`;
+      if (j.ram) hwHtml += `<b>RAM:</b>     <span>${E(j.ram.used_gb)} GB used / ${E(j.ram.total_gb)} GB total (${E(j.ram.used_pct)}% used)</span>\n`;
+      if (j.storage) {
+        hwHtml += `<b>Disks:</b>\n`;
+        Object.entries(j.storage).forEach(([drive, d]) => {
+          hwHtml += `  - Drive ${drive} : ${d.free_gb} GB free of ${d.total_gb} GB (${d.filesystem}, ${d.used_pct}% used)\n`;
+        });
+      }
+      if (j.network && j.network.adapters) {
+        hwHtml += `<b>Network:</b>\n`;
+        j.network.adapters.forEach(a => {
+          hwHtml += `  - ${E(a.InterfaceAlias)} : ${E(a.IPAddress)}\n`;
+        });
+      }
+    } else {
+      hwHtml = r.stdout || "No hardware info";
+    }
+    document.getElementById('hw_details').innerHTML = hwHtml;
+  } catch(e){ document.getElementById('hw_details').textContent = 'failed to load hardware info'; }
+}
+
+// MCP tools
+async function loadTools() {
+  try {
+    const r = await exec('curl -sS -X POST http://127.0.0.1:8767/mcp -H "Content-Type: application/json" -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'', 10, 20000);
+    let j = {}; try { j = JSON.parse(r.stdout || '{}'); } catch(e) {}
+    const tools = (j && j.result && j.result.tools) ? j.result.tools : [];
+    document.getElementById('tools').innerHTML = tools.map(t =>
+      `<div class="tool" onclick="document.getElementById('toolname').value='${t.name}'"><b>${E(t.name)}</b> <span class="desc">${E(t.description)}</span></div>`).join('');
+    const sel = document.getElementById('toolname');
+    sel.innerHTML = tools.map(t => `<option>${E(t.name)}</option>`).join('');
+  } catch(e){ document.getElementById('tools').textContent = 'load failed: '+e; }
+}
+async function runTool() {
+  const name = document.getElementById('toolname').value;
+  let args = {};
+  try { args = JSON.parse(document.getElementById('toolargs').value || '{}'); }
+  catch(e){ document.getElementById('toolout').textContent = 'invalid JSON: '+e; return; }
+  const payload = JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name, arguments:args}});
+  const r = await exec(`curl -sS -X POST http://127.0.0.1:8767/mcp -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`, 60, 60000);
+  try {
+    let j = {}; try { j = JSON.parse(r.stdout || '{}'); } catch(e) {}
+    document.getElementById('toolout').textContent = JSON.stringify(j, null, 2);
+  } catch(e) { document.getElementById('toolout').textContent = r.stdout + '\n' + (r.stderr||''); }
+}
+
+// Browser
+async function brw(action) {
+  const url = document.getElementById('burl').value.trim();
+  if (!url) return;
+  const r = await exec(`agentctl browser ${action} '${url.replace(/'/g, "'\\''")}'`, 60, 80000);
+  document.getElementById('bout').textContent = (r.stdout||'')+(r.stderr?'\nERR:'+r.stderr:'');
+  if (action==='sd-shot') setTimeout(loadShots, 800);
+}
+async function brwSearch() {
+  const q = document.getElementById('bquery').value.trim(); if (!q) return;
+  const r = await exec(`agentctl browser py-search '${q.replace(/'/g, "'\\''")}' --n 5`, 30, 40000);
+  document.getElementById('bout').textContent = r.stdout || r.stderr;
+}
+async function loadShots() {
+  const py = window.PY || 'python3';
+  const r = await exec(py + " -c \"import os, glob; d=os.path.expanduser('~/arena-agent/reports/shots'); files = sorted(glob.glob(os.path.join(d, '*.png')), key=os.path.getmtime, reverse=True); print('\n'.join([os.path.basename(f) for f in files[:8]]))\"", 5, 2000);
+  const files = (r.stdout||'').trim().split('\n').filter(Boolean);
+  document.getElementById('shots').innerHTML = files.map(f => {
+    const url = `${BASE}/v1/download?path=${encodeURIComponent('~/arena-agent/reports/shots/'+f)}&token=${encodeURIComponent(TOKEN)}`;
+    return `<div class="shot"><img src="${url}" loading="lazy"><div class="cap">${E(f)}</div></div>`;
+  }).join('') || '<div class="mini">no shots yet</div>';
+}
+
+// Missions
+async function loadMissions() {
+  const r = await exec('agentctl mission list', 10, 8000);
+  document.getElementById('mlist').textContent = r.stdout || r.stderr;
+}
+async function newMission() {
+  const tpl = document.getElementById('mtpl').value.trim(); const name = document.getElementById('mname').value.trim();
+  if (!tpl || !name) return;
+  const r = await exec(`agentctl mission new ${tpl} --name '${name.replace(/'/g, "'\\''")}'`, 30, 20000);
+  document.getElementById('mout').textContent = r.stdout || r.stderr;
+}
+
+// Reports
+async function loadReports() {
+  const r = await exec('agentctl report ls 2>&1 | head -40', 10, 16000);
+  document.getElementById('rlist').textContent = r.stdout || r.stderr;
+}
+async function filterReports() {
+  const f = document.getElementById('rfilter').value.trim();
+  const r = await exec(`agentctl report ls 2>&1 | grep -i '${f.replace(/'/g, "'\\''")}' | head -40`, 10, 16000);
+  document.getElementById('rlist').textContent = r.stdout || '(no matches)';
+}
+
+// Memory
+async function memGet(){
+  const q = document.getElementById('mq').value.trim(); if (!q) return;
+  const r = await exec(`agentctl mem get '${q.replace(/'/g, "'\\''")}'`, 10, 30000);
+  document.getElementById('mres').textContent = r.stdout || r.stderr || '(empty)';
+}
+async function memSet(){
+  const k = document.getElementById('mk').value.trim();
+  const v = document.getElementById('mv').value.trim();
+  const t = document.getElementById('mt').value.trim();
+  if (!k || !v) return;
+  const tags = t ? ' --tags ' + t.split(/\s+/).join(' ') : '';
+  const r = await exec(`agentctl mem set '${k.replace(/'/g, "'\\''")}' '${v.replace(/'/g, "'\\''")}'${tags}`, 10, 4000);
+  document.getElementById('msout').textContent = (r.stdout || r.stderr || '').trim();
+}
+
+// init
+refreshAll();
+document.getElementById('autoref').addEventListener('change', e => {
+  if (e.target.checked) autoRefTimer = setInterval(refreshAll, 8000);
+  else clearInterval(autoRefTimer);
+});
+autoRefTimer = setInterval(refreshAll, 8000);
+</script>
+</body>
+</html>

@@ -1,0 +1,113 @@
+{
+  "filesystem": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-filesystem",
+      "/home/ivan"
+    ],
+    "description": "File system access (read/write/list) inside given root.",
+    "tags": [
+      "fs",
+      "official"
+    ]
+  },
+  "fetch": {
+    "command": "uvx",
+    "args": [
+      "-q",
+      "mcp-server-fetch"
+    ],
+    "description": "HTTP fetch tool (server-side).",
+    "tags": [
+      "web",
+      "official"
+    ]
+  },
+  "sqlite": {
+    "command": "uvx",
+    "args": [
+      "-q",
+      "mcp-server-sqlite",
+      "--db-path",
+      "/home/ivan/arena-agent/memory/facts.db"
+    ],
+    "description": "SQLite query tool over local DB.",
+    "tags": [
+      "db",
+      "official"
+    ]
+  },
+  "git": {
+    "command": "uvx",
+    "args": [
+      "-q",
+      "mcp-server-git",
+      "--repository",
+      "/home/ivan"
+    ],
+    "description": "Git operations (status, log, diff, branch).",
+    "tags": [
+      "git",
+      "official"
+    ]
+  },
+  "memory": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-memory"
+    ],
+    "description": "Knowledge-graph long-term memory.",
+    "tags": [
+      "memory",
+      "official"
+    ]
+  },
+  "time": {
+    "command": "uvx",
+    "args": [
+      "-q",
+      "mcp-server-time"
+    ],
+    "description": "Time, timezones, date math.",
+    "tags": [
+      "util",
+      "official"
+    ]
+  },
+  "puppeteer": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-puppeteer"
+    ],
+    "description": "Browser automation via Puppeteer (chromium needed).",
+    "tags": [
+      "browser"
+    ]
+  },
+  "everything": {
+    "command": "npx",
+    "args": [
+      "-y",
+      "@modelcontextprotocol/server-everything"
+    ],
+    "description": "Reference server with all MCP feature types.",
+    "tags": [
+      "test",
+      "official"
+    ]
+  },
+  "arena-stream": {
+    "command": "echo",
+    "args": [
+      "arena-mcp-stream runs on http://127.0.0.1:8767/mcp"
+    ],
+    "description": "Local arena-mcp-stream service (20 tools).",
+    "tags": [
+      "local",
+      "arena"
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "core/cleanup",
+  "description": "Prune old backups, sessions, reports, completed tasks",
+  "args": [
+    {"name": "--days", "required": false},
+    {"name": "--keep", "required": false},
+    {"name": "--apply", "required": false},
+    {"name": "--dry-run", "required": false}
+  ],
+  "timeout": 60,
+  "mode": "edit"
+}
