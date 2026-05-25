@@ -260,12 +260,14 @@ def main():
         subprocess.run([os.path.join(BIN, "mission-record")] + (args or ["status"]))
 
     elif ns == "gateway":
-        # Web gateway для chat-платформ (запуск/health)
+        # Web gateway - now on unified bridge
         sub = args[0] if args else "info"
         if sub == "start":
-            print("Start with: systemctl --user start arena-web-gateway.service")
+            print("Gateway is part of unified bridge on :8765")
+            print("Start with: schtasks /Run /tn ArenaUnifiedBridge  (Windows)")
+            print("       or:  systemctl --user start arena-unified-bridge.service  (Linux)")
         else:
-            subprocess.run(["curl", "-sS", "http://127.0.0.1:8769/"])
+            subprocess.run(["curl", "-sS", "http://127.0.0.1:8765/gateway"])
             print()
 
     elif ns in ["exec", "x"]:

@@ -39,14 +39,28 @@ def run_status(args=[]):
         print(f"local health error: {e}")
 
     print()
-    print("### port 8765/8767/8768/8769")
+    print("### unified bridge port 8765")
     def _check_port(port):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         s.settimeout(1)
         ok = s.connect_ex(("127.0.0.1", port)) == 0
         s.close()
         return "LISTEN" if ok else "closed"
-    print(f":8765 {_check_port(8765)}   :8767 {_check_port(8767)}   :8768 {_check_port(8768)}   :8769 {_check_port(8769)}")
+    p8765 = _check_port(8765)
+    print(f":8765 {p8765}  (bridge + MCP + SSE + WS + gateway + dashboard)")
+    if p8765 == "LISTEN":
+        # Verify MCP sub-endpoints on unified bridge
+        try:
+            import urllib.request
+            req = urllib.request.Request("http://127.0.0.1:8765/mcp",
+                data=json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}).encode(),
+                headers={"Content-Type":"application/json"})
+            r = urllib.request.urlopen(req, timeout=2)
+            mcp_ok = r.status == 200
+            print(f"  MCP Streamable HTTP: {'OK' if mcp_ok else 'FAIL'}")
+        except: print("  MCP Streamable HTTP: FAIL")
+    else:
+        print("  All sub-services: DOWN (bridge not running)")
 
     print()
     print("### tailscale funnel")
@@ -110,15 +124,28 @@ def run_status(args=[]):
     except Exception as e:
         print(f"  Error loading hardware info: {e}")
     print()
-    print("### services")
+    print("### services (unified bridge)")
     if platform.system() == "Linux" and shutil.which("systemctl"):
-        os.system("systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service arena-mcp-stream.service 2>/dev/null | head -n 100 || true")
+        os.system("systemctl --user --no-pager status arena-unified-bridge.service 2>/dev/null | head -n 100 || true")
     elif platform.system() == "Windows":
-        for svc, port in [("bridge", 8765), ("mcp-stream", 8767), ("mcp-ws", 8768), ("web-gateway", 8769)]:
-            state = "running (port open)" if _check_port(port) == "LISTEN" else "not detected / stopped"
-            print(f"  - {svc:<12}: {state}")
+        for svc_info in [
+            ("ArenaUnifiedBridge", "unified-bridge (all services on :8765)"),
+        ]:
+            svc_name, desc = svc_info
+            try:
+                r = subprocess.run(["schtasks", "/query", "/tn", svc_name, "/fo", "TABLE"], capture_output=True, text=True, timeout=5)
+                running = "Running" in r.stdout or "Выполняется" in r.stdout or "Running" in r.stdout
+                state = "running" if running and _check_port(8765) == "LISTEN" else "stopped"
+            except: state = "unknown"
+            print(f"  - {desc}: {state}")
+        # Also check if bridge is reachable even without scheduled task
+        if _check_port(8765) == "LISTEN":
+            print(f"  - bridge health: OK (port 8765 open, all services multiplexed)")
     else:
-        print("service status not implemented for this platform")
+        if _check_port(8765) == "LISTEN":
+            print("  - unified bridge: running (port 8765)")
+        else:
+            print("  - unified bridge: not running")
 
 def cmd_ctx(_args: list[str]) -> int:
     python = shutil.which("python3") or shutil.which("python") or sys.executable
@@ -283,14 +310,15 @@ def cmd_doctor_fix(_args: list[str]) -> int:
                 except OSError as e:  
                     issues.append(f"chmod {f}: {e}")  
   
-    # 3. Check bridge / services via port reachability (cross-platform)  
-    for label, port in [("bridge", 8765), ("mcp-stream", 8767), ("web-gateway", 8769)]:  
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  
-        s.settimeout(2)  
-        ok = s.connect_ex(("127.0.0.1", port)) == 0  
-        s.close()  
-        if not ok:  
-            issues.append(f"{label} (port {port}) not reachable")  
+    # 3. Check unified bridge via port reachability (cross-platform)
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(2)
+    ok = s.connect_ex(("127.0.0.1", 8765)) == 0
+    s.close()
+    if not ok:
+        issues.append("unified-bridge (port 8765) not reachable")
+    else:
+        fixed.append("unified-bridge (port 8765): OK")  
   
     # 4. Verify agentctl python syntax  
     cp = subprocess.run([sys.executable, "-m", "py_compile", str(AGENTCTL)],  

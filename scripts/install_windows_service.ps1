@@ -1,4 +1,4 @@
-﻿# Arena Local Agent - Windows Installer v14.2 (Unified Bridge v1.1.0)
+# Arena Local Agent - Windows Installer v15.0 (Unified Bridge v1.2.0)
 # 1 process, 1 port, 1 scheduled task. Runs hidden via -WindowStyle Hidden.
 # Fully cross-platform: also see install_linux.sh for Arch/CachyOS/Debian/Fedora.
 #
@@ -216,7 +216,7 @@ if ($Update) {
 # Fresh install
 Write-Host ''
 Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host '  Arena Local Agent - Unified Bridge v1.1.0' -ForegroundColor Cyan
+Write-Host '  Arena Local Agent - Unified Bridge v1.2.0' -ForegroundColor Cyan
 Write-Host '  1 process, 1 port, 1 scheduled task' -ForegroundColor Cyan
 Write-Host '==================================================' -ForegroundColor Cyan
 Write-Host ''
@@ -265,6 +265,21 @@ Ensure-Git
 
 # --- Optional: Tailscale ---
 Ensure-Tailscale
+$ts = Get-Command tailscale -ErrorAction SilentlyContinue
+if ($ts) {
+    $tsStatus = & tailscale status 2>&1 | Select-Object -First 1
+    if ($tsStatus -match "offline|not running|Stopped") {
+        Write-Host ''
+        Write-Host 'Tailscale is installed but not logged in.' -ForegroundColor Yellow
+        $tsLogin = Read-Host 'Log in to Tailscale now? [Y/n]'
+        if ($tsLogin -eq '' -or $tsLogin -eq 'Y' -or $tsLogin -eq 'y') {
+            & tailscale login 2>&1 | ForEach-Object { Write-Host $_ }
+            Write-Host '[OK] Tailscale login initiated.' -ForegroundColor Green
+        }
+    } else {
+        Write-Host '[OK] Tailscale is active.' -ForegroundColor Green
+    }
+}
 
 # --- Optional: Browser automation ---
 Write-Host ''
@@ -273,7 +288,19 @@ $chrome = Get-Command chrome -ErrorAction SilentlyContinue
 $edge = Get-Command msedge -ErrorAction SilentlyContinue
 if (-not $chrome -and -not $edge) {
     Write-Host 'No Chrome/Edge found for headless browser automation.' -ForegroundColor Yellow
-    Write-Host 'Edge is recommended. Download from https://www.microsoft.com/edge' -ForegroundColor Yellow
+    $brAnswer = Read-Host 'Install Microsoft Edge for headless automation? [Y/n]'
+    if ($brAnswer -eq '' -or $brAnswer -eq 'Y' -or $brAnswer -eq 'y') {
+        if (Get-Command winget -ErrorAction SilentlyContinue) {
+            try {
+                winget install --id Microsoft.Edge --accept-source-agreements --accept-package-agreements --silent 2>$null
+                Write-Host '[OK] Edge installed for browser automation.' -ForegroundColor Green
+            } catch {
+                Write-Warning 'Edge install failed. Install from https://www.microsoft.com/edge'
+            }
+        } else {
+            Write-Host 'Download Edge from https://www.microsoft.com/edge' -ForegroundColor Yellow
+        }
+    }
 } else {
     Write-Host '[OK] Browser available for automation' -ForegroundColor Green
 }

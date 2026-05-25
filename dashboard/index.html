@@ -345,18 +345,42 @@ async function refreshAll() {
     document.getElementById('state').className = 'badge bad';
     document.getElementById('state').textContent = 'offline';
   }
-  // mcp stream
+  // mcp stream - test MCP endpoint directly
   try {
-    const r = await exec('curl -sS http://127.0.0.1:8765/health', 10, 4000);
-    const j = JSON.parse(r.stdout||'{}');
-    document.getElementById('mcp_kv').innerHTML = Object.entries(j).map(([k,v]) => `<b>${k}</b><span>${E(JSON.stringify(v))}</span>`).join('');
+    const mcpR = await fetch(BASE + '/mcp', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'dashboard-check','version':'1.0'}}})});
+    const mcpJ = await mcpR.json();
+    const si = mcpJ.result && mcpJ.result.serverInfo || {};
+    const sid = mcpR.headers.get('Mcp-Session-Id') || '—';
+    document.getElementById('mcp_kv').innerHTML =
+      '<b>state</b><span style="color:var(--green)">connected</span> ' +
+      '<b>version</b><span>v' + (si.version||'?') + '</span> ' +
+      '<b>session</b><span>' + sid.slice(0,12) + '…</span>';
   } catch(e){ document.getElementById('mcp_kv').textContent = 'down'; }
-  // ws
+  // ws - real WebSocket connection from browser
   try {
-    const py = window.PY || 'python3';
-    const r = await exec(py + " -c \"import urllib.request; r=__import__('urllib.request'); print('listening' if r.urlopen(r.Request('http://127.0.0.1:8765/health'),timeout=2) else 'down')\"", 5, 2000);
-    document.getElementById('ws_kv').innerHTML = (r.stdout||'').includes('listening') ? `<b>state</b><span style="color:var(--green)">listening on :8765/ws</span>` : '<b>state</b><span style="color:var(--red)">down</span>';
-  } catch(e){}
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = wsProto + '//' + location.host + '/ws';
+    const wsTest = new WebSocket(wsUrl);
+    let wsDone = false;
+    const wsTimer = setTimeout(() => { if (!wsDone) { wsDone=true; wsTest.close(); document.getElementById('ws_kv').innerHTML = '<b>state</b><span style="color:var(--yellow)">timeout</span>'; } }, 3000);
+    wsTest.onopen = () => {
+      wsTest.send(JSON.stringify({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dashboard","version":"1.0"}}}));
+    };
+    wsTest.onmessage = (evt) => {
+      if (wsDone) return; wsDone=true; clearTimeout(wsTimer);
+      try {
+        const d = JSON.parse(evt.data);
+        const si = d.result && d.result.serverInfo || {};
+        const pv = d.result && d.result.protocolVersion || '?';
+        document.getElementById('ws_kv').innerHTML = '<b>state</b><span style="color:var(--green)">connected</span> <b>version</b><span>v'+(si.version||'?')+'</span> <b>proto</b><span>'+pv+'</span>';
+      } catch(e) {
+        document.getElementById('ws_kv').innerHTML = '<b>state</b><span style="color:var(--green)">connected</span>';
+      }
+      wsTest.close();
+    };
+    wsTest.onerror = () => { if (!wsDone) { wsDone=true; clearTimeout(wsTimer); document.getElementById('ws_kv').innerHTML='<b>state</b><span style="color:var(--red)">error</span>'; } };
+    wsTest.onclose = () => { if (!wsDone) { wsDone=true; clearTimeout(wsTimer); document.getElementById('ws_kv').innerHTML='<b>state</b><span style="color:var(--red)">closed</span>'; } };
+  } catch(e){ document.getElementById('ws_kv').innerHTML='<b>state</b><span style="color:var(--red)">down</span>'; }
   // services
   try {
     const py = window.PY || 'python3';

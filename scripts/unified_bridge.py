@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """
 Arena Unified Bridge v1.0
 
@@ -86,7 +86,7 @@ from aiohttp import web
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 AUDIT_CMD_LIMIT = 4000
 APP_DIR = Path.home() / ".arena-local-bridge"
 AUDIT = APP_DIR / "audit.jsonl"
