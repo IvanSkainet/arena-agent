@@ -64,8 +64,8 @@ pre{background:#0d1117;border:1px solid var(--border);padding:8px;border-radius:
 <section id="dash" class="tab active">
   <div class="grid">
     <div class="card"><h3>Bridge</h3><div class="kv" id="bridge_kv">—</div></div>
-    <div class="card"><h3>MCP Stream (8767)</h3><div class="kv" id="mcp_kv">—</div></div>
-    <div class="card"><h3>MCP WebSocket (8768)</h3><div class="kv" id="ws_kv">—</div></div>
+    <div class="card"><h3>MCP Stream (unified :8765)</h3><div class="kv" id="mcp_kv">—</div></div>
+    <div class="card"><h3>MCP WebSocket (unified :8765)</h3><div class="kv" id="ws_kv">—</div></div>
     <div class="card"><h3>Last activity</h3><pre id="recent" style="max-height:140px">—</pre></div>
   </div>
   <div class="card"><h3>Hardware Diagnostics (HWiNFO / AIDA64)</h3>
@@ -104,9 +104,9 @@ pre{background:#0d1117;border:1px solid var(--border);padding:8px;border-radius:
 <section id="mcp" class="tab">
   <div class="card"><h3>Транспорты</h3>
     <div class="kv">
-      <b>Streamable HTTP</b><span>POST <code>/mcp</code> on :8767</span>
-      <b>SSE legacy</b><span>GET <code>/sse</code> on :8767</span>
-      <b>WebSocket</b><span><code>ws://127.0.0.1:8768</code></span>
+      <b>Streamable HTTP</b><span>POST <code>/mcp</code> on :8765</span>
+      <b>SSE legacy</b><span>GET <code>/sse</code> on :8765</span>
+      <b>WebSocket</b><span><code>ws://127.0.0.1:8765/ws</code></span>
     </div>
   </div>
   <div class="card"><h3>Tools (live)</h3><div id="tools">loading…</div></div>
@@ -252,7 +252,7 @@ function getSlashCommands() {
     "/help":     "agentctl",
     "/sys":      "agentctl sys status",
     "/svc":      isWin ? "schtasks /query /fo TABLE | findstr /I \"Arena\"" : "systemctl --user --no-pager status arena-local-bridge arena-mcp-stream arena-mcp-ws | head -30",
-    "/health":   "curl -sS http://127.0.0.1:8765/health && echo && curl -sS http://127.0.0.1:8767/health",
+    "/health":   "curl -sS http://127.0.0.1:8765/health",
     "/tools":    "agentctl mcp stream-tools",
     "/shot":     "agentctl browser sd-shot ",
     "/search":   "agentctl browser py-search ",
@@ -347,15 +347,15 @@ async function refreshAll() {
   }
   // mcp stream
   try {
-    const r = await exec('curl -sS http://127.0.0.1:8767/health', 10, 4000);
+    const r = await exec('curl -sS http://127.0.0.1:8765/health', 10, 4000);
     const j = JSON.parse(r.stdout||'{}');
     document.getElementById('mcp_kv').innerHTML = Object.entries(j).map(([k,v]) => `<b>${k}</b><span>${E(JSON.stringify(v))}</span>`).join('');
   } catch(e){ document.getElementById('mcp_kv').textContent = 'down'; }
   // ws
   try {
     const py = window.PY || 'python3';
-    const r = await exec(py + " -c \"import socket; s=socket.socket(); s.settimeout(1); print('listening' if s.connect_ex(('127.0.0.1', 8768)) == 0 else 'down')\"", 5, 2000);
-    document.getElementById('ws_kv').innerHTML = (r.stdout||'').includes('listening') ? `<b>state</b><span style="color:var(--green)">listening on :8768</span>` : '<b>state</b><span style="color:var(--red)">down</span>';
+    const r = await exec(py + " -c \"import urllib.request; r=__import__('urllib.request'); print('listening' if r.urlopen(r.Request('http://127.0.0.1:8765/health'),timeout=2) else 'down')\"", 5, 2000);
+    document.getElementById('ws_kv').innerHTML = (r.stdout||'').includes('listening') ? `<b>state</b><span style="color:var(--green)">listening on :8765/ws</span>` : '<b>state</b><span style="color:var(--red)">down</span>';
   } catch(e){}
   // services
   try {
@@ -410,7 +410,7 @@ async function refreshAll() {
 // MCP tools
 async function loadTools() {
   try {
-    const r = await exec('curl -sS -X POST http://127.0.0.1:8767/mcp -H "Content-Type: application/json" -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'', 10, 20000);
+    const r = await exec('curl -sS -X POST http://127.0.0.1:8765/mcp -H "Content-Type: application/json" -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'', 10, 20000);
     let j = {}; try { j = JSON.parse(r.stdout || '{}'); } catch(e) {}
     const tools = (j && j.result && j.result.tools) ? j.result.tools : [];
     document.getElementById('tools').innerHTML = tools.map(t =>
@@ -425,7 +425,7 @@ async function runTool() {
   try { args = JSON.parse(document.getElementById('toolargs').value || '{}'); }
   catch(e){ document.getElementById('toolout').textContent = 'invalid JSON: '+e; return; }
   const payload = JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name, arguments:args}});
-  const r = await exec(`curl -sS -X POST http://127.0.0.1:8767/mcp -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`, 60, 60000);
+  const r = await exec(`curl -sS -X POST http://127.0.0.1:8765/mcp -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`, 60, 60000);
   try {
     let j = {}; try { j = JSON.parse(r.stdout || '{}'); } catch(e) {}
     document.getElementById('toolout').textContent = JSON.stringify(j, null, 2);

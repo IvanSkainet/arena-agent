@@ -1,0 +1,10 @@
+__pycache__/ 
+*.pyc 
+backups/ 
+logs/ 
+queue/ 
+reports/ 
+memory/ 
+node_modules/ 
+.arena-local-bridge/ 
+token.txt 

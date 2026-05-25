@@ -1,13 +1,11 @@
-# Arena Local Agent ??? Windows Installer v14.0-stable (Final Complete Release)
-# ?????????????????????????? 5 ?????????? ?? Task Scheduler ?? ?????????????????? ??????????????????/?????????????? ?????????????? ????????????,
-# ?????????????????????????????????? Node.js, ???????????????????? ??????????, ?????????????????? agentctl ?? ?????????????????? PATH ?? ?????????????? bat-??????????????.
-# ???? 100% ?????????????????? ?? ???????????? v0.4.0 ???? Windows.
-# ???????????? ?????????????????? ???????????? ?????????????????????????? (clean slate), ?????????????????????????? ???????????? ?????????? ????????????????, ???????????????????? ?????????? ??????????.
-# ?????????????????????????? ?????? ?????????????????????? Python-?????????????????????? (requests, beautifulsoup4, httpx) ?????? ???????????? ???????????????? ?? HTTP-????????????????.
-# ?????????????????? ?????????????????? ?? PowerShell 5.1.
-# ????????????:    powershell -ExecutionPolicy Bypass -File install_windows_service.ps1
-# ????????????????:  powershell -ExecutionPolicy Bypass -File install_windows_service.ps1 -Uninstall
-# ????????????????????: powershell -ExecutionPolicy Bypass -File install_windows_service.ps1 -Update
+# Arena Local Agent — Windows Installer v14.1 (Unified Bridge v1.1.0)
+# Consolidates 5 separate processes into a single asyncio-based unified bridge.
+# Installs 1 Scheduled Task instead of 5, runs in hidden window via pythonw.exe.
+# Fully backward-compatible with v0.4.0 dashboard and API surface.
+#
+# Usage:    powershell -ExecutionPolicy Bypass -File install_windows_service.ps1
+# Uninstall: powershell -ExecutionPolicy Bypass -File install_windows_service.ps1 -Uninstall
+# Update:   powershell -ExecutionPolicy Bypass -File install_windows_service.ps1 -Update
 
 param([switch]$Uninstall, [switch]$Update)
 
@@ -16,23 +14,37 @@ $ErrorActionPreference = "Stop"
 $BridgePath = Join-Path $env:USERPROFILE "arena-local-bridge"
 $AgentPath  = Join-Path $env:USERPROFILE "arena-agent"
 $TokenPath  = Join-Path $BridgePath "token.txt"
+$LogFile    = Join-Path $AgentPath "logs\ArenaUnifiedBridge.log"
 
-# 100% WINDOWS COMPATIBLE ARGUMENTS:
-$Tasks = @(
-  @{ Name="ArenaLocalBridge"; Script="$BridgePath\local_bridge.py";
-     Args="serve --root `"$env:USERPROFILE`" --profile owner-shell";
-     UsesToken=$true; Port=8765 }
-  @{ Name="ArenaMcpStream"; Script="$AgentPath\scripts\mcp_stream_server.py";
-     Args="--host 127.0.0.1 --port 8767"; UsesToken=$false; Port=8767 }
-  @{ Name="ArenaMcpWs"; Script="$AgentPath\scripts\mcp_ws_server.py";
-     Args="--host 127.0.0.1 --port 8768"; UsesToken=$false; Port=8768 }
-  @{ Name="ArenaTaskRunner"; Script="$AgentPath\bin\agentctl";
-     Args="task-watch --interval 5 --max 1"; UsesToken=$false; Port=$null }
-  @{ Name="ArenaWebGateway"; Script="$AgentPath\bin\web_gateway.py";
-     Args="--host 127.0.0.1 --port 8769"; UsesToken=$false; Port=8769 }
-)
+# --- Unified task definition (1 task replaces 5) ---
+$TaskName = "ArenaUnifiedBridge"
 
 # ------------------- Helpers -------------------
+
+function Ensure-Python {
+    # Prefer Python 3.14+ if available
+    $localPython = "$env:LOCALAPPDATA\Programs\Python"
+    if (Test-Path $localPython) {
+        $dirs = Get-ChildItem -Path $localPython -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
+        foreach ($d in $dirs) {
+            $pyExe = Join-Path $d.FullName "python.exe"
+            $pywExe = Join-Path $d.FullName "pythonw.exe"
+            if (Test-Path $pyExe) {
+                Write-Host "[OK] Found Python: $pyExe" -ForegroundColor Green
+                return @{ Python = $pyExe; PythonW = $pywExe }
+            }
+        }
+    }
+    # Fallback to PATH
+    $py = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($py) {
+        $pyDir = Split-Path $py.Source
+        $pyw = Join-Path $pyDir "pythonw.exe"
+        return @{ Python = $py.Source; PythonW = $pyw }
+    }
+    Write-Error "Python not found. Install from https://www.python.org/ and check 'Add python.exe to PATH'."
+}
+
 function Ensure-NodeJS {
     $node = Get-Command node -ErrorAction SilentlyContinue
     if ($node) { return $node.Source }
@@ -44,32 +56,14 @@ function Ensure-NodeJS {
         Start-Process msiexec.exe -ArgumentList "/i `"$msiFile`" /qn ADDLOCAL=ALL" -Wait -NoNewWindow
         Remove-Item $msiFile -Force
     } catch {
-        Write-Warning "Automatic Node.js installation failed. Please install manually from https://nodejs.org/ and re-run."
+        Write-Warning "Automatic Node.js installation failed. Install manually from https://nodejs.org/"
         return $null
     }
-    # Refresh PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     $node = Get-Command node -ErrorAction SilentlyContinue
     return if ($node) { $node.Source } else { $null }
 }
 
-function Ensure-Python {
-    $py = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($py) { return $py.Source }
-    $py = Get-Command python -ErrorAction SilentlyContinue
-    if ($py) { return $py.Source }
-    
-    # Check default paths
-    $localPython = "$env:LOCALAPPDATA\Programs\Python"
-    if (Test-Path $localPython) {
-        $exes = Get-ChildItem -Path $localPython -Filter "python.exe" -Recurse -ErrorAction SilentlyContinue
-        if ($exes) { return $exes[0].FullName }
-    }
-    
-    Write-Error "Python installation not found. Please install Python from https://www.python.org/ and tick 'Add python.exe to PATH'."
-}
-
-# FORCE Token generation on every run (v13.0)
 function Generate-Token {
     Write-Host "Generating a secure, unique access token..." -ForegroundColor Yellow
     $chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
@@ -84,99 +78,99 @@ function Generate-Token {
     Write-Host "[OK] Access token saved to $TokenPath" -ForegroundColor Green
 }
 
-function Stop-AllTasks {
-    foreach ($t in $Tasks) {
-        $task = Get-ScheduledTask -TaskName $t.Name -ErrorAction SilentlyContinue
+function Get-Token {
+    if (Test-Path $TokenPath) {
+        $data = [System.IO.File]::ReadAllBytes($TokenPath)
+        $token = [System.Text.Encoding]::UTF8.GetString($data).Trim()
+        # Remove BOM if present
+        if ($token.StartsWith([char]0xFEFF)) { $token = $token.Substring(1) }
+        return $token
+    }
+    return $null
+}
+
+function Stop-OldTasks {
+    # Stop all v0.4 tasks (5 separate processes) + new unified task
+    $oldNames = @("ArenaLocalBridge", "ArenaMcpStream", "ArenaMcpWs", "ArenaTaskRunner", "ArenaWebGateway", $TaskName)
+    foreach ($name in $oldNames) {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
         if ($task -and $task.State -eq "Running") {
-            Stop-ScheduledTask -TaskName $t.Name -ErrorAction SilentlyContinue | Out-Null
+            Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue | Out-Null
+            Write-Host "[OK] Stopped task: $name" -ForegroundColor Yellow
         }
-        # Force-kill any processes occupying the ports to prevent address-in-use errors!
-        if ($t.Port) {
-            try {
-                $nets = Get-NetTCPConnection -LocalPort $t.Port -State Listen -ErrorAction SilentlyContinue
-                foreach ($net in $nets) {
-                    if ($net.OwningProcess -gt 0) {
-                        Stop-Process -Id $net.OwningProcess -Force -ErrorAction SilentlyContinue
-                        Write-Host "  - Terminated active process $($net.OwningProcess) holding port $($t.Port)"
-                    }
+    }
+    # Force-kill processes on old ports (8765-8769)
+    foreach ($port in @(8765, 8767, 8768, 8769)) {
+        try {
+            $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+            if ($conn) {
+                foreach ($c in $conn) {
+                    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
+                    Write-Host "[OK] Killed process on port $port (PID $($c.OwningProcess))" -ForegroundColor Yellow
                 }
-            } catch {}
-        }
-    }
-}
-
-function Remove-AllTasks {
-    foreach ($t in $Tasks) {
-        $task = Get-ScheduledTask -TaskName $t.Name -ErrorAction SilentlyContinue
-        if ($task) {
-            Unregister-ScheduledTask -TaskName $t.Name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "[OK] removed $($t.Name)"
-        }
-    }
-}
-
-function Create-Tasks {
-    $PyExe = Ensure-Python
-    foreach ($t in $Tasks) {
-        $startPs1 = Join-Path $BridgePath ("start_" + $t.Name + ".ps1")
-        $body = @()
-        
-        $body += '$ErrorActionPreference = "Continue"'
-        $body += 'Set-Location "' + $BridgePath + '"'
-        
-        $ArgsLine = $t.Args
-        if ($t.UsesToken) {
-            $data = [System.IO.File]::ReadAllBytes($TokenPath)
-            $TokenString = [System.Text.Encoding]::UTF8.GetString($data).Trim()
-            $ArgsLine += " --token `"$TokenString`""
-        }
-        
-        $logFile = Join-Path $AgentPath "logs\$($t.Name).log"
-        # Run with "-u" unbuffered flag for direct and unbuffered log output
-        $body += '& "' + $PyExe + '" -u "' + $t.Script + '" ' + $ArgsLine + ' *>> "' + $logFile + '"'
-        Set-Content -Path $startPs1 -Value ($body -join "`r`n") -Encoding UTF8
-
-        $Action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"" + $startPs1 + "`"")
-        $Trigger   = New-ScheduledTaskTrigger -AtLogOn
-        $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-        $Settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-        Register-ScheduledTask -TaskName $t.Name -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
-        Write-Host "[OK] registered $($t.Name) (port $($t.Port))"
-    }
-}
-
-function Start-AllTasks {
-    foreach ($t in $Tasks) {
-        # 1. Start via Task Scheduler
-        $task = Get-ScheduledTask -TaskName $t.Name -ErrorAction SilentlyContinue
-        if ($task) {
-            try {
-                Start-ScheduledTask -TaskName $t.Name -ErrorAction SilentlyContinue | Out-Null
-            } catch {}
-        }
-        
-        # 2. ALSO start the process directly right now in the background, but WITHOUT -NoNewWindow so it doesn't hide parent terminal!
-        $startPs1 = Join-Path $BridgePath ("start_" + $t.Name + ".ps1")
-        if (Test-Path $startPs1) {
-            try {
-                Start-Process powershell.exe -ArgumentList ("-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"" + $startPs1 + "`"") -NoNewWindow: $false -ErrorAction SilentlyContinue
-                Write-Host "[OK] started $($t.Name) immediately." -ForegroundColor Green
-            } catch {
-                Write-Warning "Could not start $($t.Name) immediately."
             }
+        } catch {}
+    }
+    Start-Sleep -Seconds 2
+}
+
+function Remove-OldTasks {
+    $oldNames = @("ArenaLocalBridge", "ArenaMcpStream", "ArenaMcpWs", "ArenaTaskRunner", "ArenaWebGateway", $TaskName)
+    foreach ($name in $oldNames) {
+        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+        if ($task) {
+            Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+            Write-Host "[OK] Removed task: $name"
         }
+    }
+}
+
+function Create-UnifiedTask {
+    param([hashtable]$PythonExes, [string]$Token)
+
+    # Generate the startup PS1 script
+    $startPs1 = Join-Path $BridgePath "start_$TaskName.ps1"
+    $body = @()
+    $body += '$ErrorActionPreference = "Continue"'
+    $body += 'Set-Location "' + $BridgePath + '"'
+    # Use pythonw.exe for hidden window (no console), -u for unbuffered
+    # pythonw.exe: stdout/stderr handled by unified_bridge.py (devnull redirect at module level)
+    $body += '& "' + $PythonExes.PythonW + '" -u "' + (Join-Path $BridgePath "unified_bridge.py") + '" serve --root "' + $env:USERPROFILE + '" --profile owner-shell --token "' + $Token + '" *>> "' + $LogFile + '"'
+    Set-Content -Path $startPs1 -Value ($body -join "`r`n") -Encoding UTF8
+    Write-Host "[OK] Created $startPs1" -ForegroundColor Green
+
+    # Register Scheduled Task: runs at logon, hidden window, auto-restart
+    $Action    = New-ScheduledTaskAction -Execute "powershell.exe" -Argument ("-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"" + $startPs1 + "`"")
+    $Trigger   = New-ScheduledTaskTrigger -AtLogOn
+    $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
+    $Settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
+    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+    Write-Host "[OK] Registered scheduled task: $TaskName (hidden window, auto-restart, at-logon)" -ForegroundColor Green
+}
+
+function Start-UnifiedTask {
+    # Start via Task Scheduler
+    Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
+    Write-Host "[OK] Started $TaskName via Task Scheduler" -ForegroundColor Green
+    
+    # Also start immediately in hidden window
+    $startPs1 = Join-Path $BridgePath "start_$TaskName.ps1"
+    if (Test-Path $startPs1) {
+        Start-Process powershell.exe -ArgumentList ("-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"" + $startPs1 + "`"") -WindowStyle Hidden -ErrorAction SilentlyContinue
+        Write-Host "[OK] Started $TaskName immediately (hidden window)" -ForegroundColor Green
     }
 }
 
 # ------------------- Main flow -------------------
 if ($Uninstall) {
-    Stop-AllTasks
-    Remove-AllTasks
+    Write-Host "`n=== UNINSTALLING Arena Unified Bridge ===" -ForegroundColor Red
+    Stop-OldTasks
+    Remove-OldTasks
+
     # Remove bin from User PATH if present
     $UserPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
     $BinPath = Join-Path $AgentPath "bin"
     if ($UserPath -like "*$BinPath*") {
-        # Clean up path safely
         $NewPath = ($UserPath -split ";" | Where-Object { $_ -ne $BinPath }) -join ";"
         [System.Environment]::SetEnvironmentVariable("Path", $NewPath, "User")
         Write-Host "[OK] Removed $BinPath from User PATH." -ForegroundColor Green
@@ -185,177 +179,109 @@ if ($Uninstall) {
     return
 }
 
-# Ensure dirs
+if ($Update) {
+    Write-Host "`n=== UPDATING Arena Unified Bridge ===" -ForegroundColor Cyan
+    Stop-OldTasks
+    # Keep the task registered, just restart after update
+    Start-Sleep -Seconds 2
+    Start-UnifiedTask
+    Write-Host "`n=== UPDATE COMPLETE ===" -ForegroundColor Green
+    return
+}
+
+# Fresh install
+Write-Host ""
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host "  Arena Local Agent — Unified Bridge v1.1.0       " -ForegroundColor Cyan
+Write-Host "  Windows Installer (1 process, 1 port, 1 task)   " -ForegroundColor Cyan
+Write-Host "==================================================" -ForegroundColor Cyan
+Write-Host ""
+
+# Ensure directories
 New-Item -ItemType Directory -Force -Path $BridgePath, $AgentPath, "$AgentPath\scripts", "$AgentPath\bin", "$AgentPath\logs" | Out-Null
 
 # Python
-$PyExe = Ensure-Python
-Write-Host "[OK] using Python: $PyExe"
+$PythonExes = Ensure-Python
+Write-Host "[OK] Python: $($PythonExes.Python)" -ForegroundColor Green
+Write-Host "[OK] PythonW: $($PythonExes.PythonW)" -ForegroundColor Green
 
-# Node.js (for MCP plugins)
+# Node.js
 $null = Ensure-NodeJS
 
-# Token
-Generate-Token
-
-# DEPENDENCIES INSTALLATION:
-Write-Host "Installing/Updating required Python packages (httpx, requests, beautifulsoup4) via pip..." -ForegroundColor Cyan
-try {
-    Start-Process -FilePath $PyExe -ArgumentList "-m pip install --quiet --upgrade httpx requests beautifulsoup4" -NoNewWindow -Wait
-    Write-Host "[OK] Python packages ready." -ForegroundColor Green
-} catch {
-    Write-Warning "Could not install python dependencies automatically. Please run manually: pip install httpx requests beautifulsoup4"
+# Token: preserve existing or generate new
+$existingToken = Get-Token
+if ($existingToken) {
+    Write-Host "[OK] Using existing token from $TokenPath" -ForegroundColor Green
+} else {
+    Generate-Token
+    $existingToken = Get-Token
 }
 
-# Create agentctl.bat wrapper
+# Dependencies
+Write-Host "Installing/Updating Python packages..." -ForegroundColor Cyan
+try {
+    Start-Process -FilePath $PythonExes.Python -ArgumentList "-m pip install --quiet --upgrade aiohttp httpx requests beautifulsoup4" -NoNewWindow -Wait
+    Write-Host "[OK] Python packages ready." -ForegroundColor Green
+} catch {
+    Write-Warning "pip install failed. Run manually: pip install aiohttp httpx requests beautifulsoup4"
+}
+
+# agentctl.bat wrapper
 $AgentBin = Join-Path $AgentPath "bin"
 $AgentctlBat = Join-Path $AgentBin "agentctl.bat"
-$BatContent = "@echo off`r`n`"$PyExe`" `"%~dp0agentctl`" %*"
+$BatContent = "@echo off`r`n`"$($PythonExes.Python)`" `"%~dp0agentctl`" %*"
 Set-Content -Path $AgentctlBat -Value $BatContent -Encoding ASCII
-Write-Host "[OK] created Windows executable wrapper: $AgentctlBat" -ForegroundColor Green
+Write-Host "[OK] Created agentctl wrapper: $AgentctlBat" -ForegroundColor Green
 
-# Add bin path to User persistent PATH
+# Add bin to User PATH
 $UserPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
 if ($UserPath -notlike "*$AgentBin*") {
     $Separator = if ($UserPath.Length -eq 0 -or $UserPath.EndsWith(";")) { "" } else { ";" }
     [System.Environment]::SetEnvironmentVariable("Path", $UserPath + $Separator + $AgentBin, "User")
-    Write-Host "[OK] Added $AgentBin to User persistent PATH. (Please restart any open terminal windows to apply)" -ForegroundColor Green
+    Write-Host "[OK] Added $AgentBin to User PATH." -ForegroundColor Green
 }
 
-# Stop and completely unregister old tasks before creating and starting the new ones.
-Write-Host "`n=== CLEAN SLATE: Stopping and removing old tasks... ===" -ForegroundColor Yellow
-Stop-AllTasks
-Remove-AllTasks
+# Stop and remove all old tasks (5 separate v0.4 processes)
+Write-Host "`n=== Migrating from v0.4.0 (5 processes) -> v1.1.0 (1 process) ===" -ForegroundColor Yellow
+Stop-OldTasks
+Remove-OldTasks
 
-# Re-create and restart everything fresh
-Create-Tasks
-Start-AllTasks
+# Create unified task (1 scheduled task replaces 5)
+Create-UnifiedTask -PythonExes $PythonExes -Token $existingToken
 
-# ------------------- Interactive Prompts helper (v8.0) -------------------
-function Ask-UserChoice {
-    param(
-        [string]$Question,
-        [bool]$DefaultValue
-    )
-    $suffix = if ($DefaultValue) { " [Y/n]" } else { " [y/N]" }
-    Write-Host -NoNewline "$Question$($suffix): " -ForegroundColor Yellow
-    $ans = Read-Host
-    if ([string]::IsNullOrWhiteSpace($ans)) {
-        return $DefaultValue
-    }
-    if ($ans.Trim().ToLower() -eq "y" -or $ans.Trim().ToLower() -eq "yes") {
-        return $true
-    }
-    if ($ans.Trim().ToLower() -eq "n" -or $ans.Trim().ToLower() -eq "no") {
-        return $false
-    }
-    return $DefaultValue
+# Start!
+Start-UnifiedTask
+
+# Wait and verify
+Write-Host "`nWaiting for bridge to start..." -ForegroundColor Yellow
+Start-Sleep -Seconds 3
+
+$healthCheck = $null
+try {
+    $healthCheck = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 5 -ErrorAction Stop
+} catch {}
+
+if ($healthCheck -and $healthCheck.ok) {
+    Write-Host "[OK] Bridge is healthy! v$($healthCheck.version) on port 8765" -ForegroundColor Green
+} else {
+    Write-Warning "Bridge health check failed. Check log: $LogFile"
 }
 
-# ------------------- Optional: Git (Standalone Silent Installer) -------------------
-$InstallGit = $false
-$GitCmd = Get-Command git -ErrorAction SilentlyContinue
-if (-not $GitCmd) {
-    if (Ask-UserChoice "Git not found on your system. Attempt automatic installation?" $true) {
-        $InstallGit = $true
-    }
-}
-
-if ($InstallGit) {
-    Write-Host "`n=== Downloading Git standalone installer... ===" -ForegroundColor Yellow
-    $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.45.0.windows.1/Git-2.45.0-64-bit.exe"
-    $gitMsi = Join-Path $env:TEMP "git-setup.exe"
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri $gitUrl -OutFile $gitMsi -UseBasicParsing
-        Write-Host "Running Git installer silently..." -ForegroundColor Cyan
-        Start-Process -FilePath $gitMsi -ArgumentList "/VERYSILENT /NORESTART /NOCANCEL /SP-" -Wait -NoNewWindow
-        Remove-Item $gitMsi -Force
-        Write-Host "[OK] Git successfully installed!" -ForegroundColor Green
-    } catch {
-        Write-Warning "Automatic Git installation failed. Please install manually from https://git-scm.com/download/win"
-    }
-}
-
-# ------------------- Optional: UV & BrowserAct -------------------
-$SetupBrowserAct = $false
-if (Ask-UserChoice "Install/Update BrowserAct (including stealth Camoufox binaries)?" $false) {
-    $SetupBrowserAct = $true
-}
-
-if ($SetupBrowserAct) {
-    $UvCmd = Get-Command uv -ErrorAction SilentlyContinue
-    if (-not $UvCmd) {
-        Write-Host "`n=== UV Package Manager not found. Installing silently... ===" -ForegroundColor Yellow
-        try {
-            Invoke-RestMethod -Uri "https://astral.sh/uv/install.ps1" | Invoke-Expression
-            $env:Path = "C:\\Users\\$env:USERNAME\\.local\\bin;" + $env:Path
-            Write-Host "[OK] UV successfully installed!" -ForegroundColor Green
-        } catch {
-            Write-Warning "Automatic UV installation failed."
-        }
-    }
-
-    if (Get-Command uv -ErrorAction SilentlyContinue) {
-        Write-Host "`nInstalling/Updating browser-act-cli via uv..." -ForegroundColor Cyan
-        try {
-            Start-Process uv -ArgumentList "tool install browser-act-cli --python 3.12" -Wait -NoNewWindow
-            Write-Host "Initializing BrowserAct browser binaries (fetching Camoufox)..." -ForegroundColor Cyan
-            Start-Process uv -ArgumentList "tool run camoufox fetch" -Wait -NoNewWindow
-            Write-Host "[OK] BrowserAct is fully installed and pre-initialized!" -ForegroundColor Green
-        } catch {
-            Write-Warning "Could not install browser-act automatically."
-        }
-    }
-}
-
-# ------------------- Optional: Superpowers -------------------
-$SetupSuperpowers = $false
-if (Ask-UserChoice "Download/Update Superpowers (agentic developer skills)?" $false) {
-    $SetupSuperpowers = $true
-}
-
-if ($SetupSuperpowers) {
-    Write-Host "`n=== Downloading and updating Superpowers framework... ===" -ForegroundColor Yellow
-    $PyExe = Ensure-Python
-    Start-Process -FilePath $PyExe -ArgumentList "-u `"$AgentPath\\bin\\agentctl`" sp sync" -Wait -NoNewWindow
-}
-
-# ------------------- Optional: Tailscale Login (v13.0) -------------------
-$LoginTailscale = $false
-if (Get-Command tailscale -ErrorAction SilentlyContinue) {
-    if (Ask-UserChoice "Run 'tailscale login' to authenticate or renew your Tailscale session?" $false) {
-        $LoginTailscale = $true
-    }
-}
-
-if ($LoginTailscale) {
-    Write-Host "`n=== Launching Tailscale login... ===" -ForegroundColor Yellow
-    Start-Process tailscale -ArgumentList "login" -Wait -NoNewWindow
-}
-
-# Read Token Value and Find Tailscale URL on-the-fly (v6.2)
-$TokenVal = (Get-Content -Path $TokenPath -Raw).Trim()
-$FunnelUrl = "Not enabled"
-if (Get-Command tailscale -ErrorAction SilentlyContinue) {
-    $statusArray = tailscale serve status 2>$null
-    if ($statusArray) {
-        $statusString = $statusArray -join "`r`n"
-        if ($statusString -match "(https://[^\\s]+)") {
-            $FunnelUrl = $Matches[1]
-        }
-    }
-}
-
+# Print summary
 Write-Host ""
-Write-Host "=== INSTALLATION COMPLETE ===" -ForegroundColor Green
-Write-Host "Tasks registered and started. They will auto-start at every logon."
+Write-Host "==================================================" -ForegroundColor Green
+Write-Host "  INSTALLATION COMPLETE!                          " -ForegroundColor Green
+Write-Host "==================================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "[TOKEN] YOUR ACCESS TOKEN:  $TokenVal" -ForegroundColor Cyan
-Write-Host "[URL] YOUR TAILSCALE URL: $FunnelUrl" -ForegroundColor Cyan
+Write-Host "  Dashboard:  http://127.0.0.1:8765/gui" -ForegroundColor White
+Write-Host "  Health:     http://127.0.0.1:8765/health" -ForegroundColor White
+Write-Host "  API:        POST http://127.0.0.1:8765/v1/exec" -ForegroundColor White
+Write-Host "  MCP:        POST http://127.0.0.1:8765/mcp" -ForegroundColor White
+Write-Host "  Log:        $LogFile" -ForegroundColor White
 Write-Host ""
-Write-Host "To expose to internet (if not enabled):  tailscale funnel --bg 8765"
-Write-Host "To open local dashboard:                 http://127.0.0.1:8765/gui"
-Write-Host "To update later:                         run update.bat in $AgentPath"
-Write-Host "=============================="
-
+Write-Host "  Scheduled task: $TaskName (auto-starts at logon)" -ForegroundColor White
+Write-Host "  Manage:      schtasks /Run /tn $TaskName" -ForegroundColor White
+Write-Host "               schtasks /End /tn $TaskName" -ForegroundColor White
+Write-Host ""
+Write-Host "  Stop:        powershell -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Uninstall" -ForegroundColor White
+Write-Host "==================================================" -ForegroundColor Green
