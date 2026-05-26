@@ -1,428 +1,592 @@
-# Arena Local Agent - Windows Installer v15.0 (Unified Bridge v1.2.0)
-# 1 process, 1 port, 1 scheduled task. Runs hidden via -WindowStyle Hidden.
-# Fully cross-platform: also see install_linux.sh for Arch/CachyOS/Debian/Fedora.
-#
-# Usage:     powershell -ExecutionPolicy Bypass -File install_windows_service.ps1
-# Uninstall: powershell -ExecutionPolicy Bypass -File install_windows_service.ps1 -Uninstall
-# Update:    powershell -ExecutionPolicy Bypass -File install_windows_service.ps1 -Update
+# ============================================================================
+# Arena Local Agent - Windows Installer v1.3.0
+# With auto token regeneration + version checking for all components
+# ============================================================================
+# Run as: powershell -ExecutionPolicy Bypass -File install_windows_service.ps1
+# ============================================================================
 
-param([switch]$Uninstall, [switch]$Update)
+$ErrorActionPreference = "Continue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$ErrorActionPreference = 'Stop'
+$VERSION = "1.3.0"
+$HOME_DIR = $env:USERPROFILE
+$BRIDGE_DIR = "$HOME_DIR\arena-local-bridge"
+$AGENT_DIR = "$HOME_DIR\arena-agent"
+$TOKEN_FILE = "$BRIDGE_DIR\token.txt"
+$BIN_DIR = "$AGENT_DIR\bin"
+$LOG_DIR = "$AGENT_DIR\logs"
 
-$BridgePath = Join-Path $env:USERPROFILE 'arena-local-bridge'
-$AgentPath  = Join-Path $env:USERPROFILE 'arena-agent'
-$TokenPath  = Join-Path $BridgePath 'token.txt'
-$LogFile    = Join-Path $AgentPath 'logs\ArenaUnifiedBridge.log'
-$TaskName   = 'ArenaUnifiedBridge'
+function Ok($msg)   { Write-Host "[OK] " -ForegroundColor Green -NoNewline; Write-Host $msg }
+function Warn($msg) { Write-Host "[WARN] " -ForegroundColor Yellow -NoNewline; Write-Host $msg }
+function Err($msg)  { Write-Host "[ERROR] " -ForegroundColor Red -NoNewline; Write-Host $msg }
+function Info($msg) { Write-Host "[INFO] " -ForegroundColor Cyan -NoNewline; Write-Host $msg }
 
-# ------------------- Helpers -------------------
+# Helper: Compare version strings (returns 1 if $v1 > $v2, 0 if equal, -1 if less)
+function Compare-Version($v1, $v2) {
+    if ([string]::IsNullOrWhiteSpace($v1) -or [string]::IsNullOrWhiteSpace($v2)) { return 0 }
+    $a1 = $v1.Split('.')
+    $a2 = $v2.Split('.')
+    $maxLen = [Math]::Max($a1.Length, $a2.Length)
+    for ($i = 0; $i -lt $maxLen; $i++) {
+        $n1 = if ($i -lt $a1.Length) { [int]$a1[$i] } else { 0 }
+        $n2 = if ($i -lt $a2.Length) { [int]$a2[$i] } else { 0 }
+        if ($n1 -gt $n2) { return 1 }
+        if ($n1 -lt $n2) { return -1 }
+    }
+    return 0
+}
 
-function Ensure-Python {
-    $localPython = Join-Path $env:LOCALAPPDATA 'Programs\Python'
-    if (Test-Path $localPython) {
-        $dirs = Get-ChildItem -Path $localPython -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending
-        foreach ($d in $dirs) {
-            $pyExe = Join-Path $d.FullName 'python.exe'
-            if (Test-Path $pyExe) {
-                Write-Host "[OK] Python: $pyExe" -ForegroundColor Green
-                return $pyExe
-            }
+# Helper: Get installed version of a package
+function Get-InstalledVersion($cmd) {
+    try {
+        $output = & $cmd --version 2>$null
+        if ($LASTEXITCODE -eq 0 -or $null -ne $output) {
+            $ver = ($output | Select-String -Pattern '[\d]+\.[\d]+[\.\d]*' | Select-Object -First 1).Matches.Value
+            return $ver
         }
+    } catch {}
+    return $null
+}
+
+# ============================================================================
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host "  Arena Local Agent - Unified Bridge v$VERSION" -ForegroundColor Cyan
+Write-Host "  1 process, 1 port, 1 scheduled task" -ForegroundColor Cyan
+Write-Host "============================================================" -ForegroundColor Cyan
+Write-Host ""
+
+# ============================================================================
+# 1. Core: Python
+# ============================================================================
+$PYTHON = $null
+$pythonCandidates = @(
+    "$env:LOCALAPPDATA\Programs\Python\Python314\python.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python313\python.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python312\python.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe",
+    "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe"
+)
+foreach ($p in $pythonCandidates) {
+    if (Test-Path $p) { $PYTHON = $p; break }
+}
+if (-not $PYTHON) {
+    $PYTHON = (Get-Command python -ErrorAction SilentlyContinue).Source
+}
+if ($PYTHON) {
+    $PY_VER = & $PYTHON -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')" 2>$null
+    Ok "Python: $PYTHON ($PY_VER)"
+    $PY_MINOR = $PY_VER.Split('.')[1]
+    if ([int]$PY_MINOR -lt 10) {
+        Warn "Python $PY_VER found but 3.10+ recommended. Consider upgrading."
     }
-    $py = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($py) { return $py.Source }
-    Write-Error 'Python not found. Install from https://www.python.org/ and check Add to PATH.'
-}
-
-function Ensure-NodeJS {
-    $node = Get-Command node -ErrorAction SilentlyContinue
-    if ($node) { return $node.Source }
-    Write-Host 'Node.js not found.' -ForegroundColor Yellow
-    $answer = Read-Host 'Install Node.js LTS automatically? [Y/n]'
-    if ($answer -eq '' -or $answer -eq 'Y' -or $answer -eq 'y') {
-        $msiUrl = 'https://nodejs.org/dist/v20.15.1/node-v20.15.1-x64.msi'
-        $msiFile = Join-Path $env:TEMP 'node-lts.msi'
-        try {
-            Invoke-WebRequest -Uri $msiUrl -OutFile $msiFile -UseBasicParsing
-            Start-Process msiexec.exe -ArgumentList "/i `"$msiFile`" /qn ADDLOCAL=ALL" -Wait -NoNewWindow
-            Remove-Item $msiFile -Force
-            $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
-            Write-Host '[OK] Node.js installed.' -ForegroundColor Green
-        } catch {
-            Write-Warning 'Node.js install failed. Install manually from https://nodejs.org/'
-        }
-    }
-}
-
-function Ensure-Git {
-    $git = Get-Command git -ErrorAction SilentlyContinue
-    if ($git) { return }
-    Write-Host 'Git not found.' -ForegroundColor Yellow
-    $answer = Read-Host 'Install Git automatically? [Y/n]'
-    if ($answer -eq '' -or $answer -eq 'Y' -or $answer -eq 'y') {
-        $gitUrl = 'https://github.com/git-for-windows/git/releases/download/v2.45.0.windows.1/Git-2.45.0-64-bit.exe'
-        $gitFile = Join-Path $env:TEMP 'git-setup.exe'
-        try {
-            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-            Invoke-WebRequest -Uri $gitUrl -OutFile $gitFile -UseBasicParsing
-            Start-Process $gitFile -ArgumentList '/VERYSILENT /NORESTART /NOCANCEL /SP-' -Wait -NoNewWindow
-            Remove-Item $gitFile -Force
-            $env:Path = [System.Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [System.Environment]::GetEnvironmentVariable('Path', 'User')
-            Write-Host '[OK] Git installed.' -ForegroundColor Green
-        } catch {
-            Write-Warning 'Git install failed. Install manually from https://git-scm.com/'
-        }
-    }
-}
-
-function Ensure-Tailscale {
-    $ts = Get-Command tailscale -ErrorAction SilentlyContinue
-    if ($ts) { return }
-    Write-Host 'Tailscale not found.' -ForegroundColor Yellow
-    $answer = Read-Host 'Install Tailscale for remote access? [Y/n]'
-    if ($answer -eq '' -or $answer -eq 'Y' -or $answer -eq 'y') {
-        $tsUrl = 'https://tailscale.com/install.ps1'
-        try {
-            Invoke-WebRequest -Uri $tsUrl -OutFile (Join-Path $env:TEMP 'install-tailscale.ps1') -UseBasicParsing
-            Start-Process powershell -ArgumentList '-ExecutionPolicy Bypass -File',(Join-Path $env:TEMP 'install-tailscale.ps1') -Wait -NoNewWindow
-            Write-Host '[OK] Tailscale installed.' -ForegroundColor Green
-        } catch {
-            Write-Warning 'Tailscale install failed. Install manually from https://tailscale.com/'
-        }
-    }
-}
-
-function Generate-Token {
-    Write-Host 'Generating a secure access token...' -ForegroundColor Yellow
-    $chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_'
-    $bytes = New-Object Byte[] 43
-    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-    $rng.GetBytes($bytes)
-    $token = ''
-    foreach ($b in $bytes) {
-        $token += $chars[$b % $chars.Length]
-    }
-    [System.IO.File]::WriteAllText($TokenPath, $token, [System.Text.Encoding]::ASCII)
-    Write-Host '[OK] Access token saved' -ForegroundColor Green
-}
-
-function Get-Token {
-    if (-not (Test-Path $TokenPath)) { return $null }
-    # Read as bytes to avoid BOM corruption
-    $bytes = [System.IO.File]::ReadAllBytes($TokenPath)
-    $token = [System.Text.Encoding]::ASCII.GetString($bytes).Trim()
-    # Remove BOM if present (UTF-8 BOM = EF BB BF)
-    if ($token.Length -gt 0 -and $token[0] -eq [char]0xFEFF) {
-        $token = $token.Substring(1)
-    }
-    return $token
-}
-
-function Stop-OldTasks {
-    $oldNames = @('ArenaLocalBridge', 'ArenaMcpStream', 'ArenaMcpWs', 'ArenaTaskRunner', 'ArenaWebGateway', $TaskName)
-    foreach ($name in $oldNames) {
-        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-        if ($task -and $task.State -eq 'Running') {
-            Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue | Out-Null
-        }
-    }
-    foreach ($port in @(8765, 8767, 8768, 8769)) {
-        try {
-            $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
-            if ($conn) {
-                foreach ($c in $conn) {
-                    Stop-Process -Id $c.OwningProcess -Force -ErrorAction SilentlyContinue
-                }
-            }
-        } catch {}
-    }
-    Start-Sleep -Seconds 2
-}
-
-function Remove-OldTasks {
-    $oldNames = @('ArenaLocalBridge', 'ArenaMcpStream', 'ArenaMcpWs', 'ArenaTaskRunner', 'ArenaWebGateway', $TaskName)
-    foreach ($name in $oldNames) {
-        $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
-        if ($task) {
-            Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
-            Write-Host "[OK] Removed task: $name"
-        }
-    }
-}
-
-function Create-UnifiedTask {
-    param([string]$PyExe, [string]$Token)
-
-    $startPs1 = Join-Path $BridgePath "start_$TaskName.ps1"
-    # Use python.exe with -WindowStyle Hidden (not pythonw.exe)
-    # pythonw.exe + *>> causes stream redirect issues
-    $scriptBody = @()
-    $scriptBody += '$ErrorActionPreference = "Continue"'
-    $scriptBody += 'Set-Location "' + $BridgePath + '"'
-    $scriptBody += '& "' + $PyExe + '" -u "' + (Join-Path $BridgePath 'unified_bridge.py') + '" serve --root "' + $env:USERPROFILE + '" --profile owner-shell --token "' + $Token + '" *>> "' + $LogFile + '"'
-    Set-Content -Path $startPs1 -Value ($scriptBody -join "`r`n") -Encoding UTF8
-    Write-Host "[OK] Created $startPs1" -ForegroundColor Green
-
-    # Scheduled Task: hidden window, auto-restart, starts at logon
-    $Action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ("-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"" + $startPs1 + "`"")
-    $Trigger   = New-ScheduledTaskTrigger -AtLogOn
-    $Principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive -RunLevel Limited
-    $Settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
-    Register-ScheduledTask -TaskName $TaskName -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
-    Write-Host '[OK] Scheduled task registered: ArenaUnifiedBridge' -ForegroundColor Green
-}
-
-function Start-UnifiedTask {
-    Start-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue | Out-Null
-    Write-Host '[OK] Started via Task Scheduler' -ForegroundColor Green
-
-    $startPs1 = Join-Path $BridgePath "start_$TaskName.ps1"
-    if (Test-Path $startPs1) {
-        Start-Process powershell.exe -ArgumentList ("-WindowStyle Hidden -NoProfile -ExecutionPolicy Bypass -File `"" + $startPs1 + "`"") -WindowStyle Hidden -ErrorAction SilentlyContinue
-        Write-Host '[OK] Started immediately in hidden window' -ForegroundColor Green
-    }
-}
-
-# ------------------- Main flow -------------------
-if ($Uninstall) {
-    Write-Host ''
-    Write-Host '=== UNINSTALLING Arena Unified Bridge ===' -ForegroundColor Red
-    Stop-OldTasks
-    Remove-OldTasks
-    $UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-    $BinPath = Join-Path $AgentPath 'bin'
-    if ($UserPath -like "*$BinPath*") {
-        $NewPath = ($UserPath -split ';' | Where-Object { $_ -ne $BinPath }) -join ';'
-        [System.Environment]::SetEnvironmentVariable('Path', $NewPath, 'User')
-        Write-Host '[OK] Removed bin from User PATH.' -ForegroundColor Green
-    }
-    Write-Host ''
-    Write-Host '=== UNINSTALL COMPLETE ===' -ForegroundColor Green
-    return
-}
-
-if ($Update) {
-    Write-Host ''
-    Write-Host '=== UPDATING Arena Unified Bridge ===' -ForegroundColor Cyan
-    Stop-OldTasks
-    Start-Sleep -Seconds 2
-    Start-UnifiedTask
-    Write-Host ''
-    Write-Host '=== UPDATE COMPLETE ===' -ForegroundColor Green
-    return
-}
-
-# Fresh install
-Write-Host ''
-Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host '  Arena Local Agent - Unified Bridge v1.2.0' -ForegroundColor Cyan
-Write-Host '  1 process, 1 port, 1 scheduled task' -ForegroundColor Cyan
-Write-Host '==================================================' -ForegroundColor Cyan
-Write-Host ''
-
-New-Item -ItemType Directory -Force -Path $BridgePath, $AgentPath, "$AgentPath\scripts", "$AgentPath\bin", "$AgentPath\logs", "$AgentPath\queue\inbox", "$AgentPath\queue\running", "$AgentPath\queue\done", "$AgentPath\queue\failed" | Out-Null
-
-# --- Core dependencies ---
-$PyExe = Ensure-Python
-Ensure-NodeJS
-
-# --- Token ---
-$existingToken = Get-Token
-if ($existingToken -and $existingToken.Length -ge 20) {
-    Write-Host "[OK] Using existing token" -ForegroundColor Green
 } else {
-    Generate-Token
-    $existingToken = Get-Token
+    Err "Python not found. Install Python 3.10+ from https://python.org"
+    Read-Host "Press Enter to exit"
+    exit 1
 }
 
-# --- Python packages ---
-Write-Host 'Installing Python packages...' -ForegroundColor Cyan
-try {
-    Start-Process -FilePath $PyExe -ArgumentList '-m pip install --quiet --upgrade aiohttp httpx requests beautifulsoup4' -NoNewWindow -Wait
-    Write-Host '[OK] Python packages ready.' -ForegroundColor Green
-} catch {
-    Write-Warning 'pip install failed. Run: pip install aiohttp httpx requests beautifulsoup4'
+# ============================================================================
+# 2. Core: Node.js (with version check)
+# ============================================================================
+$NODE = (Get-Command node -ErrorAction SilentlyContinue).Source
+if ($NODE) {
+    $NODE_VER_RAW = & node --version 2>$null
+    $NODE_VER = $NODE_VER_RAW -replace 'v', ''
+    $NODE_MAJOR = $NODE_VER.Split('.')[0]
+    if ([int]$NODE_MAJOR -lt 18) {
+        Warn "Node.js $NODE_VER_RAW found but 18+ recommended. Updating..."
+        winget upgrade OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>$null
+        Ok "Node.js updated"
+    } else {
+        Ok "Node.js: $NODE ($NODE_VER_RAW)"
+    }
+} else {
+    Info "Node.js not found. Installing via winget..."
+    winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements 2>$null
+    $NODE = (Get-Command node -ErrorAction SilentlyContinue).Source
+    if ($NODE) { Ok "Node.js installed: $(node --version)" } else { Warn "Node.js install failed" }
 }
 
-# --- agentctl wrapper ---
-$AgentBin = Join-Path $AgentPath 'bin'
-$AgentctlBat = Join-Path $AgentBin 'agentctl.bat'
-$BatContent = "@echo off`r`n`"$PyExe`" `"%~dp0agentctl`" %*"
-Set-Content -Path $AgentctlBat -Value $BatContent -Encoding ASCII
-Write-Host '[OK] agentctl wrapper created' -ForegroundColor Green
-
-# --- PATH ---
-$UserPath = [System.Environment]::GetEnvironmentVariable('Path', 'User')
-if ($UserPath -notlike "*$AgentBin*") {
-    $Sep = if ($UserPath.Length -eq 0 -or $UserPath.EndsWith(';')) { '' } else { ';' }
-    [System.Environment]::SetEnvironmentVariable('Path', $UserPath + $Sep + $AgentBin, 'User')
-    Write-Host '[OK] Added bin to User PATH.' -ForegroundColor Green
+# ============================================================================
+# 3. Python packages (with version check for aiohttp)
+# ============================================================================
+Info "Installing/Updating Python packages..."
+$AIOHTTP_VER = & $PYTHON -c "import aiohttp; print(aiohttp.__version__)" 2>$null
+if ($AIOHTTP_VER) {
+    Info "aiohttp $AIOHTTP_VER found. Checking for update..."
+}
+& $PYTHON -m pip install --quiet --upgrade aiohttp 2>$null
+$AIOHTTP_NEW = & $PYTHON -c "import aiohttp; print(aiohttp.__version__)" 2>$null
+if ($AIOHTTP_VER -and ($AIOHTTP_VER -ne $AIOHTTP_NEW)) {
+    Ok "aiohttp updated: $AIOHTTP_VER -> $AIOHTTP_NEW"
+} else {
+    Ok "Python packages ready (aiohttp $AIOHTTP_NEW)"
 }
 
-# --- Optional: Git ---
-Ensure-Git
+# ============================================================================
+# 4. Project structure
+# ============================================================================
+$dirs = @($BRIDGE_DIR, $BIN_DIR, $LOG_DIR, "$AGENT_DIR\memory", "$AGENT_DIR\queue\inbox", "$AGENT_DIR\queue\running", "$AGENT_DIR\queue\done", "$AGENT_DIR\queue\failed", "$AGENT_DIR\tools", "$AGENT_DIR\reports\shots")
+foreach ($d in $dirs) {
+    if (-not (Test-Path $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+}
 
-# --- Optional: Tailscale ---
-Ensure-Tailscale
-$ts = Get-Command tailscale -ErrorAction SilentlyContinue
-if ($ts) {
-    $tsStatus = & tailscale status 2>&1 | Select-Object -First 1
-    if ($tsStatus -match "offline|not running|Stopped") {
-        Write-Host ''
-        Write-Host 'Tailscale is installed but not logged in.' -ForegroundColor Yellow
-        $tsLogin = Read-Host 'Log in to Tailscale now? [Y/n]'
-        if ($tsLogin -eq '' -or $tsLogin -eq 'Y' -or $tsLogin -eq 'y') {
-            & tailscale login 2>&1 | ForEach-Object { Write-Host $_ }
-            Write-Host '[OK] Tailscale login initiated.' -ForegroundColor Green
+# ============================================================================
+# 5. Token — AUTO-REGENERATE on every install run
+# ============================================================================
+Info "Regenerating auth token..."
+$newToken = & $PYTHON -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))" 2>$null
+if ($newToken -and $newToken.Length -ge 16) {
+    Set-Content -Path $TOKEN_FILE -Value $newToken -Encoding UTF8
+    Ok "New token generated and saved to $TOKEN_FILE"
+} else {
+    # Fallback: keep existing token if generation fails
+    if (Test-Path $TOKEN_FILE) {
+        $existingToken = (Get-Content $TOKEN_FILE -First 1 -ErrorAction SilentlyContinue).Trim()
+        if ($existingToken -and $existingToken.Length -ge 16) {
+            Warn "Token generation failed, keeping existing token"
+            $newToken = $existingToken
+        }
+    }
+    if (-not $newToken) {
+        Err "Failed to generate token"
+        Read-Host "Press Enter to exit"
+        exit 1
+    }
+}
+
+# Read the token for startup script
+$TOKEN = (Get-Content $TOKEN_FILE -First 1).Trim()
+
+# ============================================================================
+# 6. agentctl wrapper
+# ============================================================================
+$agentctl = @"
+@echo off
+"$PYTHON" "$BRIDGE_DIR\unified_bridge.py" %*
+"@
+Set-Content -Path "$BIN_DIR\agentctl.bat" -Value $agentctl -Encoding ASCII
+Ok "agentctl wrapper created"
+
+# ============================================================================
+# 7. Copy/update unified_bridge.py to bridge directory
+# ============================================================================
+$SCRIPT_SOURCE = "$PSScriptRoot\unified_bridge.py"
+if (Test-Path $SCRIPT_SOURCE) {
+    Copy-Item -Path $SCRIPT_SOURCE -Destination "$BRIDGE_DIR\unified_bridge.py" -Force
+    Ok "unified_bridge.py copied to $BRIDGE_DIR"
+} else {
+    # Check if bridge code exists at destination
+    if (Test-Path "$BRIDGE_DIR\unified_bridge.py") {
+        Ok "unified_bridge.py already in $BRIDGE_DIR"
+    } else {
+        Warn "unified_bridge.py not found. Please copy it to $BRIDGE_DIR"
+    }
+}
+
+# ============================================================================
+# 8. Optional: Git (with version check)
+# ============================================================================
+Write-Host ""
+Write-Host "--- Optional: Git ---" -ForegroundColor Yellow
+
+$GIT = (Get-Command git -ErrorAction SilentlyContinue).Source
+if ($GIT) {
+    $GIT_VER = Get-InstalledVersion "git"
+    if ($GIT_VER) {
+        Ok "Git $GIT_VER found"
+        # Check for updates via winget
+        Info "Checking for Git update..."
+        $gitUpdateResult = winget upgrade Git.Git --accept-source-agreements --accept-package-agreements 2>&1
+        if ($gitUpdateResult -match "No applicable update") {
+            Ok "Git is up to date"
+        } else {
+            Ok "Git update checked"
         }
     } else {
-        Write-Host '[OK] Tailscale is active.' -ForegroundColor Green
+        Ok "Git found"
+    }
+} else {
+    $answer = Read-Host "Install Git? [Y/n]"
+    if ($answer -notmatch "^[Nn]") {
+        winget install Git.Git --accept-source-agreements --accept-package-agreements 2>$null
+        Ok "Git installed"
     }
 }
 
-# --- Optional: Browser automation ---
-Write-Host ''
-Write-Host '--- Optional: Browser Automation ---' -ForegroundColor Cyan
-# Check browser - try common locations (Get-Command misses Edge on many Windows installs)
-$browserFound = $false
-$chrome = Get-Command chrome -ErrorAction SilentlyContinue
-if ($chrome) { $browserFound = $true; Write-Host '[OK] Chrome found' -ForegroundColor Green }
+# ============================================================================
+# 9. Optional: Tailscale (with version check)
+# ============================================================================
+Write-Host ""
+Write-Host "--- Optional: Tailscale (VPN/Funnel) ---" -ForegroundColor Yellow
 
-$edgePaths = @(
-    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
-    (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
+$TS = (Get-Command tailscale -ErrorAction SilentlyContinue).Source
+if ($TS) {
+    $TS_VER = & tailscale version 2>$null | Select-Object -First 1
+    Ok "Tailscale found: $TS_VER"
+    # Check for update
+    Info "Checking for Tailscale update..."
+    winget upgrade Tailscale.Tailscale --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+    $tsStatus = & tailscale status 2>$null
+    if ($tsStatus -match "stopped") {
+        Warn "Tailscale installed but not running. Start it and login."
+    } else {
+        Ok "Tailscale is active"
+    }
+} else {
+    $answer = Read-Host "Install Tailscale? [Y/n]"
+    if ($answer -notmatch "^[Nn]") {
+        winget install Tailscale.Tailscale --accept-source-agreements --accept-package-agreements 2>$null
+        Ok "Tailscale installed. Run: tailscale up"
+    }
+}
+
+# ============================================================================
+# 10. Optional: Browser (Edge/Chrome) - with proper detection + version
+# ============================================================================
+Write-Host ""
+Write-Host "--- Optional: Browser Automation ---" -ForegroundColor Yellow
+
+$EDGE_PATHS = @(
+    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe",
+    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe"
 )
-foreach ($ep in $edgePaths) {
-    if (Test-Path $ep) {
-        $edge = $ep
-        $browserFound = $true
-        Write-Host "[OK] Edge found: $ep" -ForegroundColor Green
-        break
+$CHROME_PATHS = @(
+    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe"
+)
+$LIBREWOLF_PATHS = @(
+    "$env:ProgramFiles\LibreWolf\librewolf.exe"
+)
+
+$browserFound = $null
+$browserName = ""
+
+foreach ($p in $EDGE_PATHS) {
+    if (Test-Path $p) { $browserFound = $p; $browserName = "Edge"; break }
+}
+if (-not $browserFound) {
+    foreach ($p in $CHROME_PATHS) {
+        if (Test-Path $p) { $browserFound = $p; $browserName = "Chrome"; break }
     }
 }
 if (-not $browserFound) {
-    Write-Host 'No Chrome/Edge found for headless browser automation.' -ForegroundColor Yellow
-    $brAnswer = Read-Host 'Install Microsoft Edge for headless automation? [Y/n]'
-    if ($brAnswer -eq '' -or $brAnswer -eq 'Y' -or $brAnswer -eq 'y') {
-        if (Get-Command winget -ErrorAction SilentlyContinue) {
-            try {
-                winget install --id Microsoft.Edge --accept-source-agreements --accept-package-agreements --silent 2>$null
-                Write-Host '[OK] Edge installed for browser automation.' -ForegroundColor Green
-            } catch {
-                Write-Warning 'Edge install failed. Install from https://www.microsoft.com/edge'
-            }
+    foreach ($p in $LIBREWOLF_PATHS) {
+        if (Test-Path $p) { $browserFound = $p; $browserName = "LibreWolf"; break }
+    }
+}
+
+if ($browserFound) {
+    try {
+        $ver = (Get-Item $browserFound).VersionInfo.ProductVersion
+        Ok "$browserName found: $browserFound ($ver)"
+    } catch {
+        Ok "$browserName found: $browserFound"
+    }
+} else {
+    $answer = Read-Host "No browser found. Install Microsoft Edge? [Y/n]"
+    if ($answer -notmatch "^[Nn]") {
+        Info "Installing Edge..."
+        winget install Microsoft.Edge --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
+        # Re-check after install
+        foreach ($p in $EDGE_PATHS) {
+            if (Test-Path $p) { $browserFound = $p; Ok "Edge found: $p"; break }
+        }
+        if (-not $browserFound) {
+            Warn "Edge install may have failed. Check manually."
+        }
+    }
+}
+
+# ============================================================================
+# 11. Optional: Dev tools (VSCode, 7-Zip, Windows Terminal) with version check
+# ============================================================================
+Write-Host ""
+Write-Host "--- Optional: Dev Tools ---" -ForegroundColor Yellow
+
+$answer = Read-Host "Install/update dev tools? (VSCode, 7-Zip, Windows Terminal) [y/N]"
+if ($answer -match "^[Yy]") {
+    # VSCode
+    $VSCODE = (Get-Command code -ErrorAction SilentlyContinue).Source
+    if ($VSCODE) {
+        $VSCODE_VER = Get-InstalledVersion "code"
+        Info "VSCode $VSCODE_VER found. Checking for update..."
+        winget upgrade Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        Ok "VSCode updated"
+    } else {
+        winget install Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        Ok "VSCode installed"
+    }
+
+    # 7-Zip
+    $SZ = (Get-Command 7z -ErrorAction SilentlyContinue).Source
+    if ($SZ) {
+        Info "7-Zip found. Checking for update..."
+        winget upgrade 7zip.7zip --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        Ok "7-Zip updated"
+    } else {
+        winget install 7zip.7zip --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        Ok "7-Zip installed"
+    }
+
+    # Windows Terminal
+    $WT = (Get-Command wt -ErrorAction SilentlyContinue).Source
+    if ($WT) {
+        Info "Windows Terminal found. Checking for update..."
+        winget upgrade Microsoft.WindowsTerminal --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        Ok "Windows Terminal updated"
+    } else {
+        winget install Microsoft.WindowsTerminal --accept-source-agreements --accept-package-agreements 2>$null | Out-Null
+        Ok "Windows Terminal installed"
+    }
+}
+
+# ============================================================================
+# 12. Optional: BrowserAct (AI Browser Automation) with version check
+# ============================================================================
+Write-Host ""
+Write-Host "--- Optional: BrowserAct (AI Browser Automation) ---" -ForegroundColor Yellow
+
+$BA = (Get-Command browser-act -ErrorAction SilentlyContinue).Source
+if ($BA) {
+    $BA_VER = & browser-act --version 2>$null
+    Ok "BrowserAct CLI found: $BA_VER"
+    # Check for update
+    Info "Checking for BrowserAct update..."
+    $BA_VER_BEFORE = $BA_VER
+    npm update -g @anthropic-ai/browser-act 2>$null
+    npm update -g browser-act 2>$null
+    $BA_VER_AFTER = & browser-act --version 2>$null
+    if ($BA_VER_BEFORE -ne $BA_VER_AFTER) {
+        Ok "BrowserAct updated: $BA_VER_BEFORE -> $BA_VER_AFTER"
+    } else {
+        Ok "BrowserAct is up to date ($BA_VER_AFTER)"
+    }
+} else {
+    $answer = Read-Host "Install BrowserAct CLI? [y/N]"
+    if ($answer -match "^[Yy]") {
+        Info "Installing BrowserAct..."
+        npm install -g @anthropic-ai/browser-act 2>$null
+        if (Get-Command browser-act -ErrorAction SilentlyContinue) {
+            Ok "BrowserAct installed: $(browser-act --version 2>$null)"
         } else {
-            Write-Host 'Download Edge from https://www.microsoft.com/edge' -ForegroundColor Yellow
-        }
-    }
-}
-
-# --- Optional: Superpowers / Dev tools ---
-Write-Host ''
-Write-Host '--- Optional: Superpowers ---' -ForegroundColor Cyan
-$answer = Read-Host 'Install dev tools? (VSCode, 7zip, Windows Terminal) [y/N]'
-if ($answer -eq 'Y' -or $answer -eq 'y') {
-    if (Get-Command winget -ErrorAction SilentlyContinue) {
-        try {
-            winget install --id Microsoft.VisualStudioCode --accept-source-agreements --accept-package-agreements --silent 2>$null
-            winget install --id 7zip.7zip --accept-source-agreements --accept-package-agreements --silent 2>$null
-            winget install --id Microsoft.WindowsTerminal --accept-source-agreements --accept-package-agreements --silent 2>$null
-            Write-Host '[OK] Dev tools installed.' -ForegroundColor Green
-        } catch {
-            Write-Warning 'Some dev tools failed to install.'
-        }
-    } else {
-        Write-Host 'winget not available. Install dev tools manually.' -ForegroundColor Yellow
-    }
-}
-
-# --- Optional: BrowserAct (AI browser automation) ---
-Write-Host ''
-Write-Host '--- Optional: BrowserAct (AI Browser Automation) ---' -ForegroundColor Cyan
-$ba = Get-Command browser-act -ErrorAction SilentlyContinue
-if ($ba) {
-    Write-Host '[OK] BrowserAct CLI already installed' -ForegroundColor Green
-} else {
-    $uv = Get-Command uv -ErrorAction SilentlyContinue
-    if ($uv) {
-        Write-Host 'Installing BrowserAct CLI via uv...' -ForegroundColor Yellow
-        $baAnswer = Read-Host 'Install BrowserAct for AI browser automation? [Y/n]'
-        if ($baAnswer -eq '' -or $baAnswer -eq 'Y' -or $baAnswer -eq 'y') {
-            try {
-                & uv tool install browser-act-cli --python 3.12 2>&1 | Out-Null
-                Write-Host '[OK] BrowserAct CLI installed.' -ForegroundColor Green
-            } catch {
-                Write-Warning 'BrowserAct install failed. Install manually: uv tool install browser-act-cli --python 3.12'
+            # Try alternative package names
+            npm install -g browser-act 2>$null
+            if (Get-Command browser-act -ErrorAction SilentlyContinue) {
+                Ok "BrowserAct installed"
+            } else {
+                Warn "BrowserAct install failed. Try manually: npm install -g @anthropic-ai/browser-act"
             }
         }
-    } else {
-        Write-Host 'uv not found. Install from https://docs.astral.sh/uv/ then run: uv tool install browser-act-cli --python 3.12' -ForegroundColor Yellow
     }
 }
 
-# --- Optional: Superpowers (AI agent skills) ---
-Write-Host ''
-Write-Host '--- Optional: Superpowers (AI Agent Skills) ---' -ForegroundColor Cyan
-$spDir = Join-Path $AgentPath 'tools\superpowers'
-if (Test-Path $spDir) {
-    & git -C $spDir pull 2>&1 | Out-Null
-    Write-Host '[OK] Superpowers updated.' -ForegroundColor Green
+# ============================================================================
+# 13. Optional: Superpowers (obra/superpowers) with version check
+# ============================================================================
+Write-Host ""
+Write-Host "--- Optional: Superpowers (AI Agent Skills) ---" -ForegroundColor Yellow
+
+$SP_DIR = "$AGENT_DIR\tools\superpowers"
+if (Test-Path "$SP_DIR\.git") {
+    $SP_VER_BEFORE = & git -C $SP_DIR log -1 --format="%h %ci" 2>$null
+    Ok "Superpowers found, updating..."
+    Push-Location $SP_DIR
+    git pull --ff-only 2>$null
+    Pop-Location
+    $SP_VER_AFTER = & git -C $SP_DIR log -1 --format="%h %ci" 2>$null
+    if ($SP_VER_BEFORE -ne $SP_VER_AFTER) {
+        Ok "Superpowers updated: $SP_VER_BEFORE -> $SP_VER_AFTER"
+    } else {
+        Ok "Superpowers is up to date ($SP_VER_AFTER)"
+    }
 } else {
-    $spToolsDir = Join-Path $AgentPath 'tools'
-    if (-not (Test-Path $spToolsDir)) { New-Item -ItemType Directory -Force -Path $spToolsDir | Out-Null }
-    $spAnswer = Read-Host 'Clone Superpowers skill collection? [Y/n]'
-    if ($spAnswer -eq '' -or $spAnswer -eq 'Y' -or $spAnswer -eq 'y') {
-        try {
-            & git clone https://github.com/obra/superpowers.git $spDir 2>&1 | Out-Null
-            Write-Host '[OK] Superpowers cloned.' -ForegroundColor Green
-        } catch {
-            Write-Warning 'Superpowers clone failed. Clone manually: git clone https://github.com/obra/superpowers.git'
+    $answer = Read-Host "Install Superpowers (obra/superpowers)? [y/N]"
+    if ($answer -match "^[Yy]") {
+        if (Get-Command git -ErrorAction SilentlyContinue) {
+            Info "Cloning obra/superpowers..."
+            git clone https://github.com/obra/superpowers.git $SP_DIR 2>$null
+            if (Test-Path $SP_DIR) { Ok "Superpowers installed to $SP_DIR" } else { Warn "Could not clone superpowers" }
+        } else {
+            Warn "Git required. Install Git first."
         }
     }
 }
 
-# --- Migrate and install ---
-Write-Host ''
-Write-Host '=== Setting up Unified Bridge ===' -ForegroundColor Yellow
-Stop-OldTasks
-Remove-OldTasks
+# ============================================================================
+# 14. Setup: Scheduled Task (reads token from file, NOT hardcoded)
+# ============================================================================
+Write-Host ""
+Write-Host "=== Setting up Unified Bridge ===" -ForegroundColor Cyan
 
-Create-UnifiedTask -PyExe $PyExe -Token $existingToken
-Start-UnifiedTask
+# Create start script that READS token from file every time
+$startScript = @"
+`$ErrorActionPreference = "Continue"
+Set-Location "$BRIDGE_DIR"
+`$token = Get-Content "$TOKEN_FILE" -First 1 -ErrorAction SilentlyContinue
+if (-not `$token) {
+    `$token = & "$PYTHON" -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))" 2>`$null
+    Set-Content -Path "$TOKEN_FILE" -Value `$token -Encoding UTF8
+}
+& "$PYTHON" -u "$BRIDGE_DIR\unified_bridge.py" serve --root "$HOME_DIR" --profile owner-shell --token `$token *>> "$LOG_DIR\ArenaUnifiedBridge.log"
+"@
+Set-Content -Path "$BRIDGE_DIR\start_ArenaUnifiedBridge.ps1" -Value $startScript -Encoding UTF8
+Ok "Created $BRIDGE_DIR\start_ArenaUnifiedBridge.ps1"
 
-Write-Host ''
-Write-Host 'Waiting for bridge to start...' -ForegroundColor Yellow
-Start-Sleep -Seconds 5
+# Remove old task if exists
+Unregister-ScheduledTask -TaskName "ArenaUnifiedBridge" -Confirm:$false -ErrorAction SilentlyContinue 2>$null
+Ok "Removed old task: ArenaUnifiedBridge"
 
-$healthCheck = $null
-try {
-    $healthCheck = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health' -TimeoutSec 10 -ErrorAction Stop
-} catch {}
+# Create new scheduled task — uses the PS1 script which reads token from file
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$BRIDGE_DIR\start_ArenaUnifiedBridge.ps1`"" -WorkingDirectory $BRIDGE_DIR
+$trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Days 0)
 
-if ($healthCheck -and $healthCheck.ok) {
-    Write-Host "[OK] Bridge is healthy! v$($healthCheck.version)" -ForegroundColor Green
-} else {
-    Write-Warning "Bridge health check failed. Check log: $LogFile"
+Register-ScheduledTask -TaskName "ArenaUnifiedBridge" -Action $action -Trigger $trigger -Settings $settings -Description "Arena Unified Bridge v$VERSION" -Force | Out-Null
+Ok "Scheduled task registered: ArenaUnifiedBridge"
+
+# Start immediately
+Start-ScheduledTask -TaskName "ArenaUnifiedBridge" 2>$null
+Ok "Started via Task Scheduler"
+
+# Wait for bridge
+Info "Waiting for bridge to start..."
+for ($i = 0; $i -lt 15; $i++) {
+    try {
+        $r = Invoke-RestMethod -Uri "http://127.0.0.1:8765/health" -TimeoutSec 2 -ErrorAction Stop
+        if ($r.ok) {
+            Ok "Bridge is healthy! v$($r.version)"
+            break
+        }
+    } catch {
+        Start-Sleep -Seconds 1
+    }
 }
 
-# --- Summary ---
-Write-Host ''
-Write-Host '==================================================' -ForegroundColor Green
-Write-Host '  ARENA LOCAL AGENT - INSTALLATION COMPLETE!' -ForegroundColor Green
-Write-Host '==================================================' -ForegroundColor Green
-Write-Host ''
-Write-Host '  Dashboard:   http://127.0.0.1:8765/gui' -ForegroundColor White
-Write-Host '  Health:      http://127.0.0.1:8765/health' -ForegroundColor White
-Write-Host '  Log:         ' -ForegroundColor White -NoNewline; Write-Host $LogFile
-Write-Host ''
-Write-Host '  Auto-starts at logon, hidden window, auto-restart' -ForegroundColor White
-Write-Host '  Stop:    schtasks /End /tn ArenaUnifiedBridge' -ForegroundColor White
-Write-Host '  Start:   schtasks /Run /tn ArenaUnifiedBridge' -ForegroundColor White
-Write-Host '  Status:  C:\Users\Ivan\arena-local-bridge\status.bat' -ForegroundColor White
-Write-Host ''
-Write-Host '  Cross-platform: see install_linux.sh (Arch/CachyOS/Debian/Fedora)
-  BrowserAct:     browser-act --version
-  Superpowers:    ~/arena-agent/tools/superpowers/' -ForegroundColor Cyan
-Write-Host '==================================================' -ForegroundColor Green
+# ============================================================================
+# 15. Create helper scripts
+# ============================================================================
+
+# Create regenerate_token.bat
+$regenBat = @"
+@echo off
+:: Arena Local Bridge - Token Regeneration Script v1.3.0
+:: Regenerates token and restarts bridge automatically
+
+setlocal enabledelayedexpansion
+
+set "BRIDGE_DIR=%USERPROFILE%\arena-local-bridge"
+set "TOKEN_FILE=%BRIDGE_DIR%\token.txt"
+set "PYTHON="
+
+:: Find Python
+for %%p in (
+    "%LOCALAPPDATA%\Programs\Python\Python314\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+    "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+) do (
+    if exist %%p set "PYTHON=%%~p"
+)
+if not defined PYTHON (
+    where python >nul 2>&1
+    if errorlevel 1 (
+        echo [ERROR] Python not found.
+        pause
+        exit /b 1
+    )
+    set "PYTHON=python"
+)
+
+echo ============================================================
+echo   Arena Local Bridge - Token Regeneration v1.3.0
+echo ============================================================
+echo.
+
+:: Stop the bridge
+schtasks /End /tn ArenaUnifiedBridge >nul 2>&1
+timeout /t 2 /nobreak >nul
+
+:: Generate new token
+echo [1/3] Generating new token...
+for /f "delims=" %%t in ('"%PYTHON%" -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip(\"=\"))"') do set "NEW_TOKEN=%%t"
+
+if not defined NEW_TOKEN (
+    echo [ERROR] Failed to generate token
+    pause
+    exit /b 1
+)
+
+:: Save token
+echo [2/3] Saving token...
+if not exist "%BRIDGE_DIR%" mkdir "%BRIDGE_DIR%"
+echo %NEW_TOKEN%> "%TOKEN_FILE%"
+
+:: Restart the bridge
+echo [3/3] Restarting bridge...
+schtasks /Run /tn ArenaUnifiedBridge >nul 2>&1
+timeout /t 3 /nobreak >nul
+
+:: Health check
+curl -s http://127.0.0.1:8765/health 2>nul
+echo.
+
+echo.
+echo ============================================================
+echo   Token regenerated!
+echo   New token: %NEW_TOKEN%
+echo   Saved to: %TOKEN_FILE%
+echo ============================================================
+echo.
+pause
+"@
+Set-Content -Path "$BRIDGE_DIR\regenerate_token.bat" -Value $regenBat -Encoding ASCII
+Ok "Created regenerate_token.bat"
+
+# Create status.bat
+$statusBat = @"
+@echo off
+echo === Arena Unified Bridge Status ===
+echo.
+echo [Health Check]
+curl -s http://127.0.0.1:8765/health 2>nul
+echo.
+echo.
+echo [Scheduled Task]
+schtasks /Query /tn ArenaUnifiedBridge /fo List 2>nul
+echo.
+echo [Token Location]
+echo %USERPROFILE%\arena-local-bridge\token.txt
+"@
+Set-Content -Path "$BRIDGE_DIR\status.bat" -Value $statusBat -Encoding ASCII
+Ok "Created status.bat"
+
+# ============================================================================
+# Summary
+# ============================================================================
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Green
+Write-Host "  ARENA LOCAL AGENT - INSTALLATION COMPLETE!" -ForegroundColor Green
+Write-Host "============================================================" -ForegroundColor Green
+Write-Host ""
+Write-Host "  Dashboard:   http://127.0.0.1:8765/gui"
+Write-Host "  Health:      http://127.0.0.1:8765/health"
+Write-Host "  Token:       $TOKEN_FILE (auto-regenerated)"
+Write-Host "  Log:         $LOG_DIR\ArenaUnifiedBridge.log"
+Write-Host ""
+Write-Host "  Auto-starts at logon, hidden window, auto-restart"
+Write-Host "  Stop:    schtasks /End /tn ArenaUnifiedBridge"
+Write-Host "  Start:   schtasks /Run /tn ArenaUnifiedBridge"
+Write-Host "  Status:  $BRIDGE_DIR\status.bat"
+Write-Host "  Regen:   $BRIDGE_DIR\regenerate_token.bat"
+Write-Host ""
+Write-Host "  Cross-platform: install_linux.sh (Arch/Debian/Fedora/Gentoo/Alpine/openSUSE/NixOS)"
+Write-Host "  BrowserAct:     browser-act --version"
+Write-Host "  Superpowers:    $SP_DIR"
+Write-Host "============================================================"
+Write-Host ""
+
+Write-Host "Installation completed successfully."
+Write-Host "To open the dashboard, visit: http://127.0.0.1:8765/gui"
+Write-Host ""
+Read-Host "Press Enter to exit"

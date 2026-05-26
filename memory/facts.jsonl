@@ -3,3 +3,8 @@
 {"key": "stress_test_win_key", "tags": [], "ts": "2026-05-24T23:24:02+00:00", "type": "fact", "value": "value_of_perfection_windows_2026"}
 {"key": "stress_test_win_key", "tags": [], "ts": "2026-05-24T23:29:17+00:00", "type": "fact", "value": "value_of_perfection_windows_2026"}
 {"key": "stress_test_win_key", "tags": [], "ts": "2026-05-25T14:55:12+00:00", "type": "fact", "value": "value_of_perfection_windows_2026"}
+{"key": "stress_test_2026", "value": "bridge_connection_verified", "tags": ["test", "v140"], "timestamp": "2026-05-26T10:34:44.297876+00:00"}
+{"key": "test_special_chars", "value": "Привет <script>alert(1)</script> & \"quotes\"", "tags": ["xss-test"], "timestamp": "2026-05-26T10:36:04.828169+00:00"}
+{"key": "v150_deploy_test", "value": "Arena Bridge v1.5.0 deployed successfully!", "tags": ["v150", "test"], "timestamp": "2026-05-26T11:08:08.093192+00:00"}
+{"key": "v150_final", "value": "works!", "tags": ["test"], "timestamp": "2026-05-26T11:08:10.253721+00:00"}
+{"key": "stress_v150", "value": "test_pass", "tags": ["test"], "timestamp": "2026-05-26T11:16:13.073107+00:00"}

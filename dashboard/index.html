@@ -1,530 +1,1877 @@
-<!doctype html>
-<html lang="ru">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Arena Agent Control Center v4</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arena Bridge v{{VERSION}}</title>
 <style>
-:root{--bg:#0e1117;--panel:#161b22;--border:#30363d;--text:#c9d1d9;--mute:#8b949e;--green:#3fb950;--red:#f85149;--blue:#58a6ff;--yellow:#d29922;--purple:#a371f7;}
-*{box-sizing:border-box;margin:0;padding:0;font-family:ui-monospace,Menlo,Consolas,monospace}
-body{background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;padding:8px}
-.top{display:flex;align-items:center;gap:10px;padding:6px 10px;background:var(--panel);border:1px solid var(--border);border-radius:6px;margin-bottom:8px;flex-wrap:wrap}
-.brand{font-weight:700;color:var(--blue)}.brand .v{color:var(--mute);font-weight:400;margin-left:4px}
-.badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;border:1px solid}
-.ok{color:var(--green);border-color:var(--green)}.bad{color:var(--red);border-color:var(--red)}.warn{color:var(--yellow);border-color:var(--yellow)}
-.tabs{display:flex;gap:2px;margin-bottom:8px;flex-wrap:wrap}
-.tab-btn{padding:6px 14px;background:var(--panel);border:1px solid var(--border);color:var(--text);cursor:pointer;border-radius:4px 4px 0 0}
-.tab-btn.active{background:var(--bg);border-bottom-color:var(--bg);color:var(--blue);font-weight:600}
-.tab{display:none;background:var(--panel);border:1px solid var(--border);border-radius:0 6px 6px 6px;padding:12px}
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f0f23;--bg2:#1a1a2e;--bg3:#16213e;--accent:#0f3460;--purple:#533483;--red:#e94560;--green:#00d672;--yellow:#ffc107;--blue:#4fc3f7;--orange:#ff9800;--text:#e0e0e0;--text2:#a0a0b0;--mono:'Cascadia Code','Consolas','Courier New',monospace;--sans:'Segoe UI',system-ui,-apple-system,sans-serif}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--accent);padding:0;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar h2{padding:16px;font-size:14px;color:var(--purple);border-bottom:1px solid var(--accent);letter-spacing:1px}
+.sidebar nav{flex:1;padding:8px 0;overflow-y:auto}
+.sidebar nav a{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--text2);text-decoration:none;font-size:13px;transition:all .2s;border-left:3px solid transparent;cursor:pointer}
+.sidebar nav a:hover{background:var(--bg3);color:var(--text)}
+.sidebar nav a.active{background:var(--accent);color:#fff;border-left-color:var(--purple)}
+.sidebar nav a .icon{width:18px;text-align:center;font-size:14px}
+.main{flex:1;padding:24px;overflow-y:auto;max-height:100vh}
+.tab{display:none}
 .tab.active{display:block}
-.card{background:#0d1117;border:1px solid var(--border);border-radius:4px;padding:10px;margin-bottom:8px}
-.card h3{margin-bottom:6px;color:var(--purple);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
-.grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
-.kv{display:grid;grid-template-columns:130px 1fr;gap:4px 8px;font-size:12px}
-.kv b{color:var(--mute);font-weight:400}
-.btn{padding:5px 12px;background:var(--panel);border:1px solid var(--border);color:var(--text);cursor:pointer;border-radius:4px;font-size:12px}
-.btn:hover{border-color:var(--blue)}
-.btn.green{border-color:var(--green);color:var(--green)}.btn.red{border-color:var(--red);color:var(--red)}.btn.blue{border-color:var(--blue);color:var(--blue)}
-input,textarea,select{background:#0d1117;border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:4px;font-family:inherit;font-size:12px;width:100%}
-.row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
-.row>input{flex:1;min-width:180px}
-pre{background:#0d1117;border:1px solid var(--border);padding:8px;border-radius:4px;overflow:auto;max-height:480px;font-size:11px;white-space:pre-wrap;word-break:break-word}
-.shot{display:inline-block;margin:4px;border:1px solid var(--border);border-radius:4px;overflow:hidden;background:#000}
-.shot img{display:block;max-width:280px;height:auto}
-.shot .cap{padding:4px 8px;font-size:11px;color:var(--mute);background:var(--panel)}
-.tool{background:#0d1117;border:1px solid var(--border);padding:6px 8px;border-radius:4px;margin-bottom:4px;cursor:pointer}
-.tool:hover{border-color:var(--blue)}
-.tool b{color:var(--blue)}
-.tool .desc{color:var(--mute);font-size:11px}
-.mini{font-size:11px;color:var(--mute)}
+h1{font-size:22px;margin-bottom:16px;color:var(--text)}
+h2{font-size:16px;margin:16px 0 8px;color:var(--purple)}
+h3{font-size:14px;margin:12px 0 6px;color:var(--blue)}
+.card{background:var(--bg2);border:1px solid var(--accent);border-radius:8px;padding:16px;margin-bottom:12px}
+.card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.card-grid-sm{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
+.stat{font-size:28px;font-weight:700;color:var(--green)}
+.stat.warn{color:var(--yellow)}
+.stat.err{color:var(--red)}
+.stat.info{color:var(--blue)}
+.label{font-size:12px;color:var(--text2);margin-top:4px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:8px 12px;background:var(--bg3);color:var(--text2);font-weight:600;border-bottom:1px solid var(--accent)}
+td{padding:8px 12px;border-bottom:1px solid #1a1a3e}
+tr:hover td{background:var(--bg3)}
+input,textarea,select{background:var(--bg3);border:1px solid var(--accent);color:var(--text);padding:8px 12px;border-radius:4px;font-size:13px;font-family:var(--sans);width:100%}
+textarea{font-family:var(--mono);resize:vertical;min-height:120px}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--purple)}
+button{background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:4px;font-size:13px;cursor:pointer;font-family:var(--sans);transition:all .2s;white-space:nowrap}
+button:hover{background:var(--purple)}
+button.danger{background:var(--red)}
+button.danger:hover{background:#c62828}
+button.success{background:var(--green);color:#000}
+button.success:hover{background:#00b85c}
+button.warning{background:var(--yellow);color:#000}
+button.info{background:var(--blue);color:#000}
+button.sm{padding:4px 10px;font-size:11px}
+.row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.ok{background:#00d67233;color:var(--green)}
+.badge.fail{background:#e9456033;color:var(--red)}
+.badge.warn{background:#ffc10733;color:var(--yellow)}
+.badge.info{background:#4fc3f733;color:var(--blue)}
+.badge.gray{background:#88888833;color:#aaa}
+.mono{font-family:var(--mono);font-size:12px}
+.output{background:#000;color:var(--green);font-family:var(--mono);font-size:12px;padding:12px;border-radius:4px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;border:1px solid var(--accent)}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--text2);border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ping{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.ping.ok{background:var(--green)}
+.ping.err{background:var(--red)}
+.ping.reconnecting{background:var(--yellow);animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.version-tag{font-size:11px;background:var(--purple);color:#fff;padding:2px 8px;border-radius:10px;margin-left:8px}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--accent);font-size:11px;color:var(--text2)}
+.copy-btn{background:var(--bg3);color:var(--text2);border:1px solid var(--accent);padding:4px 10px;font-size:11px;border-radius:3px;margin-left:8px}
+.copy-btn:hover{background:var(--accent);color:#fff}
+.reconnect-msg{font-size:11px;color:var(--yellow);margin-top:4px}
+.progress-bar{background:var(--bg3);border-radius:4px;height:20px;overflow:hidden;position:relative;margin:4px 0}
+.progress-bar .fill{height:100%;border-radius:4px;transition:width .5s ease}
+.progress-bar .text{position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.5)}
+.fill.green{background:linear-gradient(90deg,#00a65a,var(--green))}
+.fill.yellow{background:linear-gradient(90deg,#e6a800,var(--yellow))}
+.fill.red{background:linear-gradient(90deg,#c62828,var(--red))}
+.fill.blue{background:linear-gradient(90deg,#1565c0,var(--blue))}
+.fill.purple{background:linear-gradient(90deg,#6a1b9a,var(--purple))}
+.detail-panel{background:var(--bg3);border:1px solid var(--accent);border-radius:6px;padding:12px;margin-top:8px;display:none}
+.detail-panel.open{display:block}
+.task-inbox{color:var(--text2)}
+.task-running{color:var(--yellow)}
+.task-done{color:var(--green)}
+.task-failed{color:var(--red)}
+.link-list a{display:block;color:var(--blue);font-size:12px;padding:2px 0;text-decoration:none}
+.link-list a:hover{text-decoration:underline}
+.hdr-table{font-size:12px;width:auto}
+.hdr-table td{padding:4px 12px;border:none}
+.hdr-table td:first-child{color:var(--yellow);font-weight:600;white-space:nowrap}
+.screenshot-thumb{max-width:200px;max-height:150px;border:1px solid var(--accent);border-radius:4px;cursor:pointer}
+.metric-row{display:flex;gap:16px;flex-wrap:wrap}
+.metric-item{text-align:center}
+.metric-val{font-size:22px;font-weight:700}
+.metric-label{font-size:11px;color:var(--text2)}
+.divider{border-top:1px solid var(--accent);margin:16px 0}
+@media(max-width:768px){.sidebar{width:60px;overflow:hidden}.sidebar h2,.sidebar nav a span:not(.icon),.sidebar-footer{display:none}.sidebar nav a{justify-content:center;padding:12px}.main{padding:12px}.card-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<div class="top">
-  <span class="brand">🤖 Arena Agent <span class="v">Control Center v4</span></span>
-  <span id="state" class="badge warn">connecting…</span>
-  <span class="mini" id="hostinfo"></span>
-  <span style="flex:1"></span>
-  <button class="btn" onclick="refreshAll()">↻ Refresh</button>
-  <label class="mini"><input type="checkbox" id="autoref" checked style="width:auto"> auto</label>
-  <button class="btn red" onclick="localStorage.removeItem('arena_token');location.reload()">⎋ Logout</button>
+<div class="sidebar">
+<h2>ARENA BRIDGE</h2>
+<nav>
+<a class="active" data-tab="overview"><span class="icon">&#9632;</span>Overview</a>
+<a data-tab="terminal"><span class="icon">&#9654;</span>Terminal</a>
+<a data-tab="memory"><span class="icon">&#9998;</span>Memory</a>
+<a data-tab="recall"><span class="icon">&#128269;</span>Recall</a>
+<a data-tab="missions"><span class="icon">&#9733;</span>Missions</a>
+<a data-tab="browser"><span class="icon">&#9741;</span>Browser</a>
+<a data-tab="reports"><span class="icon">&#9783;</span>Reports</a>
+<a data-tab="tasks"><span class="icon">&#9776;</span>Tasks</a>
+<a data-tab="skills"><span class="icon">&#9881;</span>Skills</a>
+<a data-tab="hooks"><span class="icon">&#10227;</span>Hooks</a>
+<a data-tab="agents"><span class="icon">&#9978;</span>Agents</a>
+<a data-tab="doctor"><span class="icon">&#9764;</span>Doctor</a>
+<a data-tab="audit"><span class="icon">&#128196;</span>Audit</a>
+<a data-tab="backup"><span class="icon">&#128190;</span>Backup</a>
+<a data-tab="settings"><span class="icon">&#9881;</span>Settings</a>
+</nav>
+<div class="sidebar-footer">
+<span class="ping ok" id="pingDot"></span> <span id="pingText">Connected</span><br>
+<div id="reconnectMsg" class="reconnect-msg" style="display:none"></div>
+v<span id="sidebarVersion">{{VERSION}}</span>
+</div>
 </div>
 
-<div class="tabs">
-  <button class="tab-btn active" onclick="tab('dash')">📊 Dashboard</button>
-  <button class="tab-btn" onclick="tab('terminal')">⌨ Terminal</button>
-  <button class="tab-btn" onclick="tab('mcp')">🔌 MCP</button>
-  <button class="tab-btn" onclick="tab('browser')">🌐 Browser</button>
-  <button class="tab-btn" onclick="tab('missions')">🎯 Missions</button>
-  <button class="tab-btn" onclick="tab('reports')">📁 Reports</button>
-  <button class="tab-btn" onclick="tab('memory')">🧠 Memory</button>
-  <button class="tab-btn" onclick="tab('settings')">⚙ Settings</button>
+<div class="main">
+
+<!-- ==================== OVERVIEW ==================== -->
+<div class="tab active" id="tab-overview">
+<h1>Overview <span class="version-tag" id="versionTag">v{{VERSION}}</span></h1>
+<div class="card-grid" id="statsGrid">
+<div class="card"><div class="stat" id="statVersion">--</div><div class="label">Bridge Version</div></div>
+<div class="card"><div class="stat" id="statHost">--</div><div class="label">Hostname</div></div>
+<div class="card"><div class="stat" id="statUptime">--</div><div class="label">Uptime</div></div>
+<div class="card"><div class="stat" id="statCPU">--</div><div class="label">CPU Threads</div></div>
+<div class="card"><div class="stat" id="statRAM">--</div><div class="label">RAM Total</div></div>
+<div class="card"><div class="stat" id="statDisk">--</div><div class="label">Disk Free</div></div>
+<div class="card"><div class="stat" id="statMemory">--</div><div class="label">Memory Facts</div></div>
+<div class="card"><div class="stat" id="statMissions">--</div><div class="label">Missions</div></div>
+<div class="card"><div class="stat info" id="statActiveTasks">0</div><div class="label">Active Tasks</div></div>
+<div class="card"><div class="stat info" id="statProfile">--</div><div class="label">Profile</div></div>
 </div>
 
-<section id="dash" class="tab active">
-  <div class="grid">
-    <div class="card"><h3>Bridge</h3><div class="kv" id="bridge_kv">—</div></div>
-    <div class="card"><h3>MCP Stream (unified :8765)</h3><div class="kv" id="mcp_kv">—</div></div>
-    <div class="card"><h3>MCP WebSocket (unified :8765)</h3><div class="kv" id="ws_kv">—</div></div>
-    <div class="card"><h3>Last activity</h3><pre id="recent" style="max-height:140px">—</pre></div>
-  </div>
-  <div class="card"><h3>Hardware Diagnostics (HWiNFO / AIDA64)</h3>
-    <pre id="hw_details" style="max-height: 250px; overflow-y: auto; font-family: monospace; white-space: pre-wrap; line-height: 1.4;">loading hardware data...</pre>
-  </div>
+<h2>Resource Usage</h2>
+<div class="card">
+<div class="row"><span style="width:80px;font-size:12px;font-weight:600">CPU</span>
+<div class="progress-bar" style="flex:1"><div class="fill green" id="cpuBar" style="width:0%"></div><div class="text" id="cpuText">0%</div></div></div>
+<div class="row"><span style="width:80px;font-size:12px;font-weight:600">RAM</span>
+<div class="progress-bar" style="flex:1"><div class="fill blue" id="ramBar" style="width:0%"></div><div class="text" id="ramText">0%</div></div></div>
+<div class="row"><span style="width:80px;font-size:12px;font-weight:600">Disk</span>
+<div class="progress-bar" style="flex:1"><div class="fill purple" id="diskBar" style="width:0%"></div><div class="text" id="diskText">0%</div></div></div>
+<div id="loadAvgRow" class="row" style="display:none"><span style="width:80px;font-size:12px;font-weight:600">Load Avg</span><span id="loadAvgText" class="mono" style="font-size:13px"></span></div>
+</div>
 
-  <div class="card"><h3>Services Status</h3><pre id="svc">loading…</pre></div>
-  <div class="card"><h3>Quick actions</h3>
-    <div class="row">
-      <button class="btn green" onclick="cmd('agentctl sys status')">sys status</button>
-      <button class="btn" onclick="cmd('agentctl sys doctor')">sys doctor</button>
-      <button class="btn" onclick="cmd('agentctl backup run')">backup run</button>
-      <button class="btn" onclick="cmd('agentctl recovery-update')">recovery-update</button>
-      <button class="btn" onclick="cmd('agentctl audit stats')">audit stats</button>
-    </div>
-  </div>
-</section>
+<h2>Network Status</h2>
+<div class="card" id="networkCard">
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Tailscale Funnel</span><span id="tsFunnelStatus" class="badge gray">Unknown</span></div>
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Public URL</span><span id="tsFunnelUrl" class="mono" style="font-size:12px">--</span></div>
+</div>
 
-<section id="terminal" class="tab">
-  <div class="card">
-    <h3>Web Terminal — bridge cgroup</h3>
-    <div class="row"><input id="termcmd" placeholder="agentctl sys status" onkeydown="if(event.key==='Enter')runTerm()">
-      <button class="btn green" onclick="runTerm()">Run</button>
-      <button class="btn" onclick="document.getElementById('out').textContent=''">Clear</button>
-    </div>
-    <div class="row mini">Подсказки:
-      <button class="btn" onclick="setCmd('agentctl exec bash -c \\'cat /proc/self/cgroup\\'')">cgroup</button>
-      <button class="btn" onclick="setCmd('agentctl browser sd-shot https://example.com')">sd-shot</button>
-      <button class="btn" onclick="setCmd('agentctl browser py-search arena --n 3')">py-search</button>
-      <button class="btn" onclick="setCmd('agentctl mcp stream-tools')">mcp tools</button>
-    </div>
-    <pre id="out"></pre>
-  </div>
-</section>
+<h2>Bridge Metrics</h2>
+<div class="card">
+<div class="metric-row">
+<div class="metric-item"><div class="metric-val info" id="metricReqs">0</div><div class="metric-label">Total Requests</div></div>
+<div class="metric-item"><div class="metric-val warn" id="metricExecs">0</div><div class="metric-label">Exec Count</div></div>
+<div class="metric-item"><div class="metric-val" id="metricErrors">0</div><div class="metric-label">Error Rate</div></div>
+</div>
+</div>
 
-<section id="mcp" class="tab">
-  <div class="card"><h3>Транспорты</h3>
-    <div class="kv">
-      <b>Streamable HTTP</b><span>POST <code>/mcp</code> on :8765</span>
-      <b>SSE legacy</b><span>GET <code>/sse</code> on :8765</span>
-      <b>WebSocket</b><span><code>ws://127.0.0.1:8765/ws</code></span>
-    </div>
-  </div>
-  <div class="card"><h3>Tools (live)</h3><div id="tools">loading…</div></div>
-  <div class="card"><h3>Tool runner</h3>
-    <div class="row"><select id="toolname" style="flex:0 0 160px"></select>
-      <input id="toolargs" placeholder='{"query":"hello","n":3}' value='{}'>
-      <button class="btn green" onclick="runTool()">Call</button>
-    </div>
-    <pre id="toolout">—</pre>
-  </div>
-</section>
+<h2>Platform Info</h2>
+<div class="card" id="platformCard">
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Python</span><span id="platPython" class="mono" style="font-size:12px">--</span></div>
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">OS</span><span id="platOS" class="mono" style="font-size:12px">--</span></div>
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Platform</span><span id="platArch" class="mono" style="font-size:12px">--</span></div>
+</div>
 
-<section id="browser" class="tab">
-  <div class="card"><h3>URL action</h3>
-    <div class="row"><input id="burl" placeholder="https://example.com" value="https://example.com"></div>
-    <div class="row">
-      <button class="btn green" onclick="brw('sd-shot')">📸 sd-shot (chromium)</button>
-      <button class="btn blue" onclick="brw('py-read')">📰 py-read (readability)</button>
-      <button class="btn" onclick="brw('py-dump')">📄 py-dump (text+links)</button>
-      <button class="btn" onclick="brw('py-head')">📋 py-head (HTTP)</button>
-      <button class="btn" onclick="brw('sd-dump')">📃 sd-dump (chromium DOM)</button>
-    </div>
-    <div class="row"><input id="bquery" placeholder="search query"><button class="btn" onclick="brwSearch()">🔍 py-search</button></div>
-    <pre id="bout">—</pre>
-  </div>
-  <div class="card"><h3>Recent shots</h3><div id="shots">loading…</div></div>
-</section>
+<h2>System Info</h2>
+<div class="card" id="sysinfoCard">Loading...</div>
+</div>
 
-<section id="missions" class="tab">
-  <div class="card"><h3>Templates</h3><pre id="mlist">loading…</pre></div>
-  <div class="card"><h3>New mission</h3>
-    <div class="row"><input id="mtpl" placeholder="tabs-game"><input id="mname" placeholder="my-mission"><button class="btn green" onclick="newMission()">Create</button></div>
-    <pre id="mout">—</pre>
-  </div>
-</section>
+<!-- ==================== TERMINAL ==================== -->
+<div class="tab" id="tab-terminal">
+<h1>Terminal</h1>
+<div class="row">
+<input type="text" id="termCmd" placeholder="Enter command..." style="flex:1" autofocus>
+<button onclick="runCommand()">Run</button>
+</div>
+<div class="row" style="margin-bottom:12px">
+<select id="termTimeout" style="width:120px">
+<option value="10">10s timeout</option>
+<option value="30" selected>30s timeout</option>
+<option value="60">60s timeout</option>
+<option value="120">120s timeout</option>
+</select>
+<button onclick="clearTerminal()">Clear</button>
+<button class="copy-btn" onclick="copyTermOutput()">Copy Output</button>
+<span style="margin-left:auto;font-size:12px;color:var(--text2)" id="termDuration"></span>
+</div>
+<div class="output" id="termOutput" style="min-height:300px">Ready. Type a command and press Enter.</div>
+<h2>History</h2>
+<div id="termHistory" style="font-size:12px;color:var(--text2)"></div>
+</div>
 
-<section id="reports" class="tab">
-  <div class="card"><h3>Recent reports</h3>
-    <div class="row"><button class="btn" onclick="cmd('agentctl report ls')">Refresh</button>
-      <input id="rfilter" placeholder="grep filter"><button class="btn" onclick="filterReports()">Filter</button></div>
-    <pre id="rlist">loading…</pre>
-  </div>
-</section>
+<!-- ==================== MEMORY ==================== -->
+<div class="tab" id="tab-memory">
+<h1>Memory</h1>
+<div class="card">
+<h2>Add Fact</h2>
+<div class="row"><input id="memKey" placeholder="Key" style="flex:1"><input id="memValue" placeholder="Value" style="flex:2"><input id="memTags" placeholder="Tags (comma)" style="flex:1"><button class="success" onclick="addMemory()">Add</button></div>
+</div>
+<div class="card">
+<div class="row"><input id="memSearch" placeholder="Search facts..." style="flex:1"><button onclick="loadMemory()">Search</button>
+<button class="info" onclick="memoryDigest()">Digest</button>
+<button class="warning" onclick="recallFromMemory()">Recall</button></div>
+</div>
+<div id="memoryDigestPanel" class="card" style="display:none"></div>
+<table><thead><tr><th>Key</th><th>Value</th><th>Tags</th><th>Time</th><th>Actions</th></tr></thead><tbody id="memoryTable"></tbody></table>
+</div>
 
-<section id="memory" class="tab">
-  <div class="card"><h3>Recall</h3>
-    <div class="row"><input id="mq" placeholder="query (substring)"><button class="btn green" onclick="memGet()">Get</button></div>
-    <pre id="mres">—</pre>
-  </div>
-  <div class="card"><h3>Remember</h3>
-    <div class="row"><input id="mk" placeholder="key" style="flex:0 0 180px"><input id="mv" placeholder="value"><input id="mt" placeholder="tag1 tag2" style="flex:0 0 180px"><button class="btn green" onclick="memSet()">Set</button></div>
-    <div id="msout" class="mini">—</div>
-  </div>
-</section>
+<!-- ==================== RECALL ==================== -->
+<div class="tab" id="tab-recall">
+<h1>Recall <span class="version-tag">Smart Search</span></h1>
+<div class="card">
+<h2>TF-Scored Memory Search</h2>
+<div class="row"><input id="recallQuery" placeholder="Enter search query for smart recall..." style="flex:1">
+<button class="info" onclick="runRecall()">Recall</button>
+<button onclick="memoryDigestFull()">Memory Digest</button></div>
+</div>
+<div id="recallResults" class="card" style="display:none"></div>
+<div id="digestResults" class="card" style="display:none"></div>
+</div>
 
-<section id="settings" class="tab">
-  <div class="card"><h3>Connection</h3>
-    <div class="kv">
-      <b>Base URL</b><span id="ssurl">—</span>
-      <b>Token</b><span id="sstok">—</span>
-      <b>Profile</b><span id="ssprof">—</span>
-    </div>
-    <div class="row"><button class="btn" onclick="localStorage.removeItem('arena_token');location.reload()">Change token</button></div>
-  </div>
-  <div class="card"><h3>Sound Notification Controls</h3>
-    <p class="mini">Test different built-in sound signals natively on the system:</p>
-    <div class="row" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;">
-      <button class="btn green" onclick="exec('agentctl sys beep')">Success Beep</button>
-      <button class="btn orange" onclick="exec('agentctl sys beep --type warning')">Warning Beep</button>
-      <button class="btn red" onclick="exec('agentctl sys beep --type error')">Error Beep</button>
-      <button class="btn" onclick="exec('agentctl sys beep --type attention')">Attention</button>
-      <button class="btn blue" onclick="exec('agentctl sys beep --type melody')">Play Melody</button>
-    </div>
-  </div>
+<!-- ==================== MISSIONS ==================== -->
+<div class="tab" id="tab-missions">
+<h1>Missions</h1>
+<button onclick="loadMissions()" style="margin-bottom:12px">Refresh</button>
+<table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody id="missionsTable"></tbody></table>
+</div>
 
-  <div class="card"><h3>About</h3>
-    <p class="mini">Arena Agent Control Center v4 — single-page dashboard.<br>
-    Все вызовы идут через bridge <code>/v1/exec</code>. PATH bridge'а включает <code>~/arena-agent/bin</code>.<br>
-    Для команд GUI/chromium используется <code>agentctl exec</code> (выходит из cgroup bridge через <code>sd-exec</code>).</p>
-  </div>
-</section>
+<!-- ==================== BROWSER ==================== -->
+<div class="tab" id="tab-browser">
+<h1>Browser</h1>
+<div class="card">
+<h2>Search</h2>
+<div class="row"><input id="searchQuery" placeholder="Search query..." style="flex:1">
+<select id="searchCount" style="width:80px"><option value="5">5</option><option value="10">10</option><option value="15">15</option></select>
+<button onclick="browserSearch()">Search</button></div>
+</div>
+<div id="searchResults"></div>
+<div class="card" style="margin-top:12px">
+<h2>URL Tools</h2>
+<div class="row"><input id="readUrl" placeholder="https://example.com" style="flex:1">
+<button onclick="browserRead()">Read</button>
+<button class="warning" onclick="browserDump()">Dump</button>
+<button class="info" onclick="browserFetch()">Fetch</button>
+<button onclick="browserHead()">HEAD</button>
+<button class="success" onclick="browserScreenshot()">Screenshot</button></div>
+</div>
+<div id="readResult" style="margin-top:8px"></div>
+<div id="dumpResult" style="margin-top:8px"></div>
+<div id="headResult" style="margin-top:8px"></div>
+</div>
+
+<!-- ==================== REPORTS ==================== -->
+<div class="tab" id="tab-reports">
+<h1>Reports</h1>
+<button onclick="loadReports()" style="margin-bottom:12px">Refresh</button>
+<table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody id="reportsTable"></tbody></table>
+<div id="reportPreview" style="margin-top:12px"></div>
+</div>
+
+<!-- ==================== TASKS ==================== -->
+<div class="tab" id="tab-tasks">
+<h1>Tasks <span class="badge info" id="taskCountBadge">0</span></h1>
+<div class="card">
+<div class="row">
+<button class="success" onclick="showTaskSubmit()">New Task</button>
+<button onclick="loadTasks()">Refresh</button>
+<button class="danger" onclick="cleanTasks()">Clean Completed</button>
+<span style="margin-left:auto;font-size:12px;color:var(--text2)">Auto-refresh: 10s</span>
+</div>
+</div>
+<div id="taskSubmitPanel" class="card" style="display:none">
+<h2>Submit New Task</h2>
+<div class="row"><input id="taskCmd" placeholder="Command to run" style="flex:2"><input id="taskTimeout" type="number" value="30" placeholder="Timeout (s)" style="width:100px"><input id="taskCwd" placeholder="Working directory" style="flex:1"></div>
+<div class="row"><button class="success" onclick="submitTask()">Submit</button><button onclick="document.getElementById('taskSubmitPanel').style.display='none'">Cancel</button></div>
+</div>
+<h2>Task Queue</h2>
+<div class="card-grid-sm" id="taskStats">
+<div class="card"><div class="stat task-inbox" id="taskInbox">0</div><div class="label">Inbox</div></div>
+<div class="card"><div class="stat task-running" id="taskRunning">0</div><div class="label">Running</div></div>
+<div class="card"><div class="stat task-done" id="taskDone">0</div><div class="label">Done</div></div>
+<div class="card"><div class="stat task-failed" id="taskFailed">0</div><div class="label">Failed</div></div>
+</div>
+<table><thead><tr><th>ID</th><th>Command</th><th>State</th><th>Started</th><th>Duration</th></tr></thead><tbody id="tasksTable"></tbody></table>
+</div>
+
+<!-- ==================== SKILLS ==================== -->
+<div class="tab" id="tab-skills">
+<h1>Skills</h1>
+<button onclick="loadSkills()" style="margin-bottom:12px">Refresh</button>
+<table><thead><tr><th>Name</th><th>Description</th><th>Actions</th></tr></thead><tbody id="skillsTable"></tbody></table>
+<div id="skillDetail" class="detail-panel"></div>
+<div id="skillOutput" class="card" style="display:none;margin-top:12px"><h2>Skill Output</h2><div class="output" id="skillOutputText"></div></div>
+</div>
+
+<!-- ==================== HOOKS ==================== -->
+<div class="tab" id="tab-hooks">
+<h1>Hooks</h1>
+<button onclick="loadHooks()" style="margin-bottom:12px">Refresh</button>
+<div id="hooksContainer"></div>
+</div>
+
+<!-- ==================== AGENTS ==================== -->
+<div class="tab" id="tab-agents">
+<h1>Agents</h1>
+<button onclick="loadAgents()" style="margin-bottom:12px">Refresh</button>
+<table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead><tbody id="agentsTable"></tbody></table>
+<div id="agentDetail" class="detail-panel"></div>
+</div>
+
+<!-- ==================== DOCTOR ==================== -->
+<div class="tab" id="tab-doctor">
+<h1>Doctor</h1>
+<div class="row" style="margin-bottom:12px">
+<button onclick="runDoctor()">Run Diagnostics</button>
+<button class="warning" onclick="doctorFix()">Auto-Fix Issues</button>
+</div>
+<div class="card">
+<h2>Service Status</h2>
+<div id="serviceStatus">Loading...</div>
+</div>
+<div class="card">
+<h2>Tailscale Funnel</h2>
+<div id="doctorTailscale">Loading...</div>
+</div>
+<div id="doctorResults"></div>
+</div>
+
+<!-- ==================== AUDIT ==================== -->
+<div class="tab" id="tab-audit">
+<h1>Audit Log</h1>
+<div class="row">
+<input id="auditLines" type="number" value="50" style="width:100px">
+<select id="auditFilter" style="width:160px"><option value="">All Events</option><option value="exec">Exec</option><option value="memory">Memory</option><option value="mission">Mission</option><option value="browser">Browser</option><option value="error">Error</option><option value="system">System</option></select>
+<button onclick="loadAudit()">Load</button>
+<button class="info" onclick="auditStats()">Stats</button>
+</div>
+<div id="auditStatsPanel" class="card" style="display:none"></div>
+<table><thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead><tbody id="auditTable"></tbody></table>
+</div>
+
+<!-- ==================== BACKUP ==================== -->
+<div class="tab" id="tab-backup">
+<h1>Backup</h1>
+<div class="card">
+<div class="row">
+<button class="success" onclick="createBackup()">Create Backup</button>
+<button onclick="loadBackups()">Refresh</button>
+</div>
+<div id="backupProgress" style="display:none;margin-top:8px"><span class="spinner"></span> Creating backup...</div>
+</div>
+<h2>Existing Backups</h2>
+<table><thead><tr><th>Name</th><th>Size</th><th>Date</th><th>Actions</th></tr></thead><tbody id="backupsTable"></tbody></table>
+</div>
+
+<!-- ==================== SETTINGS ==================== -->
+<div class="tab" id="tab-settings">
+<h1>Settings</h1>
+<div class="card">
+<h2>Bridge Info</h2>
+<p>Version: <strong id="setVersion">{{VERSION}}</strong></p>
+<p>Host: <strong>{{HOST}}</strong></p>
+<p>Token: <code id="setToken">{{TOKEN}}</code> <button class="copy-btn sm" onclick="copyToClipboard('{{TOKEN}}')">Copy</button></p>
+</div>
+<div class="card">
+<h2>Bridge Metrics</h2>
+<div class="metric-row">
+<div class="metric-item"><div class="metric-val info" id="setUptime">--</div><div class="metric-label">Uptime</div></div>
+<div class="metric-item"><div class="metric-val warn" id="setRequests">0</div><div class="metric-label">Total Requests</div></div>
+<div class="metric-item"><div class="metric-val" id="setErrors">0</div><div class="metric-label">Errors</div></div>
+</div>
+</div>
+<div class="card">
+<h2>Environment</h2>
+<div id="envInfo" class="mono" style="font-size:12px;white-space:pre-wrap">Loading...</div>
+</div>
+<div class="card">
+<h2>Tailscale Funnel</h2>
+<div class="row"><span id="tsToggleStatus" class="badge gray">Unknown</span>
+<button id="tsFunnelStart" onclick="tsFunnelToggle('start')">Start</button>
+<button id="tsFunnelStop" class="danger" onclick="tsFunnelToggle('stop')">Stop</button></div>
+</div>
+<div class="card">
+<h2>Actions</h2>
+<div class="row"><button class="danger" onclick="bridgeRestart()">Restart Bridge</button>
+<button class="warning" onclick="regenToken()">Regenerate Token</button>
+<button class="info" onclick="exportConfig()">Export Config</button></div>
+</div>
+<div class="card">
+<h2>Sound Notifications</h2>
+<div class="row">
+<button onclick="testBeep('success')">Success</button>
+<button onclick="testBeep('warning')">Warning</button>
+<button onclick="testBeep('error')">Error</button>
+<button onclick="testBeep('melody')">Melody</button>
+<button onclick="testBeep('attention')">Attention</button>
+</div>
+</div>
+<div class="card">
+<h2>Quick Commands</h2>
+<div class="row"><button onclick="apiQuickGet('/v1/sysinfo')">sys info</button></div>
+<div class="row"><button onclick="apiQuickGet('/v1/doctor')">sys doctor</button></div>
+<div class="row"><button onclick="apiQuickGet('/v1/memory')">mem get all</button></div>
+</div>
+</div>
+
+</div>
 
 <script>
-// Подключение
-let raw = "{{TOKEN}}";
-if (raw.startsWith('{{')) raw = localStorage.getItem('arena_token') || prompt('Bridge token');
-if (raw && !raw.startsWith('{{')) localStorage.setItem('arena_token', raw);
-const TOKEN = raw, BASE = location.origin;
-let autoRefTimer = null;
+const TOKEN = "{{TOKEN}}";
+const BASE = location.origin;
+const headers = {"Authorization": "Bearer " + TOKEN, "Content-Type": "application/json"};
+let cmdHistory = JSON.parse(localStorage.getItem("arena_cmd_history") || "[]");
+let activeTab = "overview";
+let taskRefreshTimer = null;
+let overviewMetrics = {requests: 0, execs: 0, errors: 0};
 
-const E = s => String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
-async function api(path, opts={}) {
-  const h = {'Content-Type':'application/json'};
-  if (TOKEN) h.Authorization = 'Bearer ' + TOKEN;
-  const r = await fetch(BASE + path, {...opts, headers:{...h, ...(opts.headers||{})}});
-  return r.json();
-}
-async function exec(c, timeout=120, max=80000) {
-  return api('/v1/exec', {method:'POST', body:JSON.stringify({cmd:c, timeout, max_output:max})});
-}
-function tab(id) {
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.tab-btn').forEach(t=>t.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  event.target.classList.add('active');
-  if (id==='mcp') loadTools();
-  if (id==='browser') loadShots();
-  if (id==='missions') loadMissions();
-  if (id==='reports') loadReports();
-}
-function setCmd(c){ document.getElementById('termcmd').value=c; }
-function playBeep() {
+// Reconnection tracking
+let wasOffline = false;
+let lastConnectedTime = null;
+
+// ===== TAB SWITCHING =====
+document.querySelectorAll(".sidebar nav a").forEach(a => {
+  a.addEventListener("click", () => {
+    document.querySelectorAll(".sidebar nav a").forEach(x => x.classList.remove("active"));
+    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    a.classList.add("active");
+    const tabName = a.dataset.tab;
+    activeTab = tabName;
+    document.getElementById("tab-" + tabName).classList.add("active");
+    // Load data on tab switch
+    if (tabName === "overview") refreshOverview();
+    if (tabName === "memory") loadMemory();
+    if (tabName === "missions") loadMissions();
+    if (tabName === "reports") loadReports();
+    if (tabName === "tasks") { loadTasks(); startTaskRefresh(); }
+    else { stopTaskRefresh(); }
+    if (tabName === "skills") loadSkills();
+    if (tabName === "hooks") loadHooks();
+    if (tabName === "agents") loadAgents();
+    if (tabName === "audit") loadAudit();
+    if (tabName === "backup") loadBackups();
+    if (tabName === "settings") refreshSettings();
+    if (tabName === "doctor") runDoctor();
+  });
+});
+
+// ===== API HELPER =====
+async function api(path, opts = {}) {
   try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const oscillator = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    oscillator.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    oscillator.type = 'sine';
-    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
-    gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime); // gentle sound
-    oscillator.start();
-    oscillator.stop(audioCtx.currentTime + 0.12);
-  } catch (e) {
-    console.log("Audio play blocked by browser autoplay policy:", e);
-  }
-}
-async function cmd(c){
-  tab('terminal');
-  document.querySelectorAll('.tab-btn').forEach(b=>{if(b.textContent.includes('Terminal'))b.classList.add('active')});
-  const o = document.getElementById('out');
-  o.textContent += '$ ' + c + '\n';
-  try { const r = await exec(c); o.textContent += (r.stdout||'') + (r.stderr?'\nERR:'+r.stderr:'') + '\n'; }
-  catch(e){ o.textContent += 'ERR ' + e + '\n'; }
-  o.scrollTop = o.scrollHeight;
-  try { playBeep(); } catch(e) {}
-}
-// slash-commands v1
-function getSlashCommands() {
-  const py = (window.PY || 'python3');
-  const isWin = py === 'python';
-  return {
-    "/help":     "agentctl",
-    "/sys":      "agentctl sys status",
-    "/svc":      isWin ? "schtasks /query /fo TABLE | findstr /I \"Arena\"" : "systemctl --user --no-pager status arena-local-bridge arena-mcp-stream arena-mcp-ws | head -30",
-    "/health":   "curl -sS http://127.0.0.1:8765/health",
-    "/tools":    "agentctl mcp stream-tools",
-    "/shot":     "agentctl browser sd-shot ",
-    "/search":   "agentctl browser py-search ",
-    "/read":     "agentctl browser py-read ",
-    "/dump":     "agentctl browser py-dump ",
-    "/skills":   "agentctl skill list",
-    "/snap":     "agentctl skill run system/sys-snapshot",
-    "/fix":      "agentctl skill run dev/auto-fix -- --dry",
-    "/research": "agentctl skill run web/research ",
-    "/hooks":    "agentctl hooks list",
-    "/mem":      "agentctl mem get ",
-    "/remember": "agentctl mem set ",
-    "/backup":   "agentctl backup run",
-    "/recovery": "agentctl recovery-update",
-    "/missions": "agentctl mission list",
-    "/cgroup":   isWin ? "" : "agentctl exec bash -c 'cat /proc/self/cgroup'",
-    "/cpcheck":  isWin ? "python %USERPROFILE%/arena-agent/scripts/cross_platform_check.py" : "python3 ~/arena-agent/scripts/cross_platform_check.py | head -40",
-  };
-}
-const SLASH = getSlashCommands();
-function expandSlash(c){
-  if (!c.startsWith("/")) return c;
-  for (const k of Object.keys(SLASH).sort((a,b)=>b.length-a.length)) {
-    if (c === k) return SLASH[k];
-    if (c.startsWith(k+" ")) return SLASH[k] + c.slice(k.length+1);
-  }
-  return c;
-}
-function setupSlash(){
-  const inp = document.getElementById("termcmd");
-  if (!inp || inp.dataset.slashReady) return;
-  inp.dataset.slashReady = "1";
-  const wrap = document.createElement("div");
-  wrap.id = "slashpop";
-  wrap.style.cssText = "position:absolute;background:#0d1117;border:1px solid var(--border);border-radius:4px;display:none;z-index:99;max-height:300px;overflow:auto;font-size:11px;min-width:300px;box-shadow:0 4px 12px rgba(0,0,0,0.5)";
-  document.body.appendChild(wrap);
-  function suggest(){
-    const v = inp.value;
-    if (!v.startsWith("/")) { wrap.style.display="none"; return; }
-    const matches = Object.keys(SLASH).filter(k => k.startsWith(v));
-    if (!matches.length) { wrap.style.display="none"; return; }
-    wrap.innerHTML = matches.map(m =>
-      "<div style='padding:5px 10px;cursor:pointer;border-bottom:1px solid var(--border)' data-c='"+m+"'>"+
-      "<b style='color:var(--blue)'>"+m+"</b> <span style='color:var(--mute);font-size:10px'>→ "+
-      SLASH[m].slice(0,70).replace(/</g,"&lt;")+"</span></div>"
-    ).join("");
-    const r = inp.getBoundingClientRect();
-    wrap.style.left = r.left+"px"; wrap.style.top = (r.bottom+2)+"px";
-    wrap.style.display = "block";
-    wrap.querySelectorAll("[data-c]").forEach(el => {
-      el.onclick = () => { inp.value = SLASH[el.dataset.c]; wrap.style.display="none"; inp.focus(); };
-    });
-  }
-  inp.addEventListener("input", suggest);
-  inp.addEventListener("blur", () => setTimeout(()=>{wrap.style.display="none"},180));
-  inp.addEventListener("keydown", (e) => {
-    if (e.key === "Tab" && inp.value.startsWith("/")) {
-      e.preventDefault();
-      const m = Object.keys(SLASH).find(k => k.startsWith(inp.value));
-      if (m) inp.value = SLASH[m];
-      wrap.style.display = "none";
+    const r = await fetch(BASE + path, {headers, ...opts});
+    if (!r.ok) {
+      const text = await r.text().catch(() => "");
+      let errMsg = "HTTP " + r.status;
+      try { const j = JSON.parse(text); if (j.error) errMsg += ": " + j.error; } catch(_) {}
+      overviewMetrics.errors++;
+      return {ok: false, error: errMsg};
     }
+    overviewMetrics.requests++;
+    return await r.json();
+  } catch(e) {
+    overviewMetrics.errors++;
+    return {ok: false, error: e.message || "Network error"};
+  }
+}
+
+// ===== HELPERS =====
+function esc(s) { const d = document.createElement("div"); d.textContent = String(s); return d.innerHTML; }
+function relTime(ts) {
+  if (!ts) return "";
+  try {
+    const d = new Date(ts);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return Math.floor(diff) + "s ago";
+    if (diff < 3600) return Math.floor(diff/60) + "m ago";
+    if (diff < 86400) return Math.floor(diff/3600) + "h ago";
+    return Math.floor(diff/86400) + "d ago";
+  } catch(e) { return ts; }
+}
+function formatUptime(seconds) {
+  if (!seconds && seconds !== 0) return "--";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  if (d > 0) return d + "d " + h + "h";
+  if (h > 0) return h + "h " + m + "m";
+  return m + "m";
+}
+function formatBytes(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1048576) return (b/1024).toFixed(1) + " KB";
+  if (b < 1073741824) return (b/1048576).toFixed(1) + " MB";
+  return (b/1073741824).toFixed(2) + " GB";
+}
+function setBar(id, pct, colorClass) {
+  const bar = document.getElementById(id);
+  const text = document.getElementById(id.replace("Bar","Text"));
+  if (!bar) return;
+  const p = Math.min(100, Math.max(0, pct));
+  bar.style.width = p + "%";
+  bar.className = "fill " + colorClass;
+  if (p > 75 && colorClass !== "red") bar.className = "fill red";
+  else if (p > 50 && colorClass === "green") bar.className = "fill yellow";
+  if (text) text.textContent = p.toFixed(1) + "%";
+}
+function copyToClipboard(text) {
+  try {
+    navigator.clipboard.writeText(text).then(() => showCopyFeedback()).catch(() => {
+      const ta = document.createElement("textarea"); ta.value = text; ta.style.position = "fixed"; ta.style.left = "-9999px"; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); showCopyFeedback();
+    });
+  } catch(e) {}
+}
+function showCopyFeedback() {
+  // brief visual feedback - handled per button
+}
+
+// ===== OVERVIEW =====
+async function refreshOverview() {
+  try {
+    const health = await api("/health");
+    const status = await api("/v1/status");
+    const sysinfo = await api("/v1/sysinfo");
+    const mem = await api("/v1/memory");
+    const missions = await api("/v1/missions");
+    const tasks = await api("/v1/tasks");
+
+    if (health.ok !== undefined && health.ok !== false) {
+      document.getElementById("pingDot").className = "ping ok";
+      document.getElementById("pingText").textContent = "Connected";
+      document.getElementById("statVersion").textContent = health.version || "--";
+      document.getElementById("statHost").textContent = health.host || "--";
+      document.getElementById("sidebarVersion").textContent = health.version || "--";
+      document.getElementById("versionTag").textContent = "v" + (health.version || "--");
+
+      // Uptime
+      if (health.uptime_seconds !== undefined) {
+        document.getElementById("statUptime").textContent = formatUptime(health.uptime_seconds);
+      }
+
+      // Handle reconnection
+      if (wasOffline) {
+        wasOffline = false;
+        lastConnectedTime = new Date();
+        const reconnectMsg = document.getElementById("reconnectMsg");
+        reconnectMsg.textContent = "Reconnected at " + lastConnectedTime.toLocaleTimeString();
+        reconnectMsg.style.display = "block";
+        setTimeout(() => { reconnectMsg.style.display = "none"; }, 5000);
+      }
+      lastConnectedTime = new Date();
+    } else {
+      document.getElementById("pingDot").className = "ping err";
+      document.getElementById("pingText").textContent = "Offline";
+      wasOffline = true;
+      const reconnectMsg = document.getElementById("reconnectMsg");
+      reconnectMsg.textContent = "Connection lost. Reconnecting...";
+      reconnectMsg.style.display = "block";
+      document.getElementById("pingDot").className = "ping reconnecting";
+    }
+
+    if (status.ok) {
+      document.getElementById("statProfile").textContent = status.profile || "--";
+      if (status.metrics) {
+        overviewMetrics.requests = status.metrics.total_requests || overviewMetrics.requests;
+        overviewMetrics.execs = status.metrics.exec_count || overviewMetrics.execs;
+      }
+      // Tailscale funnel status
+      if (status.tailscale) {
+        const ts = status.tailscale;
+        const badge = document.getElementById("tsFunnelStatus");
+        if (ts.funnel_active) {
+          badge.className = "badge ok";
+          badge.textContent = "Active";
+        } else {
+          badge.className = "badge fail";
+          badge.textContent = "Inactive";
+        }
+        document.getElementById("tsFunnelUrl").textContent = ts.funnel_url || "--";
+      }
+    }
+
+    if (sysinfo.ok) {
+      document.getElementById("statCPU").textContent = sysinfo.cpu_threads || "--";
+      const memTotalGB = (sysinfo.mem_total_mb / 1024).toFixed(1);
+      document.getElementById("statRAM").textContent = memTotalGB + " GB";
+      document.getElementById("statDisk").textContent = sysinfo.disk_free_gb + " GB";
+
+      // CPU usage
+      if (sysinfo.cpu_percent !== undefined) setBar("cpuBar", sysinfo.cpu_percent, "green");
+      // RAM usage
+      if (sysinfo.mem_avail_mb !== undefined && sysinfo.mem_total_mb) {
+        const usedPct = ((sysinfo.mem_total_mb - sysinfo.mem_avail_mb) / sysinfo.mem_total_mb) * 100;
+        setBar("ramBar", usedPct, "blue");
+      }
+      // Disk usage
+      if (sysinfo.disk_total_gb !== undefined && sysinfo.disk_free_gb !== undefined) {
+        const diskUsedPct = ((sysinfo.disk_total_gb - sysinfo.disk_free_gb) / sysinfo.disk_total_gb) * 100;
+        setBar("diskBar", diskUsedPct, "purple");
+      }
+      // Load average (Linux only)
+      if (sysinfo.load_average) {
+        document.getElementById("loadAvgRow").style.display = "flex";
+        const la = sysinfo.load_average;
+        document.getElementById("loadAvgText").textContent = la[0].toFixed(2) + " / " + la[1].toFixed(2) + " / " + la[2].toFixed(2);
+      }
+      // Platform info
+      if (sysinfo.python_version) document.getElementById("platPython").textContent = sysinfo.python_version;
+      if (sysinfo.os_build) document.getElementById("platOS").textContent = sysinfo.os_build;
+      if (sysinfo.platform) document.getElementById("platArch").textContent = sysinfo.platform;
+
+      // Sysinfo card - XSS safe
+      const sysCard = document.getElementById("sysinfoCard");
+      sysCard.innerHTML = "";
+      const pre = document.createElement("pre");
+      pre.className = "mono";
+      pre.style.whiteSpace = "pre-wrap";
+      pre.textContent = JSON.stringify(sysinfo, null, 2);
+      sysCard.appendChild(pre);
+    }
+
+    if (mem.ok) document.getElementById("statMemory").textContent = mem.count;
+    if (missions.ok) document.getElementById("statMissions").textContent = missions.count;
+
+    // Active tasks count
+    if (tasks.ok && tasks.tasks) {
+      const active = tasks.tasks.filter(t => t.state === "running" || t.state === "inbox").length;
+      document.getElementById("statActiveTasks").textContent = active;
+    }
+
+    // Update bridge metrics display
+    document.getElementById("metricReqs").textContent = overviewMetrics.requests;
+    document.getElementById("metricExecs").textContent = overviewMetrics.execs;
+    document.getElementById("metricErrors").textContent = overviewMetrics.errors;
+
+  } catch(e) {
+    document.getElementById("pingDot").className = "ping err";
+    document.getElementById("pingText").textContent = "Error";
+    wasOffline = true;
+    const reconnectMsg = document.getElementById("reconnectMsg");
+    reconnectMsg.textContent = "Connection error. Retrying...";
+    reconnectMsg.style.display = "block";
+    document.getElementById("pingDot").className = "ping reconnecting";
+  }
+}
+
+// ===== TERMINAL =====
+const termInput = document.getElementById("termCmd");
+termInput.addEventListener("keydown", e => { if (e.key === "Enter") runCommand(); });
+
+async function runCommand(cmd) {
+  const c = cmd || termInput.value;
+  if (!c.trim()) return;
+  termInput.value = "";
+  const timeout = parseInt(document.getElementById("termTimeout").value);
+  const output = document.getElementById("termOutput");
+  output.textContent = "Running: " + c + "\n...";
+  const t0 = Date.now();
+
+  try {
+    const result = await api("/v1/exec", {method: "POST", body: JSON.stringify({cmd: c, timeout})});
+    const dur = ((Date.now() - t0) / 1000).toFixed(1);
+    document.getElementById("termDuration").textContent = dur + "s";
+    overviewMetrics.execs++;
+
+    if (result.ok !== undefined) {
+      let out = "";
+      if (result.stdout) out += result.stdout;
+      if (result.stderr) out += (out ? "\n--- STDERR ---\n" : "") + result.stderr;
+      if (result.timed_out) out += "\n[TIMEOUT]";
+      if (!result.ok && result.exit_code) out += "\n[Exit code: " + result.exit_code + "]";
+      output.textContent = out || "(no output)";
+    } else {
+      output.textContent = "Error: " + (result.error || "unknown");
+    }
+  } catch(e) {
+    output.textContent = "Error executing command: " + (e.message || "Unknown error");
+  }
+
+  cmdHistory.unshift(c);
+  if (cmdHistory.length > 30) cmdHistory.length = 30;
+  localStorage.setItem("arena_cmd_history", JSON.stringify(cmdHistory));
+  renderHistory();
+}
+
+function clearTerminal() {
+  document.getElementById("termOutput").textContent = "Ready.";
+}
+
+function renderHistory() {
+  const el = document.getElementById("termHistory");
+  el.innerHTML = "";
+  cmdHistory.slice(0, 15).forEach((c) => {
+    const span = document.createElement("span");
+    span.style.cssText = "cursor:pointer;color:var(--purple);margin-right:12px;display:block;margin-bottom:4px";
+    span.textContent = c.length > 50 ? c.slice(0,50)+"..." : c;
+    span.addEventListener("click", () => { termInput.value = c; runCommand(c); });
+    el.appendChild(span);
   });
 }
-async function runTerm(){
-  const raw = document.getElementById("termcmd").value.trim();
-  if (!raw) return;
-  const c = expandSlash(raw);
-  if (c !== raw) {
-    const o = document.getElementById("out");
-    o.textContent += "(slash: "+raw+" → "+c+")\n";
-  }
-  await cmd(c);
-}
-setTimeout(setupSlash, 100);
+renderHistory();
 
-async function refreshAll() {
+function copyTermOutput() {
+  const output = document.getElementById("termOutput").textContent;
+  copyToClipboard(output);
+  const btn = document.querySelector(".copy-btn");
+  const orig = btn.textContent;
+  btn.textContent = "Copied!";
+  setTimeout(() => { btn.textContent = orig; }, 1500);
+}
+
+async function apiQuickGet(path) {
+  const output = document.getElementById("termOutput");
+  document.querySelectorAll(".sidebar nav a").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelector('[data-tab="terminal"]').classList.add("active");
+  document.getElementById("tab-terminal").classList.add("active");
+  output.textContent = "Fetching " + path + "...\n";
+  const t0 = Date.now();
   try {
-    // bridge health
-    const h = await fetch(BASE+'/health').then(r=>r.json());
-    document.getElementById('state').className = 'badge ok';
-    document.getElementById('state').textContent = 'bridge ' + h.version;
-    document.getElementById('hostinfo').textContent = h.host + ' · ' + h.profile + ' · ' + (h.platform||'').split('-with-')[0];
-    document.getElementById('bridge_kv').innerHTML = Object.entries(h).map(([k,v]) => `<b>${k}</b><span>${E(JSON.stringify(v))}</span>`).join('');
-    document.getElementById('ssurl').textContent = BASE;
-    document.getElementById('sstok').textContent = TOKEN ? TOKEN.slice(0,8)+'…'+TOKEN.slice(-4) : '—';
-    document.getElementById('ssprof').textContent = h.profile;
-    window.PY = (h.platform && h.platform.toLowerCase().includes('win')) ? 'python' : 'python3';
+    const result = await api(path);
+    const dur = ((Date.now() - t0) / 1000).toFixed(1);
+    document.getElementById("termDuration").textContent = dur + "s";
+    output.textContent = JSON.stringify(result, null, 2);
   } catch(e) {
-    document.getElementById('state').className = 'badge bad';
-    document.getElementById('state').textContent = 'offline';
+    output.textContent = "Error fetching " + path + ": " + (e.message || "Unknown error");
   }
-  // mcp stream - test MCP endpoint directly
+  cmdHistory.unshift("GET " + path);
+  if (cmdHistory.length > 30) cmdHistory.length = 30;
+  localStorage.setItem("arena_cmd_history", JSON.stringify(cmdHistory));
+  renderHistory();
+}
+
+// ===== MEMORY =====
+async function loadMemory() {
+  const q = document.getElementById("memSearch").value;
+  const tbody = document.getElementById("memoryTable");
   try {
-    const mcpR = await fetch(BASE + '/mcp', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2024-11-05','capabilities':{},'clientInfo':{'name':'dashboard-check','version':'1.0'}}})});
-    const mcpJ = await mcpR.json();
-    const si = mcpJ.result && mcpJ.result.serverInfo || {};
-    const sid = mcpR.headers.get('Mcp-Session-Id') || '—';
-    document.getElementById('mcp_kv').innerHTML =
-      '<b>state</b><span style="color:var(--green)">connected</span> ' +
-      '<b>version</b><span>v' + (si.version||'?') + '</span> ' +
-      '<b>session</b><span>' + sid.slice(0,12) + '…</span>';
-  } catch(e){ document.getElementById('mcp_kv').textContent = 'down'; }
-  // ws - real WebSocket connection from browser
+    const result = await api("/v1/memory" + (q ? "?q=" + encodeURIComponent(q) : ""));
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='5'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    if (!result.facts || !result.facts.length) { tbody.innerHTML = "<tr><td colspan='5'>No facts found</td></tr>"; return; }
+    tbody.innerHTML = "";
+    result.facts.forEach(f => {
+      const tr = document.createElement("tr");
+      const tdKey = document.createElement("td");
+      const strong = document.createElement("strong");
+      strong.textContent = f.key || "";
+      tdKey.appendChild(strong);
+      const tdVal = document.createElement("td");
+      tdVal.textContent = f.value || "";
+      const tdTags = document.createElement("td");
+      (f.tags || []).forEach(t => {
+        const badge = document.createElement("span");
+        badge.className = "badge ok";
+        badge.textContent = t;
+        tdTags.appendChild(badge);
+        tdTags.appendChild(document.createTextNode(" "));
+      });
+      const tdTime = document.createElement("td");
+      tdTime.className = "mono";
+      tdTime.textContent = relTime(f.timestamp);
+      const tdActions = document.createElement("td");
+      const delBtn = document.createElement("button");
+      delBtn.className = "danger sm";
+      delBtn.textContent = "Delete";
+      delBtn.addEventListener("click", () => deleteMemory(f.key));
+      tdActions.appendChild(delBtn);
+      tr.appendChild(tdKey); tr.appendChild(tdVal); tr.appendChild(tdTags); tr.appendChild(tdTime); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='5'>Error loading memory: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
+}
+
+async function addMemory() {
+  const key = document.getElementById("memKey").value.trim();
+  const value = document.getElementById("memValue").value.trim();
+  const tags = document.getElementById("memTags").value.split(",").map(t=>t.trim()).filter(Boolean);
+  if (!key || !value) return alert("Key and value required");
   try {
-    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = wsProto + '//' + location.host + '/ws';
-    const wsTest = new WebSocket(wsUrl);
-    let wsDone = false;
-    const wsTimer = setTimeout(() => { if (!wsDone) { wsDone=true; wsTest.close(); document.getElementById('ws_kv').innerHTML = '<b>state</b><span style="color:var(--yellow)">timeout</span>'; } }, 3000);
-    wsTest.onopen = () => {
-      wsTest.send(JSON.stringify({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dashboard","version":"1.0"}}}));
-    };
-    wsTest.onmessage = (evt) => {
-      if (wsDone) return; wsDone=true; clearTimeout(wsTimer);
-      try {
-        const d = JSON.parse(evt.data);
-        const si = d.result && d.result.serverInfo || {};
-        const pv = d.result && d.result.protocolVersion || '?';
-        document.getElementById('ws_kv').innerHTML = '<b>state</b><span style="color:var(--green)">connected</span> <b>version</b><span>v'+(si.version||'?')+'</span> <b>proto</b><span>'+pv+'</span>';
-      } catch(e) {
-        document.getElementById('ws_kv').innerHTML = '<b>state</b><span style="color:var(--green)">connected</span>';
-      }
-      wsTest.close();
-    };
-    wsTest.onerror = () => { if (!wsDone) { wsDone=true; clearTimeout(wsTimer); document.getElementById('ws_kv').innerHTML='<b>state</b><span style="color:var(--red)">error</span>'; } };
-    wsTest.onclose = () => { if (!wsDone) { wsDone=true; clearTimeout(wsTimer); document.getElementById('ws_kv').innerHTML='<b>state</b><span style="color:var(--red)">closed</span>'; } };
-  } catch(e){ document.getElementById('ws_kv').innerHTML='<b>state</b><span style="color:var(--red)">down</span>'; }
-  // services
-  try {
-    const py = window.PY || 'python3';
-    let r;
-    if (py === 'python') {
-      r = await exec("schtasks /query /fo TABLE | findstr /I \"Arena\"", 10, 4000);
+    const result = await api("/v1/memory", {method: "POST", body: JSON.stringify({key, value, tags})});
+    if (result.ok) {
+      document.getElementById("memKey").value = "";
+      document.getElementById("memValue").value = "";
+      document.getElementById("memTags").value = "";
+      loadMemory();
     } else {
-      r = await exec('systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service arena-mcp-stream.service arena-mcp-ws.service 2>&1 | grep -E "●|Active:" | head -16', 10, 4000);
+      alert("Error: " + (result.error||"?"));
     }
-    document.getElementById('svc').textContent = r.stdout || r.stderr || 'No service info';
-  } catch(e){}
-  // recent activity
+  } catch(e) {
+    alert("Error adding memory: " + (e.message||"Unknown error"));
+  }
+}
+
+async function deleteMemory(key) {
+  if (!confirm("Delete fact: " + key + "?")) return;
   try {
-    const py = window.PY || 'python3';
-    const r = await exec(py + " -c \"import os, glob; d=os.path.expanduser('~/arena-agent/reports'); files = sorted(glob.glob(os.path.join(d, '*')), key=os.path.getmtime, reverse=True); print('\n'.join([os.path.basename(f) for f in files if os.path.isfile(f)][:8]))\"", 5, 2000);
-    document.getElementById('recent').textContent = r.stdout || '—';
-  } catch(e){}
-  
-  // HWiNFO / AIDA64 details render (v8.0)
+    const result = await api("/v1/memory/delete", {method: "POST", body: JSON.stringify({key})});
+    if (result.ok) loadMemory();
+    else alert("Error: " + (result.error||"?"));
+  } catch(e) {
+    alert("Error deleting: " + (e.message||"Unknown error"));
+  }
+}
+
+async function memoryDigest() {
+  const panel = document.getElementById("memoryDigestPanel");
+  panel.style.display = "block";
+  panel.innerHTML = "<span class='spinner'></span> Generating digest...";
   try {
-    const py = window.PY || 'python3';
-    const hw_path = (py === 'python') ? "%USERPROFILE%/arena-agent/scripts/hwinfo.py" : "~/arena-agent/scripts/hwinfo.py";
-    const r = await exec(py + " " + hw_path, 20, 10000);
-    const j = JSON.parse(r.stdout || '{}');
-    let hwHtml = "";
-    if (j.cpu) {
-      hwHtml += `<b>OS:</b>      <span>${E(j.os.name_pretty)} (${E(j.os.architecture)}, Uptime: ${E(j.os.uptime)})</span>\n`;
-      if (j.motherboard) hwHtml += `<b>Board:</b>   <span>${E(j.motherboard.manufacturer)} ${E(j.motherboard.product)} (BIOS: ${E(j.motherboard.bios_name)})</span>\n`;
-      hwHtml += `<b>CPU:</b>     <span>${E(j.cpu.name)} (${E(j.cpu.physical_cores)} Cores / ${E(j.cpu.logical_processors)} Threads)</span>\n`;
-      if (j.gpu) hwHtml += `<b>GPU:</b>     <span>${E(j.gpu.name)} (${E(j.gpu.vram_mb)} MB VRAM)</span>\n`;
-      if (j.ram) hwHtml += `<b>RAM:</b>     <span>${E(j.ram.used_gb)} GB used / ${E(j.ram.total_gb)} GB total (${E(j.ram.used_pct)}% used)</span>\n`;
-      if (j.storage) {
-        hwHtml += `<b>Disks:</b>\n`;
-        Object.entries(j.storage).forEach(([drive, d]) => {
-          hwHtml += `  - Drive ${drive} : ${d.free_gb} GB free of ${d.total_gb} GB (${d.filesystem}, ${d.used_pct}% used)\n`;
+    const result = await api("/v1/memory");
+    if (!result.ok) { panel.innerHTML = "Error: " + esc(result.error||"?"); return; }
+    const facts = result.facts || [];
+    const tagCounts = {};
+    let output = "Memory Digest: " + facts.length + " facts\n\n";
+    facts.forEach(f => {
+      output += "  " + (f.key||"?") + ": " + (f.value||"").slice(0,80) + "\n";
+      (f.tags||[]).forEach(t => { tagCounts[t] = (tagCounts[t]||0) + 1; });
+    });
+    output += "\nTag Summary:\n";
+    Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).forEach(([t,c]) => { output += "  [" + t + "] x" + c + "\n"; });
+    const pre = document.createElement("pre");
+    pre.className = "mono";
+    pre.style.whiteSpace = "pre-wrap";
+    pre.textContent = output;
+    panel.innerHTML = "";
+    panel.appendChild(pre);
+  } catch(e) {
+    panel.innerHTML = "Error: " + esc(e.message||"Unknown");
+  }
+}
+
+async function recallFromMemory() {
+  const q = document.getElementById("memSearch").value.trim();
+  if (!q) { alert("Enter a search query first"); return; }
+  // Navigate to recall tab
+  document.querySelectorAll(".sidebar nav a").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelector('[data-tab="recall"]').classList.add("active");
+  document.getElementById("tab-recall").classList.add("active");
+  document.getElementById("recallQuery").value = q;
+  runRecall();
+}
+
+// ===== RECALL =====
+function tfScore(query, text) {
+  if (!query || !text) return 0;
+  const qTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const tTerms = text.toLowerCase().split(/\s+/);
+  if (!qTerms.length || !tTerms.length) return 0;
+  let score = 0;
+  qTerms.forEach(qt => {
+    let tf = 0;
+    tTerms.forEach(tt => { if (tt.includes(qt) || qt.includes(tt)) tf++; });
+    score += tf / tTerms.length;
+  });
+  return score / qTerms.length;
+}
+
+async function runRecall() {
+  const q = document.getElementById("recallQuery").value.trim();
+  if (!q) { alert("Enter a search query"); return; }
+  const resultsEl = document.getElementById("recallResults");
+  resultsEl.style.display = "block";
+  resultsEl.innerHTML = "<span class='spinner'></span> Searching with TF scoring...";
+  try {
+    const result = await api("/v1/memory");
+    if (!result.ok) { resultsEl.innerHTML = "Error: " + esc(result.error||"?"); return; }
+    const facts = (result.facts || []).map(f => {
+      const text = (f.key + " " + f.value + " " + (f.tags||[]).join(" "));
+      const score = tfScore(q, text);
+      return {...f, score};
+    }).filter(f => f.score > 0).sort((a,b) => b.score - a.score);
+
+    resultsEl.innerHTML = "";
+    const h3 = document.createElement("h3");
+    h3.textContent = "Results for: \"" + q + "\" (" + facts.length + " matches)";
+    resultsEl.appendChild(h3);
+
+    if (!facts.length) {
+      const p = document.createElement("p");
+      p.textContent = "No matching facts found.";
+      p.style.color = "var(--text2)";
+      resultsEl.appendChild(p);
+      return;
+    }
+
+    facts.forEach(f => {
+      const card = document.createElement("div");
+      card.style.cssText = "background:var(--bg3);border:1px solid var(--accent);border-radius:4px;padding:8px 12px;margin-top:6px";
+      const scoreBadge = document.createElement("span");
+      scoreBadge.className = "badge " + (f.score > 0.3 ? "ok" : f.score > 0.1 ? "warn" : "info");
+      scoreBadge.textContent = "Score: " + (f.score * 100).toFixed(1) + "%";
+      const keySpan = document.createElement("strong");
+      keySpan.textContent = f.key || "?";
+      const valSpan = document.createElement("span");
+      valSpan.textContent = " " + (f.value || "");
+      valSpan.style.color = "var(--text2)";
+      card.appendChild(scoreBadge);
+      card.appendChild(document.createTextNode(" "));
+      card.appendChild(keySpan);
+      card.appendChild(document.createTextNode(": "));
+      card.appendChild(valSpan);
+      if (f.tags && f.tags.length) {
+        card.appendChild(document.createTextNode(" "));
+        f.tags.forEach(t => {
+          const tb = document.createElement("span");
+          tb.className = "badge ok";
+          tb.textContent = t;
+          card.appendChild(tb);
+          card.appendChild(document.createTextNode(" "));
         });
       }
-      if (j.network && j.network.adapters) {
-        hwHtml += `<b>Network:</b>\n`;
-        j.network.adapters.forEach(a => {
-          hwHtml += `  - ${E(a.InterfaceAlias)} : ${E(a.IPAddress)}\n`;
-        });
-      }
-    } else {
-      hwHtml = r.stdout || "No hardware info";
-    }
-    document.getElementById('hw_details').innerHTML = hwHtml;
-  } catch(e){ document.getElementById('hw_details').textContent = 'failed to load hardware info'; }
+      resultsEl.appendChild(card);
+    });
+  } catch(e) {
+    resultsEl.innerHTML = "Error: " + esc(e.message||"Unknown");
+  }
 }
 
-// MCP tools
-async function loadTools() {
+async function memoryDigestFull() {
+  const panel = document.getElementById("digestResults");
+  panel.style.display = "block";
+  panel.innerHTML = "<span class='spinner'></span> Generating memory digest...";
   try {
-    const r = await exec('curl -sS -X POST http://127.0.0.1:8765/mcp -H "Content-Type: application/json" -d \'{"jsonrpc":"2.0","id":1,"method":"tools/list"}\'', 10, 20000);
-    let j = {}; try { j = JSON.parse(r.stdout || '{}'); } catch(e) {}
-    const tools = (j && j.result && j.result.tools) ? j.result.tools : [];
-    document.getElementById('tools').innerHTML = tools.map(t =>
-      `<div class="tool" onclick="document.getElementById('toolname').value='${t.name}'"><b>${E(t.name)}</b> <span class="desc">${E(t.description)}</span></div>`).join('');
-    const sel = document.getElementById('toolname');
-    sel.innerHTML = tools.map(t => `<option>${E(t.name)}</option>`).join('');
-  } catch(e){ document.getElementById('tools').textContent = 'load failed: '+e; }
-}
-async function runTool() {
-  const name = document.getElementById('toolname').value;
-  let args = {};
-  try { args = JSON.parse(document.getElementById('toolargs').value || '{}'); }
-  catch(e){ document.getElementById('toolout').textContent = 'invalid JSON: '+e; return; }
-  const payload = JSON.stringify({jsonrpc:"2.0",id:1,method:"tools/call",params:{name, arguments:args}});
-  const r = await exec(`curl -sS -X POST http://127.0.0.1:8765/mcp -H 'Content-Type: application/json' -d '${payload.replace(/'/g, "'\\''")}'`, 60, 60000);
-  try {
-    let j = {}; try { j = JSON.parse(r.stdout || '{}'); } catch(e) {}
-    document.getElementById('toolout').textContent = JSON.stringify(j, null, 2);
-  } catch(e) { document.getElementById('toolout').textContent = r.stdout + '\n' + (r.stderr||''); }
+    const result = await api("/v1/memory");
+    if (!result.ok) { panel.innerHTML = "Error: " + esc(result.error||"?"); return; }
+    const facts = result.facts || [];
+    const tagCounts = {};
+    const tagKeys = {};
+    facts.forEach(f => {
+      (f.tags||[]).forEach(t => {
+        tagCounts[t] = (tagCounts[t]||0) + 1;
+        if (!tagKeys[t]) tagKeys[t] = [];
+        tagKeys[t].push(f.key);
+      });
+    });
+
+    let output = "=== MEMORY DIGEST ===\n";
+    output += "Total Facts: " + facts.length + "\n";
+    output += "Unique Tags: " + Object.keys(tagCounts).length + "\n\n";
+    output += "--- By Tag ---\n";
+    Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).forEach(([t,c]) => {
+      output += "[" + t + "] (" + c + " facts)\n";
+      (tagKeys[t]||[]).slice(0,5).forEach(k => { output += "  - " + k + "\n"; });
+      if (tagKeys[t].length > 5) output += "  ... and " + (tagKeys[t].length - 5) + " more\n";
+    });
+    output += "\n--- Recent Facts ---\n";
+    facts.slice(0, 20).forEach(f => {
+      output += (f.key||"?") + ": " + (f.value||"").slice(0, 100) + "\n";
+    });
+
+    const pre = document.createElement("pre");
+    pre.className = "mono";
+    pre.style.whiteSpace = "pre-wrap";
+    pre.textContent = output;
+    panel.innerHTML = "";
+    const h3 = document.createElement("h3");
+    h3.textContent = "Memory Digest";
+    panel.appendChild(h3);
+    panel.appendChild(pre);
+  } catch(e) {
+    panel.innerHTML = "Error: " + esc(e.message||"Unknown");
+  }
 }
 
-// Browser
-async function brw(action) {
-  const url = document.getElementById('burl').value.trim();
-  if (!url) return;
-  const r = await exec(`agentctl browser ${action} '${url.replace(/'/g, "'\\''")}'`, 60, 80000);
-  document.getElementById('bout').textContent = (r.stdout||'')+(r.stderr?'\nERR:'+r.stderr:'');
-  if (action==='sd-shot') setTimeout(loadShots, 800);
-}
-async function brwSearch() {
-  const q = document.getElementById('bquery').value.trim(); if (!q) return;
-  const r = await exec(`agentctl browser py-search '${q.replace(/'/g, "'\\''")}' --n 5`, 30, 40000);
-  document.getElementById('bout').textContent = r.stdout || r.stderr;
-}
-async function loadShots() {
-  const py = window.PY || 'python3';
-  const r = await exec(py + " -c \"import os, glob; d=os.path.expanduser('~/arena-agent/reports/shots'); files = sorted(glob.glob(os.path.join(d, '*.png')), key=os.path.getmtime, reverse=True); print('\n'.join([os.path.basename(f) for f in files[:8]]))\"", 5, 2000);
-  const files = (r.stdout||'').trim().split('\n').filter(Boolean);
-  document.getElementById('shots').innerHTML = files.map(f => {
-    const url = `${BASE}/v1/download?path=${encodeURIComponent('~/arena-agent/reports/shots/'+f)}&token=${encodeURIComponent(TOKEN)}`;
-    return `<div class="shot"><img src="${url}" loading="lazy"><div class="cap">${E(f)}</div></div>`;
-  }).join('') || '<div class="mini">no shots yet</div>';
-}
-
-// Missions
+// ===== MISSIONS =====
 async function loadMissions() {
-  const r = await exec('agentctl mission list', 10, 8000);
-  document.getElementById('mlist').textContent = r.stdout || r.stderr;
-}
-async function newMission() {
-  const tpl = document.getElementById('mtpl').value.trim(); const name = document.getElementById('mname').value.trim();
-  if (!tpl || !name) return;
-  const r = await exec(`agentctl mission new ${tpl} --name '${name.replace(/'/g, "'\\''")}'`, 30, 20000);
-  document.getElementById('mout').textContent = r.stdout || r.stderr;
+  const tbody = document.getElementById("missionsTable");
+  try {
+    const result = await api("/v1/missions");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    if (!result.missions || !result.missions.length) { tbody.innerHTML = "<tr><td colspan='4'>No missions</td></tr>"; return; }
+    tbody.innerHTML = "";
+    result.missions.forEach(m => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = "<td>" + esc(m.name) + "</td><td>" + esc(m.ext) + "</td><td>" + esc(m.size) + "</td><td class='mono'>" + esc(relTime(m.modified)) + "</td>";
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='4'>Error loading missions: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
 }
 
-// Reports
+// ===== BROWSER =====
+async function browserSearch() {
+  const q = document.getElementById("searchQuery").value.trim();
+  const n = document.getElementById("searchCount").value;
+  if (!q) return;
+  const resultsEl = document.getElementById("searchResults");
+  resultsEl.innerHTML = "<div class='card'><span class='spinner'></span> Searching...</div>";
+  try {
+    const result = await api("/v1/browser/search?q=" + encodeURIComponent(q) + "&n=" + n);
+    if (!result.ok || !result.results) {
+      resultsEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>";
+      return;
+    }
+    resultsEl.innerHTML = "";
+    result.results.forEach((r,i) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      const strong = document.createElement("strong");
+      strong.textContent = (i+1) + ". " + (r.title||"");
+      card.appendChild(strong);
+      card.appendChild(document.createElement("br"));
+      const a = document.createElement("a");
+      a.href = r.url;
+      a.target = "_blank";
+      a.style.cssText = "color:var(--purple);font-size:12px";
+      a.textContent = r.url || "";
+      card.appendChild(a);
+      card.appendChild(document.createElement("br"));
+      const span = document.createElement("span");
+      span.style.cssText = "font-size:12px;color:var(--text2)";
+      span.textContent = r.snippet || "";
+      card.appendChild(span);
+      resultsEl.appendChild(card);
+    });
+  } catch(e) {
+    resultsEl.innerHTML = "<div class='card'>Search error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+async function browserRead() {
+  const url = document.getElementById("readUrl").value.trim();
+  if (!url) return;
+  const readEl = document.getElementById("readResult");
+  readEl.innerHTML = "<div class='card'><span class='spinner'></span> Reading...</div>";
+  try {
+    const result = await api("/v1/browser/read?url=" + encodeURIComponent(url));
+    if (!result.ok) { readEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    readEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const h2 = document.createElement("h2");
+    h2.textContent = result.title || "No title";
+    card.appendChild(h2);
+    const pre = document.createElement("pre");
+    pre.className = "mono";
+    pre.style.cssText = "white-space:pre-wrap;max-height:400px;overflow-y:auto";
+    pre.textContent = result.text || "";
+    card.appendChild(pre);
+    readEl.appendChild(card);
+  } catch(e) {
+    readEl.innerHTML = "<div class='card'>Read error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+async function browserDump() {
+  const url = document.getElementById("readUrl").value.trim();
+  if (!url) return alert("Enter a URL first");
+  const dumpEl = document.getElementById("dumpResult");
+  dumpEl.innerHTML = "<div class='card'><span class='spinner'></span> Dumping page...</div>";
+  try {
+    const result = await api("/v1/browser/dump?url=" + encodeURIComponent(url));
+    if (!result.ok) { dumpEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    dumpEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const h2 = document.createElement("h2");
+    h2.textContent = "Dump: " + url;
+    card.appendChild(h2);
+    // Show extracted links
+    if (result.links && result.links.length) {
+      const h3 = document.createElement("h3");
+      h3.textContent = "Extracted Links (" + result.links.length + ")";
+      card.appendChild(h3);
+      const linkDiv = document.createElement("div");
+      linkDiv.className = "link-list";
+      result.links.forEach(l => {
+        const a = document.createElement("a");
+        a.href = typeof l === "string" ? l : (l.url || "");
+        a.target = "_blank";
+        a.textContent = typeof l === "string" ? l : (l.text || l.url || "");
+        linkDiv.appendChild(a);
+      });
+      card.appendChild(linkDiv);
+    }
+    if (result.text) {
+      const h3 = document.createElement("h3");
+      h3.textContent = "Page Content";
+      card.appendChild(h3);
+      const pre = document.createElement("pre");
+      pre.className = "mono";
+      pre.style.cssText = "white-space:pre-wrap;max-height:300px;overflow-y:auto";
+      pre.textContent = result.text;
+      card.appendChild(pre);
+    }
+    dumpEl.appendChild(card);
+  } catch(e) {
+    dumpEl.innerHTML = "<div class='card'>Dump error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+async function browserFetch() {
+  const url = document.getElementById("readUrl").value.trim();
+  if (!url) return alert("Enter a URL first");
+  const readEl = document.getElementById("readResult");
+  readEl.innerHTML = "<div class='card'><span class='spinner'></span> Fetching raw content...</div>";
+  try {
+    const result = await api("/v1/browser/fetch?url=" + encodeURIComponent(url));
+    if (!result.ok) { readEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    readEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const h2 = document.createElement("h2");
+    h2.textContent = "Fetch: " + url;
+    card.appendChild(h2);
+    const pre = document.createElement("pre");
+    pre.className = "mono";
+    pre.style.cssText = "white-space:pre-wrap;max-height:400px;overflow-y:auto";
+    pre.textContent = result.content || result.text || JSON.stringify(result, null, 2);
+    card.appendChild(pre);
+    readEl.appendChild(card);
+  } catch(e) {
+    readEl.innerHTML = "<div class='card'>Fetch error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+async function browserHead() {
+  const url = document.getElementById("readUrl").value.trim();
+  if (!url) return alert("Enter a URL first");
+  const headEl = document.getElementById("headResult");
+  headEl.innerHTML = "<div class='card'><span class='spinner'></span> Getting headers...</div>";
+  try {
+    const result = await api("/v1/browser/head?url=" + encodeURIComponent(url));
+    if (!result.ok) { headEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    headEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const h2 = document.createElement("h2");
+    h2.textContent = "HEAD: " + url;
+    card.appendChild(h2);
+    // Show response headers
+    if (result.headers) {
+      const table = document.createElement("table");
+      table.className = "hdr-table";
+      Object.entries(result.headers).forEach(([k,v]) => {
+        const tr = document.createElement("tr");
+        const td1 = document.createElement("td");
+        td1.textContent = k;
+        const td2 = document.createElement("td");
+        td2.className = "mono";
+        td2.textContent = v;
+        tr.appendChild(td1); tr.appendChild(td2);
+        table.appendChild(tr);
+      });
+      card.appendChild(table);
+    }
+    if (result.status) {
+      const p = document.createElement("p");
+      p.style.marginTop = "8px";
+      p.innerHTML = "Status: <strong>" + esc(result.status) + "</strong>";
+      card.appendChild(p);
+    }
+    headEl.appendChild(card);
+  } catch(e) {
+    headEl.innerHTML = "<div class='card'>HEAD error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+async function browserScreenshot() {
+  const url = document.getElementById("readUrl").value.trim();
+  if (!url) return alert("Enter a URL first");
+  const readEl = document.getElementById("readResult");
+  readEl.innerHTML = "<div class='card'><span class='spinner'></span> Taking screenshot...</div>";
+  try {
+    const result = await api("/v1/exec", {method: "POST", body: JSON.stringify({cmd: "headless-chrome-screenshot " + url, timeout: 30})});
+    if (!result.ok) { readEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    readEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const h2 = document.createElement("h2");
+    h2.textContent = "Screenshot: " + url;
+    card.appendChild(h2);
+    const pre = document.createElement("pre");
+    pre.className = "mono";
+    pre.style.cssText = "white-space:pre-wrap;max-height:400px;overflow-y:auto";
+    pre.textContent = result.stdout || "Screenshot output not available";
+    card.appendChild(pre);
+    readEl.appendChild(card);
+  } catch(e) {
+    readEl.innerHTML = "<div class='card'>Screenshot error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+// ===== REPORTS =====
 async function loadReports() {
-  const r = await exec('agentctl report ls 2>&1 | head -40', 10, 16000);
-  document.getElementById('rlist').textContent = r.stdout || r.stderr;
-}
-async function filterReports() {
-  const f = document.getElementById('rfilter').value.trim();
-  const r = await exec(`agentctl report ls 2>&1 | grep -i '${f.replace(/'/g, "'\\''")}' | head -40`, 10, 16000);
-  document.getElementById('rlist').textContent = r.stdout || '(no matches)';
+  const tbody = document.getElementById("reportsTable");
+  try {
+    const result = await api("/v1/reports");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    if (!result.reports || !result.reports.length) { tbody.innerHTML = "<tr><td colspan='4'>No reports</td></tr>"; return; }
+    tbody.innerHTML = "";
+    result.reports.forEach(r => {
+      const tr = document.createElement("tr");
+      const tdName = document.createElement("td");
+      tdName.textContent = r.name || "";
+      const tdSize = document.createElement("td");
+      tdSize.textContent = formatBytes(r.size || 0);
+      const tdMod = document.createElement("td");
+      tdMod.className = "mono";
+      tdMod.textContent = relTime(r.modified);
+      const tdActions = document.createElement("td");
+      const dlBtn = document.createElement("button");
+      dlBtn.className = "info sm";
+      dlBtn.textContent = "Download";
+      dlBtn.addEventListener("click", () => downloadReport(r.name));
+      tdActions.appendChild(dlBtn);
+      tr.appendChild(tdName); tr.appendChild(tdSize); tr.appendChild(tdMod); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='4'>Error loading reports: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
 }
 
-// Memory
-async function memGet(){
-  const q = document.getElementById('mq').value.trim(); if (!q) return;
-  const r = await exec(`agentctl mem get '${q.replace(/'/g, "'\\''")}'`, 10, 30000);
-  document.getElementById('mres').textContent = r.stdout || r.stderr || '(empty)';
-}
-async function memSet(){
-  const k = document.getElementById('mk').value.trim();
-  const v = document.getElementById('mv').value.trim();
-  const t = document.getElementById('mt').value.trim();
-  if (!k || !v) return;
-  const tags = t ? ' --tags ' + t.split(/\s+/).join(' ') : '';
-  const r = await exec(`agentctl mem set '${k.replace(/'/g, "'\\''")}' '${v.replace(/'/g, "'\\''")}'${tags}`, 10, 4000);
-  document.getElementById('msout').textContent = (r.stdout || r.stderr || '').trim();
+function downloadReport(name) {
+  const a = document.createElement("a");
+  a.href = BASE + "/v1/reports/" + encodeURIComponent(name);
+  a.download = name;
+  a.click();
 }
 
-// init
-refreshAll();
-document.getElementById('autoref').addEventListener('change', e => {
-  if (e.target.checked) autoRefTimer = setInterval(refreshAll, 8000);
-  else clearInterval(autoRefTimer);
+// ===== TASKS =====
+function startTaskRefresh() {
+  stopTaskRefresh();
+  taskRefreshTimer = setInterval(loadTasks, 10000);
+}
+function stopTaskRefresh() {
+  if (taskRefreshTimer) { clearInterval(taskRefreshTimer); taskRefreshTimer = null; }
+}
+
+function showTaskSubmit() {
+  document.getElementById("taskSubmitPanel").style.display = "block";
+  document.getElementById("taskCmd").focus();
+}
+
+async function loadTasks() {
+  const tbody = document.getElementById("tasksTable");
+  try {
+    const result = await api("/v1/tasks");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='5'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    const tasks = result.tasks || [];
+    // Update stats
+    const counts = {inbox:0, running:0, done:0, failed:0};
+    tasks.forEach(t => { if (counts[t.state] !== undefined) counts[t.state]++; });
+    document.getElementById("taskInbox").textContent = counts.inbox;
+    document.getElementById("taskRunning").textContent = counts.running;
+    document.getElementById("taskDone").textContent = counts.done;
+    document.getElementById("taskFailed").textContent = counts.failed;
+    document.getElementById("taskCountBadge").textContent = tasks.length;
+
+    if (!tasks.length) { tbody.innerHTML = "<tr><td colspan='5'>No tasks</td></tr>"; return; }
+    tbody.innerHTML = "";
+    tasks.forEach(t => {
+      const tr = document.createElement("tr");
+      const stateColors = {inbox:"gray",running:"warn",done:"ok",failed:"fail"};
+      const stateClass = stateColors[t.state] || "gray";
+      tr.innerHTML = "<td class='mono'>" + esc(t.id || "").slice(0,8) + "</td><td class='mono' style='max-width:300px;overflow:hidden;text-overflow:ellipsis'>" + esc(t.cmd || "") + "</td><td><span class='badge " + stateClass + "'>" + esc(t.state || "?") + "</span></td><td class='mono'>" + esc(relTime(t.started_at || t.created_at)) + "</td><td class='mono'>" + esc(t.duration ? t.duration + "s" : "--") + "</td>";
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='5'>Error loading tasks: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
+}
+
+async function submitTask() {
+  const cmd = document.getElementById("taskCmd").value.trim();
+  const timeout = parseInt(document.getElementById("taskTimeout").value) || 30;
+  const cwd = document.getElementById("taskCwd").value.trim();
+  if (!cmd) return alert("Command required");
+  try {
+    const body = {cmd, timeout};
+    if (cwd) body.cwd = cwd;
+    const result = await api("/v1/tasks", {method: "POST", body: JSON.stringify(body)});
+    if (result.ok) {
+      document.getElementById("taskSubmitPanel").style.display = "none";
+      document.getElementById("taskCmd").value = "";
+      document.getElementById("taskCwd").value = "";
+      loadTasks();
+    } else {
+      alert("Error: " + (result.error||"?"));
+    }
+  } catch(e) {
+    alert("Error submitting task: " + (e.message||"Unknown error"));
+  }
+}
+
+async function cleanTasks() {
+  try {
+    const result = await api("/v1/tasks/clean", {method: "POST"});
+    if (result.ok) loadTasks();
+    else alert("Error: " + (result.error||"?"));
+  } catch(e) {
+    alert("Error cleaning tasks: " + (e.message||"Unknown error"));
+  }
+}
+
+// ===== SKILLS =====
+async function loadSkills() {
+  const tbody = document.getElementById("skillsTable");
+  try {
+    const result = await api("/v1/skills");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='3'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    const skills = result.skills || [];
+    if (!skills.length) { tbody.innerHTML = "<tr><td colspan='3'>No skills available</td></tr>"; return; }
+    tbody.innerHTML = "";
+    skills.forEach(s => {
+      const tr = document.createElement("tr");
+      const tdName = document.createElement("td");
+      tdName.textContent = s.name || s.id || "?";
+      tdName.style.cursor = "pointer";
+      tdName.style.color = "var(--blue)";
+      tdName.addEventListener("click", () => showSkillDetail(s));
+      const tdDesc = document.createElement("td");
+      tdDesc.textContent = (s.description || "").slice(0,80);
+      tdDesc.style.color = "var(--text2)";
+      const tdActions = document.createElement("td");
+      const runBtn = document.createElement("button");
+      runBtn.className = "success sm";
+      runBtn.textContent = "Run";
+      runBtn.addEventListener("click", () => runSkill(s));
+      tdActions.appendChild(runBtn);
+      tr.appendChild(tdName); tr.appendChild(tdDesc); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='3'>Error loading skills: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
+}
+
+function showSkillDetail(skill) {
+  const panel = document.getElementById("skillDetail");
+  panel.className = "detail-panel open";
+  panel.innerHTML = "";
+  const h3 = document.createElement("h3");
+  h3.textContent = skill.name || skill.id || "Skill";
+  panel.appendChild(h3);
+  if (skill.description) {
+    const p = document.createElement("p");
+    p.textContent = skill.description;
+    p.style.color = "var(--text2)";
+    p.style.marginTop = "4px";
+    panel.appendChild(p);
+  }
+  const pre = document.createElement("pre");
+  pre.className = "mono";
+  pre.style.cssText = "white-space:pre-wrap;margin-top:8px";
+  pre.textContent = JSON.stringify(skill, null, 2);
+  panel.appendChild(pre);
+}
+
+async function runSkill(skill) {
+  const outputEl = document.getElementById("skillOutput");
+  const outputText = document.getElementById("skillOutputText");
+  outputEl.style.display = "block";
+  outputText.textContent = "Running skill: " + (skill.name || skill.id || "?") + "...";
+  try {
+    const result = await api("/v1/skills/run", {method: "POST", body: JSON.stringify({skill: skill.name || skill.id})});
+    outputText.textContent = JSON.stringify(result, null, 2);
+  } catch(e) {
+    outputText.textContent = "Error: " + (e.message || "Unknown error");
+  }
+}
+
+// ===== HOOKS =====
+async function loadHooks() {
+  const container = document.getElementById("hooksContainer");
+  container.innerHTML = "<span class='spinner'></span> Loading hooks...";
+  try {
+    const result = await api("/v1/hooks");
+    if (!result.ok) { container.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    const hooks = result.hooks || {};
+    container.innerHTML = "";
+    if (!Object.keys(hooks).length) {
+      container.innerHTML = "<div class='card'>No hooks configured</div>";
+      return;
+    }
+    Object.entries(hooks).forEach(([event, hookList]) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      const h3 = document.createElement("h3");
+      h3.textContent = "Event: " + event;
+      h3.style.color = "var(--yellow)";
+      card.appendChild(h3);
+      if (Array.isArray(hookList)) {
+        hookList.forEach(h => {
+          const div = document.createElement("div");
+          div.style.cssText = "background:var(--bg3);padding:8px;border-radius:4px;margin-top:4px;font-size:12px";
+          const pre = document.createElement("pre");
+          pre.className = "mono";
+          pre.style.whiteSpace = "pre-wrap";
+          pre.textContent = JSON.stringify(h, null, 2);
+          div.appendChild(pre);
+          card.appendChild(div);
+        });
+      } else {
+        const pre = document.createElement("pre");
+        pre.className = "mono";
+        pre.style.whiteSpace = "pre-wrap";
+        pre.textContent = JSON.stringify(hookList, null, 2);
+        card.appendChild(pre);
+      }
+      container.appendChild(card);
+    });
+  } catch(e) {
+    container.innerHTML = "<div class='card'>Error loading hooks: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+// ===== AGENTS =====
+async function loadAgents() {
+  const tbody = document.getElementById("agentsTable");
+  try {
+    const result = await api("/v1/agents");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    const agents = result.agents || [];
+    if (!agents.length) { tbody.innerHTML = "<tr><td colspan='4'>No agents configured</td></tr>"; return; }
+    tbody.innerHTML = "";
+    agents.forEach(a => {
+      const tr = document.createElement("tr");
+      const tdName = document.createElement("td");
+      tdName.textContent = a.name || a.id || "?";
+      tdName.style.cursor = "pointer";
+      tdName.style.color = "var(--blue)";
+      tdName.addEventListener("click", () => showAgentDetail(a));
+      const tdType = document.createElement("td");
+      tdType.textContent = a.type || a.model || "?";
+      const tdStatus = document.createElement("td");
+      const badge = document.createElement("span");
+      badge.className = "badge " + (a.active || a.status === "active" ? "ok" : "gray");
+      badge.textContent = a.status || (a.active ? "active" : "inactive");
+      tdStatus.appendChild(badge);
+      const tdActions = document.createElement("td");
+      tr.appendChild(tdName); tr.appendChild(tdType); tr.appendChild(tdStatus); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='4'>Error loading agents: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
+}
+
+function showAgentDetail(agent) {
+  const panel = document.getElementById("agentDetail");
+  panel.className = "detail-panel open";
+  panel.innerHTML = "";
+  const h3 = document.createElement("h3");
+  h3.textContent = agent.name || agent.id || "Agent";
+  panel.appendChild(h3);
+  const pre = document.createElement("pre");
+  pre.className = "mono";
+  pre.style.cssText = "white-space:pre-wrap;margin-top:8px";
+  pre.textContent = JSON.stringify(agent, null, 2);
+  panel.appendChild(pre);
+}
+
+// ===== DOCTOR =====
+async function runDoctor() {
+  const doctorEl = document.getElementById("doctorResults");
+  doctorEl.innerHTML = "<span class='spinner'></span> Running diagnostics...";
+  // Load service status
+  const svcEl = document.getElementById("serviceStatus");
+  svcEl.innerHTML = "<span class='spinner'></span>";
+  const tsEl = document.getElementById("doctorTailscale");
+  tsEl.innerHTML = "<span class='spinner'></span>";
+
+  try {
+    const result = await api("/v1/doctor");
+    if (!result.ok) {
+      doctorEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>";
+      svcEl.textContent = "Error loading status";
+      tsEl.textContent = "Error loading status";
+      return;
+    }
+    const passed = result.passed;
+    const total = result.total;
+
+    // Service status
+    if (result.services) {
+      svcEl.innerHTML = "";
+      Object.entries(result.services).forEach(([name, info]) => {
+        const div = document.createElement("div");
+        div.className = "row";
+        const badge = document.createElement("span");
+        badge.className = "badge " + (info.ok || info.active ? "ok" : "fail");
+        badge.textContent = info.ok || info.active ? "OK" : "DOWN";
+        const nameSpan = document.createElement("span");
+        nameSpan.style.cssText = "font-size:12px;font-weight:600;width:140px";
+        nameSpan.textContent = name;
+        const detail = document.createElement("span");
+        detail.style.cssText = "font-size:12px;color:var(--text2)";
+        detail.textContent = info.detail || info.port || "";
+        div.appendChild(badge); div.appendChild(nameSpan); div.appendChild(detail);
+        svcEl.appendChild(div);
+      });
+    } else {
+      svcEl.textContent = "Service info not available";
+    }
+
+    // Tailscale status
+    if (result.tailscale) {
+      tsEl.innerHTML = "";
+      const ts = result.tailscale;
+      const badge = document.createElement("span");
+      badge.className = "badge " + (ts.funnel_active ? "ok" : "fail");
+      badge.textContent = ts.funnel_active ? "Active" : "Inactive";
+      tsEl.appendChild(badge);
+      if (ts.funnel_url) {
+        const url = document.createElement("span");
+        url.className = "mono";
+        url.style.cssText = "font-size:12px;margin-left:8px";
+        url.textContent = ts.funnel_url;
+        tsEl.appendChild(url);
+      }
+    } else {
+      tsEl.textContent = "Tailscale info not available";
+    }
+
+    // Doctor results
+    doctorEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const statDiv = document.createElement("div");
+    statDiv.className = "stat " + (passed===total?"":"warn");
+    statDiv.textContent = passed + "/" + total;
+    card.appendChild(statDiv);
+    const labelDiv = document.createElement("div");
+    labelDiv.className = "label";
+    labelDiv.textContent = "Checks Passed";
+    card.appendChild(labelDiv);
+    doctorEl.appendChild(card);
+
+    (result.checks || []).forEach(c => {
+      const checkCard = document.createElement("div");
+      checkCard.className = "card";
+      checkCard.style.padding = "8px 16px";
+      const badge = document.createElement("span");
+      badge.className = "badge " + (c.ok ? "ok" : "fail");
+      badge.textContent = c.ok ? "PASS" : "FAIL";
+      checkCard.appendChild(badge);
+      checkCard.appendChild(document.createTextNode(" "));
+      const strong = document.createElement("strong");
+      strong.textContent = c.name || "";
+      checkCard.appendChild(strong);
+      checkCard.appendChild(document.createTextNode(" "));
+      const span = document.createElement("span");
+      span.style.cssText = "color:var(--text2);font-size:12px";
+      span.textContent = c.detail || "";
+      checkCard.appendChild(span);
+      doctorEl.appendChild(checkCard);
+    });
+  } catch(e) {
+    doctorEl.innerHTML = "<div class='card'>Diagnostics error: " + esc(e.message||"Unknown") + "</div>";
+    svcEl.textContent = "Error";
+    tsEl.textContent = "Error";
+  }
+}
+
+async function doctorFix() {
+  if (!confirm("Auto-fix common issues?")) return;
+  const doctorEl = document.getElementById("doctorResults");
+  doctorEl.innerHTML = "<span class='spinner'></span> Running auto-fix...";
+  try {
+    const result = await api("/v1/doctor/fix", {method: "POST"});
+    if (!result.ok) { doctorEl.innerHTML = "<div class='card'>Error: " + esc(result.error||"?") + "</div>"; return; }
+    doctorEl.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "card";
+    const pre = document.createElement("pre");
+    pre.className = "mono";
+    pre.style.whiteSpace = "pre-wrap";
+    pre.textContent = JSON.stringify(result, null, 2);
+    card.appendChild(pre);
+    doctorEl.appendChild(card);
+    // Re-run diagnostics after fix
+    setTimeout(runDoctor, 2000);
+  } catch(e) {
+    doctorEl.innerHTML = "<div class='card'>Fix error: " + esc(e.message||"Unknown") + "</div>";
+  }
+}
+
+// ===== AUDIT =====
+async function loadAudit() {
+  const n = document.getElementById("auditLines").value || "50";
+  const filter = document.getElementById("auditFilter").value;
+  const tbody = document.getElementById("auditTable");
+  try {
+    let path = "/v1/audit?lines=" + n;
+    if (filter) path += "&type=" + encodeURIComponent(filter);
+    const result = await api(path);
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='3'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    const events = result.events || [];
+    if (!events.length) { tbody.innerHTML = "<tr><td colspan='3'>No audit events</td></tr>"; return; }
+    tbody.innerHTML = "";
+    events.forEach(e => {
+      const tr = document.createElement("tr");
+      const ts = e.ts || e.timestamp || "?";
+      const type = e.type || "?";
+      const detail = e.cmd ? ("cmd: " + e.cmd.slice(0,80)) : (e.reason || e.exit_code || "");
+      const tdTime = document.createElement("td");
+      tdTime.className = "mono";
+      tdTime.textContent = String(ts).slice(0,19);
+      const tdType = document.createElement("td");
+      tdType.textContent = type;
+      const tdDetail = document.createElement("td");
+      tdDetail.className = "mono";
+      tdDetail.style.cssText = "max-width:400px;overflow:hidden;text-overflow:ellipsis";
+      tdDetail.textContent = String(detail).slice(0,120);
+      tr.appendChild(tdTime); tr.appendChild(tdType); tr.appendChild(tdDetail);
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='3'>Error loading audit: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
+}
+
+async function auditStats() {
+  const panel = document.getElementById("auditStatsPanel");
+  panel.style.display = "block";
+  panel.innerHTML = "<span class='spinner'></span> Computing audit statistics...";
+  try {
+    const result = await api("/v1/audit?lines=1000");
+    if (!result.ok) { panel.innerHTML = "Error: " + esc(result.error||"?"); return; }
+    const events = result.events || [];
+    const typeCounts = {};
+    let minTs = null, maxTs = null;
+    events.forEach(e => {
+      const t = e.type || "unknown";
+      typeCounts[t] = (typeCounts[t]||0) + 1;
+      const ts = e.ts || e.timestamp;
+      if (ts) {
+        const d = new Date(ts);
+        if (!minTs || d < minTs) minTs = d;
+        if (!maxTs || d > maxTs) maxTs = d;
+      }
+    });
+
+    panel.innerHTML = "";
+    const h3 = document.createElement("h3");
+    h3.textContent = "Audit Statistics";
+    panel.appendChild(h3);
+
+    const statsGrid = document.createElement("div");
+    statsGrid.className = "card-grid-sm";
+    const totalCard = document.createElement("div");
+    totalCard.className = "card";
+    totalCard.innerHTML = "<div class='stat info'>" + events.length + "</div><div class='label'>Total Events</div>";
+    statsGrid.appendChild(totalCard);
+    panel.appendChild(statsGrid);
+
+    // Type counts
+    Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]).forEach(([type, count]) => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = "<div class='stat warn'>" + count + "</div><div class='label'>" + esc(type) + "</div>";
+      statsGrid.appendChild(card);
+    });
+
+    // Time range
+    if (minTs && maxTs) {
+      const tr = document.createElement("p");
+      tr.style.cssText = "font-size:12px;color:var(--text2);margin-top:8px";
+      tr.textContent = "Time range: " + minTs.toLocaleString() + " to " + maxTs.toLocaleString();
+      panel.appendChild(tr);
+    }
+  } catch(e) {
+    panel.innerHTML = "Error: " + esc(e.message||"Unknown");
+  }
+}
+
+// ===== BACKUP =====
+async function createBackup() {
+  const progEl = document.getElementById("backupProgress");
+  progEl.style.display = "block";
+  try {
+    const result = await api("/v1/backup", {method: "POST"});
+    progEl.style.display = "none";
+    if (result.ok) {
+      loadBackups();
+    } else {
+      alert("Backup error: " + (result.error||"?"));
+    }
+  } catch(e) {
+    progEl.style.display = "none";
+    alert("Backup failed: " + (e.message||"Unknown error"));
+  }
+}
+
+async function loadBackups() {
+  const tbody = document.getElementById("backupsTable");
+  try {
+    const result = await api("/v1/backup");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    const backups = result.backups || [];
+    if (!backups.length) { tbody.innerHTML = "<tr><td colspan='4'>No backups found</td></tr>"; return; }
+    tbody.innerHTML = "";
+    backups.forEach(b => {
+      const tr = document.createElement("tr");
+      const tdName = document.createElement("td");
+      tdName.textContent = b.name || b.filename || "?";
+      const tdSize = document.createElement("td");
+      tdSize.textContent = formatBytes(b.size || 0);
+      const tdDate = document.createElement("td");
+      tdDate.className = "mono";
+      tdDate.textContent = relTime(b.created_at || b.modified);
+      const tdActions = document.createElement("td");
+      const dlBtn = document.createElement("button");
+      dlBtn.className = "info sm";
+      dlBtn.textContent = "Download";
+      dlBtn.addEventListener("click", () => downloadBackup(b.name || b.filename));
+      tdActions.appendChild(dlBtn);
+      tr.appendChild(tdName); tr.appendChild(tdSize); tr.appendChild(tdDate); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
+  } catch(e) {
+    tbody.innerHTML = "<tr><td colspan='4'>Error loading backups: " + esc(e.message||"Unknown") + "</td></tr>";
+  }
+}
+
+function downloadBackup(name) {
+  const a = document.createElement("a");
+  a.href = BASE + "/v1/backup/" + encodeURIComponent(name);
+  a.download = name;
+  a.click();
+}
+
+// ===== SETTINGS =====
+async function refreshSettings() {
+  try {
+    const health = await api("/health");
+    if (health.ok !== undefined && health.uptime_seconds !== undefined) {
+      document.getElementById("setUptime").textContent = formatUptime(health.uptime_seconds);
+    }
+    // Env info
+    const sysinfo = await api("/v1/sysinfo");
+    if (sysinfo.ok) {
+      const envParts = [];
+      if (sysinfo.python_version) envParts.push("Python: " + sysinfo.python_version);
+      if (sysinfo.platform) envParts.push("Platform: " + sysinfo.platform);
+      if (sysinfo.os_build) envParts.push("OS: " + sysinfo.os_build);
+      if (sysinfo.cpu_threads) envParts.push("CPU Threads: " + sysinfo.cpu_threads);
+      if (sysinfo.mem_total_mb) envParts.push("RAM: " + (sysinfo.mem_total_mb/1024).toFixed(1) + " GB");
+      if (sysinfo.disk_free_gb) envParts.push("Disk Free: " + sysinfo.disk_free_gb + " GB");
+      if (sysinfo.architecture) envParts.push("Arch: " + sysinfo.architecture);
+      document.getElementById("envInfo").textContent = envParts.join("\n");
+    }
+    // Metrics
+    document.getElementById("setRequests").textContent = overviewMetrics.requests;
+    document.getElementById("setErrors").textContent = overviewMetrics.errors;
+    // Tailscale status
+    const status = await api("/v1/status");
+    if (status.ok && status.tailscale) {
+      const badge = document.getElementById("tsToggleStatus");
+      if (status.tailscale.funnel_active) {
+        badge.className = "badge ok";
+        badge.textContent = "Active";
+      } else {
+        badge.className = "badge fail";
+        badge.textContent = "Inactive";
+      }
+    }
+  } catch(e) {
+    // Silent fail
+  }
+}
+
+async function tsFunnelToggle(action) {
+  try {
+    const result = await api("/v1/tailscale/funnel/" + action, {method: "POST"});
+    if (result.ok) {
+      refreshSettings();
+      refreshOverview();
+    } else {
+      alert("Error: " + (result.error||"?"));
+    }
+  } catch(e) {
+    alert("Error toggling funnel: " + (e.message||"Unknown error"));
+  }
+}
+
+async function bridgeRestart() {
+  if (!confirm("Restart the bridge? This may cause a temporary disconnect.")) return;
+  try {
+    const result = await api("/v1/restart", {method: "POST"});
+    if (result.ok) {
+      alert("Bridge restarting... Please wait.");
+    } else {
+      alert("Error: " + (result.error||"?"));
+    }
+  } catch(e) {
+    alert("Error restarting bridge: " + (e.message||"Unknown error"));
+  }
+}
+
+async function regenToken() {
+  if (!confirm("Regenerate the auth token? You will need to update any clients using the current token.")) return;
+  try {
+    const result = await api("/v1/token/regenerate", {method: "POST"});
+    if (result.ok) {
+      alert("Token regenerated. Please reload the dashboard.");
+    } else {
+      alert("Error: " + (result.error||"?"));
+    }
+  } catch(e) {
+    alert("Error regenerating token: " + (e.message||"Unknown error"));
+  }
+}
+
+async function exportConfig() {
+  try {
+    const result = await api("/v1/config");
+    if (!result.ok) { alert("Error: " + (result.error||"?")); return; }
+    const blob = new Blob([JSON.stringify(result, null, 2)], {type: "application/json"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = "arena-bridge-config.json"; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) {
+    alert("Error exporting config: " + (e.message||"Unknown error"));
+  }
+}
+
+// SETTINGS - Beep
+async function testBeep(type) {
+  try {
+    const result = await api("/v1/beep", {method: "POST", body: JSON.stringify({type})});
+    if (result.ok) {
+      try {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        const freqs = {success:800,warning:600,error:400,melody:523,attention:1000};
+        osc.frequency.value = freqs[type] || 800;
+        gain.gain.value = 0.15;
+        osc.start(); osc.stop(ctx.currentTime + 0.2);
+      } catch(e) {}
+    } else {
+      alert("Beep error: " + (result.error||"Unknown"));
+    }
+  } catch(e) {
+    alert("Beep failed: " + (e.message||"Unknown error"));
+  }
+}
+
+// ===== KEYBOARD SHORTCUTS =====
+document.addEventListener("keydown", e => {
+  // Enter in task command input
+  const taskCmdEl = document.getElementById("taskCmd");
+  if (e.key === "Enter" && document.activeElement === taskCmdEl) {
+    submitTask();
+  }
+  // Enter in recall query input
+  const recallEl = document.getElementById("recallQuery");
+  if (e.key === "Enter" && document.activeElement === recallEl) {
+    runRecall();
+  }
 });
-autoRefTimer = setInterval(refreshAll, 8000);
+
+// ===== AUTO-REFRESH =====
+refreshOverview();
+setInterval(refreshOverview, 15000);
+
+// Initial data load for active tab
+loadMemory();
 </script>
 </body>
 </html>
