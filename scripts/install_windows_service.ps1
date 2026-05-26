@@ -284,9 +284,25 @@ if ($ts) {
 # --- Optional: Browser automation ---
 Write-Host ''
 Write-Host '--- Optional: Browser Automation ---' -ForegroundColor Cyan
+# Check browser - try common locations (Get-Command misses Edge on many Windows installs)
+$browserFound = $false
 $chrome = Get-Command chrome -ErrorAction SilentlyContinue
-$edge = Get-Command msedge -ErrorAction SilentlyContinue
-if (-not $chrome -and -not $edge) {
+if ($chrome) { $browserFound = $true; Write-Host '[OK] Chrome found' -ForegroundColor Green }
+
+$edgePaths = @(
+    (Join-Path $env:ProgramFiles 'Microsoft\Edge\Application\msedge.exe'),
+    (Join-Path ${env:ProgramFiles(x86)} 'Microsoft\Edge\Application\msedge.exe'),
+    (Join-Path $env:LOCALAPPDATA 'Microsoft\Edge\Application\msedge.exe')
+)
+foreach ($ep in $edgePaths) {
+    if (Test-Path $ep) {
+        $edge = $ep
+        $browserFound = $true
+        Write-Host "[OK] Edge found: $ep" -ForegroundColor Green
+        break
+    }
+}
+if (-not $browserFound) {
     Write-Host 'No Chrome/Edge found for headless browser automation.' -ForegroundColor Yellow
     $brAnswer = Read-Host 'Install Microsoft Edge for headless automation? [Y/n]'
     if ($brAnswer -eq '' -or $brAnswer -eq 'Y' -or $brAnswer -eq 'y') {
@@ -301,8 +317,6 @@ if (-not $chrome -and -not $edge) {
             Write-Host 'Download Edge from https://www.microsoft.com/edge' -ForegroundColor Yellow
         }
     }
-} else {
-    Write-Host '[OK] Browser available for automation' -ForegroundColor Green
 }
 
 # --- Optional: Superpowers / Dev tools ---
@@ -321,6 +335,51 @@ if ($answer -eq 'Y' -or $answer -eq 'y') {
         }
     } else {
         Write-Host 'winget not available. Install dev tools manually.' -ForegroundColor Yellow
+    }
+}
+
+# --- Optional: BrowserAct (AI browser automation) ---
+Write-Host ''
+Write-Host '--- Optional: BrowserAct (AI Browser Automation) ---' -ForegroundColor Cyan
+$ba = Get-Command browser-act -ErrorAction SilentlyContinue
+if ($ba) {
+    Write-Host '[OK] BrowserAct CLI already installed' -ForegroundColor Green
+} else {
+    $uv = Get-Command uv -ErrorAction SilentlyContinue
+    if ($uv) {
+        Write-Host 'Installing BrowserAct CLI via uv...' -ForegroundColor Yellow
+        $baAnswer = Read-Host 'Install BrowserAct for AI browser automation? [Y/n]'
+        if ($baAnswer -eq '' -or $baAnswer -eq 'Y' -or $baAnswer -eq 'y') {
+            try {
+                & uv tool install browser-act-cli --python 3.12 2>&1 | Out-Null
+                Write-Host '[OK] BrowserAct CLI installed.' -ForegroundColor Green
+            } catch {
+                Write-Warning 'BrowserAct install failed. Install manually: uv tool install browser-act-cli --python 3.12'
+            }
+        }
+    } else {
+        Write-Host 'uv not found. Install from https://docs.astral.sh/uv/ then run: uv tool install browser-act-cli --python 3.12' -ForegroundColor Yellow
+    }
+}
+
+# --- Optional: Superpowers (AI agent skills) ---
+Write-Host ''
+Write-Host '--- Optional: Superpowers (AI Agent Skills) ---' -ForegroundColor Cyan
+$spDir = Join-Path $AgentPath 'tools\superpowers'
+if (Test-Path $spDir) {
+    & git -C $spDir pull 2>&1 | Out-Null
+    Write-Host '[OK] Superpowers updated.' -ForegroundColor Green
+} else {
+    $spToolsDir = Join-Path $AgentPath 'tools'
+    if (-not (Test-Path $spToolsDir)) { New-Item -ItemType Directory -Force -Path $spToolsDir | Out-Null }
+    $spAnswer = Read-Host 'Clone Superpowers skill collection? [Y/n]'
+    if ($spAnswer -eq '' -or $spAnswer -eq 'Y' -or $spAnswer -eq 'y') {
+        try {
+            & git clone https://github.com/obra/superpowers.git $spDir 2>&1 | Out-Null
+            Write-Host '[OK] Superpowers cloned.' -ForegroundColor Green
+        } catch {
+            Write-Warning 'Superpowers clone failed. Clone manually: git clone https://github.com/obra/superpowers.git'
+        }
     }
 }
 
@@ -363,5 +422,7 @@ Write-Host '  Stop:    schtasks /End /tn ArenaUnifiedBridge' -ForegroundColor Wh
 Write-Host '  Start:   schtasks /Run /tn ArenaUnifiedBridge' -ForegroundColor White
 Write-Host '  Status:  C:\Users\Ivan\arena-local-bridge\status.bat' -ForegroundColor White
 Write-Host ''
-Write-Host '  Cross-platform: also see install_linux.sh' -ForegroundColor Cyan
+Write-Host '  Cross-platform: see install_linux.sh (Arch/CachyOS/Debian/Fedora)
+  BrowserAct:     browser-act --version
+  Superpowers:    ~/arena-agent/tools/superpowers/' -ForegroundColor Cyan
 Write-Host '==================================================' -ForegroundColor Green
