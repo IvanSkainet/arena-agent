@@ -1,12 +1,29 @@
 #!/usr/bin/env bash
+# start-bridge — Start Arena Unified Bridge
 set -euo pipefail
-cd "$HOME/arena-local-bridge"
-export ARENA_LOCAL_BRIDGE_TOKEN="$(cat "$HOME/arena-local-bridge/token.txt")"
-exec /usr/bin/python3 "$HOME/arena-local-bridge/local_bridge.py" serve \
+ROOT="${ARENA_AGENT_HOME:-$HOME/arena-agent}"
+BRIDGE_DIR="${ARENA_BRIDGE_DIR:-$HOME/arena-local-bridge}"
+BRIDGE="${BRIDGE_DIR}/unified_bridge.py"
+TOKEN_FILE="$HOME/.arena-local-bridge/token.txt"
+PORT="${ARENA_BRIDGE_PORT:-8765}"
+
+if [[ ! -f "$BRIDGE" ]]; then
+  echo "ERROR: $BRIDGE not found"
+  exit 1
+fi
+
+TOKEN=""
+[[ -f "$TOKEN_FILE" ]] && TOKEN="$(head -1 "$TOKEN_FILE" | tr -d '\r\n')"
+
+PY="python3"
+if command -v python3 &>/dev/null; then PY="python3"
+elif command -v python &>/dev/null; then PY="python"
+fi
+
+echo "Starting Arena Unified Bridge on :$PORT ..."
+exec $PY -u "$BRIDGE" serve \
   --root "$HOME" \
   --profile owner-shell \
-  --allow-any-cwd \
-  --timeout 120 \
-  --max-timeout 1800 \
-  --max-output 10485760 \
-  --max-concurrent 3
+  ${TOKEN:+--token "$TOKEN"} \
+  --port "$PORT" \
+  "$@"

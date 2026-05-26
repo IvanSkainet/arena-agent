@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-exec /usr/bin/python3 /home/ivan/arena-agent/bin/py_browser.py "$@"
+exec "$(command -v python3 || echo python3)" "${ARENA_AGENT_HOME:-$HOME/arena-agent}/bin/py_browser.py" "$@"

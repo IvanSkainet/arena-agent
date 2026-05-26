@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
+# bridge-curl — CURL wrapper for Arena Bridge API
+# Usage: bridge-curl [/endpoint] [extra curl args]
 set -euo pipefail
-URL="${1:-https://cachyos-x8664.tail328f18.ts.net/health}"
-shift || true
-exec curl --curves X25519 -sS "$@" "$URL"
+BRIDGE_URL="${ARENA_BRIDGE_URL:-http://127.0.0.1:8765}"
+TOKEN=""
+TOKEN_FILE="$HOME/.arena-local-bridge/token.txt"
+[[ -f "$TOKEN_FILE" ]] && TOKEN="$(head -1 "$TOKEN_FILE")"
+PATH="${1:-/health}"
+shift 2>/dev/null || true
+if [[ -n "$TOKEN" ]]; then
+  exec curl -sS -H "Authorization: Bearer $TOKEN" "$@" "${BRIDGE_URL}${PATH}"
+else
+  exec curl -sS "$@" "${BRIDGE_URL}${PATH}"
+fi
