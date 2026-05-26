@@ -10,3 +10,6 @@
 {"key": "stress_v150", "value": "test_pass", "tags": ["test"], "timestamp": "2026-05-26T11:16:13.073107+00:00"}
 {"key": "stress_v151", "value": "test_ok", "tags": ["test"], "timestamp": "2026-05-26T12:00:34.671138+00:00"}
 {"key": "stress_1779824572", "value": "stress test value", "tags": ["test"], "timestamp": "2026-05-26T19:42:53.873657+00:00"}
+{"key": "stress_1779825043", "value": "stress test value", "tags": ["test"], "timestamp": "2026-05-26T19:50:44.871006+00:00"}
+{"key": "stress_1779825094", "value": "stress test value", "tags": ["test"], "timestamp": "2026-05-26T19:51:35.618167+00:00"}
+{"key": "stress_1779825155", "value": "stress test value", "tags": ["test"], "timestamp": "2026-05-26T19:52:36.504495+00:00"}

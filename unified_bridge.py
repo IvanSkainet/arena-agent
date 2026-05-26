@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arena Unified Bridge v1.6.8
+Arena Unified Bridge v1.6.9
 
 Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /health          GET   Public health check
@@ -125,7 +125,7 @@ from aiohttp import web
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.6.8"
+VERSION = "1.6.9"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -1983,21 +1983,18 @@ def _service_info_sync() -> dict:
     if sys.platform == "win32":
         svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
         result["candidate_service"] = svc_name
-        # 1. NSSM/SCM
-        try:
-            r = subprocess.run(["sc", "query", svc_name],
-                               capture_output=True, text=True, timeout=5,
-                               **_subprocess_kwargs())
-            if "SERVICE_NAME" in (r.stdout or ""):
-                result["nssm_service"] = {
-                    "exists": True,
-                    "running": "RUNNING" in (r.stdout or "").upper(),
-                    "raw": (r.stdout or "")[:800],
-                }
-                if result["nssm_service"]["running"]:
-                    result["running_as"] = "nssm-service"
-        except Exception:
-            pass
+        # 1. NSSM/SCM (locale-agnostic)
+        exists, raw, running = _sc_query_running(svc_name)
+        if exists:
+            result["nssm_service"] = {
+                "exists": True,
+                "running": running,
+                "raw": raw[:800],
+            }
+            if running:
+                result["running_as"] = "nssm-service"
+            else:
+                result["running_as"] = "nssm-service-stopped"
         # 2. Scheduled Task
         try:
             r = subprocess.run(["schtasks", "/Query", "/TN", svc_name],
@@ -2049,33 +2046,60 @@ async def handle_v1_service_info(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+
+def _sc_query_running(svc_name: str) -> tuple[bool, str, bool]:
+    """Run `sc query <name>` and return (exists, raw_output, running).
+    Locale-agnostic: looks for the numeric state code `STATE` line containing
+    "4" (RUNNING), in addition to any RUNNING substring.
+    """
+    try:
+        r = subprocess.run(
+            ["sc", "query", svc_name],
+            capture_output=True, text=True, timeout=5,
+            **_subprocess_kwargs(),
+        )
+    except Exception:
+        return False, "", False
+    out = (r.stdout or "") + (r.stderr or "")
+    # `sc query` exits 1060 (ERROR_SERVICE_DOES_NOT_EXIST) -> no service
+    if r.returncode == 1060 or "1060" in out:
+        return False, out, False
+    # Locale-agnostic checks
+    # English: "STATE              : 4  RUNNING"
+    # Russian: "Состояние          : 4  RUNNING"   (RUNNING is always English)
+    # German:  "ZUSTAND            : 4  RUNNING"
+    # Italian: "STATO              : 4  RUNNING"
+    # etc. — "RUNNING" is constant; numeric state code `: 4 ` is constant.
+    up = out.upper()
+    running = ("RUNNING" in up) or (": 4 " in out) or (": 4\t" in out)
+    # heuristic: presence of "_NAME" / numeric STATE row means service exists
+    exists = (": 4 " in out) or (": 1 " in out) or (": 2 " in out) or (": 3 " in out) \
+             or (": 5 " in out) or (": 6 " in out) or (": 7 " in out) \
+             or ("RUNNING" in up) or ("STOPPED" in up) or ("PAUSED" in up) \
+             or ("PENDING" in up)
+    return exists, out, running
+
+
 # --- /v1/sys/svc GET — Service status ---
 
 def _sys_svc_sync() -> dict:
     """Synchronous helper to check service status."""
     result: dict[str, Any] = {"ok": True}
 
-    # 1) NSSM / Windows Service Manager detection
+    # 1) NSSM / Windows Service Manager detection (locale-agnostic)
     nssm_running = False
     nssm_detail = ""
     if sys.platform == "win32":
-        for svc_name in [os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"]:
-            try:
-                out = subprocess.check_output(
-                    ["sc", "query", svc_name],
-                    stderr=subprocess.DEVNULL,
-                    **_subprocess_kwargs(),
-                )
-                txt = out.decode("utf-8", errors="replace")
-                if "RUNNING" in txt.upper() or "RUNNING" in txt:
-                    nssm_running = True
-                    nssm_detail = f'Service "{svc_name}" RUNNING (NSSM/SCM)'
-                    break
-                elif "STOPPED" in txt.upper():
-                    nssm_detail = f'Service "{svc_name}" STOPPED'
-                    break
-            except Exception:
-                continue
+        svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
+        exists, raw, running = _sc_query_running(svc_name)
+        if exists:
+            if running:
+                nssm_running = True
+                nssm_detail = f'Service "{svc_name}" RUNNING (NSSM/SCM)'
+            else:
+                nssm_detail = f'Service "{svc_name}" present but not RUNNING'
+        else:
+            nssm_detail = f'Service "{svc_name}" not registered'
     result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
 
     # 2) Scheduled Task detection

@@ -3,7 +3,7 @@
 > **Cross-platform local automation bridge for AI agents.**
 > One process, one port, one Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v1.6.8-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v1.6.9-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -302,7 +302,7 @@ Get-Service ArenaUnifiedBridge   # should say Running, Automatic
 ```
 
 ### PowerShell windows pop up on every dashboard refresh
-Bridge < v1.6.7 spawned `wmic`/`tailscale`/`schtasks` without `CREATE_NO_WINDOW`. Upgrade to ≥ 1.6.7.
+Bridge < v1.6.7 spawned `wmic`/`tailscale`/`schtasks` without `CREATE_NO_WINDOW`. Upgrade to ≥ 1.6.9.
 
 ### Tailscale Funnel keeps dying
 Funnel periodically drops if the upstream port stops accepting (e.g. when the bridge restarts). NSSM auto-respawns the bridge; re-enable Funnel once:
@@ -315,7 +315,7 @@ The new token is written to disk; existing process keeps the old in memory. Clic
 
 ---
 
-## Roadmap (post-v1.6.8)
+## Roadmap (post-v1.6.9)
 
 - [ ] **Step 2: CDP browser deep dive** — proper click/type/screenshot/auth-flow via Chrome DevTools Protocol
 - [ ] **Step 3: Local semantic RAG memory** via SQLite FTS5
