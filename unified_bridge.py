@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arena Unified Bridge v1.5.0
+Arena Unified Bridge v1.6.8
 
 Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /health          GET   Public health check
@@ -9,6 +9,10 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/info         GET   Bridge info (auth required)
   - /v1/status       GET   Bridge status (auth required)
   - /v1/sysinfo      GET   Hardware/system info (auth required)
+  - /v1/hwinfo       GET   Extended hardware info: mobo, BIOS, GPU, RAM modules, disks
+  - /v1/backups      GET   List existing backups
+  - /v1/backup/{name} GET  Download a specific backup zip
+  - /v1/inventory    GET   Full system inventory (runtimes, browsers, etc) via inventory.py
   - /v1/ps           GET   Active processes (auth required)
   - /v1/audit        GET   Audit log (auth required)
   - /v1/audit/stats  GET   Audit statistics (auth required)
@@ -42,6 +46,10 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/subagents/spawn POST Spawn subagent (auth required)
   - /v1/sys/svc      GET   Service status (auth required)
   - /v1/sys/funnel   GET   Tailscale Funnel status (auth required)
+  - /v1/token/regenerate POST  Generate new auth token (rewrites token.txt)
+  - /v1/tailscale/funnel/{action} POST  start|stop|status
+  - /v1/restart      POST  Graceful shutdown (auto-restart via task/systemd)
+  - /v1/config       GET   Token-free configuration dump
   - /v1/metrics      GET   Bridge performance metrics
   - /gui             GET   Dashboard HTML
   - /mcp             POST  MCP Streamable HTTP (JSON-RPC)
@@ -117,7 +125,18 @@ from aiohttp import web
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.5.1"
+VERSION = "1.6.8"
+
+# CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
+# triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
+_NO_WINDOW_FLAG = 0x08000000 if sys.platform == "win32" else 0
+def _subprocess_kwargs() -> dict:
+    """Common kwargs to silence subprocess child windows on Windows."""
+    if sys.platform == "win32":
+        return {"creationflags": _NO_WINDOW_FLAG}
+    return {}
+
+
 AUDIT_CMD_LIMIT = 4000
 APP_DIR = Path.home() / ".arena-local-bridge"
 TOKEN_FILE = Path.home() / "arena-local-bridge" / "token.txt"
@@ -398,19 +417,19 @@ MCP_TOOLS = [
 
 def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
     """Run a command directly (no GUI/sandbox needed)."""
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **_subprocess_kwargs())
     return p.returncode, p.stdout, p.stderr
 
 
 def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
     """Run command via sd-exec (Linux) or directly (Windows)."""
     if platform.system() == "Windows":
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **_subprocess_kwargs())
         return p.returncode, p.stdout, p.stderr
     else:
         sd = os.path.join(BIN, "sd-exec")
         p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                           capture_output=True, text=True, timeout=timeout + 10)
+                           capture_output=True, text=True, timeout=timeout + 10, **_subprocess_kwargs())
         return p.returncode, p.stdout, p.stderr
 
 
@@ -705,6 +724,8 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/info", handle_v1_info)
     app.router.add_get("/v1/status", handle_v1_status)
     app.router.add_get("/v1/sysinfo", handle_v1_sysinfo)
+    app.router.add_get("/v1/hwinfo", handle_v1_hwinfo)
+    app.router.add_get("/v1/inventory", handle_v1_inventory)
     app.router.add_get("/v1/ps", handle_v1_ps)
     app.router.add_get("/v1/audit", handle_v1_audit)
     app.router.add_post("/v1/exec", handle_v1_exec)
@@ -724,7 +745,13 @@ def make_app(cfg: dict) -> web.Application:
 
     # ---- v1.5.0 new endpoints ----
     app.router.add_get("/v1/sys/svc", handle_v1_sys_svc)
+    app.router.add_get("/v1/service/info", handle_v1_service_info)
     app.router.add_get("/v1/sys/funnel", handle_v1_sys_funnel)
+    app.router.add_post("/v1/token/regenerate", handle_v1_token_regenerate)
+    app.router.add_post("/v1/tailscale/funnel/{action}", handle_v1_tailscale_funnel)
+    app.router.add_get("/v1/tailscale/funnel/{action}", handle_v1_tailscale_funnel)
+    app.router.add_post("/v1/restart", handle_v1_restart)
+    app.router.add_get("/v1/config", handle_v1_config)
     app.router.add_get("/v1/browser/dump", handle_v1_browser_dump)
     app.router.add_get("/v1/browser/fetch", handle_v1_browser_fetch)
     app.router.add_get("/v1/browser/head", handle_v1_browser_head)
@@ -735,6 +762,8 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/tasks", handle_v1_tasks_post)
     app.router.add_post("/v1/tasks/clean", handle_v1_tasks_clean)
     app.router.add_post("/v1/backup", handle_v1_backup)
+    app.router.add_get("/v1/backups", handle_v1_backups)
+    app.router.add_get("/v1/backup/{name}", handle_v1_backup_download)
     app.router.add_get("/v1/skills", handle_v1_skills)
     app.router.add_post("/v1/skills/run", handle_v1_skills_run)
     app.router.add_get("/v1/hooks", handle_v1_hooks)
@@ -856,10 +885,18 @@ async def handle_index(request: web.Request) -> web.Response:
                 "GET /v1/recall?q=&top=5", "GET /v1/recall/digest",
                 "GET /v1/tasks?status=&limit=20", "POST /v1/tasks", "POST /v1/tasks/clean",
                 "POST /v1/backup",
+        "GET /v1/backups",
+        "GET /v1/backup/{name}",
+        "GET /v1/inventory?section=&format=text|json",
                 "GET /v1/skills", "POST /v1/skills/run",
                 "GET /v1/hooks", "GET /v1/agents",
                 "GET /v1/subagents", "POST /v1/subagents/spawn",
                 "GET /v1/sys/svc", "GET /v1/sys/funnel",
+        "GET /v1/service/info",
+        "POST /v1/token/regenerate",
+        "POST /v1/tailscale/funnel/{start|stop|status}",
+        "POST /v1/restart",
+        "GET /v1/config",
                 "GET /v1/metrics",
                 "/gui", "POST /mcp", "DELETE /mcp",
                 "GET /sse", "POST /messages", "GET /ws",
@@ -930,7 +967,7 @@ def _sysinfo_wmic_sync() -> tuple[int, int]:
     cpu_logical = multiprocessing.cpu_count()
     try:
         out_bytes = subprocess.check_output(
-            "wmic cpu get NumberOfCores,NumberOfLogicalProcessors", shell=True)
+            "wmic cpu get NumberOfCores,NumberOfLogicalProcessors", shell=True, **_subprocess_kwargs())
         for enc in ["utf-16", "utf-8", "cp866"]:
             try:
                 out = out_bytes.decode(enc, errors="ignore")
@@ -1006,6 +1043,303 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
     except Exception as e:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+def _hwinfo_sync():
+    """Collect extended hardware info. Cross-platform."""
+    import subprocess, platform
+    import re as _re
+    info = {
+        "os": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "version": platform.version(),
+            "machine": platform.machine(),
+            "node": platform.node(),
+        },
+        "motherboard": None,
+        "bios": None,
+        "cpu": None,
+        "gpu": None,
+        "gpus": [],
+        "ram_total_gb": None,
+        "ram_used_gb": None,
+        "ram_avail_gb": None,
+        "ram_modules": [],
+        "disks": [],
+    }
+
+    def _run(cmd, timeout=10):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **_subprocess_kwargs())
+            return r.stdout if r.returncode == 0 else ""
+        except Exception:
+            return ""
+
+    if platform.system() == "Windows":
+        # Helper: parse wmic /format:list output as list of dicts.
+        # wmic on Windows outputs each "Key=Value" line followed by extra blank lines
+        # (Python's text mode converts \r\r\n -> \n\n). Block separator is "\n\n+" run of blanks
+        # but in practice every entry has blanks too, so simplest: collect all KV pairs into one block,
+        # then split into per-entry blocks based on RECORD pattern.
+        # However wmic typically returns ONE entry per call for system items (cpu, bios, baseboard)
+        # and we already iterate gpus/disks/memorychip separately.
+        # Strategy: treat each contiguous group of non-blank lines as a single record's prefix,
+        # but use "key seen twice" as the trigger to start a new block.
+        def parse_wmic_list(text):
+            text = text.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "")
+            blocks = []
+            current = {}
+            for line in text.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                if "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip(); v = v.strip()
+                # If we already have this key, start a new record
+                if k in current:
+                    blocks.append(current)
+                    current = {}
+                current[k] = v
+            if current:
+                blocks.append(current)
+            return blocks
+
+        # Motherboard
+        mb_blocks = parse_wmic_list(_run(["wmic", "baseboard", "get", "Manufacturer,Product,Version", "/format:list"]))
+        if mb_blocks and mb_blocks[0].get("Manufacturer"):
+            d = mb_blocks[0]
+            info["motherboard"] = {
+                "manufacturer": d.get("Manufacturer", ""),
+                "product": d.get("Product", ""),
+                "version": d.get("Version", ""),
+            }
+        # BIOS
+        bios_blocks = parse_wmic_list(_run(["wmic", "bios", "get", "SMBIOSBIOSVersion,Manufacturer,ReleaseDate", "/format:list"]))
+        if bios_blocks and bios_blocks[0].get("SMBIOSBIOSVersion"):
+            d = bios_blocks[0]
+            info["bios"] = {
+                "version": d.get("SMBIOSBIOSVersion", ""),
+                "manufacturer": d.get("Manufacturer", ""),
+                "release_date": d.get("ReleaseDate", "")[:8],
+            }
+        # CPU
+        cpu_blocks = parse_wmic_list(_run(["wmic", "cpu", "get", "Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed", "/format:list"]))
+        if cpu_blocks and cpu_blocks[0].get("Name"):
+            d = cpu_blocks[0]
+            try: cores = int(d.get("NumberOfCores", "0"))
+            except: cores = 0
+            try: threads = int(d.get("NumberOfLogicalProcessors", "0"))
+            except: threads = 0
+            try: ghz = round(int(d.get("MaxClockSpeed", "0")) / 1000.0, 2)
+            except: ghz = 0
+            info["cpu"] = {"name": d["Name"], "cores": cores, "threads": threads, "max_ghz": ghz}
+        # GPU
+        gpu_blocks = parse_wmic_list(_run(["wmic", "path", "win32_VideoController", "get", "Name,AdapterRAM", "/format:list"]))
+        for d in gpu_blocks:
+            if d.get("Name"):
+                try: vram_mb = int(d.get("AdapterRAM", "0")) // (1024 * 1024)
+                except: vram_mb = 0
+                info["gpus"].append({"name": d["Name"], "vram_mb": vram_mb})
+        if info["gpus"]:
+            info["gpu"] = info["gpus"][0]
+        # RAM modules
+        ram_blocks = parse_wmic_list(_run(["wmic", "memorychip", "get", "Capacity,Speed,Manufacturer,PartNumber", "/format:list"]))
+        total_bytes = 0
+        for d in ram_blocks:
+            if d.get("Capacity"):
+                try:
+                    cap = int(d["Capacity"])
+                    total_bytes += cap
+                    info["ram_modules"].append({
+                        "size_gb": round(cap / (1024 ** 3), 1),
+                        "speed_mhz": int(d.get("Speed", "0") or 0),
+                        "manufacturer": d.get("Manufacturer", "").strip(),
+                        "part_number": d.get("PartNumber", "").strip(),
+                    })
+                except Exception:
+                    pass
+        if total_bytes:
+            info["ram_total_gb"] = round(total_bytes / (1024 ** 3), 1)
+        # Disks
+        disk_blocks = parse_wmic_list(_run(["wmic", "logicaldisk", "get", "DeviceID,Size,FreeSpace,FileSystem,VolumeName", "/format:list"]))
+        for d in disk_blocks:
+            if d.get("DeviceID") and d.get("Size"):
+                try:
+                    size = int(d["Size"])
+                    free = int(d.get("FreeSpace", "0") or 0)
+                    info["disks"].append({
+                        "device": d["DeviceID"],
+                        "volume": d.get("VolumeName", "").strip(),
+                        "filesystem": d.get("FileSystem", "").strip(),
+                        "total_gb": round(size / (1024 ** 3), 1),
+                        "free_gb": round(free / (1024 ** 3), 1),
+                        "used_pct": round((size - free) / size * 100, 1) if size else 0,
+                    })
+                except Exception:
+                    pass
+
+    elif platform.system() == "Linux":
+        # CPU via /proc/cpuinfo
+        try:
+            with open("/proc/cpuinfo") as f:
+                cpuinfo = f.read()
+            mname = _re.search(r"model name\s*:\s*(.+)", cpuinfo)
+            ncpus = len(_re.findall(r"^processor\s*:", cpuinfo, _re.M))
+            ncores_set = set(_re.findall(r"core id\s*:\s*(\d+)", cpuinfo))
+            info["cpu"] = {
+                "name": mname.group(1).strip() if mname else "Unknown",
+                "cores": len(ncores_set) or ncpus,
+                "threads": ncpus,
+                "max_ghz": 0,
+            }
+        except Exception:
+            pass
+        # RAM via /proc/meminfo
+        try:
+            with open("/proc/meminfo") as f:
+                m = f.read()
+            mt = _re.search(r"MemTotal:\s+(\d+)", m)
+            ma = _re.search(r"MemAvailable:\s+(\d+)", m)
+            if mt:
+                total = int(mt.group(1)) * 1024
+                avail = int(ma.group(1)) * 1024 if ma else 0
+                info["ram_total_gb"] = round(total / (1024 ** 3), 1)
+                info["ram_avail_gb"] = round(avail / (1024 ** 3), 1)
+                info["ram_used_gb"] = round((total - avail) / (1024 ** 3), 1)
+        except Exception:
+            pass
+        # Motherboard via dmidecode (usually requires root)
+        dmi = _run(["dmidecode", "-t", "baseboard"], timeout=5)
+        if dmi:
+            mfg = _re.search(r"Manufacturer:\s*(.+)", dmi)
+            prod = _re.search(r"Product Name:\s*(.+)", dmi)
+            if mfg or prod:
+                info["motherboard"] = {
+                    "manufacturer": (mfg.group(1).strip() if mfg else ""),
+                    "product": (prod.group(1).strip() if prod else ""),
+                    "version": "",
+                }
+        # GPU via lspci
+        lspci = _run(["lspci"], timeout=5)
+        gpu_match = _re.search(r"VGA compatible controller:\s*(.+)", lspci)
+        if gpu_match:
+            info["gpu"] = {"name": gpu_match.group(1).strip(), "vram_mb": 0}
+            info["gpus"].append(info["gpu"])
+        # Disks via df
+        df = _run(["df", "-B1", "--output=source,target,fstype,size,avail"], timeout=5)
+        for line in df.splitlines()[1:]:
+            parts = line.split()
+            if len(parts) >= 5 and parts[0].startswith("/"):
+                try:
+                    size = int(parts[3])
+                    avail = int(parts[4])
+                    if size < 1024 ** 3:
+                        continue
+                    info["disks"].append({
+                        "device": parts[0],
+                        "volume": parts[1],
+                        "filesystem": parts[2],
+                        "total_gb": round(size / (1024 ** 3), 1),
+                        "free_gb": round(avail / (1024 ** 3), 1),
+                        "used_pct": round((size - avail) / size * 100, 1) if size else 0,
+                    })
+                except Exception:
+                    continue
+
+    return info
+
+
+# --- /v1/inventory GET — Full system inventory via scripts/inventory.py ---
+
+def _inventory_sync(section: str | None = None, fmt: str = "text", timeout: int = 30) -> dict:
+    """Run inventory.py and return the result. Cached for 60 seconds."""
+    import subprocess as _sp
+    import time as _time
+
+    # Locate inventory.py
+    candidates = [
+        ROOT_AGENT / "scripts" / "inventory.py",
+        Path.home() / "arena-agent" / "scripts" / "inventory.py",
+        Path(__file__).resolve().parent.parent / "arena-agent" / "scripts" / "inventory.py",
+    ]
+    script = None
+    for c in candidates:
+        if c.exists():
+            script = c
+            break
+    if not script:
+        return {"ok": False, "error": "inventory.py not found in any known location"}
+
+    args = [sys.executable or "python3", str(script)]
+    if fmt == "json":
+        args.append("--json")
+    if section:
+        args.extend(["--section", section])
+
+    try:
+        _env = os.environ.copy()
+        _env["PYTHONIOENCODING"] = "utf-8"
+        _env["PYTHONUTF8"] = "1"
+        kwargs: dict = {"capture_output": True, "text": True, "timeout": timeout,
+                        "encoding": "utf-8", "errors": "replace", "env": _env}
+        if platform.system() == "Windows":
+            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
+        r = _sp.run(args, **kwargs)
+        if fmt == "json":
+            try:
+                parsed = json.loads(r.stdout)
+                return {"ok": r.returncode == 0, "inventory": parsed,
+                        "exit_code": r.returncode, "stderr": r.stderr[-2000:]}
+            except Exception as e:
+                return {"ok": False, "error": f"JSON parse failed: {e}",
+                        "stdout": r.stdout[-2000:], "stderr": r.stderr[-2000:]}
+        return {"ok": r.returncode == 0, "text": r.stdout,
+                "exit_code": r.returncode, "stderr": r.stderr[-2000:],
+                "script": str(script)}
+    except _sp.TimeoutExpired:
+        return {"ok": False, "error": f"inventory.py timed out after {timeout}s"}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
+async def handle_v1_inventory(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    section = request.query.get("section")
+    fmt = (request.query.get("format") or "text").lower()
+    if fmt not in ("text", "json"):
+        return _cors_json_response({"ok": False, "error": "format must be 'text' or 'json'"}, status=400)
+    try:
+        timeout = int(request.query.get("timeout", "30"))
+        timeout = min(max(5, timeout), 120)
+    except Exception:
+        timeout = 30
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _inventory_sync, section, fmt, timeout)
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_hwinfo(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        loop = asyncio.get_event_loop()
+        info = await loop.run_in_executor(_EXECUTOR, _hwinfo_sync)
+        return _cors_json_response({"ok": True, "hwinfo": info})
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 
 
 async def handle_v1_ps(request: web.Request) -> web.Response:
@@ -1641,29 +1975,135 @@ async def handle_v1_browser_read(request: web.Request) -> web.Response:
 # HANDLERS — v1.5.0 New Endpoints
 # ============================================================================
 
+# --- /v1/service/info GET — What manages this bridge process? ---
+
+def _service_info_sync() -> dict:
+    """Detect under what service manager (NSSM/Scheduled Task/systemd/launchd/none) we run."""
+    result: dict[str, Any] = {"ok": True, "running_as": "unknown"}
+    if sys.platform == "win32":
+        svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
+        result["candidate_service"] = svc_name
+        # 1. NSSM/SCM
+        try:
+            r = subprocess.run(["sc", "query", svc_name],
+                               capture_output=True, text=True, timeout=5,
+                               **_subprocess_kwargs())
+            if "SERVICE_NAME" in (r.stdout or ""):
+                result["nssm_service"] = {
+                    "exists": True,
+                    "running": "RUNNING" in (r.stdout or "").upper(),
+                    "raw": (r.stdout or "")[:800],
+                }
+                if result["nssm_service"]["running"]:
+                    result["running_as"] = "nssm-service"
+        except Exception:
+            pass
+        # 2. Scheduled Task
+        try:
+            r = subprocess.run(["schtasks", "/Query", "/TN", svc_name],
+                               capture_output=True, text=True, timeout=5,
+                               **_subprocess_kwargs())
+            if r.returncode == 0:
+                result["scheduled_task"] = {"exists": True, "raw": (r.stdout or "")[:400]}
+                if result.get("running_as") == "unknown":
+                    result["running_as"] = "scheduled-task"
+        except Exception:
+            pass
+    elif sys.platform == "linux":
+        try:
+            r = subprocess.run(["systemctl", "--user", "is-active", "arena-bridge.service"],
+                               capture_output=True, text=True, timeout=5,
+                               **_subprocess_kwargs())
+            if (r.stdout or "").strip() == "active":
+                result["running_as"] = "systemd-user"
+                result["systemd_user"] = {"active": True, "unit": "arena-bridge.service"}
+        except Exception:
+            pass
+    elif sys.platform == "darwin":
+        try:
+            r = subprocess.run(["launchctl", "print", "gui/0/com.arena.bridge"],
+                               capture_output=True, text=True, timeout=5,
+                               **_subprocess_kwargs())
+            if r.returncode == 0:
+                result["running_as"] = "launchd"
+                result["launchd"] = {"loaded": True}
+        except Exception:
+            pass
+
+    # PID info — always include
+    result["pid"] = os.getpid()
+    result["python"] = sys.executable
+    return result
+
+
+async def handle_v1_service_info(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        loop = asyncio.get_event_loop()
+        info = await loop.run_in_executor(_EXECUTOR, _service_info_sync)
+        return _cors_json_response(info)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 # --- /v1/sys/svc GET — Service status ---
 
 def _sys_svc_sync() -> dict:
     """Synchronous helper to check service status."""
     result: dict[str, Any] = {"ok": True}
 
-    # Check if bridge is running as scheduled task (Windows) or systemd service (Linux)
+    # 1) NSSM / Windows Service Manager detection
+    nssm_running = False
+    nssm_detail = ""
+    if sys.platform == "win32":
+        for svc_name in [os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"]:
+            try:
+                out = subprocess.check_output(
+                    ["sc", "query", svc_name],
+                    stderr=subprocess.DEVNULL,
+                    **_subprocess_kwargs(),
+                )
+                txt = out.decode("utf-8", errors="replace")
+                if "RUNNING" in txt.upper() or "RUNNING" in txt:
+                    nssm_running = True
+                    nssm_detail = f'Service "{svc_name}" RUNNING (NSSM/SCM)'
+                    break
+                elif "STOPPED" in txt.upper():
+                    nssm_detail = f'Service "{svc_name}" STOPPED'
+                    break
+            except Exception:
+                continue
+    result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
+
+    # 2) Scheduled Task detection
     scheduled_task = False
     scheduled_detail = ""
     if sys.platform == "win32":
-        try:
-            out = subprocess.check_output(
-                'schtasks /query /tn "ArenaBridge" /fo LIST', shell=True, stderr=subprocess.DEVNULL)
-            if b"ArenaBridge" in out:
-                scheduled_task = True
-                scheduled_detail = "Windows scheduled task found"
-        except Exception:
-            scheduled_detail = "No Windows scheduled task"
+        # Try multiple candidate task names; default unified one first
+        task_names = [os.environ.get("ARENA_TASK_NAME", "").strip()] if os.environ.get("ARENA_TASK_NAME") else []
+        task_names += ["ArenaUnifiedBridge", "ArenaBridge", "ArenaLocalBridge"]
+        seen = set()
+        for tname in [n for n in task_names if n and not (n in seen or seen.add(n))]:
+            try:
+                out = subprocess.check_output(
+                    ['schtasks', '/query', '/tn', tname, '/fo', 'LIST'],
+                    stderr=subprocess.DEVNULL, **_subprocess_kwargs())
+                if tname.encode() in out:
+                    scheduled_task = True
+                    scheduled_detail = f'Scheduled Task: "{tname}" (registered)'
+                    break
+            except Exception:
+                continue
+        if not scheduled_task:
+            scheduled_detail = "No matching Windows scheduled task (tried: " + ", ".join(task_names) + ")"
     else:
         # Check systemd
         try:
             out = subprocess.check_output(
-                ["systemctl", "is-active", "arena-bridge"], stderr=subprocess.DEVNULL)
+                ["systemctl", "is-active", "arena-bridge"], stderr=subprocess.DEVNULL, **_subprocess_kwargs())
             status = out.decode("utf-8", errors="replace").strip()
             if status == "active":
                 scheduled_task = True
@@ -1673,7 +2113,7 @@ def _sys_svc_sync() -> dict:
         except Exception:
             # Check for cron
             try:
-                out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL)
+                out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL, **_subprocess_kwargs())
                 if b"unified_bridge" in out or b"arena" in out:
                     scheduled_task = True
                     scheduled_detail = "cron job found"
@@ -1690,14 +2130,14 @@ def _sys_svc_sync() -> dict:
         if sys.platform == "win32":
             out = subprocess.check_output(
                 'wmic process where "commandline like \'%unified_bridge%\'" get processid,commandline /format:list',
-                shell=True, stderr=subprocess.DEVNULL, text=True)
+                shell=True, stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
             for line in out.splitlines():
                 line = line.strip()
                 if line.startswith("CommandLine=") or line.startswith("ProcessId="):
                     bridge_procs.append(line)
         else:
             out = subprocess.check_output(
-                ["ps", "aux"], stderr=subprocess.DEVNULL, text=True)
+                ["ps", "aux"], stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
             for line in out.splitlines():
                 if "unified_bridge" in line and "grep" not in line:
                     bridge_procs.append(line.strip()[:200])
@@ -1708,7 +2148,7 @@ def _sys_svc_sync() -> dict:
     # Check Tailscale status
     tailscale = {"installed": False, "connected": False, "detail": ""}
     try:
-        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.DEVNULL, text=True)
+        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
         tailscale["installed"] = True
         tailscale["connected"] = bool(out.strip())
         tailscale["detail"] = out.strip()[:500]
@@ -1744,7 +2184,7 @@ def _sys_funnel_sync() -> dict:
 
     # Run tailscale status
     try:
-        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.STDOUT, text=True)
+        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.STDOUT, text=True, **_subprocess_kwargs())
         result["tailscale"]["status"] = out.strip()[:2000]
         result["tailscale"]["connected"] = bool(out.strip())
     except FileNotFoundError:
@@ -1754,9 +2194,19 @@ def _sys_funnel_sync() -> dict:
 
     # Run tailscale funnel status
     try:
-        out = subprocess.check_output(["tailscale", "funnel", "status"], stderr=subprocess.STDOUT, text=True)
+        out = subprocess.check_output(["tailscale", "funnel", "status"], stderr=subprocess.STDOUT, text=True, **_subprocess_kwargs())
         result["funnel"]["status"] = out.strip()[:2000]
-        result["funnel"]["active"] = "listening" in out.lower() or "serving" in out.lower()
+        _lw = out.lower()
+        result["funnel"]["active"] = (
+            "funnel on" in _lw
+            or "proxy http" in _lw
+            or "serving" in _lw
+            or "listening" in _lw
+        )
+        # extract public URL if present (https://*.ts.net)
+        m = re.search(r"https://[\w.-]+\.ts\.net[^\s]*", out)
+        if m:
+            result["funnel"]["url"] = m.group(0)
     except FileNotFoundError:
         result["funnel"]["error"] = "tailscale not found"
     except Exception as e:
@@ -1777,6 +2227,401 @@ async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
     except Exception as e:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /v1/token/regenerate POST — Generate new auth token ---
+
+def _token_path() -> Path:
+    """Resolve token file location used by start-bridge / install.bat."""
+    return Path(os.environ.get("ARENA_TOKEN_FILE",
+                str(Path.home() / "arena-local-bridge" / "token.txt"))).expanduser()
+
+
+def _token_regen_sync(target_path: str = "") -> dict:
+    """Generate a new token and write it to ONLY the bridge's own token.txt.
+    Path resolution priority:
+      1. explicit target_path arg (from cfg["token_file"] or env)
+      2. ARENA_TOKEN_FILE env var
+      3. <BRIDGE_DIR from sys.argv 'serve --root'>/token.txt — best effort
+      4. ~/arena-local-bridge/token.txt  (default)
+    NEVER writes to multiple locations — that risks clobbering another instance's token.
+    """
+    import secrets, base64
+    new_tok = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
+
+    target: Path
+    if target_path:
+        target = Path(target_path).expanduser()
+    else:
+        env = os.environ.get("ARENA_TOKEN_FILE")
+        if env:
+            target = Path(env).expanduser()
+        else:
+            # Default to the canonical bridge-dir token file
+            target = Path.home() / "arena-local-bridge" / "token.txt"
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(new_tok, encoding="utf-8")
+        try:
+            os.chmod(target, 0o600)
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "token": new_tok,
+            "written_to": [str(target)],
+            "note": ("Existing connections still use the OLD token until the bridge restarts. "
+                     "Use POST /v1/restart, or click Restart Bridge."),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to write {target}: {e}"}
+
+
+async def handle_v1_token_regenerate(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    cfg = request.app["cfg"]
+    # Prefer the exact token_file that this bridge instance reads on startup
+    target = str(cfg.get("token_file") or "")
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _token_regen_sync, target)
+        # Hot-update in-memory token so new requests accept it immediately
+        if result.get("ok") and result.get("token"):
+            cfg["token"] = result["token"]
+        audit({"type": "token_regenerated", "files": result.get("written_to", [])})
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /v1/tailscale/funnel/{action} POST — start | stop | status ---
+
+def _tailscale_funnel_action_sync(action: str, port: int) -> dict:
+    import subprocess as _sp
+    import shutil as _shutil_local
+    action = (action or "").lower()
+    if action not in ("start", "stop", "status"):
+        return {"ok": False, "error": "action must be start|stop|status"}
+    # locate tailscale
+    ts = _shutil_local.which("tailscale")
+    if not ts and platform.system() == "Windows":
+        candidates = [
+            r"C:\Program Files\Tailscale\tailscale.exe",
+            r"C:\Program Files (x86)\Tailscale\tailscale.exe",
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                ts = c; break
+    if not ts:
+        return {"ok": False, "error": "tailscale binary not found"}
+
+    if action == "start":
+        # `tailscale funnel --bg 8765`
+        try:
+            r = _sp.run([ts, "funnel", "--bg", str(port)],
+                        capture_output=True, text=True, timeout=15)
+            return {"ok": r.returncode == 0, "action": "start", "port": port,
+                    "stdout": r.stdout, "stderr": r.stderr,
+                    "exit_code": r.returncode}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    if action == "stop":
+        # `tailscale funnel --https=443 off`
+        try:
+            r = _sp.run([ts, "funnel", "--https=443", "off"],
+                        capture_output=True, text=True, timeout=15)
+            return {"ok": r.returncode == 0, "action": "stop",
+                    "stdout": r.stdout, "stderr": r.stderr,
+                    "exit_code": r.returncode}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+    # status
+    try:
+        r = _sp.run([ts, "funnel", "status"],
+                    capture_output=True, text=True, timeout=10)
+        out = r.stdout or ""
+        return {"ok": True, "action": "status", "output": out,
+                "active": ("funnel on" in out.lower() or "proxy http" in out.lower())}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    action = request.match_info.get("action", "status")
+    cfg = request.app["cfg"]
+    port = cfg.get("port", 8765)
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _tailscale_funnel_action_sync, action, port)
+        audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /v1/restart POST — Graceful shutdown (scheduled task / systemd / launchd will respawn) ---
+
+def _spawn_respawn_helper(port: int) -> tuple[bool, str]:
+    """Spawn a detached helper script that waits ~2s, then re-launches the bridge.
+
+    Drops a script file in TEMP and launches it via the platform's native
+    detached-process mechanism, so the helper survives os._exit() of the parent.
+
+    Returns (ok, method_used).
+    """
+    import subprocess as _sp
+    import tempfile
+    sys_name = platform.system()
+    bridge_dir = Path(__file__).resolve().parent
+    bridge_py = str(Path(__file__).resolve())
+    task_name = os.environ.get("ARENA_TASK_NAME", "ArenaUnifiedBridge")
+    token_file = str(bridge_dir / "token.txt")
+
+    if sys_name == "Windows":
+        # First try: is there an NSSM/SCM-managed service? If yes, just `net start` it after exit.
+        svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
+        svc_exists = False
+        try:
+            r = _sp.run(["sc", "query", svc_name],
+                        capture_output=True, text=True, timeout=5,
+                        **_subprocess_kwargs())
+            svc_exists = "SERVICE_NAME" in (r.stdout or "")
+        except Exception:
+            pass
+        if svc_exists:
+            # NSSM auto-restarts on its own when the process exits. We just wait & exit.
+            # Drop a one-shot script that double-checks: if /health still down after 8s, force-start the service.
+            import tempfile
+            sh_path = Path(tempfile.gettempdir()) / f"arena_nssm_kick_{os.getpid()}.bat"
+            # Use a template + replace to avoid PowerShell-style quote/brace hell
+            sh_template = r"""@echo off
+timeout /t 8 /nobreak >nul
+curl -s -o nul -w "%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%rena_kick_hc.txt" 2>nul
+set /p HC=<"%TEMP%rena_kick_hc.txt"
+del "%TEMP%rena_kick_hc.txt" >nul 2>&1
+if not "%HC%"=="200" (
+    sc start __SVC__ >nul 2>&1
+)
+(goto) 2>nul & del "%~f0"
+"""
+            sh = (sh_template
+                  .replace("__PORT__", str(port))
+                  .replace("__SVC__", svc_name)
+                  .replace("\n", "\r\n"))
+            try:
+                sh_path.write_text(sh, encoding="ascii", newline="")
+                DETACHED = 0x00000008
+                CNPG = 0x00000200
+                _sp.Popen(
+                    ["cmd.exe", "/c", "start", "", "/B", str(sh_path)],
+                    creationflags=DETACHED | CNPG,
+                    stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                    close_fds=True, shell=False,
+                )
+                return True, f"NSSM auto-restart (service={svc_name})"
+            except Exception as e:
+                return False, f"NSSM spawn failed: {e}"
+
+        # Fallback: Scheduled Task / direct python launch via .bat
+        # Generate .bat with placeholders, then substitute (avoids escape hell)
+        BAT_TEMPLATE = r"""@echo off
+timeout /t 2 /nobreak >nul
+REM Try Scheduled Task first
+set "ARENA_TASK=__TASK__"
+schtasks /Query /TN "%ARENA_TASK%" >nul 2>&1
+if not errorlevel 1 (
+    schtasks /End /TN "%ARENA_TASK%" >nul 2>&1
+    timeout /t 1 /nobreak >nul
+    schtasks /Run /TN "%ARENA_TASK%" >nul 2>&1
+)
+REM Poll /health for ~12 sec
+set TRIES=0
+:poll
+set /a TRIES+=1
+timeout /t 1 /nobreak >nul
+curl -s -o nul -w "%%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%rena_hc_chk.txt" 2>nul
+set /p HC=<"%TEMP%rena_hc_chk.txt"
+del "%TEMP%rena_hc_chk.txt" >nul 2>&1
+if "%HC%"=="200" goto :cleanup
+if %TRIES% LSS 12 goto :poll
+REM Last-resort: launch pythonw directly with token from file
+set "TOK="
+if exist "__TOKEN_FILE__" set /p TOK=<"__TOKEN_FILE__"
+set "PYW="
+for /f "delims=" %%P in ('where pythonw.exe 2^>nul') do if not defined PYW set "PYW=%%P"
+if not defined PYW for /f "delims=" %%P in ('where python.exe 2^>nul') do if not defined PYW set "PYW=%%P"
+if defined PYW (
+    if defined TOK (
+        start "" /B "%PYW%" -u "__BRIDGE__" serve --root "%USERPROFILE%" --profile owner-shell --token "%TOK%" --port __PORT__
+    ) else (
+        start "" /B "%PYW%" -u "__BRIDGE__" serve --root "%USERPROFILE%" --profile owner-shell --port __PORT__
+    )
+)
+:cleanup
+(goto) 2>nul & del "%~f0"
+"""
+        bat = (BAT_TEMPLATE
+               .replace("__TASK__", task_name)
+               .replace("__PORT__", str(port))
+               .replace("__BRIDGE__", bridge_py)
+               .replace("__TOKEN_FILE__", token_file))
+        bat_path = Path(tempfile.gettempdir()) / f"arena_respawn_{os.getpid()}.bat"
+        try:
+            # Use CRLF line endings so cmd parses it cleanly
+            bat = bat.replace("\n", "\r\n")
+            bat_path.write_text(bat, encoding="ascii", newline="")
+            DETACHED = 0x00000008
+            CNPG = 0x00000200
+            _sp.Popen(
+                ["cmd.exe", "/c", "start", "", "/B", str(bat_path)],
+                creationflags=DETACHED | CNPG,
+                stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                close_fds=True,
+                shell=False,
+            )
+            return True, f"detached .bat (task={task_name}, file={bat_path.name})"
+        except Exception as e:
+            return False, f"spawn failed: {e}"
+
+    elif sys_name == "Linux":
+        SH_TEMPLATE = r"""#!/usr/bin/env bash
+sleep 2
+if command -v systemctl >/dev/null 2>&1 && systemctl --user list-unit-files arena-bridge.service >/dev/null 2>&1; then
+    systemctl --user restart arena-bridge.service
+fi
+for i in $(seq 1 12); do
+    if curl -fsS http://127.0.0.1:__PORT__/health >/dev/null 2>&1; then
+        rm -f "$0"; exit 0
+    fi
+    sleep 1
+done
+TOK=""
+[[ -f "__TOKEN_FILE__" ]] && TOK="$(cat '__TOKEN_FILE__' | tr -d '
+ ')"
+nohup python3 -u "__BRIDGE__" serve --root "$HOME" --profile owner-shell ${TOK:+--token "$TOK"} --port __PORT__ >/dev/null 2>&1 &
+disown
+rm -f "$0"
+"""
+        sh = (SH_TEMPLATE
+              .replace("__PORT__", str(port))
+              .replace("__BRIDGE__", bridge_py)
+              .replace("__TOKEN_FILE__", token_file))
+        sh_path = Path(tempfile.gettempdir()) / f"arena_respawn_{os.getpid()}.sh"
+        try:
+            sh_path.write_text(sh, encoding="utf-8")
+            sh_path.chmod(0o755)
+            _sp.Popen(["bash", str(sh_path)], start_new_session=True,
+                      stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                      close_fds=True)
+            return True, f"detached .sh (file={sh_path.name})"
+        except Exception as e:
+            return False, f"spawn failed: {e}"
+
+    elif sys_name == "Darwin":
+        SH_TEMPLATE = r"""#!/usr/bin/env bash
+sleep 2
+if launchctl print "gui/$UID/com.arena.bridge" >/dev/null 2>&1; then
+    launchctl kickstart -k "gui/$UID/com.arena.bridge"
+fi
+for i in $(seq 1 12); do
+    if curl -fsS http://127.0.0.1:__PORT__/health >/dev/null 2>&1; then
+        rm -f "$0"; exit 0
+    fi
+    sleep 1
+done
+TOK=""
+[[ -f "__TOKEN_FILE__" ]] && TOK="$(cat '__TOKEN_FILE__' | tr -d '
+ ')"
+nohup python3 -u "__BRIDGE__" serve --root "$HOME" --profile owner-shell ${TOK:+--token "$TOK"} --port __PORT__ >/dev/null 2>&1 &
+disown
+rm -f "$0"
+"""
+        sh = (SH_TEMPLATE
+              .replace("__PORT__", str(port))
+              .replace("__BRIDGE__", bridge_py)
+              .replace("__TOKEN_FILE__", token_file))
+        sh_path = Path(tempfile.gettempdir()) / f"arena_respawn_{os.getpid()}.sh"
+        try:
+            sh_path.write_text(sh, encoding="utf-8")
+            sh_path.chmod(0o755)
+            _sp.Popen(["bash", str(sh_path)], start_new_session=True,
+                      stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+                      close_fds=True)
+            return True, f"detached .sh (file={sh_path.name})"
+        except Exception as e:
+            return False, f"spawn failed: {e}"
+
+    return False, f"unsupported platform: {sys_name}"
+
+
+async def handle_v1_restart(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    cfg = request.app["cfg"]
+    port = int(cfg.get("port", 8765))
+    audit({"type": "restart_requested"})
+
+    # Spawn the respawn helper BEFORE we die
+    spawned, method = _spawn_respawn_helper(port)
+
+    # Schedule shutdown after the response is sent
+    async def _exit_soon():
+        await asyncio.sleep(1.5)
+        os._exit(0)
+    asyncio.create_task(_exit_soon())
+
+    return _cors_json_response({
+        "ok": True,
+        "respawn_scheduled": spawned,
+        "method": method,
+        "shutdown_in_seconds": 1.5,
+        "note": ("Bridge shuts down in 1.5s. A detached helper will re-launch it ~3-5s later."
+                 if spawned else "WARNING: respawn helper failed to spawn — manual restart required."),
+        "manual_restart_hint": (
+            "Windows: schtasks /Run /tn ArenaUnifiedBridge | "
+            "Linux: systemctl --user restart arena-bridge | "
+            "macOS: launchctl kickstart -k gui/$UID/com.arena.bridge"
+        ),
+    })
+
+
+# --- /v1/config GET — Token-free configuration dump ---
+
+async def handle_v1_config(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    cfg = request.app["cfg"]
+    return _cors_json_response({
+        "ok": True,
+        "service": "arena-unified-bridge",
+        "version": VERSION,
+        "host": socket.gethostname(),
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "config": {
+            "root": str(cfg.get("root", "")),
+            "port": cfg.get("port", 8765),
+            "profile": cfg.get("profile", "owner-shell"),
+            "audit_log": str(cfg.get("audit", "")),
+            "max_concurrent": cfg.get("max_concurrent", 3),
+            "token_length": len(cfg.get("token", "")) if cfg.get("token") else 0,
+            "token_preview": (cfg.get("token", "")[:4] + "..." + cfg.get("token", "")[-4:])
+                              if cfg.get("token") and len(cfg["token"]) > 8 else "***",
+        },
+        "endpoints_total": len([r for r in request.app.router.routes()]),
+    })
+
+
 
 
 # --- /v1/browser/dump GET — Full page dump with links ---
@@ -2235,6 +3080,68 @@ async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+# --- /v1/backups GET — List existing backups ---
+
+def _backups_list_sync() -> dict:
+    """List zip files in BACKUPS_DIR with size + mtime."""
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    items = []
+    for p in sorted(BACKUPS_DIR.glob("*.zip"), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            st = p.stat()
+            items.append({
+                "name": p.name,
+                "size": st.st_size,
+                "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                "created_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+            })
+        except Exception:
+            continue
+    return {"ok": True, "count": len(items), "backups": items, "dir": str(BACKUPS_DIR)}
+
+
+async def handle_v1_backups(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _backups_list_sync)
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /v1/backup/{name} GET — Download specific backup ---
+
+async def handle_v1_backup_download(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    name = request.match_info.get("name", "")
+    # Security: no path traversal
+    if not name or "/" in name or "\\" in name or ".." in name:
+        return _cors_json_response({"ok": False, "error": "invalid name"}, status=400)
+    if not name.endswith(".zip"):
+        name += ".zip"
+    path = BACKUPS_DIR / name
+    if not path.exists() or not path.is_file():
+        return _cors_json_response({"ok": False, "error": "not found"}, status=404)
+    try:
+        return web.FileResponse(
+            path=path,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Content-Disposition": f'attachment; filename="{name}"',
+                "Content-Type": "application/zip",
+            },
+        )
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 # --- /v1/backup POST — Create backup ---
 
 def _backup_sync(paths: list[str], name: str) -> dict:
@@ -2360,7 +3267,7 @@ def _skills_run_sync(name: str, args: list[str]) -> dict:
     """Execute a skill via agentctl."""
     cmd_args = [os.path.join(BIN, "agentctl"), "skill", "run", name] + list(args)
     try:
-        p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=300)
+        p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=300, **_subprocess_kwargs())
         return {"ok": p.returncode == 0, "exit_code": p.returncode,
                 "stdout": p.stdout[-15000:], "stderr": p.stderr[-3000:]}
     except subprocess.TimeoutExpired:
@@ -2541,7 +3448,7 @@ def _subagents_spawn_sync(data: dict) -> dict:
     cmd_args += ["--timeout", str(timeout)]
 
     try:
-        p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=timeout + 30)
+        p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=timeout + 30, **_subprocess_kwargs())
         return {"ok": p.returncode == 0, "exit_code": p.returncode,
                 "stdout": p.stdout[-10000:], "stderr": p.stderr[-3000:]}
     except subprocess.TimeoutExpired:
@@ -2823,7 +3730,7 @@ async def handle_gateway_tools(request: web.Request) -> web.Response:
 def _gw_run_sync(cmd: str, timeout: int) -> dict:
     """Synchronous gateway command runner — returns dict result."""
     try:
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, **_subprocess_kwargs())
         return {"ok": p.returncode == 0, "exit": p.returncode,
                 "stdout": p.stdout[-20000:], "stderr": p.stderr[-3000:]}
     except subprocess.TimeoutExpired:
@@ -2894,34 +3801,40 @@ def _signal_handler(sig: int, frame: Any) -> None:
 # MAIN
 # ============================================================================
 
-def resolve_token(cli_token: str | None) -> str:
-    """Resolve auth token: CLI arg > env var > token.txt > auto-generate new one."""
+def resolve_token(cli_token: str | None) -> tuple[str, Path]:
+    """Resolve auth token: CLI arg > env var > token.txt > auto-generate.
+    Returns (token, file_path_that_is_the_canonical_source_for_THIS_instance).
+    file_path is the location where regen should write back."""
+    # Resolve the actual file location first (env > default)
+    env_file = os.environ.get("ARENA_TOKEN_FILE")
+    token_file = Path(env_file).expanduser() if env_file else TOKEN_FILE
+
     # 1. CLI --token argument
     if cli_token:
-        return cli_token
-    # 2. Environment variable
+        return cli_token, token_file
+    # 2. Environment variable for token value
     env_tok = os.environ.get("ARENA_LOCAL_BRIDGE_TOKEN")
     if env_tok:
-        return env_tok
+        return env_tok, token_file
     # 3. Read from token.txt
     try:
-        existing = TOKEN_FILE.read_text(encoding="utf-8").strip()
+        existing = token_file.read_text(encoding="utf-8").strip()
         if existing and len(existing) >= 16:
-            return existing
+            return existing, token_file
     except FileNotFoundError:
         pass
     except Exception:
         pass
-    # 4. Auto-generate a new token and save it
+    # 4. Auto-generate a new token and save it (to the resolved path)
     new_tok = b64_token()
-    TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
-    TOKEN_FILE.write_text(new_tok + "\n", encoding="utf-8")
+    token_file.parent.mkdir(parents=True, exist_ok=True)
+    token_file.write_text(new_tok + "\n", encoding="utf-8")
     try:
-        os.chmod(TOKEN_FILE, 0o600)
+        os.chmod(token_file, 0o600)
     except Exception:
         pass
-    print(f"[ArenaBridge] New token generated and saved to {TOKEN_FILE}", flush=True)
-    return new_tok
+    print(f"[ArenaBridge] New token generated and saved to {token_file}", flush=True)
+    return new_tok, token_file
 
 
 def _daemonize() -> None:
@@ -2966,15 +3879,17 @@ def serve(args: argparse.Namespace) -> None:
     if getattr(args, "background", False) and os.name != "nt":
         _daemonize()
 
-    token = resolve_token(args.token)
+    token, token_file_used = resolve_token(args.token)
 
     root = Path(args.root).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=True)
 
     cfg = {
         "token": token,
+        "token_file": str(token_file_used),  # exact file THIS instance reads
         "profile": args.profile,
         "root": root,
+        "port": args.port,
         "allow_any_cwd": args.allow_any_cwd,
         "timeout": args.timeout,
         "max_timeout": args.max_timeout,

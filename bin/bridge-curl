@@ -1,15 +1,142 @@
-#!/usr/bin/env bash
-# bridge-curl — CURL wrapper for Arena Bridge API
-# Usage: bridge-curl [/endpoint] [extra curl args]
-set -euo pipefail
-BRIDGE_URL="${ARENA_BRIDGE_URL:-http://127.0.0.1:8765}"
-TOKEN=""
-TOKEN_FILE="$HOME/.arena-local-bridge/token.txt"
-[[ -f "$TOKEN_FILE" ]] && TOKEN="$(head -1 "$TOKEN_FILE")"
-PATH="${1:-/health}"
-shift 2>/dev/null || true
-if [[ -n "$TOKEN" ]]; then
-  exec curl -sS -H "Authorization: Bearer $TOKEN" "$@" "${BRIDGE_URL}${PATH}"
-else
-  exec curl -sS "$@" "${BRIDGE_URL}${PATH}"
-fi
+#!/usr/bin/env python3
+"""
+bridge-curl — Cross-platform HTTP client for Arena Bridge API.
+
+Usage:
+    bridge-curl                            # default GET /health
+    bridge-curl /v1/info
+    bridge-curl -X POST /v1/exec --data '{"cmd":"whoami"}'
+    bridge-curl /v1/upload?path=/tmp/x.txt -X POST --data-binary @file.bin
+
+Env vars:
+    ARENA_BRIDGE_URL   default http://127.0.0.1:8765
+    ARENA_BRIDGE_TOKEN override token file
+    ARENA_TOKEN_FILE   default ~/.arena-local-bridge/token.txt
+
+Replaces the old bash version. Works on Windows / Linux / macOS without
+requiring `curl` binary — uses Python stdlib (urllib).
+"""
+from __future__ import annotations
+import os
+import sys
+import json
+import argparse
+import urllib.request
+import urllib.error
+from pathlib import Path
+
+
+DEFAULT_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
+TOKEN_FILE = Path(os.environ.get(
+    "ARENA_TOKEN_FILE",
+    str(Path.home() / ".arena-local-bridge" / "token.txt")
+))
+# Token can also live in BRIDGE_DIR/token.txt
+ALT_TOKEN_FILES = [
+    Path.home() / "arena-local-bridge" / "token.txt",
+]
+
+
+def find_token() -> str:
+    """Resolve token from env or any known location."""
+    env = os.environ.get("ARENA_BRIDGE_TOKEN")
+    if env:
+        return env.strip()
+    for p in [TOKEN_FILE] + ALT_TOKEN_FILES:
+        try:
+            if p.exists():
+                t = p.read_text(encoding="utf-8").strip()
+                if t:
+                    return t
+        except Exception:
+            continue
+    return ""
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="bridge-curl", add_help=False)
+    p.add_argument("path", nargs="?", default="/health")
+    p.add_argument("-X", "--method", default="GET")
+    p.add_argument("-H", "--header", action="append", default=[])
+    p.add_argument("-d", "--data", default=None)
+    p.add_argument("--data-binary", default=None)
+    p.add_argument("-o", "--output", default=None,
+                   help="Write response body to FILE instead of stdout")
+    p.add_argument("-i", "--include", action="store_true",
+                   help="Include response headers in output")
+    p.add_argument("--no-token", action="store_true",
+                   help="Don't auto-attach Authorization header")
+    p.add_argument("--help", action="store_true")
+    args, extra = p.parse_known_args(argv)
+
+    if args.help:
+        print(__doc__)
+        return 0
+
+    url = args.path if args.path.startswith("http") else (DEFAULT_URL + args.path)
+    method = args.method.upper()
+
+    # Build request body
+    body: bytes | None = None
+    if args.data is not None:
+        body = args.data.encode("utf-8")
+    elif args.data_binary is not None:
+        if args.data_binary.startswith("@"):
+            with open(args.data_binary[1:], "rb") as f:
+                body = f.read()
+        else:
+            body = args.data_binary.encode("utf-8")
+
+    headers: dict[str, str] = {}
+    for h in args.header:
+        if ":" in h:
+            k, v = h.split(":", 1)
+            headers[k.strip()] = v.strip()
+
+    # Auto-attach token
+    if not args.no_token and "authorization" not in {k.lower() for k in headers}:
+        tok = find_token()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = resp.read()
+            if args.include:
+                sys.stdout.write(f"HTTP/{resp.version // 10}.{resp.version % 10} {resp.status} {resp.reason}\n")
+                for k, v in resp.headers.items():
+                    sys.stdout.write(f"{k}: {v}\n")
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+            if args.output:
+                with open(args.output, "wb") as f:
+                    f.write(data)
+                sys.stderr.write(f"Saved {len(data)} bytes to {args.output}\n")
+            else:
+                # Try utf-8 print; fall back to binary write
+                try:
+                    sys.stdout.write(data.decode("utf-8"))
+                except UnicodeDecodeError:
+                    sys.stdout.buffer.write(data)
+            return 0
+    except urllib.error.HTTPError as e:
+        if args.include:
+            sys.stdout.write(f"HTTP/{e.code} {e.reason}\n")
+            for k, v in e.headers.items():
+                sys.stdout.write(f"{k}: {v}\n")
+            sys.stdout.write("\n")
+        body = e.read()
+        try:
+            sys.stdout.write(body.decode("utf-8"))
+        except UnicodeDecodeError:
+            sys.stdout.buffer.write(body)
+        return e.code
+    except urllib.error.URLError as e:
+        sys.stderr.write(f"bridge-curl: {e.reason}\n")
+        return 7
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

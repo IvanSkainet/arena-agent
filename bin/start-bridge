@@ -1,29 +1,80 @@
-#!/usr/bin/env bash
-# start-bridge — Start Arena Unified Bridge
-set -euo pipefail
-ROOT="${ARENA_AGENT_HOME:-$HOME/arena-agent}"
-BRIDGE_DIR="${ARENA_BRIDGE_DIR:-$HOME/arena-local-bridge}"
-BRIDGE="${BRIDGE_DIR}/unified_bridge.py"
-TOKEN_FILE="$HOME/.arena-local-bridge/token.txt"
-PORT="${ARENA_BRIDGE_PORT:-8765}"
+#!/usr/bin/env python3
+"""
+start-bridge — Cross-platform launcher for Arena Unified Bridge.
 
-if [[ ! -f "$BRIDGE" ]]; then
-  echo "ERROR: $BRIDGE not found"
-  exit 1
-fi
+Replaces the old bash version. Works on Windows / Linux / macOS.
 
-TOKEN=""
-[[ -f "$TOKEN_FILE" ]] && TOKEN="$(head -1 "$TOKEN_FILE" | tr -d '\r\n')"
+Env vars:
+    ARENA_AGENT_HOME    default: ~/arena-agent
+    ARENA_BRIDGE_DIR    default: ~/arena-local-bridge
+    ARENA_BRIDGE_PORT   default: 8765
+    ARENA_BRIDGE_TOKEN  if set, used instead of token file
+    ARENA_PROFILE       default: owner-shell
 
-PY="python3"
-if command -v python3 &>/dev/null; then PY="python3"
-elif command -v python &>/dev/null; then PY="python"
-fi
+Any extra CLI args are forwarded to the bridge.
+"""
+from __future__ import annotations
+import os
+import sys
+import subprocess
+from pathlib import Path
 
-echo "Starting Arena Unified Bridge on :$PORT ..."
-exec $PY -u "$BRIDGE" serve \
-  --root "$HOME" \
-  --profile owner-shell \
-  ${TOKEN:+--token "$TOKEN"} \
-  --port "$PORT" \
-  "$@"
+
+def find_python() -> str:
+    """Prefer the currently running interpreter."""
+    return sys.executable or "python3"
+
+
+def main(argv: list[str]) -> int:
+    bridge_dir = Path(os.environ.get(
+        "ARENA_BRIDGE_DIR", str(Path.home() / "arena-local-bridge"))).expanduser()
+    bridge_py = bridge_dir / "unified_bridge.py"
+    if not bridge_py.exists():
+        sys.stderr.write(f"start-bridge: {bridge_py} not found\n")
+        return 1
+
+    port = os.environ.get("ARENA_BRIDGE_PORT", "8765")
+    profile = os.environ.get("ARENA_PROFILE", "owner-shell")
+
+    # Token: env override, then BRIDGE_DIR/token.txt, then ~/.arena-local-bridge/token.txt
+    token = os.environ.get("ARENA_BRIDGE_TOKEN", "").strip()
+    if not token:
+        for cand in (
+            bridge_dir / "token.txt",
+            Path.home() / ".arena-local-bridge" / "token.txt",
+        ):
+            try:
+                if cand.exists():
+                    token = cand.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+                    if token:
+                        break
+            except Exception:
+                continue
+
+    py = find_python()
+    cmd = [py, "-u", str(bridge_py), "serve",
+           "--root", str(Path.home()),
+           "--profile", profile,
+           "--port", port]
+    if token:
+        cmd += ["--token", token]
+    cmd += list(argv)
+
+    print(f"Starting Arena Unified Bridge on :{port} ...", flush=True)
+    try:
+        # Replace process on Unix (so pid/signals work cleanly); on Windows use subprocess
+        if hasattr(os, "execvp") and os.name != "nt":
+            os.execvp(cmd[0], cmd)
+        else:
+            r = subprocess.run(cmd)
+            return r.returncode
+    except KeyboardInterrupt:
+        return 130
+    except FileNotFoundError as e:
+        sys.stderr.write(f"start-bridge: {e}\n")
+        return 127
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

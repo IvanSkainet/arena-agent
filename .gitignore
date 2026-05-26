@@ -1,10 +1,74 @@
-__pycache__/ 
-*.pyc 
-backups/ 
-logs/ 
-queue/ 
-reports/ 
-memory/ 
-node_modules/ 
-.arena-local-bridge/ 
-token.txt 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Local data
+memory/facts.jsonl
+memory/history.jsonl
+.arena-local-bridge/
+audit.jsonl
+
+# Backups (use git tags/releases, not files in repo)
+backups/
+*.zip
+*.tar.gz
+*.7z
+
+# Logs
+logs/
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local installer artefacts
+tools/nssm.exe
+tools/
+node_modules/
+.next/
+.turbo/
+
+# Token (NEVER commit)
+token.txt
+
+# Temp
+*.tmp
+*.bak
+*.orig
+arena-test*/
+arena-installer-v2/backup-*/
+
+# Tests output
+reports/shots/*.png
+reports/recordings/*.mp4
+
+# Generated
+start_ArenaUnifiedBridge.ps1
+start_ArenaLocalBridge.ps1
+start_ArenaMcpStream.ps1
+start_ArenaMcpWs.ps1
+start_ArenaTaskRunner.ps1
+start_ArenaWebGateway.ps1
+manual_restart.bat
+recreate_task.ps1
+install_nssm.ps1
+ub_curr.py
+ub_patched.py
+patch_*.py
+fix_*.py
+debug*.bat
+debug*.py
+RESTORE_*.md
+worklog.md

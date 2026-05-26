@@ -1,77 +1,264 @@
-#!/usr/bin/env bash
-# mission-record — обёртка для записи экрана через ffmpeg+sd-exec.
-#
-# Usage:
-#   mission-record start <name>            — запустить запись фоном, сохранить pid
-#   mission-record stop                    — остановить активную запись
-#   mission-record status                  — показать активную запись
-#   mission-record list                    — список всех записанных видео
-set -euo pipefail
+#!/usr/bin/env python3
+"""
+mission-record — Cross-platform screen recording via ffmpeg.
 
-REC_DIR="${ARENA_AGENT_HOME:-$HOME/arena-agent}/reports/recordings"
-PID_FILE="$REC_DIR/.active.pid"
-META_FILE="$REC_DIR/.active.json"
-SD_EXEC="${ARENA_AGENT_HOME:-$HOME/arena-agent}/bin/sd-exec"
+Backends:
+    Linux   : x11grab (uses $DISPLAY)
+    macOS   : avfoundation (display index 1)
+    Windows : gdigrab desktop
 
-mkdir -p "$REC_DIR"
+Stores PID + metadata in $REC_DIR/.active.json so `stop`/`status` work.
 
-cmd="${1:-status}"
+Usage:
+    mission-record start [name]   — start background recording
+    mission-record stop           — stop active recording
+    mission-record status         — show active recording metadata as JSON
+    mission-record list           — list .mp4 files in REC_DIR
 
-case "$cmd" in
-  start)
-    name="${2:-rec}"
-    stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-    out="$REC_DIR/${name}-${stamp}.mp4"
-    if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      echo "ERR: already recording (pid $(cat "$PID_FILE"))" >&2
-      exit 1
-    fi
-    DISPLAY="${DISPLAY:-:0}"
-    # bash через sd-exec, чтобы ffmpeg вышел из bridge cgroup и имел DISPLAY
-    setsid "$SD_EXEC" -- ffmpeg -y -loglevel error \
-      -f x11grab -framerate 10 -i "$DISPLAY" \
-      -vcodec libx264 -preset ultrafast -pix_fmt yuv420p \
-      "$out" </dev/null >>"$REC_DIR/.ffmpeg.log" 2>&1 &
-    pid=$!
-    echo "$pid" > "$PID_FILE"
-    printf '{"pid":%d,"out":"%s","started":"%s","name":"%s"}\n' "$pid" "$out" "$stamp" "$name" > "$META_FILE"
-    echo "{\"ok\":true,\"pid\":$pid,\"out\":\"$out\"}"
-    ;;
-  stop)
-    if [[ ! -f "$PID_FILE" ]]; then
-      echo '{"ok":false,"error":"no active recording"}'
-      exit 1
-    fi
-    pid="$(cat "$PID_FILE")"
-    # ffmpeg запускается через sd-exec -> systemd-run -> ffmpeg. Сначала
-    # пробуем мягко через pkill всех ffmpeg-потомков.
-    pkill -INT -P "$pid" 2>/dev/null || true
-    pkill -INT ffmpeg 2>/dev/null || true
-    sleep 1
-    if kill -0 "$pid" 2>/dev/null; then
-      kill -TERM "$pid" 2>/dev/null || true
-    fi
-    out=""
-    if [[ -f "$META_FILE" ]]; then
-      out="$(python3 -c "import json; print(json.load(open('$META_FILE'))['out'])" 2>/dev/null || true)"
-    fi
-    rm -f "$PID_FILE" "$META_FILE"
-    sz=0
-    [[ -n "$out" && -f "$out" ]] && sz=$(stat -c%s "$out")
-    echo "{\"ok\":true,\"out\":\"$out\",\"size_bytes\":$sz}"
-    ;;
-  status)
-    if [[ -f "$PID_FILE" ]] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
-      cat "$META_FILE"
-    else
-      echo '{"active":false}'
-    fi
-    ;;
-  list)
-    ls -lt "$REC_DIR"/*.mp4 2>/dev/null | head -20 || echo "(no recordings)"
-    ;;
-  *)
-    echo "usage: mission-record {start NAME|stop|status|list}" >&2
-    exit 2
-    ;;
-esac
+Env:
+    ARENA_AGENT_HOME   default: ~/arena-agent
+    DISPLAY            (Linux only) defaults to :0
+    ARENA_FFMPEG       override ffmpeg binary path
+"""
+from __future__ import annotations
+import os
+import sys
+import json
+import time
+import shutil
+import platform
+import subprocess
+import signal
+from pathlib import Path
+from datetime import datetime, timezone
+
+
+def rec_dir() -> Path:
+    home = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent")))
+    d = home / "reports" / "recordings"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def pid_file() -> Path:
+    return rec_dir() / ".active.pid"
+
+
+def meta_file() -> Path:
+    return rec_dir() / ".active.json"
+
+
+def find_ffmpeg() -> str | None:
+    env = os.environ.get("ARENA_FFMPEG")
+    if env and shutil.which(env):
+        return env
+    return shutil.which("ffmpeg")
+
+
+def alive(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if platform.system() == "Windows":
+        try:
+            r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+                               capture_output=True, text=True, timeout=5)
+            return str(pid) in r.stdout
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError):
+        return False
+
+
+def cmd_start(args: list[str]) -> int:
+    name = args[0] if args else "rec"
+    ff = find_ffmpeg()
+    if not ff:
+        print(json.dumps({"ok": False, "error": "ffmpeg not installed (apt/dnf/brew/winget install ffmpeg)"}))
+        return 1
+
+    pf = pid_file()
+    if pf.exists():
+        try:
+            old_pid = int(pf.read_text().strip())
+            if alive(old_pid):
+                print(json.dumps({"ok": False, "error": "already recording", "pid": old_pid}))
+                return 1
+        except Exception:
+            pass
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out_path = rec_dir() / f"{name}-{stamp}.mp4"
+
+    system = platform.system()
+    common_out = [
+        "-vcodec", "libx264",
+        "-preset", "ultrafast",
+        "-pix_fmt", "yuv420p",
+        str(out_path),
+    ]
+    if system == "Linux":
+        display = os.environ.get("DISPLAY", ":0")
+        ff_args = [ff, "-y", "-loglevel", "error",
+                   "-f", "x11grab", "-framerate", "10",
+                   "-i", display, *common_out]
+    elif system == "Darwin":
+        # avfoundation: list with `ffmpeg -f avfoundation -list_devices true -i ""`
+        # "1" is the typical main display index; could also be "Capture screen 0"
+        ff_args = [ff, "-y", "-loglevel", "error",
+                   "-f", "avfoundation", "-framerate", "10",
+                   "-i", "1", *common_out]
+    elif system == "Windows":
+        ff_args = [ff, "-y", "-loglevel", "error",
+                   "-f", "gdigrab", "-framerate", "10",
+                   "-i", "desktop", *common_out]
+    else:
+        print(json.dumps({"ok": False, "error": f"unsupported OS: {system}"}))
+        return 1
+
+    log = open(rec_dir() / ".ffmpeg.log", "ab")
+    kwargs: dict = {"stdout": log, "stderr": log, "stdin": subprocess.DEVNULL}
+    if system == "Windows":
+        DETACHED = 0x00000008
+        CREATE_NEW_PROCESS_GROUP = 0x00000200
+        kwargs["creationflags"] = DETACHED | CREATE_NEW_PROCESS_GROUP
+    else:
+        kwargs["start_new_session"] = True
+
+    try:
+        p = subprocess.Popen(ff_args, **kwargs)
+    except FileNotFoundError as e:
+        print(json.dumps({"ok": False, "error": str(e)}))
+        return 127
+
+    pf.write_text(str(p.pid))
+    meta = {
+        "pid": p.pid,
+        "out": str(out_path),
+        "started": stamp,
+        "name": name,
+        "backend": system,
+    }
+    meta_file().write_text(json.dumps(meta, indent=2))
+    print(json.dumps({"ok": True, "pid": p.pid, "out": str(out_path), "backend": system}))
+    return 0
+
+
+def cmd_stop(args: list[str]) -> int:
+    pf = pid_file()
+    mf = meta_file()
+    if not pf.exists():
+        print(json.dumps({"ok": False, "error": "no active recording"}))
+        return 1
+    try:
+        pid = int(pf.read_text().strip())
+    except Exception:
+        pid = 0
+
+    out = ""
+    if mf.exists():
+        try:
+            out = json.loads(mf.read_text()).get("out", "")
+        except Exception:
+            out = ""
+
+    # Ask ffmpeg to stop gracefully: send 'q' via stdin is ideal but we don't have a pipe.
+    # SIGINT works on Unix; Windows requires CTRL_BREAK_EVENT for the process group.
+    if alive(pid):
+        try:
+            if platform.system() == "Windows":
+                # Try CTRL_BREAK first, fall back to taskkill
+                try:
+                    os.kill(pid, signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                except Exception:
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                   capture_output=True, timeout=10)
+            else:
+                os.kill(pid, signal.SIGINT)
+        except Exception:
+            pass
+        # Wait up to 5s for graceful stop
+        for _ in range(50):
+            if not alive(pid):
+                break
+            time.sleep(0.1)
+        # Hard kill if still alive
+        if alive(pid):
+            try:
+                if platform.system() == "Windows":
+                    subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"],
+                                   capture_output=True, timeout=10)
+                else:
+                    os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+
+    try:
+        pf.unlink()
+        mf.unlink()
+    except FileNotFoundError:
+        pass
+
+    size = 0
+    if out and Path(out).exists():
+        size = Path(out).stat().st_size
+    print(json.dumps({"ok": True, "out": out, "size_bytes": size}))
+    return 0
+
+
+def cmd_status(args: list[str]) -> int:
+    pf = pid_file()
+    mf = meta_file()
+    if pf.exists():
+        try:
+            pid = int(pf.read_text().strip())
+        except Exception:
+            pid = 0
+        if alive(pid):
+            if mf.exists():
+                print(mf.read_text())
+            else:
+                print(json.dumps({"active": True, "pid": pid}))
+            return 0
+    print(json.dumps({"active": False}))
+    return 0
+
+
+def cmd_list(args: list[str]) -> int:
+    d = rec_dir()
+    items = []
+    for p in sorted(d.glob("*.mp4"), key=lambda x: x.stat().st_mtime, reverse=True):
+        st = p.stat()
+        items.append({
+            "name": p.name,
+            "size": st.st_size,
+            "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        })
+    print(json.dumps({"ok": True, "count": len(items), "dir": str(d), "recordings": items}, indent=2))
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    if not argv:
+        argv = ["status"]
+    cmd = argv[0]
+    rest = argv[1:]
+    if cmd == "start":
+        return cmd_start(rest)
+    if cmd == "stop":
+        return cmd_stop(rest)
+    if cmd == "status":
+        return cmd_status(rest)
+    if cmd == "list":
+        return cmd_list(rest)
+    if cmd in ("-h", "--help"):
+        print(__doc__)
+        return 0
+    sys.stderr.write("usage: mission-record {start NAME|stop|status|list}\n")
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

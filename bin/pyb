@@ -1,2 +1,36 @@
-#!/usr/bin/env bash
-exec "$(command -v python3 || echo python3)" "${ARENA_AGENT_HOME:-$HOME/arena-agent}/bin/py_browser.py" "$@"
+#!/usr/bin/env python3
+"""
+pyb — Cross-platform wrapper for py_browser.py.
+
+Just forwards arguments to py_browser.py via Python.
+Replaces the old bash one-liner.
+"""
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+
+def main(argv: list[str]) -> int:
+    here = Path(__file__).resolve().parent
+    target = here / "py_browser.py"
+    if not target.exists():
+        # Fall back to ARENA_AGENT_HOME/bin/py_browser.py
+        agent_home = os.environ.get("ARENA_AGENT_HOME") or str(Path.home() / "arena-agent")
+        target = Path(agent_home) / "bin" / "py_browser.py"
+    if not target.exists():
+        sys.stderr.write(f"pyb: py_browser.py not found near {here} or {agent_home}\n")
+        return 1
+
+    # Find python
+    py = sys.executable or "python3"
+    cmd = [py, str(target)] + list(argv)
+    try:
+        r = subprocess.run(cmd)
+        return r.returncode
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

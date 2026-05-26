@@ -172,16 +172,56 @@ v<span id="sidebarVersion">{{VERSION}}</span>
 <div class="row"><span style="font-size:12px;font-weight:600;width:120px">Platform</span><span id="platArch" class="mono" style="font-size:12px">--</span></div>
 </div>
 
-<h2>System Info</h2>
+<h2>Hardware Diagnostics</h2>
+<div class="card" id="hwinfoCard">
+  <div style="margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="badge gray" id="hwSource">--</span>
+    <button onclick="refreshHwinfo()" style="margin-left:auto;padding:4px 12px;font-size:11px">⟳ Refresh</button>
+    <button onclick="toggleFullInventory()" id="invToggleBtn" style="padding:4px 12px;font-size:11px">📋 Full Inventory</button>
+  </div>
+  <pre id="hwDetails" style="margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;color:var(--text)">Loading hardware data...</pre>
+</div>
+
+<div class="card" id="fullInventoryCard" style="display:none">
+  <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+    <h3 style="margin:0">Full System Inventory</h3>
+    <span class="badge info" id="invStatus" style="font-size:11px">click Load</span>
+    <button onclick="loadFullInventory()" style="margin-left:auto;padding:4px 12px;font-size:11px">⟳ Load / Refresh</button>
+    <button onclick="copyToClipboard(document.getElementById('invOutput').innerText)" class="copy-btn" style="padding:4px 12px;font-size:11px">📋 Copy</button>
+  </div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:11px">
+    <label><input type="checkbox" class="inv-sec" value="" checked> all</label>
+    <label><input type="checkbox" class="inv-sec" value="os"> os</label>
+    <label><input type="checkbox" class="inv-sec" value="cpu"> cpu</label>
+    <label><input type="checkbox" class="inv-sec" value="memory"> memory</label>
+    <label><input type="checkbox" class="inv-sec" value="gpu"> gpu</label>
+    <label><input type="checkbox" class="inv-sec" value="disks"> disks</label>
+    <label><input type="checkbox" class="inv-sec" value="network"> network</label>
+    <label><input type="checkbox" class="inv-sec" value="runtimes"> runtimes</label>
+    <label><input type="checkbox" class="inv-sec" value="package_managers"> pkg managers</label>
+    <label><input type="checkbox" class="inv-sec" value="browsers"> browsers</label>
+    <label><input type="checkbox" class="inv-sec" value="displays"> displays</label>
+    <label><input type="checkbox" class="inv-sec" value="services"> services</label>
+    <label><input type="checkbox" class="inv-sec" value="python_env"> python_env</label>
+    <label><input type="checkbox" class="inv-sec" value="env"> env</label>
+  </div>
+  <pre id="invOutput" style="margin:0;font-family:var(--mono);font-size:12px;line-height:1.45;white-space:pre-wrap;color:var(--text);max-height:60vh;overflow:auto;background:var(--bg2);padding:10px;border:1px solid var(--border);border-radius:6px">Click "Load / Refresh" to fetch the full system inventory.</pre>
+</div>
+
+<h2>System Info (raw)</h2>
 <div class="card" id="sysinfoCard">Loading...</div>
 </div>
 
 <!-- ==================== TERMINAL ==================== -->
 <div class="tab" id="tab-terminal">
 <h1>Terminal</h1>
-<div class="row">
-<input type="text" id="termCmd" placeholder="Enter command..." style="flex:1" autofocus>
+<div class="row" style="position:relative">
+<input type="text" id="termCmd" placeholder="Enter command or /shot /search /read /dump ..." style="flex:1" autofocus autocomplete="off">
 <button onclick="runCommand()">Run</button>
+<div id="termSuggest" style="display:none;position:absolute;top:100%;left:0;right:80px;background:var(--bg2);border:1px solid var(--border);border-top:none;z-index:50;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:12px"></div>
+</div>
+<div class="row" style="margin-bottom:6px;font-size:11px;color:var(--text2)">
+Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /doctor /sysinfo /audit /facts /tasks /ip /dns
 </div>
 <div class="row" style="margin-bottom:12px">
 <select id="termTimeout" style="width:120px">
@@ -194,9 +234,12 @@ v<span id="sidebarVersion">{{VERSION}}</span>
 <button class="copy-btn" onclick="copyTermOutput()">Copy Output</button>
 <span style="margin-left:auto;font-size:12px;color:var(--text2)" id="termDuration"></span>
 </div>
-<div class="output" id="termOutput" style="min-height:300px">Ready. Type a command and press Enter.</div>
-<h2>History</h2>
-<div id="termHistory" style="font-size:12px;color:var(--text2)"></div>
+<div id="termSession" style="min-height:300px;max-height:65vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;border-radius:6px">
+  <div style="color:var(--text2);font-style:italic">Arena shell ready. Type a command and press Enter. Use ↑/↓ to navigate history, Tab to expand slash-commands, Ctrl+L or "Clear" to wipe.</div>
+</div>
+<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">Recent commands (click to re-run)</summary>
+<div id="termHistory" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
+</details>
 </div>
 
 <!-- ==================== MEMORY ==================== -->
@@ -369,6 +412,7 @@ v<span id="sidebarVersion">{{VERSION}}</span>
 <h2>Bridge Info</h2>
 <p>Version: <strong id="setVersion">{{VERSION}}</strong></p>
 <p>Host: <strong>{{HOST}}</strong></p>
+<p>Service mode: <span id="setServiceMode" class="badge gray">checking...</span></p>
 <p>Token: <code id="setToken">{{TOKEN}}</code> <button class="copy-btn sm" onclick="copyToClipboard('{{TOKEN}}')">Copy</button></p>
 </div>
 <div class="card">
@@ -572,19 +616,33 @@ async function refreshOverview() {
         overviewMetrics.requests = status.metrics.total_requests || overviewMetrics.requests;
         overviewMetrics.execs = status.metrics.exec_count || overviewMetrics.execs;
       }
-      // Tailscale funnel status
-      if (status.tailscale) {
-        const ts = status.tailscale;
+      // Tailscale funnel status (v1.6.4: fetch real data from /v1/sys/funnel)
+      try {
+        const fn = await api("/v1/sys/funnel");
         const badge = document.getElementById("tsFunnelStatus");
-        if (ts.funnel_active) {
-          badge.className = "badge ok";
-          badge.textContent = "Active";
-        } else {
-          badge.className = "badge fail";
-          badge.textContent = "Inactive";
+        const urlEl = document.getElementById("tsFunnelUrl");
+        if (fn && fn.ok) {
+          const active = !!(fn.funnel && fn.funnel.active);
+          if (badge) {
+            badge.className = "badge " + (active ? "ok" : "fail");
+            badge.textContent = active ? "Active" : "Inactive";
+          }
+          if (urlEl) {
+            if (fn.funnel?.url) {
+              urlEl.innerHTML = "";
+              const a = document.createElement("a");
+              a.href = fn.funnel.url; a.target = "_blank";
+              a.textContent = fn.funnel.url;
+              urlEl.appendChild(a);
+            } else {
+              urlEl.textContent = "—";
+            }
+          }
+        } else if (badge) {
+          badge.className = "badge gray";
+          badge.textContent = "Unknown";
         }
-        document.getElementById("tsFunnelUrl").textContent = ts.funnel_url || "--";
-      }
+      } catch (e) { /* ignore */ }
     }
 
     if (sysinfo.ok) {
@@ -651,64 +709,166 @@ async function refreshOverview() {
   }
 }
 
-// ===== TERMINAL =====
+// ===== TERMINAL (v1.6.2: persistent shell-like session) =====
 const termInput = document.getElementById("termCmd");
-termInput.addEventListener("keydown", e => { if (e.key === "Enter") runCommand(); });
+let _termHistoryIndex = -1;  // -1 = no nav, 0..n-1 = navigating
+
+termInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    _termHistoryIndex = -1;
+    runCommand();
+  } else if (e.key === "ArrowUp") {
+    if (cmdHistory.length === 0) return;
+    e.preventDefault();
+    _termHistoryIndex = Math.min(_termHistoryIndex + 1, cmdHistory.length - 1);
+    termInput.value = cmdHistory[_termHistoryIndex];
+    // place cursor at end
+    setTimeout(() => termInput.setSelectionRange(termInput.value.length, termInput.value.length), 0);
+  } else if (e.key === "ArrowDown") {
+    if (_termHistoryIndex <= 0) {
+      _termHistoryIndex = -1;
+      termInput.value = "";
+      return;
+    }
+    e.preventDefault();
+    _termHistoryIndex--;
+    termInput.value = cmdHistory[_termHistoryIndex];
+  } else if (e.key === "l" && e.ctrlKey) {
+    e.preventDefault();
+    clearTerminal();
+  } else {
+    // any other key resets history navigation
+    if (e.key.length === 1) _termHistoryIndex = -1;
+  }
+});
+
+function _termAppendEntry(cmdText, opts) {
+  opts = opts || {};
+  const sess = document.getElementById("termSession");
+  if (!sess) return null;
+
+  const entry = document.createElement("div");
+  entry.className = "term-entry";
+  entry.style.cssText = "margin-bottom:14px;padding-bottom:10px;border-bottom:1px dashed var(--border)";
+
+  const head = document.createElement("div");
+  head.style.cssText = "display:flex;align-items:center;gap:8px;margin-bottom:6px";
+
+  const prompt = document.createElement("span");
+  prompt.textContent = "$";
+  prompt.style.cssText = "color:var(--green);font-weight:700";
+  head.appendChild(prompt);
+
+  const cmdSpan = document.createElement("span");
+  cmdSpan.textContent = cmdText;
+  cmdSpan.style.cssText = "color:var(--text);font-weight:600;flex:1;word-break:break-all";
+  head.appendChild(cmdSpan);
+
+  const meta = document.createElement("span");
+  meta.className = "term-meta";
+  meta.style.cssText = "color:var(--text2);font-size:11px;white-space:nowrap";
+  meta.textContent = "running...";
+  head.appendChild(meta);
+
+  const out = document.createElement("pre");
+  out.className = "term-out";
+  out.style.cssText = "margin:0;padding:0;white-space:pre-wrap;word-break:break-word;color:var(--text)";
+  out.textContent = "";
+
+  entry.appendChild(head);
+  entry.appendChild(out);
+  sess.appendChild(entry);
+  sess.scrollTop = sess.scrollHeight;
+
+  return { entry, head, meta, out };
+}
 
 async function runCommand(cmd) {
   const c = cmd || termInput.value;
   if (!c.trim()) return;
   termInput.value = "";
   const timeout = parseInt(document.getElementById("termTimeout").value);
-  const output = document.getElementById("termOutput");
-  output.textContent = "Running: " + c + "\n...";
+
+  const slot = _termAppendEntry(c);
   const t0 = Date.now();
 
   try {
     const result = await api("/v1/exec", {method: "POST", body: JSON.stringify({cmd: c, timeout})});
-    const dur = ((Date.now() - t0) / 1000).toFixed(1);
+    const dur = ((Date.now() - t0) / 1000).toFixed(2);
     document.getElementById("termDuration").textContent = dur + "s";
     overviewMetrics.execs++;
 
+    let outText = "";
+    let status = "ok";
+    let exitCode = result.exit_code != null ? result.exit_code : 0;
+
     if (result.ok !== undefined) {
-      let out = "";
-      if (result.stdout) out += result.stdout;
-      if (result.stderr) out += (out ? "\n--- STDERR ---\n" : "") + result.stderr;
-      if (result.timed_out) out += "\n[TIMEOUT]";
-      if (!result.ok && result.exit_code) out += "\n[Exit code: " + result.exit_code + "]";
-      output.textContent = out || "(no output)";
+      if (result.stdout) outText += result.stdout;
+      if (result.stderr) outText += (outText ? "\n--- STDERR ---\n" : "") + result.stderr;
+      if (result.timed_out) { outText += "\n[TIMEOUT]"; status = "timeout"; }
+      if (!result.ok || exitCode !== 0) status = (status === "ok" ? "fail" : status);
     } else {
-      output.textContent = "Error: " + (result.error || "unknown");
+      outText = "Error: " + (result.error || "unknown");
+      status = "fail";
+    }
+
+    if (slot) {
+      slot.out.textContent = outText || "(no output)";
+      const color = status === "ok" ? "var(--green)" : (status === "timeout" ? "var(--yellow,#fbbf24)" : "var(--red,#f87171)");
+      slot.meta.innerHTML = "";
+      const tag = document.createElement("span");
+      tag.textContent = "exit " + exitCode;
+      tag.style.cssText = "color:" + color + ";font-weight:600";
+      slot.meta.appendChild(tag);
+      const dt = document.createElement("span");
+      dt.textContent = " · " + dur + "s";
+      dt.style.color = "var(--text2)";
+      slot.meta.appendChild(dt);
     }
   } catch(e) {
-    output.textContent = "Error executing command: " + (e.message || "Unknown error");
+    if (slot) {
+      slot.out.textContent = "Error executing command: " + (e.message || "Unknown error");
+      slot.meta.innerHTML = '<span style="color:var(--red,#f87171)">network error</span>';
+    }
   }
 
-  cmdHistory.unshift(c);
-  if (cmdHistory.length > 30) cmdHistory.length = 30;
-  localStorage.setItem("arena_cmd_history", JSON.stringify(cmdHistory));
-  renderHistory();
+  // Save history (newest first), de-dup latest entry
+  if (cmdHistory[0] !== c) {
+    cmdHistory.unshift(c);
+    if (cmdHistory.length > 50) cmdHistory.length = 50;
+    localStorage.setItem("arena_cmd_history", JSON.stringify(cmdHistory));
+    renderHistory();
+  }
+  // auto-scroll on slow apps
+  const sess = document.getElementById("termSession");
+  if (sess) sess.scrollTop = sess.scrollHeight;
 }
 
 function clearTerminal() {
-  document.getElementById("termOutput").textContent = "Ready.";
+  const sess = document.getElementById("termSession");
+  if (sess) sess.innerHTML = '<div style="color:var(--text2);font-style:italic">Session cleared. Ready.</div>';
+  document.getElementById("termDuration").textContent = "";
 }
 
 function renderHistory() {
   const el = document.getElementById("termHistory");
+  if (!el) return;
   el.innerHTML = "";
-  cmdHistory.slice(0, 15).forEach((c) => {
+  cmdHistory.slice(0, 20).forEach((c) => {
     const span = document.createElement("span");
-    span.style.cssText = "cursor:pointer;color:var(--purple);margin-right:12px;display:block;margin-bottom:4px";
-    span.textContent = c.length > 50 ? c.slice(0,50)+"..." : c;
-    span.addEventListener("click", () => { termInput.value = c; runCommand(c); });
+    span.style.cssText = "cursor:pointer;color:var(--purple);display:block;margin-bottom:3px;padding:3px 6px;border-radius:3px";
+    span.textContent = c.length > 80 ? c.slice(0,80)+"…" : c;
+    span.title = c;
+    span.addEventListener("mouseenter", () => span.style.background = "var(--bg3)");
+    span.addEventListener("mouseleave", () => span.style.background = "");
+    span.addEventListener("click", () => { termInput.value = c; termInput.focus(); });
     el.appendChild(span);
   });
 }
 renderHistory();
 
 function copyTermOutput() {
-  const output = document.getElementById("termOutput").textContent;
+  const output = document.getElementById("termSession").innerText;
   copyToClipboard(output);
   const btn = document.querySelector(".copy-btn");
   const orig = btn.textContent;
@@ -1484,45 +1644,107 @@ async function runDoctor() {
     const passed = result.passed;
     const total = result.total;
 
-    // Service status
-    if (result.services) {
-      svcEl.innerHTML = "";
-      Object.entries(result.services).forEach(([name, info]) => {
-        const div = document.createElement("div");
-        div.className = "row";
-        const badge = document.createElement("span");
-        badge.className = "badge " + (info.ok || info.active ? "ok" : "fail");
-        badge.textContent = info.ok || info.active ? "OK" : "DOWN";
-        const nameSpan = document.createElement("span");
-        nameSpan.style.cssText = "font-size:12px;font-weight:600;width:140px";
-        nameSpan.textContent = name;
-        const detail = document.createElement("span");
-        detail.style.cssText = "font-size:12px;color:var(--text2)";
-        detail.textContent = info.detail || info.port || "";
-        div.appendChild(badge); div.appendChild(nameSpan); div.appendChild(detail);
-        svcEl.appendChild(div);
-      });
-    } else {
-      svcEl.textContent = "Service info not available";
+    // Service status — fetch /v1/sys/svc directly (v1.6.4)
+    try {
+      const svc = await api("/v1/sys/svc");
+      if (svc && svc.ok) {
+        svcEl.innerHTML = "";
+        const items = [];
+        if (svc.windows_service) {
+          items.push(["NSSM/Windows Service", svc.windows_service.running, svc.windows_service.detail || ""]);
+        }
+        if (svc.scheduled_task) {
+          items.push(["Scheduled Task", svc.scheduled_task.running, svc.scheduled_task.detail || ""]);
+        }
+        if (svc.bridge_processes) {
+          items.push(["Bridge processes", svc.bridge_processes.count > 0,
+                      "count: " + svc.bridge_processes.count]);
+        }
+        if (svc.systemd_user) {
+          items.push(["systemd-user", svc.systemd_user.active, svc.systemd_user.detail || ""]);
+        }
+        if (svc.launchd) {
+          items.push(["launchd", svc.launchd.active, svc.launchd.detail || ""]);
+        }
+        if (svc.tailscale) {
+          items.push(["Tailscale", svc.tailscale.connected, svc.tailscale.error || "connected"]);
+        }
+        items.forEach(([name, ok, detail]) => {
+          const div = document.createElement("div");
+          div.className = "row";
+          div.style.cssText = "align-items:flex-start;gap:8px;margin-bottom:4px";
+          const badge = document.createElement("span");
+          badge.className = "badge " + (ok ? "ok" : "fail");
+          badge.textContent = ok ? "OK" : "DOWN";
+          const nameSpan = document.createElement("span");
+          nameSpan.style.cssText = "font-size:12px;font-weight:600;min-width:160px";
+          nameSpan.textContent = name;
+          const detEl = document.createElement("span");
+          detEl.style.cssText = "font-size:11px;color:var(--text2);font-family:var(--mono);white-space:pre-wrap;flex:1";
+          detEl.textContent = (detail || "").toString().slice(0, 300);
+          div.appendChild(badge); div.appendChild(nameSpan); div.appendChild(detEl);
+          svcEl.appendChild(div);
+        });
+      } else {
+        svcEl.textContent = "Service info not available (svc.ok=false)";
+      }
+    } catch (e) {
+      svcEl.textContent = "Service info error: " + (e.message || e);
     }
 
-    // Tailscale status
-    if (result.tailscale) {
-      tsEl.innerHTML = "";
-      const ts = result.tailscale;
-      const badge = document.createElement("span");
-      badge.className = "badge " + (ts.funnel_active ? "ok" : "fail");
-      badge.textContent = ts.funnel_active ? "Active" : "Inactive";
-      tsEl.appendChild(badge);
-      if (ts.funnel_url) {
-        const url = document.createElement("span");
-        url.className = "mono";
-        url.style.cssText = "font-size:12px;margin-left:8px";
-        url.textContent = ts.funnel_url;
-        tsEl.appendChild(url);
+    // Tailscale Funnel — fetch /v1/sys/funnel directly (v1.6.4)
+    try {
+      const fn = await api("/v1/sys/funnel");
+      if (fn && fn.ok) {
+        tsEl.innerHTML = "";
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;flex-direction:column;gap:6px";
+
+        // 1. Funnel active badge
+        const row1 = document.createElement("div");
+        row1.className = "row";
+        const fb = document.createElement("span");
+        fb.className = "badge " + (fn.funnel?.active ? "ok" : "fail");
+        fb.textContent = fn.funnel?.active ? "Funnel: ACTIVE" : "Funnel: inactive";
+        row1.appendChild(fb);
+        if (fn.funnel?.url) {
+          const u = document.createElement("a");
+          u.href = fn.funnel.url; u.target = "_blank";
+          u.className = "mono"; u.style.cssText = "font-size:12px;margin-left:8px";
+          u.textContent = fn.funnel.url;
+          row1.appendChild(u);
+        }
+        wrap.appendChild(row1);
+
+        // 2. Tailscale connected badge
+        const row2 = document.createElement("div");
+        row2.className = "row";
+        const tb = document.createElement("span");
+        tb.className = "badge " + (fn.tailscale?.connected ? "ok" : "fail");
+        tb.textContent = fn.tailscale?.connected ? "Tailscale: connected" : "Tailscale: down";
+        row2.appendChild(tb);
+        wrap.appendChild(row2);
+
+        // 3. Raw status (collapsible)
+        if (fn.tailscale?.status || fn.funnel?.status) {
+          const det = document.createElement("details");
+          det.style.cssText = "margin-top:6px";
+          const sum = document.createElement("summary");
+          sum.style.cssText = "cursor:pointer;font-size:11px;color:var(--text2)";
+          sum.textContent = "Raw output";
+          det.appendChild(sum);
+          const pre = document.createElement("pre");
+          pre.style.cssText = "margin:6px 0 0;font-size:11px;background:var(--bg2);padding:6px;white-space:pre-wrap";
+          pre.textContent = (fn.tailscale?.status || "") + "\n\n" + (fn.funnel?.status || "");
+          det.appendChild(pre);
+          wrap.appendChild(det);
+        }
+        tsEl.appendChild(wrap);
+      } else {
+        tsEl.textContent = "Tailscale info not available";
       }
-    } else {
-      tsEl.textContent = "Tailscale info not available";
+    } catch (e) {
+      tsEl.textContent = "Funnel info error: " + (e.message || e);
     }
 
     // Doctor results
@@ -1698,7 +1920,7 @@ async function createBackup() {
 async function loadBackups() {
   const tbody = document.getElementById("backupsTable");
   try {
-    const result = await api("/v1/backup");
+    const result = await api("/v1/backups");
     if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
     const backups = result.backups || [];
     if (!backups.length) { tbody.innerHTML = "<tr><td colspan='4'>No backups found</td></tr>"; return; }
@@ -1726,15 +1948,49 @@ async function loadBackups() {
   }
 }
 
-function downloadBackup(name) {
-  const a = document.createElement("a");
-  a.href = BASE + "/v1/backup/" + encodeURIComponent(name);
-  a.download = name;
-  a.click();
+async function downloadBackup(name) {
+  // /v1/backup/{name} requires Authorization header — fetch as blob then save
+  try {
+    const r = await fetch(BASE + "/v1/backup/" + encodeURIComponent(name), {
+      headers: { "Authorization": "Bearer " + TOKEN }
+    });
+    if (!r.ok) { alert("Download failed: HTTP " + r.status); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    alert("Download error: " + (e.message || "unknown"));
+  }
 }
 
 // ===== SETTINGS =====
 async function refreshSettings() {
+  // Service mode badge
+  try {
+    const si = await api("/v1/service/info");
+    const el = document.getElementById("setServiceMode");
+    if (el && si && si.ok) {
+      const mode = si.running_as || "unknown";
+      const labels = {
+        "nssm-service":   ["NSSM Windows Service", "ok"],
+        "scheduled-task": ["Windows Scheduled Task", "warn"],
+        "systemd-user":   ["systemd-user (Linux)", "ok"],
+        "launchd":        ["launchd (macOS)", "ok"],
+        "unknown":        ["Manual / unmanaged", "warn"],
+      };
+      const [label, kind] = labels[mode] || [mode, "gray"];
+      el.className = "badge " + kind;
+      el.textContent = label + (si.pid ? "  (PID " + si.pid + ")" : "");
+      el.title = JSON.stringify(si, null, 2);
+    }
+  } catch (e) { /* ignore */ }
+
   try {
     const health = await api("/health");
     if (health.ok !== undefined && health.uptime_seconds !== undefined) {
@@ -1788,27 +2044,113 @@ async function tsFunnelToggle(action) {
 }
 
 async function bridgeRestart() {
-  if (!confirm("Restart the bridge? This may cause a temporary disconnect.")) return;
+  if (!confirm("Restart the bridge?\n\nThe page will temporarily lose connection " +
+               "and reload once the bridge is back up.")) return;
   try {
-    const result = await api("/v1/restart", {method: "POST"});
-    if (result.ok) {
-      alert("Bridge restarting... Please wait.");
-    } else {
-      alert("Error: " + (result.error||"?"));
-    }
+    // Capture the restart response (it tells us if respawn helper was spawned)
+    const restartPromise = api("/v1/restart", {method: "POST"}).catch(e => ({ok:false, error: e.message||String(e)}));
+
+    // Poll /health until back
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;" +
+      "display:flex;align-items:center;justify-content:center;font-family:var(--mono);color:#fff;font-size:14px";
+    overlay.innerHTML = "<div id='restartBox' style='background:#222;padding:20px 32px;border-radius:8px;max-width:560px;text-align:center'>" +
+      "<div><span class='spinner'></span> Restarting bridge... (page will reload when ready)</div>" +
+      "<div id='restartMeta' style='margin-top:8px;color:#888;font-size:11px'></div>" +
+      "</div>";
+    document.body.appendChild(overlay);
+
+    // Show what /v1/restart returned (respawn method, etc)
+    restartPromise.then(r => {
+      const meta = document.getElementById("restartMeta");
+      if (!meta) return;
+      if (r && r.ok) {
+        if (r.respawn_scheduled === false) {
+          meta.style.color = "#f87171";
+          meta.textContent = "⚠ Respawn helper failed: " + (r.method || "?") +
+                             ". You may need to start the bridge manually.";
+        } else if (r.method) {
+          meta.textContent = "Respawn method: " + r.method;
+        }
+      } else if (r && r.error) {
+        meta.style.color = "#f87171";
+        meta.textContent = "Restart endpoint error: " + r.error;
+      }
+    });
+
+    let tries = 0;
+    const max = 45;  // 45 sec to allow scheduled-task respawn
+    const interval = setInterval(async () => {
+      tries++;
+      const box = document.getElementById("restartBox");
+      if (box) {
+        const spin = box.querySelector(".spinner");
+        if (spin && tries > 1) {
+          // Append elapsed time once per second
+          let counter = box.querySelector("#restartElapsed");
+          if (!counter) {
+            counter = document.createElement("span");
+            counter.id = "restartElapsed";
+            counter.style.cssText = "margin-left:8px;color:#888";
+            spin.after(counter);
+          }
+          counter.textContent = "(" + tries + "s)";
+        }
+      }
+      try {
+        const r = await fetch(BASE + "/health", {cache: "no-store"});
+        if (r.ok) {
+          clearInterval(interval);
+          // tiny delay so user sees the success message
+          const m = document.getElementById("restartMeta");
+          if (m) { m.style.color = "#4ade80"; m.textContent = "✓ Bridge is back. Reloading..."; }
+          setTimeout(() => location.reload(), 500);
+        }
+      } catch (_) { /* keep polling */ }
+      if (tries >= max) {
+        clearInterval(interval);
+        const box2 = document.getElementById("restartBox");
+        if (box2) {
+          box2.innerHTML =
+            "<div style='color:#f87171;font-weight:600;margin-bottom:8px'>Bridge did not come back after " + max + "s</div>" +
+            "<div style='font-size:11px;color:#aaa;margin-bottom:8px'>Try manually in PowerShell:</div>" +
+            "<pre style='background:#111;padding:8px;font-size:11px;text-align:left;border-radius:4px'>" +
+            "schtasks /Run /tn ArenaUnifiedBridge\n" +
+            "Start-Sleep 4\n" +
+            "curl -UseBasicParsing http://127.0.0.1:" + (location.port||8765) + "/health</pre>" +
+            "<button onclick='location.reload()' style='margin-top:8px'>Reload anyway</button> " +
+            "<button onclick='this.closest(\"div[style*=fixed]\").remove()'>Cancel</button>";
+        }
+      }
+    }, 1000);
   } catch(e) {
     alert("Error restarting bridge: " + (e.message||"Unknown error"));
   }
 }
 
 async function regenToken() {
-  if (!confirm("Regenerate the auth token? You will need to update any clients using the current token.")) return;
+  if (!confirm("Regenerate the auth token?\n\n" +
+               "A new token will be written to token.txt.\n" +
+               "Existing sessions continue with the OLD token until the bridge restarts.")) return;
   try {
     const result = await api("/v1/token/regenerate", {method: "POST"});
-    if (result.ok) {
-      alert("Token regenerated. Please reload the dashboard.");
-    } else {
+    if (!result.ok) {
       alert("Error: " + (result.error||"?"));
+      return;
+    }
+    const tok = result.token || "(no token in response)";
+    const wantRestart = confirm(
+      "✅ New token generated:\n\n" + tok + "\n\n" +
+      "Written to:\n" + (result.written_to || []).join("\n") + "\n\n" +
+      "Restart the bridge now to activate? (Recommended)\n" +
+      "Cancel to keep current session running with old token."
+    );
+    if (wantRestart) {
+      // Persist token in localStorage so the reloaded page can re-auth
+      try { localStorage.setItem("arena_token", tok); } catch(_) {}
+      bridgeRestart();
+    } else {
+      alert("Token saved. Restart bridge later via Settings → Restart Bridge.");
     }
   } catch(e) {
     alert("Error regenerating token: " + (e.message||"Unknown error"));
@@ -1872,6 +2214,447 @@ setInterval(refreshOverview, 15000);
 
 // Initial data load for active tab
 loadMemory();
+
+// ============================================================
+// Arena Dashboard add-ons (slash commands + hwinfo)
+// ============================================================
+const SLASH_COMMANDS = {
+  "/shot":    { cmd: "agentctl browser sd-shot ",          hint: "Screenshot via Chromium" },
+  "/dump":    { cmd: "agentctl browser sd-dump ",          hint: "Full DOM via Chromium" },
+  "/read":    { cmd: "agentctl browser py-read ",          hint: "Readability extract (urllib)" },
+  "/text":    { cmd: "agentctl browser py-dump ",          hint: "Plain text + links (urllib)" },
+  "/head":    { cmd: "agentctl browser py-head ",          hint: "HTTP HEAD request" },
+  "/search":  { cmd: "agentctl browser py-search ",        hint: "DuckDuckGo search --n 5" },
+  "/fetch":   { cmd: "agentctl browser py-fetch ",         hint: "Raw HTTP GET to URL" },
+  "/hwinfo":  { cmd: "curl -s http://127.0.0.1:8765/v1/hwinfo -H \"Authorization: Bearer $ARENA_TOKEN\"", hint: "Full hardware report" },
+  "/status":  { cmd: "agentctl sys status",                hint: "Bridge + tunnel + ports overview" },
+  "/doctor":  { cmd: "agentctl sys doctor",                hint: "System health checks" },
+  "/sysinfo": { cmd: "agentctl sys info",                  hint: "CPU/RAM/Disk summary" },
+  "/audit":   { cmd: "agentctl audit tail 50",             hint: "Recent audit log entries" },
+  "/facts":   { cmd: "agentctl mem list",                  hint: "List memory facts" },
+  "/tasks":   { cmd: "agentctl task ls",                   hint: "List queued/active tasks" },
+  "/ip":      { cmd: "agentctl web ip",                    hint: "Show local + public IP" },
+  "/dns":     { cmd: "agentctl web dns ",                  hint: "DNS lookup (append host)" },
+  "/funnel":  { cmd: "tailscale funnel status",            hint: "Tailscale Funnel status" },
+  "/help":    { cmd: "agentctl --help",                    hint: "List agentctl commands" },
+};
+
+function expandSlash(input) {
+  const trimmed = input.trim();
+  for (const [k, v] of Object.entries(SLASH_COMMANDS)) {
+    if (trimmed === k || trimmed.startsWith(k + " ")) {
+      return v.cmd + trimmed.substring(k.length).trimStart();
+    }
+  }
+  return input;
+}
+
+function setupSlashSuggest() {
+  const inp = document.getElementById("termCmd");
+  const box = document.getElementById("termSuggest");
+  if (!inp || !box) return;
+
+  function render() {
+    const v = inp.value;
+    if (!v.startsWith("/") || v.includes(" ")) {
+      box.style.display = "none";
+      return;
+    }
+    const prefix = v.toLowerCase();
+    const matches = Object.entries(SLASH_COMMANDS)
+      .filter(([k]) => k.startsWith(prefix))
+      .slice(0, 8);
+    if (!matches.length) {
+      box.style.display = "none";
+      return;
+    }
+    box.innerHTML = matches.map(([k, v]) =>
+      `<div class="slash-item" style="padding:6px 10px;cursor:pointer;border-bottom:1px solid var(--border)" data-cmd="${k}">
+         <b>${k}</b> <span style="color:var(--text2);margin-left:8px">${v.hint}</span>
+         <div style="color:var(--text2);font-size:10px;margin-top:2px">${v.cmd.length > 60 ? v.cmd.substring(0,60) + "..." : v.cmd}</div>
+       </div>`
+    ).join("");
+    box.style.display = "block";
+    box.querySelectorAll(".slash-item").forEach(el => {
+      el.addEventListener("mouseenter", () => el.style.background = "var(--bg3)");
+      el.addEventListener("mouseleave", () => el.style.background = "");
+      el.addEventListener("click", () => {
+        const k = el.dataset.cmd;
+        inp.value = k + (SLASH_COMMANDS[k].cmd.endsWith(" ") ? " " : "");
+        box.style.display = "none";
+        inp.focus();
+      });
+    });
+  }
+
+  inp.addEventListener("input", render);
+  inp.addEventListener("focus", render);
+  inp.addEventListener("blur", () => setTimeout(() => box.style.display = "none", 200));
+  inp.addEventListener("keydown", (e) => {
+    if (e.key === "Tab" && box.style.display === "block") {
+      const first = box.querySelector(".slash-item");
+      if (first) {
+        e.preventDefault();
+        first.click();
+      }
+    } else if (e.key === "Escape") {
+      box.style.display = "none";
+    }
+  });
+}
+
+// ---------- Hardware Diagnostics ----------
+async function refreshHwinfo() {
+  const card = document.getElementById("hwDetails");
+  const src = document.getElementById("hwSource");
+  if (!card) return;
+  card.textContent = "Loading hardware data...";
+  if (src) src.textContent = "loading...";
+
+  let hw = null;
+  let source = "";
+
+  // Try /v1/hwinfo first (bridge >= 1.6.1)
+  try {
+    const r = await api("/v1/hwinfo");
+    if (r && r.ok && r.hwinfo) {
+      hw = r.hwinfo;
+      source = "/v1/hwinfo (bridge)";
+    }
+  } catch (e) {}
+
+  // Fallback to /v1/sysinfo
+  if (!hw) {
+    try {
+      const r = await api("/v1/sysinfo");
+      if (r && r.ok) {
+        hw = {
+          os: { system: "?", release: "?", machine: "?" },
+          cpu: { name: "CPU", cores: r.cpu_cores, threads: r.cpu_threads, max_ghz: 0 },
+          ram_total_gb: (r.mem_total_mb / 1024).toFixed(1),
+          ram_avail_gb: (r.mem_avail_mb / 1024).toFixed(1),
+          disks: [{ device: "/", total_gb: r.disk_total_gb, free_gb: r.disk_free_gb,
+                    used_pct: r.disk_total_gb ? ((r.disk_total_gb - r.disk_free_gb) / r.disk_total_gb * 100).toFixed(1) : 0,
+                    filesystem: "" }],
+        };
+        source = "/v1/sysinfo (fallback, basic)";
+      }
+    } catch (e) {}
+  }
+
+  if (!hw) {
+    card.textContent = "Hardware info unavailable";
+    if (src) { src.textContent = "error"; src.className = "badge red"; }
+    return;
+  }
+
+  if (src) {
+    src.textContent = source;
+    src.className = "badge " + (source.includes("hwinfo") ? "green" : "warn");
+  }
+
+  // Format
+  const lines = [];
+  const os = hw.os || {};
+  lines.push(`OS:      ${os.system || "?"} ${os.release || ""} (${os.machine || ""}, host: ${os.node || "?"})`);
+
+  if (hw.motherboard) {
+    const m = hw.motherboard;
+    lines.push(`Board:   ${m.manufacturer || "?"} ${m.product || ""} ${m.version ? "(rev " + m.version + ")" : ""}`);
+  }
+  if (hw.bios) {
+    const b = hw.bios;
+    const date = b.release_date ? `${b.release_date.substring(0,4)}-${b.release_date.substring(4,6)}-${b.release_date.substring(6,8)}` : "";
+    lines.push(`BIOS:    ${b.manufacturer || ""} v${b.version || ""} ${date ? "(" + date + ")" : ""}`);
+  }
+  if (hw.cpu) {
+    const c = hw.cpu;
+    lines.push(`CPU:     ${c.name || "?"} (${c.cores || "?"} cores / ${c.threads || "?"} threads${c.max_ghz ? ", " + c.max_ghz + " GHz" : ""})`);
+  }
+  if (hw.gpus && hw.gpus.length) {
+    hw.gpus.forEach((g, i) => {
+      lines.push(`GPU${i > 0 ? (i+1) : ":"}    ${g.name}${g.vram_mb ? " (" + (g.vram_mb / 1024).toFixed(1) + " GB VRAM)" : ""}`);
+    });
+  } else if (hw.gpu) {
+    lines.push(`GPU:     ${hw.gpu.name}${hw.gpu.vram_mb ? " (" + (hw.gpu.vram_mb / 1024).toFixed(1) + " GB VRAM)" : ""}`);
+  }
+
+  if (hw.ram_total_gb) {
+    const used = hw.ram_used_gb;
+    const avail = hw.ram_avail_gb;
+    let line = `RAM:     ${hw.ram_total_gb} GB total`;
+    if (used != null) line += `, ${used} GB used`;
+    if (avail != null) line += `, ${avail} GB free`;
+    lines.push(line);
+  }
+  if (hw.ram_modules && hw.ram_modules.length) {
+    hw.ram_modules.forEach((m, i) => {
+      lines.push(`         Slot ${i+1}: ${m.size_gb} GB${m.speed_mhz ? " @ " + m.speed_mhz + " MHz" : ""}${m.manufacturer ? " — " + m.manufacturer : ""}${m.part_number ? " (" + m.part_number + ")" : ""}`);
+    });
+  }
+
+  if (hw.disks && hw.disks.length) {
+    lines.push(``);
+    lines.push(`Disks:`);
+    hw.disks.forEach(d => {
+      lines.push(`  ${d.device} ${d.volume ? "(" + d.volume + ")" : ""} — ${d.free_gb} GB free of ${d.total_gb} GB ${d.filesystem ? "[" + d.filesystem + "]" : ""} (${d.used_pct}% used)`);
+    });
+  }
+
+  card.textContent = lines.join("\n");
+}
+
+// Hook into existing refreshOverview if present
+const _origRefreshOverview = typeof refreshOverview === "function" ? refreshOverview : null;
+window.refreshOverview = async function() {
+  if (_origRefreshOverview) {
+    try { await _origRefreshOverview(); } catch (e) {}
+  }
+  refreshHwinfo();
+};
+
+// Hook expandSlash into runCommand if present
+const _origRunCommand = typeof runCommand === "function" ? runCommand : null;
+window.runCommand = async function(cmd) {
+  const inp = document.getElementById("termCmd");
+  if (inp && !cmd) {
+    const expanded = expandSlash(inp.value);
+    if (expanded !== inp.value) inp.value = expanded;
+  }
+  if (_origRunCommand) return _origRunCommand(cmd);
+};
+
+// Initialize on DOM ready
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => { setupSlashSuggest(); refreshHwinfo(); });
+} else {
+  setupSlashSuggest();
+  refreshHwinfo();
+}
+
+
+// ===== Full Inventory (v1.6.3) =====
+function toggleFullInventory() {
+  const card = document.getElementById("fullInventoryCard");
+  if (!card) return;
+  const btn = document.getElementById("invToggleBtn");
+  if (card.style.display === "none") {
+    card.style.display = "";
+    if (btn) btn.textContent = "🙈 Hide Inventory";
+    card.scrollIntoView({behavior: "smooth", block: "start"});
+    // Auto-load on first open
+    const out = document.getElementById("invOutput");
+    if (out && out.textContent.startsWith('Click "Load')) loadFullInventory();
+  } else {
+    card.style.display = "none";
+    if (btn) btn.textContent = "📋 Full Inventory";
+  }
+}
+
+async function loadFullInventory() {
+  const out = document.getElementById("invOutput");
+  const status = document.getElementById("invStatus");
+  if (!out) return;
+  out.textContent = "Loading...";
+  if (status) { status.textContent = "loading"; status.className = "badge warn"; }
+  const t0 = Date.now();
+
+  // Determine which sections are selected
+  const sections = Array.from(document.querySelectorAll(".inv-sec:checked"))
+                        .map(c => c.value).filter(v => v);
+  // "all" wins (no section filter)
+  const allChecked = Array.from(document.querySelectorAll(".inv-sec:checked"))
+                          .some(c => c.value === "");
+  let url = "/v1/inventory?format=json&timeout=45";
+  if (!allChecked && sections.length === 1) {
+    url += "&section=" + encodeURIComponent(sections[0]);
+  }
+
+  try {
+    const r = await api(url);
+    const dt = ((Date.now() - t0) / 1000).toFixed(1);
+    if (!r.ok) {
+      out.textContent = "Error: " + (r.error || JSON.stringify(r));
+      if (status) { status.textContent = "error"; status.className = "badge red"; }
+      return;
+    }
+    const inv = r.inventory || {};
+    // If multiple sections asked, filter client-side
+    const text = formatInventoryText(inv, allChecked ? null : sections);
+    out.textContent = text;
+    if (status) { status.textContent = `loaded in ${dt}s`; status.className = "badge ok"; }
+  } catch (e) {
+    out.textContent = "Network error: " + (e.message || e);
+    if (status) { status.textContent = "network error"; status.className = "badge red"; }
+  }
+}
+
+function formatInventoryText(inv, onlySections) {
+  const lines = [];
+  const wantAll = !onlySections || onlySections.length === 0;
+  const want = new Set(onlySections || []);
+  function show(name) { return wantAll || want.has(name); }
+
+  if (inv.generated_at) lines.push(`generated_at: ${inv.generated_at}`);
+  lines.push("");
+
+  if (show("identity") && inv.identity) {
+    lines.push("### Identity");
+    const i = inv.identity;
+    lines.push(`  user: ${i.user}   host: ${i.hostname}`);
+    lines.push(`  home: ${i.home}`);
+    if (i.shell) lines.push(`  shell: ${i.shell}`);
+    lines.push("");
+  }
+  if (show("os") && inv.os) {
+    const o = inv.os;
+    lines.push("### OS");
+    lines.push(`  ${o.system} ${o.release} (${o.machine})`);
+    if (o.distro?.pretty) lines.push(`  distro: ${o.distro.pretty}`);
+    if (o.caption) lines.push(`  edition: ${o.caption}  build ${o.build_number||""}`);
+    if (o.uptime_seconds) {
+      const u = o.uptime_seconds;
+      const d = Math.floor(u/86400), h = Math.floor((u%86400)/3600), m = Math.floor((u%3600)/60);
+      lines.push(`  uptime: ${d}d ${h}h ${m}m`);
+    }
+    lines.push(`  python: ${o.python_version}`);
+    lines.push("");
+  }
+  if (show("cpu") && inv.cpu) {
+    const c = inv.cpu;
+    lines.push("### CPU");
+    lines.push(`  ${c.name || "(unknown)"}`);
+    lines.push(`  ${c.cores_physical || "?"} physical / ${c.cores_logical || "?"} logical cores${c.max_ghz?(", "+c.max_ghz+" GHz max"):""}`);
+    if (c.load_avg) lines.push(`  load avg: ${c.load_avg.map(x=>x.toFixed(2)).join(", ")}`);
+    lines.push("");
+  }
+  if (show("memory") && inv.memory) {
+    const m = inv.memory;
+    lines.push("### Memory");
+    if (m.total_gb) {
+      lines.push(`  ${m.total_gb} GB total, ${m.used_gb||"?"} GB used, ${m.available_gb||"?"} GB free`);
+    }
+    if (m.swap_total_gb) lines.push(`  swap: ${m.swap_free_gb||0} free / ${m.swap_total_gb} GB`);
+    (m.modules||[]).forEach((mod,i) => {
+      let s = `  slot ${i+1}: ${mod.size_gb} GB`;
+      if (mod.speed_mhz) s += ` @ ${mod.speed_mhz} MHz`;
+      if (mod.manufacturer) s += ` — ${mod.manufacturer}`;
+      if (mod.part_number) s += ` (${mod.part_number})`;
+      lines.push(s);
+    });
+    lines.push("");
+  }
+  if (show("motherboard") && inv.motherboard) {
+    const mb = inv.motherboard;
+    if (mb.motherboard) {
+      lines.push("### Motherboard");
+      lines.push(`  ${mb.motherboard.manufacturer || ""} ${mb.motherboard.product || ""}`);
+      if (mb.motherboard.version) lines.push(`  rev ${mb.motherboard.version}`);
+      lines.push("");
+    }
+    if (mb.bios) {
+      lines.push("### BIOS");
+      lines.push(`  ${mb.bios.manufacturer || ""} v${mb.bios.version || ""}${mb.bios.release_date?" ("+mb.bios.release_date+")":""}`);
+      lines.push("");
+    }
+  }
+  if (show("gpu") && inv.gpu) {
+    lines.push("### GPU");
+    (inv.gpu.gpus||[]).forEach(g => {
+      let s = `  • ${g.name}`;
+      if (g.vram_mb) s += ` (${(g.vram_mb/1024).toFixed(1)} GB VRAM)`;
+      if (g.driver_version) s += ` — driver ${g.driver_version}`;
+      lines.push(s);
+    });
+    (inv.gpu.nvidia||[]).forEach(n => {
+      lines.push(`  NVIDIA: ${n.name} — ${n.vram_used_mb}/${n.vram_total_mb} MB used, ${n.temperature_c}°C, ${n.utilization_pct}% util`);
+    });
+    lines.push("");
+  }
+  if (show("disks") && inv.disks) {
+    lines.push("### Disks");
+    inv.disks.forEach(d => {
+      lines.push(`  ${(d.device||"").padEnd(10)} ${(d.mount||"").padEnd(15)} ${(d.filesystem||"").padEnd(8)} ${d.free_gb}/${d.total_gb} GB free (${d.used_pct}% used)`);
+    });
+    lines.push("");
+  }
+  if (show("network") && inv.network) {
+    const n = inv.network;
+    lines.push("### Network");
+    lines.push(`  hostname: ${n.hostname}  fqdn: ${n.fqdn||""}`);
+    (n.interfaces||[]).forEach(i => {
+      lines.push(`  ${(i.name||"").padEnd(28)} ${i.ipv4||""}`);
+    });
+    lines.push("");
+  }
+  if (show("runtimes") && inv.runtimes) {
+    lines.push("### Runtimes (" + Object.keys(inv.runtimes).length + ")");
+    Object.entries(inv.runtimes).sort().forEach(([k,v]) => lines.push(`  ${k.padEnd(12)} ${v}`));
+    lines.push("");
+  }
+  if (show("package_managers") && inv.package_managers) {
+    lines.push("### Package managers (" + Object.keys(inv.package_managers).length + ")");
+    Object.entries(inv.package_managers).sort().forEach(([k,v]) => lines.push(`  ${k.padEnd(12)} ${v}`));
+    lines.push("");
+  }
+  if (show("browsers") && inv.browsers) {
+    lines.push("### Browsers");
+    Object.entries(inv.browsers).sort().forEach(([k,v]) => lines.push(`  ${k.padEnd(22)} ${v}`));
+    lines.push("");
+  }
+  if (show("displays") && inv.displays) {
+    lines.push("### Displays / GUI");
+    Object.entries(inv.displays).forEach(([k,v]) => {
+      if (k === "screens") {
+        (v||[]).forEach(s => lines.push(`  screen: ${JSON.stringify(s)}`));
+      } else {
+        lines.push(`  ${k.padEnd(22)} ${v}`);
+      }
+    });
+    lines.push("");
+  }
+  if (show("services") && inv.services) {
+    lines.push("### Services");
+    Object.entries(inv.services).forEach(([k,v]) => {
+      if (Array.isArray(v)) {
+        lines.push(`  ${k} (${v.length}):`);
+        v.slice(0, 10).forEach(item => lines.push(`    - ${item}`));
+        if (v.length > 10) lines.push(`    ... and ${v.length-10} more`);
+      } else {
+        lines.push(`  ${k}: ${v}`);
+      }
+    });
+    lines.push("");
+  }
+  if (show("python_env") && inv.python_env) {
+    const pe = inv.python_env;
+    lines.push("### Python environment");
+    lines.push(`  exe: ${pe.executable}`);
+    lines.push(`  version: ${pe.version} (${pe.implementation})  in_venv: ${pe.is_venv}`);
+    if (pe.installed_pkgs_count != null) lines.push(`  installed: ${pe.installed_pkgs_count} packages`);
+    if (pe.installed_pkgs_top20) {
+      lines.push("  top 20:");
+      pe.installed_pkgs_top20.forEach(p => lines.push(`    ${p}`));
+    }
+    lines.push("");
+  }
+  if (show("env") && inv.env) {
+    lines.push("### Env (selected)");
+    Object.entries(inv.env).sort().forEach(([k,v]) => {
+      if (k === "PATH" || k === "PATH_dirs") return;
+      let val = v;
+      if (typeof v === "string" && v.length > 120) val = v.slice(0,120)+"…";
+      lines.push(`  ${k.padEnd(22)} ${val}`);
+    });
+    if (inv.env.PATH_entries) {
+      lines.push(`  PATH                   (${inv.env.PATH_entries} entries; expand with 'env' section JSON)`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 </script>
 </body>
 </html>
