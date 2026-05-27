@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arena Unified Bridge v1.7.0
+Arena Unified Bridge v1.8.0
 
 Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /health          GET   Public health check
@@ -122,10 +122,14 @@ from urllib.parse import parse_qs, urlparse
 import aiohttp
 from aiohttp import web
 
+import logging
+import logging.handlers
+import traceback as _traceback
+
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -148,6 +152,168 @@ DEFAULT_MAX_CONCURRENT = 3
 
 ACTIVE_PROCESSES: dict[str, dict] = {}
 audit_lock = threading.Lock()
+
+# ============================================================================
+# STRUCTURED LOGGING
+# ============================================================================
+
+LOG_FILE = APP_DIR / "bridge.log"
+
+
+def _setup_logging() -> logging.Logger:
+    """Configure structured logging with file rotation and console output."""
+    logger = logging.getLogger("arena-bridge")
+    logger.setLevel(logging.DEBUG)
+
+    # Prevent duplicate handlers on reload
+    if logger.handlers:
+        return logger
+
+    # Structured format: timestamp LEVEL [component] message
+    fmt = logging.Formatter(
+        "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+
+    # Console handler (INFO level)
+    ch = logging.StreamHandler(sys.stderr)
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(fmt)
+    logger.addHandler(ch)
+
+    # File handler with rotation (DEBUG level, 5MB x 5 files)
+    try:
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+        fh = logging.handlers.RotatingFileHandler(
+            str(LOG_FILE),
+            maxBytes=5 * 1024 * 1024,
+            backupCount=5,
+            encoding="utf-8"
+        )
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+    except Exception:
+        # If file logging fails, continue with console only
+        pass
+
+    return logger
+
+
+log = _setup_logging()
+
+
+# ============================================================================
+# CUSTOM EXCEPTIONS (structured error codes for API responses)
+# ============================================================================
+
+class BridgeError(Exception):
+    """Base exception for all bridge errors. Carries an error_code and HTTP status."""
+    error_code: str = "BRIDGE_ERROR"
+    http_status: int = 500
+
+    def __init__(self, message: str = "", error_code: str = "", http_status: int = 0):
+        super().__init__(message)
+        if error_code:
+            self.error_code = error_code
+        if http_status:
+            self.http_status = http_status
+
+    def to_dict(self) -> dict:
+        return {
+            "ok": False,
+            "error": str(self),
+            "error_code": self.error_code,
+        }
+
+
+class ValidationError(BridgeError):
+    """Input validation failure (400)."""
+    error_code = "VALIDATION_ERROR"
+    http_status = 400
+
+
+class AuthError(BridgeError):
+    """Authentication failure (401)."""
+    error_code = "AUTH_ERROR"
+    http_status = 401
+
+
+class ForbiddenError(BridgeError):
+    """Action not allowed (403)."""
+    error_code = "FORBIDDEN"
+    http_status = 403
+
+
+class NotFoundError(BridgeError):
+    """Resource not found (404)."""
+    error_code = "NOT_FOUND"
+    http_status = 404
+
+
+class BridgeTimeoutError(BridgeError):
+    """Operation timed out (408)."""
+    error_code = "TIMEOUT"
+    http_status = 408
+
+
+class ResourceError(BridgeError):
+    """Resource limit exceeded or unavailable (429/503)."""
+    error_code = "RESOURCE_ERROR"
+    http_status = 503
+
+
+# ============================================================================
+# ERROR MIDDLEWARE (global exception handler)
+# ============================================================================
+
+@web.middleware
+async def error_middleware(request: web.Request, handler):
+    """Catch all unhandled exceptions, return structured JSON, log stack traces."""
+    # Generate request ID for tracing
+    req_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())[:8]
+    request["req_id"] = req_id
+
+    t0 = time.time()
+    try:
+        resp = await handler(request)
+        duration = time.time() - t0
+        log.debug("[%s] %s %s -> %d (%.3fs)", req_id, request.method,
+                  request.path, resp.status, duration)
+        # Add request ID to response headers
+        resp.headers["X-Request-Id"] = req_id
+        return resp
+    except web.HTTPException:
+        # Let aiohttp handle its own HTTP exceptions (404 route not found, etc.)
+        duration = time.time() - t0
+        log.debug("[%s] %s %s -> HTTPException (%.3fs)", req_id, request.method,
+                  request.path, duration)
+        raise
+    except BridgeError as e:
+        duration = time.time() - t0
+        _record_request(duration=duration, is_error=True)
+        log.warning("[%s] %s %s -> %s %s: %s (%.3fs)", req_id, request.method,
+                    request.path, e.error_code, e.http_status, e, duration)
+        return _cors_json_response(e.to_dict(), status=e.http_status,
+                                   headers={"X-Request-Id": req_id})
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:
+        duration = time.time() - t0
+        _record_request(duration=duration, is_error=True)
+        # Log full stack trace for debugging
+        tb = _traceback.format_exc()
+        log.error("[%s] %s %s UNHANDLED: %s\n%s", req_id, request.method,
+                  request.path, e, tb)
+        audit({"event": "unhandled_error", "req_id": req_id, "path": request.path,
+               "method": request.method, "error": repr(e), "tb_snippet": tb[:2000]})
+        return _cors_json_response({
+            "ok": False,
+            "error": f"Internal error: {type(e).__name__}: {e}",
+            "error_code": "INTERNAL_ERROR",
+            "req_id": req_id,
+        }, status=500, headers={"X-Request-Id": req_id})
+
 
 # Thread pool executor for running blocking I/O in async handlers
 _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="bridge_io")
@@ -685,7 +851,7 @@ async def task_run_one(task_path: Path) -> bool:
     try:
         task = json.loads(task_path.read_text(encoding="utf-8"))
     except Exception as e:
-        print(f"[TaskRunner] Failed to read {task_path}: {e}", file=sys.stderr)
+        log.error("[TaskRunner] Failed to read %s: %s", task_path, e)
         return False
 
     tid = task.get("id") or task_path.stem
@@ -753,21 +919,21 @@ async def task_run_one(task_path: Path) -> bool:
     except FileNotFoundError:
         pass
 
-    print(f"[TaskRunner] {tid}: {state} exit={exit_code} dur={duration}s", flush=True)
+    log.info("[TaskRunner] %s: %s exit=%s dur=%ss", tid, state, exit_code, duration)
     return True
 
 
 async def task_runner_loop(app: web.Application):
     """Background task: watches INBOX for new tasks every 5 seconds."""
     task_ensure_dirs()
-    print("[TaskRunner] Watching", INBOX, flush=True)
+    log.info("[TaskRunner] Watching %s", INBOX)
     while True:
         try:
             task_ensure_dirs()
             for p in sorted(INBOX.glob("*.json"))[:3]:
                 await task_run_one(p)
         except Exception as e:
-            print(f"[TaskRunner] Error: {e}", file=sys.stderr)
+            log.error("[TaskRunner] Loop error: %s", e)
         await asyncio.sleep(5)
 
 
@@ -776,7 +942,7 @@ async def task_runner_loop(app: web.Application):
 # ============================================================================
 
 def make_app(cfg: dict) -> web.Application:
-    app = web.Application(client_max_size=50 * 1024 * 1024)
+    app = web.Application(client_max_size=50 * 1024 * 1024, middlewares=[error_middleware])
     app["cfg"] = cfg
     app["mcp_sessions"] = {}
 
@@ -869,6 +1035,7 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/subagents/spawn", handle_v1_subagents_spawn)
     app.router.add_get("/v1/mission/show", handle_v1_mission_show)
     app.router.add_get("/v1/metrics", handle_v1_metrics)
+    app.router.add_get("/v1/logs", handle_v1_logs)
 
     # ---- Dashboard ----
     app.router.add_get("/gui", handle_gui)
@@ -902,7 +1069,7 @@ async def on_startup(app: web.Application):
     cfg = app["cfg"]
     cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
     app["task_runner"] = asyncio.ensure_future(task_runner_loop(app))
-    print(f"[UnifiedBridge v{VERSION}] Background task runner started", flush=True)
+    log.info("[UnifiedBridge v%s] Background task runner started", VERSION)
 
 
 async def on_cleanup(app: web.Application):
@@ -5167,7 +5334,7 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
                 await ws.send_json({"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}})
 
         elif msg.type == aiohttp.WSMsgType.ERROR:
-            print(f"[WS] Connection error: {ws.exception()}", file=sys.stderr)
+            log.error("[WS] Connection error: %s", ws.exception())
             break
         elif msg.type == aiohttp.WSMsgType.CLOSE:
             break
@@ -5272,7 +5439,7 @@ _shutdown_event: asyncio.Event | None = None
 def _signal_handler(sig: int, frame: Any) -> None:
     """Signal handler for graceful shutdown."""
     sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
-    print(f"\n[UnifiedBridge] Received {sig_name}, shutting down gracefully...", flush=True)
+    log.info("[UnifiedBridge] Received %s, shutting down gracefully...", sig_name)
     if _shutdown_event is not None:
         _shutdown_event.set()
     # Force exit after a short delay if event loop doesn't stop
@@ -5315,7 +5482,7 @@ def resolve_token(cli_token: str | None) -> tuple[str, Path]:
         os.chmod(token_file, 0o600)
     except Exception:
         pass
-    print(f"[ArenaBridge] New token generated and saved to {token_file}", flush=True)
+    log.info("[ArenaBridge] New token generated and saved to %s", token_file)
     return new_tok, token_file
 
 
@@ -5328,7 +5495,7 @@ def _daemonize() -> None:
             if pid > 0:
                 os._exit(0)
         except OSError as e:
-            print(f"[ArenaBridge] First fork failed: {e}", file=sys.stderr)
+            log.error("[ArenaBridge] First fork failed: %s", e)
             return
 
         # Decouple from parent
@@ -5341,7 +5508,7 @@ def _daemonize() -> None:
             if pid > 0:
                 os._exit(0)
         except OSError as e:
-            print(f"[ArenaBridge] Second fork failed: {e}", file=sys.stderr)
+            log.error("[ArenaBridge] Second fork failed: %s", e)
             return
 
         # Redirect standard file descriptors
@@ -5354,6 +5521,47 @@ def _daemonize() -> None:
         log_f = open(log_path, "a", encoding="utf-8")
         os.dup2(log_f.fileno(), sys.stdout.fileno())
         os.dup2(log_f.fileno(), sys.stderr.fileno())
+
+
+
+
+async def handle_v1_logs(request: web.Request) -> web.Response:
+    """Return recent bridge log entries with optional level filter."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        level = request.query.get("level", "INFO").upper()
+        lines_count = min(int(request.query.get("lines", "100")), 1000)
+    except (ValueError, TypeError):
+        level = "INFO"
+        lines_count = 100
+
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    if level not in valid_levels:
+        level = "INFO"
+
+    log_entries = []
+    try:
+        if LOG_FILE.exists():
+            text = LOG_FILE.read_text(encoding="utf-8", errors="replace")
+            all_lines = text.splitlines()
+            min_idx = valid_levels.index(level) if level in valid_levels else 1
+            filter_levels = valid_levels[min_idx:]
+            for line in all_lines:
+                if any(f" {lv} " in line for lv in filter_levels):
+                    log_entries.append(line)
+            log_entries = log_entries[-lines_count:]
+    except Exception as e:
+        log.error("Failed to read log file: %s", e)
+
+    return _cors_json_response({
+        "ok": True,
+        "log_file": str(LOG_FILE),
+        "level_filter": level,
+        "lines": len(log_entries),
+        "entries": log_entries,
+    })
 
 
 def serve(args: argparse.Namespace) -> None:
@@ -5391,16 +5599,16 @@ def serve(args: argparse.Namespace) -> None:
         except (OSError, ValueError):
             pass  # Can't set signal handler in non-main thread
 
-    print(f"Arena Unified Bridge v{VERSION} on http://{args.bind}:{args.port}", flush=True)
-    print(f"profile={args.profile} root={root} audit={AUDIT} max_concurrent={args.max_concurrent}", flush=True)
-    print("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner", flush=True)
-    print("Stop with Ctrl+C.", flush=True)
+    log.info("Arena Unified Bridge v%s on http://%s:%s", VERSION, args.bind, args.port)
+    log.info("profile=%s root=%s audit=%s max_concurrent=%s", args.profile, root, AUDIT, args.max_concurrent)
+    log.info("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner")
+    log.info("Stop with Ctrl+C.")
 
     web.run_app(app, host=args.bind, port=args.port, print=None)
 
 
 def token_cmd(_: argparse.Namespace) -> None:
-    print(b64_token())
+    log.info("New token: %s", b64_token())
 
 
 def main() -> None:
