@@ -17,6 +17,7 @@ ok()   { echo -e "\033[32m[OK]\033[0m $*"; }
 warn() { echo -e "\033[33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[31m[ERROR]\033[0m $*"; }
 info() { echo -e "\033[34m[INFO]\033[0m $*"; }
+ask()  { echo -en "\033[36m[?] $* [y/N]: \033[0m"; read -r REPLY; [[ "$REPLY" =~ ^[Yy]$ ]]; }
 
 echo ""
 echo "========================================"
@@ -94,27 +95,90 @@ else
     ok "Existing token preserved"
 fi
 
-# --- Step 6: Optional components ---
+# ============================================================
+# Step 6: Optional components
+# ============================================================
 echo ""
-info "Optional components:"
+echo "========================================"
+echo " Optional Components"
+echo "========================================"
+echo ""
 
-# Tailscale
+# --- 6a: Tailscale ---
 if command -v tailscale >/dev/null 2>&1; then
     ok "Tailscale found — funnel available"
+    # Offer to set operator so funnel works without sudo
+    if [ "$(uname -s)" = "Linux" ]; then
+        TS_OP="$(tailscale status --json 2>/dev/null | "$PY" -c "import json,sys; d=json.load(sys.stdin); print(d.get('Self',{}).get('Capabilities',{}).get('funnel',False))" 2>/dev/null || echo 'false')"
+        if [ "$TS_OP" = "False" ] || [ "$TS_OP" = "false" ]; then
+            if ask "Set Tailscale operator to $USER (so funnel works without sudo)?"; then
+                sudo tailscale set --operator="$USER" 2>/dev/null && ok "Tailscale operator set" || warn "Failed to set operator"
+            fi
+        fi
+    fi
 else
     info "Tailscale not found. Install it for internet access: https://tailscale.com"
 fi
 
-# Git
-if command -v git >/dev/null 2>&1; then
-    ok "Git found"
+# --- 6b: SuperPowers (agentic skills framework) ---
+SP_DIR="$INSTALL_DIR/skills/superpowers"
+if [ -d "$SP_DIR" ]; then
+    ok "SuperPowers already installed in skills/superpowers/"
 else
-    warn "Git not found. Some features may not work."
+    if ask "Install SuperPowers? (agentic TDD, debugging, planning skills for AI agents)"; then
+        info "Cloning SuperPowers from GitHub..."
+        git clone --depth 1 https://github.com/obra/superpowers.git "$SP_DIR" 2>/dev/null
+        if [ -d "$SP_DIR/skills" ]; then
+            ok "SuperPowers installed — 14 skills available (TDD, debugging, planning, etc.)"
+        else
+            warn "SuperPowers clone failed. You can install later:"
+            echo "  git clone https://github.com/obra/superpowers.git $SP_DIR"
+        fi
+    else
+        info "SuperPowers skipped. Install later with:"
+        echo "  git clone https://github.com/obra/superpowers.git $SP_DIR"
+    fi
+fi
+
+# --- 6c: BrowserAct (browser automation for AI agents) ---
+if command -v browser-act >/dev/null 2>&1; then
+    ok "BrowserAct already installed: $(browser-act --version 2>/dev/null || echo 'installed')"
+else
+    # Check for uv
+    if command -v uv >/dev/null 2>&1; then
+        if ask "Install BrowserAct? (browser automation CLI for AI agents — browse, click, forms, CAPTCHAs)"; then
+            info "Installing BrowserAct via uv..."
+            uv tool install browser-act-cli --python 3.12 2>/dev/null
+            if command -v browser-act >/dev/null 2>&1; then
+                ok "BrowserAct installed: $(browser-act --version 2>/dev/null || echo 'OK')"
+                # Install skill file
+                BA_SKILL_DIR="$INSTALL_DIR/skills/browser-act"
+                mkdir -p "$BA_SKILL_DIR"
+                if [ ! -f "$BA_SKILL_DIR/SKILL.md" ]; then
+                    info "Downloading BrowserAct skill file..."
+                    curl -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" \
+                        -o "$BA_SKILL_DIR/SKILL.md" 2>/dev/null || warn "Could not download skill file"
+                fi
+            else
+                warn "BrowserAct installation may have failed. Install manually:"
+                echo "  uv tool install browser-act-cli --python 3.12"
+            fi
+        else
+            info "BrowserAct skipped. Install later with:"
+            echo "  uv tool install browser-act-cli --python 3.12"
+        fi
+    else
+        info "BrowserAct requires 'uv' package manager. Install uv first:"
+        echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+        echo "  Then: uv tool install browser-act-cli --python 3.12"
+    fi
 fi
 
 echo ""
 
-# --- Step 7: Install as system service ---
+# ============================================================
+# Step 7: Install as system service
+# ============================================================
 info "Installing as system service..."
 OS="$(uname -s)"
 
@@ -240,6 +304,11 @@ fi
 echo ""
 echo " Optional:"
 echo "   tailscale funnel --bg $PORT   # expose to internet"
+echo ""
+echo " Installed skills:"
+[ -d "$INSTALL_DIR/skills/superpowers" ] && echo "   SuperPowers   — $INSTALL_DIR/skills/superpowers/"
+[ -d "$INSTALL_DIR/skills/browser-act" ] && echo "   BrowserAct    — $INSTALL_DIR/skills/browser-act/"
+[ -d "$INSTALL_DIR/skills/superpowers" ] || [ -d "$INSTALL_DIR/skills/browser-act" ] || echo "   (none — install with: git clone https://github.com/obra/superpowers.git $INSTALL_DIR/skills/superpowers)"
 echo ""
 echo " Update:"
 echo "   $INSTALL_DIR/install.sh        # re-run to update"

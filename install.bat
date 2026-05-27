@@ -62,24 +62,80 @@ if not exist "%TOKEN_FILE%" (
     echo       Existing token preserved.
 )
 
-REM --- Optional components ---
+REM ============================================================
+REM Optional Components
+REM ============================================================
 echo.
-echo [INFO] Optional components:
-where git >nul 2>&1
-if not errorlevel 1 (
-    echo [OK] Git found
-) else (
-    echo [INFO] Git not found. Some features may not work.
-)
+echo  ========================================
+echo   Optional Components
+echo  ========================================
+echo.
+
+REM --- Tailscale ---
 where tailscale >nul 2>&1
 if not errorlevel 1 (
     echo [OK] Tailscale found - funnel available
 ) else (
-    echo [INFO] Tailscale not found. Install for internet access.
+    echo [INFO] Tailscale not found. Install for internet access: https://tailscale.com
 )
+
+REM --- SuperPowers ---
+if exist "%BRIDGE_DIR%\skills\superpowers\README.md" (
+    echo [OK] SuperPowers already installed in skills\superpowers\
+) else (
+    set /p "INSTALL_SP=Install SuperPowers? (agentic TDD, debugging, planning skills) [y/N]: "
+    if /i "!INSTALL_SP!"=="y" (
+        echo [INFO] Cloning SuperPowers from GitHub...
+        git clone --depth 1 https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers" 2>nul
+        if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
+            echo [OK] SuperPowers installed - 14 skills available
+        ) else (
+            echo [WARN] SuperPowers clone failed. Install later:
+            echo        git clone https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers"
+        )
+    ) else (
+        echo [INFO] SuperPowers skipped.
+    )
+)
+
+REM --- BrowserAct ---
+where browser-act >nul 2>&1
+if not errorlevel 1 (
+    echo [OK] BrowserAct already installed
+) else (
+    where uv >nul 2>&1
+    if not errorlevel 1 (
+        set /p "INSTALL_BA=Install BrowserAct? (browser automation CLI for AI agents) [y/N]: "
+        if /i "!INSTALL_BA!"=="y" (
+            echo [INFO] Installing BrowserAct via uv...
+            uv tool install browser-act-cli --python 3.12 2>nul
+            where browser-act >nul 2>&1
+            if not errorlevel 1 (
+                echo [OK] BrowserAct installed
+                if not exist "%BRIDGE_DIR%\skills\browser-act" mkdir "%BRIDGE_DIR%\skills\browser-act"
+                if not exist "%BRIDGE_DIR%\skills\browser-act\SKILL.md" (
+                    echo [INFO] Downloading BrowserAct skill file...
+                    curl -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browser-act\SKILL.md" 2>nul
+                )
+            ) else (
+                echo [WARN] BrowserAct installation may have failed. Install manually:
+                echo        uv tool install browser-act-cli --python 3.12
+            )
+        ) else (
+            echo [INFO] BrowserAct skipped.
+        )
+    ) else (
+        echo [INFO] BrowserAct requires 'uv' package manager. Install uv first:
+        echo        https://docs.astral.sh/uv/getting-started/installation/
+        echo        Then: uv tool install browser-act-cli --python 3.12
+    )
+)
+
 echo.
 
-REM --- Stop old service/task if running ---
+REM ============================================================
+REM Step 4: Install and start service
+REM ============================================================
 echo [4/4] Installing and starting service...
 
 REM Kill any existing bridge process on our port
@@ -135,7 +191,12 @@ if exist "%TOKEN_FILE%" (
     echo.
 )
 
-echo   Optional: tailscale funnel --bg %PORT%
+echo   Optional:
+echo   tailscale funnel --bg %PORT%
+echo.
+echo   Installed skills:
+if exist "%BRIDGE_DIR%\skills\superpowers" echo   SuperPowers   - %BRIDGE_DIR%\skills\superpowers\
+if exist "%BRIDGE_DIR%\skills\browser-act" echo   BrowserAct    - %BRIDGE_DIR%\skills\browser-act\
 echo.
 echo   Update: re-run install.bat or: cd %BRIDGE_DIR% ^&^& git pull
 echo.
