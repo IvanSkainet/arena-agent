@@ -6,58 +6,54 @@
 <title>Arena Bridge v{{VERSION}}</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0a1a;--bg2:#12122a;--bg3:#1a1a3e;--accent:#1a3a6a;--purple:#7c3aed;--red:#f43f5e;--green:#10b981;--yellow:#f59e0b;--blue:#3b82f6;--orange:#f97316;--cyan:#06b6d4;--text:#e8e8f0;--text2:#8888a8;--mono:'Cascadia Code','Consolas','Courier New',monospace;--sans:'Segoe UI',system-ui,-apple-system,sans-serif;--border:#2a2a4a;--glow:0 0 20px rgba(124,58,237,0.15);--transition:all 0.25s cubic-bezier(0.4,0,0.2,1)}
+:root{--bg:#0f0f23;--bg2:#1a1a2e;--bg3:#16213e;--accent:#0f3460;--purple:#533483;--red:#e94560;--green:#00d672;--yellow:#ffc107;--blue:#4fc3f7;--orange:#ff9800;--text:#e0e0e0;--text2:#a0a0b0;--mono:'Cascadia Code','Consolas','Courier New',monospace;--sans:'Segoe UI',system-ui,-apple-system,sans-serif}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
-.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--border);padding:0;flex-shrink:0;display:flex;flex-direction:column;box-shadow:2px 0 20px rgba(0,0,0,0.3)}
-.sidebar h2{padding:16px;font-size:14px;color:var(--purple);border-bottom:1px solid var(--border);letter-spacing:1px;font-weight:700}
+.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--accent);padding:0;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar h2{padding:16px;font-size:14px;color:var(--purple);border-bottom:1px solid var(--accent);letter-spacing:1px}
 .sidebar nav{flex:1;padding:8px 0;overflow-y:auto}
-.sidebar nav a{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--text2);text-decoration:none;font-size:13px;transition:var(--transition);border-left:3px solid transparent;cursor:pointer;border-radius:0 6px 6px 0;margin-right:8px}
-.sidebar nav a:hover{background:var(--bg3);color:var(--text);border-left-color:var(--purple)}
-.sidebar nav a.active{background:linear-gradient(90deg,var(--accent),transparent);color:#fff;border-left-color:var(--purple);font-weight:600}
+.sidebar nav a{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--text2);text-decoration:none;font-size:13px;transition:all .2s;border-left:3px solid transparent;cursor:pointer}
+.sidebar nav a:hover{background:var(--bg3);color:var(--text)}
+.sidebar nav a.active{background:var(--accent);color:#fff;border-left-color:var(--purple)}
 .sidebar nav a .icon{width:18px;text-align:center;font-size:14px}
-.main{flex:1;padding:24px;overflow-y:auto;max-height:100vh;background:linear-gradient(180deg,var(--bg) 0%,#0d0d20 100%)}
+.main{flex:1;padding:24px;overflow-y:auto;max-height:100vh}
 .tab{display:none}
 .tab.active{display:block}
 h1{font-size:22px;margin-bottom:16px;color:var(--text)}
 h2{font-size:16px;margin:16px 0 8px;color:var(--purple)}
 h3{font-size:14px;margin:12px 0 6px;color:var(--blue)}
-.card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;transition:var(--transition);box-shadow:0 2px 8px rgba(0,0,0,0.2)}
-.card:hover{border-color:var(--purple);box-shadow:var(--glow)}
+.card{background:var(--bg2);border:1px solid var(--accent);border-radius:8px;padding:16px;margin-bottom:12px}
 .card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
 .card-grid-sm{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px}
-.stat{font-size:28px;font-weight:700;color:var(--green);text-shadow:0 0 20px rgba(16,185,129,0.3)}
-.stat.warn{color:var(--yellow);text-shadow:0 0 20px rgba(245,158,11,0.3)}
-.stat.err{color:var(--red);text-shadow:0 0 20px rgba(244,63,94,0.3)}
-.stat.info{color:var(--blue);text-shadow:0 0 20px rgba(59,130,246,0.3)}
+.stat{font-size:28px;font-weight:700;color:var(--green)}
+.stat.warn{color:var(--yellow)}
+.stat.err{color:var(--red)}
+.stat.info{color:var(--blue)}
 .label{font-size:12px;color:var(--text2);margin-top:4px}
 table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;padding:10px 12px;background:var(--bg3);color:var(--text2);font-weight:600;border-bottom:2px solid var(--purple);font-size:12px;text-transform:uppercase;letter-spacing:0.5px}
-td{padding:8px 12px;border-bottom:1px solid var(--border)}
-tr:hover td{background:var(--bg3);transition:var(--transition)}
-input,textarea,select{background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:6px;font-size:13px;font-family:var(--sans);width:100%;transition:var(--transition)}
+th{text-align:left;padding:8px 12px;background:var(--bg3);color:var(--text2);font-weight:600;border-bottom:1px solid var(--accent)}
+td{padding:8px 12px;border-bottom:1px solid #1a1a3e}
+tr:hover td{background:var(--bg3)}
+input,textarea,select{background:var(--bg3);border:1px solid var(--accent);color:var(--text);padding:8px 12px;border-radius:4px;font-size:13px;font-family:var(--sans);width:100%}
 textarea{font-family:var(--mono);resize:vertical;min-height:120px}
-input:focus,textarea:focus,select:focus{outline:none;border-color:var(--purple);box-shadow:0 0 0 3px rgba(124,58,237,0.2)}
-button{background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:13px;cursor:pointer;font-family:var(--sans);transition:var(--transition);white-space:nowrap;font-weight:500}
-button:hover{background:var(--purple);transform:translateY(-1px);box-shadow:0 2px 8px rgba(124,58,237,0.3)}
-button:active{transform:translateY(0)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--purple)}
+button{background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:4px;font-size:13px;cursor:pointer;font-family:var(--sans);transition:all .2s;white-space:nowrap}
+button:hover{background:var(--purple)}
 button.danger{background:var(--red)}
-button.danger:hover{background:#be123c;box-shadow:0 2px 8px rgba(244,63,94,0.3)}
+button.danger:hover{background:#c62828}
 button.success{background:var(--green);color:#000}
-button.success:hover{background:#059669;box-shadow:0 2px 8px rgba(16,185,129,0.3)}
+button.success:hover{background:#00b85c}
 button.warning{background:var(--yellow);color:#000}
-button.warning:hover{background:#d97706}
-button.info{background:var(--blue);color:#fff}
-button.info:hover{background:var(--cyan);color:#000;box-shadow:0 2px 8px rgba(6,182,212,0.3)}
+button.info{background:var(--blue);color:#000}
 button.sm{padding:4px 10px;font-size:11px}
 .row{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.badge{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;letter-spacing:0.3px}
-.badge.ok{background:rgba(16,185,129,0.15);color:var(--green);border:1px solid rgba(16,185,129,0.3)}
-.badge.fail{background:rgba(244,63,94,0.15);color:var(--red);border:1px solid rgba(244,63,94,0.3)}
-.badge.warn{background:rgba(245,158,11,0.15);color:var(--yellow);border:1px solid rgba(245,158,11,0.3)}
-.badge.info{background:rgba(59,130,246,0.15);color:var(--blue);border:1px solid rgba(59,130,246,0.3)}
-.badge.gray{background:rgba(136,136,168,0.15);color:var(--text2);border:1px solid rgba(136,136,168,0.3)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+.badge.ok{background:#00d67233;color:var(--green)}
+.badge.fail{background:#e9456033;color:var(--red)}
+.badge.warn{background:#ffc10733;color:var(--yellow)}
+.badge.info{background:#4fc3f733;color:var(--blue)}
+.badge.gray{background:#88888833;color:#aaa}
 .mono{font-family:var(--mono);font-size:12px}
-.output{background:#050510;color:var(--green);font-family:var(--mono);font-size:12px;padding:12px;border-radius:6px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;border:1px solid var(--border)}
+.output{background:#000;color:var(--green);font-family:var(--mono);font-size:12px;padding:12px;border-radius:4px;white-space:pre-wrap;word-break:break-all;max-height:400px;overflow-y:auto;border:1px solid var(--accent)}
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--text2);border-top-color:var(--purple);border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 .ping{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
@@ -65,9 +61,9 @@ button.sm{padding:4px 10px;font-size:11px}
 .ping.err{background:var(--red)}
 .ping.reconnecting{background:var(--yellow);animation:pulse 1s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
-.version-tag{font-size:11px;background:linear-gradient(135deg,var(--purple),var(--blue));color:#fff;padding:3px 10px;border-radius:12px;margin-left:8px;font-weight:600}
-.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--text2);background:var(--bg2)}
-.copy-btn{background:var(--bg3);color:var(--text2);border:1px solid var(--border);padding:4px 10px;font-size:11px;border-radius:6px;margin-left:8px;transition:var(--transition)}
+.version-tag{font-size:11px;background:var(--purple);color:#fff;padding:2px 8px;border-radius:10px;margin-left:8px}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--accent);font-size:11px;color:var(--text2)}
+.copy-btn{background:var(--bg3);color:var(--text2);border:1px solid var(--accent);padding:4px 10px;font-size:11px;border-radius:3px;margin-left:8px}
 .copy-btn:hover{background:var(--accent);color:#fff}
 .reconnect-msg{font-size:11px;color:var(--yellow);margin-top:4px}
 .progress-bar{background:var(--bg3);border-radius:4px;height:20px;overflow:hidden;position:relative;margin:4px 0}
@@ -78,7 +74,7 @@ button.sm{padding:4px 10px;font-size:11px}
 .fill.red{background:linear-gradient(90deg,#c62828,var(--red))}
 .fill.blue{background:linear-gradient(90deg,#1565c0,var(--blue))}
 .fill.purple{background:linear-gradient(90deg,#6a1b9a,var(--purple))}
-.detail-panel{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:12px;margin-top:8px;display:none}
+.detail-panel{background:var(--bg3);border:1px solid var(--accent);border-radius:6px;padding:12px;margin-top:8px;display:none}
 .detail-panel.open{display:block}
 .task-inbox{color:var(--text2)}
 .task-running{color:var(--yellow)}
@@ -89,12 +85,12 @@ button.sm{padding:4px 10px;font-size:11px}
 .hdr-table{font-size:12px;width:auto}
 .hdr-table td{padding:4px 12px;border:none}
 .hdr-table td:first-child{color:var(--yellow);font-weight:600;white-space:nowrap}
-.screenshot-thumb{max-width:200px;max-height:150px;border:1px solid var(--border);border-radius:6px;cursor:pointer}
+.screenshot-thumb{max-width:200px;max-height:150px;border:1px solid var(--accent);border-radius:4px;cursor:pointer}
 .metric-row{display:flex;gap:16px;flex-wrap:wrap}
 .metric-item{text-align:center}
 .metric-val{font-size:22px;font-weight:700}
 .metric-label{font-size:11px;color:var(--text2)}
-.divider{border-top:1px solid var(--border);margin:16px 0}
+.divider{border-top:1px solid var(--accent);margin:16px 0}
 @media(max-width:768px){.sidebar{width:60px;overflow:hidden}.sidebar h2,.sidebar nav a span:not(.icon),.sidebar-footer{display:none}.sidebar nav a{justify-content:center;padding:12px}.main{padding:12px}.card-grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -102,21 +98,21 @@ button.sm{padding:4px 10px;font-size:11px}
 <div class="sidebar">
 <h2>ARENA BRIDGE</h2>
 <nav>
-<a class="active" data-tab="overview"><span class="icon">&#9632;</span>Overview</a>
-<a data-tab="terminal"><span class="icon">&#9654;</span>Terminal</a>
-<a data-tab="memory"><span class="icon">&#9998;</span>Memory</a>
+<a class="active" data-tab="overview"><span class="icon">&#9632;</span>📊 Overview</a>
+<a data-tab="terminal"><span class="icon">&#9654;</span>💻 Terminal</a>
+<a data-tab="memory"><span class="icon">&#9998;</span>🧠 Memory</a>
 <a data-tab="recall"><span class="icon">&#128269;</span>Recall</a>
 <a data-tab="missions"><span class="icon">&#9733;</span>Missions</a>
-<a data-tab="browser"><span class="icon">&#9741;</span>Browser</a>
+<a data-tab="browser"><span class="icon">&#9741;</span>🌐 Browser</a>
 <a data-tab="reports"><span class="icon">&#9783;</span>Reports</a>
-<a data-tab="tasks"><span class="icon">&#9776;</span>Tasks</a>
+<a data-tab="tasks"><span class="icon">&#9776;</span>📋 Tasks</a>
 <a data-tab="skills"><span class="icon">&#9881;</span>Skills</a>
 <a data-tab="hooks"><span class="icon">&#10227;</span>Hooks</a>
 <a data-tab="agents"><span class="icon">&#9978;</span>Agents</a>
-<a data-tab="doctor"><span class="icon">&#9764;</span>Doctor</a>
-<a data-tab="audit"><span class="icon">&#128196;</span>Audit</a>
-<a data-tab="git"><span class="icon">&#128196;</span>Git</a>
-<a data-tab="settings"><span class="icon">&#9881;</span>Settings</a>
+<a data-tab="doctor"><span class="icon">&#9764;</span>🏥 Doctor</a>
+<a data-tab="audit"><span class="icon">&#128196;</span>📜 Audit</a>
+<a data-tab="backup"><span class="icon">&#128190;</span>Backup</a>
+<a data-tab="settings"><span class="icon">&#9881;</span>⚙️ Settings</a>
 </nav>
 <div class="sidebar-footer">
 <span class="ping ok" id="pingDot"></span> <span id="pingText">Connected</span><br>
@@ -212,8 +208,7 @@ v<span id="sidebarVersion">{{VERSION}}</span>
   <pre id="invOutput" style="margin:0;font-family:var(--mono);font-size:12px;line-height:1.45;white-space:pre-wrap;color:var(--text);max-height:60vh;overflow:auto;background:var(--bg2);padding:10px;border:1px solid var(--border);border-radius:6px">Click "Load / Refresh" to fetch the full system inventory.</pre>
 </div>
 
-<h2>System Info (raw)</h2>
-<div class="card" id="sysinfoCard">Loading...</div>
+
 </div>
 
 <!-- ==================== TERMINAL ==================== -->
@@ -395,39 +390,18 @@ Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /d
 <table><thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead><tbody id="auditTable"></tbody></table>
 </div>
 
-<!-- ==================== GIT (Version Control) ==================== -->
-<div class="tab" id="tab-git">
-<h1>Git <span class="version-tag">Version Control</span></h1>
+<!-- ==================== BACKUP ==================== -->
+<div class="tab" id="tab-backup">
+<h1>Backup</h1>
 <div class="card">
-<h2>Repository Status</h2>
-<div id="gitStatus" class="mono" style="font-size:12px;white-space:pre-wrap;min-height:60px">Click "Refresh Status" to check git state.</div>
-<div class="row" style="margin-top:10px">
-<button class="info" onclick="gitStatus()">Refresh Status</button>
-<button onclick="gitLog()">View Log</button>
-<button class="success" onclick="gitCommitAll()">Commit All</button>
-</div>
-</div>
-<div class="card">
-<h2>Quick Actions</h2>
 <div class="row">
-<input id="gitCommitMsg" placeholder="Commit message..." style="flex:2">
-<button class="success" onclick="gitCommitAll()">Commit</button>
-<button class="warning" onclick="gitPush()">Push</button>
-<button onclick="gitPull()">Pull</button>
+<button class="success" onclick="createBackup()">Create Backup</button>
+<button onclick="loadBackups()">Refresh</button>
 </div>
-<div class="row" style="margin-top:6px">
-<select id="gitBranch" style="width:160px">
-<option value="master">master</option>
-<option value="Feature">Feature</option>
-</select>
-<button onclick="gitCheckout()">Checkout</button>
-<button onclick="gitBranchList()">Branches</button>
+<div id="backupProgress" style="display:none;margin-top:8px"><span class="spinner"></span> Creating backup...</div>
 </div>
-</div>
-<div class="card">
-<h2>Git Log</h2>
-<div id="gitLogOutput" class="output" style="max-height:400px">No log loaded yet.</div>
-</div>
+<h2>Existing Backups</h2>
+<table><thead><tr><th>Name</th><th>Size</th><th>Date</th><th>Actions</th></tr></thead><tbody id="backupsTable"></tbody></table>
 </div>
 
 <!-- ==================== SETTINGS ==================== -->
@@ -517,7 +491,7 @@ document.querySelectorAll(".sidebar nav a").forEach(a => {
     if (tabName === "hooks") loadHooks();
     if (tabName === "agents") loadAgents();
     if (tabName === "audit") loadAudit();
-    if (tabName === "git") gitStatus();
+    if (tabName === "backup") loadBackups();
     if (tabName === "settings") refreshSettings();
     if (tabName === "doctor") runDoctor();
   });
@@ -700,13 +674,7 @@ async function refreshOverview() {
       if (sysinfo.platform) document.getElementById("platArch").textContent = sysinfo.platform;
 
       // Sysinfo card - XSS safe
-      const sysCard = document.getElementById("sysinfoCard");
-      sysCard.innerHTML = "";
-      const pre = document.createElement("pre");
-      pre.className = "mono";
-      pre.style.whiteSpace = "pre-wrap";
-      pre.textContent = JSON.stringify(sysinfo, null, 2);
-      sysCard.appendChild(pre);
+
     }
 
     if (mem.ok) document.getElementById("statMemory").textContent = mem.count;
@@ -902,35 +870,20 @@ function copyTermOutput() {
 }
 
 async function apiQuickGet(path) {
-  // Switch to terminal tab
+  const output = document.getElementById("termOutput");
   document.querySelectorAll(".sidebar nav a").forEach(x => x.classList.remove("active"));
   document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
   document.querySelector('[data-tab="terminal"]').classList.add("active");
   document.getElementById("tab-terminal").classList.add("active");
-  // Use _termAppendEntry for consistent terminal output
-  const slot = _termAppendEntry("GET " + path);
+  output.textContent = "Fetching " + path + "...\n";
   const t0 = Date.now();
   try {
     const result = await api(path);
     const dur = ((Date.now() - t0) / 1000).toFixed(1);
     document.getElementById("termDuration").textContent = dur + "s";
-    if (slot) {
-      slot.out.textContent = JSON.stringify(result, null, 2);
-      slot.meta.innerHTML = "";
-      const tag = document.createElement("span");
-      tag.textContent = result.ok ? "200 OK" : ("Error: " + (result.error || "?"));
-      tag.style.cssText = "color:" + (result.ok ? "var(--green)" : "var(--red)") + ";font-weight:600";
-      slot.meta.appendChild(tag);
-      const dt = document.createElement("span");
-      dt.textContent = " \u00b7 " + dur + "s";
-      dt.style.color = "var(--text2)";
-      slot.meta.appendChild(dt);
-    }
+    output.textContent = JSON.stringify(result, null, 2);
   } catch(e) {
-    if (slot) {
-      slot.out.textContent = "Error fetching " + path + ": " + (e.message || "Unknown error");
-      slot.meta.innerHTML = '<span style="color:var(--red)">network error</span>';
-    }
+    output.textContent = "Error fetching " + path + ": " + (e.message || "Unknown error");
   }
   cmdHistory.unshift("GET " + path);
   if (cmdHistory.length > 30) cmdHistory.length = 30;
@@ -1939,128 +1892,73 @@ async function auditStats() {
   }
 }
 
-// ===== GIT (Version Control) =====
-let _gitCwd = "";  // Will be auto-detected from bridge config
-
-async function _gitRun(cmd) {
-  if (!_gitCwd) {
-    // Auto-detect: use root/arena-agent from bridge status
-    try {
-      const st = await api("/v1/status");
-      if (st.ok && st.root) _gitCwd = st.root.replace(/\//g, "\\") + "\\arena-agent";
-    } catch(e) {}
-    if (!_gitCwd) _gitCwd = "C:\\Users\\Ivan\\arena-agent"; // fallback
-  }
-  return await api("/v1/exec", {method: "POST", body: JSON.stringify({cmd: "cd /D " + _gitCwd + " && " + cmd, timeout: 30})});
-}
-
-async function gitStatus() {
-  const el = document.getElementById("gitStatus");
-  el.textContent = "Loading...";
+// ===== BACKUP =====
+async function createBackup() {
+  const progEl = document.getElementById("backupProgress");
+  progEl.style.display = "block";
   try {
-    const r = await _gitRun("git status");
-    if (r.ok && r.exit_code === 0) {
-      el.textContent = r.stdout || "(no output)";
+    const result = await api("/v1/backup", {method: "POST"});
+    progEl.style.display = "none";
+    if (result.ok) {
+      loadBackups();
     } else {
-      el.textContent = "Error: " + (r.stderr || r.error || "unknown");
+      alert("Backup error: " + (result.error||"?"));
     }
   } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
+    progEl.style.display = "none";
+    alert("Backup failed: " + (e.message||"Unknown error"));
   }
 }
 
-async function gitLog() {
-  const el = document.getElementById("gitLogOutput");
-  el.textContent = "Loading log...";
+async function loadBackups() {
+  const tbody = document.getElementById("backupsTable");
   try {
-    const r = await _gitRun("git log --oneline -30");
-    if (r.ok) {
-      el.textContent = r.stdout || "(no commits)";
-    } else {
-      el.textContent = "Error: " + (r.stderr || "unknown");
-    }
+    const result = await api("/v1/backups");
+    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
+    const backups = result.backups || [];
+    if (!backups.length) { tbody.innerHTML = "<tr><td colspan='4'>No backups found</td></tr>"; return; }
+    tbody.innerHTML = "";
+    backups.forEach(b => {
+      const tr = document.createElement("tr");
+      const tdName = document.createElement("td");
+      tdName.textContent = b.name || b.filename || "?";
+      const tdSize = document.createElement("td");
+      tdSize.textContent = formatBytes(b.size || 0);
+      const tdDate = document.createElement("td");
+      tdDate.className = "mono";
+      tdDate.textContent = relTime(b.created_at || b.modified);
+      const tdActions = document.createElement("td");
+      const dlBtn = document.createElement("button");
+      dlBtn.className = "info sm";
+      dlBtn.textContent = "Download";
+      dlBtn.addEventListener("click", () => downloadBackup(b.name || b.filename));
+      tdActions.appendChild(dlBtn);
+      tr.appendChild(tdName); tr.appendChild(tdSize); tr.appendChild(tdDate); tr.appendChild(tdActions);
+      tbody.appendChild(tr);
+    });
   } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
+    tbody.innerHTML = "<tr><td colspan='4'>Error loading backups: " + esc(e.message||"Unknown") + "</td></tr>";
   }
 }
 
-async function gitCommitAll() {
-  const msg = document.getElementById("gitCommitMsg").value.trim() || "dashboard commit";
-  const el = document.getElementById("gitStatus");
-  el.textContent = "Committing...";
+async function downloadBackup(name) {
+  // /v1/backup/{name} requires Authorization header — fetch as blob then save
   try {
-    const r = await _gitRun("git add -A && git commit -m \"" + msg.replace(/"/g, "'") + "\"");
-    if (r.ok) {
-      el.textContent = r.stdout + (r.stderr ? "\n" + r.stderr : "");
-      document.getElementById("gitCommitMsg").value = "";
-      gitLog();
-    } else {
-      el.textContent = "Error: " + (r.stderr || "unknown");
-    }
-  } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
-  }
-}
-
-async function gitPush() {
-  const el = document.getElementById("gitStatus");
-  el.textContent = "Pushing...";
-  try {
-    const r = await _gitRun("git push");
-    if (r.ok) {
-      el.textContent = r.stdout + (r.stderr ? "\n" + r.stderr : "");
-    } else {
-      el.textContent = "Error: " + (r.stderr || "unknown");
-    }
-  } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
-  }
-}
-
-async function gitPull() {
-  const el = document.getElementById("gitStatus");
-  el.textContent = "Pulling...";
-  try {
-    const r = await _gitRun("git pull");
-    if (r.ok) {
-      el.textContent = r.stdout + (r.stderr ? "\n" + r.stderr : "");
-    } else {
-      el.textContent = "Error: " + (r.stderr || "unknown");
-    }
-  } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
-  }
-}
-
-async function gitCheckout() {
-  const branch = document.getElementById("gitBranch").value;
-  const el = document.getElementById("gitStatus");
-  el.textContent = "Checking out " + branch + "...";
-  try {
-    const r = await _gitRun("git checkout " + branch);
-    if (r.ok) {
-      el.textContent = r.stdout + (r.stderr ? "\n" + r.stderr : "");
-      gitLog();
-    } else {
-      el.textContent = "Error: " + (r.stderr || "unknown");
-    }
-  } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
-  }
-}
-
-async function gitBranchList() {
-  const el = document.getElementById("gitStatus");
-  el.textContent = "Loading branches...";
-  try {
-    const r = await _gitRun("git branch -a");
-    if (r.ok) {
-      el.textContent = r.stdout || "(no branches)";
-    } else {
-      el.textContent = "Error: " + (r.stderr || "unknown");
-    }
-  } catch(e) {
-    el.textContent = "Network error: " + (e.message||"Unknown");
+    const r = await fetch(BASE + "/v1/backup/" + encodeURIComponent(name), {
+      headers: { "Authorization": "Bearer " + TOKEN }
+    });
+    if (!r.ok) { alert("Download failed: HTTP " + r.status); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch (e) {
+    alert("Download error: " + (e.message || "unknown"));
   }
 }
 
@@ -2108,16 +2006,12 @@ async function refreshSettings() {
     document.getElementById("setRequests").textContent = overviewMetrics.requests;
     document.getElementById("setErrors").textContent = overviewMetrics.errors;
     // Tailscale status
-    const status = await api("/v1/status");
-    if (status.ok && status.tailscale) {
+    const fn = await api("/v1/sys/funnel");
+    if (fn && fn.ok && fn.funnel) {
       const badge = document.getElementById("tsToggleStatus");
-      if (status.tailscale.funnel_active) {
-        badge.className = "badge ok";
-        badge.textContent = "Active";
-      } else {
-        badge.className = "badge fail";
-        badge.textContent = "Inactive";
-      }
+      const active = !!fn.funnel.active;
+      badge.className = "badge " + (active ? "ok" : "fail");
+      badge.textContent = active ? "Active" : "Inactive";
     }
   } catch(e) {
     // Silent fail
@@ -2276,7 +2170,7 @@ async function testBeep(type) {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain); gain.connect(ctx.destination);
-        const freqs = {success:800,warning:600,error:400,melody:523,attention:1000};
+        const freqs = {success:880,warning:440,error:330,melody:523,attention:1200};
         osc.frequency.value = freqs[type] || 800;
         gain.gain.value = 0.15;
         osc.start(); osc.stop(ctx.currentTime + 0.2);
