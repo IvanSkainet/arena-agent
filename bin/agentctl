@@ -190,7 +190,11 @@ def mem_set(args):
         print(f"Error: {e}")
 
 def mem_get(args):
-    q = args[0] if args else ""
+    # "mem get all" → list everything; "mem get KEY" → search by key
+    if args and args[0].lower() == "all":
+        q = ""
+    else:
+        q = args[0] if args else ""
     try:
         r = _bridge_get(f"/v1/memory?q={q}")
         facts = r.get("facts", [])
