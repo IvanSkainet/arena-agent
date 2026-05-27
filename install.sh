@@ -106,8 +106,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=$PY -u $BRIDGE_PY serve --root $HOME --profile $PROFILE --token-file $TOKEN_FILE --port $PORT
-WorkingDirectory=$BRIDGE_DIR
+ExecStart=$PY -u "$BRIDGE_PY" serve --root $HOME --profile $PROFILE --token-file "$TOKEN_FILE" --port $PORT
+WorkingDirectory="$BRIDGE_DIR"
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
@@ -170,7 +170,7 @@ for i in $(seq 1 20); do
     fi
     sleep 1
     if [ "$i" -eq 20 ]; then
-        warn "Bridge not responding after 20s. Check logs: $AGENT_DIR/logs/bridge.log"
+        warn "Bridge not responding after 20s. Check: journalctl --user -u arena-bridge -n 50"
     fi
 done
 

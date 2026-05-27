@@ -143,7 +143,7 @@ def _subprocess_kwargs() -> dict:
 
 AUDIT_CMD_LIMIT = 4000
 APP_DIR = Path.home() / ".arena-local-bridge"
-TOKEN_FILE = Path.home() / "arena-local-bridge" / "token.txt"
+TOKEN_FILE = APP_DIR / "token.txt"
 AUDIT = APP_DIR / "audit.jsonl"
 RUN_DIR = APP_DIR / "runs"
 MAX_BODY = 1024 * 1024
@@ -5640,6 +5640,11 @@ def serve(args: argparse.Namespace) -> None:
     if getattr(args, "background", False) and os.name != "nt":
         _daemonize()
 
+    # If --token-file was provided, set env var so resolve_token() finds it
+    tf = getattr(args, "token_file", "") or ""
+    if tf:
+        os.environ["ARENA_TOKEN_FILE"] = tf
+
     token, token_file_used = resolve_token(args.token)
 
     root = Path(args.root).expanduser().resolve()
@@ -5694,6 +5699,8 @@ def main() -> None:
                      help="Bind address (default: 127.0.0.1, use 0.0.0.0 for remote access)")
     sp.add_argument("--port", type=int, default=8765)
     sp.add_argument("--token")
+    sp.add_argument("--token-file", dest="token_file", default="",
+                     help="Path to token file (default: ~/.arena-local-bridge/token.txt)")
     sp.add_argument("--root", default=str(Path.home()))
     sp.add_argument("--allow-any-cwd", action="store_true")
     sp.add_argument("--profile", choices=["cautious", "owner-shell"], default="cautious")
