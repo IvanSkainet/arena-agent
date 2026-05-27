@@ -10,8 +10,8 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/status       GET   Bridge status (auth required)
   - /v1/sysinfo      GET   Hardware/system info (auth required)
   - /v1/hwinfo       GET   Extended hardware info: mobo, BIOS, GPU, RAM modules, disks
-  - /v1/backups      GET   (deprecated — use Git)
-  - /v1/backup/{name} GET  (deprecated — use Git)
+  - /v1/backups      GET   List existing backups
+  - /v1/backup/{name} GET  Download a specific backup zip
   - /v1/inventory    GET   Full system inventory (runtimes, browsers, etc) via inventory.py
   - /v1/ps           GET   Active processes (auth required)
   - /v1/audit        GET   Audit log (auth required)
@@ -37,7 +37,7 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/tasks        GET   List task queue (auth required)
   - /v1/tasks        POST  Submit task (auth required)
   - /v1/tasks/clean  POST  Clean completed tasks (auth required)
-  - /v1/backup       POST  (deprecated — use Git)
+  - /v1/backup       POST  Create backup (auth required)
   - /v1/skills       GET   List skills (auth required)
   - /v1/skills/run   POST  Run a skill (auth required)
   - /v1/hooks        GET   List hooks (auth required)
@@ -538,9 +538,9 @@ def call_tool(name: str, args: dict) -> dict:
                 "librewolf", "brave", "firefox", "vivaldi",
             ]
             chrome_exe = next(
-                (_shutil.which(c) or (c if os.path.exists(c) else None))
-                for c in chrome_candidates if _shutil.which(c) or os.path.exists(c)
-            ) or "chrome.exe"
+                ((_shutil.which(c) or (c if os.path.exists(c) else None))
+                for c in chrome_candidates if _shutil.which(c) or os.path.exists(c)),
+                None) or "chrome.exe"
             rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
                                     f"--user-data-dir={ud}", "--window-size=1366,768",
                                     f"--screenshot={png}", args["url"]], timeout=45)
@@ -620,7 +620,6 @@ def handle_rpc(msg: dict) -> dict | None:
 # MCP SSE SESSIONS
 # ============================================================================
 
-MCP_SESSIONS: dict[str, dict] = {}  # session_id -> {created, queue}
 
 
 def sid() -> str:
@@ -644,7 +643,15 @@ GW_WHITELIST = (
 
 
 def gw_allowed(cmd: str) -> bool:
-    return any(cmd.startswith(p) for p in GW_WHITELIST)
+    """Check if a gateway command is allowed. Blocks shell metacharacters."""
+    if not any(cmd.startswith(p) for p in GW_WHITELIST):
+        return False
+    # Block shell metacharacters that could enable command injection
+    dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "{", "}", ">", ">>", "<", "<<", "\n"]
+    for ch in dangerous_chars:
+        if ch in cmd:
+            return False
+    return True
 
 
 # ============================================================================
@@ -695,6 +702,15 @@ async def task_run_one(task_path: Path) -> bool:
 
     cwd = Path(task.get("cwd") or str(Path.home())).expanduser()
     timeout = int(task.get("timeout") or 3600)
+    # Apply safety checks (same as /v1/exec)
+    blk = blocked_reason(task["cmd"])
+    if blk:
+        task["state"] = "failed"
+        task["exit_code"] = -1
+        task["stderr"] = f"blocked: {blk}"
+        rp.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        move_atomic(rp, FAILED / rp.name)
+        return
     env = os.environ.copy()
     if isinstance(task.get("env"), dict):
         env.update({str(k): str(v) for k, v in task["env"].items()})
@@ -786,7 +802,6 @@ def make_app(cfg: dict) -> web.Application:
     # ---- Dashboard API (auth required) ----
     app.router.add_get("/v1/memory", handle_v1_memory)
     app.router.add_post("/v1/memory", handle_v1_memory_set)
-    app.router.add_post("/v1/memory/delete", handle_v1_memory_delete)
     app.router.add_get("/v1/missions", handle_v1_missions)
     app.router.add_post("/v1/beep", handle_v1_beep)
     app.router.add_get("/v1/doctor", handle_v1_doctor)
@@ -959,7 +974,7 @@ async def handle_index(request: web.Request) -> web.Response:
                 "/v1/ps", "/v1/audit?lines=100", "/v1/audit/stats",
                 "POST /v1/exec", "POST /v1/kill",
                 "POST /v1/upload?path=", "GET /v1/download?path=",
-                "GET /v1/memory?q=", "POST /v1/memory", "POST /v1/memory/delete",
+                "GET /v1/memory?q=", "POST /v1/memory",
                 "GET /v1/missions", "GET /v1/mission/show?name=",
                 "GET /v1/reports", "GET /v1/doctor", "POST /v1/beep",
                 "GET /v1/browser/search?q=", "GET /v1/browser/read?url=",
@@ -979,9 +994,9 @@ async def handle_index(request: web.Request) -> web.Response:
 
                 "GET /v1/recall?q=&top=5", "GET /v1/recall/digest",
                 "GET /v1/tasks?status=&limit=20", "POST /v1/tasks", "POST /v1/tasks/clean",
-                "POST /v1/backup (deprecated—use Git)",
-        "GET /v1/backups (deprecated—use Git)",
-        "GET /v1/backup/{name} (deprecated—use Git)",
+                "POST /v1/backup",
+        "GET /v1/backups",
+        "GET /v1/backup/{name}",
         "GET /v1/inventory?section=&format=text|json",
                 "GET /v1/skills", "POST /v1/skills/run",
                 "GET /v1/hooks", "GET /v1/agents",
@@ -1657,28 +1672,20 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
     if not target:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
+    # Path traversal protection
+    if ".." in Path(target).parts:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
         target_path = request.app["cfg"]["root"] / target_path
+    # Reject multipart form-data uploads (they corrupt file content)
+    ct = request.headers.get("Content-Type", "")
+    if "multipart" in ct.lower():
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "multipart/form-data not supported; use Content-Type: application/octet-stream with --data-binary"}, status=400)
     try:
-        ct = request.content_type or ""
-        if ct.startswith("multipart/"):
-            # Parse multipart properly — extract first file part only
-            reader = await request.multipart()
-            body = None
-            while True:
-                part = await reader.next()
-                if part is None:
-                    break
-                if part.filename is not None or part.name:
-                    body = await part.read()
-                    break
-            if body is None:
-                _record_request(is_error=True)
-                return _cors_json_response({"ok": False, "error": "no file part in multipart body"}, status=400)
-        else:
-            # Raw binary body (application/octet-stream, text/plain, etc.)
-            body = await request.read()
+        body = await request.read()
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_bytes(body)
         audit({"type": "file_upload", "path": str(target_path), "bytes": len(body)})
@@ -1697,6 +1704,10 @@ async def handle_v1_download(request: web.Request) -> web.Response:
     if not target:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
+    # Path traversal protection
+    if ".." in Path(target).parts:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
         target_path = request.app["cfg"]["root"] / target_path
@@ -1756,29 +1767,40 @@ async def handle_gui(request: web.Request) -> web.Response:
 # ============================================================================
 
 def _load_facts() -> list[dict]:
-    """Load memory facts from JSONL."""
+    """Load memory facts from JSONL. Deduplicates by key (last write wins)."""
     if not MEMORY_FILE.exists():
         return []
-    items = []
+    seen: dict[str, dict] = {}
+    order: list[str] = []
     try:
         with open(MEMORY_FILE, "r", encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if line:
                     try:
-                        items.append(json.loads(line))
+                        item = json.loads(line)
+                        key = item.get("key", "")
+                        if key not in seen:
+                            order.append(key)
+                        seen[key] = item
                     except json.JSONDecodeError:
                         pass
     except Exception:
         pass
-    return items
+    return [seen[k] for k in order if k in seen]
 
 
 def _write_fact(entry: dict) -> None:
-    """Append a fact entry to the memory file."""
+    """Write a fact entry, overwriting any existing entry with the same key."""
     MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(MEMORY_FILE, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    # Load existing, remove old entry with same key, rewrite
+    existing = _load_facts()
+    key = entry.get("key", "")
+    existing = [f for f in existing if f.get("key") != key]
+    existing.append(entry)
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        for fact in existing:
+            f.write(json.dumps(fact, ensure_ascii=False) + "\n")
 
 
 async def handle_v1_memory(request: web.Request) -> web.Response:
@@ -1821,48 +1843,6 @@ async def handle_v1_memory_set(request: web.Request) -> web.Response:
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_EXECUTOR, _write_fact, entry)
     return _cors_json_response({"ok": True, "fact": entry})
-
-
-def _delete_fact_sync(key: str) -> dict:
-    """Delete facts matching a key from the JSONL file."""
-    if not MEMORY_FILE.exists():
-        return {"ok": False, "error": "no facts file"}
-    items = []
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    items.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-    before = len(items)
-    items = [i for i in items if i.get("key") != key]
-    removed = before - len(items)
-    if removed > 0:
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            for i in items:
-                f.write(json.dumps(i, ensure_ascii=False) + "\n")
-    return {"ok": True, "removed": removed}
-
-
-async def handle_v1_memory_delete(request: web.Request) -> web.Response:
-    """POST /v1/memory/delete — delete facts by key. Body: {key}."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    key = str(data.get("key", "")).strip()
-    if not key:
-        _record_request(is_error=True)
-        return _cors_json_response({"ok": False, "error": "missing key"}, status=400)
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(_EXECUTOR, _delete_fact_sync, key)
-    return _cors_json_response(result)
 
 
 def _list_missions_sync() -> list[dict]:
@@ -2077,6 +2057,26 @@ async def handle_v1_browser_search(request: web.Request) -> web.Response:
     except Exception as e:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+def _validate_url(url: str) -> str | None:
+    """Validate URL scheme for browser endpoints. Returns error message or None."""
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return "invalid URL"
+    if parsed.scheme not in ("http", "https"):
+        return f"URL scheme '{parsed.scheme}' not allowed (only http/https)"
+    # Block private/internal IPs (basic check)
+    hostname = parsed.hostname or ""
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+        return "localhost/internal URLs not allowed via browser endpoints"
+    if hostname.startswith("169.254."):
+        return "cloud metadata URLs not allowed"
+    if hostname.startswith("10.") or hostname.startswith("192.168."):
+        return "private network URLs not allowed"
+    return None
 
 
 def _browser_read_sync(url: str) -> dict:
@@ -2814,6 +2814,9 @@ async def handle_v1_config(request: web.Request) -> web.Response:
 
 def _browser_dump_sync(url: str) -> dict:
     """Fetch URL, extract text + all <a href> links."""
+    err = _validate_url(url)
+    if err:
+        return {"ok": False, "error": err}
     import urllib.request
     import re as _re
     import html as _html
@@ -2879,6 +2882,9 @@ async def handle_v1_browser_dump(request: web.Request) -> web.Response:
 
 def _browser_fetch_sync(url: str) -> dict:
     """Fetch URL, return raw content."""
+    err = _validate_url(url)
+    if err:
+        return {"ok": False, "error": err}
     import urllib.request
 
     req_obj = urllib.request.Request(url)
@@ -2929,6 +2935,9 @@ async def handle_v1_browser_fetch(request: web.Request) -> web.Response:
 
 def _browser_head_sync(url: str) -> dict:
     """Do HTTP HEAD request, return headers."""
+    err = _validate_url(url)
+    if err:
+        return {"ok": False, "error": err}
     import urllib.request
 
     req_obj = urllib.request.Request(url, method="HEAD")
@@ -4499,27 +4508,162 @@ async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-# --- /v1/backups and /v1/backup — DEPRECATED, use Git instead ---
+# --- /v1/backups GET — List existing backups ---
+
+def _backups_list_sync() -> dict:
+    """List zip files in BACKUPS_DIR with size + mtime."""
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+    items = []
+    for p in sorted(BACKUPS_DIR.glob("*.zip"), key=lambda x: x.stat().st_mtime, reverse=True):
+        try:
+            st = p.stat()
+            items.append({
+                "name": p.name,
+                "size": st.st_size,
+                "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+                "created_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+            })
+        except Exception:
+            continue
+    return {"ok": True, "count": len(items), "backups": items, "dir": str(BACKUPS_DIR)}
+
 
 async def handle_v1_backups(request: web.Request) -> web.Response:
     r = require_auth(request)
     if r: return r
     _record_request()
-    return _cors_json_response({"ok": True, "deprecated": True,
-        "message": "Backups removed — use Git (see /gui Git tab). Old backup files can be deleted manually from ~/arena-agent/backups/",
-        "backups": [], "count": 0})
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _backups_list_sync)
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /v1/backup/{name} GET — Download specific backup ---
 
 async def handle_v1_backup_download(request: web.Request) -> web.Response:
     r = require_auth(request)
     if r: return r
     _record_request()
-    return _cors_json_response({"ok": False, "error": "Backups removed — use Git instead"}, status=410)
+    name = request.match_info.get("name", "")
+    # Security: no path traversal
+    if not name or "/" in name or "\\" in name or ".." in name:
+        return _cors_json_response({"ok": False, "error": "invalid name"}, status=400)
+    if not name.endswith(".zip"):
+        name += ".zip"
+    path = BACKUPS_DIR / name
+    if not path.exists() or not path.is_file():
+        return _cors_json_response({"ok": False, "error": "not found"}, status=404)
+    try:
+        return web.FileResponse(
+            path=path,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Content-Disposition": f'attachment; filename="{name}"',
+                "Content-Type": "application/zip",
+            },
+        )
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /v1/backup POST — Create backup ---
+
+def _backup_sync(paths: list[str], name: str) -> dict:
+    """Create zip of specified directories."""
+    SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".next", ".turbo", ".arena", "venv", "shots", "reports", "logs"}
+    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if not name:
+        name = f"backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    if not name.endswith(".zip"):
+        name += ".zip"
+
+    backup_path = BACKUPS_DIR / name
+    file_count = 0
+    start_time = time.time()
+    MAX_BACKUP_TIME = 60  # 60 seconds max for backup creation
+
+    total_size = 0
+    MAX_BACKUP_SIZE = 100 * 1024 * 1024  # 100MB max backup
+    with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+        for path_str in paths:
+            # Check time limit
+            if time.time() - start_time > MAX_BACKUP_TIME:
+                break
+            p = Path(path_str).expanduser()
+            if p.is_file():
+                fsize = p.stat().st_size
+                if total_size + fsize > MAX_BACKUP_SIZE:
+                    continue
+                zf.write(p, p.name)
+                total_size += fsize
+                file_count += 1
+            elif p.is_dir():
+                for root, dirs, files in os.walk(p, topdown=True):
+                    # Check time limit during walk
+                    if time.time() - start_time > MAX_BACKUP_TIME:
+                        break
+                    dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+                    for fname in files:
+                        if time.time() - start_time > MAX_BACKUP_TIME:
+                            break
+                        fpath = Path(root) / fname
+                        try:
+                            fsize = fpath.stat().st_size
+                            if fsize > 50 * 1024 * 1024:
+                                continue
+                            if total_size + fsize > MAX_BACKUP_SIZE:
+                                break
+                        except Exception:
+                            continue
+                        arcname = str(fpath.relative_to(p.parent))
+                        zf.write(fpath, arcname)
+                        total_size += fsize
+                        file_count += 1
+                        if file_count >= 500:
+                            break
+                    if file_count >= 500 or total_size >= MAX_BACKUP_SIZE:
+                        break
+
+    size = backup_path.stat().st_size if backup_path.exists() else 0
+    return {"ok": True, "backup_path": str(backup_path), "size": size, "file_count": file_count}
+
 
 async def handle_v1_backup(request: web.Request) -> web.Response:
+    """POST /v1/backup — Create backup. Body: {paths?: [list], name?: string}."""
     r = require_auth(request)
     if r: return r
     _record_request()
-    return _cors_json_response({"ok": False, "error": "Backups removed — use Git instead. See /gui Git tab for commit/push.", status=410})
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    paths = data.get("paths", [str(Path.home() / "arena-agent")])
+    name = data.get("name", "")
+    # Validate backup name for path traversal
+    if name and (".." in name or "/" in name or "\\" in name):
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "invalid backup name"}, status=400)
+    try:
+        loop = asyncio.get_event_loop()
+        # Use dedicated slow executor with timeout to avoid blocking main pool
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_SLOW_EXECUTOR, _backup_sync, paths, name),
+            timeout=120.0
+        )
+        audit({"type": "backup", "name": name, "paths": paths, "size": result.get("size", 0),
+               "file_count": result.get("file_count", 0)})
+        return _cors_json_response(result)
+    except asyncio.TimeoutError:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Backup timed out (120s) — directory may be too large"}, status=504)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/skills GET — List skills ---
@@ -4791,6 +4935,9 @@ async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
 
 def _mission_show_sync(name: str) -> dict:
     """Read and return mission file content."""
+    # Path traversal protection
+    if ".." in name or "/" in name or "\\" in name:
+        return {"ok": False, "error": "invalid mission name"}
     # Try various extensions
     for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
         p = MISSIONS_DIR / f"{name}{ext}"
@@ -4870,6 +5017,8 @@ async def handle_v1_metrics(request: web.Request) -> web.Response:
 
 async def handle_mcp_post(request: web.Request) -> web.Response:
     """MCP Streamable HTTP — main endpoint."""
+    r = require_auth(request)
+    if r: return r
     _record_request()
     try:
         msg = await request.json()
@@ -4910,6 +5059,8 @@ async def handle_mcp_delete(request: web.Request) -> web.Response:
 
 async def handle_sse(request: web.Request) -> web.Response:
     """SSE legacy transport — open event stream."""
+    r = require_auth(request)
+    if r: return r
     _record_request()
     session = sid()
     request.app["mcp_sessions"][session] = {"created": now_ms()}
@@ -4944,6 +5095,8 @@ async def handle_sse(request: web.Request) -> web.Response:
 
 async def handle_sse_messages(request: web.Request) -> web.Response:
     """SSE legacy peer message endpoint."""
+    r = require_auth(request)
+    if r: return r
     _record_request()
     try:
         msg = await request.json()
@@ -4962,6 +5115,13 @@ async def handle_sse_messages(request: web.Request) -> web.Response:
 
 async def handle_ws(request: web.Request) -> web.WebSocketResponse:
     """WebSocket MCP transport — full-duplex JSON-RPC."""
+    r = require_auth(request)
+    if r:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.send_json({"jsonrpc": "2.0", "error": {"code": -32001, "message": "unauthorized"}})
+        await ws.close()
+        return ws
     _record_request()
     ws = web.WebSocketResponse()
     await ws.prepare(request)
