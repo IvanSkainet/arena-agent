@@ -54,7 +54,7 @@ async function collectFingerprint(page) { return await page.evaluate(async () =>
 });}
 async function main() {
   const cmd = process.argv[2] || 'help'; const url = process.argv[3] || 'https://example.com';
-  const root = process.env.ARENA_AGENT_HOME || path.join(process.env.HOME, 'arena-agent'); const outDir = path.join(root, 'reports'); fs.mkdirSync(outDir,{recursive:true});
+  const root = process.env.ARENA_AGENT_HOME || path.join(process.env.HOME, 'arena-bridge'); const outDir = path.join(root, 'reports'); fs.mkdirSync(outDir,{recursive:true});
   if (cmd === 'help') { console.log('Usage: browser_lab.js {screenshot|dump|fingerprint|metadata} URL'); return; }
   const exe = process.env.CHROMIUM_PATH || '/usr/bin/chromium';
   let browser, page, headless=true;

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import datetime as dt, json, os, subprocess, sys
 from pathlib import Path
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser(); REPORTS=ROOT/'reports'
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); REPORTS=ROOT/'reports'
 def run(cmd, timeout=60):
     p=subprocess.run(cmd, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
     try: data=json.loads(p.stdout)

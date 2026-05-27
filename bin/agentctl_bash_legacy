@@ -2,7 +2,7 @@
 # Arena Agent CLI v2 — namespaced dispatcher
 # All legacy flat commands preserved as aliases for backward compat.
 set -euo pipefail
-ROOT="${ARENA_AGENT_HOME:-$HOME/arena-agent}"
+ROOT="${ARENA_AGENT_HOME:-$HOME/arena-bridge}"
 BV="${ARENA_BRIDGE_URL:-https://cachyos-x8664.tail328f18.ts.net}"
 P="$ROOT/.venv/bin/python"
 N="$ROOT/js/node_modules"
@@ -172,9 +172,9 @@ case "$cmd" in
     sub="${1:-run}"; shift || true
     case "$sub" in
       run)
-        mkdir -p "$ROOT/backups"; OUT="$ROOT/backups/arena-agent-backup-$(date -u +%Y%m%dT%H%M%SZ).tgz"
+        mkdir -p "$ROOT/backups"; OUT="$ROOT/backups/arena-bridge-backup-$(date -u +%Y%m%dT%H%M%SZ).tgz"
         TMP="$(mktemp -d)"; MAN="$TMP/manifest.txt"
-        for p in arena-agent/bin arena-agent/scripts arena-agent/memory arena-agent/js/package.json .config/systemd/user/arena-local-bridge.service .config/systemd/user/arena-task-runner.service arena-local-bridge/local_bridge.py; do test -e "$HOME/$p" && echo "$p" >> "$MAN"; done
+        for p in arena-bridge/bin arena-bridge/scripts arena-bridge/memory arena-bridge/js/package.json .config/systemd/user/arena-local-bridge.service .config/systemd/user/arena-task-runner.service arena-local-bridge/local_bridge.py; do test -e "$HOME/$p" && echo "$p" >> "$MAN"; done
         tar -czf "$OUT" -C "$HOME" --exclude='arena-local-bridge/token.txt' -T "$MAN"; chmod 600 "$OUT"; echo "$OUT" ;;
       ls|list) ls -lh "$ROOT/backups" 2>/dev/null || true ;;
       recovery) "$P" "$SE/recovery_prompt.py" ;;

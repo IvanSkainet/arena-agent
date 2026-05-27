@@ -33,13 +33,13 @@ def build_index(cwd: str):
     print(f"Indexing {cwd}...")
     count = 0
     # Avoid scanning the entire home directory if user accidentally runs it from ~
-    # We restrict the scan to the arena-agent dir or the specific project dir requested.
+    # We restrict the scan to the arena-bridge dir or the specific project dir requested.
     scan_dir = cwd
     if os.path.abspath(cwd) == os.path.expanduser("~"):
-        scan_dir = os.path.join(cwd, "arena-agent")
+        scan_dir = os.path.join(cwd, "arena-bridge")
         print(f"Warning: Root directory scan detected. Restricted to {scan_dir} to save time.")
         if not os.path.exists(scan_dir):
-            print("arena-agent not found in home. Please run inside a specific project.")
+            print("arena-bridge not found in home. Please run inside a specific project.")
             sys.exit(1)
             
     for root, dirs, files in os.walk(scan_dir):

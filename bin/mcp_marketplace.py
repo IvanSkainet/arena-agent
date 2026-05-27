@@ -2,7 +2,7 @@
 """mcp_marketplace.py — реестр и установщик MCP-серверов.
 
 Идея (от MCP-SuperAssistant + Claude Code plugins): curated registry популярных
-MCP-серверов, чтобы одной командой добавить их в ~/arena-agent/mcp/mcp.json
+MCP-серверов, чтобы одной командой добавить их в ~/arena-bridge/mcp/mcp.json
 и сразу попробовать.
 
 Команды:
@@ -16,7 +16,7 @@ from __future__ import annotations
 import argparse, json, os, subprocess, sys
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 MCP_DIR = ROOT / "mcp"
 CONFIG = MCP_DIR / "mcp.json"
 REGISTRY = MCP_DIR / "registry.json"

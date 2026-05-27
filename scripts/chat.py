@@ -7,8 +7,8 @@ for the local platform. Every line is journaled to a JSONL session file so the
 remote agent (the assistant in the Arena chat) can read it via the bridge and
 append replies to the same file.
 
-Session file: ~/arena-agent/memory/sessions/<stamp>-<slug>.jsonl
-Current ptr:  ~/arena-agent/memory/sessions/current  (symlink)
+Session file: ~/arena-bridge/memory/sessions/<stamp>-<slug>.jsonl
+Current ptr:  ~/arena-bridge/memory/sessions/current  (symlink)
 
 Slash commands (v0.1):
   /help                          show this help
@@ -46,7 +46,7 @@ from pathlib import Path
 
 os.umask(0o077)  # session files must be owner-only
 
-HOME = Path(os.environ.get("ARENA_AGENT_HOME", Path.home() / "arena-agent"))
+HOME = Path(os.environ.get("ARENA_AGENT_HOME", Path.home() / "arena-bridge"))
 SESS_DIR = HOME / "memory" / "sessions"
 CURRENT = SESS_DIR / "current"
 AGENTCTL = HOME / "bin" / "agentctl"
@@ -213,7 +213,7 @@ def print_help() -> None:
 
 def repl(session_path: Path, mode: str) -> int:
     proj = current_project() or "-"
-    print(f"arena-agent chat — session: {session_path.name}")
+    print(f"arena-bridge chat — session: {session_path.name}")
     print(f"mode: {mode}   project: {proj}")
     print("type /help for commands, /exit to quit")
 

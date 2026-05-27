@@ -7,7 +7,7 @@
 
 Реализация: оборачиваем команду в task_runner для асинхрона + дополнительно
 поддерживаем синхронный запуск (--wait). Sub-agent имеет свой workspace:
-~/arena-agent/subagents/<id>/ с stdout, stderr, summary.json.
+~/arena-bridge/subagents/<id>/ с stdout, stderr, summary.json.
 
 Команды:
   spawn  "<cmd>" [--name NAME] [--timeout SEC] [--wait] [--max-out N]
@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse, datetime as dt, json, os, shlex, subprocess, sys, time, uuid
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 SUB_DIR = ROOT / "subagents"
 SUB_DIR.mkdir(parents=True, exist_ok=True)
 

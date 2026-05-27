@@ -19,7 +19,7 @@ def main() -> int:
         return 2
     role, content = sys.argv[1], sys.argv[2]
     root = pathlib.Path(os.environ.get("ARENA_AGENT_HOME",
-                                       str(pathlib.Path.home() / "arena-agent")))
+                                       str(pathlib.Path.home() / "arena-bridge")))
     cur = root / "memory" / "sessions" / "current"
     if not cur.exists():
         print("no current session", file=sys.stderr)

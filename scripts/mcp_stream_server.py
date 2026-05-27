@@ -29,7 +29,7 @@ from typing import Any
 
 VERSION = "0.3.0"
 HOME = os.path.expanduser("~")
-BIN = os.path.join(HOME, "arena-agent", "bin")
+BIN = os.path.join(HOME, "arena-bridge", "bin")
 SESSIONS: dict[str, dict] = {}  # session_id -> {created, queue:list}
 SLOCK = threading.Lock()
 
@@ -147,7 +147,7 @@ def call_tool(name: str, args: dict) -> dict:
             return text_content(out or err)
         if name == "browser.shot":
             import tempfile, platform
-            shots = os.path.join(HOME, "arena-agent", "reports", "shots")
+            shots = os.path.join(HOME, "arena-bridge", "reports", "shots")
             os.makedirs(shots, exist_ok=True)
             png = os.path.join(shots, f"mcp-{int(time.time())}.png")
             ud = os.path.join(tempfile.gettempdir(), f"cr-mcp-{os.getpid()}")

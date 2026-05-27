@@ -1,4 +1,3 @@
 #!/usr/bin/env bash
 set -euo pipefail
-exec "${ARENA_AGENT_HOME:-$HOME/arena-agent}/.venv/bin/python" \
-     "${SKILL_DIR}/run.py" "$@"
+exec python3 "${SKILL_DIR}/run.py" "$@"

@@ -45,7 +45,7 @@ a "agentctl sys status" 30
                                                         ├── /gui           (Dashboard)
                                                         ├── /gateway/*     (Web Gateway)
                                                         └── /run, /tool    (Gateway run/proxy)
-                                              Каталог: ~/arena-agent/
+                                              Каталог: ~/arena-bridge/
 ```
 
 **Unified Bridge v1.2.0** — все сервисы на одном порте :8765 (bridge, MCP, SSE, WS, gateway, dashboard, task-runner).
@@ -154,7 +154,7 @@ sp       sync | list | show
 ## 7. Правила безопасной работы для ИИ
 
 1. **Группируй команды:** Вместо трёх мелких запросов, отправляй один: `a "set -e; cmd1; cmd2"`.
-2. **Скрипты во временную папку:** Пиши в `~/arena-agent/bin/` или `/tmp/`.
+2. **Скрипты во временную папку:** Пиши в `~/arena-bridge/bin/` или `/tmp/`.
 3. **Долгие задачи:** Если команда дольше 30 сек — `agentctl do "команда"`.
 4. **Разрушительные действия (`rm -rf`, `sudo`):** Требуют текстового подтверждения.
 5. **В начале сессии:** `agentctl recall digest` или `agentctl recall recall "ключ"`.

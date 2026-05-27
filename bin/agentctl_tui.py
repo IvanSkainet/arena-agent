@@ -24,7 +24,7 @@ except ImportError as e:
     print("       pip install --user prompt_toolkit", file=sys.stderr)
     sys.exit(2)
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 HIST = ROOT / "logs" / "tui_history"
 HIST.parent.mkdir(parents=True, exist_ok=True)
 
@@ -43,12 +43,12 @@ SLASH = {
     "/research": "agentctl skill run web/research ",
     "/hooks":    "agentctl hooks list",
     "/mem":      "agentctl mem get ",
-    "/recall":   "python3 ~/arena-agent/bin/memory_recall.py recall ",
-    "/digest":   "python3 ~/arena-agent/bin/memory_recall.py digest",
+    "/recall":   "python3 ~/arena-bridge/bin/memory_recall.py recall ",
+    "/digest":   "python3 ~/arena-bridge/bin/memory_recall.py digest",
     "/backup":   "agentctl backup run",
     "/missions": "agentctl mission list",
-    "/sub":      "python3 ~/arena-agent/bin/subagent.py spawn ",
-    "/subs":     "python3 ~/arena-agent/bin/subagent.py list",
+    "/sub":      "python3 ~/arena-bridge/bin/subagent.py spawn ",
+    "/subs":     "python3 ~/arena-bridge/bin/subagent.py list",
     "/cgroup":   "agentctl exec bash -c 'cat /proc/self/cgroup'",
     "/quit":     "__QUIT__",
     "/exit":     "__QUIT__",

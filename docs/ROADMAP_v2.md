@@ -26,14 +26,14 @@
 ### P0 — фундамент (1-2 чата)
 
 1. **AGENTS.md / SKILLS** (от Codex+Claude Code): декларативные «скиллы» как md-файлы.
-   Уже есть `agentctl skill ls|show|run`, но без формата. Нужно: `~/arena-agent/skills/<name>/SKILL.md`
+   Уже есть `agentctl skill ls|show|run`, но без формата. Нужно: `~/arena-bridge/skills/<name>/SKILL.md`
    с фронт-маттером (name/desc/triggers) и опциональным `run.sh`. Дать `agentctl skill new`.
 
 2. **Slash-команды для dashboard terminal** (от OpenCode/Claude):
    `/sys`, `/shot`, `/search`, `/mem`, `/help` — автодополнение в input.
 
 3. **Hooks** (от Claude Code): user-defined скрипты на события `pre_exec`, `post_exec`, `pre_mission`.
-   Реализация: `~/arena-agent/hooks/<event>.sh`, вызываются bridge'ом до/после `/v1/exec`.
+   Реализация: `~/arena-bridge/hooks/<event>.sh`, вызываются bridge'ом до/после `/v1/exec`.
 
 ### P1 — UX (2-4 чата)
 
@@ -46,7 +46,7 @@
 6. **TUI клиент** (от Hermes): `agentctl tui` — текстовый интерфейс с multiline,
    slash autocomplete, history, streaming output. Pure Python `prompt_toolkit`.
 
-7. **Project context AGENTS.md** (от Codex): в каждом `~/arena-agent/projects/<name>/`
+7. **Project context AGENTS.md** (от Codex): в каждом `~/arena-bridge/projects/<name>/`
    класть `AGENTS.md` с правилами для агента → подхватывается автоматически.
 
 ### P2 — рост возможностей (4+ чата)
@@ -61,7 +61,7 @@
     последовательность действий как skill автоматически. `agentctl skill from-mission <id>`.
 
 11. **Видеозапись missions** (новое): запись экрана при mission run через ffmpeg+sd-exec,
-    сохранение в `~/arena-agent/reports/missions/<id>/recording.mp4`.
+    сохранение в `~/arena-bridge/reports/missions/<id>/recording.mp4`.
 
 12. **WebSocket-only push** (расширение MCP): сейчас WS принимает запросы, но не пушит
     события. Добавить `subscribe(topic)` для notifications/progress.

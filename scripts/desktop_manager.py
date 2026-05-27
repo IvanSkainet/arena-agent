@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, datetime as dt, json, os, random, re, shutil, subprocess, sys, time
 from pathlib import Path
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser(); REPORTS=ROOT/'reports'
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); REPORTS=ROOT/'reports'
 def stamp(): return dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 def run(cmd, timeout=20): return subprocess.run(cmd,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
 def have(c): return shutil.which(c) is not None

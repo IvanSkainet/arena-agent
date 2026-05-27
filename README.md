@@ -3,7 +3,7 @@
 > **Cross-platform local automation bridge for AI agents.**
 > One process, one port, one Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v1.8.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v1.8.2-blue.svg)](https://github.com/IvanSkainet/arena-bridge/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -39,8 +39,8 @@ It exposes a single secure URL like `https://your-pc.tail328f18.ts.net` (over Ta
 ### 1. Get the code
 
 ```bash
-git clone https://github.com/IvanSkainet/arena-agent.git
-cd arena-agent
+git clone https://github.com/IvanSkainet/arena-agent.git arena-bridge
+cd arena-bridge
 ```
 
 ### 2. Run the installer
@@ -187,7 +187,7 @@ Stop-Service    ArenaUnifiedBridge
 Start-Service   ArenaUnifiedBridge
 Restart-Service ArenaUnifiedBridge
 # Logs:
-Get-Content "$env:USERPROFILE\arena-agent\logs\ArenaUnifiedBridge.log" -Tail 50
+Get-Content "$env:USERPROFILE\arena-bridge\logs\ArenaUnifiedBridge.log" -Tail 50
 ```
 
 ### Linux (systemd-user)
@@ -208,7 +208,7 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 ## Project layout
 
 ```
-arena-agent/
+arena-bridge/
 ├── unified_bridge.py     ← the entire server (one file, ~5700 lines)
 ├── token.txt             ← your auth token (auto-generated)
 ├── install.bat           ← Windows installer (run this)

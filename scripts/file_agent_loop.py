@@ -4,7 +4,7 @@ import time
 import subprocess
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-agent")))
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-bridge")))
 INBOX = ROOT / "memory" / "last_query.txt"
 RESPONSE = ROOT / "memory" / "last_response.txt"
 HISTORY = ROOT / "memory" / "history.txt"

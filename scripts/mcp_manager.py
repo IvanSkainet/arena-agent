@@ -2,7 +2,7 @@
 from __future__ import annotations
 import asyncio, json, os, sys, urllib.request
 from pathlib import Path
-ROOT = Path(os.environ.get('ARENA_AGENT_HOME', Path.home() / 'arena-agent'))
+ROOT = Path(os.environ.get('ARENA_AGENT_HOME', Path.home() / 'arena-bridge'))
 MCP_DIR = ROOT / 'mcp'; CONFIG = MCP_DIR / 'mcp.json'
 STREAM = os.environ.get('ARENA_MCP_STREAM_URL','http://127.0.0.1:8767')
 

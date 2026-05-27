@@ -8,13 +8,13 @@ Usage:
   skill_from_sub.py <subagent_id> <skill_name>
                     [--desc "..."] [--mode safe|edit|full]
 
-Skill ляжет в ~/arena-agent/skills/auto/<skill_name>/ — SKILL.md, manifest.json, run.sh.
+Skill ляжет в ~/arena-bridge/skills/auto/<skill_name>/ — SKILL.md, manifest.json, run.sh.
 """
 from __future__ import annotations
 import argparse, json, os, sys
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 SUB = ROOT / "subagents"
 SK = ROOT / "skills" / "auto"
 

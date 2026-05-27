@@ -12,7 +12,7 @@ import tarfile
 from pathlib import Path
 
 HOME = Path.home()
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(HOME / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(HOME / "arena-bridge"))).expanduser()
 
 EXCLUDE_PATTERNS = ("token", "secret", ".key")
 
@@ -27,13 +27,13 @@ def collect_includes(include_logs: bool) -> list[tuple[Path, str]]:
     items: list[tuple[Path, str]] = []
     # directories (recursive)
     dirs = [
-        (ROOT / "bin", "arena-agent/bin"),
-        (ROOT / "scripts", "arena-agent/scripts"),
-        (ROOT / "skills", "arena-agent/skills"),
-        (ROOT / "memory", "arena-agent/memory"),
+        (ROOT / "bin", "arena-bridge/bin"),
+        (ROOT / "scripts", "arena-bridge/scripts"),
+        (ROOT / "skills", "arena-bridge/skills"),
+        (ROOT / "memory", "arena-bridge/memory"),
     ]
     if include_logs:
-        dirs.append((ROOT / "logs", "arena-agent/logs"))
+        dirs.append((ROOT / "logs", "arena-bridge/logs"))
     for src, arc in dirs:
         if not src.exists():
             continue

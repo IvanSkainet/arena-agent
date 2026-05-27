@@ -4,8 +4,8 @@
 Идея (вдохновлена Claude Code hooks): на любое событие может срабатывать
 один или несколько пользовательских скриптов. Хуки лежат как обычные файлы:
 
-  ~/arena-agent/hooks/<event>.d/01-name.sh
-  ~/arena-agent/hooks/<event>.d/02-other.py
+  ~/arena-bridge/hooks/<event>.d/01-name.sh
+  ~/arena-bridge/hooks/<event>.d/02-other.py
 
 События (event):
   pre_skill         — перед `agentctl skill run`
@@ -30,7 +30,7 @@ from __future__ import annotations
 import argparse, json, os, stat, subprocess, sys, time
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 HOOKS = ROOT / "hooks"
 LOGS = ROOT / "logs"
 LOG_FILE = LOGS / "hooks.jsonl"

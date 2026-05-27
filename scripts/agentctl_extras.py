@@ -10,7 +10,7 @@ import platform
 import socket
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-agent")))
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-bridge")))
 AGENTCTL = ROOT / "bin" / "agentctl"
 
 # Cross-platform Python finder (venv or system)
@@ -360,7 +360,7 @@ def cmd_update(args: list[str]) -> int:
     else:  
         print("=== Git not found ===")  
         print("To update manually: unpack the new release archive over your existing")  
-        print("arena-agent folder, then run update.bat (Windows) or update.sh (Linux).")  
+        print("arena-bridge folder, then run update.bat (Windows) or update.sh (Linux).")  
   
     if platform.system() == "Linux":  
         installer = ROOT / "scripts" / "install_linux_service.sh"  
@@ -379,7 +379,7 @@ def cmd_update(args: list[str]) -> int:
             subprocess.run(["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(installer)], cwd=str(ROOT))  
         else:  
             print("=== Windows services ===")  
-            print("Run 'update.bat' in the arena-agent folder to restart all services.")  
+            print("Run 'update.bat' in the arena-bridge folder to restart all services.")  
     else:  
         print("Please restart the agent services manually on this platform.")  
   

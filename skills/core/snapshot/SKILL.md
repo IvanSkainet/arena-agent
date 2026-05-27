@@ -5,8 +5,8 @@ on a fresh machine. Like `agentctl backup` but more comprehensive and
 self-describing.
 
 ## Inputs (optional flags)
-- `--out PATH`   — output tarball path (default: `~/arena-agent/backups/snapshot-<UTC>.tgz`)
-- `--include-logs` — also include `~/arena-agent/logs/` and the audit log
+- `--out PATH`   — output tarball path (default: `~/arena-bridge/backups/snapshot-<UTC>.tgz`)
+- `--include-logs` — also include `~/arena-bridge/logs/` and the audit log
 
 ## Outputs
 - `<out>.tgz` (chmod 600)

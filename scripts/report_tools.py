@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, datetime as dt, json, mimetypes, os
 from pathlib import Path
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser(); REPORTS=ROOT/'reports'
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); REPORTS=ROOT/'reports'
 def items(limit=None):
     REPORTS.mkdir(parents=True, exist_ok=True)
     rows=[]

@@ -21,12 +21,12 @@ import json, os
 print(json.dumps({'cmd':os.environ['CMD'],'timeout':int(os.environ['TIMEOUT']),'max_output':int(os.environ['MAX'])}))
 PY''').strip())
     elif a.kind=='python':
-        print(open(os.path.expanduser('~/arena-agent/bin/ai_client.py')).read())
+        print(open(os.path.expanduser('~/arena-bridge/bin/ai_client.py')).read())
     elif a.kind=='powershell':
         print('''param([string]$Cmd)\n$body=@{cmd=$Cmd;timeout=90;max_output=30000}|ConvertTo-Json\nInvoke-RestMethod -Uri "$env:AURL/v1/exec" -Method Post -Headers @{Authorization="Bearer $env:ATOK"} -ContentType 'application/json' -Body $body''')
 def test(a):
     cmds=[]
-    if shutil.which('python3'): cmds.append('python3 ~/arena-agent/bin/ai_client.py "$AURL" "$ATOK" whoami')
+    if shutil.which('python3'): cmds.append('python3 ~/arena-bridge/bin/ai_client.py "$AURL" "$ATOK" whoami')
     if shutil.which('curl'): cmds.append('./a whoami 30 4000' if os.path.exists('./a') else f'curl --curves X25519 -sS {AURL}/health')
     out=[]
     for c in cmds:

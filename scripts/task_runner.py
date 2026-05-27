@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse, datetime as dt, json, os, shutil, subprocess, sys, time, uuid
 from pathlib import Path
 
-ROOT = Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-agent'))).expanduser()
+ROOT = Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser()
 QUEUE = ROOT / 'queue'
 INBOX = QUEUE / 'inbox'
 RUNNING = QUEUE / 'running'

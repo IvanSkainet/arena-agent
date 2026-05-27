@@ -1,6 +1,6 @@
 import sys, os, subprocess, urllib.request, zipfile, io
 from pathlib import Path
-REPO_DIR = Path(os.environ.get("ARENA_AGENT_HOME", Path.home()/"arena-agent")) / "tools" / "superpowers"
+REPO_DIR = Path(os.environ.get("ARENA_AGENT_HOME", Path.home() / "arena-bridge")) / "tools" / "superpowers"
 cmd = sys.argv[1] if len(sys.argv)>1 else "list"
 
 if cmd == "sync":

@@ -47,7 +47,7 @@ if [[ -n "$ZOMBIES" ]]; then
 fi
 
 # 4) Prune backups > 20
-BK_DIR="$HOME/arena-agent/backups"
+BK_DIR="${ARENA_AGENT_HOME:-$HOME/arena-bridge}/backups"
 if [[ -d "$BK_DIR" ]]; then
   COUNT=$(ls -1 "$BK_DIR" 2>/dev/null | wc -l)
   if [[ $COUNT -gt 20 ]]; then

@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, datetime as dt, json, os
 from pathlib import Path
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser(); PROJECTS=ROOT/'projects'
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); PROJECTS=ROOT/'projects'
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 def safe(name):
     s=''.join(c if c.isalnum() or c in '-_.' else '-' for c in name.strip())

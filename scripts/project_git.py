@@ -23,7 +23,7 @@ def _show_agents_md(proj_dir):
             return True
     return False
 
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser()
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-bridge'))).expanduser()
 PROJECTS=ROOT/'projects'; CURRENT=PROJECTS/'.current'
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 def safe(name):
@@ -44,7 +44,7 @@ def run(cmd, cwd, check=False):
     return p
 def ensure_git_identity(p):
     if run('git config user.email', p).returncode != 0 or not run('git config user.email', p).stdout.strip():
-        run('git config user.email "arena-agent@local"', p)
+        run('git config user.email "arena-bridge@local"', p)
     if run('git config user.name', p).returncode != 0 or not run('git config user.name', p).stdout.strip():
         run('git config user.name "Arena Agent"', p)
 def new_project(args):
@@ -152,15 +152,15 @@ if __name__=='__main__': main()
 def agents_md_command(args):
     """CLI: project_git.py agents [init|show] — управление AGENTS.md в текущем проекте."""
     import os as _os, pathlib as _pl, shutil as _sh
-    state = _pl.Path.home() / ".arena-agent" / "current_project"
+    state = _pl.Path.home() / ".arena-bridge" / "current_project"
     cur = None
     if state.exists(): cur = state.read_text().strip()
     if not cur:
-        # пробуем найти через .arena-agent в текущем
+        # пробуем найти через .arena-bridge в текущем
         cur = _os.environ.get("ARENA_CURRENT_PROJECT", "")
     if not cur:
         # последний из projects/
-        proj_root = _pl.Path.home() / "arena-agent" / "projects"
+        proj_root = _pl.Path.home() / "arena-bridge" / "projects"
         if proj_root.exists():
             dirs = sorted([d for d in proj_root.iterdir() if d.is_dir()],
                           key=lambda p: p.stat().st_mtime, reverse=True)
@@ -170,11 +170,11 @@ def agents_md_command(args):
         return 1
     proj_dir = _pl.Path(cur)
     if not proj_dir.is_absolute():
-        proj_dir = _pl.Path.home() / "arena-agent" / "projects" / proj_dir
+        proj_dir = _pl.Path.home() / "arena-bridge" / "projects" / proj_dir
     sub = args[0] if args else "show"
     target = proj_dir / "AGENTS.md"
     if sub == "init":
-        tmpl = _pl.Path.home() / "arena-agent" / "docs" / "AGENTS.md.template"
+        tmpl = _pl.Path.home() / "arena-bridge" / "docs" / "AGENTS.md.template"
         if not tmpl.exists():
             print("template missing:", tmpl); return 1
         if target.exists():

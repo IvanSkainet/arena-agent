@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-REPORTS="${ARENA_AGENT_HOME:-$HOME/arena-agent}/reports"
+REPORTS="${ARENA_AGENT_HOME:-$HOME/arena-bridge}/reports"
 mkdir -p "$REPORTS"
 SESSION="${BACT_SESSION:-arena}"
 

@@ -8,13 +8,13 @@ set -euo pipefail
 
 QUERY="${1:?usage: web/research \"query\" [n=3]}"
 N="${2:-3}"
-OUT_DIR="${ARENA_AGENT_HOME:-$HOME/arena-agent}/reports"
+OUT_DIR="${ARENA_AGENT_HOME:-$HOME/arena-bridge}/reports"
 mkdir -p "$OUT_DIR"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 JSON_PATH="$OUT_DIR/research-${STAMP}.json"
 MD_PATH="$OUT_DIR/research-${STAMP}.md"
 PYB=/usr/bin/python3
-SCRIPT="${ARENA_AGENT_HOME:-$HOME/arena-agent}/bin/py_browser.py"
+SCRIPT="${ARENA_AGENT_HOME:-$HOME/arena-bridge}/bin/py_browser.py"
 
 # 1) Поиск
 SEARCH_JSON=$("$PYB" "$SCRIPT" search "$QUERY" --n "$N")

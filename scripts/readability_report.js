@@ -5,7 +5,7 @@ const TurndownService = require('turndown');
 const fs = require('fs');
 const path = require('path');
 async function main(){
-  const root=process.env.ARENA_AGENT_HOME || path.join(process.env.HOME,'arena-agent');
+  const root=process.env.ARENA_AGENT_HOME || path.join(process.env.HOME, 'arena-bridge');
   const outDir=path.join(root,'reports'); fs.mkdirSync(outDir,{recursive:true});
   const url=process.argv[2] || 'https://example.com';
   const stamp=new Date().toISOString().replace(/[:.]/g,'-');

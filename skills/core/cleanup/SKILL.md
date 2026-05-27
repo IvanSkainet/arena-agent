@@ -9,11 +9,11 @@ Rotate / prune old data to keep the platform tidy.
 - `--apply`      — actually delete (default: dry-run)
 
 ## Categories cleaned
-- `~/arena-agent/backups/`         — tarballs older than N days
-- `~/arena-agent/memory/sessions/` — JSONL sessions older than N days
-- `~/arena-agent/reports/`         — generated digests/reports older than N days
-- `~/arena-agent/queue/done/`      — completed tasks older than N days
-- `~/arena-agent/queue/failed/`    — failed tasks older than N days
+- `~/arena-bridge/backups/`         — tarballs older than N days
+- `~/arena-bridge/memory/sessions/` — JSONL sessions older than N days
+- `~/arena-bridge/reports/`         — generated digests/reports older than N days
+- `~/arena-bridge/queue/done/`      — completed tasks older than N days
+- `~/arena-bridge/queue/failed/`    — failed tasks older than N days
 
 Always keeps at least `--keep` newest items in each category, regardless of age.
 

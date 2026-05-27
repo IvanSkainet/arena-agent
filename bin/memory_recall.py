@@ -6,10 +6,10 @@
 (он не должен помнить всё сам).
 
 Источники:
-  - ~/arena-agent/memory/facts.jsonl    (key/value/tags)
-  - ~/arena-agent/memory/sessions/*.jsonl (last 20)
-  - ~/arena-agent/reports/snapshots/*.md  (last 5)
-  - ~/arena-agent/subagents/*/summary.json
+  - ~/arena-bridge/memory/facts.jsonl    (key/value/tags)
+  - ~/arena-bridge/memory/sessions/*.jsonl (last 20)
+  - ~/arena-bridge/reports/snapshots/*.md  (last 5)
+  - ~/arena-bridge/subagents/*/summary.json
 
 Команды:
   recall <query> [--top N]      — топ N релевантных воспоминаний (JSON)
@@ -20,7 +20,7 @@ import argparse, json, os, re, sys
 from pathlib import Path
 from collections import Counter
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 MEM  = ROOT / "memory"
 RPT  = ROOT / "reports"
 SUB  = ROOT / "subagents"

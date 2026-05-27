@@ -8,7 +8,7 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
     try:
         import subprocess as _sp, json as _j, os as _os, pathlib as _pl, sys as _sys
-        root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-agent")))
+        root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
         runner = root / "bin" / "hooks_runner.py"
         if not runner.exists():
             return
@@ -26,7 +26,7 @@ def _start_recording(mission_id):
     import os as _os, subprocess as _sp, pathlib as _pl
     if _os.environ.get("ARENA_REC") != "1":
         return None
-    root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-agent")))
+    root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
     rec_dir = root / "reports" / "recordings"
     rec_dir.mkdir(parents=True, exist_ok=True)
     out = rec_dir / f"mission-{mission_id}.mp4"
@@ -54,7 +54,7 @@ def _stop_recording(rec):
         try: _os.kill(rec["pid"], _sig.SIGTERM)
         except Exception: pass
 
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser()
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser()
 MISSIONS=ROOT/'missions'; TEMPLATES=ROOT/'missions/templates'; REPORTS=ROOT/'reports'; AGENT=ROOT/'bin/agentctl'
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 def slug(s): return re.sub(r'[^a-zA-Z0-9._-]+','-',s.strip()).strip('-').lower() or 'mission'

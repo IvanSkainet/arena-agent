@@ -27,7 +27,7 @@ NEVER do these — they will mangle your payload:
 
 ALWAYS do these:
 
-1. **Edit files locally** in workspace (`arena-agent-v0.3/...`).
+1. **Edit files locally** in workspace (`arena-bridge-v0.3/...`).
 2. **Send via base64**: `B64=$(base64 -w0 path/to/file); ./br "echo '$B64'
    | base64 -d > /remote/path && chmod 600 /remote/path"`.
 3. **For multi-file deploys**: write a single Python `deploy.py` locally, send
@@ -84,7 +84,7 @@ if "MARKER_STRING" in src:
 ## What lives where
 
 ```
-~/arena-agent/
+~/arena-bridge/
   bin/agentctl          # bash dispatcher
   scripts/*.py          # Python implementations
   scripts/agent_helpers.py   # transport + patch utilities (v0.3)
@@ -105,13 +105,13 @@ if "MARKER_STRING" in src:
 - `~/.arena-local-bridge/audit.jsonl` — every exec call, with redaction.
 - `agentctl audit-tail 30`, `agentctl audit-stats`.
 - Backups: `agentctl backup` before any nontrivial change; latest in
-  `~/arena-agent/backups/`.
+  `~/arena-bridge/backups/`.
 
 ## When to ask vs. when to act
 
 - Destructive (`rm -rf`, `chmod -R`, service stop, password/secret access):
   **ask the user first**.
-- Read-only, sandboxed under `~/arena-agent`: act.
+- Read-only, sandboxed under `~/arena-bridge`: act.
 - New skill, new memory fact, new report: act and tell.
 - Replacing core scripts (`agentctl`, `chat.py`, `recovery_prompt.py`):
   **backup → patch → verify → smoke**. If smoke fails, roll back.

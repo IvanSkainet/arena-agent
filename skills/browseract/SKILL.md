@@ -27,4 +27,4 @@ Wrapper around the `browser-act` CLI for stealth-aware browser automation.
 - Default = fully local. Bundled Chromium, no upload of cookies/page content.
 - Cloud features (residential IPs, hosted CAPTCHA) require explicit
   `browser-act auth set <key>`. Not enabled by default.
-- Reports saved to ~/arena-agent/reports/bact-*
+- Reports saved to ~/arena-bridge/reports/bact-*

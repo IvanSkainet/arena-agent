@@ -38,4 +38,4 @@ foreach ($p in @(
 }
 if (-not $PYTHON) { $PYTHON = "python" }
 
-& $PYTHON -u "$env:USERPROFILE\arena-local-bridge\unified_bridge.py" serve --root "$env:USERPROFILE" --profile owner-shell --token $token *>> "$env:USERPROFILE\arena-agent\logs\ArenaUnifiedBridge.log"
+& $PYTHON -u "$env:USERPROFILE\arena-local-bridge\unified_bridge.py" serve --root "$env:USERPROFILE" --profile owner-shell --token $token *>> "$env:USERPROFILE\arena-bridge\logs\ArenaUnifiedBridge.log"

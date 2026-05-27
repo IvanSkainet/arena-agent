@@ -2,7 +2,7 @@
 """
 skill_runner.py — Arena Agent skills v0.1
 
-A skill is a directory under ~/arena-agent/skills/<namespace>/<name>/ with:
+A skill is a directory under ~/arena-bridge/skills/<namespace>/<name>/ with:
 
   SKILL.md      — human-readable description (purpose, inputs, outputs)
   run.sh        — optional executable; called as `bash run.sh "$@"`
@@ -26,11 +26,11 @@ Commands:
 
 The existing `agentctl skill-list` / `skill-show` (superpowers_lite.py) keep
 working — they only read markdown files. This module is the *executor* layer
-and shares the same ~/arena-agent/skills/ directory.
+and shares the same ~/arena-bridge/skills/ directory.
 
 Output of `run`:
   - stdout/stderr streamed to terminal
-  - a JSON one-liner appended to ~/arena-agent/logs/skills.jsonl with
+  - a JSON one-liner appended to ~/arena-bridge/logs/skills.jsonl with
     {ts, skill, args, exit, duration_sec}
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 SK = ROOT / "skills"
 LOGS = ROOT / "logs"
 LOG_FILE = LOGS / "skills.jsonl"

@@ -30,7 +30,7 @@
       "-q",
       "mcp-server-sqlite",
       "--db-path",
-      "/home/ivan/arena-agent/memory/facts.db"
+      "/home/ivan/arena-bridge/memory/facts.db"
     ],
     "description": "SQLite query tool over local DB.",
     "tags": [

@@ -4,7 +4,7 @@ REM Finds Python and runs agentctl.py
 setlocal enabledelayedexpansion
 
 set "AGENT_HOME=%ARENA_AGENT_HOME%"
-if "%AGENT_HOME%"=="" set "AGENT_HOME=%USERPROFILE%\arena-agent"
+if "%AGENT_HOME%"=="" set "AGENT_HOME=%USERPROFILE%\arena-bridge"
 
 for %%p in (
   "%LOCALAPPDATA%\Programs\Python\Python314\python.exe"

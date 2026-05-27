@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, os
 from pathlib import Path
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-agent'))).expanduser(); SK=ROOT/'skills'
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); SK=ROOT/'skills'
 def list_skills(args):
     for p in sorted(SK.rglob('*.md')): print(str(p.relative_to(SK)).removesuffix('.md'))
 def show(args):

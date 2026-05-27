@@ -3,7 +3,7 @@ import zipfile
 from pathlib import Path
 
 HOME = Path.home()
-AGENT_DIR = HOME / "arena-agent"
+AGENT_DIR = HOME / "arena-bridge"
 BRIDGE_DIR = HOME / "arena-local-bridge"
 OUT_ZIP = HOME / "arena_agent_release.zip"
 
@@ -71,7 +71,7 @@ def pack():
                 fp = Path(root) / file
                 if should_exclude(fp, AGENT_DIR):
                     continue
-                rel_zip = Path('arena-agent') / fp.relative_to(AGENT_DIR)
+                rel_zip = Path('arena-bridge') / fp.relative_to(AGENT_DIR)
                 z.write(fp, rel_zip)
                 print(f"  + {rel_zip}")
 
@@ -84,19 +84,19 @@ def pack():
             print(f"  WARNING: {lb} not found (skipped)")
 
         placeholders = [
-            'arena-agent/backups/.gitkeep',
-            'arena-agent/logs/.gitkeep',
-            'arena-agent/reports/shots/.gitkeep',
-            'arena-agent/reports/snapshots/.gitkeep',
-            'arena-agent/reports/recordings/.gitkeep',
-            'arena-agent/queue/inbox/.gitkeep',
-            'arena-agent/queue/running/.gitkeep',
-            'arena-agent/queue/done/.gitkeep',
-            'arena-agent/queue/failed/.gitkeep',
-            'arena-agent/subagents/.gitkeep',
-            'arena-agent/memory/sessions/.gitkeep',
-            'arena-agent/missions/.gitkeep',
-            'arena-agent/projects/.gitkeep',
+            'arena-bridge/backups/.gitkeep',
+            'arena-bridge/logs/.gitkeep',
+            'arena-bridge/reports/shots/.gitkeep',
+            'arena-bridge/reports/snapshots/.gitkeep',
+            'arena-bridge/reports/recordings/.gitkeep',
+            'arena-bridge/queue/inbox/.gitkeep',
+            'arena-bridge/queue/running/.gitkeep',
+            'arena-bridge/queue/done/.gitkeep',
+            'arena-bridge/queue/failed/.gitkeep',
+            'arena-bridge/subagents/.gitkeep',
+            'arena-bridge/memory/sessions/.gitkeep',
+            'arena-bridge/missions/.gitkeep',
+            'arena-bridge/projects/.gitkeep',
         ]
         for p in placeholders:
             z.writestr(p, '')

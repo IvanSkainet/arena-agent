@@ -124,7 +124,7 @@ import pathlib as _pl
 
 SUBS: dict = {}   # topic -> set of socket objects
 SUBS_LOCK = _th.Lock()
-NOTIFY_QUEUE = _pl.Path.home() / "arena-agent" / "logs" / "ws_notify.queue"
+NOTIFY_QUEUE = _pl.Path.home() / "arena-bridge" / "logs" / "ws_notify.queue"
 NOTIFY_QUEUE.parent.mkdir(parents=True, exist_ok=True)
 NOTIFY_QUEUE.touch(exist_ok=True)
 

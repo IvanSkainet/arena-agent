@@ -4,7 +4,7 @@ Generate a compact markdown digest of the local Arena Agent state — suitable
 for pasting into a brand-new Arena.ai chat to bootstrap context fast.
 
 ## Inputs
-- argv[1] (optional): output file path. Default: `~/arena-agent/reports/digest-<UTC>.md`.
+- argv[1] (optional): output file path. Default: `~/arena-bridge/reports/digest-<UTC>.md`.
 
 ## Outputs
 - Markdown file at the chosen path (chmod 600).

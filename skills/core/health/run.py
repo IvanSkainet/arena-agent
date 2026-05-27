@@ -9,7 +9,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME",
-                           str(Path.home() / "arena-agent"))).expanduser()
+                           str(Path.home() / "arena-bridge"))).expanduser()
 
 results: list[tuple[bool, str, str]] = []
 

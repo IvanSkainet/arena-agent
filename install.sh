@@ -106,9 +106,9 @@ echo ""
 
 # --- 6a: Tailscale ---
 if command -v tailscale >/dev/null 2>&1; then
-    # Check if Tailscale is logged in
-    TS_STATUS="$(tailscale status 2>&1 | head -1)"
-    if echo "$TS_STATUS" | grep -qi "not logged in\|needs login\|stopped"; then
+    # Check if Tailscale is logged in (use || true to prevent set -e exit)
+    TS_STATUS="$(tailscale status 2>&1 | head -1)" || TS_STATUS=""
+    if echo "$TS_STATUS" | grep -qi "not logged in\|needs login\|stopped\|not connected" || [ -z "$TS_STATUS" ]; then
         warn "Tailscale is installed but not logged in"
         if [ "$(uname -s)" = "Linux" ]; then
             if ask "Run Tailscale login? (requires sudo)"; then
@@ -117,7 +117,11 @@ if command -v tailscale >/dev/null 2>&1; then
                 info "You can login later: sudo tailscale login"
             fi
         else
-            info "Login with: tailscale login"
+            if ask "Run Tailscale login?"; then
+                tailscale login 2>&1 && ok "Tailscale login initiated — follow the URL in output" || warn "Tailscale login failed"
+            else
+                info "You can login later: tailscale login"
+            fi
         fi
     else
         ok "Tailscale found and logged in — funnel available"
