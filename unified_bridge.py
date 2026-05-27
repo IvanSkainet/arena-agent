@@ -65,7 +65,7 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
 Security:
   - Binds to 127.0.0.1 by default (--bind to change)
   - Bearer token required for exec/info/status/audit/upload/download/kill
-  - All commands logged to ~/.arena-local-bridge/audit.jsonl
+  - All commands logged to <bridge-dir>/audit.jsonl
   - Destructive patterns blocked (same as v0.4)
   - Profile-based allowlist (cautious / owner-shell)
 
@@ -142,7 +142,8 @@ def _subprocess_kwargs() -> dict:
 
 
 AUDIT_CMD_LIMIT = 4000
-APP_DIR = Path.home() / ".arena-local-bridge"
+BRIDGE_DIR = Path(__file__).resolve().parent
+APP_DIR = BRIDGE_DIR
 TOKEN_FILE = APP_DIR / "token.txt"
 AUDIT = APP_DIR / "audit.jsonl"
 RUN_DIR = APP_DIR / "runs"
@@ -342,10 +343,7 @@ def _get_cdp_module():
 
     # Try multiple locations for cdp_browser.py
     search_paths = [
-        Path(__file__).resolve().parent / "scripts",        # same dir as bridge
-        Path.home() / "arena-agent" / "scripts",            # GitHub clone
-        Path.home() / "arena-installer-v2" / "scripts",     # Installer copy
-        Path.home() / "arena-local-bridge" / "scripts",     # Service dir
+        BRIDGE_DIR / "scripts",
     ]
 
     for scripts_dir in search_paths:
@@ -420,7 +418,7 @@ BLOCK_PATTERNS = [
 ]
 
 HOME = str(Path.home())
-BIN = os.path.join(HOME, "arena-agent", "bin")
+BIN = str(BRIDGE_DIR / "bin")
 
 # ============================================================================
 # HELPERS
@@ -716,7 +714,7 @@ def call_tool(name: str, args: dict) -> dict:
             return text_content(out or err)
         if name == "browser.shot":
             import shutil as _shutil
-            shots = os.path.join(HOME, "arena-agent", "reports", "shots")
+            shots = str(REPORTS_DIR / "shots")
             os.makedirs(shots, exist_ok=True)
             png = os.path.join(shots, f"mcp-{int(time.time())}.png")
             ud = os.path.join(tempfile.gettempdir(), f"cr-mcp-{os.getpid()}")
@@ -860,7 +858,7 @@ def gw_allowed(cmd: str) -> bool:
 # TASK RUNNER (integrated asyncio background)
 # ============================================================================
 
-ROOT_AGENT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT_AGENT = Path(os.environ.get("ARENA_AGENT_HOME", str(BRIDGE_DIR))).expanduser()
 QUEUE = ROOT_AGENT / "queue"
 INBOX = QUEUE / "inbox"
 RUNNING = QUEUE / "running"
@@ -872,9 +870,9 @@ SKILLS_DIR = ROOT_AGENT / "skills"
 HOOKS_DIR = ROOT_AGENT / "hooks"
 AGENTS_DIR = ROOT_AGENT / "agents"
 SUBAGENTS_DIR = ROOT_AGENT / "subagents"
-MEMORY_FILE = Path.home() / "arena-agent" / "memory" / "facts.jsonl"
-MISSIONS_DIR = Path.home() / "arena-agent" / "missions"
-REPORTS_DIR = Path.home() / "arena-agent" / "reports"
+MEMORY_FILE = ROOT_AGENT / "memory" / "facts.jsonl"
+MISSIONS_DIR = ROOT_AGENT / "missions"
+REPORTS_DIR = ROOT_AGENT / "reports"
 BACKUPS_DIR = ROOT_AGENT / "backups"
 
 
@@ -1612,9 +1610,8 @@ def _inventory_sync(section: str | None = None, fmt: str = "text", timeout: int 
 
     # Locate inventory.py
     candidates = [
+        BRIDGE_DIR / "scripts" / "inventory.py",
         ROOT_AGENT / "scripts" / "inventory.py",
-        Path.home() / "arena-agent" / "scripts" / "inventory.py",
-        Path(__file__).resolve().parent.parent / "arena-agent" / "scripts" / "inventory.py",
     ]
     script = None
     for c in candidates:
@@ -1926,7 +1923,7 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
     except ValueError:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "upload path must be inside user home"}, status=403)
-    bridge_py = Path.home() / "arena-local-bridge" / "unified_bridge.py"
+    bridge_py = Path(__file__).resolve()
     if target_path.resolve() == bridge_py.resolve():
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "cannot overwrite the bridge itself"}, status=403)
@@ -1985,11 +1982,8 @@ async def handle_gui(request: web.Request) -> web.Response:
         cfg = request.app["cfg"]
         # Try multiple locations for the dashboard
         candidates = [
-            cfg["root"] / "arena-agent" / "dashboard" / "index.html",
-            Path.home() / "arena-agent" / "dashboard" / "index.html",
-            Path.home() / "arena-installer-v2" / "dashboard" / "index.html",
-            Path(__file__).parent / "dashboard" / "index.html",
-            Path(__file__).parent / "index.html",
+            BRIDGE_DIR / "dashboard" / "index.html",
+            BRIDGE_DIR / "index.html",
         ]
         for html_path in candidates:
             if html_path.exists():
@@ -2196,7 +2190,7 @@ async def handle_v1_doctor(request: web.Request) -> web.Response:
     # Python
     checks.append({"name": "Python", "ok": True, "detail": sys.version.split()[0]})
     # Directories
-    for name, path in [("Agent dir", Path.home() / "arena-agent"), ("Bridge dir", Path.home() / "arena-local-bridge"),
+    for name, path in [("Bridge dir", BRIDGE_DIR),
                         ("Memory dir", MEMORY_FILE.parent), ("Missions dir", MISSIONS_DIR)]:
         checks.append({"name": name, "ok": path.exists(), "detail": str(path)})
     # Memory
@@ -2675,7 +2669,7 @@ async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
 def _token_path() -> Path:
     """Resolve token file location used by start-bridge / install.bat."""
     return Path(os.environ.get("ARENA_TOKEN_FILE",
-                str(Path.home() / "arena-local-bridge" / "token.txt"))).expanduser()
+                str(TOKEN_FILE))).expanduser()
 
 
 def _token_regen_sync(target_path: str = "") -> dict:
@@ -2699,7 +2693,7 @@ def _token_regen_sync(target_path: str = "") -> dict:
             target = Path(env).expanduser()
         else:
             # Default to the canonical bridge-dir token file
-            target = Path.home() / "arena-local-bridge" / "token.txt"
+            target = TOKEN_FILE
 
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -4897,7 +4891,7 @@ async def handle_v1_backup(request: web.Request) -> web.Response:
         data = await request.json()
     except Exception:
         data = {}
-    paths = data.get("paths", [str(Path.home() / "arena-agent")])
+    paths = data.get("paths", [str(BRIDGE_DIR)])
     name = data.get("name", "")
     # Validate backup name for path traversal
     if name and (".." in name or "/" in name or "\\" in name):
