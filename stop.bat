@@ -1,10 +1,12 @@
 @echo off
-title Arena Bridge — Stop
-echo Stopping Arena Unified Bridge...
-schtasks /End /tn "ArenaUnifiedBridge" 2>nul
-timeout /t 2 /nobreak >nul
-:: Also kill any process on port 8765
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr :8765 ^| findstr LISTEN') do (
-    taskkill /PID %%a /F >nul 2>&1
+REM Stop Arena Unified Bridge
+where nssm >nul 2>&1
+if not errorlevel 1 (
+    nssm stop ArenaUnifiedBridge
+) else (
+    for /f "tokens=2" %%p in ('tasklist /fi "imagename eq pythonw.exe" /fi "commandline eq *unified_bridge*" /nh 2^>nul') do (
+        taskkill /pid %%p /f >nul 2>&1
+    )
 )
-echo Done. Bridge stopped.
+echo Bridge stopped.
+timeout /t 2 /nobreak >nul
