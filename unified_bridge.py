@@ -271,7 +271,8 @@ class ResourceError(BridgeError):
 async def error_middleware(request: web.Request, handler):
     """Catch all unhandled exceptions, return structured JSON, log stack traces."""
     # Generate request ID for tracing
-    req_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())[:8]
+    # Generate or accept request ID (limit client-provided to 64 chars)
+    req_id = (request.headers.get("X-Request-Id") or str(uuid.uuid4())[:8])[:64]
     request["req_id"] = req_id
 
     t0 = time.time()
@@ -283,11 +284,15 @@ async def error_middleware(request: web.Request, handler):
         # Add request ID to response headers
         resp.headers["X-Request-Id"] = req_id
         return resp
-    except web.HTTPException:
-        # Let aiohttp handle its own HTTP exceptions (404 route not found, etc.)
+    except web.HTTPException as exc:
         duration = time.time() - t0
-        log.debug("[%s] %s %s -> HTTPException (%.3fs)", req_id, request.method,
-                  request.path, duration)
+        log.debug("[%s] %s %s -> HTTPException %d (%.3fs)", req_id, request.method,
+                  request.path, exc.status, duration)
+        # Add CORS and request ID headers to HTTP exceptions
+        exc.headers["Access-Control-Allow-Origin"] = "*"
+        exc.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        exc.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id"
+        exc.headers["X-Request-Id"] = req_id
         raise
     except BridgeError as e:
         duration = time.time() - t0
@@ -295,7 +300,7 @@ async def error_middleware(request: web.Request, handler):
         log.warning("[%s] %s %s -> %s %s: %s (%.3fs)", req_id, request.method,
                     request.path, e.error_code, e.http_status, e, duration)
         return _cors_json_response(e.to_dict(), status=e.http_status,
-                                   headers={"X-Request-Id": req_id})
+                                   extra_headers={"X-Request-Id": req_id})
     except asyncio.CancelledError:
         raise
     except Exception as e:
@@ -305,14 +310,17 @@ async def error_middleware(request: web.Request, handler):
         tb = _traceback.format_exc()
         log.error("[%s] %s %s UNHANDLED: %s\n%s", req_id, request.method,
                   request.path, e, tb)
-        audit({"event": "unhandled_error", "req_id": req_id, "path": request.path,
-               "method": request.method, "error": repr(e), "tb_snippet": tb[:2000]})
+        try:
+            audit({"event": "unhandled_error", "req_id": req_id, "path": request.path,
+                   "method": request.method, "error": repr(e), "tb_snippet": tb[:2000]})
+        except Exception:
+            pass  # Don't let audit failure crash the error handler
         return _cors_json_response({
             "ok": False,
             "error": f"Internal error: {type(e).__name__}: {e}",
             "error_code": "INTERNAL_ERROR",
             "req_id": req_id,
-        }, status=500, headers={"X-Request-Id": req_id})
+        }, status=500, extra_headers={"X-Request-Id": req_id})
 
 
 # Thread pool executor for running blocking I/O in async handlers
@@ -494,10 +502,15 @@ def under_root(path: Path, root: Path) -> bool:
         return False
 
 
-def _record_request(duration: float = 0.0, is_exec: bool = False, is_error: bool = False) -> None:
-    """Record a request in the bridge metrics."""
+def _record_request(duration: float = 0.0, is_exec: bool = False, is_error: bool = False, count_request: bool = True) -> None:
+    """Record a request in the bridge metrics.
+    
+    count_request=False: Skip incrementing total_requests (used when
+    _record_request was already called for this request in the success path).
+    """
     with _metrics_lock:
-        BRIDGE_METRICS["total_requests"] += 1
+        if count_request:
+            BRIDGE_METRICS["total_requests"] += 1
         if is_exec:
             BRIDGE_METRICS["total_exec"] += 1
         if is_error:
@@ -509,13 +522,16 @@ def _record_request(duration: float = 0.0, is_exec: bool = False, is_error: bool
                 BRIDGE_METRICS["request_durations"] = BRIDGE_METRICS["request_durations"][-1000:]
 
 
-def _cors_json_response(data: Any, status: int = 200, **kwargs: Any) -> web.Response:
-    """Return a JSON response with CORS headers."""
-    return web.json_response(data, status=status, headers={
+def _cors_json_response(data: Any, status: int = 200, extra_headers: dict | None = None, **kwargs: Any) -> web.Response:
+    """Return a JSON response with CORS headers. extra_headers merged with CORS."""
+    hdrs = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id",
-    }, **kwargs)
+    }
+    if extra_headers:
+        hdrs.update(extra_headers)
+    return web.json_response(data, status=status, headers=hdrs, **kwargs)
 
 
 # ============================================================================
@@ -787,6 +803,17 @@ def handle_rpc(msg: dict) -> dict | None:
 # ============================================================================
 
 MCP_SESSIONS: dict[str, dict] = {}  # session_id -> {created, queue}
+MCP_SESSION_MAX_AGE_MS = 3600_000  # 1 hour — stale sessions auto-cleaned
+
+
+def _cleanup_mcp_sessions() -> int:
+    """Remove MCP sessions older than MCP_SESSION_MAX_AGE_MS. Returns count removed."""
+    now = now_ms()
+    stale = [sid for sid, sess in MCP_SESSIONS.items()
+             if now - sess.get("created", 0) > MCP_SESSION_MAX_AGE_MS]
+    for sid in stale:
+        MCP_SESSIONS.pop(sid, None)
+    return len(stale)
 
 
 def sid() -> str:
@@ -839,6 +866,22 @@ MEMORY_FILE = Path.home() / "arena-agent" / "memory" / "facts.jsonl"
 MISSIONS_DIR = Path.home() / "arena-agent" / "missions"
 REPORTS_DIR = Path.home() / "arena-agent" / "reports"
 BACKUPS_DIR = ROOT_AGENT / "backups"
+
+
+def move_atomic(src: Path, dst: Path) -> None:
+    """Atomically move a file, replacing destination if it exists."""
+    try:
+        if dst.exists():
+            dst.unlink()
+        src.rename(dst)
+    except OSError:
+        # Fallback: copy then delete
+        import shutil
+        shutil.copy2(str(src), str(dst))
+        try:
+            src.unlink()
+        except OSError:
+            pass
 
 
 def task_ensure_dirs():
@@ -934,6 +977,13 @@ async def task_runner_loop(app: web.Application):
                 await task_run_one(p)
         except Exception as e:
             log.error("[TaskRunner] Loop error: %s", e)
+        # Periodic cleanup of stale MCP sessions
+        try:
+            removed = _cleanup_mcp_sessions()
+            if removed:
+                log.info("[TaskRunner] Cleaned %d stale MCP sessions", removed)
+        except Exception:
+            pass
         await asyncio.sleep(5)
 
 
@@ -1332,7 +1382,7 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
             "disk_free_gb": disk.free // (1024 ** 3),
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -1614,7 +1664,7 @@ async def handle_v1_inventory(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _inventory_sync, section, fmt, timeout)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -1631,10 +1681,10 @@ async def handle_v1_hwinfo(request: web.Request) -> web.Response:
         )
         return _cors_json_response({"ok": True, "hwinfo": info})
     except asyncio.TimeoutError:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "hwinfo collection timed out (30s) — wmic commands may be hung"}, status=504)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -1686,17 +1736,17 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
 
     if not isinstance(data, dict):
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "JSON must be object"}, status=400)
 
     request_id = str(data.get("request_id") or uuid.uuid4())
     cmd = str(data.get("cmd", "")).strip()
     if not cmd:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing cmd", "request_id": request_id}, status=400)
 
     # Safety checks
@@ -1704,7 +1754,7 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
     if reason:
         audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd, "reason": reason,
                 "client": request.remote or "127.0.0.1"})
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": reason, "request_id": request_id}, status=403)
 
     profile = cfg["profile"]
@@ -1713,7 +1763,7 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
         reason = f"command '{fw}' not in cautious allowlist; use --profile owner-shell"
         audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd, "reason": reason,
                 "client": request.remote or "127.0.0.1"})
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": reason, "request_id": request_id}, status=403)
 
     root: Path = cfg["root"]
@@ -1722,11 +1772,11 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
     if not cwd.is_absolute():
         cwd = root / cwd
     if not cfg["allow_any_cwd"] and not under_root(cwd, root):
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": f"cwd must be under root {root}", "request_id": request_id}, status=403)
     if not cwd.exists() or not cwd.is_dir():
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": f"cwd does not exist: {cwd}", "request_id": request_id}, status=400)
 
@@ -1738,7 +1788,7 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
 
     sem: asyncio.Semaphore = cfg["semaphore"]
     if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": "too many concurrent exec requests", "request_id": request_id}, status=429)
 
@@ -1829,11 +1879,11 @@ async def handle_v1_kill(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "invalid json"}, status=400)
     target_id = data.get("request_id")
     if not target_id or target_id not in ACTIVE_PROCESSES:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "process not found"}, status=404)
     info = ACTIVE_PROCESSES[target_id]
     try:
@@ -1851,11 +1901,11 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     target = qs.get("path", [""])[0]
     if not target:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
     # Path traversal protection
     if ".." in Path(target).parts:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
@@ -1863,7 +1913,7 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
         # Reject multipart form-data uploads (they corrupt file content)
     ct = request.headers.get("Content-Type", "")
     if "multipart" in ct.lower():
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "multipart/form-data not supported; use --data-binary"}, status=400)
     try:
         body = await request.read()
@@ -1873,7 +1923,7 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
         _record_request()
         return _cors_json_response({"ok": True, "path": str(target_path), "bytes": len(body)})
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": repr(e)}, status=500)
 
 
@@ -1883,16 +1933,16 @@ async def handle_v1_download(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     target = qs.get("path", [""])[0]
     if not target:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
     if ".." in Path(target).parts:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
         target_path = request.app["cfg"]["root"] / target_path
     if not target_path.exists() or not target_path.is_file():
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "file not found"}, status=404)
     try:
         audit({"type": "file_download", "path": str(target_path), "bytes": target_path.stat().st_size})
@@ -1902,7 +1952,7 @@ async def handle_v1_download(request: web.Request) -> web.Response:
             "Access-Control-Allow-Origin": "*",
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": repr(e)}, status=500)
 
 
@@ -2007,12 +2057,12 @@ async def handle_v1_memory_set(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
     key = str(data.get("key", "")).strip()
     value = str(data.get("value", "")).strip()
     if not key:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing key"}, status=400)
     tags = data.get("tags") or []
     entry = {
@@ -2227,14 +2277,14 @@ async def handle_v1_browser_search(request: web.Request) -> web.Response:
     query = qs.get("q", [""])[0]
     n = int(qs.get("n", ["5"])[0])
     if not query:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _browser_search_sync, query, n)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -2303,14 +2353,14 @@ async def handle_v1_browser_read(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     url = qs.get("url", [""])[0]
     if not url:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _browser_read_sync, url)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -2385,7 +2435,7 @@ async def handle_v1_service_info(request: web.Request) -> web.Response:
         info = await loop.run_in_executor(_EXECUTOR, _service_info_sync)
         return _cors_json_response(info)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -2543,7 +2593,7 @@ async def handle_v1_sys_svc(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _sys_svc_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -2596,7 +2646,7 @@ async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _sys_funnel_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -2665,7 +2715,7 @@ async def handle_v1_token_regenerate(request: web.Request) -> web.Response:
         audit({"type": "token_regenerated", "files": result.get("written_to", [])})
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -2734,7 +2784,7 @@ async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
         audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3052,14 +3102,14 @@ async def handle_v1_browser_dump(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     url = qs.get("url", [""])[0]
     if not url:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _browser_dump_sync, url)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3105,14 +3155,14 @@ async def handle_v1_browser_fetch(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     url = qs.get("url", [""])[0]
     if not url:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _browser_fetch_sync, url)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3142,14 +3192,14 @@ async def handle_v1_browser_head(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     url = qs.get("url", [""])[0]
     if not url:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _browser_head_sync, url)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3252,7 +3302,7 @@ async def handle_v1_cdp_connect(request):
     
     cdp = _get_cdp_module()
     if not cdp:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": "cdp_browser module not found. Install to scripts/ directory."},
             status=500
@@ -3299,7 +3349,7 @@ async def handle_v1_cdp_connect(request):
             "tabs": [tab.to_dict() for tab in mgr.list_tabs()],
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": f"Failed to connect: {str(e)}"},
             status=500
@@ -3343,7 +3393,7 @@ async def handle_v1_cdp_disconnect(request):
         
         return _cors_json_response({"ok": True, "message": "CDP disconnected"})
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": f"Disconnect error: {str(e)}"},
             status=500
@@ -3369,12 +3419,12 @@ async def handle_v1_cdp_navigate(request):
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     url = body.get("url")
     if not url:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'url' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
@@ -3392,13 +3442,13 @@ async def handle_v1_cdp_navigate(request):
             "result": result,
         })
     except asyncio.TimeoutError:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": f"Navigation timed out for {url}"},
             status=408
         )
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response(
             {"ok": False, "error": str(e)},
             status=500
@@ -3428,7 +3478,7 @@ async def handle_v1_cdp_screenshot(request):
     try:
         img_bytes = await tab.screenshot(path=save_path)
         if img_bytes is None:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
         
         if fmt == "base64":
@@ -3449,7 +3499,7 @@ async def handle_v1_cdp_screenshot(request):
                 headers={"Access-Control-Allow-Origin": "*"}
             )
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3472,7 +3522,7 @@ async def handle_v1_cdp_dom(request):
     try:
         html = await tab.dump_dom()
         if html is None:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to dump DOM"}, status=500)
         
         # Truncate if too large
@@ -3490,7 +3540,7 @@ async def handle_v1_cdp_dom(request):
             "tab_id": tab.target_id,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3508,12 +3558,12 @@ async def handle_v1_cdp_eval(request):
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     expression = body.get("expression")
     if not expression:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'expression' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
@@ -3528,7 +3578,7 @@ async def handle_v1_cdp_eval(request):
             "tab_id": tab.target_id,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3546,12 +3596,12 @@ async def handle_v1_cdp_click(request):
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     selector = body.get("selector")
     if not selector:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'selector' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
@@ -3567,7 +3617,7 @@ async def handle_v1_cdp_click(request):
             "tab_id": tab.target_id,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3586,13 +3636,13 @@ async def handle_v1_cdp_type(request):
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     selector = body.get("selector")
     text = body.get("text")
     if not selector or text is None:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'selector' or 'text' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
@@ -3608,7 +3658,7 @@ async def handle_v1_cdp_type(request):
             "tab_id": tab.target_id,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3646,7 +3696,7 @@ async def handle_v1_cdp_tabs_new(request):
     _record_request()
     
     if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     url = "about:blank"
@@ -3668,7 +3718,7 @@ async def handle_v1_cdp_tabs_new(request):
             "tab_id": tab.target_id,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3683,18 +3733,18 @@ async def handle_v1_cdp_tabs_close(request):
     _record_request()
     
     if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     tab_id = body.get("tab_id")
     if not tab_id:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
     
     mgr = _cdp_state["manager"]
@@ -3707,7 +3757,7 @@ async def handle_v1_cdp_tabs_close(request):
             "remaining_tabs": mgr.tab_count,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3722,18 +3772,18 @@ async def handle_v1_cdp_tabs_activate(request):
     _record_request()
     
     if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     tab_id = body.get("tab_id")
     if not tab_id:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
     
     mgr = _cdp_state["manager"]
@@ -3808,13 +3858,13 @@ async def handle_v1_cdp_cookies_get(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     try:
         cookie_mgr = await _ensure_cookie_manager()
         if not cookie_mgr:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
         
         qs = parse_qs(request.query_string)
@@ -3835,7 +3885,7 @@ async def handle_v1_cdp_cookies_get(request):
             "count": len(cookies),
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3857,25 +3907,25 @@ async def handle_v1_cdp_cookies_set(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     name = body.get("name")
     value = body.get("value")
     if not name or value is None:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'name' or 'value'"}, status=400)
     
     try:
         cookie_mgr = await _ensure_cookie_manager()
         if not cookie_mgr:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
         
         success = await cookie_mgr.set_cookie(
@@ -3895,7 +3945,7 @@ async def handle_v1_cdp_cookies_set(request):
             "domain": body.get("domain", ""),
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3911,24 +3961,24 @@ async def handle_v1_cdp_cookies_delete(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     name = body.get("name")
     if not name:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
     
     try:
         cookie_mgr = await _ensure_cookie_manager()
         if not cookie_mgr:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
         
         await cookie_mgr.delete_cookie(name, domain=body.get("domain", ""))
@@ -3938,7 +3988,7 @@ async def handle_v1_cdp_cookies_delete(request):
             "deleted": name,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3949,20 +3999,20 @@ async def handle_v1_cdp_cookies_clear(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     try:
         cookie_mgr = await _ensure_cookie_manager()
         if not cookie_mgr:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
         
         await cookie_mgr.clear_cookies()
         
         return _cors_json_response({"ok": True, "message": "All cookies cleared"})
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -3981,7 +4031,7 @@ async def handle_v1_cdp_cookies_profiles(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     if request.method == "GET":
@@ -4002,19 +4052,19 @@ async def handle_v1_cdp_cookies_profiles(request):
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     action = body.get("action")
     name = body.get("name")
     if not action or not name:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'action' or 'name'"}, status=400)
     
     try:
         cookie_mgr = await _ensure_cookie_manager()
         if not cookie_mgr:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
         
         if action == "save":
@@ -4051,7 +4101,7 @@ async def handle_v1_cdp_cookies_profiles(request):
     except KeyError as e:
         return _cors_json_response({"ok": False, "error": str(e)}, status=404)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4064,19 +4114,19 @@ async def handle_v1_cdp_network_start(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     cdp = _get_cdp_module()
     if not cdp:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
     
     try:
         # Get browser from active tab
         tab, _ = _cdp_active_tab()
         if not tab or not tab._browser:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "No active tab with CDP connection"}, status=400)
         
         if _cdp_state.get("monitor") and _cdp_state["monitor"].active:
@@ -4099,7 +4149,7 @@ async def handle_v1_cdp_network_start(request):
             "max_entries": max_entries,
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4117,7 +4167,7 @@ async def handle_v1_cdp_network_stop(request):
         await monitor.stop()
         return _cors_json_response({"ok": True, "message": "Network monitoring stopped"})
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4159,7 +4209,7 @@ async def handle_v1_cdp_network_requests(request):
         
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4177,7 +4227,7 @@ async def handle_v1_cdp_network_har(request):
         har = monitor.export_har()
         return _cors_json_response(har)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4194,18 +4244,18 @@ async def handle_v1_cdp_intercept_start(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     cdp = _get_cdp_module()
     if not cdp:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
     
     try:
         tab, _ = _cdp_active_tab()
         if not tab or not tab._browser:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "No active tab"}, status=400)
         
         if _cdp_state.get("interceptor") and _cdp_state["interceptor"].active:
@@ -4227,7 +4277,7 @@ async def handle_v1_cdp_intercept_start(request):
             "message": "Network interception started",
         })
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4245,7 +4295,7 @@ async def handle_v1_cdp_intercept_stop(request):
         await interceptor.stop()
         return _cors_json_response({"ok": True, "message": "Interception stopped"})
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4273,7 +4323,7 @@ async def handle_v1_cdp_intercept_rule(request):
     
     cdp = _get_cdp_module()
     if not cdp:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
     
     interceptor = _cdp_state.get("interceptor")
@@ -4291,17 +4341,17 @@ async def handle_v1_cdp_intercept_rule(request):
     try:
         body = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
     
     if request.method == "DELETE":
         name = body.get("name")
         if not name:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
         
         if not interceptor:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "No active interceptor"}, status=400)
         
         removed = interceptor.remove_rule(name)
@@ -4312,13 +4362,13 @@ async def handle_v1_cdp_intercept_rule(request):
     
     # POST — add rule
     if not interceptor or not interceptor.active:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Interception not active. Start first."}, status=400)
     
     name = body.get("name", "")
     action = body.get("action")
     if not action:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'action'"}, status=400)
     
     try:
@@ -4343,7 +4393,7 @@ async def handle_v1_cdp_intercept_rule(request):
     except ValueError as e:
         return _cors_json_response({"ok": False, "error": str(e)}, status=400)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4361,13 +4411,13 @@ async def handle_v1_cdp_session_check(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
     
     qs = parse_qs(request.query_string)
     domain = qs.get("domain", [None])[0]
     if not domain:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'domain' parameter"}, status=400)
     
     auth_names_str = qs.get("auth_cookie_names", [None])[0]
@@ -4376,13 +4426,13 @@ async def handle_v1_cdp_session_check(request):
     try:
         cookie_mgr = await _ensure_cookie_manager()
         if not cookie_mgr:
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
         
         result = await cookie_mgr.check_session(domain, auth_cookie_names)
         return _cors_json_response({"ok": True, **result})
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4440,14 +4490,14 @@ async def handle_v1_recall(request: web.Request) -> web.Response:
     query = qs.get("q", [""])[0]
     top = int(qs.get("top", ["5"])[0])
     if not query:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _recall_sync, query, top)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4509,7 +4559,7 @@ async def handle_v1_recall_digest(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _recall_digest_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4558,7 +4608,7 @@ async def handle_v1_audit_stats(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _audit_stats_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4609,7 +4659,7 @@ async def handle_v1_tasks_get(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _tasks_list_sync, status, limit)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4641,11 +4691,11 @@ async def handle_v1_tasks_post(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
     cmd = data.get("cmd", "")
     if not cmd:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing cmd"}, status=400)
     try:
         loop = asyncio.get_event_loop()
@@ -4653,7 +4703,7 @@ async def handle_v1_tasks_post(request: web.Request) -> web.Response:
         audit({"type": "task_submit", "task_id": result.get("task_id"), "cmd": cmd})
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4689,7 +4739,7 @@ async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
         audit({"type": "tasks_clean", "removed": result.get("removed", 0)})
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4722,7 +4772,7 @@ async def handle_v1_backups(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _backups_list_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4751,7 +4801,7 @@ async def handle_v1_backup_download(request: web.Request) -> web.Response:
             },
         )
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4831,7 +4881,7 @@ async def handle_v1_backup(request: web.Request) -> web.Response:
     name = data.get("name", "")
     # Validate backup name for path traversal
     if name and (".." in name or "/" in name or "\\" in name):
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "invalid backup name"}, status=400)
     try:
         loop = asyncio.get_event_loop()
@@ -4844,10 +4894,10 @@ async def handle_v1_backup(request: web.Request) -> web.Response:
                "file_count": result.get("file_count", 0)})
         return _cors_json_response(result)
     except asyncio.TimeoutError:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Backup timed out (120s) — directory may be too large"}, status=504)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4891,7 +4941,7 @@ async def handle_v1_skills(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4918,11 +4968,11 @@ async def handle_v1_skills_run(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
     name = data.get("name", "")
     if not name:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing name"}, status=400)
     skill_args = data.get("args") or []
     try:
@@ -4931,7 +4981,7 @@ async def handle_v1_skills_run(request: web.Request) -> web.Response:
         audit({"type": "skill_run", "name": name, "args": skill_args, "ok": result.get("ok", False)})
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -4973,7 +5023,7 @@ async def handle_v1_hooks(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _hooks_list_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -5018,7 +5068,7 @@ async def handle_v1_agents(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _agents_list_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -5061,7 +5111,7 @@ async def handle_v1_subagents(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _subagents_list_sync)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -5099,11 +5149,11 @@ async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
     cmd = data.get("cmd", "")
     if not cmd:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing cmd"}, status=400)
     try:
         loop = asyncio.get_event_loop()
@@ -5112,7 +5162,7 @@ async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
                "ok": result.get("ok", False)})
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -5150,17 +5200,17 @@ async def handle_v1_mission_show(request: web.Request) -> web.Response:
     qs = parse_qs(request.query_string)
     name = qs.get("name", [""])[0]
     if not name:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing name parameter"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _mission_show_sync, name)
         if not result.get("ok"):
-            _record_request(is_error=True)
+            _record_request(is_error=True, count_request=False)
             return _cors_json_response(result, status=404)
         return _cors_json_response(result)
     except Exception as e:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
@@ -5207,7 +5257,7 @@ async def handle_mcp_post(request: web.Request) -> web.Response:
     try:
         msg = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status=400)
 
     # New session on initialize
@@ -5285,7 +5335,7 @@ async def handle_sse_messages(request: web.Request) -> web.Response:
     try:
         msg = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status=400)
 
     # Process the RPC message
@@ -5395,14 +5445,14 @@ async def handle_gateway_run(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "bad json"}, status=400)
     cmd = (data.get("command") or "").strip()
     if not cmd:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing command"}, status=400)
     if not gw_allowed(cmd):
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "command not in whitelist",
                                    "allowed": list(GW_WHITELIST)}, status=403)
     loop = asyncio.get_event_loop()
@@ -5417,12 +5467,12 @@ async def handle_gateway_tool(request: web.Request) -> web.Response:
     try:
         data = await request.json()
     except Exception:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "bad json"}, status=400)
     name = data.get("name")
     args = data.get("arguments") or {}
     if not name:
-        _record_request(is_error=True)
+        _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing tool name"}, status=400)
     resp = handle_rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
                         "params": {"name": name, "arguments": args}})
