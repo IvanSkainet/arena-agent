@@ -1649,15 +1649,15 @@ async function runDoctor() {
         if (svc.scheduled_task) {
           items.push(["Scheduled Task", svc.scheduled_task.running, svc.scheduled_task.detail || ""]);
         }
+        if (svc.systemd_user) {
+          items.push(["systemd Service", svc.systemd_user.active, svc.systemd_user.detail || ""]);
+        }
+        if (svc.launchd) {
+          items.push(["launchd Service", svc.launchd.active, svc.launchd.detail || ""]);
+        }
         if (svc.bridge_processes) {
           items.push(["Bridge processes", svc.bridge_processes.count > 0,
                       "count: " + svc.bridge_processes.count]);
-        }
-        if (svc.systemd_user) {
-          items.push(["systemd-user", svc.systemd_user.active, svc.systemd_user.detail || ""]);
-        }
-        if (svc.launchd) {
-          items.push(["launchd", svc.launchd.active, svc.launchd.detail || ""]);
         }
         if (svc.tailscale) {
           items.push(["Tailscale", svc.tailscale.connected, svc.tailscale.error || "connected"]);

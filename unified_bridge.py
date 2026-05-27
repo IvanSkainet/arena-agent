@@ -2493,10 +2493,10 @@ def _sys_svc_sync() -> dict:
     """Synchronous helper to check service status."""
     result: dict[str, Any] = {"ok": True}
 
-    # 1) NSSM / Windows Service Manager detection (locale-agnostic)
-    nssm_running = False
-    nssm_detail = ""
     if sys.platform == "win32":
+        # 1) NSSM / Windows Service Manager detection (locale-agnostic)
+        nssm_running = False
+        nssm_detail = ""
         svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
         exists, raw, running = _sc_query_running(svc_name)
         if exists:
@@ -2507,13 +2507,11 @@ def _sys_svc_sync() -> dict:
                 nssm_detail = f'Service "{svc_name}" present but not RUNNING'
         else:
             nssm_detail = f'Service "{svc_name}" not registered'
-    result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
+        result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
 
-    # 2) Scheduled Task detection
-    scheduled_task = False
-    scheduled_detail = ""
-    if sys.platform == "win32":
-        # Try multiple candidate task names; default unified one first
+        # 2) Scheduled Task detection
+        scheduled_task = False
+        scheduled_detail = ""
         task_names = [os.environ.get("ARENA_TASK_NAME", "").strip()] if os.environ.get("ARENA_TASK_NAME") else []
         task_names += ["ArenaUnifiedBridge", "ArenaBridge", "ArenaLocalBridge"]
         seen = set()
@@ -2530,34 +2528,50 @@ def _sys_svc_sync() -> dict:
                 continue
         if not scheduled_task:
             scheduled_detail = "No matching Windows scheduled task (tried: " + ", ".join(task_names) + ")"
-    else:
-        # Check systemd
+
+        # If NSSM/Windows service is running, reflect that as the primary scheduled mechanism
+        if result.get("windows_service", {}).get("running"):
+            scheduled_task = True
+            scheduled_detail = result["windows_service"]["detail"]
+        result["scheduled_task"] = {"running": scheduled_task, "detail": scheduled_detail}
+
+    elif sys.platform == "darwin":
+        # macOS launchd
+        launchd_active = False
+        launchd_detail = ""
         try:
             out = subprocess.check_output(
-                ["systemctl", "is-active", "arena-bridge"], stderr=subprocess.DEVNULL, **_subprocess_kwargs())
-            status = out.decode("utf-8", errors="replace").strip()
-            if status == "active":
-                scheduled_task = True
-                scheduled_detail = f"systemd service: {status}"
-            else:
-                scheduled_detail = f"systemd service: {status}"
+                ["launchctl", "print", f"gui/{os.getuid()}/com.arena.bridge"],
+                stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
+            launchd_active = "running" in out.lower() or "active" in out.lower()
+            launchd_detail = "com.arena.bridge loaded"
         except Exception:
-            # Check for cron
+            launchd_detail = "launchd service not found"
+        result["launchd"] = {"active": launchd_active, "detail": launchd_detail}
+
+    else:
+        # Linux — check systemd user service
+        sd_active = False
+        sd_detail = ""
+        try:
+            out = subprocess.check_output(
+                ["systemctl", "--user", "is-active", "arena-bridge"],
+                stderr=subprocess.DEVNULL, **_subprocess_kwargs())
+            status = out.decode("utf-8", errors="replace").strip()
+            sd_active = (status == "active")
+            sd_detail = f"systemd user service: {status}"
+        except Exception:
+            # Check for cron as fallback
             try:
                 out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL, **_subprocess_kwargs())
                 if b"unified_bridge" in out or b"arena" in out:
-                    scheduled_task = True
-                    scheduled_detail = "cron job found"
+                    sd_active = True
+                    sd_detail = "cron job found"
                 else:
-                    scheduled_detail = "No cron/systemd service"
+                    sd_detail = "No cron/systemd service"
             except Exception:
-                scheduled_detail = "No scheduled task/service detected"
-
-    # If NSSM/Windows service is running, reflect that as the primary scheduled mechanism
-    if result.get("windows_service", {}).get("running"):
-        scheduled_task = True
-        scheduled_detail = result["windows_service"]["detail"]
-    result["scheduled_task"] = {"running": scheduled_task, "detail": scheduled_detail}
+                sd_detail = "No service detected"
+        result["systemd_user"] = {"active": sd_active, "detail": sd_detail}
 
     # Check running bridge processes
     bridge_procs = []
