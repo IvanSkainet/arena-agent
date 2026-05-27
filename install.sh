@@ -1,127 +1,216 @@
 #!/usr/bin/env bash
 # ============================================================
-#  Arena Unified Bridge v1.7.0 - Universal Installer (Linux/macOS)
+#  Arena Unified Bridge - Universal Installer (Linux/macOS)
+#  One file, one directory, one command.
+#  Clones the repo into ~/arena-agent, installs bridge as
+#  systemd-user service (or launchd on macOS), starts it.
 # ============================================================
-set -e
+set -euo pipefail
 
-BRIDGE_DIR="$(cd "$(dirname "$0")" && pwd)"
-PORT=8765
+VERSION="1.8.1"
+PORT="${ARENA_PORT:-8765}"
 PROFILE="owner-shell"
 
+# Colors (no ANSI escapes for safety)
+ok()   { echo "[OK] $*"; }
+warn() { echo "[WARN] $*"; }
+err()  { echo "[ERROR] $*"; }
+info() { echo "[INFO] $*"; }
+
 echo ""
-echo "  ========================================"
-echo "   Arena Unified Bridge v1.7.0 Installer"
-echo "  ========================================"
+echo "========================================"
+echo " Arena Unified Bridge v${VERSION} Installer"
+echo "========================================"
 echo ""
 
-# Check Python
-if ! command -v python3 &>/dev/null; then
-    echo "[ERROR] Python 3 not found. Install Python 3.10+ first."
+# --- Resolve install directory (the repo itself) ---
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+AGENT_DIR="$SCRIPT_DIR"
+BRIDGE_DIR="$SCRIPT_DIR"
+
+# All data lives inside the single directory
+MEMORY_DIR="$AGENT_DIR/memory"
+MISSIONS_DIR="$AGENT_DIR/missions"
+QUEUE_DIR="$AGENT_DIR/queue"
+REPORTS_DIR="$AGENT_DIR/reports"
+LOGS_DIR="$AGENT_DIR/logs"
+BACKUPS_DIR="$AGENT_DIR/backups"
+HOOKS_DIR="$AGENT_DIR/hooks"
+SKILLS_DIR="$AGENT_DIR/skills"
+SUBAGENTS_DIR="$AGENT_DIR/subagents"
+MCP_DIR="$AGENT_DIR/mcp"
+PROJECTS_DIR="$AGENT_DIR/projects"
+TOKEN_FILE="$BRIDGE_DIR/token.txt"
+
+# --- Check Python ---
+PY=""
+for cand in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
+    if command -v "$cand" >/dev/null 2>&1; then PY="$(command -v "$cand")"; break; fi
+done
+if [[ -z "$PY" ]]; then
+    err "Python 3.10+ not found. Install it first."
+    exit 1
+fi
+PYVER=$("$PY" --version 2>&1 | cut -d' ' -f2)
+ok "Python $PYVER found"
+
+# --- Install dependencies ---
+info "Installing Python dependencies..."
+"$PY" -m pip install aiohttp psutil --quiet 2>/dev/null || true
+ok "Python packages ready"
+
+# --- Create subdirectories ---
+info "Creating directory structure..."
+for d in "$MEMORY_DIR" "$MISSIONS_DIR" "$QUEUE_DIR/inbox" "$QUEUE_DIR/running" "$QUEUE_DIR/done" "$QUEUE_DIR/failed" \
+         "$REPORTS_DIR" "$LOGS_DIR" "$BACKUPS_DIR" "$HOOKS_DIR/pre_skill.d" "$HOOKS_DIR/post_skill.d" \
+         "$SKILLS_DIR" "$SUBAGENTS_DIR" "$MCP_DIR" "$PROJECTS_DIR"; do
+    mkdir -p "$d"
+done
+ok "Directories ready"
+
+# --- Generate or preserve token ---
+if [[ -f "$TOKEN_FILE" ]]; then
+    TOKEN="$(head -1 "$TOKEN_FILE" | tr -d '[:space:]')"
+    if [[ ${#TOKEN} -ge 16 ]]; then
+        ok "Existing token preserved"
+    else
+        TOKEN=""
+    fi
+fi
+if [[ -z "$TOKEN" ]]; then
+    TOKEN="$("$PY" -c "import secrets; print(secrets.token_urlsafe(32))")"
+    echo "$TOKEN" > "$TOKEN_FILE"
+    chmod 600 "$TOKEN_FILE"
+    ok "New token generated"
+fi
+
+# --- Determine how to start the bridge ---
+BRIDGE_PY="$BRIDGE_DIR/unified_bridge.py"
+if [[ ! -f "$BRIDGE_PY" ]]; then
+    err "unified_bridge.py not found in $BRIDGE_DIR"
     exit 1
 fi
 
-PYVER=$(python3 --version 2>&1 | cut -d' ' -f2)
-echo "[OK] Python $PYVER found"
+START_SCRIPT="$BRIDGE_DIR/start_bridge.sh"
+cat > "$START_SCRIPT" << 'STARTEOF'
+#!/usr/bin/env bash
+exec python3 -u "$(dirname "$0")/unified_bridge.py" serve \
+    --root "$HOME" \
+    --profile owner-shell \
+    --token-file "$(dirname "$0")/token.txt" \
+    --port 8765
+STARTEOF
+chmod +x "$START_SCRIPT"
 
-# Install dependencies
-echo ""
-echo "[1/5] Installing Python dependencies..."
-python3 -m pip install aiohttp psutil --quiet 2>/dev/null || true
-echo "      Done."
+# --- Install as system service ---
+info "Installing as system service..."
+OS="$(uname -s)"
 
-# Create directories
-echo ""
-echo "[2/5] Creating directory structure..."
-for d in dashboard bin scripts skills tools memory missions hooks logs queue reports backups mcp docs subagents projects; do
-    mkdir -p "$BRIDGE_DIR/$d"
-done
-echo "      Done."
+if [[ "$OS" == "Linux" ]] && command -v systemctl >/dev/null 2>&1; then
+    # systemd user service
+    SD_DIR="$HOME/.config/systemd/user"
+    mkdir -p "$SD_DIR"
+    cat > "$SD_DIR/arena-bridge.service" << EOF
+[Unit]
+Description=Arena Unified Bridge v${VERSION}
+After=network-online.target
+Wants=network-online.target
 
-# Generate token
-echo ""
-echo "[3/5] Generating auth token..."
-if [ ! -f "$BRIDGE_DIR/token.txt" ]; then
-    python3 -c "import secrets; print(secrets.token_urlsafe(32))" > "$BRIDGE_DIR/token.txt"
-    echo "      New token generated."
-else
-    echo "      Existing token found."
-fi
+[Service]
+Type=simple
+ExecStart=$PY -u $BRIDGE_PY serve --root $HOME --profile $PROFILE --token-file $TOKEN_FILE --port $PORT
+WorkingDirectory=$BRIDGE_DIR
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
 
-# Install as systemd service (Linux) or launchd (macOS)
-echo ""
-echo "[4/5] Installing as system service..."
-if [ "$(uname)" = "Darwin" ]; then
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable arena-bridge.service
+    systemctl --user restart arena-bridge.service
+    ok "systemd service installed and started"
+
+elif [[ "$OS" == "Darwin" ]]; then
     # macOS launchd
-    PLIST="$HOME/Library/LaunchAgents/com.arena.bridge.plist"
-    cat > "$PLIST" << PLISTEOF
+    PLIST_DIR="$HOME/Library/LaunchAgents"
+    mkdir -p "$PLIST_DIR"
+    PLIST="$PLIST_DIR/com.arena.bridge.plist"
+    cat > "$PLIST" << EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key><string>com.arena.bridge</string>
     <key>ProgramArguments</key><array>
-        <string>$(which python3)</string>
+        <string>$PY</string>
         <string>-u</string>
-        <string>$BRIDGE_DIR/unified_bridge.py</string>
+        <string>$BRIDGE_PY</string>
         <string>serve</string>
         <string>--root</string><string>$HOME</string>
         <string>--profile</string><string>$PROFILE</string>
-        <string>--token-file</string><string>$BRIDGE_DIR/token.txt</string>
+        <string>--token-file</string><string>$TOKEN_FILE</string>
         <string>--port</string><string>$PORT</string>
     </array>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
-    <key>StandardOutPath</key><string>$BRIDGE_DIR/logs/bridge.log</string>
-    <key>StandardErrorPath</key><string>$BRIDGE_DIR/logs/bridge_err.log</string>
+    <key>StandardOutPath</key><string>$LOGS_DIR/bridge.log</string>
+    <key>StandardErrorPath</key><string>$LOGS_DIR/bridge_err.log</string>
 </dict>
 </plist>
-PLISTEOF
-    launchctl load "$PLIST" 2>/dev/null || true
-    echo "      launchd service installed."
-elif [ "$(uname)" = "Linux" ]; then
-    # Linux systemd user service
-    mkdir -p "$HOME/.config/systemd/user"
-    cat > "$HOME/.config/systemd/user/arena-bridge.service" << SVCEOF
-[Unit]
-Description=Arena Unified Bridge
-After=network.target
+EOF
+    launchctl unload "$PLIST" 2>/dev/null || true
+    launchctl load "$PLIST" 2>/dev/null
+    ok "launchd service installed"
 
-[Service]
-Type=simple
-ExecStart=$(which python3) -u $BRIDGE_DIR/unified_bridge.py serve --root $HOME --profile $PROFILE --token-file $BRIDGE_DIR/token.txt --port $PORT
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=default.target
-SVCEOF
-    systemctl --user daemon-reload
-    systemctl --user enable arena-bridge
-    systemctl --user start arena-bridge
-    echo "      systemd service installed."
-fi
-
-# Verify
-echo ""
-echo "[5/5] Verifying..."
-sleep 2
-if curl -s "http://127.0.0.1:$PORT/health" | grep -q '"ok"'; then
-    echo "      Bridge is UP!"
 else
-    echo "      [WARN] Bridge not responding yet. Check logs."
+    # Generic: nohup
+    info "No systemd/launchd detected. Starting with nohup."
+    PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
+    [[ -n "$PIDS" ]] && kill $PIDS 2>/dev/null || true
+    nohup "$START_SCRIPT" >> "$LOGS_DIR/bridge.log" 2>&1 &
+    ok "Bridge started with nohup (won't survive reboot)"
 fi
 
+# --- Wait for bridge to come up ---
+info "Waiting for bridge to start..."
+for i in $(seq 1 20); do
+    if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+        ok "Bridge is healthy! v${VERSION}"
+        break
+    fi
+    sleep 1
+    if [[ $i -eq 20 ]]; then
+        warn "Bridge not responding after 20s. Check logs: $LOGS_DIR/bridge.log"
+    fi
+done
+
+# --- Done ---
 echo ""
-echo "  ========================================"
-echo "   Installation Complete!"
-echo "  ========================================"
+echo "========================================"
+echo " INSTALLATION COMPLETE"
+echo "========================================"
 echo ""
-echo "  Bridge URL:    http://127.0.0.1:$PORT"
-echo "  Dashboard:     http://127.0.0.1:$PORT/gui"
-echo "  Token file:    $BRIDGE_DIR/token.txt"
+echo " Dashboard:  http://127.0.0.1:$PORT/gui"
+echo " Health:     http://127.0.0.1:$PORT/health"
+echo " Token:      $TOKEN_FILE"
 echo ""
-if [ -f "$BRIDGE_DIR/token.txt" ]; then
-    echo "  Your auth token:"
-    echo "  $(cat $BRIDGE_DIR/token.txt)"
-    echo ""
+echo " Your token:"
+echo "   $TOKEN"
+echo ""
+if [[ "$OS" == "Linux" ]]; then
+    echo " Manage:"
+    echo "   systemctl --user status   arena-bridge"
+    echo "   systemctl --user restart  arena-bridge"
+    echo "   systemctl --user stop     arena-bridge"
+    echo "   journalctl --user -u arena-bridge -f"
+elif [[ "$OS" == "Darwin" ]]; then
+    echo " Manage:"
+    echo "   launchctl print gui/\$UID/com.arena.bridge"
+    echo "   launchctl kickstart -k gui/\$UID/com.arena.bridge"
 fi
+echo ""
+echo " Optional:"
+echo "   tailscale funnel --bg $PORT   # expose to internet"
+echo ""

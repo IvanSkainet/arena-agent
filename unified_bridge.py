@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arena Unified Bridge v1.8.0
+Arena Unified Bridge v1.8.1
 
 Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /health          GET   Public health check
@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -677,32 +677,42 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "echo":
             return text_content(str(args.get("text", "")))
         if name == "exec":
+            cmd = args.get("cmd", "")
+            if not cmd:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'cmd' argument"}]}
             if platform.system() == "Windows":
-                rc, out, err = run_sd(["cmd", "/c", args["cmd"]], timeout=args.get("timeout", 60))
+                rc, out, err = run_sd(["cmd", "/c", cmd], timeout=args.get("timeout", 60))
             else:
-                rc, out, err = run_sd(["bash", "-lc", args["cmd"]], timeout=args.get("timeout", 60))
+                rc, out, err = run_sd(["bash", "-lc", cmd], timeout=args.get("timeout", 60))
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
         if name == "fs.read":
-            p = os.path.expanduser(args["path"])
+            p = os.path.expanduser(args.get("path", ""))
+            if not p:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
             with open(p, "rb") as f:
                 data = f.read(args.get("max_bytes", 200000))
             return text_content(data.decode("utf-8", "replace"))
         if name == "fs.write":
-            p = os.path.expanduser(args["path"])
+            p = os.path.expanduser(args.get("path", ""))
+            content = args.get("content", "")
+            if not p:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
-                f.write(args["content"])
-            return text_content(f"wrote {len(args['content'])} bytes to {p}")
+                f.write(content)
+            return text_content(f"wrote {len(content)} bytes to {p}")
         if name == "fs.list":
-            p = os.path.expanduser(args["path"])
+            p = os.path.expanduser(args.get("path", ""))
+            if not p:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
             return text_content(json.dumps(sorted(os.listdir(p))))
         if name == "browser.search":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
-                                       "search", args["query"], "--n", str(args.get("n", 5))], timeout=30)
+                                       "search", args.get("query", ""), "--n", str(args.get("n", 5))], timeout=30)
             return text_content(out or err)
         if name == "browser.read":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
-                                       "read", args["url"]], timeout=30)
+                                       "read", args.get("url", "")], timeout=30)
             return text_content(out or err)
         if name == "browser.shot":
             import shutil as _shutil
@@ -725,17 +735,17 @@ def call_tool(name: str, args: dict) -> dict:
                 None) or "chrome.exe"
             rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
                                     f"--user-data-dir={ud}", "--window-size=1366,768",
-                                    f"--screenshot={png}", args["url"]], timeout=45)
-            return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args["url"]}))
+                                    f"--screenshot={png}", args.get("url", "")], timeout=45)
+            return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args.get("url", "")}))
         if name == "mem.set":
             tags = args.get("tags") or []
-            cmd_args = [os.path.join(BIN, "agentctl"), "mem", "set", args["key"], args["value"]]
+            cmd_args = [os.path.join(BIN, "agentctl"), "mem", "set", args.get("key", ""), args.get("value", "")]
             if tags:
                 cmd_args += ["--tags"] + list(tags)
             rc, out, err = run_local(cmd_args, timeout=15)
             return text_content(out or err)
         if name == "mem.get":
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "mem", "get", args["query"]], timeout=15)
+            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "mem", "get", args.get("query", "")], timeout=15)
             return text_content(out or err)
         if name == "sys.status":
             rc, out, err = run_local([os.path.join(BIN, "agentctl"), "sys", "status"], timeout=30)
@@ -1910,7 +1920,17 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
         target_path = request.app["cfg"]["root"] / target_path
-        # Reject multipart form-data uploads (they corrupt file content)
+    # Prevent overwriting bridge itself or writing outside user home
+    try:
+        target_path.resolve().relative_to(Path.home())
+    except ValueError:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "upload path must be inside user home"}, status=403)
+    bridge_py = Path.home() / "arena-local-bridge" / "unified_bridge.py"
+    if target_path.resolve() == bridge_py.resolve():
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "cannot overwrite the bridge itself"}, status=403)
+    # Reject multipart form-data uploads (they corrupt file content)
     ct = request.headers.get("Content-Type", "")
     if "multipart" in ct.lower():
         _record_request(is_error=True, count_request=False)
@@ -5169,9 +5189,9 @@ async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
 # --- /v1/mission/show GET — Show mission details ---
 
 def _mission_show_sync(name: str) -> dict:
-    """
-    if ".." in name or "/" in name or "\\" in name:
-        return {"ok": False, "error": "invalid mission name"}Read and return mission file content."""
+    """Read and return mission file content."""
+    if ".." in name or "/" in name or "\\" in name or name.startswith("."):
+        return {"ok": False, "error": "invalid mission name"}
     # Try various extensions
     for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
         p = MISSIONS_DIR / f"{name}{ext}"
@@ -5447,7 +5467,7 @@ async def handle_gateway_run(request: web.Request) -> web.Response:
     except Exception:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "bad json"}, status=400)
-    cmd = (data.get("command") or "").strip()
+    cmd = (data.get("command") or data.get("cmd") or "").strip()
     if not cmd:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing command"}, status=400)
@@ -5470,7 +5490,8 @@ async def handle_gateway_tool(request: web.Request) -> web.Response:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "bad json"}, status=400)
     name = data.get("name")
-    args = data.get("arguments") or {}
+    # Support both "arguments" (MCP spec) and "input" (common alternative)
+    args = data.get("arguments") or data.get("input") or {}
     if not name:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing tool name"}, status=400)

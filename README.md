@@ -3,7 +3,7 @@
 > **Cross-platform local automation bridge for AI agents.**
 > One process, one port, one Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v1.7.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v1.8.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -57,14 +57,14 @@ chmod +x install.sh
 ```
 
 The installer will:
-1. Find Python ≥ 3.10 (or prompt you to install it).
-2. Install `aiohttp` (the only non-stdlib dependency).
-3. Copy `unified_bridge.py`, dashboard, `bin/`, `scripts/` into your home folder.
-4. Generate a fresh auth token (or reuse the existing one).
-5. Optionally: install Git, Tailscale, BrowserAct, Superpowers.
-6. Register a background service (NSSM on Windows, systemd-user on Linux, launchd on macOS).
-7. Optionally enable `tailscale funnel --bg 8765` to expose your bridge over HTTPS.
-8. Open the dashboard.
+1. Find Python >= 3.10.
+2. Install `aiohttp` + `psutil`.
+3. Create all required subdirectories inside the repo folder (no files scattered in your home).
+4. Generate a fresh auth token (or preserve the existing one).
+5. Register a background service (NSSM on Windows, systemd-user on Linux, launchd on macOS).
+6. Start the bridge and verify it's healthy.
+
+**Everything stays in one folder.** No files are copied to `~/arena-local-bridge` or anywhere else.
 
 That's it. You now have:
 
@@ -209,35 +209,23 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 
 ```
 arena-agent/
-├── unified_bridge.py     ← the entire server (one file, ~5300 lines)
-├── _arena_helper.py      ← tiny ASCII helper used by installers
-├── install.bat           ← Windows installer
-├── install.sh            ← POSIX installer (Linux/macOS/BSD)
+├── unified_bridge.py     ← the entire server (one file, ~5700 lines)
+├── token.txt             ← your auth token (auto-generated)
+├── install.bat           ← Windows installer (run this)
+├── install.sh            ← Linux/macOS installer (run this)
 ├── update.bat            ← Windows updater (preserves token)
-├── update.sh             ← POSIX updater
+├── update.sh             ← Linux/macOS updater (git pull + restart)
 ├── dashboard/
 │   └── index.html        ← single-file web dashboard
-├── bin/                  ← user-facing CLIs (cross-platform Python with .bat wrappers)
-│   ├── agentctl(.bat)    ← Swiss-army CLI (mem/sys/browser/audit/…)
-│   ├── bridge-curl       ← curl-like helper that auto-attaches the token
-│   ├── sd-exec           ← "escape the bridge cgroup/session" runner
-│   ├── mission-record    ← ffmpeg screen recording (gdigrab/x11grab/avfoundation)
-│   ├── start-bridge      ← cross-platform launcher
-│   └── …
+├── bin/                  ← user-facing CLIs
 ├── scripts/              ← background helpers
-│   ├── inventory.py      ← full system inventory (used by /v1/inventory)
-│   ├── hwinfo.py         ← hardware probe
-│   ├── recon_ip.py       ← public IP + geo + ASN
-│   ├── cdp_browser.py    ← Chrome DevTools Protocol client
-│   ├── memory.py         ← memory CRUD
-│   ├── mcp_*.py          ← MCP transports
-│   └── …
-├── skills/               ← AI-runnable playbooks (markdown + scripts)
+├── skills/               ← AI-runnable playbooks
 ├── memory/               ← key/value/tag facts (JSONL)
 ├── missions/             ← scripted workflows
-├── queue/inbox/          ← task queue (filesystem-watched)
-├── reports/              ← screenshots, recordings, audit dumps
-└── logs/                 ← rotating log files
+├── queue/                ← task queue (inbox/running/done/failed)
+├── reports/              ← screenshots, recordings
+├── logs/                 ← bridge log files
+└── ...
 ```
 
 ---
@@ -248,8 +236,8 @@ All knobs are environment variables (set before running `install.*` or starting 
 
 | Var                       | Default                            | Purpose                            |
 |---------------------------|------------------------------------|------------------------------------|
-| `ARENA_HOME`              | `~/arena-agent`                    | Agent data directory               |
-| `BRIDGE_HOME`             | `~/arena-local-bridge`             | Bridge binaries directory          |
+| `ARENA_HOME`              | repo directory                      | Agent data directory (same as repo) |
+| `BRIDGE_HOME`             | repo directory                      | Bridge directory (same as repo)     |
 | `ARENA_PORT`              | `8765`                             | Listen port                        |
 | `ARENA_PROFILE`           | `owner-shell`                      | Safety profile (rules in code)     |
 | `ARENA_TASK_NAME`         | `ArenaUnifiedBridge`               | Windows Scheduled Task / Service   |
@@ -279,11 +267,11 @@ Cross-platform installer auto-detects `apt`, `dnf`, `pacman`, `apk`, `zypper`, `
 
 ## Security model
 
-- **Token-only auth** by default. Token is a 256-bit base64-url string stored at `~/arena-local-bridge/token.txt` (`chmod 600`).
+- **Token-only auth** by default. Token is a 256-bit base64-url string stored at `token.txt` in the repo directory (`chmod 600`).
 - **No request is auth-free** except `/health` and `/` index.
 - **`/v1/exec` filters commands** via `BLOCKED_COMMANDS` (shutdown, reboot, format, mkfs, rm -rf, …) and `CAUTIOUS_ALLOW` (sudo, su, killall) lists baked into `unified_bridge.py`. Customize there.
 - **CORS** enabled on all responses (so browser-based AI dashboards can call you).
-- **Audit log** at `~/.arena-local-bridge/audit.jsonl` records every exec, every upload/download, every token/funnel/restart event.
+- **Audit log** records every exec, every upload/download, every token/funnel/restart event.
 - **No telemetry, no analytics, no phone-home.** The only outbound calls are:
   - `https://nssm.cc` once during install (only Windows, only if not cached)
   - `https://nssm.cc/release/nssm-2.24.zip` (~350 KB)
@@ -315,7 +303,7 @@ The new token is written to disk; existing process keeps the old in memory. Clic
 
 ---
 
-## Roadmap (post-v1.7.0)
+## Roadmap (post-v1.8.1)
 
 - [ ] **Step 2: CDP browser deep dive** — proper click/type/screenshot/auth-flow via Chrome DevTools Protocol
 - [ ] **Step 3: Local semantic RAG memory** via SQLite FTS5
