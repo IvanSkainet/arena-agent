@@ -213,12 +213,13 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=${PY} -u ${ESCAPED_BRIDGE_PY} serve --root ${HOME} --profile ${PROFILE} --token-file ${ESCAPED_TOKEN_FILE} --port ${PORT}
+ExecStart=${PY} -u ${ESCAPED_BRIDGE_PY} serve --root ${HOME} --profile ${PROFILE} --port ${PORT}
 WorkingDirectory=${ESCAPED_INSTALL_DIR}
 Restart=on-failure
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=ARENA_AGENT_HOME=${ESCAPED_INSTALL_DIR}
+Environment=ARENA_TOKEN_FILE=${ESCAPED_TOKEN_FILE}
 
 [Install]
 WantedBy=default.target
@@ -245,11 +246,11 @@ elif [ "$OS" = "Darwin" ]; then
         <string>serve</string>
         <string>--root</string><string>${HOME}</string>
         <string>--profile</string><string>${PROFILE}</string>
-        <string>--token-file</string><string>${TOKEN_FILE}</string>
         <string>--port</string><string>${PORT}</string>
     </array>
     <key>EnvironmentVariables</key><dict>
         <key>ARENA_AGENT_HOME</key><string>${INSTALL_DIR}</string>
+        <key>ARENA_TOKEN_FILE</key><string>${TOKEN_FILE}</string>
     </dict>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
@@ -266,7 +267,7 @@ else
     info "No systemd/launchd detected. Starting with nohup."
     PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
     [ -n "$PIDS" ] && kill $PIDS 2>/dev/null || true
-    nohup "$PY" -u "$BRIDGE_PY" serve --root "$HOME" --profile "$PROFILE" --token-file "$TOKEN_FILE" --port "$PORT" \
+    ARENA_TOKEN_FILE="$TOKEN_FILE" nohup "$PY" -u "$BRIDGE_PY" serve --root "$HOME" --profile "$PROFILE" --port "$PORT" \
         >> "$INSTALL_DIR/logs/bridge.log" 2>&1 &
     ok "Bridge started with nohup (won't survive reboot)"
 fi
