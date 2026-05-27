@@ -620,6 +620,7 @@ def handle_rpc(msg: dict) -> dict | None:
 # MCP SSE SESSIONS
 # ============================================================================
 
+MCP_SESSIONS: dict[str, dict] = {}  # session_id -> {created, queue}
 
 
 def sid() -> str:
@@ -646,9 +647,7 @@ def gw_allowed(cmd: str) -> bool:
     """Check if a gateway command is allowed. Blocks shell metacharacters."""
     if not any(cmd.startswith(p) for p in GW_WHITELIST):
         return False
-    # Block shell metacharacters that could enable command injection
-    dangerous_chars = [";", "&", "|", "`", "$", "(", ")", "{", "}", ">", ">>", "<", "<<", "\n"]
-    for ch in dangerous_chars:
+    for ch in [";", "&", "|", "`", "$", "(", ")", "{", "}", "\n", ">", ">>", "<"]:
         if ch in cmd:
             return False
     return True
@@ -1139,12 +1138,27 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
             loop = asyncio.get_event_loop()
             cpu_physical, cpu_logical = await loop.run_in_executor(_EXECUTOR, _sysinfo_wmic_sync)
 
-        load = getattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))()
+        # CPU load: cross-platform (Windows has no os.getloadavg)
+        cpu_percent = 0.0
+        load_avg = [0.0, 0.0, 0.0]
+        if sys.platform == "win32":
+            try:
+                import subprocess as _sp2
+                r = _sp2.run(["powershell", "-Command",
+                    "(Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"],
+                    capture_output=True, text=True, timeout=5, **_subprocess_kwargs())
+                cpu_percent = float(r.stdout.strip()) if r.stdout.strip() else 0.0
+            except Exception:
+                pass
+        else:
+            load_avg = list(getattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))())
+            cpu_percent = load_avg[0] * 100 / max(cpu_logical, 1) if load_avg[0] > 0 else 0.0
         return _cors_json_response({
             "ok": True,
             "cpu_cores": cpu_physical,
             "cpu_threads": cpu_logical,
-            "load_avg": list(load),
+            "cpu_percent": round(cpu_percent, 1),
+            "load_avg": load_avg,
             "mem_total_mb": mem_total // (1024 * 1024),
             "mem_avail_mb": mem_avail // (1024 * 1024),
             "disk_total_gb": disk.total // (1024 ** 3),
@@ -1679,11 +1693,11 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
         target_path = request.app["cfg"]["root"] / target_path
-    # Reject multipart form-data uploads (they corrupt file content)
+        # Reject multipart form-data uploads (they corrupt file content)
     ct = request.headers.get("Content-Type", "")
     if "multipart" in ct.lower():
         _record_request(is_error=True)
-        return _cors_json_response({"ok": False, "error": "multipart/form-data not supported; use Content-Type: application/octet-stream with --data-binary"}, status=400)
+        return _cors_json_response({"ok": False, "error": "multipart/form-data not supported; use --data-binary"}, status=400)
     try:
         body = await request.read()
         target_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1704,7 +1718,6 @@ async def handle_v1_download(request: web.Request) -> web.Response:
     if not target:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
-    # Path traversal protection
     if ".." in Path(target).parts:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
@@ -1793,7 +1806,6 @@ def _load_facts() -> list[dict]:
 def _write_fact(entry: dict) -> None:
     """Write a fact entry, overwriting any existing entry with the same key."""
     MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    # Load existing, remove old entry with same key, rewrite
     existing = _load_facts()
     key = entry.get("key", "")
     existing = [f for f in existing if f.get("key") != key]
@@ -2068,10 +2080,9 @@ def _validate_url(url: str) -> str | None:
         return "invalid URL"
     if parsed.scheme not in ("http", "https"):
         return f"URL scheme '{parsed.scheme}' not allowed (only http/https)"
-    # Block private/internal IPs (basic check)
     hostname = parsed.hostname or ""
     if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-        return "localhost/internal URLs not allowed via browser endpoints"
+        return "localhost/internal URLs not allowed"
     if hostname.startswith("169.254."):
         return "cloud metadata URLs not allowed"
     if hostname.startswith("10.") or hostname.startswith("192.168."):
@@ -2081,6 +2092,9 @@ def _validate_url(url: str) -> str | None:
 
 def _browser_read_sync(url: str) -> dict:
     """Synchronous URL read with readability extraction — returns dict result."""
+    err = _validate_url(url)
+    if err:
+        return {"ok": False, "error": err}
     import urllib.request
     import re as _re
     import html as _html
@@ -2308,6 +2322,10 @@ def _sys_svc_sync() -> dict:
             except Exception:
                 scheduled_detail = "No scheduled task/service detected"
 
+    # If NSSM/Windows service is running, reflect that as the primary scheduled mechanism
+    if result.get("windows_service", {}).get("running"):
+        scheduled_task = True
+        scheduled_detail = result["windows_service"]["detail"]
     result["scheduled_task"] = {"running": scheduled_task, "detail": scheduled_detail}
 
     # Check running bridge processes
@@ -4934,10 +4952,9 @@ async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
 # --- /v1/mission/show GET — Show mission details ---
 
 def _mission_show_sync(name: str) -> dict:
-    """Read and return mission file content."""
-    # Path traversal protection
+    """
     if ".." in name or "/" in name or "\\" in name:
-        return {"ok": False, "error": "invalid mission name"}
+        return {"ok": False, "error": "invalid mission name"}Read and return mission file content."""
     # Try various extensions
     for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
         p = MISSIONS_DIR / f"{name}{ext}"
