@@ -1,7 +1,3 @@
---------------------------QxkxRQ4uGgx1V4uDv4PQYX
-Content-Disposition: form-data; name="file"; filename="README.md"
-Content-Type: application/octet-stream
-
 # Arena Local Agent
 
 > **Cross-platform local automation bridge for AI agents.**
@@ -367,5 +363,3 @@ SOFTWARE.
 ---
 
 *Built collaboratively by Ivan and a rotating cast of AI assistants on [arena.ai](https://arena.ai/) — using the bridge to develop the bridge. Recursion of the friendly kind.*
-
---------------------------QxkxRQ4uGgx1V4uDv4PQYX--
