@@ -1,9 +1,13 @@
+--------------------------QxkxRQ4uGgx1V4uDv4PQYX
+Content-Disposition: form-data; name="file"; filename="README.md"
+Content-Type: application/octet-stream
+
 # Arena Local Agent
 
 > **Cross-platform local automation bridge for AI agents.**
 > One process, one port, one Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v1.6.9-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v1.7.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -27,7 +31,7 @@ It exposes a single secure URL like `https://your-pc.tail328f18.ts.net` (over Ta
 - 🔒 **Token-authenticated** — Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard.
 - 🚀 **Auto-restart everywhere** — NSSM on Windows, `Restart=on-failure` on systemd, `KeepAlive` on launchd. Survives crashes, reboots, login/logout.
 - 🌐 **Public HTTPS in one click** — Tailscale Funnel integration, no port-forward, no DDNS, real Let's Encrypt cert.
-- 🖥️ **Modern web dashboard** at `/gui` — Overview, Terminal (with slash-commands + ↑/↓ history), Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Backup, Settings.
+- 🖥️ **Modern web dashboard** at `/gui` — Overview, Terminal (with slash-commands + ↑/↓ history), Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Git, Settings.
 - 🧠 **Deep system inventory** — motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays.
 - 🧰 **Built-in AI tooling** — MCP server with 20+ tools, BrowserAct integration, Superpowers skill repository, agent-browser stealth mode.
 - 📦 **No external dependencies** beyond `aiohttp` — uses Python stdlib for everything else (urllib, socket, subprocess, asyncio).
@@ -144,8 +148,8 @@ Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI
 | GET    | `/v1/sys/funnel`             | Tailscale Funnel status                      |
 | POST   | `/v1/restart`                | Graceful restart (uses NSSM/systemd respawn) |
 | POST   | `/v1/token/regenerate`       | Rotate auth token                            |
-| GET    | `/v1/backups`                | List existing zip backups                    |
-| POST   | `/v1/backup`                 | Create new backup                            |
+| GET    | `/v1/backups`                | List existing zip backups (deprecated, use Git)  |
+| POST   | `/v1/backup`                 | Create new backup (deprecated, use Git)          |
 | POST   | `/mcp`                       | MCP 2025-03-26 (initialize, tools/list, …)   |
 | GET    | `/ws`                        | MCP WebSocket                                |
 | GET    | `/gui`                       | Web dashboard (HTML/JS)                      |
@@ -173,7 +177,7 @@ The dashboard at `/gui` has 14 tabs and works in any modern browser without exte
 | **Agents** | Sub-agent registry |
 | **Doctor** | 11 self-tests + NSSM/Funnel status |
 | **Audit** | All events, filter by category, stats |
-| **Backup** | Create and download zip backups |
+| **Git** | Version control: status, commit, push, pull, branch management |
 | **Settings** | Tokens, sound notifications, Tailscale Funnel toggle, restart, export config |
 
 ---
@@ -209,7 +213,7 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 
 ```
 arena-agent/
-├── unified_bridge.py     ← the entire server (one file, ~3500 lines)
+├── unified_bridge.py     ← the entire server (one file, ~5300 lines)
 ├── _arena_helper.py      ← tiny ASCII helper used by installers
 ├── install.bat           ← Windows installer
 ├── install.sh            ← POSIX installer (Linux/macOS/BSD)
@@ -315,7 +319,7 @@ The new token is written to disk; existing process keeps the old in memory. Clic
 
 ---
 
-## Roadmap (post-v1.6.9)
+## Roadmap (post-v1.7.0)
 
 - [ ] **Step 2: CDP browser deep dive** — proper click/type/screenshot/auth-flow via Chrome DevTools Protocol
 - [ ] **Step 3: Local semantic RAG memory** via SQLite FTS5
@@ -363,3 +367,5 @@ SOFTWARE.
 ---
 
 *Built collaboratively by Ivan and a rotating cast of AI assistants on [arena.ai](https://arena.ai/) — using the bridge to develop the bridge. Recursion of the friendly kind.*
+
+--------------------------QxkxRQ4uGgx1V4uDv4PQYX--

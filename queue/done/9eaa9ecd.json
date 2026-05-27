@@ -1,0 +1,16 @@
+{
+  "id": "9eaa9ecd",
+  "cmd": "echo TASK_V170_OK",
+  "cwd": "C:\\Users\\Ivan",
+  "timeout": 10,
+  "env": {},
+  "state": "done",
+  "created_at": "2026-05-27T00:34:54+00:00",
+  "started_at": "2026-05-27T00:34:58+00:00",
+  "finished_at": "2026-05-27T00:34:58+00:00",
+  "duration_sec": 0.031,
+  "exit_code": 0,
+  "stdout": "TASK_V170_OK\n",
+  "stderr": "",
+  "truncated": false
+}
