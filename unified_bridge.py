@@ -125,7 +125,7 @@ from aiohttp import web
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.6.9"
+VERSION = "1.7.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -150,7 +150,57 @@ ACTIVE_PROCESSES: dict[str, dict] = {}
 audit_lock = threading.Lock()
 
 # Thread pool executor for running blocking I/O in async handlers
-_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="bridge_io")
+_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="bridge_io")
+# Dedicated executor for potentially slow operations (hwinfo, backup)
+# to avoid blocking the main executor pool
+_SLOW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="bridge_slow")
+
+# ============================================================================
+# CDP (Chrome DevTools Protocol) — Lazy import & session state
+# ============================================================================
+_cdp_module = None
+
+def _get_cdp_module():
+    """Lazily import cdp_browser from scripts/ directory."""
+    global _cdp_module
+    if _cdp_module is not None:
+        return _cdp_module
+
+    # Try multiple locations for cdp_browser.py
+    search_paths = [
+        Path(__file__).resolve().parent / "scripts",        # same dir as bridge
+        Path.home() / "arena-agent" / "scripts",            # GitHub clone
+        Path.home() / "arena-installer-v2" / "scripts",     # Installer copy
+        Path.home() / "arena-local-bridge" / "scripts",     # Service dir
+    ]
+
+    for scripts_dir in search_paths:
+        cdp_path = scripts_dir / "cdp_browser.py"
+        if cdp_path.exists():
+            sys.path.insert(0, str(scripts_dir))
+            break
+
+    try:
+        import cdp_browser
+        _cdp_module = cdp_browser
+        return _cdp_module
+    except ImportError as e:
+        return None
+
+
+# --- CDP Session State ---
+_cdp_state: Dict[str, Any] = {
+    "manager": None,           # CDPTabManager instance
+    "monitor": None,           # CDPNetworkMonitor instance
+    "interceptor": None,       # CDPNetworkInterceptor instance
+    "cookie_mgr": None,        # CDPCookieManager instance
+    "connected": False,
+    "port": 9222,
+    "headless": True,
+}
+
+_cdp_connecting = False  # Simple flag to prevent concurrent connect/disconnect
+
 
 # ============================================================================
 # BRIDGE METRICS (request counter tracking)
@@ -755,6 +805,38 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/browser/dump", handle_v1_browser_dump)
     app.router.add_get("/v1/browser/fetch", handle_v1_browser_fetch)
     app.router.add_get("/v1/browser/head", handle_v1_browser_head)
+
+    # ---- CDP (Chrome DevTools Protocol) ----
+    app.router.add_get("/v1/browser/cdp/status", handle_v1_cdp_status)
+    app.router.add_post("/v1/browser/cdp/connect", handle_v1_cdp_connect)
+    app.router.add_post("/v1/browser/cdp/disconnect", handle_v1_cdp_disconnect)
+    app.router.add_post("/v1/browser/cdp/navigate", handle_v1_cdp_navigate)
+    app.router.add_get("/v1/browser/cdp/screenshot", handle_v1_cdp_screenshot)
+    app.router.add_get("/v1/browser/cdp/dom", handle_v1_cdp_dom)
+    app.router.add_post("/v1/browser/cdp/eval", handle_v1_cdp_eval)
+    app.router.add_post("/v1/browser/cdp/click", handle_v1_cdp_click)
+    app.router.add_post("/v1/browser/cdp/type", handle_v1_cdp_type)
+    app.router.add_get("/v1/browser/cdp/tabs", handle_v1_cdp_tabs)
+    app.router.add_post("/v1/browser/cdp/tabs/new", handle_v1_cdp_tabs_new)
+    app.router.add_post("/v1/browser/cdp/tabs/close", handle_v1_cdp_tabs_close)
+    app.router.add_post("/v1/browser/cdp/tabs/activate", handle_v1_cdp_tabs_activate)
+    app.router.add_get("/v1/browser/cdp/cookies", handle_v1_cdp_cookies_get)
+    app.router.add_post("/v1/browser/cdp/cookies", handle_v1_cdp_cookies_set)
+    app.router.add_delete("/v1/browser/cdp/cookies", handle_v1_cdp_cookies_delete)
+    app.router.add_post("/v1/browser/cdp/cookies/clear", handle_v1_cdp_cookies_clear)
+    app.router.add_get("/v1/browser/cdp/cookies/profiles", handle_v1_cdp_cookies_profiles)
+    app.router.add_post("/v1/browser/cdp/cookies/profiles", handle_v1_cdp_cookies_profiles)
+    app.router.add_post("/v1/browser/cdp/network/start", handle_v1_cdp_network_start)
+    app.router.add_post("/v1/browser/cdp/network/stop", handle_v1_cdp_network_stop)
+    app.router.add_get("/v1/browser/cdp/network/requests", handle_v1_cdp_network_requests)
+    app.router.add_get("/v1/browser/cdp/network/har", handle_v1_cdp_network_har)
+    app.router.add_post("/v1/browser/cdp/intercept/start", handle_v1_cdp_intercept_start)
+    app.router.add_post("/v1/browser/cdp/intercept/stop", handle_v1_cdp_intercept_stop)
+    app.router.add_post("/v1/browser/cdp/intercept/rule", handle_v1_cdp_intercept_rule)
+    app.router.add_delete("/v1/browser/cdp/intercept/rule", handle_v1_cdp_intercept_rule)
+    app.router.add_get("/v1/browser/cdp/intercept/rules", handle_v1_cdp_intercept_rule)
+    app.router.add_get("/v1/browser/cdp/session/check", handle_v1_cdp_session_check)
+
     app.router.add_get("/v1/recall", handle_v1_recall)
     app.router.add_get("/v1/recall/digest", handle_v1_recall_digest)
     app.router.add_get("/v1/audit/stats", handle_v1_audit_stats)
@@ -882,6 +964,18 @@ async def handle_index(request: web.Request) -> web.Response:
                 "GET /v1/browser/search?q=", "GET /v1/browser/read?url=",
                 "GET /v1/browser/dump?url=", "GET /v1/browser/fetch?url=",
                 "GET /v1/browser/head?url=",
+                "GET /v1/browser/cdp/status", "POST /v1/browser/cdp/connect", "POST /v1/browser/cdp/disconnect",
+                "POST /v1/browser/cdp/navigate", "GET /v1/browser/cdp/screenshot", "GET /v1/browser/cdp/dom",
+                "POST /v1/browser/cdp/eval", "POST /v1/browser/cdp/click", "POST /v1/browser/cdp/type",
+                "GET /v1/browser/cdp/tabs", "POST /v1/browser/cdp/tabs/new", "POST /v1/browser/cdp/tabs/close",
+                "POST /v1/browser/cdp/tabs/activate", "GET/POST/DELETE /v1/browser/cdp/cookies",
+                "POST /v1/browser/cdp/cookies/clear", "GET/POST /v1/browser/cdp/cookies/profiles",
+                "POST /v1/browser/cdp/network/start", "POST /v1/browser/cdp/network/stop",
+                "GET /v1/browser/cdp/network/requests", "GET /v1/browser/cdp/network/har",
+                "POST /v1/browser/cdp/intercept/start", "POST /v1/browser/cdp/intercept/stop",
+                "POST/DELETE/GET /v1/browser/cdp/intercept/rule|rules",
+                "GET /v1/browser/cdp/session/check",
+
                 "GET /v1/recall?q=&top=5", "GET /v1/recall/digest",
                 "GET /v1/tasks?status=&limit=20", "POST /v1/tasks", "POST /v1/tasks/clean",
                 "POST /v1/backup",
@@ -1069,11 +1163,11 @@ def _hwinfo_sync():
         "disks": [],
     }
 
-    def _run(cmd, timeout=10):
+    def _run(cmd, timeout=8):
         try:
             r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, **_subprocess_kwargs())
             return r.stdout if r.returncode == 0 else ""
-        except Exception:
+        except (subprocess.TimeoutExpired, Exception):
             return ""
 
     if platform.system() == "Windows":
@@ -1333,8 +1427,15 @@ async def handle_v1_hwinfo(request: web.Request) -> web.Response:
     _record_request()
     try:
         loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(_EXECUTOR, _hwinfo_sync)
+        # Use dedicated slow executor to avoid blocking the main pool
+        info = await asyncio.wait_for(
+            loop.run_in_executor(_SLOW_EXECUTOR, _hwinfo_sync),
+            timeout=30.0
+        )
         return _cors_json_response({"ok": True, "hwinfo": info})
+    except asyncio.TimeoutError:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "hwinfo collection timed out (30s) — wmic commands may be hung"}, status=504)
     except Exception as e:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -1607,6 +1708,7 @@ async def handle_gui(request: web.Request) -> web.Response:
         candidates = [
             cfg["root"] / "arena-agent" / "dashboard" / "index.html",
             Path.home() / "arena-agent" / "dashboard" / "index.html",
+            Path.home() / "arena-installer-v2" / "dashboard" / "index.html",
             Path(__file__).parent / "dashboard" / "index.html",
             Path(__file__).parent / "index.html",
         ]
@@ -1627,13 +1729,13 @@ async def handle_gui(request: web.Request) -> web.Response:
         </body></html>"""
         return web.Response(text=fallback, content_type="text/html", charset="utf-8",
                             headers={"Access-Control-Allow-Origin": "*"})
-
-
-    # ============================================================================
-    # HANDLERS — Dashboard API endpoints
-    # ============================================================================
     except Exception as e:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ============================================================================
+# HANDLERS — Dashboard API endpoints
+# ============================================================================
 
 def _load_facts() -> list[dict]:
     """Load memory facts from JSONL."""
@@ -2797,6 +2899,1239 @@ async def handle_v1_browser_head(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+
+# ============================================================================
+# HANDLERS — CDP (Chrome DevTools Protocol)
+# ============================================================================
+
+def _cdp_active_tab(tab_id: Optional[str] = None):
+    """Get a CDPTab instance for the given tab_id or the active tab.
+    
+    Returns (CDPTab, error_response) tuple. If error_response is not None,
+    the handler should return it immediately.
+    """
+    cdp = _get_cdp_module()
+    if not cdp:
+        return None, _cors_json_response(
+            {"ok": False, "error": "cdp_browser module not found. Install to scripts/ directory."},
+            status=500
+        )
+    
+    mgr = _cdp_state.get("manager")
+    if not mgr or not _cdp_state["connected"]:
+        return None, _cors_json_response(
+            {"ok": False, "error": "CDP not connected. POST /v1/browser/cdp/connect first."},
+            status=400
+        )
+    
+    if tab_id:
+        tab = mgr.get_tab(tab_id)
+        if not tab:
+            return None, _cors_json_response(
+                {"ok": False, "error": f"Tab {tab_id} not found"},
+                status=404
+            )
+        if not tab.connected:
+            return None, _cors_json_response(
+                {"ok": False, "error": f"Tab {tab_id} is not connected"},
+                status=400
+            )
+        return tab, None
+    
+    # Use active tab
+    tab = mgr.active_tab
+    if not tab:
+        return None, _cors_json_response(
+            {"ok": False, "error": "No active tab. Open a tab first."},
+            status=400
+        )
+    if not tab.connected:
+        return None, _cors_json_response(
+            {"ok": False, "error": "Active tab is not connected"},
+            status=400
+        )
+    return tab, None
+
+
+# ---- CDP Session Management ----
+
+async def handle_v1_cdp_status(request):
+    """GET /v1/browser/cdp/status — CDP session status."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    cdp = _get_cdp_module()
+    mgr = _cdp_state.get("manager")
+    
+    status = {
+        "ok": True,
+        "connected": _cdp_state["connected"],
+        "port": _cdp_state["port"],
+        "headless": _cdp_state["headless"],
+        "module_available": cdp is not None,
+        "tab_count": mgr.tab_count if mgr else 0,
+        "active_tab_id": mgr.active_tab_id if mgr else None,
+        "network_monitoring": _cdp_state.get("monitor") is not None and _cdp_state["monitor"].active if _cdp_state.get("monitor") else False,
+        "interception_active": _cdp_state.get("interceptor") is not None and _cdp_state["interceptor"].active if _cdp_state.get("interceptor") else False,
+        "cookie_manager_active": _cdp_state.get("cookie_mgr") is not None and _cdp_state["cookie_mgr"].active if _cdp_state.get("cookie_mgr") else False,
+    }
+    
+    if mgr:
+        tabs_info = [tab.to_dict() for tab in mgr.list_tabs()]
+        status["tabs"] = tabs_info
+    
+    return _cors_json_response(status)
+
+
+async def handle_v1_cdp_connect(request):
+    """POST /v1/browser/cdp/connect — Connect to browser CDP.
+    
+    Body (optional JSON):
+        port: int (default: 9222)
+        headless: bool (default: true)
+    """
+    global _cdp_connecting
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": "cdp_browser module not found. Install to scripts/ directory."},
+            status=500
+        )
+    
+    if _cdp_state["connected"]:
+        return _cors_json_response({
+            "ok": True,
+            "message": "Already connected",
+            "port": _cdp_state["port"],
+            "tab_count": _cdp_state["manager"].tab_count if _cdp_state["manager"] else 0,
+        })
+    
+    if _cdp_connecting:
+        return _cors_json_response({"ok": False, "error": "CDP connect already in progress"}, status=409)
+    
+    # Parse optional body
+    port = 9222
+    headless = True
+    try:
+        body = await request.json()
+        port = body.get("port", 9222)
+        headless = body.get("headless", True)
+    except Exception:
+        pass
+    
+    _cdp_connecting = True
+    try:
+        mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
+        await mgr.connect()
+        
+        _cdp_state["manager"] = mgr
+        _cdp_state["connected"] = True
+        _cdp_state["port"] = port
+        _cdp_state["headless"] = headless
+        
+        return _cors_json_response({
+            "ok": True,
+            "message": "CDP connected",
+            "port": port,
+            "headless": headless,
+            "tab_count": mgr.tab_count,
+            "active_tab_id": mgr.active_tab_id,
+            "tabs": [tab.to_dict() for tab in mgr.list_tabs()],
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": f"Failed to connect: {str(e)}"},
+            status=500
+        )
+    finally:
+        _cdp_connecting = False
+
+
+async def handle_v1_cdp_disconnect(request):
+    """POST /v1/browser/cdp/disconnect — Disconnect CDP session."""
+    global _cdp_connecting
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        return _cors_json_response({"ok": True, "message": "Not connected"})
+    
+    if _cdp_connecting:
+        return _cors_json_response({"ok": False, "error": "CDP operation in progress"}, status=409)
+    
+    _cdp_connecting = True
+    try:
+        # Stop monitors/interceptors first
+        if _cdp_state.get("interceptor") and _cdp_state["interceptor"].active:
+            await _cdp_state["interceptor"].stop()
+        if _cdp_state.get("monitor") and _cdp_state["monitor"].active:
+            await _cdp_state["monitor"].stop()
+        if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
+            await _cdp_state["cookie_mgr"].stop()
+        
+        # Close the manager
+        if _cdp_state["manager"]:
+            await _cdp_state["manager"].close()
+        
+        _cdp_state["manager"] = None
+        _cdp_state["monitor"] = None
+        _cdp_state["interceptor"] = None
+        _cdp_state["cookie_mgr"] = None
+        _cdp_state["connected"] = False
+        
+        return _cors_json_response({"ok": True, "message": "CDP disconnected"})
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": f"Disconnect error: {str(e)}"},
+            status=500
+        )
+    finally:
+        _cdp_connecting = False
+
+
+# ---- CDP Page Operations ----
+
+async def handle_v1_cdp_navigate(request):
+    """POST /v1/browser/cdp/navigate — Navigate to URL.
+    
+    Body JSON:
+        url: string (required)
+        tab_id: string (optional, uses active tab if not specified)
+        wait: bool (default: true)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    url = body.get("url")
+    if not url:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'url' parameter"}, status=400)
+    
+    tab_id = body.get("tab_id")
+    wait = body.get("wait", True)
+    
+    tab, err = _cdp_active_tab(tab_id)
+    if err: return err
+    
+    try:
+        result = await tab.navigate(url, wait=wait)
+        return _cors_json_response({
+            "ok": True,
+            "url": url,
+            "tab_id": tab.target_id,
+            "result": result,
+        })
+    except asyncio.TimeoutError:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": f"Navigation timed out for {url}"},
+            status=408
+        )
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": str(e)},
+            status=500
+        )
+
+
+async def handle_v1_cdp_screenshot(request):
+    """GET /v1/browser/cdp/screenshot — Take screenshot.
+    
+    Query params:
+        tab_id: string (optional)
+        format: "png" | "base64" (default: "base64")
+        save_path: string (optional, save to file on host)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    qs = parse_qs(request.query_string)
+    tab_id = qs.get("tab_id", [None])[0]
+    fmt = qs.get("format", ["base64"])[0]
+    save_path = qs.get("save_path", [None])[0]
+    
+    tab, err = _cdp_active_tab(tab_id)
+    if err: return err
+    
+    try:
+        img_bytes = await tab.screenshot(path=save_path)
+        if img_bytes is None:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
+        
+        if fmt == "base64":
+            import base64 as _b64
+            b64_data = _b64.b64encode(img_bytes).decode("ascii")
+            return _cors_json_response({
+                "ok": True,
+                "format": "base64",
+                "data": b64_data,
+                "size_bytes": len(img_bytes),
+                "tab_id": tab.target_id,
+            })
+        else:
+            # Return raw PNG
+            return web.Response(
+                body=img_bytes,
+                content_type="image/png",
+                headers={"Access-Control-Allow-Origin": "*"}
+            )
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_dom(request):
+    """GET /v1/browser/cdp/dom — Dump page DOM.
+    
+    Query params:
+        tab_id: string (optional)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    qs = parse_qs(request.query_string)
+    tab_id = qs.get("tab_id", [None])[0]
+    
+    tab, err = _cdp_active_tab(tab_id)
+    if err: return err
+    
+    try:
+        html = await tab.dump_dom()
+        if html is None:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to dump DOM"}, status=500)
+        
+        # Truncate if too large
+        max_len = DEFAULT_MAX_OUTPUT
+        truncated = False
+        if len(html) > max_len:
+            html = html[:max_len] + f"\n...[truncated {len(html) - max_len} chars]"
+            truncated = True
+        
+        return _cors_json_response({
+            "ok": True,
+            "html": html,
+            "length": len(html),
+            "truncated": truncated,
+            "tab_id": tab.target_id,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_eval(request):
+    """POST /v1/browser/cdp/eval — Evaluate JavaScript.
+    
+    Body JSON:
+        expression: string (required)
+        tab_id: string (optional)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    expression = body.get("expression")
+    if not expression:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'expression' parameter"}, status=400)
+    
+    tab_id = body.get("tab_id")
+    tab, err = _cdp_active_tab(tab_id)
+    if err: return err
+    
+    try:
+        result = await tab.eval_js(expression)
+        return _cors_json_response({
+            "ok": True,
+            "result": result,
+            "tab_id": tab.target_id,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_click(request):
+    """POST /v1/browser/cdp/click — Click element by CSS selector.
+    
+    Body JSON:
+        selector: string (required)
+        tab_id: string (optional)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    selector = body.get("selector")
+    if not selector:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'selector' parameter"}, status=400)
+    
+    tab_id = body.get("tab_id")
+    tab, err = _cdp_active_tab(tab_id)
+    if err: return err
+    
+    try:
+        clicked = await tab.click(selector)
+        return _cors_json_response({
+            "ok": True,
+            "clicked": clicked,
+            "selector": selector,
+            "tab_id": tab.target_id,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_type(request):
+    """POST /v1/browser/cdp/type — Type text into element.
+    
+    Body JSON:
+        selector: string (required)
+        text: string (required)
+        tab_id: string (optional)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    selector = body.get("selector")
+    text = body.get("text")
+    if not selector or text is None:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'selector' or 'text' parameter"}, status=400)
+    
+    tab_id = body.get("tab_id")
+    tab, err = _cdp_active_tab(tab_id)
+    if err: return err
+    
+    try:
+        typed = await tab.type_text(selector, text)
+        return _cors_json_response({
+            "ok": True,
+            "typed": typed,
+            "selector": selector,
+            "tab_id": tab.target_id,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ---- CDP Tab Management ----
+
+async def handle_v1_cdp_tabs(request):
+    """GET /v1/browser/cdp/tabs — List all tracked tabs."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"] or not _cdp_state["manager"]:
+        return _cors_json_response({"ok": True, "tabs": [], "tab_count": 0})
+    
+    mgr = _cdp_state["manager"]
+    tabs = mgr.list_tabs()
+    
+    return _cors_json_response({
+        "ok": True,
+        "tabs": [tab.to_dict() for tab in tabs],
+        "tab_count": len(tabs),
+        "active_tab_id": mgr.active_tab_id,
+    })
+
+
+async def handle_v1_cdp_tabs_new(request):
+    """POST /v1/browser/cdp/tabs/new — Open new tab.
+    
+    Body JSON:
+        url: string (default: "about:blank")
+        activate: bool (default: true)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"] or not _cdp_state["manager"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    url = "about:blank"
+    activate = True
+    try:
+        body = await request.json()
+        url = body.get("url", "about:blank")
+        activate = body.get("activate", True)
+    except Exception:
+        pass
+    
+    mgr = _cdp_state["manager"]
+    
+    try:
+        tab = await mgr.new_tab(url, activate=activate)
+        return _cors_json_response({
+            "ok": True,
+            "tab": tab.to_dict(),
+            "tab_id": tab.target_id,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_tabs_close(request):
+    """POST /v1/browser/cdp/tabs/close — Close a tab.
+    
+    Body JSON:
+        tab_id: string (required)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"] or not _cdp_state["manager"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    tab_id = body.get("tab_id")
+    if not tab_id:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
+    
+    mgr = _cdp_state["manager"]
+    
+    try:
+        success = await mgr.close_tab(tab_id)
+        return _cors_json_response({
+            "ok": success,
+            "tab_id": tab_id,
+            "remaining_tabs": mgr.tab_count,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_tabs_activate(request):
+    """POST /v1/browser/cdp/tabs/activate — Activate a tab.
+    
+    Body JSON:
+        tab_id: string (required)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"] or not _cdp_state["manager"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    tab_id = body.get("tab_id")
+    if not tab_id:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
+    
+    mgr = _cdp_state["manager"]
+    
+    success = mgr.activate(tab_id)
+    return _cors_json_response({
+        "ok": success,
+        "tab_id": tab_id,
+        "active_tab_id": mgr.active_tab_id,
+    })
+
+
+# ---- CDP Cookie Management ----
+
+async def _ensure_cookie_manager():
+    """Lazily create and start a CDPCookieManager.
+    
+    Tries the active tab first, then falls back to any connected tab.
+    If no tab is connected, attempts to connect the first available tab.
+    """
+    if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
+        return _cdp_state["cookie_mgr"]
+    
+    cdp = _get_cdp_module()
+    if not cdp:
+        return None
+    
+    # Get the CDPBrowser instance from active tab
+    tab, _ = _cdp_active_tab()
+    
+    # If active tab is not connected, try to find any connected tab
+    if not tab or not tab._browser:
+        mgr = _cdp_state.get("manager")
+        if mgr:
+            for t in mgr.list_tabs():
+                if t.connected and t._browser:
+                    tab = t
+                    break
+            
+            # If still no connected tab, try connecting the first available one
+            if not tab:
+                for t in mgr.list_tabs():
+                    if t.ws_url:
+                        try:
+                            await t.connect()
+                            tab = t
+                            break
+                        except Exception:
+                            continue
+    
+    if not tab or not tab._browser:
+        return None
+    
+    try:
+        mgr = cdp.CDPCookieManager(tab._browser)
+        await mgr.start()
+        _cdp_state["cookie_mgr"] = mgr
+        return mgr
+    except Exception:
+        return None
+
+
+async def handle_v1_cdp_cookies_get(request):
+    """GET /v1/browser/cdp/cookies — Get cookies.
+    
+    Query params:
+        url: string (optional, filter by URL)
+        domain: string (optional, filter by domain)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    try:
+        cookie_mgr = await _ensure_cookie_manager()
+        if not cookie_mgr:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
+        
+        qs = parse_qs(request.query_string)
+        url = qs.get("url", [None])[0]
+        domain = qs.get("domain", [None])[0]
+        
+        if url:
+            cookies = await cookie_mgr.get_cookies_for_url(url)
+        elif domain:
+            all_cookies = await cookie_mgr.get_all_cookies()
+            cookies = [c for c in all_cookies if domain in c.get("domain", "")]
+        else:
+            cookies = await cookie_mgr.get_all_cookies()
+        
+        return _cors_json_response({
+            "ok": True,
+            "cookies": cookies,
+            "count": len(cookies),
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_cookies_set(request):
+    """POST /v1/browser/cdp/cookies — Set a cookie.
+    
+    Body JSON:
+        name: string (required)
+        value: string (required)
+        domain: string (optional)
+        path: string (default: "/")
+        secure: bool (default: false)
+        http_only: bool (default: false)
+        same_site: string (optional: "Strict"|"Lax"|"None")
+        expires: float (optional, UTC timestamp)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    name = body.get("name")
+    value = body.get("value")
+    if not name or value is None:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'name' or 'value'"}, status=400)
+    
+    try:
+        cookie_mgr = await _ensure_cookie_manager()
+        if not cookie_mgr:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
+        
+        success = await cookie_mgr.set_cookie(
+            name=name,
+            value=value,
+            domain=body.get("domain", ""),
+            path=body.get("path", "/"),
+            secure=body.get("secure", False),
+            http_only=body.get("http_only", False),
+            same_site=body.get("same_site", ""),
+            expires=body.get("expires"),
+        )
+        
+        return _cors_json_response({
+            "ok": success,
+            "name": name,
+            "domain": body.get("domain", ""),
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_cookies_delete(request):
+    """DELETE /v1/browser/cdp/cookies — Delete a cookie.
+    
+    Body JSON:
+        name: string (required)
+        domain: string (optional)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    name = body.get("name")
+    if not name:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
+    
+    try:
+        cookie_mgr = await _ensure_cookie_manager()
+        if not cookie_mgr:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
+        
+        await cookie_mgr.delete_cookie(name, domain=body.get("domain", ""))
+        
+        return _cors_json_response({
+            "ok": True,
+            "deleted": name,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_cookies_clear(request):
+    """POST /v1/browser/cdp/cookies/clear — Clear all cookies."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    try:
+        cookie_mgr = await _ensure_cookie_manager()
+        if not cookie_mgr:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
+        
+        await cookie_mgr.clear_cookies()
+        
+        return _cors_json_response({"ok": True, "message": "All cookies cleared"})
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_cookies_profiles(request):
+    """GET /v1/browser/cdp/cookies/profiles — List cookie profiles.
+    POST /v1/browser/cdp/cookies/profiles — Save/restore/delete profile.
+    
+    POST Body JSON:
+        action: "save" | "restore" | "delete" (required)
+        name: string (required)
+        domain: string (optional, for save filter)
+        clear_first: bool (default: true, for restore)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    if request.method == "GET":
+        cookie_mgr = _cdp_state.get("cookie_mgr")
+        profiles = cookie_mgr.list_profiles() if cookie_mgr else []
+        profile_info = []
+        for name in profiles:
+            info = cookie_mgr.get_profile_info(name) if cookie_mgr else None
+            profile_info.append(info or {"name": name})
+        
+        return _cors_json_response({
+            "ok": True,
+            "profiles": profile_info,
+            "count": len(profile_info),
+        })
+    
+    # POST — save/restore/delete
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    action = body.get("action")
+    name = body.get("name")
+    if not action or not name:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'action' or 'name'"}, status=400)
+    
+    try:
+        cookie_mgr = await _ensure_cookie_manager()
+        if not cookie_mgr:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
+        
+        if action == "save":
+            count = await cookie_mgr.save_profile(name, domain_filter=body.get("domain"))
+            return _cors_json_response({
+                "ok": True,
+                "action": "save",
+                "profile": name,
+                "cookie_count": count,
+            })
+        elif action == "restore":
+            count = await cookie_mgr.restore_profile(
+                name, 
+                clear_first=body.get("clear_first", True)
+            )
+            return _cors_json_response({
+                "ok": True,
+                "action": "restore",
+                "profile": name,
+                "restored_count": count,
+            })
+        elif action == "delete":
+            deleted = cookie_mgr.delete_profile(name)
+            return _cors_json_response({
+                "ok": deleted,
+                "action": "delete",
+                "profile": name,
+            })
+        else:
+            return _cors_json_response(
+                {"ok": False, "error": f"Unknown action '{action}'. Use save, restore, or delete."},
+                status=400
+            )
+    except KeyError as e:
+        return _cors_json_response({"ok": False, "error": str(e)}, status=404)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ---- CDP Network Monitoring ----
+
+async def handle_v1_cdp_network_start(request):
+    """POST /v1/browser/cdp/network/start — Start network monitoring."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
+    
+    try:
+        # Get browser from active tab
+        tab, _ = _cdp_active_tab()
+        if not tab or not tab._browser:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "No active tab with CDP connection"}, status=400)
+        
+        if _cdp_state.get("monitor") and _cdp_state["monitor"].active:
+            return _cors_json_response({"ok": True, "message": "Network monitoring already active"})
+        
+        max_entries = 1000
+        try:
+            body = await request.json()
+            max_entries = body.get("max_entries", 1000)
+        except Exception:
+            pass
+        
+        monitor = cdp.CDPNetworkMonitor(tab._browser, max_entries=max_entries)
+        await monitor.start()
+        _cdp_state["monitor"] = monitor
+        
+        return _cors_json_response({
+            "ok": True,
+            "message": "Network monitoring started",
+            "max_entries": max_entries,
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_network_stop(request):
+    """POST /v1/browser/cdp/network/stop — Stop network monitoring."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    monitor = _cdp_state.get("monitor")
+    if not monitor or not monitor.active:
+        return _cors_json_response({"ok": True, "message": "Network monitoring not active"})
+    
+    try:
+        await monitor.stop()
+        return _cors_json_response({"ok": True, "message": "Network monitoring stopped"})
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_network_requests(request):
+    """GET /v1/browser/cdp/network/requests — Get captured network requests.
+    
+    Query params:
+        url_filter: string (optional)
+        resource_type: string (optional)
+        include_active: bool (default: true)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    monitor = _cdp_state.get("monitor")
+    if not monitor:
+        return _cors_json_response({"ok": True, "requests": [], "count": 0, "active_count": 0})
+    
+    qs = parse_qs(request.query_string)
+    url_filter = qs.get("url_filter", [None])[0]
+    resource_type = qs.get("resource_type", [None])[0]
+    include_active = qs.get("include_active", ["true"])[0].lower() == "true"
+    
+    try:
+        finished = monitor.get_requests(url_filter=url_filter, resource_type=resource_type)
+        requests_list = [req.to_dict() for req in finished]
+        
+        result = {
+            "ok": True,
+            "requests": requests_list,
+            "total_finished": monitor.total_requests,
+            "active_count": monitor.active_count,
+        }
+        
+        if include_active:
+            active = monitor.get_active_requests()
+            result["active"] = [req.to_dict() for req in active]
+        
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_network_har(request):
+    """GET /v1/browser/cdp/network/har — Export captured requests as HAR."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    monitor = _cdp_state.get("monitor")
+    if not monitor:
+        return _cors_json_response({"log": {"version": "1.2", "creator": {"name": "arena-cdp", "version": "1.0"}, "entries": []}})
+    
+    try:
+        har = monitor.export_har()
+        return _cors_json_response(har)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ---- CDP Network Interception ----
+
+async def handle_v1_cdp_intercept_start(request):
+    """POST /v1/browser/cdp/intercept/start — Start network interception.
+    
+    Body JSON (optional):
+        patterns: list of Fetch pattern dicts (default: intercept all)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
+    
+    try:
+        tab, _ = _cdp_active_tab()
+        if not tab or not tab._browser:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "No active tab"}, status=400)
+        
+        if _cdp_state.get("interceptor") and _cdp_state["interceptor"].active:
+            return _cors_json_response({"ok": True, "message": "Interception already active"})
+        
+        patterns = None
+        try:
+            body = await request.json()
+            patterns = body.get("patterns")
+        except Exception:
+            pass
+        
+        interceptor = cdp.CDPNetworkInterceptor(tab._browser)
+        await interceptor.start(patterns=patterns)
+        _cdp_state["interceptor"] = interceptor
+        
+        return _cors_json_response({
+            "ok": True,
+            "message": "Network interception started",
+        })
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_intercept_stop(request):
+    """POST /v1/browser/cdp/intercept/stop — Stop network interception."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    interceptor = _cdp_state.get("interceptor")
+    if not interceptor or not interceptor.active:
+        return _cors_json_response({"ok": True, "message": "Interception not active"})
+    
+    try:
+        await interceptor.stop()
+        return _cors_json_response({"ok": True, "message": "Interception stopped"})
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_intercept_rule(request):
+    """POST /v1/browser/cdp/intercept/rule — Add interception rule.
+    DELETE /v1/browser/cdp/intercept/rule — Remove interception rule.
+    GET /v1/browser/cdp/intercept/rules — List interception rules.
+    
+    POST Body JSON:
+        name: string (required)
+        url_pattern: string (optional)
+        resource_type: string (optional)
+        action: "block" | "redirect" | "modify_headers" | "mock" (required)
+        redirect_url: string (for action="redirect")
+        mock_status: int (for action="mock", default: 200)
+        mock_body: string (for action="mock")
+        mock_content_type: string (for action="mock", default: "text/plain")
+    
+    DELETE Body JSON:
+        name: string (required)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
+    
+    interceptor = _cdp_state.get("interceptor")
+    
+    if request.method == "GET":
+        if not interceptor:
+            return _cors_json_response({"ok": True, "rules": [], "count": 0})
+        rules = interceptor.get_rules()
+        return _cors_json_response({
+            "ok": True,
+            "rules": [rule.to_dict() for rule in rules],
+            "count": len(rules),
+        })
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    if request.method == "DELETE":
+        name = body.get("name")
+        if not name:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
+        
+        if not interceptor:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "No active interceptor"}, status=400)
+        
+        removed = interceptor.remove_rule(name)
+        return _cors_json_response({
+            "ok": removed,
+            "name": name,
+        })
+    
+    # POST — add rule
+    if not interceptor or not interceptor.active:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Interception not active. Start first."}, status=400)
+    
+    name = body.get("name", "")
+    action = body.get("action")
+    if not action:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'action'"}, status=400)
+    
+    try:
+        rule = cdp.InterceptRule(
+            name=name,
+            url_pattern=body.get("url_pattern"),
+            resource_type=body.get("resource_type"),
+            action=action,
+            redirect_url=body.get("redirect_url"),
+            mock_status=body.get("mock_status", 200),
+            mock_body=body.get("mock_body"),
+            mock_content_type=body.get("mock_content_type", "text/plain"),
+            modify_request_headers=body.get("modify_request_headers"),
+            remove_request_headers=body.get("remove_request_headers"),
+        )
+        interceptor.add_rule(rule)
+        
+        return _cors_json_response({
+            "ok": True,
+            "rule": rule.to_dict(),
+        })
+    except ValueError as e:
+        return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ---- CDP Session Health Check ----
+
+async def handle_v1_cdp_session_check(request):
+    """GET /v1/browser/cdp/session/check — Check session health.
+    
+    Query params:
+        domain: string (required)
+        auth_cookie_names: string (comma-separated, optional)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+    
+    qs = parse_qs(request.query_string)
+    domain = qs.get("domain", [None])[0]
+    if not domain:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "missing 'domain' parameter"}, status=400)
+    
+    auth_names_str = qs.get("auth_cookie_names", [None])[0]
+    auth_cookie_names = auth_names_str.split(",") if auth_names_str else None
+    
+    try:
+        cookie_mgr = await _ensure_cookie_manager()
+        if not cookie_mgr:
+            _record_request(is_error=True)
+            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
+        
+        result = await cookie_mgr.check_session(domain, auth_cookie_names)
+        return _cors_json_response({"ok": True, **result})
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 # --- /v1/recall GET — Smart memory recall with TF scoring ---
 
 def _recall_sync(query: str, top: int) -> dict:
@@ -3170,7 +4505,7 @@ async def handle_v1_backup_download(request: web.Request) -> web.Response:
 
 def _backup_sync(paths: list[str], name: str) -> dict:
     """Create zip of specified directories."""
-    SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".next", ".turbo", ".arena", "venv"}
+    SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".next", ".turbo", ".arena", "venv", "shots", "reports", "logs"}
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not name:
@@ -3180,11 +4515,16 @@ def _backup_sync(paths: list[str], name: str) -> dict:
 
     backup_path = BACKUPS_DIR / name
     file_count = 0
+    start_time = time.time()
+    MAX_BACKUP_TIME = 60  # 60 seconds max for backup creation
 
     total_size = 0
     MAX_BACKUP_SIZE = 100 * 1024 * 1024  # 100MB max backup
     with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for path_str in paths:
+            # Check time limit
+            if time.time() - start_time > MAX_BACKUP_TIME:
+                break
             p = Path(path_str).expanduser()
             if p.is_file():
                 fsize = p.stat().st_size
@@ -3195,8 +4535,13 @@ def _backup_sync(paths: list[str], name: str) -> dict:
                 file_count += 1
             elif p.is_dir():
                 for root, dirs, files in os.walk(p, topdown=True):
+                    # Check time limit during walk
+                    if time.time() - start_time > MAX_BACKUP_TIME:
+                        break
                     dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
                     for fname in files:
+                        if time.time() - start_time > MAX_BACKUP_TIME:
+                            break
                         fpath = Path(root) / fname
                         try:
                             fsize = fpath.stat().st_size
@@ -3232,10 +4577,17 @@ async def handle_v1_backup(request: web.Request) -> web.Response:
     name = data.get("name", "")
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _backup_sync, paths, name)
+        # Use dedicated slow executor with timeout to avoid blocking main pool
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_SLOW_EXECUTOR, _backup_sync, paths, name),
+            timeout=120.0
+        )
         audit({"type": "backup", "name": name, "paths": paths, "size": result.get("size", 0),
                "file_count": result.get("file_count", 0)})
         return _cors_json_response(result)
+    except asyncio.TimeoutError:
+        _record_request(is_error=True)
+        return _cors_json_response({"ok": False, "error": "Backup timed out (120s) — directory may be too large"}, status=504)
     except Exception as e:
         _record_request(is_error=True)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)

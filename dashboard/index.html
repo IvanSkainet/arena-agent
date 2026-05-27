@@ -2314,9 +2314,12 @@ async function refreshHwinfo() {
   let hw = null;
   let source = "";
 
-  // Try /v1/hwinfo first (bridge >= 1.6.1)
+  // Try /v1/hwinfo first (bridge >= 1.6.1) with timeout to prevent UI freeze
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     const r = await api("/v1/hwinfo");
+    clearTimeout(timeoutId);
     if (r && r.ok && r.hwinfo) {
       hw = r.hwinfo;
       source = "/v1/hwinfo (bridge)";
@@ -2410,7 +2413,8 @@ window.refreshOverview = async function() {
   if (_origRefreshOverview) {
     try { await _origRefreshOverview(); } catch (e) {}
   }
-  refreshHwinfo();
+  // Run hwinfo in background — don't await to prevent blocking the overview refresh
+  refreshHwinfo().catch(() => {});
 };
 
 // Hook expandSlash into runCommand if present
