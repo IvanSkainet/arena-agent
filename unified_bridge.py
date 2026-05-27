@@ -142,9 +142,9 @@ def _subprocess_kwargs() -> dict:
 
 
 AUDIT_CMD_LIMIT = 4000
-BRIDGE_DIR = Path(__file__).resolve().parent
-APP_DIR = BRIDGE_DIR
-TOKEN_FILE = APP_DIR / "token.txt"
+BRIDGE_DIR = Path(__file__).resolve().parent           # everything lives in this directory
+APP_DIR = BRIDGE_DIR                                    # audit, runs, logs
+TOKEN_FILE = BRIDGE_DIR / "token.txt"
 AUDIT = APP_DIR / "audit.jsonl"
 RUN_DIR = APP_DIR / "runs"
 MAX_BODY = 1024 * 1024
@@ -158,7 +158,7 @@ audit_lock = threading.Lock()
 # STRUCTURED LOGGING
 # ============================================================================
 
-LOG_FILE = APP_DIR / "bridge.log"
+LOG_FILE = APP_DIR / "logs" / "bridge.log"
 
 
 def _setup_logging() -> logging.Logger:
@@ -343,7 +343,7 @@ def _get_cdp_module():
 
     # Try multiple locations for cdp_browser.py
     search_paths = [
-        BRIDGE_DIR / "scripts",
+        BRIDGE_DIR / "scripts",                             # same dir as bridge
     ]
 
     for scripts_dir in search_paths:
@@ -1983,7 +1983,8 @@ async def handle_gui(request: web.Request) -> web.Response:
         # Try multiple locations for the dashboard
         candidates = [
             BRIDGE_DIR / "dashboard" / "index.html",
-            BRIDGE_DIR / "index.html",
+            Path(__file__).parent / "dashboard" / "index.html",
+            Path(__file__).parent / "index.html",
         ]
         for html_path in candidates:
             if html_path.exists():
@@ -2493,10 +2494,10 @@ def _sys_svc_sync() -> dict:
     """Synchronous helper to check service status."""
     result: dict[str, Any] = {"ok": True}
 
+    # 1) NSSM / Windows Service Manager detection (locale-agnostic)
+    nssm_running = False
+    nssm_detail = ""
     if sys.platform == "win32":
-        # 1) NSSM / Windows Service Manager detection (locale-agnostic)
-        nssm_running = False
-        nssm_detail = ""
         svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
         exists, raw, running = _sc_query_running(svc_name)
         if exists:
@@ -2507,11 +2508,13 @@ def _sys_svc_sync() -> dict:
                 nssm_detail = f'Service "{svc_name}" present but not RUNNING'
         else:
             nssm_detail = f'Service "{svc_name}" not registered'
-        result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
+    result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
 
-        # 2) Scheduled Task detection
-        scheduled_task = False
-        scheduled_detail = ""
+    # 2) Scheduled Task detection
+    scheduled_task = False
+    scheduled_detail = ""
+    if sys.platform == "win32":
+        # Try multiple candidate task names; default unified one first
         task_names = [os.environ.get("ARENA_TASK_NAME", "").strip()] if os.environ.get("ARENA_TASK_NAME") else []
         task_names += ["ArenaUnifiedBridge", "ArenaBridge", "ArenaLocalBridge"]
         seen = set()
@@ -2528,50 +2531,34 @@ def _sys_svc_sync() -> dict:
                 continue
         if not scheduled_task:
             scheduled_detail = "No matching Windows scheduled task (tried: " + ", ".join(task_names) + ")"
-
-        # If NSSM/Windows service is running, reflect that as the primary scheduled mechanism
-        if result.get("windows_service", {}).get("running"):
-            scheduled_task = True
-            scheduled_detail = result["windows_service"]["detail"]
-        result["scheduled_task"] = {"running": scheduled_task, "detail": scheduled_detail}
-
-    elif sys.platform == "darwin":
-        # macOS launchd
-        launchd_active = False
-        launchd_detail = ""
-        try:
-            out = subprocess.check_output(
-                ["launchctl", "print", f"gui/{os.getuid()}/com.arena.bridge"],
-                stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
-            launchd_active = "running" in out.lower() or "active" in out.lower()
-            launchd_detail = "com.arena.bridge loaded"
-        except Exception:
-            launchd_detail = "launchd service not found"
-        result["launchd"] = {"active": launchd_active, "detail": launchd_detail}
-
     else:
-        # Linux — check systemd user service
-        sd_active = False
-        sd_detail = ""
+        # Check systemd
         try:
             out = subprocess.check_output(
-                ["systemctl", "--user", "is-active", "arena-bridge"],
-                stderr=subprocess.DEVNULL, **_subprocess_kwargs())
+                ["systemctl", "is-active", "arena-bridge"], stderr=subprocess.DEVNULL, **_subprocess_kwargs())
             status = out.decode("utf-8", errors="replace").strip()
-            sd_active = (status == "active")
-            sd_detail = f"systemd user service: {status}"
+            if status == "active":
+                scheduled_task = True
+                scheduled_detail = f"systemd service: {status}"
+            else:
+                scheduled_detail = f"systemd service: {status}"
         except Exception:
-            # Check for cron as fallback
+            # Check for cron
             try:
                 out = subprocess.check_output(["crontab", "-l"], stderr=subprocess.DEVNULL, **_subprocess_kwargs())
                 if b"unified_bridge" in out or b"arena" in out:
-                    sd_active = True
-                    sd_detail = "cron job found"
+                    scheduled_task = True
+                    scheduled_detail = "cron job found"
                 else:
-                    sd_detail = "No cron/systemd service"
+                    scheduled_detail = "No cron/systemd service"
             except Exception:
-                sd_detail = "No service detected"
-        result["systemd_user"] = {"active": sd_active, "detail": sd_detail}
+                scheduled_detail = "No scheduled task/service detected"
+
+    # If NSSM/Windows service is running, reflect that as the primary scheduled mechanism
+    if result.get("windows_service", {}).get("running"):
+        scheduled_task = True
+        scheduled_detail = result["windows_service"]["detail"]
+    result["scheduled_task"] = {"running": scheduled_task, "detail": scheduled_detail}
 
     # Check running bridge processes
     bridge_procs = []
@@ -2683,7 +2670,7 @@ async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
 def _token_path() -> Path:
     """Resolve token file location used by start-bridge / install.bat."""
     return Path(os.environ.get("ARENA_TOKEN_FILE",
-                str(TOKEN_FILE))).expanduser()
+                str(BRIDGE_DIR / "token.txt"))).expanduser()
 
 
 def _token_regen_sync(target_path: str = "") -> dict:
@@ -2692,7 +2679,7 @@ def _token_regen_sync(target_path: str = "") -> dict:
       1. explicit target_path arg (from cfg["token_file"] or env)
       2. ARENA_TOKEN_FILE env var
       3. <BRIDGE_DIR from sys.argv 'serve --root'>/token.txt — best effort
-      4. ~/arena-local-bridge/token.txt  (default)
+      4. <bridge-dir>/token.txt  (default)
     NEVER writes to multiple locations — that risks clobbering another instance's token.
     """
     import secrets, base64
@@ -2707,7 +2694,7 @@ def _token_regen_sync(target_path: str = "") -> dict:
             target = Path(env).expanduser()
         else:
             # Default to the canonical bridge-dir token file
-            target = TOKEN_FILE
+            target = BRIDGE_DIR / "token.txt"
 
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -4932,7 +4919,7 @@ async def handle_v1_backup(request: web.Request) -> web.Response:
 # --- /v1/skills GET — List skills ---
 
 def _skills_list_sync() -> dict:
-    """Scan arena-agent/skills/ directory for skill definitions."""
+    """Scan skills/ directory for skill definitions."""
     skills: list[dict] = []
     if not SKILLS_DIR.exists():
         return {"ok": True, "count": 0, "skills": []}
@@ -4952,6 +4939,28 @@ def _skills_list_sync() -> dict:
                     data = json.loads(p.read_text(encoding="utf-8"))
                     skill_info["description"] = data.get("description", "")
                     skill_info["version"] = data.get("version", "")
+                except Exception:
+                    pass
+            # Extract description from SKILL.md frontmatter (---\nkey: value\n---)
+            if p.name.upper() == "SKILL.MD":
+                try:
+                    content = p.read_text(encoding="utf-8")
+                    # Parse YAML frontmatter between --- markers
+                    if content.startswith("---"):
+                        end = content.find("---", 3)
+                        if end > 0:
+                            fm = content[3:end]
+                            for line in fm.splitlines():
+                                if line.strip().startswith("description:"):
+                                    skill_info["description"] = line.split(":", 1)[1].strip().strip('"\'')
+                                elif line.strip().startswith("version:"):
+                                    skill_info["version"] = line.split(":", 1)[1].strip().strip('"\'')
+                    # Add a content snippet (first 500 chars after frontmatter)
+                    body_start = content.find("---", 3)
+                    if body_start > 0:
+                        body = content[body_start + 3:].strip()[:500]
+                        if body:
+                            skill_info["snippet"] = body
                 except Exception:
                     pass
             skills.append(skill_info)
@@ -5016,7 +5025,7 @@ async def handle_v1_skills_run(request: web.Request) -> web.Response:
 # --- /v1/hooks GET — List hooks ---
 
 def _hooks_list_sync() -> dict:
-    """Read hooks from arena-agent/hooks/."""
+    """Read hooks from hooks/ directory."""
     hooks: list[dict] = []
     if not HOOKS_DIR.exists():
         return {"ok": True, "count": 0, "hooks": []}
@@ -5058,7 +5067,7 @@ async def handle_v1_hooks(request: web.Request) -> web.Response:
 # --- /v1/agents GET — List agent configs ---
 
 def _agents_list_sync() -> dict:
-    """Scan arena-agent/agents/ for agent config files."""
+    """Scan agents/ directory for agent config files."""
     agents: list[dict] = []
     if not AGENTS_DIR.exists():
         return {"ok": True, "count": 0, "agents": []}
@@ -5103,7 +5112,7 @@ async def handle_v1_agents(request: web.Request) -> web.Response:
 # --- /v1/subagents GET — List subagents ---
 
 def _subagents_list_sync() -> dict:
-    """Read from arena-agent/subagents/."""
+    """Read from subagents/ directory."""
     subagents: list[dict] = []
     if not SUBAGENTS_DIR.exists():
         return {"ok": True, "count": 0, "subagents": []}
@@ -5648,11 +5657,6 @@ def serve(args: argparse.Namespace) -> None:
     if getattr(args, "background", False) and os.name != "nt":
         _daemonize()
 
-    # If --token-file was provided, set env var so resolve_token() finds it
-    tf = getattr(args, "token_file", "") or ""
-    if tf:
-        os.environ["ARENA_TOKEN_FILE"] = tf
-
     token, token_file_used = resolve_token(args.token)
 
     root = Path(args.root).expanduser().resolve()
@@ -5707,8 +5711,6 @@ def main() -> None:
                      help="Bind address (default: 127.0.0.1, use 0.0.0.0 for remote access)")
     sp.add_argument("--port", type=int, default=8765)
     sp.add_argument("--token")
-    sp.add_argument("--token-file", dest="token_file", default="",
-                     help="Path to token file (default: ~/.arena-local-bridge/token.txt)")
     sp.add_argument("--root", default=str(Path.home()))
     sp.add_argument("--allow-any-cwd", action="store_true")
     sp.add_argument("--profile", choices=["cautious", "owner-shell"], default="cautious")

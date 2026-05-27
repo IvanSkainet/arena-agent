@@ -106,15 +106,21 @@ echo ""
 
 # --- 6a: Tailscale ---
 if command -v tailscale >/dev/null 2>&1; then
-    ok "Tailscale found — funnel available"
-    # Offer to set operator so funnel works without sudo
-    if [ "$(uname -s)" = "Linux" ]; then
-        TS_OP="$(tailscale status --json 2>/dev/null | "$PY" -c "import json,sys; d=json.load(sys.stdin); print(d.get('Self',{}).get('Capabilities',{}).get('funnel',False))" 2>/dev/null || echo 'false')"
-        if [ "$TS_OP" = "False" ] || [ "$TS_OP" = "false" ]; then
-            if ask "Set Tailscale operator to $USER (so funnel works without sudo)?"; then
-                sudo tailscale set --operator="$USER" 2>/dev/null && ok "Tailscale operator set" || warn "Failed to set operator"
+    # Check if Tailscale is logged in
+    TS_STATUS="$(tailscale status 2>&1 | head -1)"
+    if echo "$TS_STATUS" | grep -qi "not logged in\|needs login\|stopped"; then
+        warn "Tailscale is installed but not logged in"
+        if [ "$(uname -s)" = "Linux" ]; then
+            if ask "Run Tailscale login? (requires sudo)"; then
+                sudo tailscale login 2>&1 && ok "Tailscale login initiated — follow the URL in output" || warn "Tailscale login failed"
+            else
+                info "You can login later: sudo tailscale login"
             fi
+        else
+            info "Login with: tailscale login"
         fi
+    else
+        ok "Tailscale found and logged in — funnel available"
     fi
 else
     info "Tailscale not found. Install it for internet access: https://tailscale.com"

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Arena Local Bridge - Token Regeneration Script v1.3.0 (Linux/macOS)
+# Arena Unified Bridge - Token Regeneration Script
 # Regenerates token and restarts bridge automatically
 set -euo pipefail
 
-BRIDGE_DIR="$HOME/arena-local-bridge"
+# Detect bridge directory: env var > script location > default
+BRIDGE_DIR="${ARENA_AGENT_HOME:-$(cd "$(dirname "$0")" && pwd)}"
 TOKEN_FILE="$BRIDGE_DIR/token.txt"
 
 # Find Python
@@ -21,7 +22,7 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 
 echo "============================================================"
-echo "  Arena Local Bridge - Token Regeneration v1.3.0"
+echo "  Arena Unified Bridge - Token Regeneration"
 echo "============================================================"
 echo
 
@@ -52,7 +53,7 @@ fi
 
 # Save token
 echo "[3/4] Saving token to $TOKEN_FILE..."
-mkdir -p "$BRIDGE_DIR"
+mkdir -p "$(dirname "$TOKEN_FILE")"
 echo "$NEW_TOKEN" > "$TOKEN_FILE"
 chmod 600 "$TOKEN_FILE"
 
