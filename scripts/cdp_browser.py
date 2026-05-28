@@ -171,104 +171,150 @@ def _build_session_env() -> dict:
     return env
 
 
-def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
-    """Launch a browser with remote debugging enabled. Returns the Popen object.
+def _build_chromium_cmd(exe: str, port: int, headless: bool, user_data_dir: str) -> list:
+    """Build the Chromium command line with all necessary flags.
 
-    Launch strategy (in order):
-    1. Direct launch with session_env (fastest, works if cgroup allows it)
-    2. If direct launch crashes (exits within 3s), try systemd-run --scope
-
-    Key design decisions:
-    - We try direct launch FIRST because systemd-run can hang indefinitely
-      if D-Bus is unavailable or polkit requires authentication.
-    - We use DEVNULL for stdout to prevent pipe buffer deadlock.
-    - We capture stderr to a log file via a background thread.
-    - We never block for more than a few seconds at each step.
+    Critical flags for headless operation in a systemd service:
+    - --ozone-platform=headless: REQUIRED for headless mode. Without this,
+      Chromium tries to connect to Wayland/X11 display server and fails
+      silently when no display is available (systemd service environment).
+    - --disable-setuid-sandbox: Needed when running in constrained cgroups.
+    - --no-sandbox: Disables the Chrome sandbox (needed for rootless containers).
+    - --disable-dev-shm-usage: Use /tmp instead of /dev/shm for shared memory.
     """
-    import threading
-
-    exe = _resolve_browser_binary()
-    logger.info("[CDP] Launching browser: %s", exe)
-    ud = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}")
-    os.makedirs(ud, exist_ok=True)
     cmd = [
         exe,
         f"--remote-debugging-port={port}",
         "--no-sandbox",
+        "--disable-setuid-sandbox",
         "--disable-gpu",
         "--disable-dev-shm-usage",
-        f"--user-data-dir={ud}",
+        "--no-first-run",
+        "--no-default-browser-check",
+        "--disable-extensions",
+        "--disable-background-networking",
+        "--disable-sync",
+        "--metrics-recording-only",
+        f"--user-data-dir={user_data_dir}",
     ]
     if headless:
         cmd.append("--headless=new")
+        # CRITICAL: --ozone-platform=headless is required for Chromium headless
+        # mode to work without a display server. Without this flag, Chromium
+        # attempts to auto-detect the display platform (Wayland/X11), fails
+        # silently, and exits with no error output. This was the root cause
+        # of the CDP connect timeout bug in v1.9.5 through v1.9.9.
+        cmd.append("--ozone-platform=headless")
+    return cmd
 
+
+def _drain_stderr(proc, log_path):
+    """Drain subprocess stderr to a log file in a background thread."""
+    try:
+        with open(log_path, "ab") as log_file:
+            for line in proc.stderr:
+                log_file.write(line if isinstance(line, bytes) else line.encode(errors="replace"))
+    except Exception:
+        pass
+
+
+def _kill_existing_browser(port: int = DEFAULT_PORT) -> None:
+    """Kill any existing Chromium process using the debug port.
+
+    This prevents 'address already in use' errors when reconnecting.
+    Only kills processes that are actually listening on the port.
+    """
+    import signal as _signal
+    try:
+        # Find PIDs listening on the CDP port
+        result = subprocess.run(
+            ["ss", "-tlnp", f"sport = :{port}"],
+            capture_output=True, text=True, timeout=3
+        )
+        for line in result.stdout.splitlines():
+            # ss output format: ... users:(("chromium",pid=1234,fd=...))
+            if "pid=" in line:
+                import re
+                pids = re.findall(r'pid=(\d+)', line)
+                for pid_str in pids:
+                    try:
+                        pid = int(pid_str)
+                        if pid != os.getpid():  # Don't kill ourselves
+                            os.kill(pid, _signal.SIGTERM)
+                            logger.info("[CDP] Killed stale Chromium pid %d on port %d", pid, port)
+                    except (ProcessLookupError, PermissionError, ValueError):
+                        pass
+    except Exception:
+        pass
+
+
+def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
+    """Launch a browser with remote debugging enabled. Returns the Popen object.
+
+    This function is NON-BLOCKING: it starts Chromium and returns immediately.
+    Port readiness is checked by the caller (CDPBrowser.connect / CDPTabManager.connect)
+    via list_tabs() retries in async code with proper timeouts.
+
+    Launch strategy (in order):
+    1. Direct launch with session_env (fastest, works if cgroup allows it)
+    2. If direct launch crashes (exits within 2s), try systemd-run --scope
+
+    Key design decisions:
+    - Returns QUICKLY — no blocking sleeps for port readiness.
+      The caller handles port readiness checks asynchronously.
+    - Captures stderr to a log file for diagnostics.
+    - Attaches launch diagnostics to the Popen object as _cdp_launch_diag.
+    """
+    import threading
+
+    # Kill any stale Chromium processes on the same port
+    _kill_existing_browser(port)
+
+    exe = _resolve_browser_binary()
+    logger.info("[CDP] Launching browser: %s (headless=%s, port=%d)", exe, headless, port)
+
+    ud = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}")
+    os.makedirs(ud, exist_ok=True)
+    stderr_log_path = os.path.join(ud, "chromium-launch.log")
+
+    cmd = _build_chromium_cmd(exe, port, headless, ud)
     session_env = _build_session_env()
+
     launch_diag = {
         "exe": exe,
         "headless": headless,
         "port": port,
         "user_data_dir": ud,
+        "cmd_summary": " ".join(cmd[:6]) + " ...",
         "env_has_dbus": bool(session_env.get("DBUS_SESSION_BUS_ADDRESS")),
         "env_has_xdg": bool(session_env.get("XDG_RUNTIME_DIR")),
+        "env_has_display": bool(session_env.get("DISPLAY")),
+        "stderr_log": stderr_log_path,
     }
-    stderr_log_path = os.path.join(ud, "chromium-launch.log")
 
-    def _start_proc(cmd_list, env_dict):
-        """Start a subprocess and drain stderr to a log file."""
+    # --- Strategy 1: Direct launch (always try first) ---
+    logger.info("[CDP] Attempting direct browser launch: %s", " ".join(cmd[:4]))
+    try:
         proc = subprocess.Popen(
-            cmd_list,
+            cmd,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            env=env_dict,
+            env=session_env,
         )
         # Drain stderr in background thread to prevent pipe deadlock
-        log_file = open(stderr_log_path, "a")
-        def _drain():
-            try:
-                for line in proc.stderr:
-                    log_file.write(line.decode(errors="replace"))
-                log_file.close()
-            except Exception:
-                pass
-        threading.Thread(target=_drain, daemon=True).start()
-        return proc
+        threading.Thread(target=_drain_stderr, args=(proc, stderr_log_path), daemon=True).start()
 
-    # --- Strategy 1: Direct launch (always try first) ---
-    logger.info("[CDP] Attempting direct browser launch")
-    try:
-        proc = _start_proc(cmd, session_env)
-        time.sleep(3)
+        # Quick check: did the process exit immediately? (2 second grace period)
+        time.sleep(2)
         if proc.poll() is None:
-            # Process is still running — direct launch succeeded!
+            # Process is still running — direct launch looks good!
             logger.info("[CDP] Direct launch succeeded (pid %d)", proc.pid)
-            # Check if debug port is responding
-            try:
-                tabs = list_tabs(port)
-                if tabs:
-                    logger.info("[CDP] Debug port %d responding, %d tab(s) found", port, len(tabs))
-                    launch_diag["method"] = "direct"
-                    proc._cdp_launch_diag = launch_diag
-                    return proc
-                else:
-                    logger.info("[CDP] Process running but debug port not responding yet, waiting...")
-                    # Give it more time
-                    for _ in range(7):
-                        time.sleep(1)
-                        tabs = list_tabs(port)
-                        if tabs:
-                            logger.info("[CDP] Debug port %d now responding", port)
-                            break
-                    launch_diag["method"] = "direct"
-                    proc._cdp_launch_diag = launch_diag
-                    return proc
-            except Exception:
-                pass
             launch_diag["method"] = "direct"
             proc._cdp_launch_diag = launch_diag
             return proc
         else:
-            # Direct launch failed — process exited within 3 seconds
+            # Direct launch failed — process exited within 2 seconds
             diag = ""
             try:
                 with open(stderr_log_path, "r") as f:
@@ -278,7 +324,7 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
             logger.warning("[CDP] Direct launch failed (code %d). stderr: %s",
                            proc.returncode, diag[:500] or "(empty)")
             launch_diag["direct_rc"] = proc.returncode
-            launch_diag["direct_error"] = diag[:500]
+            launch_diag["direct_error"] = diag[:800]
     except Exception as e:
         logger.warning("[CDP] Direct launch exception: %s", e)
         launch_diag["direct_exception"] = str(e)
@@ -305,36 +351,23 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
                 env_flags += ["-E", f"{var}={val}"]
 
         scope_cmd = ["systemd-run", "--user", "--scope"] + env_flags + ["--"] + cmd
-        logger.info("[CDP] scope_cmd: %s ... -- %s ...",
-                     " ".join(scope_cmd[:4]), " ".join(cmd[:3]))
+        logger.info("[CDP] scope_cmd: %s", " ".join(scope_cmd[:6]) + " ...")
 
         try:
-            proc = _start_proc(scope_cmd, session_env)
-            # Only wait 5 seconds — if systemd-run hangs, bail out
-            time.sleep(5)
+            proc = subprocess.Popen(
+                scope_cmd,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                env=session_env,
+            )
+            # Drain stderr in background thread
+            threading.Thread(target=_drain_stderr, args=(proc, stderr_log_path), daemon=True).start()
+
+            # Quick check: did systemd-run exit immediately (failure)?
+            time.sleep(3)
             if proc.poll() is None:
-                # systemd-run is still running — good sign, it's waiting for Chromium
-                # Check if debug port is responding
-                try:
-                    tabs = list_tabs(port)
-                    if tabs:
-                        logger.info("[CDP] systemd-run launch succeeded! Debug port %d responding", port)
-                        launch_diag["method"] = "systemd-run-scope"
-                        proc._cdp_launch_diag = launch_diag
-                        return proc
-                    else:
-                        logger.info("[CDP] systemd-run running but port not responding yet, waiting...")
-                        for _ in range(5):
-                            time.sleep(1)
-                            tabs = list_tabs(port)
-                            if tabs:
-                                logger.info("[CDP] Debug port %d now responding", port)
-                                break
-                        launch_diag["method"] = "systemd-run-scope"
-                        proc._cdp_launch_diag = launch_diag
-                        return proc
-                except Exception:
-                    pass
+                logger.info("[CDP] systemd-run launch succeeded (pid %d)", proc.pid)
                 launch_diag["method"] = "systemd-run-scope"
                 proc._cdp_launch_diag = launch_diag
                 return proc
@@ -349,16 +382,21 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
                 logger.error("[CDP] systemd-run failed (code %d). stderr: %s",
                              proc.returncode, diag[:500] or "(empty)")
                 launch_diag["systemd_run_rc"] = proc.returncode
-                launch_diag["systemd_run_error"] = diag[:500]
+                launch_diag["systemd_run_error"] = diag[:800]
         except Exception as e:
             logger.error("[CDP] systemd-run exception: %s", e)
             launch_diag["systemd_run_exception"] = str(e)
     else:
         launch_diag["systemd_run_skipped"] = True
-        launch_diag["reason"] = "not in systemd or systemd-run not available"
+        if not in_systemd:
+            launch_diag["skip_reason"] = "not in systemd service"
+        elif platform.system() != "Linux":
+            launch_diag["skip_reason"] = "not Linux"
+        else:
+            launch_diag["skip_reason"] = "systemd-run not found"
 
     # All strategies failed — return a dummy Popen with diagnostics
-    logger.error("[CDP] All browser launch strategies failed")
+    logger.error("[CDP] All browser launch strategies failed. Diag: %s", launch_diag)
     launch_diag["all_failed"] = True
 
     # Create a fake Popen that's already dead, with diagnostics attached
@@ -487,11 +525,25 @@ class CDPBrowser:
             loop = asyncio.get_running_loop()
             self._browser_proc = await loop.run_in_executor(
                 None, launch_browser, self.port, self.headless)
-            # Retry until the debug port is ready
-            for _ in range(10):
+            # Check if browser process died immediately
+            if self._browser_proc and self._browser_proc.poll() is not None:
+                launch_diag = getattr(self._browser_proc, '_cdp_launch_diag', {})
+                raise ConnectionError(
+                    f"Browser process exited immediately (rc={self._browser_proc.returncode}). "
+                    f"Launch diag: {launch_diag}"
+                )
+            # Retry until the debug port is ready (up to 15 seconds)
+            for _ in range(15):
                 ws_url = get_websocket_url(self.port, self.tab_index)
                 if ws_url:
                     break
+                # Check if browser crashed
+                if self._browser_proc and self._browser_proc.poll() is not None:
+                    launch_diag = getattr(self._browser_proc, '_cdp_launch_diag', {})
+                    raise ConnectionError(
+                        f"Browser crashed during startup (rc={self._browser_proc.returncode}). "
+                        f"Launch diag: {launch_diag}"
+                    )
                 await asyncio.sleep(1)
 
         if ws_url is None:
@@ -1243,15 +1295,66 @@ class CDPTabManager:
         existing_tabs = await loop.run_in_executor(None, list_tabs, self.port)
         if not existing_tabs and self.auto_launch:
             # Run launch_browser in executor to avoid blocking the event loop
-            # (launch_browser has time.sleep(3) which would block asyncio)
             self._browser_proc = await loop.run_in_executor(
                 None, launch_browser, self.port, self.headless)
+
+            # Check if browser process is actually alive after launch
+            if self._browser_proc and self._browser_proc.poll() is not None:
+                # Process already exited — gather diagnostics
+                launch_diag = getattr(self._browser_proc, '_cdp_launch_diag', {})
+                stderr_info = ""
+                stderr_log = launch_diag.get("stderr_log", "")
+                if stderr_log and os.path.exists(stderr_log):
+                    try:
+                        with open(stderr_log, "r") as f:
+                            stderr_info = f.read().strip()[:1000]
+                    except Exception:
+                        pass
+                rc = self._browser_proc.returncode
+                method = launch_diag.get("method", "unknown")
+                raise ConnectionError(
+                    f"Browser process exited immediately (rc={rc}, method={method}). "
+                    f"stderr: {stderr_info[:500] or '(empty)'}. "
+                    f"Launch diag: {launch_diag}"
+                )
+
             # Wait for Chromium to initialize and open the debug port
-            for attempt in range(10):
+            # Poll every second, up to 15 seconds (increased from 10 for slow systems)
+            for attempt in range(15):
                 existing_tabs = await loop.run_in_executor(None, list_tabs, self.port)
                 if existing_tabs:
+                    logger.info("[CDPTabManager] Debug port ready after %ds, %d tab(s)",
+                                attempt + 1, len(existing_tabs))
                     break
+                # Check if browser process died during startup
+                if self._browser_proc and self._browser_proc.poll() is not None:
+                    launch_diag = getattr(self._browser_proc, '_cdp_launch_diag', {})
+                    stderr_info = ""
+                    stderr_log = launch_diag.get("stderr_log", "")
+                    if stderr_log and os.path.exists(stderr_log):
+                        try:
+                            with open(stderr_log, "r") as f:
+                                stderr_info = f.read().strip()[:1000]
+                        except Exception:
+                            pass
+                    raise ConnectionError(
+                        f"Browser crashed during startup (rc={self._browser_proc.returncode}). "
+                        f"stderr: {stderr_info[:500] or '(empty)'}. "
+                        f"Launch diag: {launch_diag}"
+                    )
                 await asyncio.sleep(1)
+            else:
+                # Port never became ready
+                if self._browser_proc and self._browser_proc.poll() is None:
+                    raise ConnectionError(
+                        f"Browser is running (pid={self._browser_proc.pid}) but debug port "
+                        f"{self.port} is not responding after 15 seconds. "
+                        f"Check if --ozone-platform=headless flag is set."
+                    )
+                else:
+                    raise ConnectionError(
+                        f"Browser exited and debug port {self.port} never became ready."
+                    )
 
         # Try to connect browser-level WebSocket for Target events
         await self._connect_browser_ws()

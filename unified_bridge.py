@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.9"
+VERSION = "1.9.10"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3334,18 +3334,22 @@ async def handle_v1_cdp_diag(request):
     _record_request()
 
     import shutil as _shutil
+    uid = os.getuid()
+    in_systemd = bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))
+
     diag = {
         "ok": True,
         "connected": _cdp_state["connected"],
         "bridge_env": {
             "INVOCATION_ID": bool(os.environ.get("INVOCATION_ID")),
             "JOURNAL_STREAM": bool(os.environ.get("JOURNAL_STREAM")),
-            "DBUS_SESSION_BUS_ADDRESS": os.environ.get("DBUS_SESSION_BUS_ADDRESS", "(not set)"),
-            "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "(not set)"),
-            "DISPLAY": os.environ.get("DISPLAY", "(not set)"),
-            "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "(not set)"),
+            "DBUS_SESSION_BUS_ADDRESS": os.environ.get("DBUS_SESSION_BUS_ADDRESS", ""),
+            "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", ""),
+            "DISPLAY": os.environ.get("DISPLAY", ""),
+            "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", ""),
         },
         "systemd_run_available": bool(_shutil.which("systemd-run")),
+        "in_systemd": in_systemd,
     }
 
     # Check browser binary
@@ -3364,6 +3368,15 @@ async def handle_v1_cdp_diag(request):
                     diag["browser_is_elf"] = True
             except Exception:
                 pass
+            # Check if chromium supports --ozone-platform=headless
+            try:
+                help_out = subprocess.run(
+                    [exe, "--help"], capture_output=True, text=True, timeout=5,
+                    env={**os.environ, "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", "")}
+                )
+                diag["ozone_support"] = "ozone" in (help_out.stdout + help_out.stderr).lower()
+            except Exception:
+                diag["ozone_support"] = "unknown"
         except Exception as e:
             diag["browser_error"] = str(e)
 
@@ -3371,16 +3384,22 @@ async def handle_v1_cdp_diag(request):
         try:
             session_env = cdp._build_session_env()
             diag["session_env"] = {
-                "DBUS_SESSION_BUS_ADDRESS": session_env.get("DBUS_SESSION_BUS_ADDRESS", "(not set)"),
-                "XDG_RUNTIME_DIR": session_env.get("XDG_RUNTIME_DIR", "(not set)"),
-                "DISPLAY": session_env.get("DISPLAY", "(not set)"),
-                "WAYLAND_DISPLAY": session_env.get("WAYLAND_DISPLAY", "(not set)"),
+                "DBUS_SESSION_BUS_ADDRESS": session_env.get("DBUS_SESSION_BUS_ADDRESS", ""),
+                "XDG_RUNTIME_DIR": session_env.get("XDG_RUNTIME_DIR", ""),
+                "DISPLAY": session_env.get("DISPLAY", ""),
+                "WAYLAND_DISPLAY": session_env.get("WAYLAND_DISPLAY", ""),
             }
         except Exception as e:
             diag["session_env_error"] = str(e)
 
+        # Show the Chromium command that would be used
+        try:
+            test_cmd = cdp._build_chromium_cmd(exe, 9222, True, "/tmp/cdp-browser-test")
+            diag["headless_cmd"] = " ".join(test_cmd)
+        except Exception:
+            pass
+
     # Check D-Bus socket
-    uid = os.getuid()
     dbus_path = f"/run/user/{uid}/bus"
     diag["dbus_socket_exists"] = os.path.exists(dbus_path)
     diag["dbus_socket_path"] = dbus_path
@@ -3396,6 +3415,17 @@ async def handle_v1_cdp_diag(request):
     except Exception as e:
         diag["dbus_socket_connectable"] = False
         diag["dbus_socket_error"] = str(e)
+
+    # Check if port 9222 is already in use
+    try:
+        import socket as _socket
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        s.settimeout(1)
+        result = s.connect_ex(("127.0.0.1", 9222))
+        s.close()
+        diag["port_9222_in_use"] = (result == 0)
+    except Exception:
+        diag["port_9222_in_use"] = "unknown"
 
     return _cors_json_response(diag)
 
@@ -3445,20 +3475,31 @@ async def handle_v1_cdp_connect(request):
     try:
         mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
         try:
-            await asyncio.wait_for(mgr.connect(), timeout=30)
+            await asyncio.wait_for(mgr.connect(), timeout=45)
         except asyncio.TimeoutError:
             _record_request(is_error=True, count_request=False)
             # Gather diagnostics from the browser launch
             browser_crashed = False
             crash_stderr = ""
             launch_diag = {}
+            stderr_info = ""
             if mgr._browser_proc:
                 if mgr._browser_proc.poll() is not None:
                     browser_crashed = True
                 launch_diag = getattr(mgr._browser_proc, '_cdp_launch_diag', {})
-            error_msg = "CDP connect timed out (30s). Browser may not be running or debug port is unreachable."
+                # Read stderr log file if available
+                stderr_log = launch_diag.get("stderr_log", "")
+                if stderr_log:
+                    try:
+                        with open(stderr_log, "r") as f:
+                            stderr_info = f.read().strip()[:2000]
+                    except Exception:
+                        pass
+            error_msg = "CDP connect timed out (45s). Browser may not be running or debug port is unreachable."
             if browser_crashed:
                 error_msg += f" Browser process exited (code {mgr._browser_proc.returncode})."
+            if stderr_info:
+                error_msg += f" Browser stderr: {stderr_info[:500]}"
             # Include launch diagnostics
             if launch_diag:
                 if launch_diag.get("systemd_run_error"):
@@ -3468,10 +3509,10 @@ async def handle_v1_cdp_connect(request):
                 if launch_diag.get("direct_exception"):
                     error_msg += f" Direct launch exception: {launch_diag['direct_exception'][:200]}"
             else:
-                error_msg += " Try: chromium --remote-debugging-port=9222 --headless=new --no-sandbox &"
+                error_msg += " Try: chromium --remote-debugging-port=9222 --headless=new --no-sandbox --ozone-platform=headless &"
             return _cors_json_response(
                 {"ok": False, "error": error_msg, "browser_crashed": browser_crashed,
-                 "diagnostics": launch_diag},
+                 "diagnostics": launch_diag, "stderr": stderr_info[:1000]},
                 status=408
             )
         

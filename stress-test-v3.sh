@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.9 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.10 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -164,8 +164,8 @@ fi
 
 # 1.5 CDP Connect (only if prerequisites met)
 if [ "$module_avail" = "True" ] && [ "$AIOHTTP_AVAIL" = "true" ] && [ "$BROWSER_AVAIL" = "true" ]; then
-    echo "  Connecting to browser via CDP (timeout 30s)..."
-    resp=$(curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    echo "  Connecting to browser via CDP (timeout 50s)..."
+    resp=$(curl -s --max-time 50 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
         -d '{"port":9222,"headless":true}' "$URL/v1/browser/cdp/connect" 2>/dev/null)
     if [ -z "$resp" ]; then
         check "cdp connect" "false" "No response (timeout or bridge error)"
@@ -179,7 +179,20 @@ if [ "$module_avail" = "True" ] && [ "$AIOHTTP_AVAIL" = "true" ] && [ "$BROWSER_
         err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown error")
         check "cdp connect" "false" "$err"
         # Show diagnostics if available
-        diag_info=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); di=d.get('diagnostics',{}); print('direct_rc=' + str(di.get('direct_rc','?')) + ' systemd_rc=' + str(di.get('systemd_run_rc','?')) + ' method=' + str(di.get('method','?')))" 2>/dev/null)
+        diag_info=$(echo "$resp" | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+di = d.get('diagnostics', {})
+parts = []
+for k in ['method','direct_rc','direct_error','systemd_run_rc','systemd_run_error','all_failed','skip_reason']:
+    v = di.get(k)
+    if v is not None:
+        parts.append(f'{k}={v}')
+stderr = d.get('stderr','')
+if stderr:
+    parts.append(f'stderr={stderr[:200]}')
+print(' | '.join(parts) if parts else 'no diagnostics')
+" 2>/dev/null)
         if [ -n "$diag_info" ]; then
             echo "    Diagnostics: $diag_info"
         fi
