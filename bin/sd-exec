@@ -19,6 +19,11 @@ Flags:
     --timeout SEC   set a maximum runtime
     --background    don't wait for the child; just spawn & exit
     --              separator before the command (recommended)
+
+IMPORTANT: `systemd-run --scope` blocks by default until the child exits.
+           For --background mode, we must use --no-block so systemd-run
+           registers the scope and returns immediately, leaving the child
+           running in the scope.
 """
 from __future__ import annotations
 import os
@@ -83,46 +88,50 @@ def _run_systemd(opts: dict, cmd: List[str]) -> int:
 
     Uses --scope (not a transient service) so the child process escapes
     the caller's cgroup. This is critical when the bridge runs as a
-    systemd user service with cgroup isolation — Chromium needs D-Bus,
-    display servers, etc. that are only available in the session scope.
+    systemd user service with cgroup isolation.
 
-    Key fix: --pipe implies --wait on systemd 255+, so we must NEVER use
-    --pipe with --background (or the call blocks until the child exits).
+    CRITICAL: `systemd-run --scope` blocks by default until the child
+    process exits. For --background mode, we MUST use --no-block so
+    that systemd-run returns immediately after creating the scope,
+    leaving the child running independently.
     """
-    # --pipe implies --wait on systemd 255+, so never use it with --background
-    use_pipe = not opts["no_pipe"] and not opts["background"]
-    pipe_flag = ["--pipe"] if use_pipe else []
+    pipe_flag = ["--pipe"] if not opts["no_pipe"] and not opts["background"] else []
     timeout_flag = [f"--property=RuntimeMaxSec={opts['timeout']}"] if opts["timeout"] else []
     env_flags = _build_env_flags()
 
     if opts["background"]:
-        # --scope + no --pipe + no --wait = systemd-run registers the scope
-        # and exits immediately. The child (Chromium) runs independently.
-        full = ["systemd-run", "--user", "--quiet", "--scope"] + \
+        # --scope --no-block: create scope, start child, return immediately.
+        # Without --no-block, systemd-run --scope BLOCKS until child exits,
+        # which defeats the purpose of --background.
+        full = ["systemd-run", "--user", "--quiet", "--scope", "--no-block"] + \
                pipe_flag + env_flags + timeout_flag + ["--"] + cmd
         try:
             proc = subprocess.Popen(full, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # systemd-run --scope without --wait should exit quickly (~1s)
-            # after registering the scope with systemd
+            # With --no-block, systemd-run should exit within ~2 seconds
+            # after registering the scope and starting the child.
             try:
-                proc.wait(timeout=8)
+                proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                # If it hasn't exited in 8s, something is wrong — kill it
+                # --no-block didn't work (old systemd?). Kill and fall back.
                 proc.terminate()
                 proc.wait(timeout=2)
-            # Check stderr for errors
+                sys.stderr.write("sd-exec: systemd-run --no-block timed out, falling back\n")
+                return _run_plain(opts, cmd)
+            # Check for errors from systemd-run
             stderr_out = proc.stderr.read().decode("utf-8", errors="replace").strip()
             if proc.returncode and proc.returncode != 0:
                 sys.stderr.write(f"sd-exec: systemd-run error (rc={proc.returncode}): {stderr_out}\n")
                 return proc.returncode
+            if stderr_out:
+                # Non-fatal warnings
+                sys.stderr.write(f"sd-exec: {stderr_out}\n")
             print("ok")
             return 0
         except FileNotFoundError:
-            # systemd-run not found — fall back to plain
             return _run_plain(opts, cmd)
     else:
-        # Foreground: use --scope --wait to run and wait for completion
-        full = ["systemd-run", "--user", "--quiet", "--scope", "--wait", "--collect",
+        # Foreground: --scope blocks until child exits (desired behavior)
+        full = ["systemd-run", "--user", "--quiet", "--scope",
                 "--same-dir"] + pipe_flag + env_flags + timeout_flag + ["--"] + cmd
         try:
             r = subprocess.run(full)

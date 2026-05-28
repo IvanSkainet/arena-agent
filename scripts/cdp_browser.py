@@ -136,17 +136,18 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     isolated cgroup (PrivateTmp, ProtectSystem). Chromium launched directly
     inside this cgroup cannot access D-Bus, display servers, etc., and crashes.
 
-    Solution: use the bundled ``sd-exec`` wrapper which runs Chromium via
-    ``systemd-run --user --scope`` with proper GUI environment variables
-    (-E flags), escaping the bridge's cgroup. This gives Chromium access to
-    D-Bus, Wayland/X11, and other desktop session resources.
+    Solution: use ``systemd-run --user --scope`` with proper GUI environment
+    variables (-E flags) to escape the bridge's cgroup. This gives Chromium
+    access to D-Bus, Wayland/X11, and other desktop session resources.
 
     We also bypass distro wrapper scripts (e.g. CachyOS's /usr/bin/chromium)
     which inject conflicting --ozone-platform-hint=auto flags.
 
-    The returned Popen object may refer to the launcher process (sd-exec or
-    systemd-run), NOT the Chromium process itself. The actual Chromium PID
-    is tracked via the debug port (9222).
+    IMPORTANT: ``systemd-run --scope`` blocks until the child exits.
+    We use ``subprocess.Popen()`` which returns immediately — the
+    systemd-run process keeps running in the background as long as
+    Chromium is alive. When we later call proc.terminate(), systemd-run
+    forwards the signal to Chromium.
     """
     exe = _resolve_browser_binary()
     logger.info("[CDP] Launching browser: %s", exe)
@@ -162,41 +163,16 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     if headless:
         cmd.append("--headless=new")
 
-    # On Linux with systemd: use sd-exec to escape the bridge's cgroup
-    # sd-exec passes GUI env vars (DISPLAY, DBUS_SESSION_BUS_ADDRESS, WAYLAND_DISPLAY, etc.)
-    use_sd_exec = False
+    # On Linux with systemd: use systemd-run --user --scope to escape cgroup
     use_systemd_run = False
-    sd_exec_path = None
     if platform.system() == "Linux":
         # Check if we're running inside a systemd service (cgroup isolation)
         in_systemd = os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM")
-        if in_systemd:
-            # Look for sd-exec in the bridge's bin/ directory
-            # ARENA_AGENT_HOME points to the bridge installation directory
-            bridge_home = os.environ.get("ARENA_AGENT_HOME", "")
-            candidates = [
-                os.path.join(bridge_home, "bin", "sd-exec") if bridge_home else "",
-                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "sd-exec"),
-                shutil.which("sd-exec") or "",
-            ]
-            for c in candidates:
-                if c and os.path.isfile(c):
-                    sd_exec_path = c
-                    use_sd_exec = True
-                    break
-            # If sd-exec not found, fall back to manual systemd-run
-            if not use_sd_exec:
-                use_systemd_run = True
+        if in_systemd and shutil.which("systemd-run"):
+            use_systemd_run = True
 
-    if use_sd_exec:
-        # Use sd-exec --background to escape cgroup.
-        # sd-exec runs: systemd-run --user --scope -E ... -- chromium ...
-        # --background means sd-exec exits after registering the scope,
-        # leaving Chromium running independently.
-        full_cmd = [sd_exec_path, "--background", "--"] + cmd
-        logger.info("[CDP] Using sd-exec (%s) to escape cgroup isolation", sd_exec_path)
-    elif use_systemd_run:
-        # Fallback: manual systemd-run --scope with explicit GUI env vars
+    if use_systemd_run:
+        # Build -E env flags for GUI/session variables
         env_flags = []
         for var in ["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
                      "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE",
@@ -204,73 +180,70 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
             val = os.environ.get(var)
             if val:
                 env_flags += ["-E", f"{var}={val}"]
-        # If we don't have DBUS_SESSION_BUS_ADDRESS, construct it
+        # Construct D-Bus address if not set (needed inside systemd services)
         if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
             uid = os.getuid()
             dbus_path = f"/run/user/{uid}/bus"
             if os.path.exists(dbus_path):
                 env_flags += ["-E", f"DBUS_SESSION_BUS_ADDRESS=unix:path={dbus_path}"]
-        # --scope without --wait: register scope and exit immediately
-        full_cmd = [
-            "systemd-run", "--user", "--scope",
-        ] + env_flags + ["--"] + cmd
-        logger.info("[CDP] Using manual systemd-run --scope to escape cgroup")
+
+        # Use systemd-run --user --scope to escape the bridge's cgroup.
+        # Key: Popen returns immediately. systemd-run --scope blocks internally
+        # waiting for Chromium, but that's fine — it runs as a background process.
+        # When we later call proc.terminate(), systemd-run forwards SIGTERM
+        # to Chromium.
+        full_cmd = ["systemd-run", "--user", "--scope"] + env_flags + ["--"] + cmd
+        logger.info("[CDP] Using systemd-run --user --scope to escape cgroup (cmd: %s)",
+                    " ".join(full_cmd[:8]) + " ...")
     else:
         full_cmd = cmd
         logger.info("[CDP] Direct browser launch (not in systemd service)")
 
-    # Launch the process
+    # Launch the process — Popen returns immediately, doesn't wait for child
     proc = subprocess.Popen(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # Give the browser a moment to start and open the debug port
+
+    # Give the browser time to start and open the debug port.
+    # Chromium via systemd-run --scope may take a few seconds to initialize.
     time.sleep(3)
 
-    # Read sd-exec output with a timeout to avoid blocking.
-    # sd-exec --background should print "ok" and exit quickly (~1-2s).
-    # We use a non-blocking read to avoid deadlocks.
-    if use_sd_exec:
-        try:
-            # Poll to see if sd-exec has exited (it should have by now)
-            if proc.poll() is not None:
-                stdout_output = proc.stdout.read().decode("utf-8", errors="replace").strip()
-                stderr_output = proc.stderr.read().decode("utf-8", errors="replace").strip()
-                if stdout_output:
-                    logger.info("[CDP] sd-exec output: %s", stdout_output)
-                if stderr_output:
-                    logger.warning("[CDP] sd-exec stderr: %s", stderr_output[:1000])
-                if proc.returncode != 0:
-                    logger.error("[CDP] sd-exec exited with code %d", proc.returncode)
-            else:
-                # sd-exec is still running — this could mean it's stuck.
-                # Try a non-blocking read.
-                import selectors
-                sel = selectors.DefaultSelector()
-                sel.register(proc.stdout, selectors.EVENT_READ)
-                ready = sel.select(timeout=2)
-                sel.close()
-                if ready:
-                    chunk = proc.stdout.read1(4096).decode("utf-8", errors="replace").strip()
-                    if chunk:
-                        logger.info("[CDP] sd-exec output (partial): %s", chunk)
-                else:
-                    logger.warning("[CDP] sd-exec still running after 3s — may be stuck")
-        except Exception as e:
-            logger.warning("[CDP] Could not read sd-exec output: %s", e)
-
-    # Check if the launcher process crashed/exited immediately
+    # Check if the launcher process exited immediately (crash or error)
     if proc.poll() is not None:
         stderr_output = ""
+        stdout_output = ""
         try:
             stderr_output = proc.stderr.read().decode("utf-8", errors="replace")
+        except Exception:
+            pass
+        try:
+            stdout_output = proc.stdout.read().decode("utf-8", errors="replace")
         except Exception:
             pass
         if stderr_output.strip():
             logger.error("[CDP] Browser launcher exited (code %d). stderr:\n%s",
                          proc.returncode, stderr_output[:2000])
+        elif use_systemd_run:
+            # systemd-run --scope exits after the child exits.
+            # If it exited in 3s, Chromium likely crashed immediately.
+            logger.error("[CDP] systemd-run exited in 3s (code %d) — Chromium may have crashed. "
+                         "stdout: %s", proc.returncode, stdout_output[:500])
         else:
-            logger.info("[CDP] Browser launcher exited (code %d) — Chromium may be running in scope",
-                        proc.returncode)
+            logger.error("[CDP] Browser process exited immediately (code %d)",
+                         proc.returncode)
     else:
-        logger.info("[CDP] Browser launcher still running (pid %d)", proc.pid)
+        # Process is still running — good, this is expected for systemd-run --scope
+        # (it blocks until Chromium exits) or direct Chromium launch
+        logger.info("[CDP] Browser launcher running (pid %d)", proc.pid)
+
+    # Quick check: is the debug port responding?
+    try:
+        tabs = list_tabs(port)
+        if tabs:
+            logger.info("[CDP] Debug port %d responding, %d tab(s) found", port, len(tabs))
+        else:
+            logger.info("[CDP] Debug port %d not responding yet — Chromium may still be starting", port)
+    except Exception:
+        pass
+
     return proc
 
 
