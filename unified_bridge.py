@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.8.1"
+VERSION = "1.8.3"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -4975,8 +4975,47 @@ async def handle_v1_skills(request: web.Request) -> web.Response:
 
 # --- /v1/skills/run POST — Run a skill ---
 
-def _skills_run_sync(name: str, args: list[str]) -> dict:
-    """Execute a skill via agentctl."""
+def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) -> dict:
+    """Execute a skill via agentctl or directly."""
+    # Try direct skill runner first (faster, supports JSON input via env)
+    skill_dir = SKILLS_DIR / name
+    if not skill_dir.exists():
+        # Try flat name under skills/
+        for d in SKILLS_DIR.iterdir():
+            if d.is_dir() and d.name == name:
+                skill_dir = d
+                break
+
+    runner_sh = skill_dir / "run.sh"
+    runner_py = skill_dir / "run.py"
+
+    if skill_dir.exists() and (runner_sh.exists() or runner_py.exists()):
+        # Direct execution — faster, passes input via env vars
+        env = os.environ.copy()
+        env["ARENA_AGENT_HOME"] = str(ROOT)
+        env["SKILL_NAME"] = name
+        env["SKILL_ARGS"] = json.dumps(args)
+        if env_extra:
+            for k, v in env_extra.items():
+                env[k] = str(v) if not isinstance(v, str) else v
+
+        if runner_sh.exists():
+            cmd = [str(runner_sh)] + list(args)
+        else:
+            py = sys.executable or "python3"
+            cmd = [py, str(runner_py)] + list(args)
+
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
+                               env=env, **_subprocess_kwargs())
+            return {"ok": p.returncode == 0, "exit_code": p.returncode,
+                    "stdout": p.stdout[-15000:], "stderr": p.stderr[-3000:]}
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
+        except Exception as e:
+            return {"ok": False, "exit_code": -2, "stdout": "", "stderr": str(e)}
+
+    # Fallback: agentctl skill run
     cmd_args = [os.path.join(BIN, "agentctl"), "skill", "run", name] + list(args)
     try:
         p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=300, **_subprocess_kwargs())
@@ -4989,7 +5028,12 @@ def _skills_run_sync(name: str, args: list[str]) -> dict:
 
 
 async def handle_v1_skills_run(request: web.Request) -> web.Response:
-    """POST /v1/skills/run — Run a skill. Body: {name, args?: []}."""
+    """POST /v1/skills/run — Run a skill. Body: {name, args?: [], input?: {}}.
+
+    - `name`: skill name (e.g. "browseract", "core/health", "web/research")
+    - `args`: positional args passed to run.sh/run.py (e.g. ["open", "https://example.com"])
+    - `input`: JSON object passed as SKILL_INPUT env var for skills that accept structured input
+    """
     r = require_auth(request)
     if r: return r
     _record_request()
@@ -5003,9 +5047,34 @@ async def handle_v1_skills_run(request: web.Request) -> web.Response:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing name"}, status=400)
     skill_args = data.get("args") or []
+    skill_input = data.get("input") or {}
+
+    # If input is provided but args are not, derive args from input
+    if skill_input and not skill_args:
+        # Common patterns: extract url, query, action as positional args
+        if "action" in skill_input and "url" in skill_input:
+            # BrowserAct-style: {action: "open", url: "..."}
+            skill_args = [skill_input["action"], skill_input["url"]]
+        elif "url" in skill_input and "task" in skill_input:
+            # BrowserAct extract: {url: "...", task: "..."}
+            skill_args = ["extract", skill_input["url"], "--task", skill_input["task"]]
+        elif "url" in skill_input:
+            # Simple URL: {url: "..."}
+            skill_args = ["open", skill_input["url"]]
+        elif "query" in skill_input:
+            # Search/research: {query: "...", n?: 3}
+            skill_args = [skill_input["query"]]
+            if "n" in skill_input:
+                skill_args.append(str(skill_input["n"]))
+
+    # Build env extras from input
+    env_extra = {}
+    if skill_input:
+        env_extra["SKILL_INPUT"] = json.dumps(skill_input)
+
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skills_run_sync, name, skill_args)
+        result = await loop.run_in_executor(_EXECUTOR, _skills_run_sync, name, skill_args, env_extra)
         audit({"type": "skill_run", "name": name, "args": skill_args, "ok": result.get("ok", False)})
         return _cors_json_response(result)
     except Exception as e:

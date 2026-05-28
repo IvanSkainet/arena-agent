@@ -352,6 +352,89 @@ def skill_list(args):
     except Exception as e:
         print(f"Error: {e}")
 
+def skill_run(args):
+    """Run a skill by name, passing args to its run.sh/run.py.
+
+    Usage: agentctl skill run <name> [args...]
+    Example: agentctl skill run browseract open https://example.com
+             agentctl skill run web/research "Python 3.12" 3
+    """
+    if not args:
+        print("Usage: agentctl skill run <name> [args...]")
+        sys.exit(2)
+    name = args[0]
+    skill_args = args[1:]
+
+    # Resolve skill directory
+    skill_dir = ROOT / "skills" / name
+    # Also try with 'core/' or other sub-paths if direct match fails
+    if not skill_dir.exists():
+        # Try flat name like 'browseract' -> skills/browseract/
+        for subdir in (ROOT / "skills").iterdir():
+            if subdir.is_dir() and subdir.name == name:
+                skill_dir = subdir
+                break
+
+    if not skill_dir.exists():
+        # Try using bridge API as fallback
+        try:
+            r = _bridge_post("/v1/skills/run", {"name": name, "args": skill_args})
+            print(r.get("stdout", ""), end="")
+            if r.get("stderr"):
+                print(r.get("stderr"), end="", file=sys.stderr)
+            if not r.get("ok"):
+                sys.exit(r.get("exit_code", 1))
+            return
+        except Exception:
+            pass
+        print(f"Skill not found: {name}")
+        sys.exit(1)
+
+    # Find runner
+    runner_sh = skill_dir / "run.sh"
+    runner_py = skill_dir / "run.py"
+
+    if runner_sh.exists():
+        cmd = [str(runner_sh)] + skill_args
+        env = os.environ.copy()
+        env["ARENA_AGENT_HOME"] = str(ROOT)
+        env["SKILL_NAME"] = name
+        env["SKILL_ARGS"] = json.dumps(skill_args)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+            print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            sys.exit(result.returncode)
+        except subprocess.TimeoutExpired:
+            print("Skill timed out (300s)", file=sys.stderr)
+            sys.exit(124)
+        except Exception as e:
+            print(f"Error running skill: {e}", file=sys.stderr)
+            sys.exit(1)
+    elif runner_py.exists():
+        py = sys.executable or "python3"
+        cmd = [py, str(runner_py)] + skill_args
+        env = os.environ.copy()
+        env["ARENA_AGENT_HOME"] = str(ROOT)
+        env["SKILL_NAME"] = name
+        env["SKILL_ARGS"] = json.dumps(skill_args)
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+            print(result.stdout, end="")
+            if result.stderr:
+                print(result.stderr, end="", file=sys.stderr)
+            sys.exit(result.returncode)
+        except subprocess.TimeoutExpired:
+            print("Skill timed out (300s)", file=sys.stderr)
+            sys.exit(124)
+        except Exception as e:
+            print(f"Error running skill: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"No run.sh or run.py found in {skill_dir}")
+        sys.exit(1)
+
 # ─── Namespace: audit ─────────────────────────────────────────────────────
 
 def audit_stats(args):
@@ -432,7 +515,7 @@ Namespaces:
   recall  search|digest                          TF-scored recall
   browser search|read|dump|head|shot             Browser tools
   task    list|submit|clean                      Task queue
-  skill   list                                   Skills
+  skill   list|run                               Skills
   audit   stats|tail                             Audit log
   backup  run                                    Backups
   mission list                                   Missions
@@ -464,7 +547,7 @@ DISPATCH = {
         "shot": browser_shot, "sd-shot": browser_shot,
     },
     "task": {"list": task_list, "ls": task_list, "submit": task_submit, "clean": task_clean},
-    "skill": {"list": skill_list, "ls": skill_list},
+    "skill": {"list": skill_list, "ls": skill_list, "run": skill_run},
     "audit": {"stats": audit_stats, "tail": audit_tail},
     "backup": {"run": backup_run},
     "mission": {"list": mission_list, "ls": mission_list},
