@@ -4994,6 +4994,7 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
         env = os.environ.copy()
         env["ARENA_AGENT_HOME"] = str(ROOT_AGENT)
         env["SKILL_NAME"] = name
+        env["SKILL_DIR"] = str(skill_dir)
         env["SKILL_ARGS"] = json.dumps(args)
         if env_extra:
             for k, v in env_extra.items():

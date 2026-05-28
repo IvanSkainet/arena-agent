@@ -399,6 +399,7 @@ def skill_run(args):
         env = os.environ.copy()
         env["ARENA_AGENT_HOME"] = str(ROOT)
         env["SKILL_NAME"] = name
+        env["SKILL_DIR"] = str(skill_dir)
         env["SKILL_ARGS"] = json.dumps(skill_args)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
@@ -418,6 +419,7 @@ def skill_run(args):
         env = os.environ.copy()
         env["ARENA_AGENT_HOME"] = str(ROOT)
         env["SKILL_NAME"] = name
+        env["SKILL_DIR"] = str(skill_dir)
         env["SKILL_ARGS"] = json.dumps(skill_args)
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
