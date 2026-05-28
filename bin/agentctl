@@ -355,6 +355,54 @@ def skill_list(args):
     except Exception as e:
         print(f"Error: {e}")
 
+def skill_run(args):
+    """Run a skill by name. Usage: agentctl skill run <name> [args...]"""
+    if not args:
+        print("Usage: agentctl skill run <name> [args...]")
+        sys.exit(2)
+    name = args[0]
+    skill_args = args[1:]
+
+    # Locate skill directory
+    skill_dir = ROOT / "skills" / name
+    if not skill_dir.is_dir():
+        # Try stripping /SKILL suffix
+        base = name.rsplit("/", 1)[0] if "/" in name else name
+        skill_dir = ROOT / "skills" / base
+    if not skill_dir.is_dir():
+        print(f"Skill not found: {name} (looked in {ROOT}/skills/{name})")
+        sys.exit(1)
+
+    env = os.environ.copy()
+    env["ARENA_AGENT_HOME"] = str(ROOT)
+    env["SKILL_NAME"] = name
+    env["SKILL_DIR"] = str(skill_dir)
+
+    # Prefer run.sh, then run.py
+    runner = skill_dir / "run.sh"
+    cmd = []
+    if runner.exists():
+        cmd = ["bash", str(runner)] + skill_args
+    elif (skill_dir / "run.py").exists():
+        cmd = [sys.executable or "python3", str(skill_dir / "run.py")] + skill_args
+    else:
+        print(f"No run.sh or run.py found in {skill_dir}")
+        sys.exit(1)
+
+    try:
+        result = subprocess.run(cmd, env=env, capture_output=True, text=True, timeout=300)
+        if result.stdout:
+            print(result.stdout, end="")
+        if result.stderr:
+            print(result.stderr, end="", file=sys.stderr)
+        sys.exit(result.returncode)
+    except subprocess.TimeoutExpired:
+        print("Skill timed out after 300s")
+        sys.exit(1)
+    except Exception as e:
+        print(f"Error running skill: {e}")
+        sys.exit(1)
+
 # ─── Namespace: audit ─────────────────────────────────────────────────────
 
 def audit_stats(args):
@@ -467,7 +515,7 @@ DISPATCH = {
         "shot": browser_shot, "sd-shot": browser_shot,
     },
     "task": {"list": task_list, "ls": task_list, "submit": task_submit, "clean": task_clean},
-    "skill": {"list": skill_list, "ls": skill_list},
+    "skill": {"list": skill_list, "ls": skill_list, "run": skill_run},
     "audit": {"stats": audit_stats, "tail": audit_tail},
     "backup": {"run": backup_run},
     "mission": {"list": mission_list, "ls": mission_list},
