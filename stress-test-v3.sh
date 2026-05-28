@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.18 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.19 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -215,53 +215,109 @@ for m in d.get('modes_tried', []):
     fi
 fi
 
+# 1.4b2 CDP Raw Info (v1.9.19 — fetches /json/version and /json/list from a running Chromium)
+if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
+    echo "  CDP raw-info (launches Chromium, fetches raw CDP HTTP responses, up to 45s)..."
+    ri_resp=$(curl -s --max-time 45 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/raw-info?port=9223" 2>/dev/null)
+    if [ -n "$ri_resp" ]; then
+        ri_ok=$(echo "$ri_resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
+        ri_ws_url=$(echo "$ri_resp" | jq_val '["webSocketDebuggerUrl"]' 2>/dev/null || echo "?")
+        ri_version_id=$(echo "$ri_resp" | jq_val '["version_id"]' 2>/dev/null || echo "?")
+        ri_browser=$(echo "$ri_resp" | jq_val '["version_browser"]' 2>/dev/null || echo "?")
+        ri_has_ws=$(echo "$ri_resp" | jq_val '["has_webSocketDebuggerUrl"]' 2>/dev/null || echo "?")
+        ri_tab_ws_ok=$(echo "$ri_resp" | jq_val '["tab_ws_ok"]' 2>/dev/null || echo "False")
+        ri_tab_ws_lib=$(echo "$ri_resp" | jq_val '["tab_ws_lib"]' 2>/dev/null || echo "?")
+        ri_tab_ws_time=$(echo "$ri_resp" | jq_val '["tab_ws_time_s"]' 2>/dev/null || echo "?")
+        ri_tab_ws_cdp=$(echo "$ri_resp" | jq_val '["tab_ws_cdp_ok"]' 2>/dev/null || echo "False")
+        ri_error=$(echo "$ri_resp" | jq_val '["error"]' 2>/dev/null || echo "")
+        ri_tab_ws_err=$(echo "$ri_resp" | jq_val '["tab_ws_error"]' 2>/dev/null || echo "")
+        ri_tab_ws_aio_err=$(echo "$ri_resp" | jq_val '["tab_ws_aiohttp_error"]' 2>/dev/null || echo "")
+        echo "    wsDebuggerUrl=$ri_ws_url  has_ws=$ri_has_ws  id=$ri_version_id"
+        echo "    browser=$ri_browser"
+        echo "    tab_ws_ok=$ri_tab_ws_ok  lib=$ri_tab_ws_lib  time=${ri_tab_ws_time}s  cdp=$ri_tab_ws_cdp"
+        if [ -n "$ri_tab_ws_err" ]; then echo "    tab_ws_error: $ri_tab_ws_err"; fi
+        if [ -n "$ri_tab_ws_aio_err" ]; then echo "    tab_ws_aiohttp_error: $ri_tab_ws_aio_err"; fi
+        if [ -n "$ri_error" ]; then echo "    error: $ri_error"; fi
+        # Show tab WS URLs from raw /json/list
+        echo "$ri_resp" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+tabs = d.get('tab_ws_urls', [])
+for t in tabs[:3]:
+    print(f'    tab: type={t.get(\"type\",\"?\")} id={t.get(\"id\",\"?\")[:20]} wsUrl={t.get(\"webSocketDebuggerUrl\",\"MISSING\")[:60]}')
+" 2>/dev/null || true
+        if [ "$ri_ok" = "True" ]; then
+            check "cdp raw-info" "true" "(tab_ws=$ri_tab_ws_ok, wsUrl=$ri_has_ws)"
+        else
+            check "cdp raw-info" "false" "tab_ws=$ri_tab_ws_ok, error=$ri_error"
+        fi
+    else
+        check "cdp raw-info" "false" "No response (curl timeout?)"
+    fi
+fi
+
 # 1.4c CDP WebSocket Test (standalone diagnostic — tests WS connect to debug port)
 if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
-    echo "  CDP test-ws (launches Chromium, tests WS, up to 30s)..."
-    ws_resp=$(curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/test-ws?port=9223" 2>/dev/null)
+    echo "  CDP test-ws (launches Chromium, tests WS, up to 45s)..."
+    ws_resp=$(curl -s --max-time 45 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/test-ws?port=9223" 2>/dev/null)
     if [ -n "$ws_resp" ]; then
-        # v1.9.18: Also show tab_ws_url and constructed flags
-        ws_ok=$(echo "$ws_resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
-        ws_browser_ws=$(echo "$ws_resp" | jq_val '["ws_connect_ok"]' 2>/dev/null || echo "?")
-        ws_tab_ws=$(echo "$ws_resp" | jq_val '["tab_ws_connect_ok"]' 2>/dev/null || echo "?")
-        ws_browser_time=$(echo "$ws_resp" | jq_val '["ws_connect_time_s"]' 2>/dev/null || echo "?")
-        ws_tab_time=$(echo "$ws_resp" | jq_val '["tab_ws_connect_time_s"]' 2>/dev/null || echo "?")
-        ws_url=$(echo "$ws_resp" | jq_val '["ws_url"]' 2>/dev/null || echo "?")
-        ws_tab_url=$(echo "$ws_resp" | jq_val '["tab_ws_url"]' 2>/dev/null || echo "?")
-        ws_err=$(echo "$ws_resp" | jq_val '["ws_connect_error"]' 2>/dev/null || echo "")
-        ws_tab_err=$(echo "$ws_resp" | jq_val '["tab_ws_connect_error"]' 2>/dev/null || echo "")
-        ws_websockets_ok=$(echo "$ws_resp" | jq_val '["websockets_browser_ok"]' 2>/dev/null || echo "?")
-        ws_websockets_time=$(echo "$ws_resp" | jq_val '["websockets_browser_time_s"]' 2>/dev/null || echo "?")
-        ws_websockets_tab_ok=$(echo "$ws_resp" | jq_val '["websockets_tab_ok"]' 2>/dev/null || echo "?")
-        ws_websockets_tab_time=$(echo "$ws_resp" | jq_val '["websockets_tab_time_s"]' 2>/dev/null || echo "?")
-        ws_constructed=$(echo "$ws_resp" | jq_val '["tab_ws_constructed"]' 2>/dev/null || echo "")
-        echo "    browser_ws=$ws_browser_ws (${ws_browser_time}s) tab_ws=$ws_tab_ws (${ws_tab_time}s)"
-        echo "    browser_url=$ws_url"
-        echo "    tab_url=$ws_tab_url${ws_constructed:+ (constructed)}"
-        echo "    websockets_lib=$ws_websockets_ok (${ws_websockets_time}s) tab=$ws_websockets_tab_ok (${ws_websockets_tab_time}s)"
-        if [ -n "$ws_err" ]; then
-            echo "    browser_ws_error: $ws_err"
-        fi
-        if [ -n "$ws_tab_err" ]; then
-            echo "    tab_ws_error: $ws_tab_err"
-        fi
-        # Show CDP command result if available
-        ws_cdp_ok=$(echo "$ws_resp" | jq_val '["cdp_command_ok"]' 2>/dev/null || echo "")
-        if [ -n "$ws_cdp_ok" ] && [ "$ws_cdp_ok" = "True" ]; then
-            echo "    cdp_command: OK!"
-        fi
-        ws_tab_cdp_ok=$(echo "$ws_resp" | jq_val '["tab_cdp_ok"]' 2>/dev/null || echo "")
-        if [ -n "$ws_tab_cdp_ok" ] && [ "$ws_tab_cdp_ok" = "True" ]; then
-            echo "    tab_cdp_command: OK!"
-        fi
-        ws_ws_tab_cdp_ok=$(echo "$ws_resp" | jq_val '["websockets_tab_cdp_ok"]' 2>/dev/null || echo "")
-        if [ -n "$ws_ws_tab_cdp_ok" ] && [ "$ws_ws_tab_cdp_ok" = "True" ]; then
-            echo "    websockets_tab_cdp: OK!"
-        fi
-        if [ "$ws_ok" = "True" ]; then
-            check "cdp test-ws" "true" "(browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws, websockets=$ws_websockets_ok)"
+        # v1.9.19: Check if response is valid JSON first
+        ws_is_json=$(echo "$ws_resp" | python3 -c "import json,sys; json.load(sys.stdin); print('yes')" 2>/dev/null || echo "no")
+        if [ "$ws_is_json" = "no" ]; then
+            echo "    WARNING: Response is NOT valid JSON! First 200 chars:"
+            echo "    ${ws_resp:0:200}"
+            check "cdp test-ws" "false" "Non-JSON response (endpoint crash?)"
         else
-            check "cdp test-ws" "false" "browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws, error=$ws_err"
+            ws_ok=$(echo "$ws_resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
+            ws_browser_ws=$(echo "$ws_resp" | jq_val '["ws_connect_ok"]' 2>/dev/null || echo "?")
+            ws_tab_ws=$(echo "$ws_resp" | jq_val '["tab_ws_connect_ok"]' 2>/dev/null || echo "?")
+            ws_browser_time=$(echo "$ws_resp" | jq_val '["ws_connect_time_s"]' 2>/dev/null || echo "?")
+            ws_tab_time=$(echo "$ws_resp" | jq_val '["tab_ws_connect_time_s"]' 2>/dev/null || echo "?")
+            ws_url=$(echo "$ws_resp" | jq_val '["ws_url"]' 2>/dev/null || echo "?")
+            ws_tab_url=$(echo "$ws_resp" | jq_val '["tab_ws_url"]' 2>/dev/null || echo "?")
+            ws_err=$(echo "$ws_resp" | jq_val '["ws_connect_error"]' 2>/dev/null || echo "")
+            ws_tab_err=$(echo "$ws_resp" | jq_val '["tab_ws_connect_error"]' 2>/dev/null || echo "")
+            ws_websockets_ok=$(echo "$ws_resp" | jq_val '["websockets_browser_ok"]' 2>/dev/null || echo "?")
+            ws_websockets_time=$(echo "$ws_resp" | jq_val '["websockets_browser_time_s"]' 2>/dev/null || echo "?")
+            ws_websockets_tab_ok=$(echo "$ws_resp" | jq_val '["websockets_tab_ok"]' 2>/dev/null || echo "?")
+            ws_websockets_tab_time=$(echo "$ws_resp" | jq_val '["websockets_tab_time_s"]' 2>/dev/null || echo "?")
+            ws_constructed=$(echo "$ws_resp" | jq_val '["tab_ws_constructed"]' 2>/dev/null || echo "")
+            ws_http_ok=$(echo "$ws_resp" | jq_val '["http_endpoint_ok"]' 2>/dev/null || echo "?")
+            ws_version_keys=$(echo "$ws_resp" | jq_val '["raw_version_keys"]' 2>/dev/null || echo "?")
+            echo "    browser_ws=$ws_browser_ws (${ws_browser_time}s) tab_ws=$ws_tab_ws (${ws_tab_time}s)"
+            echo "    browser_url=$ws_url"
+            echo "    tab_url=$ws_tab_url${ws_constructed:+ (constructed)}"
+            echo "    http_ok=$ws_http_ok  version_keys=$ws_version_keys"
+            echo "    websockets_lib=$ws_websockets_ok (${ws_websockets_time}s) tab=$ws_websockets_tab_ok (${ws_websockets_tab_time}s)"
+            if [ -n "$ws_err" ]; then
+                echo "    browser_ws_error: $ws_err"
+            fi
+            if [ -n "$ws_tab_err" ]; then
+                echo "    tab_ws_error: $ws_tab_err"
+            fi
+            # Show version info
+            ws_ver_ws=$(echo "$ws_resp" | jq_val '["version_info","webSocketDebuggerUrl"]' 2>/dev/null || echo "?")
+            ws_ver_id=$(echo "$ws_resp" | jq_val '["version_info","id"]' 2>/dev/null || echo "?")
+            echo "    version: wsUrl=$ws_ver_ws  id=$ws_ver_id"
+            # Show CDP command result if available
+            ws_tab_cdp_ok=$(echo "$ws_resp" | jq_val '["tab_cdp_ok"]' 2>/dev/null || echo "")
+            if [ -n "$ws_tab_cdp_ok" ] && [ "$ws_tab_cdp_ok" = "True" ]; then
+                echo "    tab_cdp_command: OK!"
+            fi
+            ws_ws_tab_cdp_ok=$(echo "$ws_resp" | jq_val '["websockets_tab_cdp_ok"]' 2>/dev/null || echo "")
+            if [ -n "$ws_ws_tab_cdp_ok" ] && [ "$ws_ws_tab_cdp_ok" = "True" ]; then
+                echo "    websockets_tab_cdp: OK!"
+            fi
+            # Show unhandled error if present
+            ws_unhandled=$(echo "$ws_resp" | jq_val '["error"]' 2>/dev/null || echo "")
+            if [ -n "$ws_unhandled" ]; then
+                echo "    unhandled_error: $ws_unhandled"
+            fi
+            if [ "$ws_ok" = "True" ]; then
+                check "cdp test-ws" "true" "(browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws, websockets=$ws_websockets_ok)"
+            else
+                check "cdp test-ws" "false" "browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws, error=$ws_tab_err"
+            fi
         fi
     else
         check "cdp test-ws" "false" "No response (curl timeout?)"

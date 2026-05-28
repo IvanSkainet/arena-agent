@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.18"
+VERSION = "1.9.19"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -1063,6 +1063,7 @@ def make_app(cfg: dict) -> web.Application:
     # ---- CDP (Chrome DevTools Protocol) ----
     app.router.add_get("/v1/browser/cdp/status", handle_v1_cdp_status)
     app.router.add_get("/v1/browser/cdp/diag", handle_v1_cdp_diag)
+    app.router.add_get("/v1/browser/cdp/raw-info", handle_v1_cdp_raw_info)
     app.router.add_get("/v1/browser/cdp/test-launch", handle_v1_cdp_test_launch)
     app.router.add_get("/v1/browser/cdp/test-ws", handle_v1_cdp_test_ws)
     app.router.add_post("/v1/browser/cdp/connect", handle_v1_cdp_connect)
@@ -3447,6 +3448,240 @@ async def handle_v1_cdp_diag(request):
     return _cors_json_response(diag)
 
 
+async def handle_v1_cdp_raw_info(request):
+    """GET /v1/browser/cdp/raw-info — Fetch raw /json/version and /json/list from a Chromium debug port.
+
+    v1.9.19: New diagnostic endpoint to see EXACTLY what CachyOS Chromium returns
+    from its CDP HTTP endpoints. This is critical for debugging WebSocket URL issues.
+
+    Launches its own Chromium instance, waits for the port, fetches the raw HTTP
+    responses, kills the browser, and returns the data. NO WebSocket testing here.
+
+    Query params:
+        port: int (default: 9223)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": "cdp_browser module not found"},
+            status=500
+        )
+
+    qs = parse_qs(request.query_string)
+    port = int(qs.get("port", ["9223"])[0])
+
+    result = {
+        "ok": False,
+        "port": port,
+        "raw_version": None,
+        "raw_tabs": None,
+        "error": None,
+    }
+
+    try:
+        loop = asyncio.get_event_loop()
+
+        # Kill stale processes and launch
+        try:
+            await loop.run_in_executor(None, cdp._kill_port_processes, port)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            log.warning("[raw-info] Kill stale processes failed: %s", e)
+
+        browser_proc = await loop.run_in_executor(
+            None, cdp.launch_browser, port, True
+        )
+        result["browser_pid"] = browser_proc.pid
+
+        # Wait for port to become ready (max 10s)
+        port_ready = False
+        for attempt in range(20):
+            await asyncio.sleep(0.5)
+            if browser_proc.poll() is not None:
+                result["browser_died"] = True
+                result["browser_rc"] = browser_proc.returncode
+                launch_diag = getattr(browser_proc, '_cdp_launch_diag', {})
+                stderr_log = launch_diag.get("stderr_log", "")
+                if stderr_log:
+                    try:
+                        with open(stderr_log, "r") as f:
+                            result["browser_stderr"] = f.read().strip()[:2000]
+                    except Exception:
+                        pass
+                result["error"] = f"Browser died (rc={browser_proc.returncode})"
+                return _cors_json_response(result)
+            try:
+                tabs = await loop.run_in_executor(None, cdp.list_tabs, port)
+                if tabs:
+                    port_ready = True
+                    result["port_ready_after_s"] = (attempt + 1) * 0.5
+                    break
+            except Exception:
+                pass
+
+        if not port_ready:
+            result["error"] = f"Chromium port {port} not ready after 10s"
+            try:
+                browser_proc.terminate()
+                browser_proc.wait(timeout=3)
+            except Exception:
+                pass
+            return _cors_json_response(result)
+
+        # Fetch /json/version — raw HTTP response
+        try:
+            def _get_version():
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as r:
+                    raw = r.read().decode()
+                    return json.loads(raw), raw
+            version_data, version_raw = await loop.run_in_executor(None, _get_version)
+            result["raw_version"] = version_data
+            result["raw_version_keys"] = list(version_data.keys())
+            result["has_webSocketDebuggerUrl"] = "webSocketDebuggerUrl" in version_data
+            result["webSocketDebuggerUrl"] = version_data.get("webSocketDebuggerUrl", "MISSING")
+            result["version_id"] = version_data.get("id", "MISSING")
+            result["version_browser"] = version_data.get("Browser", "?")
+            log.info("[raw-info] /json/version keys: %s", list(version_data.keys()))
+            log.info("[raw-info] webSocketDebuggerUrl: %s", version_data.get("webSocketDebuggerUrl", "MISSING"))
+            log.info("[raw-info] id: %s", version_data.get("id", "MISSING"))
+        except Exception as e:
+            result["raw_version_error"] = f"{type(e).__name__}: {e}"
+            log.warning("[raw-info] /json/version fetch failed: %s", e)
+
+        # Fetch /json/list — raw HTTP response
+        try:
+            def _get_tabs():
+                with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:
+                    raw = r.read().decode()
+                    return json.loads(raw), raw
+            tabs_data, tabs_raw = await loop.run_in_executor(None, _get_tabs)
+            result["raw_tabs"] = tabs_data
+            result["tab_count"] = len(tabs_data)
+            # Summarize tab types and WS URLs
+            page_tabs = [t for t in tabs_data if t.get("type") == "page"]
+            result["page_tab_count"] = len(page_tabs)
+            result["tab_ws_urls"] = [
+                {"id": t.get("id", "?"), "type": t.get("type", "?"),
+                 "webSocketDebuggerUrl": t.get("webSocketDebuggerUrl", "MISSING"),
+                 "url": t.get("url", "?")[:80]}
+                for t in tabs_data[:5]  # First 5 only
+            ]
+            log.info("[raw-info] /json/list: %d entries, %d pages", len(tabs_data), len(page_tabs))
+            for i, t in enumerate(page_tabs[:3]):
+                log.info("[raw-info]   page[%d]: id=%s wsUrl=%s url=%s",
+                         i, t.get("id", "?")[:20],
+                         t.get("webSocketDebuggerUrl", "MISSING")[:60],
+                         t.get("url", "?")[:50])
+        except Exception as e:
+            result["raw_tabs_error"] = f"{type(e).__name__}: {e}"
+            log.warning("[raw-info] /json/list fetch failed: %s", e)
+
+        # Quick WS probe using websockets library (if available)
+        if page_tabs:
+            tab_id = page_tabs[0].get("id", "")
+            tab_ws_url = page_tabs[0].get("webSocketDebuggerUrl", "")
+            if not tab_ws_url and tab_id:
+                tab_ws_url = f"ws://127.0.0.1:{port}/devtools/page/{tab_id}"
+                result["tab_ws_url_constructed"] = True
+            result["tab_ws_url_tested"] = tab_ws_url
+
+            if tab_ws_url:
+                # Try websockets library
+                try:
+                    import websockets
+                    t0 = time.monotonic()
+                    ws = await asyncio.wait_for(
+                        websockets.connect(tab_ws_url, open_timeout=3, close_timeout=2),
+                        timeout=5
+                    )
+                    elapsed = time.monotonic() - t0
+                    result["tab_ws_ok"] = True
+                    result["tab_ws_time_s"] = round(elapsed, 2)
+                    result["tab_ws_lib"] = "websockets"
+                    # Try a CDP command
+                    try:
+                        await ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                                   "params": {"expression": "1+1"}}))
+                        resp = await asyncio.wait_for(ws.recv(), timeout=3)
+                        result["tab_ws_cdp_ok"] = True
+                        result["tab_ws_cdp_preview"] = resp[:200]
+                    except Exception as e:
+                        result["tab_ws_cdp_ok"] = False
+                        result["tab_ws_cdp_error"] = str(e)
+                    await ws.close()
+                    result["ok"] = True
+                except ImportError:
+                    result["tab_ws_ok"] = False
+                    result["tab_ws_error"] = "websockets library not available"
+                except asyncio.TimeoutError:
+                    result["tab_ws_ok"] = False
+                    result["tab_ws_error"] = f"websockets TIMEOUT (5s) to {tab_ws_url}"
+                except Exception as e:
+                    result["tab_ws_ok"] = False
+                    result["tab_ws_error"] = f"{type(e).__name__}: {e} to {tab_ws_url}"
+
+                # If websockets failed, try aiohttp
+                if not result.get("tab_ws_ok"):
+                    try:
+                        import aiohttp as _aiohttp
+                        t0 = time.monotonic()
+                        ws_timeout = _aiohttp.ClientTimeout(total=3, connect=2, sock_connect=2)
+                        connector = _aiohttp.TCPConnector(force_close=True)
+                        async with _aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
+                            tab_ws = await asyncio.wait_for(
+                                session.ws_connect(tab_ws_url, heartbeat=None, proxy=None),
+                                timeout=5
+                            )
+                            elapsed = time.monotonic() - t0
+                            result["tab_ws_ok"] = True
+                            result["tab_ws_time_s"] = round(elapsed, 2)
+                            result["tab_ws_lib"] = "aiohttp"
+                            try:
+                                await tab_ws.send_json({"id": 1, "method": "Runtime.evaluate",
+                                                         "params": {"expression": "1+1"}})
+                                msg = await asyncio.wait_for(tab_ws.receive(), timeout=3)
+                                if msg.type == _aiohttp.WSMsgType.TEXT:
+                                    result["tab_ws_cdp_ok"] = True
+                                    result["tab_ws_cdp_preview"] = msg.data[:200]
+                            except Exception as e:
+                                result["tab_ws_cdp_ok"] = False
+                                result["tab_ws_cdp_error"] = str(e)
+                            await tab_ws.close()
+                            result["ok"] = True
+                    except asyncio.TimeoutError:
+                        result["tab_ws_aiohttp_error"] = f"aiohttp TIMEOUT (5s) to {tab_ws_url}"
+                    except Exception as e:
+                        result["tab_ws_aiohttp_error"] = f"aiohttp {type(e).__name__}: {e} to {tab_ws_url}"
+
+        if not result.get("ok"):
+            # HTTP works but WS doesn't — still useful diagnostic
+            result["ok"] = bool(result.get("raw_version") or result.get("raw_tabs"))
+
+    except Exception as e:
+        import traceback
+        result["error"] = f"Unhandled: {type(e).__name__}: {e}"
+        result["traceback"] = traceback.format_exc()
+        log.error("[raw-info] UNHANDLED: %s\n%s", e, traceback.format_exc())
+    finally:
+        # Always kill the test browser
+        if "browser_proc" in dir() and browser_proc:
+            try:
+                browser_proc.terminate()
+                browser_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    browser_proc.kill()
+                except Exception:
+                    pass
+
+    return _cors_json_response(result)
+
+
 async def handle_v1_cdp_test_launch(request):
     """GET /v1/browser/cdp/test-launch — Diagnostic: try launching Chromium and capture output.
 
@@ -3664,12 +3899,12 @@ async def handle_v1_cdp_test_launch(request):
 async def handle_v1_cdp_test_ws(request):
     """GET /v1/browser/cdp/test-ws — Diagnostic: test WebSocket connectivity to Chromium debug port.
 
-    v1.9.18: Complete rewrite for speed and reliability.
-    - Reduced individual WS test timeouts to 5s (was 10-15s)
-    - Constructs WS URLs from target_id when webSocketDebuggerUrl is missing
-    - Logs raw HTTP responses from /json/version and /json/list
-    - Prioritizes TAB-level WS (most important for CDP operations)
-    - Total endpoint time capped at ~25s to fit within curl --max-time 30
+    v1.9.19: Complete rewrite — ROBUST error handling, simplified flow.
+    - Top-level try/except to ALWAYS return valid JSON (fixes all `?` values)
+    - ONLY tests tab-level WS (most important, skip browser WS to save time)
+    - websockets library FIRST, aiohttp as fallback
+    - Total time capped at ~20s to fit within curl --max-time 45
+    - Includes raw /json/version and /json/list responses for debugging
 
     Query params:
         port: int (default: 9223)
@@ -3703,21 +3938,26 @@ async def handle_v1_cdp_test_ws(request):
 
     browser_proc = None
 
-    # Step 0: Launch Chromium on the test port
-    loop = asyncio.get_event_loop()
-    logger.info("[test-ws] Launching Chromium on port %d...", port)
     try:
-        await loop.run_in_executor(None, cdp._kill_port_processes, port)
-        await asyncio.sleep(0.3)
+        loop = asyncio.get_event_loop()
+        logger.info("[test-ws] START port=%d", port)
+
+        # Step 0: Launch Chromium on the test port
+        try:
+            await loop.run_in_executor(None, cdp._kill_port_processes, port)
+            await asyncio.sleep(0.3)
+        except Exception as e:
+            logger.warning("[test-ws] Kill stale processes failed: %s", e)
 
         browser_proc = await loop.run_in_executor(
             None, cdp.launch_browser, port, True
         )
         result["browser_pid"] = browser_proc.pid
+        logger.info("[test-ws] Browser launched pid=%d", browser_proc.pid)
 
-        # Wait for port to become ready (max 8s)
+        # Wait for port to become ready (max 10s)
         port_ready = False
-        for attempt in range(16):
+        for attempt in range(20):
             await asyncio.sleep(0.5)
             if browser_proc.poll() is not None:
                 result["browser_died"] = True
@@ -3730,282 +3970,243 @@ async def handle_v1_cdp_test_ws(request):
                             result["browser_stderr"] = f.read().strip()[:1000]
                     except Exception:
                         pass
-                result["ws_connect_error"] = f"Browser died (rc={browser_proc.returncode})"
-                result["tab_ws_connect_error"] = "Browser died before tab WS test"
+                result["error"] = f"Browser died (rc={browser_proc.returncode})"
                 return _cors_json_response(result)
             try:
                 tabs = await loop.run_in_executor(None, cdp.list_tabs, port)
                 if tabs:
                     port_ready = True
                     result["port_ready_after_s"] = (attempt + 1) * 0.5
+                    logger.info("[test-ws] Port ready after %.1fs", (attempt + 1) * 0.5)
                     break
             except Exception:
                 pass
 
         if not port_ready:
-            result["error"] = f"Chromium port {port} not ready after 8s"
-            result["ws_connect_error"] = f"Port {port} not ready"
-            result["tab_ws_connect_error"] = "Port not ready"
+            result["error"] = f"Chromium port {port} not ready after 10s"
             try:
                 browser_proc.terminate()
                 browser_proc.wait(timeout=3)
             except Exception:
                 pass
+            browser_proc = None
             return _cors_json_response(result)
-    except Exception as e:
-        result["error"] = f"Failed to launch Chromium: {type(e).__name__}: {e}"
-        result["ws_connect_error"] = f"Launch failed: {e}"
-        result["tab_ws_connect_error"] = "Launch failed"
-        return _cors_json_response(result)
 
-    # Step 1: Get /json/version AND /json/list in parallel
-    browser_ws_url = ""
-    tab_ws_url = ""
-    raw_version = {}
-    raw_tabs = []
-
-    async def _fetch_version():
-        nonlocal browser_ws_url, raw_version
+        # Step 1: Fetch /json/version
+        raw_version = {}
+        browser_ws_url = ""
         try:
-            def _get():
+            def _get_version():
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as r:
                     return json.loads(r.read().decode())
-            raw_version = await loop.run_in_executor(None, _get)
+            raw_version = await loop.run_in_executor(None, _get_version)
             browser_ws_url = raw_version.get("webSocketDebuggerUrl", "")
-            logger.info("[test-ws] /json/version: %s",
-                        json.dumps({k: str(v)[:80] for k, v in raw_version.items()}))
+            result["raw_version_keys"] = list(raw_version.keys())
+            result["version_info"] = {
+                "Browser": raw_version.get("Browser", "?")[:50],
+                "webSocketDebuggerUrl": raw_version.get("webSocketDebuggerUrl", "MISSING")[:80],
+                "id": raw_version.get("id", "MISSING"),
+            }
+            result["http_endpoint_ok"] = True
+            logger.info("[test-ws] /json/version: keys=%s wsUrl=%s id=%s",
+                        list(raw_version.keys()),
+                        raw_version.get("webSocketDebuggerUrl", "MISSING")[:60],
+                        raw_version.get("id", "MISSING")[:30])
         except Exception as e:
-            logger.warning("[test-ws] /json/version failed: %s", e)
-            raw_version = {"error": str(e)}
+            result["raw_version_error"] = f"{type(e).__name__}: {e}"
+            result["http_endpoint_ok"] = False
+            logger.warning("[test-ws] /json/version FAILED: %s", e)
 
-    async def _fetch_tabs():
-        nonlocal tab_ws_url, raw_tabs
+        # Step 2: Fetch /json/list
+        raw_tabs = []
+        tab_ws_url = ""
+        tab_target_id = ""
         try:
-            def _get():
+            def _get_tabs():
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:
                     return json.loads(r.read().decode())
-            raw_tabs = await loop.run_in_executor(None, _get)
+            raw_tabs = await loop.run_in_executor(None, _get_tabs)
             page_tabs = [t for t in raw_tabs if t.get("type") == "page"]
+            result["tab_count"] = len(raw_tabs)
+            result["page_tab_count"] = len(page_tabs)
             if page_tabs:
                 tab_ws_url = page_tabs[0].get("webSocketDebuggerUrl", "")
-                result["tab_target_id"] = page_tabs[0].get("id", "")
-                result["tab_count"] = len(raw_tabs)
-                result["page_tab_count"] = len(page_tabs)
-                # v1.9.18: Log raw tab info for debugging
+                tab_target_id = page_tabs[0].get("id", "")
+                result["tab_target_id"] = tab_target_id
                 for i, t in enumerate(page_tabs[:3]):
-                    logger.info("[test-ws] tab[%d]: id=%s wsUrl=%s url=%s",
+                    logger.info("[test-ws] page[%d]: id=%s wsUrl=%s url=%s",
                                 i, t.get("id", "?")[:20],
-                                t.get("webSocketDebuggerUrl", "NONE")[:60],
+                                t.get("webSocketDebuggerUrl", "MISSING")[:60],
                                 t.get("url", "?")[:50])
-            logger.info("[test-ws] /json/list: %d tabs, %d pages, tab_ws_url=%s",
-                        len(raw_tabs), len(page_tabs),
-                        tab_ws_url[:50] if tab_ws_url else "NONE")
+            logger.info("[test-ws] /json/list: %d entries, %d pages",
+                        len(raw_tabs), len(page_tabs))
         except Exception as e:
-            logger.warning("[test-ws] /json/list failed: %s", e)
-            raw_tabs = []
+            result["raw_tabs_error"] = f"{type(e).__name__}: {e}"
+            logger.warning("[test-ws] /json/list FAILED: %s", e)
 
-    await asyncio.gather(_fetch_version(), _fetch_tabs())
+        # Construct WS URLs if webSocketDebuggerUrl is missing
+        if not browser_ws_url:
+            browser_id = raw_version.get("id", "")
+            if browser_id:
+                browser_ws_url = f"ws://127.0.0.1:{port}/devtools/browser/{browser_id}"
+                result["browser_ws_constructed"] = True
+                logger.info("[test-ws] Constructed browser WS URL: %s", browser_ws_url)
 
-    # v1.9.18: Construct WS URLs from target_id if webSocketDebuggerUrl is missing
-    # This is the KEY fix — CachyOS Chromium often doesn't return webSocketDebuggerUrl
-    if not browser_ws_url:
-        browser_id = raw_version.get("id", "")
-        if browser_id:
-            browser_ws_url = f"ws://127.0.0.1:{port}/devtools/browser/{browser_id}"
-            logger.info("[test-ws] Constructed browser WS URL: %s", browser_ws_url)
-            result["browser_ws_constructed"] = True
-        else:
-            # Try finding browser-type target in /json/list
-            for t in raw_tabs:
-                if t.get("type") == "browser" and t.get("webSocketDebuggerUrl"):
-                    browser_ws_url = t["webSocketDebuggerUrl"]
-                    result["browser_ws_from_list"] = True
-                    break
+        if not tab_ws_url and tab_target_id:
+            tab_ws_url = f"ws://127.0.0.1:{port}/devtools/page/{tab_target_id}"
+            result["tab_ws_constructed"] = True
+            logger.info("[test-ws] Constructed tab WS URL: %s", tab_ws_url)
 
-    if not tab_ws_url and result.get("tab_target_id"):
-        tab_ws_url = f"ws://127.0.0.1:{port}/devtools/page/{result['tab_target_id']}"
-        logger.info("[test-ws] Constructed tab WS URL: %s", tab_ws_url)
-        result["tab_ws_constructed"] = True
+        result["ws_url"] = browser_ws_url or "NONE"
+        result["tab_ws_url"] = tab_ws_url[:80] if tab_ws_url else "NONE"
 
-    # Store WS URLs in result
-    result["ws_url"] = browser_ws_url or "NONE"
-    result["tab_ws_url"] = tab_ws_url[:80] if tab_ws_url else "NONE"
-    result["version_info"] = {
-        "Browser": raw_version.get("Browser", "?")[:50],
-        "webSocketDebuggerUrl": raw_version.get("webSocketDebuggerUrl", "NONE")[:80],
-        "id": raw_version.get("id", "NONE"),
-    }
-    result["http_endpoint_ok"] = bool(raw_version and "error" not in raw_version)
-
-    # Step 2: Try TAB-level WS FIRST (most important for CDP operations)
-    # Use 5s timeout per strategy to keep total time under 25s
-    if tab_ws_url:
-        t0 = time.monotonic()
-        try:
-            ws_timeout = aiohttp.ClientTimeout(total=5, connect=3, sock_connect=3)
-            connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
-            async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
-                tab_ws = await asyncio.wait_for(
-                    session.ws_connect(tab_ws_url, heartbeat=None, proxy=None),
-                    timeout=5
-                )
-                elapsed = time.monotonic() - t0
-                result["tab_ws_connect_ok"] = True
-                result["tab_ws_connect_time_s"] = round(elapsed, 2)
-                # Try a simple CDP command
+        # Step 3: Test TAB-level WebSocket — websockets library FIRST (most reliable on Py3.14)
+        if tab_ws_url:
+            # Strategy A: websockets library
+            try:
+                import websockets
+                result["websockets_available"] = True
+                t0 = time.monotonic()
                 try:
-                    await tab_ws.send_json({"id": 1, "method": "Runtime.evaluate",
-                                            "params": {"expression": "1+1"}})
-                    msg = await asyncio.wait_for(tab_ws.receive(), timeout=5)
-                    if msg.type == aiohttp.WSMsgType.TEXT:
+                    ws = await asyncio.wait_for(
+                        websockets.connect(tab_ws_url, open_timeout=3, close_timeout=2),
+                        timeout=5
+                    )
+                    elapsed = time.monotonic() - t0
+                    result["tab_ws_connect_ok"] = True
+                    result["tab_ws_connect_time_s"] = round(elapsed, 2)
+                    result["websockets_tab_ok"] = True
+                    result["websockets_tab_time_s"] = round(elapsed, 2)
+                    # Try CDP command
+                    try:
+                        await ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
+                                                   "params": {"expression": "1+1"}}))
+                        resp = await asyncio.wait_for(ws.recv(), timeout=3)
+                        result["websockets_tab_cdp_ok"] = True
+                        result["websockets_tab_cdp_preview"] = resp[:200]
                         result["tab_cdp_ok"] = True
-                        result["tab_cdp_response"] = msg.data[:200]
-                except Exception as e:
-                    result["tab_cdp_ok"] = False
-                    result["tab_cdp_error"] = str(e)
-                await tab_ws.close()
-                result["ok"] = True
-        except asyncio.TimeoutError:
-            elapsed = time.monotonic() - t0
-            result["tab_ws_connect_ok"] = False
-            result["tab_ws_connect_error"] = f"aiohttp TIMEOUT after {elapsed:.1f}s"
-            result["tab_ws_connect_time_s"] = round(elapsed, 2)
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            result["tab_ws_connect_ok"] = False
-            result["tab_ws_connect_error"] = f"aiohttp {type(e).__name__}: {e}"
-            result["tab_ws_connect_time_s"] = round(elapsed, 2)
-    else:
-        result["tab_ws_connect_ok"] = False
-        result["tab_ws_connect_error"] = "No tab WS URL (neither from /json/list nor constructed)"
-
-    # Step 3: Try BROWSER-level WS (less critical, for Target events)
-    if browser_ws_url:
-        t0 = time.monotonic()
-        try:
-            ws_timeout = aiohttp.ClientTimeout(total=5, connect=3, sock_connect=3)
-            connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
-            async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
-                ws = await asyncio.wait_for(
-                    session.ws_connect(browser_ws_url, heartbeat=None, proxy=None),
-                    timeout=5
-                )
-                elapsed = time.monotonic() - t0
-                result["ws_connect_ok"] = True
-                result["ws_connect_time_s"] = round(elapsed, 2)
-                try:
-                    await ws.send_json({"id": 1, "method": "Target.getTargets"})
-                    msg = await asyncio.wait_for(ws.receive(), timeout=5)
-                    if msg.type == aiohttp.WSMsgType.TEXT:
-                        result["cdp_command_ok"] = True
-                        result["cdp_response_preview"] = msg.data[:200]
-                except Exception as e:
-                    result["cdp_command_ok"] = False
-                    result["cdp_command_error"] = str(e)
-                await ws.close()
-                if not result["ok"]:
+                        result["tab_cdp_response"] = resp[:200]
+                    except Exception as e:
+                        result["websockets_tab_cdp_ok"] = False
+                        result["websockets_tab_cdp_error"] = str(e)
+                    await ws.close()
                     result["ok"] = True
-        except asyncio.TimeoutError:
-            elapsed = time.monotonic() - t0
-            result["ws_connect_ok"] = False
-            result["ws_connect_error"] = f"aiohttp TIMEOUT after {elapsed:.1f}s"
-            result["ws_connect_time_s"] = round(elapsed, 2)
-        except Exception as e:
-            elapsed = time.monotonic() - t0
-            result["ws_connect_ok"] = False
-            result["ws_connect_error"] = f"aiohttp {type(e).__name__}: {e}"
-            result["ws_connect_time_s"] = round(elapsed, 2)
-    else:
-        result["ws_connect_ok"] = False
-        result["ws_connect_error"] = "No browser WS URL available"
-
-    # Step 4: Try websockets library as fallback (only for tab — most important)
-    # Skip if tab WS already works with aiohttp
-    if not result["tab_ws_connect_ok"] and tab_ws_url:
-        try:
-            import websockets
-            result["websockets_available"] = True
-            t0 = time.monotonic()
-            try:
-                tab_ws_raw = await asyncio.wait_for(
-                    websockets.connect(tab_ws_url, open_timeout=5, close_timeout=3),
-                    timeout=7
-                )
-                elapsed = time.monotonic() - t0
-                result["websockets_tab_ok"] = True
-                result["websockets_tab_time_s"] = round(elapsed, 2)
-                try:
-                    await tab_ws_raw.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
-                                                       "params": {"expression": "1+1"}}))
-                    resp = await asyncio.wait_for(tab_ws_raw.recv(), timeout=5)
-                    result["websockets_tab_cdp_ok"] = True
-                    result["websockets_tab_cdp_preview"] = resp[:200]
-                    result["ok"] = True
+                    logger.info("[test-ws] TAB WS OK (websockets, %.2fs)", elapsed)
+                except asyncio.TimeoutError:
+                    elapsed = time.monotonic() - t0
+                    result["websockets_tab_ok"] = False
+                    result["websockets_tab_error"] = f"TIMEOUT after {elapsed:.1f}s"
+                    result["websockets_tab_time_s"] = round(elapsed, 2)
+                    result["tab_ws_connect_error"] = f"websockets TIMEOUT after {elapsed:.1f}s"
+                    logger.warning("[test-ws] TAB WS websockets TIMEOUT (%.1fs)", elapsed)
                 except Exception as e:
-                    result["websockets_tab_cdp_ok"] = False
-                    result["websockets_tab_cdp_error"] = str(e)
-                await tab_ws_raw.close()
-            except asyncio.TimeoutError:
-                elapsed = time.monotonic() - t0
-                result["websockets_tab_ok"] = False
-                result["websockets_tab_error"] = f"TIMEOUT after {elapsed:.1f}s"
-                result["websockets_tab_time_s"] = round(elapsed, 2)
-            except Exception as e:
-                elapsed = time.monotonic() - t0
-                result["websockets_tab_ok"] = False
-                result["websockets_tab_error"] = f"{type(e).__name__}: {e}"
-                result["websockets_tab_time_s"] = round(elapsed, 2)
-        except ImportError:
-            result["websockets_available"] = False
+                    result["websockets_tab_ok"] = False
+                    result["websockets_tab_error"] = f"{type(e).__name__}: {e}"
+                    result["websockets_tab_time_s"] = None
+                    result["tab_ws_connect_error"] = f"websockets {type(e).__name__}: {e}"
+                    logger.warning("[test-ws] TAB WS websockets FAILED: %s", e)
+            except ImportError:
+                result["websockets_available"] = False
+                result["tab_ws_connect_error"] = "websockets library not available"
 
-    # Also test browser WS with websockets if aiohttp failed
-    if not result["ws_connect_ok"] and browser_ws_url:
-        try:
-            import websockets
-            result["websockets_available"] = True
-            t0 = time.monotonic()
-            try:
-                ws_raw = await asyncio.wait_for(
-                    websockets.connect(browser_ws_url, open_timeout=5, close_timeout=3),
-                    timeout=7
-                )
-                elapsed = time.monotonic() - t0
-                result["websockets_browser_ok"] = True
-                result["websockets_browser_time_s"] = round(elapsed, 2)
+            # Strategy B: aiohttp (if websockets failed)
+            if not result["tab_ws_connect_ok"]:
                 try:
-                    await ws_raw.send(json.dumps({"id": 1, "method": "Target.getTargets"}))
-                    resp = await asyncio.wait_for(ws_raw.recv(), timeout=5)
-                    result["websockets_cdp_ok"] = True
-                    result["websockets_cdp_preview"] = resp[:200]
+                    t0 = time.monotonic()
+                    ws_timeout = aiohttp.ClientTimeout(total=3, connect=2, sock_connect=2)
+                    connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
+                    async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
+                        tab_ws = await asyncio.wait_for(
+                            session.ws_connect(tab_ws_url, heartbeat=None, proxy=None),
+                            timeout=5
+                        )
+                        elapsed = time.monotonic() - t0
+                        result["tab_ws_connect_ok"] = True
+                        result["tab_ws_connect_time_s"] = round(elapsed, 2)
+                        # Try CDP command
+                        try:
+                            await tab_ws.send_json({"id": 1, "method": "Runtime.evaluate",
+                                                     "params": {"expression": "1+1"}})
+                            msg = await asyncio.wait_for(tab_ws.receive(), timeout=3)
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                result["tab_cdp_ok"] = True
+                                result["tab_cdp_response"] = msg.data[:200]
+                        except Exception as e:
+                            result["tab_cdp_ok"] = False
+                            result["tab_cdp_error"] = str(e)
+                        await tab_ws.close()
+                        result["ok"] = True
+                        logger.info("[test-ws] TAB WS OK (aiohttp, %.2fs)", elapsed)
+                except asyncio.TimeoutError:
+                    elapsed = time.monotonic() - t0
+                    result["tab_ws_connect_ok"] = False
+                    result["tab_ws_connect_error"] = f"aiohttp TIMEOUT after {elapsed:.1f}s"
+                    result["tab_ws_connect_time_s"] = round(elapsed, 2)
+                    logger.warning("[test-ws] TAB WS aiohttp TIMEOUT (%.1fs)", elapsed)
                 except Exception as e:
-                    result["websockets_cdp_ok"] = False
-                    result["websockets_cdp_error"] = str(e)
-                await ws_raw.close()
-            except asyncio.TimeoutError:
-                elapsed = time.monotonic() - t0
-                result["websockets_browser_ok"] = False
-                result["websockets_browser_error"] = f"TIMEOUT after {elapsed:.1f}s"
-                result["websockets_browser_time_s"] = round(elapsed, 2)
-            except Exception as e:
-                elapsed = time.monotonic() - t0
-                result["websockets_browser_ok"] = False
-                result["websockets_browser_error"] = f"{type(e).__name__}: {e}"
-                result["websockets_browser_time_s"] = round(elapsed, 2)
-        except ImportError:
-            pass
-    elif result["ws_connect_ok"]:
-        result["websockets_browser_ok"] = False  # Didn't need to test
+                    result["tab_ws_connect_ok"] = False
+                    result["tab_ws_connect_error"] = f"aiohttp {type(e).__name__}: {e}"
+                    result["tab_ws_connect_time_s"] = None
+                    logger.warning("[test-ws] TAB WS aiohttp FAILED: %s", e)
+        else:
+            result["tab_ws_connect_ok"] = False
+            result["tab_ws_connect_error"] = "No tab WS URL available"
+            logger.warning("[test-ws] No tab WS URL — cannot test tab WS")
 
-    # Cleanup: kill the test browser
-    if browser_proc:
-        try:
-            browser_proc.terminate()
-            browser_proc.wait(timeout=3)
-        except Exception:
+        # Step 4: Test BROWSER-level WS (only if tab WS worked, or as extra info)
+        if browser_ws_url:
             try:
-                browser_proc.kill()
+                import websockets
+                t0 = time.monotonic()
+                try:
+                    ws = await asyncio.wait_for(
+                        websockets.connect(browser_ws_url, open_timeout=3, close_timeout=2),
+                        timeout=5
+                    )
+                    elapsed = time.monotonic() - t0
+                    result["ws_connect_ok"] = True
+                    result["ws_connect_time_s"] = round(elapsed, 2)
+                    result["websockets_browser_ok"] = True
+                    result["websockets_browser_time_s"] = round(elapsed, 2)
+                    try:
+                        await ws.send(json.dumps({"id": 1, "method": "Target.getTargets"}))
+                        resp = await asyncio.wait_for(ws.recv(), timeout=3)
+                        result["websockets_cdp_ok"] = True
+                        result["websockets_cdp_preview"] = resp[:200]
+                    except Exception as e:
+                        result["websockets_cdp_ok"] = False
+                        result["websockets_cdp_error"] = str(e)
+                    await ws.close()
+                    if not result["ok"]:
+                        result["ok"] = True
+                    logger.info("[test-ws] Browser WS OK (websockets, %.2fs)", elapsed)
+                except (asyncio.TimeoutError, Exception) as e:
+                    result["ws_connect_ok"] = False
+                    result["ws_connect_error"] = f"websockets {type(e).__name__}: {e}"
+                    logger.warning("[test-ws] Browser WS FAILED: %s", e)
+            except ImportError:
+                result["ws_connect_ok"] = False
+                result["ws_connect_error"] = "websockets library not available"
+        else:
+            result["ws_connect_ok"] = False
+            result["ws_connect_error"] = "No browser WS URL available"
+
+    except Exception as e:
+        import traceback
+        result["error"] = f"Unhandled: {type(e).__name__}: {e}"
+        result["traceback"] = traceback.format_exc()
+        logger.error("[test-ws] UNHANDLED EXCEPTION: %s\n%s", e, traceback.format_exc())
+    finally:
+        # Always kill the test browser
+        if browser_proc:
+            try:
+                browser_proc.terminate()
+                browser_proc.wait(timeout=3)
             except Exception:
-                pass
+                try:
+                    browser_proc.kill()
+                except Exception:
+                    pass
 
     return _cors_json_response(result)
 
