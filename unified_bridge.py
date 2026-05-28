@@ -5000,7 +5000,8 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
                 env[k] = str(v) if not isinstance(v, str) else v
 
         if runner_sh.exists():
-            cmd = [str(runner_sh)] + list(args)
+            # Use bash to execute .sh files (git may not preserve +x bit)
+            cmd = ["bash", str(runner_sh)] + list(args)
         else:
             py = sys.executable or "python3"
             cmd = [py, str(runner_py)] + list(args)
