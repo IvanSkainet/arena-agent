@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.8.4"
+VERSION = "1.9.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -4976,7 +4976,13 @@ async def handle_v1_skills(request: web.Request) -> web.Response:
 # --- /v1/skills/run POST — Run a skill ---
 
 def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) -> dict:
-    """Execute a skill via agentctl or directly."""
+    """Execute a skill via agentctl or directly.
+
+    Supports three skill types:
+    1. Executable skills: have run.sh or run.py — executed as subprocess
+    2. Prompt-only skills: have SKILL.md but no runner — return SKILL.md content
+    3. Fallback: try agentctl skill run
+    """
     # Try direct skill runner first (faster, supports JSON input via env)
     skill_dir = SKILLS_DIR / name
     if not skill_dir.exists() and SKILLS_DIR.exists():
@@ -4987,14 +4993,19 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
                 break
         else:
             # Recursive search: "hello" could be at skills/sandbox/hello/
+            # Also find prompt-only skills (SKILL.md without runner)
             for d in SKILLS_DIR.rglob(name):
-                if d.is_dir() and ((d / "run.sh").exists() or (d / "run.py").exists()):
+                if d.is_dir() and (
+                    (d / "run.sh").exists() or (d / "run.py").exists() or (d / "SKILL.md").exists()
+                ):
                     skill_dir = d
                     break
 
     runner_sh = skill_dir / "run.sh"
     runner_py = skill_dir / "run.py"
+    skill_md = skill_dir / "SKILL.md"
 
+    # --- Executable skills (run.sh / run.py) ---
     if skill_dir.exists() and (runner_sh.exists() or runner_py.exists()):
         # Direct execution — faster, passes input via env vars
         env = os.environ.copy()
@@ -5022,6 +5033,24 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
             return {"ok": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
         except Exception as e:
             return {"ok": False, "exit_code": -2, "stdout": "", "stderr": str(e)}
+
+    # --- Prompt-only skills (SKILL.md without runner) ---
+    # These are instruction/prompt skills (e.g., SuperPowers) — return SKILL.md content
+    if skill_dir.exists() and skill_md.exists() and not runner_sh.exists() and not runner_py.exists():
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+            return {
+                "ok": True,
+                "exit_code": 0,
+                "output": content,
+                "skill_type": "prompt",
+                "skill_name": name,
+                "skill_dir": str(skill_dir),
+                "stdout": content[:500] + ("..." if len(content) > 500 else ""),
+                "stderr": "",
+            }
+        except Exception as e:
+            return {"ok": False, "exit_code": -2, "stdout": "", "stderr": f"Failed to read SKILL.md: {e}"}
 
     # Fallback: agentctl skill run
     cmd_args = [os.path.join(BIN, "agentctl"), "skill", "run", name] + list(args)

@@ -358,6 +358,7 @@ def skill_run(args):
     Usage: agentctl skill run <name> [args...]
     Example: agentctl skill run browseract open https://example.com
              agentctl skill run web/research "Python 3.12" 3
+             agentctl skill run brainstorming   (prompt-only: returns SKILL.md content)
     """
     if not args:
         print("Usage: agentctl skill run <name> [args...]")
@@ -376,8 +377,11 @@ def skill_run(args):
                 break
         else:
             # Recursive search: "hello" could be at skills/sandbox/hello/
+            # Also find prompt-only skills (SKILL.md without runner)
             for subdir in (ROOT / "skills").rglob(name):
-                if subdir.is_dir() and ((subdir / "run.sh").exists() or (subdir / "run.py").exists()):
+                if subdir.is_dir() and (
+                    (subdir / "run.sh").exists() or (subdir / "run.py").exists() or (subdir / "SKILL.md").exists()
+                ):
                     skill_dir = subdir
                     break
 
@@ -385,7 +389,8 @@ def skill_run(args):
         # Try using bridge API as fallback
         try:
             r = _bridge_post("/v1/skills/run", {"name": name, "args": skill_args})
-            print(r.get("stdout", ""), end="")
+            output = r.get("output", "") or r.get("stdout", "")
+            print(output, end="")
             if r.get("stderr"):
                 print(r.get("stderr"), end="", file=sys.stderr)
             if not r.get("ok"):
@@ -399,7 +404,9 @@ def skill_run(args):
     # Find runner
     runner_sh = skill_dir / "run.sh"
     runner_py = skill_dir / "run.py"
+    skill_md = skill_dir / "SKILL.md"
 
+    # --- Executable skills (run.sh / run.py) ---
     if runner_sh.exists():
         cmd = ["bash", str(runner_sh)] + skill_args
         env = os.environ.copy()
@@ -439,8 +446,21 @@ def skill_run(args):
         except Exception as e:
             print(f"Error running skill: {e}", file=sys.stderr)
             sys.exit(1)
+
+    # --- Prompt-only skills (SKILL.md without runner) ---
+    elif skill_md.exists():
+        try:
+            content = skill_md.read_text(encoding="utf-8")
+            print(f"[Prompt-only skill: {name}]")
+            print(f"Location: {skill_dir}")
+            print(f"---")
+            print(content)
+        except Exception as e:
+            print(f"Error reading skill: {e}", file=sys.stderr)
+            sys.exit(1)
+
     else:
-        print(f"No run.sh or run.py found in {skill_dir}")
+        print(f"No run.sh, run.py, or SKILL.md found in {skill_dir}")
         sys.exit(1)
 
 # ─── Namespace: audit ─────────────────────────────────────────────────────
@@ -512,6 +532,36 @@ def mcp_install(args):
 def mcp_list(args):
     run_bin("mcp_marketplace.py", ["list"])
 
+# ─── Namespace: bact (BrowserAct) ──────────────────────────────────────────
+
+def _bact_run(subcmd, args):
+    """Run browseract skill via bridge API."""
+    try:
+        r = _bridge_post("/v1/skills/run", {"name": "browseract", "args": [subcmd] + list(args)})
+        output = r.get("output", "") or r.get("stdout", "")
+        print(output, end="")
+        if r.get("stderr"):
+            print(r.get("stderr"), end="", file=sys.stderr)
+        if not r.get("ok"):
+            sys.exit(r.get("exit_code", 1))
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+def bact_doctor(args):    _bact_run("doctor", args)
+def bact_extract(args):   _bact_run("extract", args)
+def bact_shot(args):      _bact_run("shot", args)
+def bact_open(args):      _bact_run("open", args)
+def bact_state(args):     _bact_run("state", args)
+def bact_click(args):     _bact_run("click", args)
+def bact_type(args):      _bact_run("type", args)
+def bact_input(args):     _bact_run("input", args)
+def bact_eval(args):      _bact_run("eval", args)
+def bact_close(args):     _bact_run("close", args)
+def bact_auth(args):      _bact_run("auth", args)
+def bact_browsers(args):  _bact_run("browsers", args)
+def bact_raw(args):       _bact_run("raw", args)
+
 # ─── Namespace: commands ──────────────────────────────────────────────────
 
 def commands(args):
@@ -522,8 +572,10 @@ Namespaces:
   mem     set|get                                Memory facts
   recall  search|digest                          TF-scored recall
   browser search|read|dump|head|shot             Browser tools
+  bact    doctor|extract|shot|open|state|click|type|input|eval|close|auth|browsers|raw
+                                                 BrowserAct stealth browser
   task    list|submit|clean                      Task queue
-  skill   list|run                               Skills
+  skill   list|run                               Skills (executable + prompt-only)
   audit   stats|tail                             Audit log
   backup  run                                    Backups
   mission list                                   Missions
@@ -553,6 +605,13 @@ DISPATCH = {
         "dump": browser_dump, "py-dump": browser_dump,
         "head": browser_head, "py-head": browser_head,
         "shot": browser_shot, "sd-shot": browser_shot,
+    },
+    "bact": {
+        "doctor": bact_doctor, "extract": bact_extract, "shot": bact_shot,
+        "open": bact_open, "state": bact_state, "click": bact_click,
+        "type": bact_type, "input": bact_input, "eval": bact_eval,
+        "close": bact_close, "auth": bact_auth, "browsers": bact_browsers,
+        "raw": bact_raw,
     },
     "task": {"list": task_list, "ls": task_list, "submit": task_submit, "clean": task_clean},
     "skill": {"list": skill_list, "ls": skill_list, "run": skill_run},
