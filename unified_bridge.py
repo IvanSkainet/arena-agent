@@ -4985,6 +4985,12 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
             if d.is_dir() and d.name == name:
                 skill_dir = d
                 break
+        else:
+            # Recursive search: "hello" could be at skills/sandbox/hello/
+            for d in SKILLS_DIR.rglob(name):
+                if d.is_dir() and ((d / "run.sh").exists() or (d / "run.py").exists()):
+                    skill_dir = d
+                    break
 
     runner_sh = skill_dir / "run.sh"
     runner_py = skill_dir / "run.py"

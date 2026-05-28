@@ -374,6 +374,12 @@ def skill_run(args):
             if subdir.is_dir() and subdir.name == name:
                 skill_dir = subdir
                 break
+        else:
+            # Recursive search: "hello" could be at skills/sandbox/hello/
+            for subdir in (ROOT / "skills").rglob(name):
+                if subdir.is_dir() and ((subdir / "run.sh").exists() or (subdir / "run.py").exists()):
+                    skill_dir = subdir
+                    break
 
     if not skill_dir.exists():
         # Try using bridge API as fallback
