@@ -174,9 +174,18 @@ echo ""
 
 # --- 6a: Tailscale ---
 if command -v tailscale >/dev/null 2>&1; then
-    # Check if Tailscale is logged in (use || true to prevent set -e exit)
-    TS_STATUS="$(tailscale status 2>&1 | head -1)" || TS_STATUS=""
-    if echo "$TS_STATUS" | grep -qi "not logged in\|needs login\|stopped\|not connected" || [ -z "$TS_STATUS" ]; then
+    # Check if Tailscale is logged in by checking DNSName from JSON output
+    TS_DNSNAME="$(tailscale status --json 2>/dev/null | "$PY" -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    dns = d.get('Self', {}).get('DNSName', '') or d.get('DNSName', '')
+    if dns: print(dns.rstrip('.'))
+except: pass
+" 2>/dev/null)" || TS_DNSNAME=""
+    if [ -n "$TS_DNSNAME" ]; then
+        ok "Tailscale connected: $TS_DNSNAME"
+    else
         warn "Tailscale is installed but not logged in"
         if [ "$(uname -s)" = "Linux" ]; then
             if ask "Run Tailscale login? (requires sudo)"; then
@@ -191,8 +200,6 @@ if command -v tailscale >/dev/null 2>&1; then
                 info "You can login later: tailscale login"
             fi
         fi
-    else
-        ok "Tailscale found and logged in — funnel available"
     fi
 else
     info "Tailscale not found. Install it for internet access: https://tailscale.com"
@@ -401,9 +408,6 @@ echo " Directory:  $INSTALL_DIR"
 echo " Dashboard:  http://127.0.0.1:$PORT/gui"
 echo " Health:     http://127.0.0.1:$PORT/health"
 echo " Token file: $TOKEN_FILE"
-if [ -n "$TS_URL" ]; then
-    echo " Secure URL: $TS_URL"
-fi
 echo ""
 echo " Your token:"
 echo "   $TOKEN"

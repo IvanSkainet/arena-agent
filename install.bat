@@ -113,9 +113,12 @@ echo.
 REM --- Tailscale ---
 where tailscale >nul 2>&1
 if not errorlevel 1 (
-    REM Check if logged in
-    tailscale status >nul 2>&1
-    if errorlevel 1 (
+    REM Check if logged in by reading DNSName from JSON output
+    set "TS_DNSNAME="
+    for /f "delims=" %%d in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); dns=d.get('Self',{}).get('DNSName','') or d.get('DNSName',''); print(dns.rstrip('.')) if dns else None" 2^>nul') do set "TS_DNSNAME=%%d"
+    if defined TS_DNSNAME (
+        echo [OK] Tailscale connected: !TS_DNSNAME!
+    ) else (
         echo [WARN] Tailscale is installed but not logged in
         set /p "TS_LOGIN=Run Tailscale login now? [y/N]: "
         if /i "!TS_LOGIN!"=="y" (
@@ -124,8 +127,6 @@ if not errorlevel 1 (
         ) else (
             echo [INFO] You can login later: tailscale login
         )
-    ) else (
-        echo [OK] Tailscale found and logged in - funnel available
     )
 ) else (
     echo [INFO] Tailscale not found. Install for internet access: https://tailscale.com
@@ -285,7 +286,6 @@ echo   Directory:  %BRIDGE_DIR%
 echo   Dashboard:  http://127.0.0.1:%PORT%/gui
 echo   Health:     http://127.0.0.1:%PORT%/health
 echo   Token file: %TOKEN_FILE%
-if defined TS_URL echo   Secure URL: %TS_URL%
 echo.
 
 REM Show token
