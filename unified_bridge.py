@@ -4979,8 +4979,8 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
     """Execute a skill via agentctl or directly."""
     # Try direct skill runner first (faster, supports JSON input via env)
     skill_dir = SKILLS_DIR / name
-    if not skill_dir.exists():
-        # Try flat name under skills/
+    if not skill_dir.exists() and SKILLS_DIR.exists():
+        # Try flat name under skills/ (e.g. "browseract" -> skills/browseract/)
         for d in SKILLS_DIR.iterdir():
             if d.is_dir() and d.name == name:
                 skill_dir = d
@@ -4992,7 +4992,7 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
     if skill_dir.exists() and (runner_sh.exists() or runner_py.exists()):
         # Direct execution — faster, passes input via env vars
         env = os.environ.copy()
-        env["ARENA_AGENT_HOME"] = str(ROOT)
+        env["ARENA_AGENT_HOME"] = str(ROOT_AGENT)
         env["SKILL_NAME"] = name
         env["SKILL_ARGS"] = json.dumps(args)
         if env_extra:
