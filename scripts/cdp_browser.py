@@ -49,6 +49,12 @@ try:
 except ImportError:
     HAS_AIOHTTP = False
 
+try:
+    import websockets as _websockets_mod
+    HAS_WEBSOCKETS = True
+except ImportError:
+    HAS_WEBSOCKETS = False
+
 logger = logging.getLogger("cdp_browser")
 
 # ---------------------------------------------------------------------------
@@ -485,6 +491,81 @@ def close_tab(tab_id: str, port: int = DEFAULT_PORT) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# WebsocketsCDPAdapter — wraps websockets library for CDPBrowser
+# ---------------------------------------------------------------------------
+
+class WebsocketsCDPAdapter:
+    """Adapter that wraps a `websockets` connection to provide the same interface
+    as aiohttp's ClientWebSocketResponse.
+
+    This allows CDPBrowser to use the `websockets` library when aiohttp's
+    ws_connect hangs or fails (known issue with some Python 3.14 + aiohttp
+    combinations and certain Chromium headless versions).
+
+    Attributes provided:
+        closed: bool — whether the WS is closed
+    """
+
+    def __init__(self, ws):
+        self._ws = ws
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    async def send_json(self, data: dict) -> None:
+        """Send a JSON message (same interface as aiohttp WS)."""
+        if self._closed:
+            raise ConnectionError("WebSocket is closed")
+        await self._ws.send(json.dumps(data))
+
+    async def receive(self, timeout: float = 30) -> Any:
+        """Receive a message. Returns a message-like object with .type and .data.
+
+        For aiohttp compatibility, we return a simple namespace with:
+            .type — mapped to aiohttp WSMsgType values
+            .data — the message data string
+        """
+        try:
+            raw = await asyncio.wait_for(self._ws.recv(), timeout=timeout)
+            # websockets returns str for text messages
+            return _WSMessage(type=aiohttp.WSMsgType.TEXT if HAS_AIOHTTP else 1, data=raw)
+        except asyncio.TimeoutError:
+            return _WSMessage(type=0x100 if HAS_AIOHTTP else -1, data="")  # CLOSED/timeout
+        except _websockets_mod.ConnectionClosed:
+            self._closed = True
+            return _WSMessage(type=0x100 if HAS_AIOHTTP else -1, data="")
+
+    async def close(self) -> None:
+        """Close the WebSocket connection."""
+        if not self._closed:
+            try:
+                await self._ws.close()
+            except Exception:
+                pass
+            self._closed = True
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        msg = await self.receive(timeout=60)
+        if hasattr(aiohttp, 'WSMsgType') and msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+            raise StopAsyncIteration
+        elif msg.type in (0x100, -1):  # Our sentinel for closed/error
+            raise StopAsyncIteration
+        return msg
+
+
+class _WSMessage:
+    """Simple message object compatible with aiohttp's WSMessage."""
+    def __init__(self, type, data):
+        self.type = type
+        self.data = data
+
+
+# ---------------------------------------------------------------------------
 # Async CDP Browser class
 # ---------------------------------------------------------------------------
 class CDPBrowser:
@@ -604,7 +685,8 @@ class CDPBrowser:
         if self._ws and not self._ws.closed:
             await self._ws.close()
 
-        if self._session and not self._session.closed:
+        # _session may be None when using WebsocketsCDPAdapter (Strategy 3)
+        if self._session is not None and not self._session.closed:
             await self._session.close()
 
         if self._browser_proc:
@@ -635,7 +717,8 @@ class CDPBrowser:
         # Close WS and session without cancelling the listener task
         if self._ws and not self._ws.closed:
             await self._ws.close()
-        if self._session and not self._session.closed:
+        # _session may be None when using WebsocketsCDPAdapter
+        if self._session is not None and not self._session.closed:
             await self._session.close()
 
         self._closing = False
@@ -737,9 +820,19 @@ class CDPBrowser:
 
     async def _listen_loop(self) -> None:
         """Background task that reads WebSocket messages and dispatches them."""
+        # Determine TEXT/CLOSED/ERROR type constants based on WS implementation
+        # (WebsocketsCDPAdapter returns _WSMessage with our sentinel values)
+        TEXT_TYPE = aiohttp.WSMsgType.TEXT if HAS_AIOHTTP else 1
+        CLOSED_TYPES = set()
+        if HAS_AIOHTTP:
+            CLOSED_TYPES.add(aiohttp.WSMsgType.CLOSED)
+            CLOSED_TYPES.add(aiohttp.WSMsgType.ERROR)
+        CLOSED_TYPES.add(0x100)  # Our WebsocketsCDPAdapter sentinel
+        CLOSED_TYPES.add(-1)    # Fallback sentinel
+
         try:
             async for msg in self._ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
+                if msg.type == TEXT_TYPE:
                     try:
                         data = json.loads(msg.data)
                     except json.JSONDecodeError:
@@ -766,7 +859,7 @@ class CDPBrowser:
                             except Exception as e:
                                 logger.error("[CDP] Event handler error for %s: %s", method, e)
 
-                elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
+                elif msg.type in CLOSED_TYPES:
                     logger.warning("[CDP] WebSocket closed/error")
                     break
         except asyncio.CancelledError:
@@ -1099,33 +1192,26 @@ class CDPTab:
                 if self._browser._session and not self._browser._session.closed:
                     await self._browser._session.close()
 
-        # Strategy 3: Try websockets library if available
-        if not ws_connected:
+        # Strategy 3: Use websockets library as REAL fallback
+        # If aiohttp ws_connect hangs (known issue with Python 3.14 + some
+        # aiohttp versions), the `websockets` library may work because it uses
+        # a completely different WebSocket implementation.
+        # We wrap the websockets connection in WebsocketsCDPAdapter so CDPBrowser
+        # can use it transparently.
+        if not ws_connected and HAS_WEBSOCKETS:
             try:
-                import websockets
-                logger.info("[CDPTab] Strategy 3: websockets library")
+                logger.info("[CDPTab] Strategy 3: websockets library (direct use via adapter)")
                 ws_raw = await asyncio.wait_for(
-                    websockets.connect(self.ws_url, open_timeout=10, close_timeout=5),
+                    _websockets_mod.connect(self.ws_url, open_timeout=10, close_timeout=5),
                     timeout=12
                 )
-                # websockets gives us a different object — wrap it for CDP use
-                # For now, just report success and store a reference
                 logger.info("[CDPTab] Strategy 3 SUCCESS: websockets connected to %s", self.target_id)
-                # We can't easily swap websockets into CDPBrowser's aiohttp-based
-                # _ws attribute. Instead, close it and note that WS works.
-                await ws_raw.close()
-                # Fall through to aiohttp retry since CDPBrowser needs aiohttp WS
-                logger.info("[CDPTab] websockets works! Retrying aiohttp with different settings...")
-
-                # Retry aiohttp with different timeout settings
-                ws_timeout = aiohttp.ClientTimeout(total=20, connect=10, sock_connect=10)
-                self._browser._session = aiohttp.ClientSession(timeout=ws_timeout)
-                self._browser._ws = await asyncio.wait_for(
-                    self._browser._session.ws_connect(self.ws_url, heartbeat=30, proxy=None),
-                    timeout=20
-                )
+                # Wrap in adapter so CDPBrowser can use it
+                self._browser._ws = WebsocketsCDPAdapter(ws_raw)
+                # No session needed for websockets adapter — set to a dummy
+                self._browser._session = None
                 ws_connected = True
-                logger.info("[CDPTab] aiohttp retry after websockets test: SUCCESS")
+                logger.info("[CDPTab] Using websockets adapter for tab %s", self.target_id)
             except ImportError:
                 logger.info("[CDPTab] websockets library not available for Strategy 3")
                 last_error = f"All aiohttp strategies failed. websockets library not available. {last_error}"
@@ -1135,6 +1221,9 @@ class CDPTab:
             except Exception as e:
                 logger.error("[CDPTab] Strategy 3 FAILED: %s — websockets also fails", e)
                 last_error = f"Both aiohttp and websockets failed. Last: {type(e).__name__}: {e}. URL: {self.ws_url}"
+        elif not ws_connected:
+            logger.info("[CDPTab] websockets library not available, skipping Strategy 3")
+            last_error = f"All aiohttp strategies failed. websockets library not installed. {last_error}"
 
         if not ws_connected:
             self._browser = None
@@ -1625,30 +1714,70 @@ class CDPTabManager:
 
         This is NON-FATAL — if the browser-level WS fails, we still connect
         to individual tabs. Tab lifecycle events will just be unavailable.
+
+        v1.9.17: Falls back to websockets library if aiohttp ws_connect hangs,
+        and constructs browser WS URL from /json/version id if
+        webSocketDebuggerUrl is missing.
         """
         browser_ws_url = await self._get_browser_ws_url()
         if not browser_ws_url:
             logger.warning("[CDPTabManager] No browser-level WS URL from /json/version; tab events disabled")
+            self.ws_diagnostics["browser_ws_error"] = "No browser WS URL from /json/version"
             return
 
-        logger.info("[CDPTabManager] Browser WS URL from /json/version: %s", browser_ws_url)
+        logger.info("[CDPTabManager] Browser WS URL: %s", browser_ws_url)
 
+        # Strategy 1: aiohttp with force_close connector, no proxy, no heartbeat
+        ws_connected = False
         try:
-            # v1.9.16: Use TCPConnector(force_close) and no proxy to avoid
-            # potential issues with connection reuse and proxy settings.
             ws_timeout = aiohttp.ClientTimeout(total=15, connect=10, sock_connect=10)
             connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
             self._browser_session = aiohttp.ClientSession(timeout=ws_timeout, connector=connector)
-
-            # Add asyncio.wait_for timeout to prevent ws_connect from hanging
-            # even with ClientTimeout (belt + suspenders approach).
-            # v1.9.16: Try without heartbeat first — heartbeat can interfere with WS upgrade.
             self._browser_ws = await asyncio.wait_for(
                 self._browser_session.ws_connect(browser_ws_url, heartbeat=None, proxy=None),
                 timeout=15
             )
+            ws_connected = True
+            logger.info("[CDPTabManager] Browser-level WS connected via aiohttp")
+        except asyncio.TimeoutError:
+            logger.warning("[CDPTabManager] Browser WS aioconnect TIMED OUT (15s)")
+            if self._browser_session and not self._browser_session.closed:
+                await self._browser_session.close()
+            self._browser_session = None
+            self._browser_ws = None
+        except Exception as e:
+            logger.warning("[CDPTabManager] Browser WS aiohttp FAILED: %s", e)
+            if self._browser_session and not self._browser_session.closed:
+                await self._browser_session.close()
+            self._browser_session = None
+            self._browser_ws = None
 
-            logger.info("[CDPTabManager] Browser-level WS TCP+upgrade OK, enabling Target domain...")
+        # Strategy 2: websockets library as fallback
+        if not ws_connected and HAS_WEBSOCKETS:
+            try:
+                logger.info("[CDPTabManager] Trying websockets library for browser WS...")
+                ws_raw = await asyncio.wait_for(
+                    _websockets_mod.connect(browser_ws_url, open_timeout=10, close_timeout=5),
+                    timeout=12
+                )
+                self._browser_ws = WebsocketsCDPAdapter(ws_raw)
+                self._browser_session = None  # No aiohttp session needed
+                ws_connected = True
+                logger.info("[CDPTabManager] Browser-level WS connected via websockets library")
+            except asyncio.TimeoutError:
+                logger.warning("[CDPTabManager] Browser WS websockets TIMED OUT (12s)")
+                self._browser_ws = None
+            except Exception as e:
+                logger.warning("[CDPTabManager] Browser WS websockets FAILED: %s", e)
+                self._browser_ws = None
+
+        if not ws_connected:
+            logger.warning("[CDPTabManager] Browser-level WS NOT connected (tab events disabled)")
+            self.ws_diagnostics["browser_ws_error"] = f"All strategies failed. URL: {browser_ws_url}"
+            return
+
+        try:
+            logger.info("[CDPTabManager] Browser-level WS connected, enabling Target domain...")
 
             # Enable Target domain to receive tab lifecycle events
             await asyncio.wait_for(
@@ -1660,25 +1789,18 @@ class CDPTabManager:
             self._browser_listener_task = asyncio.create_task(self._browser_listen_loop())
 
             logger.info("[CDPTabManager] Browser-level WS connected for Target events")
-        except asyncio.TimeoutError:
-            logger.warning("[CDPTabManager] Browser-level WS connection TIMED OUT (15s) — URL: %s", browser_ws_url)
-            logger.warning("[CDPTabManager] This means Chromium's debug port accepts HTTP but WebSocket upgrade hangs.")
-            logger.warning("[CDPTabManager] Tab operations will still work, but lifecycle events are disabled.")
-            self.ws_diagnostics["browser_ws_error"] = f"TIMEOUT (15s). URL: {browser_ws_url}"
-            if self._browser_session and not self._browser_session.closed:
-                await self._browser_session.close()
-            self._browser_session = None
-            self._browser_ws = None
         except Exception as e:
-            logger.warning("[CDPTabManager] Failed to connect browser-level WS: %s — URL: %s", e, browser_ws_url)
-            self.ws_diagnostics["browser_ws_error"] = f"{type(e).__name__}: {e}. URL: {browser_ws_url}"
-            if self._browser_session and not self._browser_session.closed:
-                await self._browser_session.close()
-            self._browser_session = None
-            self._browser_ws = None
+            logger.warning("[CDPTabManager] Target.setDiscoverTargets failed: %s", e)
+            self.ws_diagnostics["browser_ws_error"] = f"Target domain failed: {e}"
+            # Browser WS connected but Target domain failed — still usable for raw events
 
     async def _get_browser_ws_url(self) -> Optional[str]:
-        """Get the browser-level WebSocket URL from /json/version."""
+        """Get the browser-level WebSocket URL from /json/version.
+
+        v1.9.17: If /json/version doesn't include webSocketDebuggerUrl,
+        construct it from the browser id using the standard format:
+        ws://127.0.0.1:{port}/devtools/browser/{id}
+        """
         url = f"http://127.0.0.1:{self.port}/json/version"
         try:
             loop = asyncio.get_running_loop()
@@ -1690,6 +1812,29 @@ class CDPTabManager:
             logger.info("[CDPManager] /json/version returned: Browser=%s/%s, wsUrl=%s",
                         info.get("Browser", "?")[:30], info.get("Protocol-Version", "?"),
                         ws_url[:60] if ws_url else "NONE")
+
+            # v1.9.17: If webSocketDebuggerUrl is missing, try to construct it
+            # Some Chromium builds (e.g. CachyOS) don't include this field.
+            if not ws_url:
+                # Try to extract browser id from the /json/version response
+                # and construct: ws://127.0.0.1:{port}/devtools/browser/{id}
+                browser_id = info.get("id") or info.get("browser-id")
+                if browser_id:
+                    ws_url = f"ws://127.0.0.1:{self.port}/devtools/browser/{browser_id}"
+                    logger.info("[CDPManager] Constructed browser WS URL from id: %s", ws_url)
+                else:
+                    # Fallback: try /json/list and extract browser target
+                    # Some Chromium versions have a "browser" type target in the list
+                    tabs = await loop.run_in_executor(None, list_tabs, self.port)
+                    for tab in tabs:
+                        if tab.get("type") == "browser" and tab.get("webSocketDebuggerUrl"):
+                            ws_url = tab["webSocketDebuggerUrl"]
+                            logger.info("[CDPManager] Found browser WS URL from /json/list: %s", ws_url[:60])
+                            break
+                    if not ws_url:
+                        logger.warning("[CDPManager] Cannot determine browser WS URL — "
+                                       "/json/version has no webSocketDebuggerUrl, no id, "
+                                       "and no browser target in /json/list")
             return ws_url
         except Exception as e:
             logger.warning("[CDPManager] Failed to fetch /json/version: %s", e)
@@ -1722,9 +1867,18 @@ class CDPTabManager:
 
     async def _browser_listen_loop(self) -> None:
         """Background task: listen for browser-level CDP events (Target.*)."""
+        # Same type handling as _listen_loop for WebsocketsCDPAdapter compatibility
+        TEXT_TYPE = aiohttp.WSMsgType.TEXT if HAS_AIOHTTP else 1
+        CLOSED_TYPES = set()
+        if HAS_AIOHTTP:
+            CLOSED_TYPES.add(aiohttp.WSMsgType.CLOSED)
+            CLOSED_TYPES.add(aiohttp.WSMsgType.ERROR)
+        CLOSED_TYPES.add(0x100)  # WebsocketsCDPAdapter sentinel
+        CLOSED_TYPES.add(-1)
+
         try:
             async for msg in self._browser_ws:
-                if msg.type == aiohttp.WSMsgType.TEXT:
+                if msg.type == TEXT_TYPE:
                     try:
                         data = json.loads(msg.data)
                     except json.JSONDecodeError:
@@ -1749,7 +1903,7 @@ class CDPTabManager:
                     elif method == "Target.targetInfoChanged":
                         await self._handle_target_info_changed(params)
 
-                elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED):
+                elif msg.type in CLOSED_TYPES:
                     break
         except asyncio.CancelledError:
             pass

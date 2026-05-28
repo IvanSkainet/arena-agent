@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.16 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.17 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -230,9 +230,11 @@ if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
         ws_tab_err=$(echo "$ws_resp" | jq_val '["tab_ws_connect_error"]' 2>/dev/null || echo "")
         ws_websockets_ok=$(echo "$ws_resp" | jq_val '["websockets_browser_ok"]' 2>/dev/null || echo "?")
         ws_websockets_time=$(echo "$ws_resp" | jq_val '["websockets_browser_time_s"]' 2>/dev/null || echo "?")
+        ws_websockets_tab_ok=$(echo "$ws_resp" | jq_val '["websockets_tab_ok"]' 2>/dev/null || echo "?")
+        ws_websockets_tab_time=$(echo "$ws_resp" | jq_val '["websockets_tab_time_s"]' 2>/dev/null || echo "?")
         echo "    browser_ws=$ws_browser_ws (${ws_browser_time}s) tab_ws=$ws_tab_ws (${ws_tab_time}s)"
         echo "    ws_url=$ws_url"
-        echo "    websockets_lib=$ws_websockets_ok (${ws_websockets_time}s)"
+        echo "    websockets_lib=$ws_websockets_ok (${ws_websockets_time}s) tab=$ws_websockets_tab_ok (${ws_websockets_tab_time}s)"
         if [ -n "$ws_err" ]; then
             echo "    browser_ws_error: $ws_err"
         fi
@@ -243,6 +245,14 @@ if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
         ws_cdp_ok=$(echo "$ws_resp" | jq_val '["cdp_command_ok"]' 2>/dev/null || echo "")
         if [ -n "$ws_cdp_ok" ] && [ "$ws_cdp_ok" = "True" ]; then
             echo "    cdp_command: OK!"
+        fi
+        ws_tab_cdp_ok=$(echo "$ws_resp" | jq_val '["tab_cdp_ok"]' 2>/dev/null || echo "")
+        if [ -n "$ws_tab_cdp_ok" ] && [ "$ws_tab_cdp_ok" = "True" ]; then
+            echo "    tab_cdp_command: OK!"
+        fi
+        ws_ws_tab_cdp_ok=$(echo "$ws_resp" | jq_val '["websockets_tab_cdp_ok"]' 2>/dev/null || echo "")
+        if [ -n "$ws_ws_tab_cdp_ok" ] && [ "$ws_ws_tab_cdp_ok" = "True" ]; then
+            echo "    websockets_tab_cdp: OK!"
         fi
         if [ "$ws_ok" = "True" ]; then
             check "cdp test-ws" "true" "(browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws, websockets=$ws_websockets_ok)"
