@@ -361,6 +361,10 @@ if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
     ESCAPED_TOKEN_FILE=$(systemd_escape "$TOKEN_FILE")
     ESCAPED_INSTALL_DIR=$(systemd_escape "$INSTALL_DIR")
 
+    # Get the actual UID for the service file — use numeric UID instead of %U
+    # because %U may not be expanded correctly in some systemd versions
+    ACTUAL_UID=$(id -u)
+
     cat > "$SD_DIR/arena-bridge.service" << EOF
 [Unit]
 Description=Arena Unified Bridge v${VERSION}
@@ -376,8 +380,9 @@ RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=ARENA_AGENT_HOME=${ESCAPED_INSTALL_DIR}
 Environment=ARENA_TOKEN_FILE=${ESCAPED_TOKEN_FILE}
-Environment=XDG_RUNTIME_DIR=/run/user/%U
-Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
+Environment=HOME=${HOME}
+Environment=XDG_RUNTIME_DIR=/run/user/${ACTUAL_UID}
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${ACTUAL_UID}/bus
 
 [Install]
 WantedBy=default.target

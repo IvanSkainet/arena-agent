@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.11"
+VERSION = "1.9.12"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -1048,6 +1048,7 @@ def make_app(cfg: dict) -> web.Application:
     # ---- CDP (Chrome DevTools Protocol) ----
     app.router.add_get("/v1/browser/cdp/status", handle_v1_cdp_status)
     app.router.add_get("/v1/browser/cdp/diag", handle_v1_cdp_diag)
+    app.router.add_get("/v1/browser/cdp/test-launch", handle_v1_cdp_test_launch)
     app.router.add_post("/v1/browser/cdp/connect", handle_v1_cdp_connect)
     app.router.add_post("/v1/browser/cdp/disconnect", handle_v1_cdp_disconnect)
     app.router.add_post("/v1/browser/cdp/navigate", handle_v1_cdp_navigate)
@@ -3428,6 +3429,139 @@ async def handle_v1_cdp_diag(request):
         diag["port_9222_in_use"] = "unknown"
 
     return _cors_json_response(diag)
+
+
+async def handle_v1_cdp_test_launch(request):
+    """GET /v1/browser/cdp/test-launch — Diagnostic: try launching Chromium and capture output.
+
+    This endpoint runs Chromium with a short timeout (10s) and captures ALL stdout/stderr.
+    It does NOT go through the CDPTabManager — it's a standalone test to diagnose
+    why Chromium might not be starting in the bridge's environment.
+
+    Query params:
+        port: int (default: 9222)
+        headless: bool (default: true)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": "cdp_browser module not found"},
+            status=500
+        )
+
+    qs = parse_qs(request.query_string)
+    port = int(qs.get("port", ["9222"])[0])
+    headless = qs.get("headless", ["true"])[0].lower() != "false"
+
+    loop = asyncio.get_event_loop()
+
+    def _test_launch():
+        """Run Chromium and capture output. Returns result dict."""
+        try:
+            exe = cdp._resolve_browser_binary()
+        except Exception as e:
+            return {"ok": False, "error": f"Cannot resolve browser binary: {e}"}
+
+        if not os.path.isfile(exe):
+            return {"ok": False, "error": f"Browser binary not found: {exe}"}
+
+        # Build the command
+        ud = os.path.join(tempfile.gettempdir(), f"cdp-test-{os.getpid()}")
+        os.makedirs(ud, exist_ok=True)
+
+        cmd = cdp._build_chromium_cmd(exe, port, headless, ud)
+        session_env = cdp._build_session_env()
+
+        result = {
+            "ok": False,
+            "exe": exe,
+            "cmd": " ".join(cmd),
+            "env_dbus": session_env.get("DBUS_SESSION_BUS_ADDRESS", ""),
+            "env_xdg": session_env.get("XDG_RUNTIME_DIR", ""),
+            "env_home": session_env.get("HOME", ""),
+            "env_display": session_env.get("DISPLAY", ""),
+            "env_ld_library_path": session_env.get("LD_LIBRARY_PATH", ""),
+            "user_data_dir": ud,
+            "headless": headless,
+            "port": port,
+        }
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                env=session_env,
+                cwd=ud,
+            )
+            result["returncode"] = proc.returncode
+            result["stdout"] = proc.stdout[:3000] if proc.stdout else ""
+            result["stderr"] = proc.stderr[:3000] if proc.stderr else ""
+            result["ok"] = proc.returncode == 0
+
+            # Also try to check if the port is open
+            import socket as _socket
+            try:
+                s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+                s.settimeout(2)
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    result["port_open"] = True
+                    # Try to fetch /json/version
+                    try:
+                        with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=3) as resp:
+                            result["version_info"] = json.loads(resp.read().decode())
+                    except Exception as e:
+                        result["version_error"] = str(e)
+                else:
+                    result["port_open"] = False
+                s.close()
+            except Exception as e:
+                result["port_check_error"] = str(e)
+
+        except subprocess.TimeoutExpired as e:
+            result["timeout"] = True
+            result["stdout"] = (e.stdout or "")[:3000] if hasattr(e, 'stdout') else ""
+            result["stderr"] = (e.stderr or "")[:3000] if hasattr(e, 'stderr') else ""
+            result["ok"] = True  # timeout means it's still running = likely good
+            result["note"] = "Chromium still running after 10s (good sign). Check port_open."
+
+            # Try to reach the debug port
+            import socket as _socket
+            try:
+                s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+                s.settimeout(2)
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    result["port_open"] = True
+                else:
+                    result["port_open"] = False
+                s.close()
+            except Exception as e:
+                result["port_check_error"] = str(e)
+
+        except FileNotFoundError as e:
+            result["error"] = f"Browser binary not found: {e}"
+        except PermissionError as e:
+            result["error"] = f"Permission denied: {e}"
+        except Exception as e:
+            result["error"] = f"Exception: {type(e).__name__}: {e}"
+
+        return result
+
+    try:
+        result = await loop.run_in_executor(_EXECUTOR, _test_launch)
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": f"Test launch failed: {str(e)}"},
+            status=500
+        )
 
 
 async def handle_v1_cdp_connect(request):

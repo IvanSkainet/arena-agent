@@ -156,9 +156,46 @@ if [ "$module_avail" = "True" ]; then
         xdg_dir=$(echo "$diag_resp" | jq_val '["bridge_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "?")
         browser_bin=$(echo "$diag_resp" | jq_val '["browser_binary"]' 2>/dev/null || echo "?")
         dbus_ok=$(echo "$diag_resp" | jq_val '["dbus_socket_connectable"]' 2>/dev/null || echo "?")
+        # Also show session_env (the env that _build_session_env produces)
+        senv_dbus=$(echo "$diag_resp" | jq_val '["session_env","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "?")
+        senv_xdg=$(echo "$diag_resp" | jq_val '["session_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "?")
         echo "    DBUS=$dbus_addr  XDG=$xdg_dir  BROWSER=$browser_bin  DBUS_SOCK=$dbus_ok"
+        echo "    session_env: DBUS=$senv_dbus  XDG=$senv_xdg"
     else
         echo "    (diag endpoint not available)"
+    fi
+fi
+
+# 1.4b CDP Test Launch (standalone diagnostic — tries launching Chromium directly)
+if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
+    echo "  CDP test-launch (standalone Chromium launch test, 15s)..."
+    test_resp=$(curl -s --max-time 15 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/test-launch?port=9223&headless=true" 2>/dev/null)
+    if [ -n "$test_resp" ]; then
+        test_ok=$(echo "$test_resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
+        test_rc=$(echo "$test_resp" | jq_val '["returncode"]' 2>/dev/null || echo "?")
+        test_port=$(echo "$test_resp" | jq_val '["port_open"]' 2>/dev/null || echo "?")
+        test_timeout=$(echo "$test_resp" | jq_val '["timeout"]' 2>/dev/null || echo "false")
+        test_stderr=$(echo "$test_resp" | jq_val '["stderr"]' 2>/dev/null || echo "")
+        test_env_dbus=$(echo "$test_resp" | jq_val '["env_dbus"]' 2>/dev/null || echo "?")
+        test_env_xdg=$(echo "$test_resp" | jq_val '["env_xdg"]' 2>/dev/null || echo "?")
+        test_env_home=$(echo "$test_resp" | jq_val '["env_home"]' 2>/dev/null || echo "?")
+        test_error=$(echo "$test_resp" | jq_val '["error"]' 2>/dev/null || echo "")
+        echo "    ok=$test_ok  rc=$test_rc  port_open=$test_port  timeout=$test_timeout"
+        echo "    env: DBUS=$test_env_dbus  XDG=$test_env_xdg  HOME=$test_env_home"
+        if [ -n "$test_error" ]; then
+            echo "    error: $test_error"
+        fi
+        if [ -n "$test_stderr" ] && [ "$test_stderr" != "" ]; then
+            echo "    stderr (first 300 chars): ${test_stderr:0:300}"
+        fi
+        # If test-launch succeeded or timed out (good — means Chromium started), that's very informative
+        if [ "$test_ok" = "True" ] || [ "$test_timeout" = "True" ]; then
+            check "cdp test-launch" "true" "(rc=$test_rc, port_open=$test_port, timeout=$test_timeout)"
+        else
+            check "cdp test-launch" "false" "rc=$test_rc, error=$test_error, stderr=${test_stderr:0:100}"
+        fi
+    else
+        check "cdp test-launch" "false" "No response"
     fi
 fi
 
@@ -198,8 +235,8 @@ print(' | '.join(parts) if parts else 'no diagnostics')
             echo "    Diagnostics: $diag_info"
         fi
         # Show bridge logs for CDP
-        echo "    Bridge CDP logs (last 20 lines):"
-        journalctl --user -u arena-bridge --since "1 min ago" --no-pager 2>/dev/null | grep -i "\[CDP\]" | tail -20 || echo "    (no CDP logs found)"
+        echo "    Bridge CDP logs (last 30 lines):"
+        journalctl --user -u arena-bridge --since "5 min ago" --no-pager 2>/dev/null | grep -iE "\[CDP\]|cdp_browser|launch_browser" | tail -30 || echo "    (no CDP logs found)"
         # Show Chromium stderr log if available
         CHR_LOG="/tmp/cdp-browser-$(cat /proc/self/status 2>/dev/null | grep PPid | awk '{print $2}' 2>/dev/null)/chromium-launch.log"
         # Try common PIDs
