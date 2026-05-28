@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.15"
+VERSION = "1.9.16"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3664,9 +3664,9 @@ async def handle_v1_cdp_test_launch(request):
 async def handle_v1_cdp_test_ws(request):
     """GET /v1/browser/cdp/test-ws — Diagnostic: test WebSocket connectivity to Chromium debug port.
 
-    This endpoint tries to establish a WebSocket connection to the Chromium
-    debug port and reports timing + success/failure. It does NOT go through
-    CDPTabManager — it's a standalone diagnostic.
+    This endpoint launches a fresh Chromium instance, then tries to establish
+    a WebSocket connection to both the browser-level and tab-level WS URLs.
+    It reports timing + success/failure with detailed diagnostics.
 
     Query params:
         port: int (default: 9223)
@@ -3691,40 +3691,87 @@ async def handle_v1_cdp_test_ws(request):
         "port": port,
     }
 
-    # Step 1: Check if Chromium is running and get /json/version
+    # Step 0: Launch Chromium on the test port
+    # (test-launch kills its Chromium, so we need our own instance)
+    loop = asyncio.get_event_loop()
+    logger.info("[test-ws] Launching Chromium on port %d...", port)
     try:
-        version_info = await asyncio.get_event_loop().run_in_executor(
-            None, lambda: cdp.list_tabs(port) and True
-        )
-        result["http_endpoint_ok"] = True
-    except Exception as e:
-        result["http_endpoint_ok"] = False
-        result["http_error"] = str(e)
+        # Kill any stale processes first
+        await loop.run_in_executor(None, cdp._kill_port_processes, port)
+        await asyncio.sleep(0.3)
 
-    # Step 2: Get /json/version for browser WS URL
+        browser_proc = await loop.run_in_executor(
+            None, cdp.launch_browser, port, True  # headless=True
+        )
+        result["browser_pid"] = browser_proc.pid
+
+        # Wait for port to become ready
+        port_ready = False
+        for attempt in range(20):  # 10 seconds
+            await asyncio.sleep(0.5)
+            if browser_proc.poll() is not None:
+                result["browser_died"] = True
+                result["browser_rc"] = browser_proc.returncode
+                # Get stderr
+                launch_diag = getattr(browser_proc, '_cdp_launch_diag', {})
+                stderr_log = launch_diag.get("stderr_log", "")
+                if stderr_log:
+                    try:
+                        with open(stderr_log, "r") as f:
+                            result["browser_stderr"] = f.read().strip()[:1000]
+                    except Exception:
+                        pass
+                return _cors_json_response(result)
+            try:
+                tabs = await loop.run_in_executor(None, cdp.list_tabs, port)
+                if tabs:
+                    port_ready = True
+                    result["port_ready_after_s"] = (attempt + 1) * 0.5
+                    break
+            except Exception:
+                pass
+
+        if not port_ready:
+            result["error"] = f"Chromium port {port} not ready after 10s"
+            # Kill the browser
+            try:
+                browser_proc.terminate()
+                browser_proc.wait(timeout=3)
+            except Exception:
+                pass
+            return _cors_json_response(result)
+    except Exception as e:
+        result["error"] = f"Failed to launch Chromium: {type(e).__name__}: {e}"
+        return _cors_json_response(result)
+
+    # Step 1: Get /json/version for browser WS URL
     try:
         def _get_version():
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as r:
                 return json.loads(r.read().decode())
-        version = await asyncio.get_event_loop().run_in_executor(None, _get_version)
+        version = await loop.run_in_executor(None, _get_version)
         browser_ws_url = version.get("webSocketDebuggerUrl", "")
         result["version_info"] = {
             "Browser": version.get("Browser", "?")[:50],
+            "Protocol-Version": version.get("Protocol-Version", "?"),
             "webSocketDebuggerUrl": browser_ws_url[:80] if browser_ws_url else "NONE",
         }
+        result["http_endpoint_ok"] = True
     except Exception as e:
+        result["http_endpoint_ok"] = False
         result["version_error"] = str(e)
         browser_ws_url = ""
 
-    # Step 3: Try to connect WebSocket with strict timeout
+    # Step 2: Try to connect browser-level WebSocket
     if browser_ws_url:
         result["ws_url"] = browser_ws_url
         t0 = time.monotonic()
         try:
             ws_timeout = aiohttp.ClientTimeout(total=10, connect=5, sock_connect=5)
-            async with aiohttp.ClientSession(timeout=ws_timeout) as session:
+            connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
+            async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
                 ws = await asyncio.wait_for(
-                    session.ws_connect(browser_ws_url, heartbeat=10),
+                    session.ws_connect(browser_ws_url, heartbeat=None, proxy=None),
                     timeout=10
                 )
                 elapsed = time.monotonic() - t0
@@ -3754,10 +3801,10 @@ async def handle_v1_cdp_test_ws(request):
             result["diagnosis"] = (
                 "Chromium debug port accepts HTTP (list_tabs works) but "
                 "WebSocket upgrade HANGS. This is the core CDP connect issue. "
-                "Possible causes: (1) Chromium headless mode doesn't support WS, "
-                "(2) --remote-debugging-address=127.0.0.1 causes WS to bind differently, "
-                "(3) aiohttp WebSocket client incompatibility, "
-                "(4) Chromium is in a broken state after headless startup."
+                "Possible causes: (1) Chromium headless mode WS bug, "
+                "(2) aiohttp WebSocket client incompatibility with Python 3.14, "
+                "(3) proxy/firewall interfering with WS upgrade, "
+                "(4) Chromium in a broken state after headless startup."
             )
         except Exception as e:
             elapsed = time.monotonic() - t0
@@ -3766,14 +3813,14 @@ async def handle_v1_cdp_test_ws(request):
             result["ws_connect_time_s"] = round(elapsed, 2)
     else:
         result["ws_connect_ok"] = False
-        result["ws_connect_error"] = "No browser WS URL available"
+        result["ws_connect_error"] = "No browser WS URL available from /json/version"
 
-    # Step 4: Also try connecting to a PAGE-level WS URL (from /json/list)
+    # Step 3: Also try connecting to a PAGE-level WS URL
     try:
         def _get_tabs():
             with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:
                 return json.loads(r.read().decode())
-        tabs = await asyncio.get_event_loop().run_in_executor(None, _get_tabs)
+        tabs = await loop.run_in_executor(None, _get_tabs)
         page_tabs = [t for t in tabs if t.get("type") == "page"]
         result["tab_count"] = len(tabs)
         result["page_tab_count"] = len(page_tabs)
@@ -3784,14 +3831,25 @@ async def handle_v1_cdp_test_ws(request):
                 t0 = time.monotonic()
                 try:
                     ws_timeout = aiohttp.ClientTimeout(total=10, connect=5, sock_connect=5)
-                    async with aiohttp.ClientSession(timeout=ws_timeout) as session:
+                    connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
+                    async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
                         tab_ws = await asyncio.wait_for(
-                            session.ws_connect(tab_ws_url, heartbeat=10),
+                            session.ws_connect(tab_ws_url, heartbeat=None, proxy=None),
                             timeout=10
                         )
                         elapsed = time.monotonic() - t0
                         result["tab_ws_connect_ok"] = True
                         result["tab_ws_connect_time_s"] = round(elapsed, 2)
+                        # Try a simple CDP command on the tab
+                        try:
+                            await tab_ws.send_json({"id": 1, "method": "Runtime.evaluate", "params": {"expression": "1+1"}})
+                            msg = await asyncio.wait_for(tab_ws.receive(), timeout=5)
+                            if msg.type == aiohttp.WSMsgType.TEXT:
+                                result["tab_cdp_ok"] = True
+                                result["tab_cdp_response"] = msg.data[:200]
+                        except Exception as e:
+                            result["tab_cdp_ok"] = False
+                            result["tab_cdp_error"] = str(e)
                         await tab_ws.close()
                 except asyncio.TimeoutError:
                     elapsed = time.monotonic() - t0
@@ -3803,6 +3861,51 @@ async def handle_v1_cdp_test_ws(request):
                     result["tab_ws_connect_error"] = f"{type(e).__name__}: {e}"
     except Exception as e:
         result["tab_list_error"] = str(e)
+
+    # Step 4: Try with websockets library as fallback diagnostic
+    try:
+        import websockets
+        result["websockets_available"] = True
+        if browser_ws_url:
+            t0 = time.monotonic()
+            try:
+                ws_raw = await asyncio.wait_for(
+                    websockets.connect(browser_ws_url, open_timeout=10, close_timeout=5),
+                    timeout=12
+                )
+                elapsed = time.monotonic() - t0
+                result["websockets_browser_ok"] = True
+                result["websockets_browser_time_s"] = round(elapsed, 2)
+                # Try sending a CDP command
+                try:
+                    await ws_raw.send(json.dumps({"id": 1, "method": "Target.getTargets"}))
+                    resp = await asyncio.wait_for(ws_raw.recv(), timeout=5)
+                    result["websockets_cdp_ok"] = True
+                    result["websockets_cdp_preview"] = resp[:200]
+                except Exception as e:
+                    result["websockets_cdp_ok"] = False
+                    result["websockets_cdp_error"] = str(e)
+                await ws_raw.close()
+            except asyncio.TimeoutError:
+                elapsed = time.monotonic() - t0
+                result["websockets_browser_ok"] = False
+                result["websockets_browser_error"] = f"TIMEOUT after {elapsed:.1f}s"
+            except Exception as e:
+                elapsed = time.monotonic() - t0
+                result["websockets_browser_ok"] = False
+                result["websockets_browser_error"] = f"{type(e).__name__}: {e}"
+    except ImportError:
+        result["websockets_available"] = False
+
+    # Cleanup: kill the test browser
+    try:
+        browser_proc.terminate()
+        browser_proc.wait(timeout=3)
+    except Exception:
+        try:
+            browser_proc.kill()
+        except Exception:
+            pass
 
     return _cors_json_response(result)
 
@@ -3957,6 +4060,7 @@ async def handle_v1_cdp_connect(request):
             "tab_count": mgr.tab_count,
             "active_tab_id": mgr.active_tab_id,
             "tabs": [tab.to_dict() for tab in mgr.list_tabs()],
+            "ws_diagnostics": mgr.ws_diagnostics,
         }
         if not tab_connected:
             result["warning"] = "Active tab is not connected — CDP page operations may fail. Try reconnecting."

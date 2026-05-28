@@ -91,7 +91,7 @@ ok "Python $PYVER found"
 
 # --- Step 3: Install dependencies ---
 info "Installing Python dependencies..."
-"$PY" -m pip install aiohttp psutil --quiet 2>/dev/null || true
+"$PY" -m pip install aiohttp psutil websockets --quiet 2>/dev/null || true
 ok "Python packages ready"
 
 # --- Step 4: Create subdirectories (all inside INSTALL_DIR) ---

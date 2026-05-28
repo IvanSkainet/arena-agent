@@ -1039,28 +1039,111 @@ class CDPTab:
         # CRITICAL FIX (v1.9.15): Must use ClientTimeout + asyncio.wait_for to prevent
         # indefinite hangs. This was the root cause of CDP connect timeouts
         # in v1.9.5 through v1.9.14 — ws_connect had NO timeout protection.
-        ws_timeout = aiohttp.ClientTimeout(total=15, connect=10, sock_connect=10)
-        self._browser._session = aiohttp.ClientSession(timeout=ws_timeout)
+        #
+        # v1.9.16: Try multiple WS connection strategies:
+        #   Strategy 1: aiohttp with TCPConnector(force_close=True), no proxy, no heartbeat
+        #   Strategy 2: aiohttp default connector with heartbeat
+        #   Strategy 3: websockets library (if available)
+        ws_connected = False
+        last_error = None
+
+        # Strategy 1: aiohttp with force_close connector, no proxy, NO heartbeat
+        # (heartbeat can cause issues with some Chromium versions)
         try:
-            self._browser._ws = await asyncio.wait_for(
-                self._browser._session.ws_connect(self.ws_url, heartbeat=30),
-                timeout=15
+            logger.info("[CDPTab] Strategy 1: aiohttp TCPConnector(force_close), no proxy, no heartbeat")
+            ws_timeout = aiohttp.ClientTimeout(total=10, connect=5, sock_connect=5)
+            connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
+            self._browser._session = aiohttp.ClientSession(
+                timeout=ws_timeout, connector=connector
             )
-            logger.info("[CDPTab] Tab %s WS connected successfully", self.target_id)
+            self._browser._ws = await asyncio.wait_for(
+                self._browser._session.ws_connect(
+                    self.ws_url, heartbeat=None,  # No heartbeat — let CDP keepalive handle it
+                    proxy=None,  # Explicitly no proxy
+                ),
+                timeout=10
+            )
+            ws_connected = True
+            logger.info("[CDPTab] Strategy 1 SUCCESS: Tab %s WS connected", self.target_id)
         except asyncio.TimeoutError:
-            logger.error("[CDPTab] Tab %s WS connect TIMED OUT (15s) — URL: %s", self.target_id, self.ws_url)
-            await self._browser._session.close()
+            logger.warning("[CDPTab] Strategy 1 TIMED OUT (10s) — URL: %s", self.ws_url)
+            last_error = f"aiohttp ws_connect timed out (10s). URL: {self.ws_url}"
+            if self._browser._session and not self._browser._session.closed:
+                await self._browser._session.close()
+        except Exception as e:
+            logger.warning("[CDPTab] Strategy 1 FAILED: %s — URL: %s", e, self.ws_url)
+            last_error = f"aiohttp ws_connect error: {type(e).__name__}: {e}. URL: {self.ws_url}"
+            if self._browser._session and not self._browser._session.closed:
+                await self._browser._session.close()
+
+        # Strategy 2: Try with heartbeat (original v1.9.15 approach)
+        if not ws_connected:
+            try:
+                logger.info("[CDPTab] Strategy 2: aiohttp with heartbeat=30")
+                ws_timeout = aiohttp.ClientTimeout(total=15, connect=10, sock_connect=10)
+                self._browser._session = aiohttp.ClientSession(timeout=ws_timeout)
+                self._browser._ws = await asyncio.wait_for(
+                    self._browser._session.ws_connect(self.ws_url, heartbeat=30, proxy=None),
+                    timeout=15
+                )
+                ws_connected = True
+                logger.info("[CDPTab] Strategy 2 SUCCESS: Tab %s WS connected", self.target_id)
+            except asyncio.TimeoutError:
+                logger.warning("[CDPTab] Strategy 2 TIMED OUT (15s)")
+                last_error = f"aiohttp+heartbeat ws_connect timed out (15s). URL: {self.ws_url}"
+                if self._browser._session and not self._browser._session.closed:
+                    await self._browser._session.close()
+            except Exception as e:
+                logger.warning("[CDPTab] Strategy 2 FAILED: %s", e)
+                last_error = f"aiohttp+heartbeat error: {type(e).__name__}: {e}. URL: {self.ws_url}"
+                if self._browser._session and not self._browser._session.closed:
+                    await self._browser._session.close()
+
+        # Strategy 3: Try websockets library if available
+        if not ws_connected:
+            try:
+                import websockets
+                logger.info("[CDPTab] Strategy 3: websockets library")
+                ws_raw = await asyncio.wait_for(
+                    websockets.connect(self.ws_url, open_timeout=10, close_timeout=5),
+                    timeout=12
+                )
+                # websockets gives us a different object — wrap it for CDP use
+                # For now, just report success and store a reference
+                logger.info("[CDPTab] Strategy 3 SUCCESS: websockets connected to %s", self.target_id)
+                # We can't easily swap websockets into CDPBrowser's aiohttp-based
+                # _ws attribute. Instead, close it and note that WS works.
+                await ws_raw.close()
+                # Fall through to aiohttp retry since CDPBrowser needs aiohttp WS
+                logger.info("[CDPTab] websockets works! Retrying aiohttp with different settings...")
+
+                # Retry aiohttp with different timeout settings
+                ws_timeout = aiohttp.ClientTimeout(total=20, connect=10, sock_connect=10)
+                self._browser._session = aiohttp.ClientSession(timeout=ws_timeout)
+                self._browser._ws = await asyncio.wait_for(
+                    self._browser._session.ws_connect(self.ws_url, heartbeat=30, proxy=None),
+                    timeout=20
+                )
+                ws_connected = True
+                logger.info("[CDPTab] aiohttp retry after websockets test: SUCCESS")
+            except ImportError:
+                logger.info("[CDPTab] websockets library not available for Strategy 3")
+                last_error = f"All aiohttp strategies failed. websockets library not available. {last_error}"
+            except asyncio.TimeoutError:
+                logger.error("[CDPTab] Strategy 3 TIMED OUT — websockets also can't connect!")
+                last_error = f"Both aiohttp AND websockets library failed to connect. URL: {self.ws_url}"
+            except Exception as e:
+                logger.error("[CDPTab] Strategy 3 FAILED: %s — websockets also fails", e)
+                last_error = f"Both aiohttp and websockets failed. Last: {type(e).__name__}: {e}. URL: {self.ws_url}"
+
+        if not ws_connected:
             self._browser = None
             raise ConnectionError(
-                f"Tab {self.target_id} WebSocket connect timed out (15s). "
-                f"URL: {self.ws_url}. "
-                f"The Chromium debug port may be open (HTTP works) but WebSocket upgrade hangs."
+                f"Tab {self.target_id} WebSocket connect FAILED after all strategies. "
+                f"Last error: {last_error}. "
+                f"HTTP works (list_tabs succeeds) but WebSocket upgrade fails. "
+                f"This suggests a Chromium headless mode or aiohttp compatibility issue."
             )
-        except Exception as e:
-            logger.error("[CDPTab] Tab %s WS connect FAILED: %s — URL: %s", self.target_id, e, self.ws_url)
-            await self._browser._session.close()
-            self._browser = None
-            raise
 
         # Disable auto-reconnect: if WS drops, _listen_loop would call
         # reconnect() which connects to tab_index=0, NOT this tab.
@@ -1285,6 +1368,9 @@ class CDPTabManager:
         # Track fire-and-forget callback tasks for cleanup
         self._callback_tasks: List[asyncio.Task] = []
 
+        # WS diagnostics — populated during connect() for API response
+        self.ws_diagnostics: Dict[str, Any] = {}
+
     # -- Context manager -----------------------------------------------------
 
     async def __aenter__(self):
@@ -1351,6 +1437,13 @@ class CDPTabManager:
         except Exception:
             existing_tabs = []
         logger.info("[CDPManager] list_tabs=%d tabs (%.1fs)", len(existing_tabs), time.monotonic()-t0)
+
+        # Collect WS diagnostics for API response
+        self.ws_diagnostics["list_tabs_count"] = len(existing_tabs)
+        if existing_tabs:
+            self.ws_diagnostics["tab_ws_urls"] = [
+                t.get("webSocketDebuggerUrl", "NONE")[:60] for t in existing_tabs
+            ]
 
         if not existing_tabs and self.auto_launch:
             # Run launch_browser in executor to avoid blocking the event loop
@@ -1450,6 +1543,7 @@ class CDPTabManager:
         logger.info("[CDPManager] Connecting browser-level WebSocket (%.1fs)...", time.monotonic()-t0)
         await self._connect_browser_ws()
         ws_connected = self._browser_ws is not None and not self._browser_ws.closed
+        self.ws_diagnostics["browser_ws_connected"] = ws_connected
         if ws_connected:
             logger.info("[CDPManager] Browser-level WS connected (%.1fs)", time.monotonic()-t0)
         else:
@@ -1508,9 +1602,13 @@ class CDPTabManager:
                 logger.error("[CDPTabManager] The Chromium debug port works (HTTP /json/list succeeds)")
                 logger.error("[CDPTabManager] but the WebSocket upgrade on the tab WS URL hangs.")
                 logger.error("[CDPTabManager] WS URL was: %s", self._tabs[self._active_tab_id].ws_url)
+                self.ws_diagnostics["tab_ws_error"] = f"TIMEOUT (20s). WS URL: {self._tabs[self._active_tab_id].ws_url}"
                 # Don't raise — we'll try to continue without an active tab connection
             except Exception as e:
                 logger.warning("[CDPTabManager] Failed to auto-connect active tab: %s", e)
+                self.ws_diagnostics["tab_ws_error"] = f"{type(e).__name__}: {e}"
+        else:
+            self.ws_diagnostics["tab_ws_connected"] = self._tabs[self._active_tab_id].connected if self._active_tab_id else False
 
         logger.info(
             "[CDPTabManager] Connected. Tracking %d tab(s), active: %s (%.1fs)",
@@ -1536,15 +1634,17 @@ class CDPTabManager:
         logger.info("[CDPTabManager] Browser WS URL from /json/version: %s", browser_ws_url)
 
         try:
-            # CRITICAL FIX (v1.9.15): Use ClientTimeout on the session to prevent
-            # aiohttp from hanging indefinitely on DNS/TCP/SSL operations.
+            # v1.9.16: Use TCPConnector(force_close) and no proxy to avoid
+            # potential issues with connection reuse and proxy settings.
             ws_timeout = aiohttp.ClientTimeout(total=15, connect=10, sock_connect=10)
-            self._browser_session = aiohttp.ClientSession(timeout=ws_timeout)
+            connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
+            self._browser_session = aiohttp.ClientSession(timeout=ws_timeout, connector=connector)
 
             # Add asyncio.wait_for timeout to prevent ws_connect from hanging
             # even with ClientTimeout (belt + suspenders approach).
+            # v1.9.16: Try without heartbeat first — heartbeat can interfere with WS upgrade.
             self._browser_ws = await asyncio.wait_for(
-                self._browser_session.ws_connect(browser_ws_url, heartbeat=30),
+                self._browser_session.ws_connect(browser_ws_url, heartbeat=None, proxy=None),
                 timeout=15
             )
 
@@ -1564,12 +1664,14 @@ class CDPTabManager:
             logger.warning("[CDPTabManager] Browser-level WS connection TIMED OUT (15s) — URL: %s", browser_ws_url)
             logger.warning("[CDPTabManager] This means Chromium's debug port accepts HTTP but WebSocket upgrade hangs.")
             logger.warning("[CDPTabManager] Tab operations will still work, but lifecycle events are disabled.")
+            self.ws_diagnostics["browser_ws_error"] = f"TIMEOUT (15s). URL: {browser_ws_url}"
             if self._browser_session and not self._browser_session.closed:
                 await self._browser_session.close()
             self._browser_session = None
             self._browser_ws = None
         except Exception as e:
             logger.warning("[CDPTabManager] Failed to connect browser-level WS: %s — URL: %s", e, browser_ws_url)
+            self.ws_diagnostics["browser_ws_error"] = f"{type(e).__name__}: {e}. URL: {browser_ws_url}"
             if self._browser_session and not self._browser_session.closed:
                 await self._browser_session.close()
             self._browser_session = None
