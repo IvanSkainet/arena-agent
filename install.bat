@@ -244,6 +244,16 @@ for /L %%i in (1,1,10) do (
 echo [WARN] Bridge not responding after 10s. Check: %BRIDGE_DIR%\logs\bridge.log
 :healthy
 
+REM --- Detect Tailscale URL ---
+set "TS_URL="
+where tailscale >nul 2>&1
+if not errorlevel 1 (
+    for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); dns=d.get('DNSName',''); print('https://'+dns) if dns else None" 2^>nul') do set "TS_URL=%%u"
+    if not defined TS_URL (
+        for /f "delims=" %%u in ('tailscale status 2^>nul ^| findstr /r "https://.*\.ts\.net"') do set "TS_URL=%%u"
+    )
+)
+
 echo.
 echo  ========================================
 echo   Installation Complete!
@@ -253,12 +263,18 @@ echo   Directory:  %BRIDGE_DIR%
 echo   Dashboard:  http://127.0.0.1:%PORT%/gui
 echo   Health:     http://127.0.0.1:%PORT%/health
 echo   Token file: %TOKEN_FILE%
+if defined TS_URL echo   Secure URL: %TS_URL%
 echo.
 
 REM Show token
 if exist "%TOKEN_FILE%" (
     echo   Your auth token:
     for /f "delims=" %%t in ('type "%TOKEN_FILE%"') do echo   %%t
+    echo.
+)
+if defined TS_URL (
+    echo   Your secure Tailscale URL:
+    echo   %TS_URL%
     echo.
 )
 

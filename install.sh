@@ -355,6 +355,25 @@ for i in $(seq 1 20); do
     fi
 done
 
+# --- Detect Tailscale URL ---
+TS_URL=""
+if command -v tailscale >/dev/null 2>&1; then
+    # Try to extract the Funnel URL from tailscale status JSON
+    TS_URL="$(tailscale status --json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    dns = d.get('DNSName', '')
+    if dns:
+        print('https://' + dns)
+except: pass
+" 2>/dev/null)" || TS_URL=""
+    # Fallback: parse from tailscale status text output
+    if [ -z "$TS_URL" ]; then
+        TS_URL="$(tailscale status 2>/dev/null | grep -oP 'https://[a-z0-9-]+\.tail\d+\.ts\.net' | head -1)" || TS_URL=""
+    fi
+fi
+
 # --- Done ---
 echo ""
 echo "========================================"
@@ -365,9 +384,17 @@ echo " Directory:  $INSTALL_DIR"
 echo " Dashboard:  http://127.0.0.1:$PORT/gui"
 echo " Health:     http://127.0.0.1:$PORT/health"
 echo " Token file: $TOKEN_FILE"
+if [ -n "$TS_URL" ]; then
+    echo " Secure URL: $TS_URL"
+fi
 echo ""
 echo " Your token:"
 echo "   $TOKEN"
+if [ -n "$TS_URL" ]; then
+    echo ""
+    echo " Your secure Tailscale URL:"
+    echo "   $TS_URL"
+fi
 echo ""
 if [ "$OS" = "Linux" ]; then
     echo " Manage:"
