@@ -2,8 +2,11 @@
 """
 sd-exec — Cross-platform "escape the bridge cgroup" wrapper.
 
-On Linux with systemd: uses `systemd-run --user --quiet --wait --collect --same-dir`
-                       to run inside a transient user service, preserving DISPLAY/DBUS env.
+On Linux with systemd: uses `systemd-run --user --scope` to run inside
+                       a transient user SCOPE (not service), preserving
+                       DISPLAY/DBUS env. Scopes escape the caller's cgroup
+                       (e.g. the bridge's isolated cgroup) and run in the
+                       user's session slice instead.
 On macOS/Windows or systemd-less Linux: uses subprocess in a fresh session,
                        inheriting the GUI/session environment.
 
@@ -14,7 +17,7 @@ Usage:
 Flags:
     --no-pipe       (Linux/systemd) disable --pipe; ignored elsewhere
     --timeout SEC   set a maximum runtime
-    --background    don't wait for the child; just spawn & exit (returns PID)
+    --background    don't wait for the child; just spawn & exit
     --              separator before the command (recommended)
 """
 from __future__ import annotations
@@ -57,24 +60,75 @@ def _parse_args(argv: List[str]) -> tuple[dict, List[str]]:
     return opts, []
 
 
-def _run_systemd(opts: dict, cmd: List[str]) -> int:
-    """Linux + systemd: run via systemd-run --user."""
-    pipe_flag = [] if opts["no_pipe"] else ["--pipe"]
-    timeout_flag = [f"--property=RuntimeMaxSec={opts['timeout']}"] if opts["timeout"] else []
+def _build_env_flags() -> List[str]:
+    """Build -E flags for GUI/session environment variables."""
     env_flags: List[str] = []
     for v in GUI_ENV_VARS:
         val = os.environ.get(v)
         if val:
             env_flags += ["-E", f"{v}={val}"]
-    full = ["systemd-run", "--user", "--quiet"] + pipe_flag + \
-           (["--wait", "--collect", "--same-dir"] if not opts["background"] else []) + \
-           env_flags + timeout_flag + ["--"] + cmd
-    try:
-        r = subprocess.run(full)
-        return r.returncode
-    except FileNotFoundError:
-        # systemd-run gone? fall back to plain
-        return _run_plain(opts, cmd)
+
+    # Build D-Bus address if not already set (needed inside systemd services)
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        uid = os.getuid()
+        dbus_path = f"/run/user/{uid}/bus"
+        if os.path.exists(dbus_path):
+            env_flags += ["-E", f"DBUS_SESSION_BUS_ADDRESS=unix:path={dbus_path}"]
+
+    return env_flags
+
+
+def _run_systemd(opts: dict, cmd: List[str]) -> int:
+    """Linux + systemd: run via ``systemd-run --user --scope``.
+
+    Uses --scope (not a transient service) so the child process escapes
+    the caller's cgroup. This is critical when the bridge runs as a
+    systemd user service with cgroup isolation — Chromium needs D-Bus,
+    display servers, etc. that are only available in the session scope.
+
+    Key fix: --pipe implies --wait on systemd 255+, so we must NEVER use
+    --pipe with --background (or the call blocks until the child exits).
+    """
+    # --pipe implies --wait on systemd 255+, so never use it with --background
+    use_pipe = not opts["no_pipe"] and not opts["background"]
+    pipe_flag = ["--pipe"] if use_pipe else []
+    timeout_flag = [f"--property=RuntimeMaxSec={opts['timeout']}"] if opts["timeout"] else []
+    env_flags = _build_env_flags()
+
+    if opts["background"]:
+        # --scope + no --pipe + no --wait = systemd-run registers the scope
+        # and exits immediately. The child (Chromium) runs independently.
+        full = ["systemd-run", "--user", "--quiet", "--scope"] + \
+               pipe_flag + env_flags + timeout_flag + ["--"] + cmd
+        try:
+            proc = subprocess.Popen(full, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # systemd-run --scope without --wait should exit quickly (~1s)
+            # after registering the scope with systemd
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                # If it hasn't exited in 8s, something is wrong — kill it
+                proc.terminate()
+                proc.wait(timeout=2)
+            # Check stderr for errors
+            stderr_out = proc.stderr.read().decode("utf-8", errors="replace").strip()
+            if proc.returncode and proc.returncode != 0:
+                sys.stderr.write(f"sd-exec: systemd-run error (rc={proc.returncode}): {stderr_out}\n")
+                return proc.returncode
+            print("ok")
+            return 0
+        except FileNotFoundError:
+            # systemd-run not found — fall back to plain
+            return _run_plain(opts, cmd)
+    else:
+        # Foreground: use --scope --wait to run and wait for completion
+        full = ["systemd-run", "--user", "--quiet", "--scope", "--wait", "--collect",
+                "--same-dir"] + pipe_flag + env_flags + timeout_flag + ["--"] + cmd
+        try:
+            r = subprocess.run(full)
+            return r.returncode
+        except FileNotFoundError:
+            return _run_plain(opts, cmd)
 
 
 def _run_plain(opts: dict, cmd: List[str]) -> int:
@@ -129,7 +183,7 @@ def main(argv: List[str]) -> int:
         sys.stderr.write("sd-exec: missing command (use -- before the command)\n")
         return 2
 
-    # Linux + systemd available -> use systemd-run
+    # Linux + systemd available -> use systemd-run --scope
     if platform.system() == "Linux" and shutil.which("systemd-run"):
         return _run_systemd(opts, cmd)
     # Everywhere else: plain detached subprocess

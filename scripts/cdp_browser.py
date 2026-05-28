@@ -137,12 +137,16 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     inside this cgroup cannot access D-Bus, display servers, etc., and crashes.
 
     Solution: use the bundled ``sd-exec`` wrapper which runs Chromium via
-    ``systemd-run --user`` with proper GUI environment variables (-E flags),
-    escaping the bridge's cgroup. This gives Chromium access to D-Bus,
-    Wayland/X11, and other desktop session resources.
+    ``systemd-run --user --scope`` with proper GUI environment variables
+    (-E flags), escaping the bridge's cgroup. This gives Chromium access to
+    D-Bus, Wayland/X11, and other desktop session resources.
 
     We also bypass distro wrapper scripts (e.g. CachyOS's /usr/bin/chromium)
     which inject conflicting --ozone-platform-hint=auto flags.
+
+    The returned Popen object may refer to the launcher process (sd-exec or
+    systemd-run), NOT the Chromium process itself. The actual Chromium PID
+    is tracked via the debug port (9222).
     """
     exe = _resolve_browser_binary()
     logger.info("[CDP] Launching browser: %s", exe)
@@ -161,6 +165,7 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     # On Linux with systemd: use sd-exec to escape the bridge's cgroup
     # sd-exec passes GUI env vars (DISPLAY, DBUS_SESSION_BUS_ADDRESS, WAYLAND_DISPLAY, etc.)
     use_sd_exec = False
+    use_systemd_run = False
     sd_exec_path = None
     if platform.system() == "Linux":
         # Check if we're running inside a systemd service (cgroup isolation)
@@ -179,13 +184,19 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
                     sd_exec_path = c
                     use_sd_exec = True
                     break
+            # If sd-exec not found, fall back to manual systemd-run
+            if not use_sd_exec:
+                use_systemd_run = True
 
     if use_sd_exec:
-        # Use sd-exec to escape cgroup — it handles systemd-run with proper -E env vars
+        # Use sd-exec --background to escape cgroup.
+        # sd-exec runs: systemd-run --user --scope -E ... -- chromium ...
+        # --background means sd-exec exits after registering the scope,
+        # leaving Chromium running independently.
         full_cmd = [sd_exec_path, "--background", "--"] + cmd
         logger.info("[CDP] Using sd-exec (%s) to escape cgroup isolation", sd_exec_path)
-    elif platform.system() == "Linux" and os.environ.get("INVOCATION_ID"):
-        # Fallback: manual systemd-run with explicit GUI env vars
+    elif use_systemd_run:
+        # Fallback: manual systemd-run --scope with explicit GUI env vars
         env_flags = []
         for var in ["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
                      "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE",
@@ -199,40 +210,67 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
             dbus_path = f"/run/user/{uid}/bus"
             if os.path.exists(dbus_path):
                 env_flags += ["-E", f"DBUS_SESSION_BUS_ADDRESS=unix:path={dbus_path}"]
+        # --scope without --wait: register scope and exit immediately
         full_cmd = [
             "systemd-run", "--user", "--scope",
         ] + env_flags + ["--"] + cmd
-        logger.info("[CDP] Using manual systemd-run with env vars to escape cgroup")
+        logger.info("[CDP] Using manual systemd-run --scope to escape cgroup")
     else:
         full_cmd = cmd
         logger.info("[CDP] Direct browser launch (not in systemd service)")
 
-    # Capture stderr to log browser crashes
+    # Launch the process
     proc = subprocess.Popen(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # Give the browser a moment to start and open the debug port
     time.sleep(3)
 
-    # If using sd-exec --background, it prints the PID of the launched process
-    # The actual Chromium is a grandchild — we track via the debug port instead
+    # Read sd-exec output with a timeout to avoid blocking.
+    # sd-exec --background should print "ok" and exit quickly (~1-2s).
+    # We use a non-blocking read to avoid deadlocks.
     if use_sd_exec:
         try:
-            # sd-exec --background prints the child PID to stdout
-            pid_output = proc.stdout.read().decode("utf-8", errors="replace").strip()
-            if pid_output:
-                logger.info("[CDP] sd-exec spawned process (sd-exec output: %s)", pid_output)
+            # Poll to see if sd-exec has exited (it should have by now)
+            if proc.poll() is not None:
+                stdout_output = proc.stdout.read().decode("utf-8", errors="replace").strip()
+                stderr_output = proc.stderr.read().decode("utf-8", errors="replace").strip()
+                if stdout_output:
+                    logger.info("[CDP] sd-exec output: %s", stdout_output)
+                if stderr_output:
+                    logger.warning("[CDP] sd-exec stderr: %s", stderr_output[:1000])
+                if proc.returncode != 0:
+                    logger.error("[CDP] sd-exec exited with code %d", proc.returncode)
+            else:
+                # sd-exec is still running — this could mean it's stuck.
+                # Try a non-blocking read.
+                import selectors
+                sel = selectors.DefaultSelector()
+                sel.register(proc.stdout, selectors.EVENT_READ)
+                ready = sel.select(timeout=2)
+                sel.close()
+                if ready:
+                    chunk = proc.stdout.read1(4096).decode("utf-8", errors="replace").strip()
+                    if chunk:
+                        logger.info("[CDP] sd-exec output (partial): %s", chunk)
+                else:
+                    logger.warning("[CDP] sd-exec still running after 3s — may be stuck")
+        except Exception as e:
+            logger.warning("[CDP] Could not read sd-exec output: %s", e)
+
+    # Check if the launcher process crashed/exited immediately
+    if proc.poll() is not None:
+        stderr_output = ""
+        try:
+            stderr_output = proc.stderr.read().decode("utf-8", errors="replace")
         except Exception:
             pass
-
-    # Check if launcher process crashed immediately
-    if proc.poll() is not None:
-        stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
-        if stderr_output:
-            logger.error("[CDP] Browser launcher crashed (exit code %d). stderr:\n%s",
+        if stderr_output.strip():
+            logger.error("[CDP] Browser launcher exited (code %d). stderr:\n%s",
                          proc.returncode, stderr_output[:2000])
         else:
-            logger.error("[CDP] Browser launcher exited immediately (exit code %d)", proc.returncode)
+            logger.info("[CDP] Browser launcher exited (code %d) — Chromium may be running in scope",
+                        proc.returncode)
     else:
-        logger.info("[CDP] Browser launcher started (pid %d)", proc.pid)
+        logger.info("[CDP] Browser launcher still running (pid %d)", proc.pid)
     return proc
 
 
@@ -348,8 +386,8 @@ class CDPBrowser:
 
         if ws_url is None and self.auto_launch:
             self._browser_proc = launch_browser(self.port, self.headless)
-            # Retry a few times until the debug port is ready
-            for _ in range(5):
+            # Retry until the debug port is ready (may take longer via sd-exec/systemd-run)
+            for _ in range(10):
                 ws_url = get_websocket_url(self.port, self.tab_index)
                 if ws_url:
                     break
@@ -1104,7 +1142,9 @@ class CDPTabManager:
         existing_tabs = await loop.run_in_executor(None, list_tabs, self.port)
         if not existing_tabs and self.auto_launch:
             self._browser_proc = launch_browser(self.port, self.headless)
-            for _ in range(5):
+            # When launched via sd-exec/systemd-run --scope, Chromium takes
+            # longer to start (scope registration + process init). Retry more.
+            for attempt in range(10):
                 existing_tabs = await loop.run_in_executor(None, list_tabs, self.port)
                 if existing_tabs:
                     break
