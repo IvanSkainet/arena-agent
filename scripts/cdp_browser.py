@@ -136,9 +136,10 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     isolated cgroup (PrivateTmp, ProtectSystem). Chromium launched directly
     inside this cgroup cannot access D-Bus, display servers, etc., and crashes.
 
-    Solution: use ``systemd-run --user --scope`` to launch Chromium in the
-    user's session scope, outside the bridge's cgroup. This gives Chromium
-    proper access to the desktop session resources.
+    Solution: use the bundled ``sd-exec`` wrapper which runs Chromium via
+    ``systemd-run --user`` with proper GUI environment variables (-E flags),
+    escaping the bridge's cgroup. This gives Chromium access to D-Bus,
+    Wayland/X11, and other desktop session resources.
 
     We also bypass distro wrapper scripts (e.g. CachyOS's /usr/bin/chromium)
     which inject conflicting --ozone-platform-hint=auto flags.
@@ -157,39 +158,81 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     if headless:
         cmd.append("--headless=new")
 
-    # On Linux: use systemd-run to escape the bridge's cgroup
-    # This is critical when running as a systemd user service
-    use_systemd_run = False
+    # On Linux with systemd: use sd-exec to escape the bridge's cgroup
+    # sd-exec passes GUI env vars (DISPLAY, DBUS_SESSION_BUS_ADDRESS, WAYLAND_DISPLAY, etc.)
+    use_sd_exec = False
+    sd_exec_path = None
     if platform.system() == "Linux":
         # Check if we're running inside a systemd service (cgroup isolation)
-        # by looking for the INVOCATION_ID env var set by systemd
         in_systemd = os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM")
-        if in_systemd and shutil.which("systemd-run"):
-            use_systemd_run = True
+        if in_systemd:
+            # Look for sd-exec in the bridge's bin/ directory
+            # ARENA_AGENT_HOME points to the bridge installation directory
+            bridge_home = os.environ.get("ARENA_AGENT_HOME", "")
+            candidates = [
+                os.path.join(bridge_home, "bin", "sd-exec") if bridge_home else "",
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "bin", "sd-exec"),
+                shutil.which("sd-exec") or "",
+            ]
+            for c in candidates:
+                if c and os.path.isfile(c):
+                    sd_exec_path = c
+                    use_sd_exec = True
+                    break
 
-    if use_systemd_run:
-        # Escape cgroup: launch in user's session scope with proper D-Bus/display access
+    if use_sd_exec:
+        # Use sd-exec to escape cgroup — it handles systemd-run with proper -E env vars
+        full_cmd = [sd_exec_path, "--background", "--"] + cmd
+        logger.info("[CDP] Using sd-exec (%s) to escape cgroup isolation", sd_exec_path)
+    elif platform.system() == "Linux" and os.environ.get("INVOCATION_ID"):
+        # Fallback: manual systemd-run with explicit GUI env vars
+        env_flags = []
+        for var in ["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
+                     "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE",
+                     "XDG_CURRENT_DESKTOP"]:
+            val = os.environ.get(var)
+            if val:
+                env_flags += ["-E", f"{var}={val}"]
+        # If we don't have DBUS_SESSION_BUS_ADDRESS, construct it
+        if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+            uid = os.getuid()
+            dbus_path = f"/run/user/{uid}/bus"
+            if os.path.exists(dbus_path):
+                env_flags += ["-E", f"DBUS_SESSION_BUS_ADDRESS=unix:path={dbus_path}"]
         full_cmd = [
             "systemd-run", "--user", "--scope",
-            "--property=Delegate=yes",
-            "--same-dir",
-            "--",
-        ] + cmd
-        logger.info("[CDP] Using systemd-run to escape cgroup isolation")
+        ] + env_flags + ["--"] + cmd
+        logger.info("[CDP] Using manual systemd-run with env vars to escape cgroup")
     else:
         full_cmd = cmd
+        logger.info("[CDP] Direct browser launch (not in systemd service)")
 
     # Capture stderr to log browser crashes
-    proc = subprocess.Popen(full_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(full_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # Give the browser a moment to start and open the debug port
     time.sleep(3)
-    # Check if browser crashed immediately
+
+    # If using sd-exec --background, it prints the PID of the launched process
+    # The actual Chromium is a grandchild — we track via the debug port instead
+    if use_sd_exec:
+        try:
+            # sd-exec --background prints the child PID to stdout
+            pid_output = proc.stdout.read().decode("utf-8", errors="replace").strip()
+            if pid_output:
+                logger.info("[CDP] sd-exec spawned process (sd-exec output: %s)", pid_output)
+        except Exception:
+            pass
+
+    # Check if launcher process crashed immediately
     if proc.poll() is not None:
         stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
-        logger.error("[CDP] Browser crashed immediately (exit code %d). stderr:\n%s",
-                     proc.returncode, stderr_output[:2000])
+        if stderr_output:
+            logger.error("[CDP] Browser launcher crashed (exit code %d). stderr:\n%s",
+                         proc.returncode, stderr_output[:2000])
+        else:
+            logger.error("[CDP] Browser launcher exited immediately (exit code %d)", proc.returncode)
     else:
-        logger.info("[CDP] Browser started (pid %d)", proc.pid)
+        logger.info("[CDP] Browser launcher started (pid %d)", proc.pid)
     return proc
 
 

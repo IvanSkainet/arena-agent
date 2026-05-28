@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.4 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.5 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
