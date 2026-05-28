@@ -29,7 +29,27 @@ echo ""
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Updating existing installation at $INSTALL_DIR ..."
     cd "$INSTALL_DIR"
-    git pull --ff-only 2>/dev/null || { warn "git pull failed, using existing code"; }
+    # First try: normal pull
+    if ! git pull --ff-only 2>/dev/null; then
+        # If pull fails due to untracked files that conflict, move them aside
+        CONFLICTING=$(git pull --ff-only 2>&1 | grep -oE 'skills/[^ ]+SKILL\.md' || true)
+        if [ -n "$CONFLICTING" ]; then
+            info "Resolving untracked file conflicts..."
+            echo "$CONFLICTING" | while read -r f; do
+                if [ -f "$f" ]; then
+                    mv "$f" "${f}.local" 2>/dev/null || rm -f "$f" 2>/dev/null
+                fi
+            done
+            # Retry pull
+            if git pull --ff-only 2>/dev/null; then
+                ok "Update successful after resolving conflicts"
+            else
+                warn "git pull still failed, using existing code"
+            fi
+        else
+            warn "git pull failed, using existing code"
+        fi
+    fi
 else
     info "Downloading Arena Unified Bridge from GitHub ..."
     git clone --depth 1 -b "$BRANCH" "https://github.com/$REPO.git" "$INSTALL_DIR"

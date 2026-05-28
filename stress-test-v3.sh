@@ -44,16 +44,16 @@ check() {
 }
 
 api_get() {
-    curl -s -H "Authorization: Bearer $TOKEN" "$URL$1" 2>/dev/null
+    curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" "$URL$1" 2>/dev/null
 }
 
 api_post() {
     local endpoint="$1"
     local body="${2:-}"
     if [ -n "$body" ]; then
-        curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$body" "$URL$endpoint" 2>/dev/null
+        curl -s --max-time 60 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$body" "$URL$endpoint" 2>/dev/null
     else
-        curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$URL$endpoint" 2>/dev/null
+        curl -s --max-time 60 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$URL$endpoint" 2>/dev/null
     fi
 }
 
@@ -167,7 +167,7 @@ fi
 
 # 1.5 CDP Navigate
 if [ "$CDP_CONNECTED" = "true" ]; then
-    resp=$(api_post "/v1/browser/cdp/navigate" '{"url":"https://example.com"}')
+    resp=$(api_post "/v1/browser/cdp/navigate" '{"url":"https://example.com","wait":true}')
     if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
         check "cdp navigate example.com" "true"
     else
@@ -280,21 +280,30 @@ else
 fi
 
 # 2.2 camoufox Python package
-if python3 -c "import camoufox" 2>/dev/null; then
-    check "camoufox python package" "true"
+# Note: browser-act is installed via uv tool which uses its own venv.
+# We need to check camoufox in that venv, not system python.
+BA_PYTHON="python3"
+if command -v uv &>/dev/null; then
+    UV_TOOL_DIR="$(uv tool dir 2>/dev/null)" || UV_TOOL_DIR=""
+    if [ -n "$UV_TOOL_DIR" ] && [ -d "$UV_TOOL_DIR/browser-act-cli" ] && [ -x "$UV_TOOL_DIR/browser-act-cli/bin/python" ]; then
+        BA_PYTHON="$UV_TOOL_DIR/browser-act-cli/bin/python"
+    fi
+fi
+if $BA_PYTHON -c "import camoufox" 2>/dev/null; then
+    check "camoufox python package" "true" "(via $BA_PYTHON)"
     CAMOUFOX_AVAIL="true"
 else
-    check "camoufox python package" "skip" "camoufox not installed (pip install camoufox)"
+    check "camoufox python package" "skip" "camoufox not found in $BA_PYTHON (bundled with browser-act-cli)"
     CAMOUFOX_AVAIL="false"
 fi
 
 # 2.3 camoufox browser binary
 if [ "$CAMOUFOX_AVAIL" = "true" ]; then
-    camoufox_path=$(python3 -m camoufox path 2>/dev/null || echo "")
+    camoufox_path=$($BA_PYTHON -m camoufox path 2>/dev/null || echo "")
     if [ -n "$camoufox_path" ] && [ -x "$camoufox_path" ]; then
         check "camoufox browser binary" "true" "($camoufox_path)"
     else
-        check "camoufox browser binary" "skip" "Binary not downloaded (run: python3 -m camoufox fetch)"
+        check "camoufox browser binary" "skip" "Binary not downloaded (run: $BA_PYTHON -m camoufox fetch)"
     fi
 else
     check "camoufox browser binary" "skip" "camoufox not installed"
@@ -432,11 +441,11 @@ check "tasks endpoint" "$(echo "$resp" | jq_check '["ok"]' 2>/dev/null && echo t
 # 4.4 Exec
 resp=$(api_post "/v1/exec" '{"cmd":"echo hello-stress-test-v3"}')
 if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
-    output=$(echo "$resp" | jq_val '["output"]' 2>/dev/null || echo "")
+    output=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('output',d.get('stdout',''))[:200])" 2>/dev/null || echo "")
     if echo "$output" | grep -q "hello-stress-test-v3"; then
         check "exec echo" "true"
     else
-        check "exec echo" "false" "output mismatch: $output"
+        check "exec echo" "false" "output: '${output}'"
     fi
 else
     check "exec echo" "false"

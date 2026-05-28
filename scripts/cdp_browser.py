@@ -1009,6 +1009,14 @@ class CDPTabManager:
                 if self._active_tab_id is None:
                     self._active_tab_id = target_id
 
+        # Auto-connect to the active tab so operations work immediately
+        if self._active_tab_id and self._active_tab_id in self._tabs:
+            try:
+                await self._tabs[self._active_tab_id].connect()
+                logger.info("[CDPTabManager] Auto-connected to active tab %s", self._active_tab_id)
+            except Exception as e:
+                logger.warning("[CDPTabManager] Failed to auto-connect active tab: %s", e)
+
         logger.info(
             "[CDPTabManager] Connected. Tracking %d tab(s), active: %s",
             len(self._tabs),
