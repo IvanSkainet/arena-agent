@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.0 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.2 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -149,11 +149,17 @@ fi
 
 # 1.4 CDP Connect (only if prerequisites met)
 if [ "$module_avail" = "True" ] && [ "$AIOHTTP_AVAIL" = "true" ] && [ "$BROWSER_AVAIL" = "true" ]; then
-    echo "  Connecting to browser via CDP..."
-    resp=$(api_post "/v1/browser/cdp/connect" '{"port":9222,"headless":true}')
-    if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    echo "  Connecting to browser via CDP (timeout 30s)..."
+    # First try: connect to already-running browser on port 9222
+    resp=$(curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+        -d '{"port":9222,"headless":true}' "$URL/v1/browser/cdp/connect" 2>/dev/null)
+    if [ -z "$resp" ]; then
+        check "cdp connect" "false" "No response (timeout or bridge error)"
+        CDP_CONNECTED="false"
+    elif echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
         tab_count=$(echo "$resp" | jq_val '["tab_count"]' 2>/dev/null || echo "0")
-        check "cdp connect" "true" "(tabs=$tab_count)"
+        warning=$(echo "$resp" | jq_val '["warning"]' 2>/dev/null || echo "")
+        check "cdp connect" "true" "(tabs=$tab_count)${warning:+ — $warning}"
         CDP_CONNECTED="true"
     else
         err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown error")

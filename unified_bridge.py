@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.1"
+VERSION = "1.9.2"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3366,7 +3366,14 @@ async def handle_v1_cdp_connect(request):
     _cdp_connecting = True
     try:
         mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
-        await mgr.connect()
+        try:
+            await asyncio.wait_for(mgr.connect(), timeout=25)
+        except asyncio.TimeoutError:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response(
+                {"ok": False, "error": "CDP connect timed out (25s). Browser may not be running or debug port is unreachable. Try: chromium --remote-debugging-port=9222 --headless=new &"},
+                status=408
+            )
         
         _cdp_state["manager"] = mgr
         _cdp_state["connected"] = True

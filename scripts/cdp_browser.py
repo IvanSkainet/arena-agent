@@ -100,6 +100,10 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     ]
     if headless:
         cmd.append("--headless=new")
+    # Wayland compatibility: disable GPU compositing on Linux
+    if platform.system() == "Linux":
+        cmd.append("--disable-software-rasterizer")
+        cmd.append("--ozone-platform-hint=auto")
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     # Give the browser a moment to start and open the debug port
     time.sleep(2)
