@@ -356,22 +356,39 @@ for i in $(seq 1 20); do
 done
 
 # --- Detect Tailscale URL ---
+# Try multiple methods — this must work for ALL users on ALL platforms
 TS_URL=""
-if command -v tailscale >/dev/null 2>&1; then
-    # Try to extract the Funnel URL from tailscale status JSON
+# Method 1: Query the bridge API (most reliable — bridge already knows)
+if [ -z "$TS_URL" ]; then
+    TS_URL="$(curl -s "http://127.0.0.1:$PORT/v1/sys/funnel" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    d = json.load(sys.stdin)
+    url = d.get('funnel', {}).get('url', '')
+    if url:
+        print(url)
+except: pass
+" 2>/dev/null)" || TS_URL=""
+fi
+# Method 2: tailscale status --json, read Self.DNSName
+if [ -z "$TS_URL" ] && command -v tailscale >/dev/null 2>&1; then
     TS_URL="$(tailscale status --json 2>/dev/null | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
-    dns = d.get('DNSName', '')
+    # DNSName is in Self object, not at root level
+    dns = d.get('Self', {}).get('DNSName', '') or d.get('DNSName', '')
     if dns:
-        print('https://' + dns)
+        dns = dns.rstrip('.')
+        if not dns.startswith('https://'):
+            dns = 'https://' + dns
+        print(dns)
 except: pass
 " 2>/dev/null)" || TS_URL=""
-    # Fallback: parse from tailscale status text output
-    if [ -z "$TS_URL" ]; then
-        TS_URL="$(tailscale status 2>/dev/null | grep -oP 'https://[a-z0-9-]+\.tail\d+\.ts\.net' | head -1)" || TS_URL=""
-    fi
+fi
+# Method 3: Parse from tailscale status text (works even without --json)
+if [ -z "$TS_URL" ] && command -v tailscale >/dev/null 2>&1; then
+    TS_URL="$(tailscale status 2>/dev/null | grep -oP 'https://[a-z0-9-]+\.tail\d+\.ts\.net' | head -1)" || TS_URL=""
 fi
 
 # --- Done ---

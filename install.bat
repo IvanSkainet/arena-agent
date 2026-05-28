@@ -245,14 +245,28 @@ echo [WARN] Bridge not responding after 10s. Check: %BRIDGE_DIR%\logs\bridge.log
 :healthy
 
 REM --- Detect Tailscale URL ---
+REM Try multiple methods — must work for ALL users on ALL platforms
 set "TS_URL="
+
+REM Method 1: Query the bridge API (most reliable)
+if defined TS_URL goto :ts_url_done
+for /f "delims=" %%u in ('curl -s "http://127.0.0.1:%PORT%/v1/sys/funnel" 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); print(d.get('funnel',{}).get('url',''))" 2^>nul') do set "TS_URL=%%u"
+
+REM Method 2: tailscale status --json, read Self.DNSName
+if defined TS_URL goto :ts_url_done
 where tailscale >nul 2>&1
 if not errorlevel 1 (
-    for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); dns=d.get('DNSName',''); print('https://'+dns) if dns else None" 2^>nul') do set "TS_URL=%%u"
-    if not defined TS_URL (
-        for /f "delims=" %%u in ('tailscale status 2^>nul ^| findstr /r "https://.*\.ts\.net"') do set "TS_URL=%%u"
-    )
+    for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); dns=d.get('Self',{}).get('DNSName','') or d.get('DNSName',''); print('https://'+dns.rstrip('.')) if dns else None" 2^>nul') do set "TS_URL=%%u"
 )
+
+REM Method 3: Parse from tailscale status text
+if defined TS_URL goto :ts_url_done
+where tailscale >nul 2>&1
+if not errorlevel 1 (
+    for /f "tokens=6 delims= " %%u in ('tailscale status 2^>nul ^| findstr /r "https://.*\.ts\.net"') do set "TS_URL=%%u"
+)
+
+:ts_url_done
 
 echo.
 echo  ========================================
