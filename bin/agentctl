@@ -14,16 +14,19 @@ from pathlib import Path
 
 VERSION = "2.0.0"
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent"))).expanduser()
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
 BRIDGE_TOKEN = ""
 BIN = ROOT / "bin"
 SCRIPTS = ROOT / "scripts"
 
-# Load token from file
-_token_path = Path.home() / ".arena-local-bridge" / "token.txt"
-if _token_path.exists():
-    BRIDGE_TOKEN = _token_path.read_text().strip().split("\n")[0].strip()
+# Load token from file (check new location first, then legacy)
+for _tp in [Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))) / "token.txt",
+            Path.home() / ".arena-local-bridge" / "token.txt"]:
+    _tp = Path(_tp) if isinstance(_tp, str) else _tp
+    if _tp.exists():
+        BRIDGE_TOKEN = _tp.read_text().strip().split("\n")[0].strip()
+        break
 
 # ─── Bridge HTTP API helpers ──────────────────────────────────────────────
 

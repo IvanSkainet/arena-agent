@@ -43,14 +43,14 @@ def check_agentctl(p: Path) -> None:
 
 
 def check_venv() -> None:
-    py = ROOT / ".venv" / "bin" / "python"
-    if not py.exists():
-        add(False, "venv_python", "missing")
+    py = shutil.which("python3")
+    if not py:
+        add(False, "python3", "not found")
         return
-    cp = subprocess.run([str(py), "-c",
+    cp = subprocess.run([py, "-c",
                          "import sys; print(sys.version.split()[0])"],
                         capture_output=True, text=True)
-    add(cp.returncode == 0, "venv_python", cp.stdout.strip() or "fail")
+    add(cp.returncode == 0, "python3", cp.stdout.strip() or "fail")
 
 
 def check_dirs() -> None:
@@ -62,7 +62,7 @@ def check_dirs() -> None:
     facts = ROOT / "memory" / "facts.jsonl"
     add(facts.exists(), "facts_jsonl",
         f"{facts.stat().st_size} bytes" if facts.exists() else "missing")
-    audit = Path.home() / ".arena-local-bridge" / "audit.jsonl"
+    audit = ROOT / "logs" / "audit.jsonl"
     add(audit.exists() and os.access(audit, os.R_OK),
         "audit_readable", str(audit))
 
@@ -79,8 +79,7 @@ def check_disk() -> None:
 
 def main() -> int:
     check_http()
-    check_service("arena-local-bridge.service")
-    check_service("arena-task-runner.service")
+    check_service("arena-bridge.service")
     check_agentctl(ROOT / "bin" / "agentctl")
     check_venv()
     check_dirs()
