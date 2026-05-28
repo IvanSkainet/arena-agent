@@ -57,6 +57,40 @@ for %%d in (memory missions hooks\pre_skill.d hooks\post_skill.d logs queue\inbo
 )
 echo       Done.
 
+REM --- Migration from old versions ---
+set "FOUND_OLD=0"
+for %%d in ("%USERPROFILE%\.arena-local-bridge" "%USERPROFILE%\.arena-agent" "%USERPROFILE%\arena-agent") do (
+    if exist "%%d" set "FOUND_OLD=1"
+)
+if "%FOUND_OLD%"=="1" (
+    echo.
+    echo  ========================================
+    echo   Migration from Old Versions
+    echo  ========================================
+    echo.
+    for %%d in ("%USERPROFILE%\.arena-local-bridge" "%USERPROFILE%\.arena-agent" "%USERPROFILE%\arena-agent") do (
+        if exist "%%d" (
+            echo [INFO] Found old directory: %%d
+            REM Migrate token if not already present
+            if exist "%%d\token.txt" if not exist "%TOKEN_FILE%" (
+                copy "%%d\token.txt" "%TOKEN_FILE%" >nul 2>&1
+                echo [OK] Token migrated from %%d
+            )
+            REM Migrate audit if not already present
+            if exist "%%d\audit.jsonl" if not exist "%BRIDGE_DIR%\audit.jsonl" (
+                copy "%%d\audit.jsonl" "%BRIDGE_DIR%\audit.jsonl" >nul 2>&1
+                echo [OK] Audit log migrated from %%d
+            )
+            set /p "REMOVE_OLD=Remove old directory %%d? [y/N]: "
+            if /i "!REMOVE_OLD!"=="y" (
+                rmdir /s /q "%%d" 2>nul
+                echo [OK] Removed %%d
+            )
+        )
+    )
+    echo [OK] Migration check complete
+)
+
 REM --- Generate token (preserve existing) ---
 echo.
 echo [3/4] Generating auth token...
@@ -131,10 +165,10 @@ if not errorlevel 1 (
             where browser-act >nul 2>&1
             if not errorlevel 1 (
                 echo [OK] BrowserAct installed
-                if not exist "%BRIDGE_DIR%\skills\browser-act" mkdir "%BRIDGE_DIR%\skills\browser-act"
-                if not exist "%BRIDGE_DIR%\skills\browser-act\SKILL.md" (
+                if not exist "%BRIDGE_DIR%\skills\browseract" mkdir "%BRIDGE_DIR%\skills\browseract"
+                if not exist "%BRIDGE_DIR%\skills\browseract\SKILL.md" (
                     echo [INFO] Downloading BrowserAct skill file...
-                    curl -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browser-act\SKILL.md" 2>nul
+                    curl -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browseract\SKILL.md" 2>nul
                 )
             ) else (
                 echo [WARN] BrowserAct installation may have failed. Install manually:
@@ -244,7 +278,7 @@ echo   tailscale funnel --bg %PORT%
 echo.
 echo   Installed skills:
 if exist "%BRIDGE_DIR%\skills\superpowers" echo   SuperPowers   - %BRIDGE_DIR%\skills\superpowers\
-if exist "%BRIDGE_DIR%\skills\browser-act" echo   BrowserAct    - %BRIDGE_DIR%\skills\browser-act\
+if exist "%BRIDGE_DIR%\skills\browseract" echo   BrowserAct    - %BRIDGE_DIR%\skills\browseract\
 echo.
 echo   Update: re-run install.bat or: cd %BRIDGE_DIR% ^&^& git pull
 echo.

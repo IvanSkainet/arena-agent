@@ -230,7 +230,7 @@ else
             if command -v browser-act >/dev/null 2>&1; then
                 ok "BrowserAct installed: $(browser-act --version 2>/dev/null || echo 'OK')"
                 # Install skill file
-                BA_SKILL_DIR="$INSTALL_DIR/skills/browser-act"
+                BA_SKILL_DIR="$INSTALL_DIR/skills/browseract"
                 mkdir -p "$BA_SKILL_DIR"
                 if [ ! -f "$BA_SKILL_DIR/SKILL.md" ]; then
                     info "Downloading BrowserAct skill file..."
@@ -386,8 +386,8 @@ echo "   tailscale funnel --bg $PORT   # expose to internet"
 echo ""
 echo " Installed skills:"
 [ -d "$INSTALL_DIR/skills/superpowers" ] && echo "   SuperPowers   — $INSTALL_DIR/skills/superpowers/"
-[ -d "$INSTALL_DIR/skills/browser-act" ] && echo "   BrowserAct    — $INSTALL_DIR/skills/browser-act/"
-[ -d "$INSTALL_DIR/skills/superpowers" ] || [ -d "$INSTALL_DIR/skills/browser-act" ] || echo "   (none — install with: git clone https://github.com/obra/superpowers.git $INSTALL_DIR/skills/superpowers)"
+[ -d "$INSTALL_DIR/skills/browseract" ] && echo "   BrowserAct    — $INSTALL_DIR/skills/browseract/"
+[ -d "$INSTALL_DIR/skills/superpowers" ] || [ -d "$INSTALL_DIR/skills/browseract" ] || echo "   (none — install with: git clone https://github.com/obra/superpowers.git $INSTALL_DIR/skills/superpowers)"
 echo ""
 echo " Update:"
 echo "   $INSTALL_DIR/install.sh        # re-run to update"
