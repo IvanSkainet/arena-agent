@@ -376,6 +376,8 @@ RestartSec=5
 Environment=PYTHONUNBUFFERED=1
 Environment=ARENA_AGENT_HOME=${ESCAPED_INSTALL_DIR}
 Environment=ARENA_TOKEN_FILE=${ESCAPED_TOKEN_FILE}
+Environment=XDG_RUNTIME_DIR=/run/user/%U
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%U/bus
 
 [Install]
 WantedBy=default.target

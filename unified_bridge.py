@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.7"
+VERSION = "1.9.8"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3370,24 +3370,30 @@ async def handle_v1_cdp_connect(request):
             await asyncio.wait_for(mgr.connect(), timeout=30)
         except asyncio.TimeoutError:
             _record_request(is_error=True, count_request=False)
-            # Check if browser process crashed
+            # Gather diagnostics from the browser launch
             browser_crashed = False
             crash_stderr = ""
-            if mgr._browser_proc and mgr._browser_proc.poll() is not None:
-                browser_crashed = True
-                try:
-                    crash_stderr = mgr._browser_proc.stderr.read().decode("utf-8", errors="replace")[:500]
-                except Exception:
-                    pass
+            launch_diag = {}
+            if mgr._browser_proc:
+                if mgr._browser_proc.poll() is not None:
+                    browser_crashed = True
+                launch_diag = getattr(mgr._browser_proc, '_cdp_launch_diag', {})
             error_msg = "CDP connect timed out (30s). Browser may not be running or debug port is unreachable."
             if browser_crashed:
-                error_msg += f" Browser process crashed (exit code {mgr._browser_proc.returncode})."
-                if crash_stderr:
-                    error_msg += f" stderr: {crash_stderr}"
+                error_msg += f" Browser process exited (code {mgr._browser_proc.returncode})."
+            # Include launch diagnostics
+            if launch_diag:
+                if launch_diag.get("systemd_run_error"):
+                    error_msg += f" systemd-run error: {launch_diag['systemd_run_error'][:300]}"
+                if launch_diag.get("direct_error"):
+                    error_msg += f" Direct launch error: {launch_diag['direct_error'][:300]}"
+                if launch_diag.get("direct_exception"):
+                    error_msg += f" Direct launch exception: {launch_diag['direct_exception'][:200]}"
             else:
                 error_msg += " Try: chromium --remote-debugging-port=9222 --headless=new --no-sandbox &"
             return _cors_json_response(
-                {"ok": False, "error": error_msg, "browser_crashed": browser_crashed},
+                {"ok": False, "error": error_msg, "browser_crashed": browser_crashed,
+                 "diagnostics": launch_diag},
                 status=408
             )
         
