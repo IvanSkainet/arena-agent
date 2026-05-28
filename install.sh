@@ -29,22 +29,31 @@ echo ""
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Updating existing installation at $INSTALL_DIR ..."
     cd "$INSTALL_DIR"
-    # First try: normal pull
-    if ! git pull --ff-only 2>/dev/null; then
-        # If pull fails due to untracked files that conflict, move them aside
-        CONFLICTING=$(git pull --ff-only 2>&1 | grep -oE 'skills/[^ ]+SKILL\.md' || true)
+    # Try normal pull first
+    if git pull --ff-only 2>/dev/null; then
+        : # success
+    else
+        # Pull failed — likely due to untracked files conflicting with incoming files
+        # Capture the error message to find conflicting files
+        PULL_ERR=$(git pull --ff-only 2>&1 || true)
+        # Extract conflicting file paths from error message (works with any locale)
+        CONFLICTING=$(echo "$PULL_ERR" | grep -oE '[^ ]+SKILL\.md' || true)
         if [ -n "$CONFLICTING" ]; then
             info "Resolving untracked file conflicts..."
             echo "$CONFLICTING" | while read -r f; do
-                if [ -f "$f" ]; then
-                    mv "$f" "${f}.local" 2>/dev/null || rm -f "$f" 2>/dev/null
+                if [ -f "$INSTALL_DIR/$f" ]; then
+                    rm -f "$INSTALL_DIR/$f"
+                elif [ -f "$f" ]; then
+                    rm -f "$f"
                 fi
             done
             # Retry pull
             if git pull --ff-only 2>/dev/null; then
                 ok "Update successful after resolving conflicts"
             else
-                warn "git pull still failed, using existing code"
+                # Last resort: force checkout
+                git checkout --theirs . 2>/dev/null || true
+                git pull --ff-only 2>/dev/null || warn "git pull still failed, using existing code"
             fi
         else
             warn "git pull failed, using existing code"

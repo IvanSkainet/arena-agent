@@ -44,16 +44,16 @@ check() {
 }
 
 api_get() {
-    curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" "$URL$1" 2>/dev/null
+    curl -s --max-time 15 -H "Authorization: Bearer $TOKEN" "$URL$1" 2>/dev/null
 }
 
 api_post() {
     local endpoint="$1"
     local body="${2:-}"
     if [ -n "$body" ]; then
-        curl -s --max-time 60 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$body" "$URL$endpoint" 2>/dev/null
+        curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d "$body" "$URL$endpoint" 2>/dev/null
     else
-        curl -s --max-time 60 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$URL$endpoint" 2>/dev/null
+        curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$URL$endpoint" 2>/dev/null
     fi
 }
 

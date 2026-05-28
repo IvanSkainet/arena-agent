@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.0"
+VERSION = "1.9.1"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3236,7 +3236,7 @@ async def handle_v1_browser_head(request: web.Request) -> web.Response:
 # HANDLERS — CDP (Chrome DevTools Protocol)
 # ============================================================================
 
-def _cdp_active_tab(tab_id: Optional[str] = None):
+async def _cdp_active_tab(tab_id: Optional[str] = None):
     """Get a CDPTab instance for the given tab_id or the active tab.
     
     Returns (CDPTab, error_response) tuple. If error_response is not None,
@@ -3278,10 +3278,16 @@ def _cdp_active_tab(tab_id: Optional[str] = None):
             status=400
         )
     if not tab.connected:
-        return None, _cors_json_response(
-            {"ok": False, "error": "Active tab is not connected"},
-            status=400
-        )
+        # Try auto-reconnecting the active tab
+        try:
+            await tab.connect()
+        except Exception as e:
+            log.warning("[CDP] Auto-reconnect failed for tab %s: %s", tab.target_id, e)
+        if not tab.connected:
+            return None, _cors_json_response(
+                {"ok": False, "error": "Active tab is not connected and auto-reconnect failed. Try POST /v1/browser/cdp/connect again."},
+                status=400
+            )
     return tab, None
 
 
@@ -3367,7 +3373,19 @@ async def handle_v1_cdp_connect(request):
         _cdp_state["port"] = port
         _cdp_state["headless"] = headless
         
-        return _cors_json_response({
+        # Verify active tab is actually connected (auto-connect may have failed silently)
+        active_tab = mgr.active_tab
+        tab_connected = active_tab is not None and active_tab.connected
+        if active_tab and not active_tab.connected:
+            # Retry connecting to active tab
+            try:
+                await active_tab.connect()
+                tab_connected = True
+                log.info("[CDP] Re-connected active tab %s on second attempt", mgr.active_tab_id)
+            except Exception as e:
+                log.warning("[CDP] Active tab auto-connect failed: %s", e)
+        
+        result = {
             "ok": True,
             "message": "CDP connected",
             "port": port,
@@ -3375,7 +3393,10 @@ async def handle_v1_cdp_connect(request):
             "tab_count": mgr.tab_count,
             "active_tab_id": mgr.active_tab_id,
             "tabs": [tab.to_dict() for tab in mgr.list_tabs()],
-        })
+        }
+        if not tab_connected:
+            result["warning"] = "Active tab is not connected — CDP page operations may fail. Try reconnecting."
+        return _cors_json_response(result)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response(
@@ -3458,7 +3479,7 @@ async def handle_v1_cdp_navigate(request):
     tab_id = body.get("tab_id")
     wait = body.get("wait", True)
     
-    tab, err = _cdp_active_tab(tab_id)
+    tab, err = await _cdp_active_tab(tab_id)
     if err: return err
     
     try:
@@ -3500,7 +3521,7 @@ async def handle_v1_cdp_screenshot(request):
     fmt = qs.get("format", ["base64"])[0]
     save_path = qs.get("save_path", [None])[0]
     
-    tab, err = _cdp_active_tab(tab_id)
+    tab, err = await _cdp_active_tab(tab_id)
     if err: return err
     
     try:
@@ -3544,7 +3565,7 @@ async def handle_v1_cdp_dom(request):
     qs = parse_qs(request.query_string)
     tab_id = qs.get("tab_id", [None])[0]
     
-    tab, err = _cdp_active_tab(tab_id)
+    tab, err = await _cdp_active_tab(tab_id)
     if err: return err
     
     try:
@@ -3595,7 +3616,7 @@ async def handle_v1_cdp_eval(request):
         return _cors_json_response({"ok": False, "error": "missing 'expression' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
-    tab, err = _cdp_active_tab(tab_id)
+    tab, err = await _cdp_active_tab(tab_id)
     if err: return err
     
     try:
@@ -3633,7 +3654,7 @@ async def handle_v1_cdp_click(request):
         return _cors_json_response({"ok": False, "error": "missing 'selector' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
-    tab, err = _cdp_active_tab(tab_id)
+    tab, err = await _cdp_active_tab(tab_id)
     if err: return err
     
     try:
@@ -3674,7 +3695,7 @@ async def handle_v1_cdp_type(request):
         return _cors_json_response({"ok": False, "error": "missing 'selector' or 'text' parameter"}, status=400)
     
     tab_id = body.get("tab_id")
-    tab, err = _cdp_active_tab(tab_id)
+    tab, err = await _cdp_active_tab(tab_id)
     if err: return err
     
     try:
@@ -3840,7 +3861,7 @@ async def _ensure_cookie_manager():
         return None
     
     # Get the CDPBrowser instance from active tab
-    tab, _ = _cdp_active_tab()
+    tab, _ = await _cdp_active_tab()
     
     # If active tab is not connected, try to find any connected tab
     if not tab or not tab._browser:
@@ -4152,7 +4173,7 @@ async def handle_v1_cdp_network_start(request):
     
     try:
         # Get browser from active tab
-        tab, _ = _cdp_active_tab()
+        tab, _ = await _cdp_active_tab()
         if not tab or not tab._browser:
             _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "No active tab with CDP connection"}, status=400)
@@ -4281,7 +4302,7 @@ async def handle_v1_cdp_intercept_start(request):
         return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
     
     try:
-        tab, _ = _cdp_active_tab()
+        tab, _ = await _cdp_active_tab()
         if not tab or not tab._browser:
             _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "No active tab"}, status=400)
