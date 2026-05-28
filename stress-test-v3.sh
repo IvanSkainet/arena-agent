@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.10 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.11 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -184,10 +184,11 @@ import json,sys
 d = json.load(sys.stdin)
 di = d.get('diagnostics', {})
 parts = []
-for k in ['method','direct_rc','direct_error','systemd_run_rc','systemd_run_error','all_failed','skip_reason']:
+for k in ['method','pid','direct_rc','direct_error','direct_exception','systemd_run_rc','systemd_run_error','all_failed','skip_reason','cmd_full']:
     v = di.get(k)
     if v is not None:
-        parts.append(f'{k}={v}')
+        sv = str(v)[:150]
+        parts.append(f'{k}={sv}')
 stderr = d.get('stderr','')
 if stderr:
     parts.append(f'stderr={stderr[:200]}')
@@ -196,6 +197,22 @@ print(' | '.join(parts) if parts else 'no diagnostics')
         if [ -n "$diag_info" ]; then
             echo "    Diagnostics: $diag_info"
         fi
+        # Show bridge logs for CDP
+        echo "    Bridge CDP logs (last 20 lines):"
+        journalctl --user -u arena-bridge --since "1 min ago" --no-pager 2>/dev/null | grep -i "\[CDP\]" | tail -20 || echo "    (no CDP logs found)"
+        # Show Chromium stderr log if available
+        CHR_LOG="/tmp/cdp-browser-$(cat /proc/self/status 2>/dev/null | grep PPid | awk '{print $2}' 2>/dev/null)/chromium-launch.log"
+        # Try common PIDs
+        for cdp_dir in /tmp/cdp-browser-*; do
+            if [ -d "$cdp_dir" ] && [ -f "$cdp_dir/chromium-launch.log" ]; then
+                LOG_CONTENT=$(cat "$cdp_dir/chromium-launch.log" 2>/dev/null | tail -20)
+                if [ -n "$LOG_CONTENT" ]; then
+                    echo "    Chromium log ($cdp_dir/chromium-launch.log):"
+                    echo "    $LOG_CONTENT"
+                fi
+                break
+            fi
+        done
         CDP_CONNECTED="false"
     fi
 else

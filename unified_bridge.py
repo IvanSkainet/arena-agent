@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.10"
+VERSION = "1.9.11"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3474,20 +3474,25 @@ async def handle_v1_cdp_connect(request):
     _cdp_connecting = True
     try:
         mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
+
+        # Read the diag file as a fallback — even if executor hangs, we may get partial info
+        diag_file_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "launch-diag.json")
+
         try:
             await asyncio.wait_for(mgr.connect(), timeout=45)
         except asyncio.TimeoutError:
             _record_request(is_error=True, count_request=False)
-            # Gather diagnostics from the browser launch
+            # Gather diagnostics from multiple sources
             browser_crashed = False
-            crash_stderr = ""
             launch_diag = {}
             stderr_info = ""
+            chromium_log = ""
+
+            # Source 1: From the browser proc object
             if mgr._browser_proc:
                 if mgr._browser_proc.poll() is not None:
                     browser_crashed = True
                 launch_diag = getattr(mgr._browser_proc, '_cdp_launch_diag', {})
-                # Read stderr log file if available
                 stderr_log = launch_diag.get("stderr_log", "")
                 if stderr_log:
                     try:
@@ -3495,24 +3500,58 @@ async def handle_v1_cdp_connect(request):
                             stderr_info = f.read().strip()[:2000]
                     except Exception:
                         pass
-            error_msg = "CDP connect timed out (45s). Browser may not be running or debug port is unreachable."
+
+            # Source 2: From the diag file (fallback if executor hung)
+            if not launch_diag:
+                try:
+                    with open(diag_file_path, "r") as f:
+                        launch_diag = json.load(f)
+                except Exception:
+                    pass
+
+            # Source 3: From Chromium's stderr log directly
+            if not stderr_info:
+                try:
+                    stderr_log_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "chromium-launch.log")
+                    if os.path.exists(stderr_log_path):
+                        with open(stderr_log_path, "r") as f:
+                            chromium_log = f.read().strip()[:2000]
+                except Exception:
+                    pass
+
+            error_msg = "CDP connect timed out (45s)."
             if browser_crashed:
-                error_msg += f" Browser process exited (code {mgr._browser_proc.returncode})."
+                error_msg += f" Browser exited (rc={mgr._browser_proc.returncode})."
             if stderr_info:
-                error_msg += f" Browser stderr: {stderr_info[:500]}"
-            # Include launch diagnostics
+                error_msg += f" stderr: {stderr_info[:400]}"
+            elif chromium_log:
+                error_msg += f" chromium.log: {chromium_log[:400]}"
             if launch_diag:
-                if launch_diag.get("systemd_run_error"):
-                    error_msg += f" systemd-run error: {launch_diag['systemd_run_error'][:300]}"
                 if launch_diag.get("direct_error"):
-                    error_msg += f" Direct launch error: {launch_diag['direct_error'][:300]}"
+                    error_msg += f" | Direct: {launch_diag['direct_error'][:200]}"
                 if launch_diag.get("direct_exception"):
-                    error_msg += f" Direct launch exception: {launch_diag['direct_exception'][:200]}"
+                    error_msg += f" | DirectExc: {launch_diag['direct_exception'][:200]}"
+                if launch_diag.get("systemd_run_error"):
+                    error_msg += f" | SystemdRun: {launch_diag['systemd_run_error'][:200]}"
+                if launch_diag.get("all_failed"):
+                    error_msg += " | ALL LAUNCH STRATEGIES FAILED"
             else:
-                error_msg += " Try: chromium --remote-debugging-port=9222 --headless=new --no-sandbox --ozone-platform=headless &"
+                error_msg += " | No diagnostics available (executor may have hung). Try manually: chromium --remote-debugging-port=9222 --headless=new --no-sandbox --ozone-platform=headless &"
+
+            # Kill the browser process if it's still running
+            if mgr._browser_proc and mgr._browser_proc.poll() is None:
+                try:
+                    mgr._browser_proc.terminate()
+                    mgr._browser_proc.wait(timeout=2)
+                except Exception:
+                    try:
+                        mgr._browser_proc.kill()
+                    except Exception:
+                        pass
+
             return _cors_json_response(
                 {"ok": False, "error": error_msg, "browser_crashed": browser_crashed,
-                 "diagnostics": launch_diag, "stderr": stderr_info[:1000]},
+                 "diagnostics": launch_diag, "stderr": (stderr_info or chromium_log)[:1500]},
                 status=408
             )
         
