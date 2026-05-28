@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.11 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.15 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -215,10 +215,37 @@ for m in d.get('modes_tried', []):
     fi
 fi
 
+# 1.4c CDP WebSocket Test (standalone diagnostic — tests WS connect to debug port)
+if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
+    echo "  CDP test-ws (tests WebSocket connectivity, up to 25s)..."
+    ws_resp=$(curl -s --max-time 25 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/test-ws?port=9223" 2>/dev/null)
+    if [ -n "$ws_resp" ]; then
+        ws_ok=$(echo "$ws_resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
+        ws_browser_ws=$(echo "$ws_resp" | jq_val '["ws_connect_ok"]' 2>/dev/null || echo "?")
+        ws_tab_ws=$(echo "$ws_resp" | jq_val '["tab_ws_connect_ok"]' 2>/dev/null || echo "?")
+        ws_browser_time=$(echo "$ws_resp" | jq_val '["ws_connect_time_s"]' 2>/dev/null || echo "?")
+        ws_tab_time=$(echo "$ws_resp" | jq_val '["tab_ws_connect_time_s"]' 2>/dev/null || echo "?")
+        ws_url=$(echo "$ws_resp" | jq_val '["ws_url"]' 2>/dev/null || echo "?")
+        ws_err=$(echo "$ws_resp" | jq_val '["ws_connect_error"]' 2>/dev/null || echo "")
+        echo "    browser_ws=$ws_browser_ws (${ws_browser_time}s) tab_ws=$ws_tab_ws (${ws_tab_time}s)"
+        echo "    ws_url=$ws_url"
+        if [ -n "$ws_err" ]; then
+            echo "    ws_error: $ws_err"
+        fi
+        if [ "$ws_ok" = "True" ]; then
+            check "cdp test-ws" "true" "(browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws)"
+        else
+            check "cdp test-ws" "false" "browser_ws=$ws_browser_ws, tab_ws=$ws_tab_ws, error=$ws_err"
+        fi
+    else
+        check "cdp test-ws" "false" "No response"
+    fi
+fi
+
 # 1.5 CDP Connect (only if prerequisites met)
 if [ "$module_avail" = "True" ] && [ "$AIOHTTP_AVAIL" = "true" ] && [ "$BROWSER_AVAIL" = "true" ]; then
-    echo "  Connecting to browser via CDP (timeout 50s)..."
-    resp=$(curl -s --max-time 50 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+    echo "  Connecting to browser via CDP (timeout 65s)..."
+    resp=$(curl -s --max-time 65 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
         -d '{"port":9222,"headless":true}' "$URL/v1/browser/cdp/connect" 2>/dev/null)
     if [ -z "$resp" ]; then
         check "cdp connect" "false" "No response (timeout or bridge error)"

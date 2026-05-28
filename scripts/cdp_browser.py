@@ -342,6 +342,16 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     logger.info("[CDP] Resolved browser binary: %s", exe)
 
     ud = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}")
+    # Clean stale lock files from previous runs — Chromium refuses to start
+    # if SingletonLock or SingletonCookie exist from a previous instance.
+    for lock_name in ["SingletonLock", "SingletonCookie", "SingletonSocket"]:
+        lock_path = os.path.join(ud, lock_name)
+        if os.path.exists(lock_path):
+            try:
+                os.unlink(lock_path)
+                logger.info("[CDP] Cleaned stale %s", lock_name)
+            except Exception:
+                pass
     os.makedirs(ud, exist_ok=True)
     stderr_log_path = os.path.join(ud, "chromium-launch.log")
 
@@ -1016,6 +1026,8 @@ class CDPTab:
         if not HAS_AIOHTTP:
             raise RuntimeError("aiohttp is required for CDPTab. Install with: pip install aiohttp")
 
+        logger.info("[CDPTab] Connecting to tab %s WS URL: %s", self.target_id, self.ws_url)
+
         # Create a CDPBrowser instance configured for this specific tab
         self._browser = CDPBrowser(
             port=self.port,
@@ -1024,12 +1036,28 @@ class CDPTab:
         )
 
         # Connect directly using the tab's WebSocket URL
-        self._browser._session = aiohttp.ClientSession()
+        # CRITICAL FIX (v1.9.15): Must use ClientTimeout + asyncio.wait_for to prevent
+        # indefinite hangs. This was the root cause of CDP connect timeouts
+        # in v1.9.5 through v1.9.14 — ws_connect had NO timeout protection.
+        ws_timeout = aiohttp.ClientTimeout(total=15, connect=10, sock_connect=10)
+        self._browser._session = aiohttp.ClientSession(timeout=ws_timeout)
         try:
-            self._browser._ws = await self._browser._session.ws_connect(
-                self.ws_url, heartbeat=30
+            self._browser._ws = await asyncio.wait_for(
+                self._browser._session.ws_connect(self.ws_url, heartbeat=30),
+                timeout=15
             )
-        except Exception:
+            logger.info("[CDPTab] Tab %s WS connected successfully", self.target_id)
+        except asyncio.TimeoutError:
+            logger.error("[CDPTab] Tab %s WS connect TIMED OUT (15s) — URL: %s", self.target_id, self.ws_url)
+            await self._browser._session.close()
+            self._browser = None
+            raise ConnectionError(
+                f"Tab {self.target_id} WebSocket connect timed out (15s). "
+                f"URL: {self.ws_url}. "
+                f"The Chromium debug port may be open (HTTP works) but WebSocket upgrade hangs."
+            )
+        except Exception as e:
+            logger.error("[CDPTab] Tab %s WS connect FAILED: %s — URL: %s", self.target_id, e, self.ws_url)
             await self._browser._session.close()
             self._browser = None
             raise
@@ -1418,7 +1446,8 @@ class CDPTabManager:
                     )
 
         # Try to connect browser-level WebSocket for Target events
-        logger.info("[CDPManager] Connecting browser-level WebSocket...")
+        # This is NON-FATAL — if it fails, we still connect to tabs individually.
+        logger.info("[CDPManager] Connecting browser-level WebSocket (%.1fs)...", time.monotonic()-t0)
         await self._connect_browser_ws()
         ws_connected = self._browser_ws is not None and not self._browser_ws.closed
         if ws_connected:
@@ -1427,13 +1456,20 @@ class CDPTabManager:
             logger.warning("[CDPManager] Browser-level WS NOT connected (tab events disabled) (%.1fs)", time.monotonic()-t0)
 
         # Discover and optionally connect existing tabs
+        logger.info("[CDPManager] Discovering tabs from %d entries...", len(existing_tabs))
         if self.auto_discover_existing:
             for tab_info in existing_tabs:
-                if tab_info.get("type") != "page":
-                    continue
+                tab_type = tab_info.get("type", "?")
                 target_id = tab_info.get("id", "")
                 ws_url = tab_info.get("webSocketDebuggerUrl", "")
+                tab_url = tab_info.get("url", "")
+                logger.info("[CDPManager]   tab: type=%s id=%s ws=%s url=%s",
+                            tab_type, target_id[:20] if target_id else "?",
+                            ws_url[:50] if ws_url else "NONE", tab_url[:50])
+                if tab_type != "page":
+                    continue
                 if not target_id or not ws_url:
+                    logger.warning("[CDPManager]   Skipping tab: missing id or ws_url")
                     continue
                 if target_id in self._tabs:
                     continue  # Already tracked
@@ -1444,7 +1480,7 @@ class CDPTabManager:
                     port=self.port,
                     timeout=self.timeout,
                     title=tab_info.get("title", ""),
-                    url=tab_info.get("url", ""),
+                    url=tab_url,
                 )
                 self._tabs[target_id] = tab
 
@@ -1453,17 +1489,34 @@ class CDPTabManager:
                     self._active_tab_id = target_id
 
         # Auto-connect to the active tab so operations work immediately
+        # CRITICAL FIX (v1.9.15): Wrap in asyncio.wait_for to prevent hanging.
+        # The CDPTab.connect() now also has its own timeout, but we add an
+        # outer timeout as an additional safety net.
         if self._active_tab_id and self._active_tab_id in self._tabs:
+            logger.info("[CDPManager] Auto-connecting to active tab %s (%.1fs)...",
+                        self._active_tab_id, time.monotonic()-t0)
             try:
-                await self._tabs[self._active_tab_id].connect()
-                logger.info("[CDPTabManager] Auto-connected to active tab %s", self._active_tab_id)
+                await asyncio.wait_for(
+                    self._tabs[self._active_tab_id].connect(),
+                    timeout=20
+                )
+                logger.info("[CDPTabManager] Auto-connected to active tab %s (%.1fs)",
+                            self._active_tab_id, time.monotonic()-t0)
+            except asyncio.TimeoutError:
+                logger.error("[CDPTabManager] Auto-connect to active tab %s TIMED OUT (20s)!", self._active_tab_id)
+                logger.error("[CDPTabManager] This means the tab WebSocket connection is hanging.")
+                logger.error("[CDPTabManager] The Chromium debug port works (HTTP /json/list succeeds)")
+                logger.error("[CDPTabManager] but the WebSocket upgrade on the tab WS URL hangs.")
+                logger.error("[CDPTabManager] WS URL was: %s", self._tabs[self._active_tab_id].ws_url)
+                # Don't raise — we'll try to continue without an active tab connection
             except Exception as e:
                 logger.warning("[CDPTabManager] Failed to auto-connect active tab: %s", e)
 
         logger.info(
-            "[CDPTabManager] Connected. Tracking %d tab(s), active: %s",
+            "[CDPTabManager] Connected. Tracking %d tab(s), active: %s (%.1fs)",
             len(self._tabs),
             self._active_tab_id or "none",
+            time.monotonic()-t0,
         )
 
     async def _connect_browser_ws(self) -> None:
@@ -1471,19 +1524,31 @@ class CDPTabManager:
 
         Uses the /json/version endpoint to get the browser WebSocket URL,
         which allows monitoring all target (tab) lifecycle events.
+
+        This is NON-FATAL — if the browser-level WS fails, we still connect
+        to individual tabs. Tab lifecycle events will just be unavailable.
         """
         browser_ws_url = await self._get_browser_ws_url()
         if not browser_ws_url:
-            logger.warning("[CDPTabManager] No browser-level WS URL found; tab events disabled")
+            logger.warning("[CDPTabManager] No browser-level WS URL from /json/version; tab events disabled")
             return
 
+        logger.info("[CDPTabManager] Browser WS URL from /json/version: %s", browser_ws_url)
+
         try:
-            self._browser_session = aiohttp.ClientSession()
-            # Add timeout to prevent 30s hangs
+            # CRITICAL FIX (v1.9.15): Use ClientTimeout on the session to prevent
+            # aiohttp from hanging indefinitely on DNS/TCP/SSL operations.
+            ws_timeout = aiohttp.ClientTimeout(total=15, connect=10, sock_connect=10)
+            self._browser_session = aiohttp.ClientSession(timeout=ws_timeout)
+
+            # Add asyncio.wait_for timeout to prevent ws_connect from hanging
+            # even with ClientTimeout (belt + suspenders approach).
             self._browser_ws = await asyncio.wait_for(
                 self._browser_session.ws_connect(browser_ws_url, heartbeat=30),
-                timeout=10
+                timeout=15
             )
+
+            logger.info("[CDPTabManager] Browser-level WS TCP+upgrade OK, enabling Target domain...")
 
             # Enable Target domain to receive tab lifecycle events
             await asyncio.wait_for(
@@ -1496,13 +1561,15 @@ class CDPTabManager:
 
             logger.info("[CDPTabManager] Browser-level WS connected for Target events")
         except asyncio.TimeoutError:
-            logger.warning("[CDPTabManager] Browser-level WS connection timed out")
+            logger.warning("[CDPTabManager] Browser-level WS connection TIMED OUT (15s) — URL: %s", browser_ws_url)
+            logger.warning("[CDPTabManager] This means Chromium's debug port accepts HTTP but WebSocket upgrade hangs.")
+            logger.warning("[CDPTabManager] Tab operations will still work, but lifecycle events are disabled.")
             if self._browser_session and not self._browser_session.closed:
                 await self._browser_session.close()
             self._browser_session = None
             self._browser_ws = None
         except Exception as e:
-            logger.warning("[CDPTabManager] Failed to connect browser-level WS: %s", e)
+            logger.warning("[CDPTabManager] Failed to connect browser-level WS: %s — URL: %s", e, browser_ws_url)
             if self._browser_session and not self._browser_session.closed:
                 await self._browser_session.close()
             self._browser_session = None
@@ -1517,8 +1584,13 @@ class CDPTabManager:
                 with urllib.request.urlopen(url, timeout=5) as r:
                     return json.loads(r.read().decode())
             info = await loop.run_in_executor(None, _fetch)
-            return info.get("webSocketDebuggerUrl")
-        except Exception:
+            ws_url = info.get("webSocketDebuggerUrl")
+            logger.info("[CDPManager] /json/version returned: Browser=%s/%s, wsUrl=%s",
+                        info.get("Browser", "?")[:30], info.get("Protocol-Version", "?"),
+                        ws_url[:60] if ws_url else "NONE")
+            return ws_url
+        except Exception as e:
+            logger.warning("[CDPManager] Failed to fetch /json/version: %s", e)
             return None
 
     async def _browser_send(self, method: str, params: Optional[Dict] = None,

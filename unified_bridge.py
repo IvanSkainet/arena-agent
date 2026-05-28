@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.14"
+VERSION = "1.9.15"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -1064,6 +1064,7 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/browser/cdp/status", handle_v1_cdp_status)
     app.router.add_get("/v1/browser/cdp/diag", handle_v1_cdp_diag)
     app.router.add_get("/v1/browser/cdp/test-launch", handle_v1_cdp_test_launch)
+    app.router.add_get("/v1/browser/cdp/test-ws", handle_v1_cdp_test_ws)
     app.router.add_post("/v1/browser/cdp/connect", handle_v1_cdp_connect)
     app.router.add_post("/v1/browser/cdp/disconnect", handle_v1_cdp_disconnect)
     app.router.add_post("/v1/browser/cdp/navigate", handle_v1_cdp_navigate)
@@ -3660,6 +3661,152 @@ async def handle_v1_cdp_test_launch(request):
         )
 
 
+async def handle_v1_cdp_test_ws(request):
+    """GET /v1/browser/cdp/test-ws — Diagnostic: test WebSocket connectivity to Chromium debug port.
+
+    This endpoint tries to establish a WebSocket connection to the Chromium
+    debug port and reports timing + success/failure. It does NOT go through
+    CDPTabManager — it's a standalone diagnostic.
+
+    Query params:
+        port: int (default: 9223)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    cdp = _get_cdp_module()
+    if not cdp:
+        _record_request(is_error=True)
+        return _cors_json_response(
+            {"ok": False, "error": "cdp_browser module not found"},
+            status=500
+        )
+
+    qs = parse_qs(request.query_string)
+    port = int(qs.get("port", ["9223"])[0])
+
+    result = {
+        "ok": False,
+        "port": port,
+    }
+
+    # Step 1: Check if Chromium is running and get /json/version
+    try:
+        version_info = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: cdp.list_tabs(port) and True
+        )
+        result["http_endpoint_ok"] = True
+    except Exception as e:
+        result["http_endpoint_ok"] = False
+        result["http_error"] = str(e)
+
+    # Step 2: Get /json/version for browser WS URL
+    try:
+        def _get_version():
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as r:
+                return json.loads(r.read().decode())
+        version = await asyncio.get_event_loop().run_in_executor(None, _get_version)
+        browser_ws_url = version.get("webSocketDebuggerUrl", "")
+        result["version_info"] = {
+            "Browser": version.get("Browser", "?")[:50],
+            "webSocketDebuggerUrl": browser_ws_url[:80] if browser_ws_url else "NONE",
+        }
+    except Exception as e:
+        result["version_error"] = str(e)
+        browser_ws_url = ""
+
+    # Step 3: Try to connect WebSocket with strict timeout
+    if browser_ws_url:
+        result["ws_url"] = browser_ws_url
+        t0 = time.monotonic()
+        try:
+            ws_timeout = aiohttp.ClientTimeout(total=10, connect=5, sock_connect=5)
+            async with aiohttp.ClientSession(timeout=ws_timeout) as session:
+                ws = await asyncio.wait_for(
+                    session.ws_connect(browser_ws_url, heartbeat=10),
+                    timeout=10
+                )
+                elapsed = time.monotonic() - t0
+                result["ws_connect_ok"] = True
+                result["ws_connect_time_s"] = round(elapsed, 2)
+
+                # Try to send a simple CDP command
+                try:
+                    await ws.send_json({"id": 1, "method": "Target.getTargets"})
+                    msg = await asyncio.wait_for(ws.receive(), timeout=5)
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        result["cdp_command_ok"] = True
+                        result["cdp_response_preview"] = msg.data[:200]
+                    else:
+                        result["cdp_command_ok"] = False
+                        result["cdp_response_type"] = str(msg.type)
+                except Exception as e:
+                    result["cdp_command_ok"] = False
+                    result["cdp_command_error"] = str(e)
+
+                await ws.close()
+                result["ok"] = True
+        except asyncio.TimeoutError:
+            elapsed = time.monotonic() - t0
+            result["ws_connect_ok"] = False
+            result["ws_connect_error"] = f"TIMEOUT after {elapsed:.1f}s"
+            result["diagnosis"] = (
+                "Chromium debug port accepts HTTP (list_tabs works) but "
+                "WebSocket upgrade HANGS. This is the core CDP connect issue. "
+                "Possible causes: (1) Chromium headless mode doesn't support WS, "
+                "(2) --remote-debugging-address=127.0.0.1 causes WS to bind differently, "
+                "(3) aiohttp WebSocket client incompatibility, "
+                "(4) Chromium is in a broken state after headless startup."
+            )
+        except Exception as e:
+            elapsed = time.monotonic() - t0
+            result["ws_connect_ok"] = False
+            result["ws_connect_error"] = f"{type(e).__name__}: {e}"
+            result["ws_connect_time_s"] = round(elapsed, 2)
+    else:
+        result["ws_connect_ok"] = False
+        result["ws_connect_error"] = "No browser WS URL available"
+
+    # Step 4: Also try connecting to a PAGE-level WS URL (from /json/list)
+    try:
+        def _get_tabs():
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:
+                return json.loads(r.read().decode())
+        tabs = await asyncio.get_event_loop().run_in_executor(None, _get_tabs)
+        page_tabs = [t for t in tabs if t.get("type") == "page"]
+        result["tab_count"] = len(tabs)
+        result["page_tab_count"] = len(page_tabs)
+        if page_tabs:
+            tab_ws_url = page_tabs[0].get("webSocketDebuggerUrl", "")
+            result["tab_ws_url"] = tab_ws_url[:80] if tab_ws_url else "NONE"
+            if tab_ws_url:
+                t0 = time.monotonic()
+                try:
+                    ws_timeout = aiohttp.ClientTimeout(total=10, connect=5, sock_connect=5)
+                    async with aiohttp.ClientSession(timeout=ws_timeout) as session:
+                        tab_ws = await asyncio.wait_for(
+                            session.ws_connect(tab_ws_url, heartbeat=10),
+                            timeout=10
+                        )
+                        elapsed = time.monotonic() - t0
+                        result["tab_ws_connect_ok"] = True
+                        result["tab_ws_connect_time_s"] = round(elapsed, 2)
+                        await tab_ws.close()
+                except asyncio.TimeoutError:
+                    elapsed = time.monotonic() - t0
+                    result["tab_ws_connect_ok"] = False
+                    result["tab_ws_connect_error"] = f"TIMEOUT after {elapsed:.1f}s"
+                except Exception as e:
+                    elapsed = time.monotonic() - t0
+                    result["tab_ws_connect_ok"] = False
+                    result["tab_ws_connect_error"] = f"{type(e).__name__}: {e}"
+    except Exception as e:
+        result["tab_list_error"] = str(e)
+
+    return _cors_json_response(result)
+
+
 async def handle_v1_cdp_connect(request):
     """POST /v1/browser/cdp/connect — Connect to browser CDP.
     
@@ -3709,7 +3856,7 @@ async def handle_v1_cdp_connect(request):
         diag_file_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "launch-diag.json")
 
         try:
-            await asyncio.wait_for(mgr.connect(), timeout=45)
+            await asyncio.wait_for(mgr.connect(), timeout=60)
         except asyncio.TimeoutError:
             _record_request(is_error=True, count_request=False)
             # Gather diagnostics from multiple sources
@@ -3749,7 +3896,7 @@ async def handle_v1_cdp_connect(request):
                 except Exception:
                     pass
 
-            error_msg = "CDP connect timed out (45s)."
+            error_msg = "CDP connect timed out (60s)."
             if browser_crashed:
                 error_msg += f" Browser exited (rc={mgr._browser_proc.returncode})."
             if stderr_info:
