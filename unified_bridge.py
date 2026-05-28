@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.12"
+VERSION = "1.9.13"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -355,6 +355,21 @@ def _get_cdp_module():
     try:
         import cdp_browser
         _cdp_module = cdp_browser
+
+        # Configure the cdp_browser logger to use the same handlers as the bridge logger.
+        # Without this, cdp_browser's logger.info/error calls are silently dropped
+        # because the "cdp_browser" logger has no handlers configured.
+        bridge_logger = logging.getLogger("arena-bridge")
+        cdp_logger = logging.getLogger("cdp_browser")
+        cdp_logger.setLevel(logging.DEBUG)
+        # Clear any existing handlers and copy bridge's handlers
+        cdp_logger.handlers.clear()
+        for handler in bridge_logger.handlers:
+            cdp_logger.addHandler(handler)
+        # Don't propagate to root logger (bridge handles it)
+        cdp_logger.propagate = False
+        log.info("[CDP] Configured cdp_browser logger with %d handler(s)", len(bridge_logger.handlers))
+
         return _cdp_module
     except ImportError as e:
         return None
@@ -3501,8 +3516,8 @@ async def handle_v1_cdp_test_launch(request):
                 cwd=ud,
             )
             result["returncode"] = proc.returncode
-            result["stdout"] = proc.stdout[:3000] if proc.stdout else ""
-            result["stderr"] = proc.stderr[:3000] if proc.stderr else ""
+            result["stdout"] = (proc.stdout or "")[:3000] if isinstance(proc.stdout, str) else (proc.stdout or b"").decode(errors="replace")[:3000]
+            result["stderr"] = (proc.stderr or "")[:3000] if isinstance(proc.stderr, str) else (proc.stderr or b"").decode(errors="replace")[:3000]
             result["ok"] = proc.returncode == 0
 
             # Also try to check if the port is open
@@ -3526,8 +3541,15 @@ async def handle_v1_cdp_test_launch(request):
 
         except subprocess.TimeoutExpired as e:
             result["timeout"] = True
-            result["stdout"] = (e.stdout or "")[:3000] if hasattr(e, 'stdout') else ""
-            result["stderr"] = (e.stderr or "")[:3000] if hasattr(e, 'stderr') else ""
+            # TimeoutExpired.stdout/stderr may be bytes even with text=True
+            raw_stdout = e.stdout or b""
+            raw_stderr = e.stderr or b""
+            if isinstance(raw_stdout, bytes):
+                raw_stdout = raw_stdout.decode(errors="replace")
+            if isinstance(raw_stderr, bytes):
+                raw_stderr = raw_stderr.decode(errors="replace")
+            result["stdout"] = raw_stdout[:3000]
+            result["stderr"] = raw_stderr[:3000]
             result["ok"] = True  # timeout means it's still running = likely good
             result["note"] = "Chromium still running after 10s (good sign). Check port_open."
 
@@ -3551,6 +3573,17 @@ async def handle_v1_cdp_test_launch(request):
         except Exception as e:
             result["error"] = f"Exception: {type(e).__name__}: {e}"
 
+        # Safety: ensure no bytes values in result dict (JSON serialization)
+        def _ensure_str(v):
+            if isinstance(v, bytes):
+                return v.decode(errors="replace")
+            if isinstance(v, dict):
+                return {k: _ensure_str(val) for k, val in v.items()}
+            if isinstance(v, list):
+                return [_ensure_str(item) for item in v]
+            return v
+
+        result = _ensure_str(result)
         return result
 
     try:
