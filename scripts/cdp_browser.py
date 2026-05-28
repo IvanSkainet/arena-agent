@@ -134,30 +134,27 @@ def _build_session_env() -> dict:
 
     When running inside a systemd user service, the environment is minimal:
     no DBUS_SESSION_BUS_ADDRESS, no XDG_RUNTIME_DIR, no DISPLAY, etc.
-    This function constructs these from known system paths so that both
-    ``systemd-run`` (which needs D-Bus to create scopes) and Chromium
-    (which needs D-Bus and display vars) can function.
+    This function constructs these from known system paths so that Chromium
+    can function in headless mode.
     """
     env = os.environ.copy()
     uid = os.getuid()
 
-    # XDG_RUNTIME_DIR — needed by systemd-run to find the user bus
+    # XDG_RUNTIME_DIR — needed by many Linux components
     if not env.get("XDG_RUNTIME_DIR"):
         xdg = f"/run/user/{uid}"
         if os.path.isdir(xdg):
             env["XDG_RUNTIME_DIR"] = xdg
 
-    # DBUS_SESSION_BUS_ADDRESS — needed by systemd-run to contact user systemd
+    # DBUS_SESSION_BUS_ADDRESS — needed for D-Bus communication
     if not env.get("DBUS_SESSION_BUS_ADDRESS"):
         dbus_path = f"/run/user/{uid}/bus"
         if os.path.exists(dbus_path):
             env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
 
-    # DISPLAY — needed for non-headless Chromium or fontconfig
+    # DISPLAY — needed for fontconfig and some Chromium subsystems
     if not env.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):
-        # Try to find the active DISPLAY from the login session
         try:
-            # Check if there's an active X display
             for xfile in os.listdir("/tmp/.X11-unix"):
                 if xfile.startswith("X"):
                     env["DISPLAY"] = f":{xfile[1:]}"
@@ -177,21 +174,16 @@ def _build_session_env() -> dict:
 def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
     """Launch a browser with remote debugging enabled. Returns the Popen object.
 
-    Launch strategy (in order of preference):
-    1. systemd-run --user --scope: escapes the bridge's cgroup, giving
-       Chromium access to session resources (D-Bus, display, etc.)
-    2. Direct launch: fallback if systemd-run fails
+    Launch strategy (in order):
+    1. Direct launch with session_env (fastest, works if cgroup allows it)
+    2. If direct launch crashes (exits within 3s), try systemd-run --scope
 
-    Key considerations:
-    - The bridge runs as a systemd user service with minimal environment
-      (no DBUS_SESSION_BUS_ADDRESS, no XDG_RUNTIME_DIR). We must build
-      a proper env dict so that systemd-run itself can find D-Bus.
-    - -E flags pass vars to the CHILD (Chromium), NOT to systemd-run.
-      systemd-run needs its OWN env vars to contact D-Bus.
-    - We use DEVNULL for stdout/stderr to prevent pipe buffer deadlock
-      (Chromium writes a lot of output and a 64KB pipe would block it).
-    - We use a background thread to capture stderr to a log file for
-      diagnostics without blocking Chromium.
+    Key design decisions:
+    - We try direct launch FIRST because systemd-run can hang indefinitely
+      if D-Bus is unavailable or polkit requires authentication.
+    - We use DEVNULL for stdout to prevent pipe buffer deadlock.
+    - We capture stderr to a log file via a background thread.
+    - We never block for more than a few seconds at each step.
     """
     import threading
 
@@ -210,28 +202,100 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     if headless:
         cmd.append("--headless=new")
 
-    # Build a proper session environment for both systemd-run and Chromium
     session_env = _build_session_env()
     launch_diag = {
         "exe": exe,
         "headless": headless,
         "port": port,
         "user_data_dir": ud,
+        "env_has_dbus": bool(session_env.get("DBUS_SESSION_BUS_ADDRESS")),
+        "env_has_xdg": bool(session_env.get("XDG_RUNTIME_DIR")),
     }
-
-    # On Linux with systemd: try systemd-run --user --scope to escape cgroup
-    use_systemd_run = False
-    if platform.system() == "Linux":
-        in_systemd = os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM")
-        if in_systemd and shutil.which("systemd-run"):
-            use_systemd_run = True
-
     stderr_log_path = os.path.join(ud, "chromium-launch.log")
 
-    if use_systemd_run:
-        # Build -E env flags for the CHILD process (Chromium) inside the scope.
-        # These are in addition to the env vars that systemd-run itself gets
-        # via the Popen env= parameter.
+    def _start_proc(cmd_list, env_dict):
+        """Start a subprocess and drain stderr to a log file."""
+        proc = subprocess.Popen(
+            cmd_list,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env=env_dict,
+        )
+        # Drain stderr in background thread to prevent pipe deadlock
+        log_file = open(stderr_log_path, "a")
+        def _drain():
+            try:
+                for line in proc.stderr:
+                    log_file.write(line.decode(errors="replace"))
+                log_file.close()
+            except Exception:
+                pass
+        threading.Thread(target=_drain, daemon=True).start()
+        return proc
+
+    # --- Strategy 1: Direct launch (always try first) ---
+    logger.info("[CDP] Attempting direct browser launch")
+    try:
+        proc = _start_proc(cmd, session_env)
+        time.sleep(3)
+        if proc.poll() is None:
+            # Process is still running — direct launch succeeded!
+            logger.info("[CDP] Direct launch succeeded (pid %d)", proc.pid)
+            # Check if debug port is responding
+            try:
+                tabs = list_tabs(port)
+                if tabs:
+                    logger.info("[CDP] Debug port %d responding, %d tab(s) found", port, len(tabs))
+                    launch_diag["method"] = "direct"
+                    proc._cdp_launch_diag = launch_diag
+                    return proc
+                else:
+                    logger.info("[CDP] Process running but debug port not responding yet, waiting...")
+                    # Give it more time
+                    for _ in range(7):
+                        time.sleep(1)
+                        tabs = list_tabs(port)
+                        if tabs:
+                            logger.info("[CDP] Debug port %d now responding", port)
+                            break
+                    launch_diag["method"] = "direct"
+                    proc._cdp_launch_diag = launch_diag
+                    return proc
+            except Exception:
+                pass
+            launch_diag["method"] = "direct"
+            proc._cdp_launch_diag = launch_diag
+            return proc
+        else:
+            # Direct launch failed — process exited within 3 seconds
+            diag = ""
+            try:
+                with open(stderr_log_path, "r") as f:
+                    diag = f.read().strip()[:2000]
+            except Exception:
+                pass
+            logger.warning("[CDP] Direct launch failed (code %d). stderr: %s",
+                           proc.returncode, diag[:500] or "(empty)")
+            launch_diag["direct_rc"] = proc.returncode
+            launch_diag["direct_error"] = diag[:500]
+    except Exception as e:
+        logger.warning("[CDP] Direct launch exception: %s", e)
+        launch_diag["direct_exception"] = str(e)
+
+    # --- Strategy 2: systemd-run --user --scope ---
+    # Only try if we're in a systemd service and systemd-run is available
+    in_systemd = os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM")
+    if in_systemd and platform.system() == "Linux" and shutil.which("systemd-run"):
+        logger.info("[CDP] Attempting systemd-run --user --scope launch")
+        # Clear the log file for the new attempt
+        try:
+            with open(stderr_log_path, "w") as f:
+                pass
+        except Exception:
+            pass
+
+        # Build -E env flags for Chromium inside the scope
         env_flags = []
         for var in ["DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
                      "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE",
@@ -240,130 +304,72 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
             if val:
                 env_flags += ["-E", f"{var}={val}"]
 
-        full_cmd = ["systemd-run", "--user", "--scope"] + env_flags + ["--"] + cmd
-        logger.info("[CDP] Using systemd-run --user --scope to escape cgroup")
-        logger.info("[CDP] Command: %s", " ".join(full_cmd[:6]) + " ... -- " + " ".join(cmd[:3]) + " ...")
-        logger.info("[CDP] session_env has DBUS=%s XDG_RUNTIME=%s",
-                     bool(session_env.get("DBUS_SESSION_BUS_ADDRESS")),
-                     bool(session_env.get("XDG_RUNTIME_DIR")))
+        scope_cmd = ["systemd-run", "--user", "--scope"] + env_flags + ["--"] + cmd
+        logger.info("[CDP] scope_cmd: %s ... -- %s ...",
+                     " ".join(scope_cmd[:4]), " ".join(cmd[:3]))
 
-        proc = subprocess.Popen(
-            full_cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            env=session_env,  # Critical: systemd-run needs D-Bus in its own env
-        )
-        # Drain stderr in background thread to prevent pipe deadlock
-        # and capture to log file for diagnostics
-        stderr_log_file = open(stderr_log_path, "w")
-        def _drain_stderr():
-            try:
-                for line in proc.stderr:
-                    stderr_log_file.write(line.decode(errors="replace"))
-                stderr_log_file.close()
-            except Exception:
-                pass
-        threading.Thread(target=_drain_stderr, daemon=True).start()
-
-        # Give systemd-run + Chromium time to start
-        time.sleep(3)
-
-        # Check if systemd-run exited immediately (failure)
-        if proc.poll() is not None:
-            # Read the stderr log for diagnostics
-            diag = ""
-            try:
-                with open(stderr_log_path, "r") as f:
-                    diag = f.read().strip()[:2000]
-            except Exception:
-                pass
-            logger.error("[CDP] systemd-run exited immediately (code %d). stderr: %s",
-                         proc.returncode, diag or "(empty)")
-            launch_diag["systemd_run_error"] = diag
-            launch_diag["systemd_run_rc"] = proc.returncode
-
-            # Fallback: try direct launch without systemd-run
-            logger.info("[CDP] Falling back to direct browser launch")
-            try:
-                proc = subprocess.Popen(
-                    cmd,
-                    stdin=subprocess.DEVNULL,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.PIPE,
-                    env=session_env,
-                )
-                # Drain stderr for the fallback process too
-                fb_log_path = os.path.join(ud, "chromium-direct.log")
-                fb_log = open(fb_log_path, "w")
-                def _drain_fb_stderr():
-                    try:
-                        for line in proc.stderr:
-                            fb_log.write(line.decode(errors="replace"))
-                        fb_log.close()
-                    except Exception:
-                        pass
-                threading.Thread(target=_drain_fb_stderr, daemon=True).start()
-                time.sleep(3)
-                if proc.poll() is not None:
-                    fb_diag = ""
-                    try:
-                        with open(fb_log_path, "r") as f:
-                            fb_diag = f.read().strip()[:2000]
-                    except Exception:
-                        pass
-                    logger.error("[CDP] Direct launch also failed (code %d). stderr: %s",
-                                 proc.returncode, fb_diag or "(empty)")
-                    launch_diag["direct_error"] = fb_diag
-                    launch_diag["direct_rc"] = proc.returncode
-                else:
-                    logger.info("[CDP] Direct launch succeeded (pid %d)", proc.pid)
-            except Exception as e:
-                logger.error("[CDP] Direct launch exception: %s", e)
-                launch_diag["direct_exception"] = str(e)
+        try:
+            proc = _start_proc(scope_cmd, session_env)
+            # Only wait 5 seconds — if systemd-run hangs, bail out
+            time.sleep(5)
+            if proc.poll() is None:
+                # systemd-run is still running — good sign, it's waiting for Chromium
+                # Check if debug port is responding
+                try:
+                    tabs = list_tabs(port)
+                    if tabs:
+                        logger.info("[CDP] systemd-run launch succeeded! Debug port %d responding", port)
+                        launch_diag["method"] = "systemd-run-scope"
+                        proc._cdp_launch_diag = launch_diag
+                        return proc
+                    else:
+                        logger.info("[CDP] systemd-run running but port not responding yet, waiting...")
+                        for _ in range(5):
+                            time.sleep(1)
+                            tabs = list_tabs(port)
+                            if tabs:
+                                logger.info("[CDP] Debug port %d now responding", port)
+                                break
+                        launch_diag["method"] = "systemd-run-scope"
+                        proc._cdp_launch_diag = launch_diag
+                        return proc
+                except Exception:
+                    pass
+                launch_diag["method"] = "systemd-run-scope"
+                proc._cdp_launch_diag = launch_diag
+                return proc
+            else:
+                # systemd-run exited quickly — probably couldn't create scope
+                diag = ""
+                try:
+                    with open(stderr_log_path, "r") as f:
+                        diag = f.read().strip()[:2000]
+                except Exception:
+                    pass
+                logger.error("[CDP] systemd-run failed (code %d). stderr: %s",
+                             proc.returncode, diag[:500] or "(empty)")
+                launch_diag["systemd_run_rc"] = proc.returncode
+                launch_diag["systemd_run_error"] = diag[:500]
+        except Exception as e:
+            logger.error("[CDP] systemd-run exception: %s", e)
+            launch_diag["systemd_run_exception"] = str(e)
     else:
-        # Direct launch (not in systemd service)
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-        )
-        # Drain stderr
-        stderr_log_file = open(stderr_log_path, "w")
-        def _drain_stderr_direct():
-            try:
-                for line in proc.stderr:
-                    stderr_log_file.write(line.decode(errors="replace"))
-                stderr_log_file.close()
-            except Exception:
-                pass
-        threading.Thread(target=_drain_stderr_direct, daemon=True).start()
-        time.sleep(3)
-        if proc.poll() is not None:
-            diag = ""
-            try:
-                with open(stderr_log_path, "r") as f:
-                    diag = f.read().strip()[:2000]
-            except Exception:
-                pass
-            logger.error("[CDP] Browser exited immediately (code %d). stderr: %s",
-                         proc.returncode, diag or "(empty)")
-        else:
-            logger.info("[CDP] Browser running (pid %d)", proc.pid)
+        launch_diag["systemd_run_skipped"] = True
+        launch_diag["reason"] = "not in systemd or systemd-run not available"
 
-    # Quick check: is the debug port responding?
+    # All strategies failed — return a dummy Popen with diagnostics
+    logger.error("[CDP] All browser launch strategies failed")
+    launch_diag["all_failed"] = True
+
+    # Create a fake Popen that's already dead, with diagnostics attached
     try:
-        tabs = list_tabs(port)
-        if tabs:
-            logger.info("[CDP] Debug port %d responding, %d tab(s) found", port, len(tabs))
-        else:
-            logger.info("[CDP] Debug port %d not responding yet — Chromium may still be starting", port)
+        proc = subprocess.Popen(["true"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc.wait(timeout=1)
     except Exception:
-        pass
+        proc = None
 
-    # Store diagnostics on the proc object for the CDP handler to use
-    proc._cdp_launch_diag = launch_diag
+    if proc is not None:
+        proc._cdp_launch_diag = launch_diag
     return proc
 
 

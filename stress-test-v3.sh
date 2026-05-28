@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.8 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.9 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -147,10 +147,24 @@ else
     AIOHTTP_AVAIL="false"
 fi
 
-# 1.4 CDP Connect (only if prerequisites met)
+# 1.4 CDP Diagnostics (quick check, no browser launch)
+if [ "$module_avail" = "True" ]; then
+    echo "  CDP diagnostics..."
+    diag_resp=$(curl -s --max-time 5 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/diag" 2>/dev/null)
+    if [ -n "$diag_resp" ]; then
+        dbus_addr=$(echo "$diag_resp" | jq_val '["bridge_env","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "?")
+        xdg_dir=$(echo "$diag_resp" | jq_val '["bridge_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "?")
+        browser_bin=$(echo "$diag_resp" | jq_val '["browser_binary"]' 2>/dev/null || echo "?")
+        dbus_ok=$(echo "$diag_resp" | jq_val '["dbus_socket_connectable"]' 2>/dev/null || echo "?")
+        echo "    DBUS=$dbus_addr  XDG=$xdg_dir  BROWSER=$browser_bin  DBUS_SOCK=$dbus_ok"
+    else
+        echo "    (diag endpoint not available)"
+    fi
+fi
+
+# 1.5 CDP Connect (only if prerequisites met)
 if [ "$module_avail" = "True" ] && [ "$AIOHTTP_AVAIL" = "true" ] && [ "$BROWSER_AVAIL" = "true" ]; then
     echo "  Connecting to browser via CDP (timeout 30s)..."
-    # First try: connect to already-running browser on port 9222
     resp=$(curl -s --max-time 30 -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
         -d '{"port":9222,"headless":true}' "$URL/v1/browser/cdp/connect" 2>/dev/null)
     if [ -z "$resp" ]; then
@@ -164,6 +178,11 @@ if [ "$module_avail" = "True" ] && [ "$AIOHTTP_AVAIL" = "true" ] && [ "$BROWSER_
     else
         err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown error")
         check "cdp connect" "false" "$err"
+        # Show diagnostics if available
+        diag_info=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); di=d.get('diagnostics',{}); print('direct_rc=' + str(di.get('direct_rc','?')) + ' systemd_rc=' + str(di.get('systemd_run_rc','?')) + ' method=' + str(di.get('method','?')))" 2>/dev/null)
+        if [ -n "$diag_info" ]; then
+            echo "    Diagnostics: $diag_info"
+        fi
         CDP_CONNECTED="false"
     fi
 else

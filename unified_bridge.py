@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.8"
+VERSION = "1.9.9"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -1047,6 +1047,7 @@ def make_app(cfg: dict) -> web.Application:
 
     # ---- CDP (Chrome DevTools Protocol) ----
     app.router.add_get("/v1/browser/cdp/status", handle_v1_cdp_status)
+    app.router.add_get("/v1/browser/cdp/diag", handle_v1_cdp_diag)
     app.router.add_post("/v1/browser/cdp/connect", handle_v1_cdp_connect)
     app.router.add_post("/v1/browser/cdp/disconnect", handle_v1_cdp_disconnect)
     app.router.add_post("/v1/browser/cdp/navigate", handle_v1_cdp_navigate)
@@ -3320,6 +3321,83 @@ async def handle_v1_cdp_status(request):
         status["tabs"] = tabs_info
     
     return _cors_json_response(status)
+
+
+async def handle_v1_cdp_diag(request):
+    """GET /v1/browser/cdp/diag — Quick CDP diagnostics (no browser launch).
+
+    Returns environment info, browser availability, and systemd detection
+    without attempting to connect or launch anything.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    import shutil as _shutil
+    diag = {
+        "ok": True,
+        "connected": _cdp_state["connected"],
+        "bridge_env": {
+            "INVOCATION_ID": bool(os.environ.get("INVOCATION_ID")),
+            "JOURNAL_STREAM": bool(os.environ.get("JOURNAL_STREAM")),
+            "DBUS_SESSION_BUS_ADDRESS": os.environ.get("DBUS_SESSION_BUS_ADDRESS", "(not set)"),
+            "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", "(not set)"),
+            "DISPLAY": os.environ.get("DISPLAY", "(not set)"),
+            "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", "(not set)"),
+        },
+        "systemd_run_available": bool(_shutil.which("systemd-run")),
+    }
+
+    # Check browser binary
+    cdp = _get_cdp_module()
+    if cdp:
+        try:
+            exe = cdp._resolve_browser_binary()
+            diag["browser_binary"] = exe
+            diag["browser_is_wrapper"] = False
+            try:
+                with open(exe, "rb") as f:
+                    first = f.read(4)
+                if first.startswith(b"#!"):
+                    diag["browser_is_wrapper"] = True
+                elif first == b"\x7fELF":
+                    diag["browser_is_elf"] = True
+            except Exception:
+                pass
+        except Exception as e:
+            diag["browser_error"] = str(e)
+
+        # Check session env that _build_session_env would produce
+        try:
+            session_env = cdp._build_session_env()
+            diag["session_env"] = {
+                "DBUS_SESSION_BUS_ADDRESS": session_env.get("DBUS_SESSION_BUS_ADDRESS", "(not set)"),
+                "XDG_RUNTIME_DIR": session_env.get("XDG_RUNTIME_DIR", "(not set)"),
+                "DISPLAY": session_env.get("DISPLAY", "(not set)"),
+                "WAYLAND_DISPLAY": session_env.get("WAYLAND_DISPLAY", "(not set)"),
+            }
+        except Exception as e:
+            diag["session_env_error"] = str(e)
+
+    # Check D-Bus socket
+    uid = os.getuid()
+    dbus_path = f"/run/user/{uid}/bus"
+    diag["dbus_socket_exists"] = os.path.exists(dbus_path)
+    diag["dbus_socket_path"] = dbus_path
+
+    # Quick test: can we reach the D-Bus user bus?
+    try:
+        import socket as _socket
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect(dbus_path)
+        s.close()
+        diag["dbus_socket_connectable"] = True
+    except Exception as e:
+        diag["dbus_socket_connectable"] = False
+        diag["dbus_socket_error"] = str(e)
+
+    return _cors_json_response(diag)
 
 
 async def handle_v1_cdp_connect(request):
