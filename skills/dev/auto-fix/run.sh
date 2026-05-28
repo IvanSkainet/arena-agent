@@ -18,7 +18,7 @@ do_or_dry() { if [[ $DRY -eq 1 ]]; then log "DRY: $*"; else log "exec: $*"; eval
 FIXED=0
 
 # 1) Проверяем services
-for svc in arena-local-bridge.service arena-mcp-stream.service arena-mcp-ws.service arena-task-runner.service; do
+for svc in arena-bridge.service; do
   state=$(systemctl --user is-active "$svc" 2>/dev/null || echo "missing")
   if [[ "$state" != "active" ]]; then
     log "service $svc = $state, restart"
@@ -31,7 +31,7 @@ done
 for url in http://127.0.0.1:8765/health http://127.0.0.1:8767/health; do
   if ! curl -sS --max-time 5 "$url" > /dev/null; then
     log "endpoint $url down — restart bridge stack"
-    do_or_dry "systemctl --user restart arena-local-bridge.service"
+    do_or_dry "systemctl --user restart arena-bridge.service"
     FIXED=$((FIXED+1))
     break
   fi

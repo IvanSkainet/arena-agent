@@ -12,10 +12,9 @@ cheap to run on every chat turn if desired.
 
 ## Checks
 - bridge HTTP (`127.0.0.1:8765/health`)
-- arena-local-bridge.service active
-- arena-task-runner.service active
-- agentctl bash -n
-- venv python importable
+- arena-bridge.service active
+- agentctl syntax check
+- system python3 importable
 - sessions dir present + 700
 - facts.jsonl exists
 - audit.jsonl writable

@@ -17,11 +17,10 @@ self-describing.
 ## What's included
 - `bin/agentctl`, all of `scripts/`, `skills/`
 - `memory/facts.jsonl`, `memory/sessions/`, `memory/RECOVERY_PROMPT_RU.md`
-- `~/.config/systemd/user/arena-local-bridge.service`
-- `~/.config/systemd/user/arena-task-runner.service`
-- `~/arena-local-bridge/local_bridge.py`, `README_RU.md`
+- `~/.config/systemd/user/arena-bridge.service`
+- `~/arena-bridge/unified_bridge.py`, `README.md`
 
 ## What's NEVER included
-- `~/arena-local-bridge/token.txt`
+- `~/arena-bridge/token.txt`
 - any file matching `*token*`, `*secret*`, `*.key`
 - browser profiles, SSH keys, cookies

@@ -174,13 +174,13 @@ if not errorlevel 1 (
     for %%p in ("%PYTHON%") do set "PYW=%%~dpPpythonw%%~xP"
     if not exist "!PYW!" set "PYW=%PYTHON%"
 
-    nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --token-file %TOKEN_FILE% --port %PORT%" >nul 2>&1
+    nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
     nssm set ArenaUnifiedBridge AppDirectory "%BRIDGE_DIR%" >nul 2>&1
     nssm set ArenaUnifiedBridge DisplayName "Arena Unified Bridge v%VERSION%" >nul 2>&1
     nssm set ArenaUnifiedBridge Start SERVICE_AUTO_START >nul 2>&1
     nssm set ArenaUnifiedBridge AppStdout "%BRIDGE_DIR%\logs\bridge.log" >nul 2>&1
     nssm set ArenaUnifiedBridge AppStderr "%BRIDGE_DIR%\logs\bridge_err.log" >nul 2>&1
-    nssm set ArenaUnifiedBridge AppEnvironmentExtra ARENA_AGENT_HOME=%BRIDGE_DIR% >nul 2>&1
+    nssm set ArenaUnifiedBridge AppEnvironmentExtra ARENA_AGENT_HOME=%BRIDGE_DIR% ARENA_TOKEN_FILE=%TOKEN_FILE% >nul 2>&1
     nssm start ArenaUnifiedBridge >nul 2>&1
     echo [OK] NSSM service installed and started.
 ) else (
@@ -188,7 +188,8 @@ if not errorlevel 1 (
     echo @echo off > "%BRIDGE_DIR%\start_bridge.bat"
     echo cd /d "%BRIDGE_DIR%" >> "%BRIDGE_DIR%\start_bridge.bat"
     echo set ARENA_AGENT_HOME=%BRIDGE_DIR% >> "%BRIDGE_DIR%\start_bridge.bat"
-    echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --token-file token.txt --port %PORT% >> "%BRIDGE_DIR%\start_bridge.bat"
+    echo set ARENA_TOKEN_FILE=token.txt >> "%BRIDGE_DIR%\start_bridge.bat"
+    echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT% >> "%BRIDGE_DIR%\start_bridge.bat"
 
     schtasks /delete /tn "ArenaUnifiedBridge" /f >nul 2>&1
     schtasks /create /tn "ArenaUnifiedBridge" /tr "%BRIDGE_DIR%\start_bridge.bat" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
