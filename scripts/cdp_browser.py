@@ -1305,6 +1305,18 @@ class CDPTabManager:
         # Auto-launch browser if needed
         loop = asyncio.get_running_loop()
 
+        # Kill any stale Chromium processes on the target port first.
+        # This prevents leftover processes from previous failed attempts
+        # or test-launch from interfering with the connection.
+        try:
+            killed = await loop.run_in_executor(None, _kill_port_processes, self.port)
+            if killed:
+                logger.info("[CDPManager] Killed stale processes on port %d: %s", self.port, killed)
+                # Wait a moment for the port to be released
+                await asyncio.sleep(0.5)
+        except Exception as e:
+            logger.warning("[CDPManager] Failed to kill stale processes: %s", e)
+
         # Check for existing browser — use short timeout, don't hang
         try:
             existing_tabs = await loop.run_in_executor(None, list_tabs, self.port)
@@ -1408,7 +1420,11 @@ class CDPTabManager:
         # Try to connect browser-level WebSocket for Target events
         logger.info("[CDPManager] Connecting browser-level WebSocket...")
         await self._connect_browser_ws()
-        logger.info("[CDPManager] Browser-level WS connected (%.1fs)", time.monotonic()-t0)
+        ws_connected = self._browser_ws is not None and not self._browser_ws.closed
+        if ws_connected:
+            logger.info("[CDPManager] Browser-level WS connected (%.1fs)", time.monotonic()-t0)
+        else:
+            logger.warning("[CDPManager] Browser-level WS NOT connected (tab events disabled) (%.1fs)", time.monotonic()-t0)
 
         # Discover and optionally connect existing tabs
         if self.auto_discover_existing:
@@ -1463,17 +1479,28 @@ class CDPTabManager:
 
         try:
             self._browser_session = aiohttp.ClientSession()
-            self._browser_ws = await self._browser_session.ws_connect(
-                browser_ws_url, heartbeat=30
+            # Add timeout to prevent 30s hangs
+            self._browser_ws = await asyncio.wait_for(
+                self._browser_session.ws_connect(browser_ws_url, heartbeat=30),
+                timeout=10
             )
 
             # Enable Target domain to receive tab lifecycle events
-            await self._browser_send("Target.setDiscoverTargets", {"discover": True})
+            await asyncio.wait_for(
+                self._browser_send("Target.setDiscoverTargets", {"discover": True}),
+                timeout=5
+            )
 
             # Start browser event listener
             self._browser_listener_task = asyncio.create_task(self._browser_listen_loop())
 
             logger.info("[CDPTabManager] Browser-level WS connected for Target events")
+        except asyncio.TimeoutError:
+            logger.warning("[CDPTabManager] Browser-level WS connection timed out")
+            if self._browser_session and not self._browser_session.closed:
+                await self._browser_session.close()
+            self._browser_session = None
+            self._browser_ws = None
         except Exception as e:
             logger.warning("[CDPTabManager] Failed to connect browser-level WS: %s", e)
             if self._browser_session and not self._browser_session.closed:

@@ -168,31 +168,47 @@ fi
 
 # 1.4b CDP Test Launch (standalone diagnostic — tries launching Chromium directly)
 if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
-    echo "  CDP test-launch (standalone Chromium launch test, 15s)..."
-    test_resp=$(curl -s --max-time 15 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/test-launch?port=9223&headless=true" 2>/dev/null)
+    echo "  CDP test-launch (tries 3 headless modes, up to 35s)..."
+    test_resp=$(curl -s --max-time 35 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/test-launch?port=9223&headless=true" 2>/dev/null)
     if [ -n "$test_resp" ]; then
         test_ok=$(echo "$test_resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
-        test_rc=$(echo "$test_resp" | jq_val '["returncode"]' 2>/dev/null || echo "?")
         test_port=$(echo "$test_resp" | jq_val '["port_open"]' 2>/dev/null || echo "?")
-        test_timeout=$(echo "$test_resp" | jq_val '["timeout"]' 2>/dev/null || echo "false")
-        test_stderr=$(echo "$test_resp" | jq_val '["stderr"]' 2>/dev/null || echo "")
+        test_working=$(echo "$test_resp" | jq_val '["working_mode"]' 2>/dev/null || echo "")
+        test_error=$(echo "$test_resp" | jq_val '["error"]' 2>/dev/null || echo "")
         test_env_dbus=$(echo "$test_resp" | jq_val '["env_dbus"]' 2>/dev/null || echo "?")
         test_env_xdg=$(echo "$test_resp" | jq_val '["env_xdg"]' 2>/dev/null || echo "?")
         test_env_home=$(echo "$test_resp" | jq_val '["env_home"]' 2>/dev/null || echo "?")
-        test_error=$(echo "$test_resp" | jq_val '["error"]' 2>/dev/null || echo "")
-        echo "    ok=$test_ok  rc=$test_rc  port_open=$test_port  timeout=$test_timeout"
+        echo "    ok=$test_ok  port_open=$test_port  working_mode=$test_working"
         echo "    env: DBUS=$test_env_dbus  XDG=$test_env_xdg  HOME=$test_env_home"
         if [ -n "$test_error" ]; then
             echo "    error: $test_error"
         fi
-        if [ -n "$test_stderr" ] && [ "$test_stderr" != "" ]; then
-            echo "    stderr (first 300 chars): ${test_stderr:0:300}"
+        # Show modes tried if failed
+        modes_tried=$(echo "$test_resp" | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+for m in d.get('modes_tried', []):
+    mode = m.get('mode','?')
+    ok = m.get('ok', False)
+    po = m.get('port_open', False)
+    rc = m.get('returncode', '?')
+    died = m.get('died_after_s', '')
+    err_last = ''
+    for line in m.get('stderr_last10', [])[-3:]:
+        err_last += line[:80] + ' | '
+    extra = f'rc={rc}' if rc != '?' else f'died_after={died}s' if died else f'still_running'
+    print(f'  {mode}: ok={ok} port={po} {extra}')
+    if err_last:
+        print(f'    stderr: {err_last[:200]}')
+" 2>/dev/null)
+        if [ -n "$modes_tried" ]; then
+            echo "    Modes tried:"
+            echo "$modes_tried"
         fi
-        # If test-launch succeeded or timed out (good — means Chromium started), that's very informative
-        if [ "$test_ok" = "True" ] || [ "$test_timeout" = "True" ]; then
-            check "cdp test-launch" "true" "(rc=$test_rc, port_open=$test_port, timeout=$test_timeout)"
+        if [ "$test_ok" = "True" ]; then
+            check "cdp test-launch" "true" "(port_open=$test_port, working_mode=$test_working)"
         else
-            check "cdp test-launch" "false" "rc=$test_rc, error=$test_error, stderr=${test_stderr:0:100}"
+            check "cdp test-launch" "false" "port_open=$test_port, error=$test_error"
         fi
     else
         check "cdp test-launch" "false" "No response"
