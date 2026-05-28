@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.3"
+VERSION = "1.9.4"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3367,7 +3367,7 @@ async def handle_v1_cdp_connect(request):
     try:
         mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
         try:
-            await asyncio.wait_for(mgr.connect(), timeout=25)
+            await asyncio.wait_for(mgr.connect(), timeout=30)
         except asyncio.TimeoutError:
             _record_request(is_error=True, count_request=False)
             # Check if browser process crashed
@@ -3379,7 +3379,7 @@ async def handle_v1_cdp_connect(request):
                     crash_stderr = mgr._browser_proc.stderr.read().decode("utf-8", errors="replace")[:500]
                 except Exception:
                     pass
-            error_msg = "CDP connect timed out (25s). Browser may not be running or debug port is unreachable."
+            error_msg = "CDP connect timed out (30s). Browser may not be running or debug port is unreachable."
             if browser_crashed:
                 error_msg += f" Browser process crashed (exit code {mgr._browser_proc.returncode})."
                 if crash_stderr:

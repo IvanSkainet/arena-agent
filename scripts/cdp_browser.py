@@ -86,9 +86,64 @@ def find_browser_exe() -> str:
     return "chrome.exe" if platform.system() == "Windows" else "chromium"
 
 
-def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
-    """Launch a browser with remote debugging enabled. Returns the Popen object."""
+def _resolve_browser_binary() -> str:
+    """Find the actual browser binary, bypassing wrapper scripts.
+
+    On some distros (e.g. CachyOS), /usr/bin/chromium is a shell wrapper
+    that adds --ozone-platform-hint=auto and other flags which conflict
+    with headless mode. We need the real binary at /usr/lib/chromium/chromium.
+    """
     exe = find_browser_exe()
+    if platform.system() != "Linux":
+        return exe
+
+    # Check if the found exe is a wrapper script by reading its first line
+    real_path = shutil.which(exe) or exe
+    try:
+        with open(real_path, "rb") as f:
+            first_bytes = f.read(64)
+        # If it starts with #! it's a script/wrapper, not a real binary
+        if first_bytes.startswith(b"#!/") or first_bytes.startswith(b"#! "):
+            # Try common real binary locations
+            for candidate in [
+                "/usr/lib/chromium/chromium",
+                "/usr/lib/chromium-browser/chromium-browser",
+                "/usr/lib64/chromium/chromium",
+                "/opt/chromium/chrome",
+                "/opt/google/chrome/chrome",
+                "/opt/google/chrome/google-chrome",
+                "/usr/bin/chromium-browser",
+            ]:
+                if os.path.isfile(candidate):
+                    # Verify it's a real ELF binary
+                    try:
+                        with open(candidate, "rb") as f:
+                            magic = f.read(4)
+                        if magic == b"\x7fELF":
+                            logger.info("[CDP] Bypassing wrapper %s, using real binary %s", real_path, candidate)
+                            return candidate
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+    return real_path
+
+
+def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
+    """Launch a browser with remote debugging enabled. Returns the Popen object.
+
+    On Linux, when running from a systemd user service, the bridge is in an
+    isolated cgroup (PrivateTmp, ProtectSystem). Chromium launched directly
+    inside this cgroup cannot access D-Bus, display servers, etc., and crashes.
+
+    Solution: use ``systemd-run --user --scope`` to launch Chromium in the
+    user's session scope, outside the bridge's cgroup. This gives Chromium
+    proper access to the desktop session resources.
+
+    We also bypass distro wrapper scripts (e.g. CachyOS's /usr/bin/chromium)
+    which inject conflicting --ozone-platform-hint=auto flags.
+    """
+    exe = _resolve_browser_binary()
     logger.info("[CDP] Launching browser: %s", exe)
     ud = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}")
     cmd = [
@@ -101,18 +156,33 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
     ]
     if headless:
         cmd.append("--headless=new")
-    # Linux: use headless ozone backend instead of auto-detecting display server
-    # This prevents crashes when running from systemd services without a display
+
+    # On Linux: use systemd-run to escape the bridge's cgroup
+    # This is critical when running as a systemd user service
+    use_systemd_run = False
     if platform.system() == "Linux":
-        if headless:
-            cmd.append("--ozone-platform=headless")
-        else:
-            cmd.append("--ozone-platform-hint=auto")
+        # Check if we're running inside a systemd service (cgroup isolation)
+        # by looking for the INVOCATION_ID env var set by systemd
+        in_systemd = os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM")
+        if in_systemd and shutil.which("systemd-run"):
+            use_systemd_run = True
+
+    if use_systemd_run:
+        # Escape cgroup: launch in user's session scope with proper D-Bus/display access
+        full_cmd = [
+            "systemd-run", "--user", "--scope",
+            "--property=Delegate=yes",
+            "--same-dir",
+            "--",
+        ] + cmd
+        logger.info("[CDP] Using systemd-run to escape cgroup isolation")
+    else:
+        full_cmd = cmd
 
     # Capture stderr to log browser crashes
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(full_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     # Give the browser a moment to start and open the debug port
-    time.sleep(2)
+    time.sleep(3)
     # Check if browser crashed immediately
     if proc.poll() is not None:
         stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
