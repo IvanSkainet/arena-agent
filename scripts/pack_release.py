@@ -3,8 +3,7 @@ import zipfile
 from pathlib import Path
 
 HOME = Path.home()
-AGENT_DIR = HOME / "arena-bridge"
-BRIDGE_DIR = HOME / "arena-local-bridge"
+BRIDGE_DIR = HOME / "arena-bridge"
 OUT_ZIP = HOME / "arena_agent_release.zip"
 
 EXCLUDE_PATTERNS = [
@@ -56,8 +55,8 @@ def should_exclude(path: Path, base: Path) -> bool:
 
 def pack():
     print("=== ARENA AGENT RELEASE PACKAGING ===")
-    if not AGENT_DIR.exists():
-        print(f"ERROR: {AGENT_DIR} not found")
+    if not BRIDGE_DIR.exists():
+        print(f"ERROR: {BRIDGE_DIR} not found")
         return
 
     if OUT_ZIP.exists():
@@ -65,23 +64,15 @@ def pack():
         print("Removed old release ZIP")
 
     with zipfile.ZipFile(OUT_ZIP, 'w', zipfile.ZIP_DEFLATED) as z:
-        for root, dirs, files in os.walk(AGENT_DIR):
-            dirs[:] = [d for d in dirs if not should_exclude(Path(root) / d, AGENT_DIR)]
+        for root, dirs, files in os.walk(BRIDGE_DIR):
+            dirs[:] = [d for d in dirs if not should_exclude(Path(root) / d, BRIDGE_DIR)]
             for file in files:
                 fp = Path(root) / file
-                if should_exclude(fp, AGENT_DIR):
+                if should_exclude(fp, BRIDGE_DIR):
                     continue
-                rel_zip = Path('arena-bridge') / fp.relative_to(AGENT_DIR)
+                rel_zip = Path('arena-bridge') / fp.relative_to(BRIDGE_DIR)
                 z.write(fp, rel_zip)
                 print(f"  + {rel_zip}")
-
-        lb = BRIDGE_DIR / 'local_bridge.py'
-        if lb.exists():
-            rel_lb = Path('arena-local-bridge') / 'local_bridge.py'
-            z.write(lb, rel_lb)
-            print(f"  + {rel_lb}")
-        else:
-            print(f"  WARNING: {lb} not found (skipped)")
 
         placeholders = [
             'arena-bridge/backups/.gitkeep',

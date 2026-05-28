@@ -24,8 +24,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
-TOKEN = os.environ.get("ARENA_LOCAL_BRIDGE_TOKEN", "")
-TOKEN_FILE = Path.home() / "arena-local-bridge" / "token.txt"
+TOKEN = os.environ.get("ARENA_BRIDGE_TOKEN", "")
+TOKEN_FILE = Path.home() / "arena-bridge" / "token.txt"
 if not TOKEN and TOKEN_FILE.exists():
     TOKEN = TOKEN_FILE.read_text().strip()
 

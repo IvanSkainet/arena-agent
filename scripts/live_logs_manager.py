@@ -1,7 +1,7 @@
 import sys, os, subprocess, json, threading, time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-LOG_FILE = os.path.expanduser("~/.arena-local-bridge/audit.jsonl")
+LOG_FILE = os.path.expanduser("~/arena-bridge/audit.jsonl")
 PORT = 8766
 
 class LogStreamHandler(BaseHTTPRequestHandler):

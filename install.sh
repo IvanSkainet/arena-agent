@@ -77,6 +77,74 @@ for d in "$INSTALL_DIR/memory" "$INSTALL_DIR/missions" \
 done
 ok "Directories ready"
 
+# ============================================================
+# Step 4b: Migration from old versions
+# ============================================================
+OLD_DIRS=("$HOME/.arena-local-bridge" "$HOME/.arena-agent" "$HOME/arena-agent")
+FOUND_OLD=false
+
+for OLD_DIR in "${OLD_DIRS[@]}"; do
+    if [ -d "$OLD_DIR" ]; then
+        if [ "$FOUND_OLD" = false ]; then
+            echo ""
+            echo "========================================"
+            echo " Migration from Old Versions"
+            echo "========================================"
+            echo ""
+            FOUND_OLD=true
+        fi
+        info "Found old installation directory: $OLD_DIR"
+
+        # --- Migrate token.txt ---
+        if [ -f "$OLD_DIR/token.txt" ] && [ ! -f "$INSTALL_DIR/token.txt" ]; then
+            if ask "Copy token.txt from $OLD_DIR to $INSTALL_DIR?"; then
+                cp "$OLD_DIR/token.txt" "$INSTALL_DIR/token.txt" || true
+                chmod 600 "$INSTALL_DIR/token.txt" || true
+                ok "token.txt migrated"
+            fi
+        fi
+
+        # --- Migrate audit.jsonl ---
+        if [ -f "$OLD_DIR/audit.jsonl" ] && [ ! -f "$INSTALL_DIR/audit.jsonl" ]; then
+            if ask "Copy audit.jsonl from $OLD_DIR to $INSTALL_DIR?"; then
+                cp "$OLD_DIR/audit.jsonl" "$INSTALL_DIR/audit.jsonl" || true
+                ok "audit.jsonl migrated"
+            fi
+        fi
+
+        # --- Migrate current_project ---
+        if [ -f "$OLD_DIR/current_project" ] && [ ! -f "$INSTALL_DIR/current_project" ]; then
+            if ask "Copy current_project from $OLD_DIR to $INSTALL_DIR?"; then
+                cp "$OLD_DIR/current_project" "$INSTALL_DIR/current_project" || true
+                ok "current_project migrated"
+            fi
+        fi
+
+        # --- Warn about queue items ---
+        if [ -d "$OLD_DIR/queue" ]; then
+            QUEUE_COUNT="$(find "$OLD_DIR/queue" -type f 2>/dev/null | wc -l || true)"
+            if [ "$QUEUE_COUNT" -gt 0 ] 2>/dev/null; then
+                warn "Old directory has $QUEUE_COUNT item(s) in queue/ — these will NOT be migrated automatically"
+            fi
+        fi
+
+        # --- Offer to remove old directory ---
+        read -rp "$(echo -e '\033[36m[?] Remove old directory '"$OLD_DIR"'? [y/N]: \033[0m')" REMOVE_REPLY || true
+        if [[ "$REMOVE_REPLY" =~ ^[Yy]$ ]]; then
+            rm -rf "$OLD_DIR" || true
+            ok "Removed $OLD_DIR"
+        else
+            info "Kept $OLD_DIR — you can remove it manually later"
+        fi
+
+        echo ""
+    fi
+done
+
+if [ "$FOUND_OLD" = true ]; then
+    ok "Migration check complete"
+fi
+
 # --- Step 5: Generate or preserve token ---
 TOKEN_FILE="$INSTALL_DIR/token.txt"
 TOKEN=""

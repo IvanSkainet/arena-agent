@@ -4,7 +4,7 @@
 set -euo pipefail
 ROOT="${ARENA_AGENT_HOME:-$HOME/arena-bridge}"
 BV="${ARENA_BRIDGE_URL:-https://cachyos-x8664.tail328f18.ts.net}"
-P="$ROOT/.venv/bin/python"
+P="python3"
 N="$ROOT/js/node_modules"
 NE="NODE_PATH=$N"
 SE="$ROOT/scripts"
@@ -26,8 +26,8 @@ case "$cmd" in
         echo "### funnel"; curl --curves X25519 -fsS "$BV/health" || true; echo
         echo "### port"; ss -ltnp 'sport = :8765' 2>/dev/null || true
         echo "### funnel"; tailscale funnel status 2>/dev/null || true
-        echo "### svc"; systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service 2>/dev/null | sed -n '1,80p' || true ;;
-      restart) systemctl --user restart arena-local-bridge.service arena-task-runner.service; "$0" b status ;;
+        echo "### svc"; systemctl --user --no-pager status arena-bridge.service arena-task-runner.service 2>/dev/null | sed -n '1,80p' || true ;;
+      restart) systemctl --user restart arena-bridge.service arena-task-runner.service; "$0" b status ;;
       *) "$0" b status ;;
     esac ;;
 
@@ -42,11 +42,11 @@ case "$cmd" in
         command -v uv || true; uv --version || true
         test -x "$P" && "$P" --version || echo "venv: missing"
         if test -d "$ROOT/js/node_modules/playwright-core"; then ROOT="$ROOT" NODE_PATH="$N" node -e "const p=require(require('path').join(process.env.ROOT,'js/node_modules/playwright-core/package.json')); console.log('playwright-core',p.version)"; else echo "playwright-core: missing"; fi ;;
-      svc|services) systemctl --user --no-pager status arena-local-bridge.service arena-task-runner.service | sed -n '1,140p' ;;
+      svc|services) systemctl --user --no-pager status arena-bridge.service arena-task-runner.service | sed -n '1,140p' ;;
       inv|inventory) "$SE/inventory.sh" ;;
       funnel) tailscale funnel status ;;
       fix) "$P" "$SE/agentctl_extras.py" doctor-fix "$@" ;;
-      harden) chmod -R u+rwX,go-rwx "$ROOT" "$HOME/arena-local-bridge"; chmod 600 "$HOME/arena-local-bridge/token.txt" 2>/dev/null || true; echo "hardened" ;;
+      harden) chmod -R u+rwX,go-rwx "$ROOT"; chmod 600 "$HOME/arena-bridge/token.txt" 2>/dev/null || true; echo "hardened" ;;
       *) "$0" sys doctor ;;
     esac ;;
 
@@ -174,8 +174,8 @@ case "$cmd" in
       run)
         mkdir -p "$ROOT/backups"; OUT="$ROOT/backups/arena-bridge-backup-$(date -u +%Y%m%dT%H%M%SZ).tgz"
         TMP="$(mktemp -d)"; MAN="$TMP/manifest.txt"
-        for p in arena-bridge/bin arena-bridge/scripts arena-bridge/memory arena-bridge/js/package.json .config/systemd/user/arena-local-bridge.service .config/systemd/user/arena-task-runner.service arena-local-bridge/local_bridge.py; do test -e "$HOME/$p" && echo "$p" >> "$MAN"; done
-        tar -czf "$OUT" -C "$HOME" --exclude='arena-local-bridge/token.txt' -T "$MAN"; chmod 600 "$OUT"; echo "$OUT" ;;
+        for p in arena-bridge/bin arena-bridge/scripts arena-bridge/memory arena-bridge/js/package.json .config/systemd/user/arena-bridge.service .config/systemd/user/arena-task-runner.service; do test -e "$HOME/$p" && echo "$p" >> "$MAN"; done
+        tar -czf "$OUT" -C "$HOME" --exclude='arena-bridge/token.txt' -T "$MAN"; chmod 600 "$OUT"; echo "$OUT" ;;
       ls|list) ls -lh "$ROOT/backups" 2>/dev/null || true ;;
       recovery) "$P" "$SE/recovery_prompt.py" ;;
       rec-print) cat "$ROOT/memory/RECOVERY_PROMPT_RU.md" ;;
@@ -184,13 +184,13 @@ case "$cmd" in
 
   # bact
   tmux)
-    "$ROOT/.venv/bin/python" "$ROOT/scripts/tmux_manager.py" "$@" ;;
+    python3 "$ROOT/scripts/tmux_manager.py" "$@" ;;
   sp)
-    "$ROOT/.venv/bin/python" "$ROOT/scripts/superpowers_manager.py" "$@" ;;
+    python3 "$ROOT/scripts/superpowers_manager.py" "$@" ;;
   mcp)
-    shift || true "$ROOT/.venv/bin/python" "$ROOT/scripts/mcp_manager.py" "$@" ;;
+    shift || true; python3 "$ROOT/scripts/mcp_manager.py" "$@" ;;
   desktop)
-    "$ROOT/.venv/bin/python" "$ROOT/scripts/desktop_manager.py" "$@" ;;
+    python3 "$ROOT/scripts/desktop_manager.py" "$@" ;;
   bact) exec "$ROOT/skills/browseract/run.sh" "$@" ;;
 
   # chat
@@ -246,7 +246,7 @@ case "$cmd" in
   project-report) "$0" p rp "$@" ;;
   skill-list) "$0" sk ls "$@" ;;
   skill-show) "$0" sk show "$@" ;;
-  logs) tail -n "${1:-80}" "$HOME/.arena-local-bridge/audit.jsonl" 2>/dev/null || true ;;
+  logs) tail -n "${1:-80}" "$HOME/arena-bridge/audit.jsonl" 2>/dev/null || true ;;
   tree) find "$ROOT" -maxdepth "${1:-2}" -printf '%M %p\n' | sort ;;
   funnel) tailscale funnel status ;;
   pip-freeze) "$0" pip ;;
@@ -254,9 +254,9 @@ case "$cmd" in
     cd "$ROOT"; uv pip install --python "$P" requests httpx h2 aiohttp beautifulsoup4 lxml pyyaml rich typer click tqdm python-dotenv orjson tldextract dnspython pydantic pandas numpy duckdb polars pyarrow
     cd "$ROOT/js"; npm install --no-audit --no-fund playwright-core axios cheerio commander yaml fs-extra jsdom turndown @mozilla/readability
     "$0" sys doctor ;;
-  service-install) systemctl --user daemon-reload; systemctl --user enable arena-local-bridge.service arena-task-runner.service; echo "enabled" ;;
-  service-start) systemctl --user start arena-local-bridge.service arena-task-runner.service; "$0" sys svc ;;
-  service-stop) systemctl --user stop arena-task-runner.service arena-local-bridge.service ;;
+  service-install) systemctl --user daemon-reload; systemctl --user enable arena-bridge.service arena-task-runner.service; echo "enabled" ;;
+  service-start) systemctl --user start arena-bridge.service arena-task-runner.service; "$0" sys svc ;;
+  service-stop) systemctl --user stop arena-task-runner.service arena-bridge.service ;;
   service-restart) "$0" b restart ;;
   service-status) "$0" sys svc ;;
   task-submit) "$0" t sub "$@" ;;

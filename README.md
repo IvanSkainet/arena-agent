@@ -64,7 +64,7 @@ The installer will:
 5. Register a background service (NSSM on Windows, systemd-user on Linux, launchd on macOS).
 6. Start the bridge and verify it's healthy.
 
-**Everything stays in one folder.** No files are copied to `~/arena-local-bridge` or anywhere else.
+**Everything stays in one folder.** No files are copied outside `~/arena-bridge` or anywhere else.
 
 That's it. You now have:
 
@@ -116,7 +116,7 @@ Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI
                 ▼                          ▼                          ▼
         ┌──────────────┐         ┌──────────────┐           ┌──────────────┐
         │ ~/arena-     │         │ ~/arena-     │           │ ~/arena-     │
-        │   agent/     │         │   agent/     │           │   agent/     │
+        │   bridge/    │         │   bridge/    │           │   bridge/    │
         │   memory/    │         │   missions/  │           │   skills/    │
         │ JSONL facts  │         │ scripted     │           │ AI-runnable  │
         │              │         │ workflows    │           │ playbooks    │
@@ -242,7 +242,7 @@ All knobs are environment variables (set before running `install.*` or starting 
 | `ARENA_PROFILE`           | `owner-shell`                      | Safety profile (rules in code)     |
 | `ARENA_TASK_NAME`         | `ArenaUnifiedBridge`               | Windows Scheduled Task / Service   |
 | `ARENA_SERVICE_NAME`      | `ArenaUnifiedBridge`               | NSSM service name                  |
-| `ARENA_TOKEN_FILE`        | `~/arena-local-bridge/token.txt`   | Token file                         |
+| `ARENA_TOKEN_FILE`        | `~/arena-bridge/token.txt`         | Token file                         |
 | `ARENA_BRIDGE_TOKEN`      | (none)                             | Override token at runtime          |
 | `ARENA_BRIDGE_URL`        | `http://127.0.0.1:8765`            | Base URL for `bridge-curl`/clients |
 

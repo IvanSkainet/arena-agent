@@ -45,13 +45,15 @@ def collect_includes(include_logs: bool) -> list[tuple[Path, str]]:
     singles = [
         (HOME / ".config/systemd/user/arena-bridge.service",
          "config/systemd/user/arena-bridge.service"),
-        (ROOT / "unified_bridge.py",
-         "arena-bridge/unified_bridge.py"),
-        (ROOT / "README.md",
-         "arena-bridge/README.md"),
+        (HOME / ".config/systemd/user/arena-task-runner.service",
+         "config/systemd/user/arena-task-runner.service"),
+        (HOME / "arena-bridge/local_bridge.py",
+         "arena-bridge/local_bridge.py"),
+        (HOME / "arena-bridge/README_RU.md",
+         "arena-bridge/README_RU.md"),
     ]
     if include_logs:
-        audit = ROOT / "audit.jsonl"
+        audit = HOME / "arena-bridge/audit.jsonl"
         if audit.exists():
             singles.append((audit, "arena-bridge/audit.jsonl"))
     for src, arc in singles:
@@ -125,5 +127,4 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":
-    sys.exit(main())
+if __name__ == "__main__":    sys.exit(main())

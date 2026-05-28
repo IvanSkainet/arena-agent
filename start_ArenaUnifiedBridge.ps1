@@ -1,8 +1,8 @@
 $ErrorActionPreference = "Continue"
-Set-Location "$env:USERPROFILE\arena-local-bridge"
+Set-Location "$env:USERPROFILE\arena-bridge"
 
 # Read token from file — auto-generate if missing
-$tokenFile = "$env:USERPROFILE\arena-local-bridge\token.txt"
+$tokenFile = "$env:USERPROFILE\arena-bridge\token.txt"
 $token = $null
 
 if (Test-Path $tokenFile) {
@@ -38,4 +38,4 @@ foreach ($p in @(
 }
 if (-not $PYTHON) { $PYTHON = "python" }
 
-& $PYTHON -u "$env:USERPROFILE\arena-local-bridge\unified_bridge.py" serve --root "$env:USERPROFILE" --profile owner-shell --token $token *>> "$env:USERPROFILE\arena-bridge\logs\ArenaUnifiedBridge.log"
+& $PYTHON -u "$env:USERPROFILE\arena-bridge\unified_bridge.py" serve --root "$env:USERPROFILE" --profile owner-shell --token $token *>> "$env:USERPROFILE\arena-bridge\logs\ArenaUnifiedBridge.log"

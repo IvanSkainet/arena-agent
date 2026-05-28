@@ -11,7 +11,7 @@ Usage:
 Env vars:
     ARENA_BRIDGE_URL   default http://127.0.0.1:8765
     ARENA_BRIDGE_TOKEN override token file
-    ARENA_TOKEN_FILE   default ~/.arena-local-bridge/token.txt
+    ARENA_TOKEN_FILE   default ~/arena-bridge/token.txt
 
 Replaces the old bash version. Works on Windows / Linux / macOS without
 requiring `curl` binary — uses Python stdlib (urllib).
@@ -29,11 +29,11 @@ from pathlib import Path
 DEFAULT_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
 TOKEN_FILE = Path(os.environ.get(
     "ARENA_TOKEN_FILE",
-    str(Path.home() / ".arena-local-bridge" / "token.txt")
+    str(Path.home() / "arena-bridge" / "token.txt")
 ))
 # Token can also live in BRIDGE_DIR/token.txt
 ALT_TOKEN_FILES = [
-    Path.home() / "arena-local-bridge" / "token.txt",
+    Path.home() / "arena-bridge" / "token.txt",
 ]
 
 

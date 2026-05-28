@@ -162,13 +162,10 @@ def run_skill(args) -> int:
 
     run_sh = d / "run.sh"
     run_py = d / "run.py"
-    venv_py = ROOT / ".venv" / "bin" / "python"
-
     if run_sh.exists():
         cmd = ["bash", str(run_sh), *args.skill_args]
     elif run_py.exists():
-        py = str(venv_py) if venv_py.exists() else sys.executable
-        cmd = [py, str(run_py), *args.skill_args]
+        cmd = [sys.executable, str(run_py), *args.skill_args]
     else:
         print(f"skill '{args.name}' has neither run.sh nor run.py", file=sys.stderr)
         return 2

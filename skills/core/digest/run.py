@@ -61,7 +61,7 @@ def build() -> str:
 
     p("## Services")
     svc = sh(["systemctl", "--user", "is-active",
-              "arena-bridge.service"])
+              "arena-bridge.service", "arena-task-runner.service"])
     p("```text")
     p(svc)
     p("```\n")

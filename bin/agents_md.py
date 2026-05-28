@@ -12,7 +12,7 @@ import sys, pathlib
 ROOT = pathlib.Path.home() / "arena-bridge"
 PROJ = ROOT / "projects"
 TMPL = ROOT / "docs" / "AGENTS.md.template"
-STATE = pathlib.Path.home() / ".arena-bridge" / "current_project"
+STATE = pathlib.Path.home() / "arena-bridge" / "current_project"
 
 
 def current_project():

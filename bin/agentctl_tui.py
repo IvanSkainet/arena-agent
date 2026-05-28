@@ -31,7 +31,7 @@ HIST.parent.mkdir(parents=True, exist_ok=True)
 SLASH = {
     "/help":     "agentctl",
     "/sys":      "agentctl sys status",
-    "/svc":      "systemctl --user --no-pager is-active arena-local-bridge arena-mcp-stream arena-mcp-ws arena-task-runner",
+    "/svc":      "systemctl --user --no-pager is-active arena-bridge arena-mcp-stream arena-mcp-ws arena-task-runner",
     "/health":   "curl -sS http://127.0.0.1:8765/health",
     "/tools":    "agentctl mcp stream-tools | python3 -m json.tool | head -40",
     "/shot":     "agentctl browser sd-shot ",

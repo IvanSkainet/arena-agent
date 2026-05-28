@@ -5,8 +5,8 @@ start-bridge — Cross-platform launcher for Arena Unified Bridge.
 Replaces the old bash version. Works on Windows / Linux / macOS.
 
 Env vars:
-    ARENA_AGENT_HOME    default: ~/arena-agent
-    ARENA_BRIDGE_DIR    default: ~/arena-local-bridge
+    ARENA_AGENT_HOME    default: ~/arena-bridge
+    ARENA_BRIDGE_DIR    default: ~/arena-bridge
     ARENA_BRIDGE_PORT   default: 8765
     ARENA_BRIDGE_TOKEN  if set, used instead of token file
     ARENA_PROFILE       default: owner-shell
@@ -27,7 +27,7 @@ def find_python() -> str:
 
 def main(argv: list[str]) -> int:
     bridge_dir = Path(os.environ.get(
-        "ARENA_BRIDGE_DIR", str(Path.home() / "arena-local-bridge"))).expanduser()
+        "ARENA_BRIDGE_DIR", str(Path.home() / "arena-bridge"))).expanduser()
     bridge_py = bridge_dir / "unified_bridge.py"
     if not bridge_py.exists():
         sys.stderr.write(f"start-bridge: {bridge_py} not found\n")
@@ -36,12 +36,12 @@ def main(argv: list[str]) -> int:
     port = os.environ.get("ARENA_BRIDGE_PORT", "8765")
     profile = os.environ.get("ARENA_PROFILE", "owner-shell")
 
-    # Token: env override, then BRIDGE_DIR/token.txt, then ~/.arena-local-bridge/token.txt
+    # Token: env override, then BRIDGE_DIR/token.txt, then ~/arena-bridge/token.txt
     token = os.environ.get("ARENA_BRIDGE_TOKEN", "").strip()
     if not token:
         for cand in (
             bridge_dir / "token.txt",
-            Path.home() / ".arena-local-bridge" / "token.txt",
+            Path.home() / "arena-bridge" / "token.txt",
         ):
             try:
                 if cand.exists():

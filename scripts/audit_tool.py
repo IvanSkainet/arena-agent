@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, collections, datetime as dt, json, os, shutil
 from pathlib import Path
-AUDIT = Path.home() / '.arena-local-bridge' / 'audit.jsonl'
+AUDIT = Path.home() / 'arena-bridge' / 'audit.jsonl'
 
 def read_events(limit: int | None = None):
     if not AUDIT.exists():

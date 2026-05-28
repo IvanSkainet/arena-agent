@@ -12,10 +12,9 @@ JSON="$OUT_DIR/snapshot-${STAMP}.json"
 MD="$OUT_DIR/snapshot-${STAMP}.md"
 
 # Собираем всё через python для аккуратного JSON
-AGENT_HOME="${ARENA_AGENT_HOME:-$HOME/arena-bridge}"
-python3 - "$JSON" "$MD" "$STAMP" "$AGENT_HOME" <<'PY'
+python3 - "$JSON" "$MD" "$STAMP" <<'PY'
 import json, os, subprocess, sys, time
-json_path, md_path, stamp, agent_home = sys.argv[1:5]
+json_path, md_path, stamp = sys.argv[1:4]
 
 def run(cmd, t=10):
     try:
@@ -38,13 +37,13 @@ snap = {
     "bridge_health": http_get("http://127.0.0.1:8765/health"),
     "mcp_health":    http_get("http://127.0.0.1:8767/health"),
     "ports":         run("ss -tlnp 2>/dev/null | grep -E ':876[5-9]'")["out"],
-    "services":      run("systemctl --user --no-pager is-active arena-bridge.service 2>&1")["out"],
-    "service_mem":   run("systemctl --user show arena-bridge.service -p MemoryCurrent -p MemoryPeak --no-pager")["out"],
-    "disk":          run(f"df -h {agent_home} | tail -1")["out"],
-    "shots_count":   run(f"ls {agent_home}/reports/shots/ 2>/dev/null | wc -l")["out"],
-    "reports_recent": run(f"ls -t {agent_home}/reports/ 2>/dev/null | head -8")["out"],
-    "last_facts":     run(f"tail -10 {agent_home}/memory/facts.jsonl 2>/dev/null")["out"],
-    "last_backup":    run(f"ls -t {agent_home}/backups/ 2>/dev/null | head -1")["out"],
+    "services":      run("systemctl --user --no-pager is-active arena-bridge.service arena-mcp-stream.service arena-mcp-ws.service arena-task-runner.service 2>&1")["out"],
+    "service_mem":   run("systemctl --user show arena-bridge.service arena-mcp-stream.service arena-mcp-ws.service -p MemoryCurrent -p MemoryPeak --no-pager")["out"],
+    "disk":          run("df -h ~/arena-bridge | tail -1")["out"],
+    "shots_count":   run("ls ~/arena-bridge/reports/shots/ 2>/dev/null | wc -l")["out"],
+    "reports_recent": run("ls -t ~/arena-bridge/reports/ 2>/dev/null | head -8")["out"],
+    "last_facts":     run("tail -10 ~/arena-bridge/memory/facts.jsonl 2>/dev/null")["out"],
+    "last_backup":    run("ls -t ~/arena-bridge/backups/ 2>/dev/null | head -1")["out"],
 }
 
 with open(json_path, "w") as f: json.dump(snap, f, ensure_ascii=False, indent=2)

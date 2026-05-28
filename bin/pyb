@@ -16,7 +16,7 @@ def main(argv: list[str]) -> int:
     target = here / "py_browser.py"
     if not target.exists():
         # Fall back to ARENA_AGENT_HOME/bin/py_browser.py
-        agent_home = os.environ.get("ARENA_AGENT_HOME") or str(Path.home() / "arena-agent")
+        agent_home = os.environ.get("ARENA_AGENT_HOME") or str(Path.home() / "arena-bridge")
         target = Path(agent_home) / "bin" / "py_browser.py"
     if not target.exists():
         sys.stderr.write(f"pyb: py_browser.py not found near {here} or {agent_home}\n")

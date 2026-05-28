@@ -18,7 +18,8 @@ self-describing.
 - `bin/agentctl`, all of `scripts/`, `skills/`
 - `memory/facts.jsonl`, `memory/sessions/`, `memory/RECOVERY_PROMPT_RU.md`
 - `~/.config/systemd/user/arena-bridge.service`
-- `~/arena-bridge/unified_bridge.py`, `README.md`
+- `~/.config/systemd/user/arena-task-runner.service`
+- `~/arena-bridge/local_bridge.py`, `README_RU.md`
 
 ## What's NEVER included
 - `~/arena-bridge/token.txt`

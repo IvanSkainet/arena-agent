@@ -208,7 +208,7 @@ def cmd_tail(args: list[str]) -> int:
     if kind == "audit":
         p = ROOT / "logs" / "audit.jsonl"
         if not p.exists():
-            p = Path.home() / ".arena-local-bridge" / "audit.jsonl"
+            p = Path.home() / "arena-bridge" / "audit.jsonl"
     else:
         p = ROOT / "logs" / f"{kind}.jsonl"
     
@@ -330,7 +330,7 @@ def cmd_doctor_fix(_args: list[str]) -> int:
   
     # 5. Platform-specific service checks  
     if platform.system() == "Linux" and shutil.which("systemctl"):  
-        for svc in ["arena-local-bridge.service", "arena-task-runner.service"]:  
+        for svc in ["arena-bridge.service", "arena-task-runner.service"]:  
             cp = subprocess.run(["systemctl", "--user", "is-active", svc],  
                                 capture_output=True, text=True)  
             if cp.stdout.strip() != "active":  
@@ -370,7 +370,7 @@ def cmd_update(args: list[str]) -> int:
         else:  
             print("=== Restarting systemd services ===")  
             subprocess.run(["systemctl", "--user", "daemon-reload"])  
-            services = ["arena-local-bridge.service", "arena-mcp-stream.service", "arena-mcp-ws.service", "arena-task-runner.service", "arena-web-gateway.service"]  
+            services = ["arena-bridge.service", "arena-mcp-stream.service", "arena-mcp-ws.service", "arena-task-runner.service", "arena-web-gateway.service"]  
             subprocess.run(["systemctl", "--user", "restart"] + services)  
     elif platform.system() == "Windows":  
         installer = ROOT / "scripts" / "install_windows_service.ps1"  

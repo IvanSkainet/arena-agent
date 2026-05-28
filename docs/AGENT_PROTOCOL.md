@@ -102,7 +102,7 @@ if "MARKER_STRING" in src:
 
 ## Audit & rollback
 
-- `~/.arena-local-bridge/audit.jsonl` — every exec call, with redaction.
+- `~/arena-bridge/audit.jsonl` — every exec call, with redaction.
 - `agentctl audit-tail 30`, `agentctl audit-stats`.
 - Backups: `agentctl backup` before any nontrivial change; latest in
   `~/arena-bridge/backups/`.

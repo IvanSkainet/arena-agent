@@ -1,16 +1,10 @@
 @echo off
-:: Arena Unified Bridge - Token Regeneration Script
+:: Arena Local Bridge - Token Regeneration Script v1.3.0
 :: Regenerates token and restarts bridge automatically
 
 setlocal enabledelayedexpansion
 
-:: Detect bridge directory: env var > script location
-if defined ARENA_AGENT_HOME (
-    set "BRIDGE_DIR=%ARENA_AGENT_HOME%"
-) else (
-    set "BRIDGE_DIR=%~dp0"
-    set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
-)
+set "BRIDGE_DIR=%USERPROFILE%\arena-bridge"
 set "TOKEN_FILE=%BRIDGE_DIR%\token.txt"
 set "PYTHON="
 
@@ -35,7 +29,7 @@ if not defined PYTHON (
 )
 
 echo ============================================================
-echo   Arena Unified Bridge - Token Regeneration
+echo   Arena Local Bridge - Token Regeneration v1.3.0
 echo ============================================================
 echo.
 

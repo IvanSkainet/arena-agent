@@ -2,7 +2,7 @@
 from __future__ import annotations
 import argparse, datetime as dt, json, os, shutil, tarfile, uuid
 from pathlib import Path
-ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); Q=ROOT/'queue'
+ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home()/'arena-bridge'))).expanduser(); Q=ROOT/'queue'
 INBOX=Q/'inbox'; RUNNING=Q/'running'; DONE=Q/'done'; FAILED=Q/'failed'
 def now(): return dt.datetime.now(dt.timezone.utc)
 def load(p): return json.loads(p.read_text(encoding='utf-8'))

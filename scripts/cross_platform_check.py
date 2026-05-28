@@ -139,7 +139,7 @@ def main() -> int:
             "agentctl":        (ROOT / "bin/agentctl").exists() if ROOT.exists() else False,
             "sd-exec":         (ROOT / "bin/sd-exec").exists() if ROOT.exists() else False,
             "py_browser":      (ROOT / "bin/py_browser.py").exists() if ROOT.exists() else False,
-            "bridge":          (Path.home() / "arena-local-bridge/local_bridge.py").exists(),
+            "bridge":          (Path.home() / "arena-bridge/unified_bridge.py").exists(),
             "mcp_stream":      (ROOT / "scripts/mcp_stream_server.py").exists() if ROOT.exists() else False,
             "mcp_ws":          (ROOT / "scripts/mcp_ws_server.py").exists() if ROOT.exists() else False,
             "win_installer":   (ROOT / "scripts/install_windows_service.ps1").exists() if ROOT.exists() else False,

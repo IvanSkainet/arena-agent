@@ -44,7 +44,7 @@ def run(cmd, cwd, check=False):
     return p
 def ensure_git_identity(p):
     if run('git config user.email', p).returncode != 0 or not run('git config user.email', p).stdout.strip():
-        run('git config user.email "arena-bridge@local"', p)
+        run('git config user.email "arena-agent@local"', p)
     if run('git config user.name', p).returncode != 0 or not run('git config user.name', p).stdout.strip():
         run('git config user.name "Arena Agent"', p)
 def new_project(args):
@@ -152,11 +152,11 @@ if __name__=='__main__': main()
 def agents_md_command(args):
     """CLI: project_git.py agents [init|show] — управление AGENTS.md в текущем проекте."""
     import os as _os, pathlib as _pl, shutil as _sh
-    state = _pl.Path.home() / ".arena-bridge" / "current_project"
+    state = _pl.Path.home() / "arena-bridge" / "current_project"
     cur = None
     if state.exists(): cur = state.read_text().strip()
     if not cur:
-        # пробуем найти через .arena-bridge в текущем
+        # пробуем найти через arena-bridge в текущем
         cur = _os.environ.get("ARENA_CURRENT_PROJECT", "")
     if not cur:
         # последний из projects/

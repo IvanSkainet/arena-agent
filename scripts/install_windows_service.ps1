@@ -10,7 +10,7 @@ $ErrorActionPreference = "Continue"
 
 $VERSION = "1.3.0"
 $HOME_DIR = $env:USERPROFILE
-$BRIDGE_DIR = "$HOME_DIR\arena-local-bridge"
+$BRIDGE_DIR = "$HOME_DIR\arena-bridge"
 $AGENT_DIR = "$HOME_DIR\arena-bridge"
 $TOKEN_FILE = "$BRIDGE_DIR\token.txt"
 $BIN_DIR = "$AGENT_DIR\bin"
@@ -476,7 +476,7 @@ $regenBat = @"
 
 setlocal enabledelayedexpansion
 
-set "BRIDGE_DIR=%USERPROFILE%\arena-local-bridge"
+set "BRIDGE_DIR=%USERPROFILE%\arena-bridge"
 set "TOKEN_FILE=%BRIDGE_DIR%\token.txt"
 set "PYTHON="
 
@@ -556,7 +556,7 @@ echo [Scheduled Task]
 schtasks /Query /tn ArenaUnifiedBridge /fo List 2>nul
 echo.
 echo [Token Location]
-echo %USERPROFILE%\arena-local-bridge\token.txt
+echo %USERPROFILE%\arena-bridge\token.txt
 "@
 Set-Content -Path "$BRIDGE_DIR\status.bat" -Value $statusBat -Encoding ASCII
 Ok "Created status.bat"

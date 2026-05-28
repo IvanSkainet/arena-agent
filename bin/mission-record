@@ -16,7 +16,7 @@ Usage:
     mission-record list           — list .mp4 files in REC_DIR
 
 Env:
-    ARENA_AGENT_HOME   default: ~/arena-agent
+    ARENA_AGENT_HOME   default: ~/arena-bridge
     DISPLAY            (Linux only) defaults to :0
     ARENA_FFMPEG       override ffmpeg binary path
 """
@@ -34,7 +34,7 @@ from datetime import datetime, timezone
 
 
 def rec_dir() -> Path:
-    home = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-agent")))
+    home = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge")))
     d = home / "reports" / "recordings"
     d.mkdir(parents=True, exist_ok=True)
     return d

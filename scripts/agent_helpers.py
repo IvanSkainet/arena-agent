@@ -207,10 +207,9 @@ def cli_self_check(_args) -> int:
         ok, msg = verify_bash(a)
         if not ok:
             issues.append(f"agentctl bash -n failed: {msg}")
-    # 3. venv python works
-    venv_py = ROOT / ".venv" / "bin" / "python"
-    if not venv_py.is_file():
-        issues.append(f"venv python missing: {venv_py}")
+    # 3. system python3 works
+    if not shutil.which("python3"):
+        issues.append("python3 not found in PATH")
     # 4. critical python scripts import
     for name in ("memory.py", "task_runner.py", "chat.py",
                  "chat_append.py", "skill_runner.py", "recovery_prompt.py",
@@ -224,12 +223,12 @@ def cli_self_check(_args) -> int:
             issues.append(f"{name}: {msg}")
     # 5. services
     cp = subprocess.run(["systemctl", "--user", "is-active",
-                         "arena-local-bridge.service",
+                         "arena-bridge.service",
                          "arena-task-runner.service"],
                         capture_output=True, text=True)
     states = cp.stdout.strip().splitlines()
     if len(states) >= 1 and states[0] != "active":
-        issues.append(f"arena-local-bridge.service: {states[0]}")
+        issues.append(f"arena-bridge.service: {states[0]}")
     if len(states) >= 2 and states[1] != "active":
         issues.append(f"arena-task-runner.service: {states[1]}")
     # 6. session dir
