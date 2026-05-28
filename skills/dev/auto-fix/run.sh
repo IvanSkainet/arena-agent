@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # dev/auto-fix — автодиагностика и попытка починить типичные проблемы:
 #   - bridge offline → restart
-#   - mcp stream/ws offline → restart
 #   - ydotoold zombie процессы → kill
 #   - старые backup'ы > N штук → prune
 #   - chromium падает напрямую → подсказка использовать sd-shot
@@ -17,25 +16,23 @@ do_or_dry() { if [[ $DRY -eq 1 ]]; then log "DRY: $*"; else log "exec: $*"; eval
 
 FIXED=0
 
-# 1) Проверяем services
-for svc in arena-bridge.service; do
-  state=$(systemctl --user is-active "$svc" 2>/dev/null || echo "missing")
-  if [[ "$state" != "active" ]]; then
-    log "service $svc = $state, restart"
-    do_or_dry "systemctl --user restart $svc"
-    FIXED=$((FIXED+1))
-  fi
-done
+# 1) Проверяем bridge service (only if NOT active — never restart self when running)
+BRIDGE_SVC="arena-bridge.service"
+BRIDGE_STATE=$(systemctl --user is-active "$BRIDGE_SVC" 2>/dev/null || echo "missing")
+if [[ "$BRIDGE_STATE" != "active" ]]; then
+  log "service $BRIDGE_SVC = $BRIDGE_STATE, restart"
+  do_or_dry "systemctl --user restart $BRIDGE_SVC"
+  FIXED=$((FIXED+1))
+else
+  log "service $BRIDGE_SVC = active ✓"
+fi
 
-# 2) Health endpoints
-for url in http://127.0.0.1:8765/health http://127.0.0.1:8767/health; do
-  if ! curl -sS --max-time 5 "$url" > /dev/null; then
-    log "endpoint $url down — restart bridge stack"
-    do_or_dry "systemctl --user restart arena-bridge.service"
-    FIXED=$((FIXED+1))
-    break
-  fi
-done
+# 2) Health check — only check the main bridge port (8765)
+# Do NOT restart the bridge from within itself — just report
+if ! curl -sS --max-time 5 "http://127.0.0.1:8765/health" > /dev/null 2>&1; then
+  log "WARN: bridge :8765 not responding (but service is active — may be restarting)"
+  FIXED=$((FIXED+1))
+fi
 
 # 3) Zombie ydotoold не от systemd
 ZOMBIES=$(pgrep -af 'ydotoold --socket-path=/run/user/1000/.ydotool_socket' 2>/dev/null | grep -v 'systemd' || true)
@@ -59,8 +56,12 @@ if [[ -d "$BK_DIR" ]]; then
 fi
 
 # 5) Проверим что chromium хоть как-то отвечает; иначе намекнём
-if ! timeout 5 chromium --version > /dev/null 2>&1; then
-  log "WARN: chromium --version выдал ошибку. Используй: agentctl browser sd-shot / py-search"
+if command -v chromium &>/dev/null; then
+  if ! timeout 5 chromium --version > /dev/null 2>&1; then
+    log "WARN: chromium --version выдал ошибку. Используй: agentctl browser sd-shot / py-search"
+  fi
+else
+  log "INFO: chromium not found — CDP browser features may be limited"
 fi
 
 echo "{\"ok\": true, \"fixed\": $FIXED, \"dry\": $DRY}"
