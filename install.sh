@@ -360,7 +360,7 @@ done
 TS_URL=""
 # Method 1: Query the bridge API (most reliable — bridge already knows)
 if [ -z "$TS_URL" ]; then
-    TS_URL="$(curl -s "http://127.0.0.1:$PORT/v1/sys/funnel" 2>/dev/null | python3 -c "
+    TS_URL="$(curl -s -H "Authorization: Bearer $TOKEN" "http://127.0.0.1:$PORT/v1/sys/funnel" 2>/dev/null | python3 -c "
 import json, sys
 try:
     d = json.load(sys.stdin)
@@ -388,7 +388,7 @@ except: pass
 fi
 # Method 3: Parse from tailscale status text (works even without --json)
 if [ -z "$TS_URL" ] && command -v tailscale >/dev/null 2>&1; then
-    TS_URL="$(tailscale status 2>/dev/null | grep -oP 'https://[a-z0-9-]+\.tail\d+\.ts\.net' | head -1)" || TS_URL=""
+    TS_URL="$(tailscale status 2>/dev/null | grep -oE 'https://[a-z0-9-]+\.tail[0-9]+\.ts\.net' | head -1)" || TS_URL=""
 fi
 
 # --- Done ---

@@ -248,9 +248,17 @@ REM --- Detect Tailscale URL ---
 REM Try multiple methods — must work for ALL users on ALL platforms
 set "TS_URL="
 
+REM Read token for API auth
+set "AUTH_TOKEN="
+if exist "%TOKEN_FILE%" (
+    for /f "delims=" %%t in ('type "%TOKEN_FILE%"') do set "AUTH_TOKEN=%%t"
+)
+
 REM Method 1: Query the bridge API (most reliable)
 if defined TS_URL goto :ts_url_done
-for /f "delims=" %%u in ('curl -s "http://127.0.0.1:%PORT%/v1/sys/funnel" 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); print(d.get('funnel',{}).get('url',''))" 2^>nul') do set "TS_URL=%%u"
+if defined AUTH_TOKEN (
+    for /f "delims=" %%u in ('curl -s -H "Authorization: Bearer %AUTH_TOKEN%" "http://127.0.0.1:%PORT%/v1/sys/funnel" 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); print(d.get('funnel',{}).get('url',''))" 2^>nul') do set "TS_URL=%%u"
+)
 
 REM Method 2: tailscale status --json, read Self.DNSName
 if defined TS_URL goto :ts_url_done
