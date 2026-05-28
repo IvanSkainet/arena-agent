@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.2"
+VERSION = "1.9.3"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3370,8 +3370,24 @@ async def handle_v1_cdp_connect(request):
             await asyncio.wait_for(mgr.connect(), timeout=25)
         except asyncio.TimeoutError:
             _record_request(is_error=True, count_request=False)
+            # Check if browser process crashed
+            browser_crashed = False
+            crash_stderr = ""
+            if mgr._browser_proc and mgr._browser_proc.poll() is not None:
+                browser_crashed = True
+                try:
+                    crash_stderr = mgr._browser_proc.stderr.read().decode("utf-8", errors="replace")[:500]
+                except Exception:
+                    pass
+            error_msg = "CDP connect timed out (25s). Browser may not be running or debug port is unreachable."
+            if browser_crashed:
+                error_msg += f" Browser process crashed (exit code {mgr._browser_proc.returncode})."
+                if crash_stderr:
+                    error_msg += f" stderr: {crash_stderr}"
+            else:
+                error_msg += " Try: chromium --remote-debugging-port=9222 --headless=new --no-sandbox &"
             return _cors_json_response(
-                {"ok": False, "error": "CDP connect timed out (25s). Browser may not be running or debug port is unreachable. Try: chromium --remote-debugging-port=9222 --headless=new &"},
+                {"ok": False, "error": error_msg, "browser_crashed": browser_crashed},
                 status=408
             )
         

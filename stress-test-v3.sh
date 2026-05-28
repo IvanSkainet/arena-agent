@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.2 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge v1.9.3 — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -465,8 +465,8 @@ check "health skill" "$(echo "$resp" | jq_check '["ok"]' 2>/dev/null && echo tru
 resp=$(api_get "/v1/audit")
 check "audit endpoint" "$(echo "$resp" | jq_check '["ok"]' 2>/dev/null && echo true || echo false)"
 
-# 4.7 Recall
-resp=$(api_get "/v1/recall")
+# 4.7 Recall (requires ?q= parameter)
+resp=$(api_get "/v1/recall?q=test")
 check "recall endpoint" "$(echo "$resp" | jq_check '["ok"]' 2>/dev/null && echo true || echo false)"
 
 echo ""

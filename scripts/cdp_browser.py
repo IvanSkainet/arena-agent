@@ -96,17 +96,30 @@ def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subproces
         f"--remote-debugging-port={port}",
         "--no-sandbox",
         "--disable-gpu",
+        "--disable-dev-shm-usage",
         f"--user-data-dir={ud}",
     ]
     if headless:
         cmd.append("--headless=new")
-    # Wayland compatibility: disable GPU compositing on Linux
+    # Linux: use headless ozone backend instead of auto-detecting display server
+    # This prevents crashes when running from systemd services without a display
     if platform.system() == "Linux":
-        cmd.append("--disable-software-rasterizer")
-        cmd.append("--ozone-platform-hint=auto")
-    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if headless:
+            cmd.append("--ozone-platform=headless")
+        else:
+            cmd.append("--ozone-platform-hint=auto")
+
+    # Capture stderr to log browser crashes
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     # Give the browser a moment to start and open the debug port
     time.sleep(2)
+    # Check if browser crashed immediately
+    if proc.poll() is not None:
+        stderr_output = proc.stderr.read().decode("utf-8", errors="replace") if proc.stderr else ""
+        logger.error("[CDP] Browser crashed immediately (exit code %d). stderr:\n%s",
+                     proc.returncode, stderr_output[:2000])
+    else:
+        logger.info("[CDP] Browser started (pid %d)", proc.pid)
     return proc
 
 
