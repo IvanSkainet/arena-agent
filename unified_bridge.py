@@ -130,7 +130,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.24"
+VERSION = "1.9.25"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -7234,9 +7234,9 @@ async def handle_prometheus_metrics(request: web.Request) -> web.Response:
             "",
         ]
         
-        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4; charset=utf-8")
+        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4", charset="utf-8")
     except Exception as e:
-        return web.Response(text=f"# ERROR: {e}\n", status=500, content_type="text/plain")
+        return web.Response(text=f"# ERROR: {e}\n", status=500, content_type="text/plain", charset="utf-8")
 
 
 # --- /api-docs GET — OpenAPI 3.0 specification ---
@@ -7290,7 +7290,7 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/browser/cdp/intercept/start": {"post": {"summary": "Start request interception", "tags": ["CDP"], "responses": {"200": {"description": "Interception started"}}}},
             "/v1/browser/cdp/intercept/stop": {"post": {"summary": "Stop request interception", "tags": ["CDP"], "responses": {"200": {"description": "Interception stopped"}}}},
             "/v1/browser/cdp/stealth/extract": {"post": {"summary": "Stealth extract page content via CDP", "tags": ["CDP Stealth"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}, "wait_for": {"type": "string"}, "timeout": {"type": "number", "default": 15}}}}}}, "responses": {"200": {"description": "Extracted content"}}}},
-            "/v1/browser/cdp/stealth/shot": {"post": {"summary": "Stealth screenshot via CDP", "tags": ["CDP Stealth"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}, "width": {"type": "integer", "default": 1280}, "height": {"type": "integer", "default": 720}, "full_page": {"type": "boolean", "default": false}, "format": {"type": "string", "enum": ["png", "jpeg"], "default": "png"}, "timeout": {"type": "number", "default": 15}}}}}}, "responses": {"200": {"description": "Screenshot data"}}}},
+            "/v1/browser/cdp/stealth/shot": {"post": {"summary": "Stealth screenshot via CDP", "tags": ["CDP Stealth"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}, "width": {"type": "integer", "default": 1280}, "height": {"type": "integer", "default": 720}, "full_page": {"type": "boolean", "default": False}, "format": {"type": "string", "enum": ["png", "jpeg"], "default": "png"}, "timeout": {"type": "number", "default": 15}}}}}}, "responses": {"200": {"description": "Screenshot data"}}}},
             "/v1/browser/cdp/raw-info": {"get": {"summary": "Raw CDP HTTP info", "tags": ["CDP Debug"], "responses": {"200": {"description": "Raw CDP data"}}}},
             "/v1/browser/cdp/test-launch": {"get": {"summary": "Test CDP browser launch", "tags": ["CDP Debug"], "responses": {"200": {"description": "Launch test result"}}}},
             "/v1/browser/cdp/test-ws": {"get": {"summary": "Test CDP WebSocket", "tags": ["CDP Debug"], "responses": {"200": {"description": "WS test result"}}}},
