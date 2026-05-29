@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.4"
+VERSION = "2.0.5"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -2257,13 +2257,14 @@ connectWS();
 
 async def handle_gui_v2(request: web.Request) -> web.Response:
     """GET /gui/v2 — Live dashboard with WebSocket real-time updates.
-    Requires auth via header or ?token= URL param."""
+    Shows login page if no valid auth."""
     cfg = request.app["cfg"]
     url_token = request.query.get("token", "")
-    if not url_token or not hmac.compare_digest(url_token, cfg["token"]):
+    valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
+    if not valid_token:
         r = require_auth(request)
         if r:
-            return r
+            return web.Response(text=_GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
     return web.Response(text=_DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
 
 
@@ -4856,15 +4857,68 @@ async def handle_v1_download(request: web.Request) -> web.Response:
 # HANDLER — Dashboard GUI
 # ============================================================================
 
+_GUI_LOGIN_HTML = """<!DOCTYPE html>
+<html><head><title>Arena Bridge — Login</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0d1117;color:#c9d1d9;display:flex;justify-content:center;align-items:center;min-height:100vh}
+.card{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:2.5rem;width:400px;text-align:center}
+.card h1{color:#58a6ff;margin-bottom:.25rem;font-size:1.6rem}
+.card .sub{color:#8b949e;margin-bottom:1.5rem;font-size:.85rem}
+.card input{width:100%;padding:.7rem 1rem;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;font-size:.9rem;font-family:monospace;outline:none;margin-bottom:.75rem}
+.card input:focus{border-color:#58a6ff;box-shadow:0 0 0 3px rgba(88,166,255,.15)}
+.card button{width:100%;padding:.7rem;background:#238636;color:#fff;border:none;border-radius:6px;font-size:.9rem;cursor:pointer;font-weight:600;transition:background .15s}
+.card button:hover{background:#2ea043}
+.card .err{color:#f85149;font-size:.8rem;margin-top:.5rem;min-height:1.2em}
+.card .hint{color:#484f58;font-size:.75rem;margin-top:1.25rem}
+</style></head>
+<body>
+<div class="card">
+<h1>Arena Bridge</h1>
+<p class="sub">Enter your auth token to access the dashboard</p>
+<form id="form" onsubmit="return login()">
+<input type="password" id="token" placeholder="Auth token" autofocus autocomplete="off">
+<button type="submit">Sign In</button>
+<div class="err" id="err"></div>
+</form>
+<p class="hint">Token is stored in token.txt in the bridge directory</p>
+</div>
+<script>
+function login(){
+  var t=document.getElementById('token').value.trim();
+  if(!t){document.getElementById('err').textContent='Please enter a token';return false}
+  var x=new XMLHttpRequest();
+  x.open('GET','/v1/status',false);
+  x.setRequestHeader('Authorization','Bearer '+t);
+  try{x.send()}catch(e){document.getElementById('err').textContent='Connection failed';return false}
+  if(x.status===200){
+    localStorage.setItem('arena_token',t);
+    window.location.href='/gui?token='+encodeURIComponent(t);
+  }else{
+    document.getElementById('err').textContent='Invalid token';
+  }
+  return false;
+}
+var saved=localStorage.getItem('arena_token');
+if(saved){document.getElementById('token').value=saved;login()}
+</script>
+</body></html>"""
+
+
 async def handle_gui(request: web.Request) -> web.Response:
-    """GET /gui — Dashboard. Requires auth OR token in URL param (?token=...)."""
+    """GET /gui — Dashboard. Shows login page if no valid auth, then serves dashboard."""
     cfg = request.app["cfg"]
-    # Auth check: either valid Bearer/token header, or ?token= URL param
+    # Check URL token param (timing-attack safe)
     url_token = request.query.get("token", "")
-    if not url_token or not hmac.compare_digest(url_token, cfg["token"]):
+    valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
+
+    # Also accept header-based auth
+    if not valid_token:
         r = require_auth(request)
         if r:
-            return r
+            # No valid auth — show login page instead of JSON error
+            return web.Response(text=_GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
     try:
         # Try multiple locations for the dashboard
         candidates = [
@@ -4874,12 +4928,13 @@ async def handle_gui(request: web.Request) -> web.Response:
         for html_path in candidates:
             if html_path.exists():
                 html = html_path.read_text(encoding="utf-8")
-                html = html.replace("{{TOKEN}}", cfg["token"])
+                # Embed the URL token (not the server token) so JS can use it for API calls
+                html = html.replace("{{TOKEN}}", url_token or cfg["token"])
                 html = html.replace("{{VERSION}}", VERSION)
                 html = html.replace("{{HOST}}", socket.gethostname())
                 return web.Response(text=html, content_type="text/html", charset="utf-8",
                                     headers={"Access-Control-Allow-Origin": "*"})
-        # Fallback: generate a minimal dashboard (no token leak)
+        # Fallback: minimal dashboard (no token leak)
         fallback = f"""<!DOCTYPE html><html><head><title>Arena Bridge v{VERSION}</title></head>
         <body style='font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:2rem'>
         <h1>Arena Unified Bridge v{VERSION}</h1><p>Dashboard not found.</p>

@@ -29,31 +29,30 @@ echo [1/6] Finding Python...
 set "PYTHON="
 where python >nul 2>&1
 if not errorlevel 1 set "PYTHON=python"
-if not defined PYTHON (
-    where python3 >nul 2>&1
-    if not errorlevel 1 set "PYTHON=python3"
-)
-if not defined PYTHON (
-    where py >nul 2>&1
-    if not errorlevel 1 set "PYTHON=py"
-)
+if not defined PYTHON where python3 >nul 2>&1
+if not defined PYTHON if not errorlevel 1 set "PYTHON=python3"
+if not defined PYTHON where py >nul 2>&1
+if not defined PYTHON if not errorlevel 1 set "PYTHON=py"
 if not defined PYTHON (
     echo.
     echo  [ERROR] Python not found!
     echo  Install Python 3.10+ and add to PATH.
     echo  Download: https://www.python.org/downloads/
-    echo  IMPORTANT: Check "Add Python to PATH" during install.
+    echo  Check "Add Python to PATH" during install.
     echo.
     goto :end
 )
-
 for /f "delims=" %%v in ('%PYTHON% --version 2^>^&1') do echo       %%v found
 
-REM --- Read version via Python (reliable, no findstr quirks) ---
-set "VERSION=unknown"
-%PYTHON% -c "import re;print(re.search(r'VERSION\s*=\s*\"([^\"]+)\"',open(r'%BRIDGE_DIR%\unified_bridge.py',encoding='utf-8').read()).group(1))" >"%TEMP%\arena_ver.txt" 2>nul
-set /p "VERSION=" <"%TEMP%\arena_ver.txt" 2>nul
-del "%TEMP%\arena_ver.txt" >nul 2>&1
+REM --- Read version: write a tiny .py helper to avoid all CMD escaping issues ---
+echo t=open(r'%BRIDGE_DIR%\unified_bridge.py',encoding='utf-8').read()>"%TEMP%\arena_ver.py"
+echo i=t.find('VERSION = ')>>"%TEMP%\arena_ver.py"
+echo q1=t.find(chr(34),i)+1>>"%TEMP%\arena_ver.py"
+echo q2=t.find(chr(34),q1)>>"%TEMP%\arena_ver.py"
+echo print(t[q1:q2]if q1^>0 and q2^>0 else'unknown')>>"%TEMP%\arena_ver.py"
+%PYTHON% "%TEMP%\arena_ver.py" >"%TEMP%\arena_ver.txt" 2>nul
+set /p "VERSION=" <"%TEMP%\arena_ver.txt"
+del "%TEMP%\arena_ver.py" "%TEMP%\arena_ver.txt" >nul 2>&1
 echo       Bridge v%VERSION%
 
 REM ============================================================
@@ -62,13 +61,11 @@ REM ============================================================
 echo.
 echo [2/6] Installing Python dependencies...
 %PYTHON% -m pip install --quiet aiohttp psutil 2>nul
-if errorlevel 1 (
-    %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
-)
+if errorlevel 1 %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
 echo       Done.
 
 REM ============================================================
-REM Step 3: Create directory structure + token
+REM Step 3: Create directories + token
 REM ============================================================
 echo.
 echo [3/6] Creating directory structure...
@@ -88,7 +85,7 @@ set "AUTH_TOKEN="
 if exist "%TOKEN_FILE%" set /p "AUTH_TOKEN=" <"%TOKEN_FILE%"
 
 REM ============================================================
-REM Step 4: Optional Components (Tailscale, SuperPowers, BrowserAct)
+REM Step 4: Optional Components
 REM ============================================================
 echo.
 echo  ========================================
@@ -99,24 +96,21 @@ echo.
 REM --- Tailscale ---
 where tailscale >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] Tailscale not found. Install for internet access: https://tailscale.com
+    echo [INFO] Tailscale not found. Install: https://tailscale.com
     goto :tailscale_done
 )
 echo [OK] Tailscale is installed
 set "TS_URL="
 for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys;d=json.load(sys.stdin);dns=d.get('Self',{}).get('DNSName','')or d.get('DNSName','');print(dns.rstrip('.'))if dns else''" 2^>nul') do set "TS_URL=%%u"
-if defined TS_URL (
-    echo [OK] Tailscale connected: %TS_URL%
-) else (
+if not defined TS_URL (
     echo [WARN] Tailscale installed but not logged in. Run: tailscale login
+    goto :tailscale_done
 )
+echo [OK] Tailscale connected: %TS_URL%
 :tailscale_done
 
 REM --- SuperPowers ---
-if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
-    for /f %%c in ('dir /b "%BRIDGE_DIR%\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
-    goto :superpowers_done
-)
+if exist "%BRIDGE_DIR%\skills\superpowers\skills" goto :sp_exists
 echo [INFO] Installing SuperPowers from GitHub...
 git clone --depth 1 https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers" >nul 2>&1
 if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
@@ -125,49 +119,43 @@ if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
     echo [WARN] SuperPowers clone failed. Install later:
     echo        git clone https://github.com/obra/superpowers.git skills\superpowers
 )
-:superpowers_done
+goto :sp_done
+:sp_exists
+for /f %%c in ('dir /b "%BRIDGE_DIR%\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
+:sp_done
 
 REM --- BrowserAct ---
 where browser-act >nul 2>&1
 if not errorlevel 1 (
     echo [OK] BrowserAct already installed
-    goto :browseract_done
+    goto :ba_done
 )
 where uv >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] BrowserAct requires 'uv'. Install: https://docs.astral.sh/uv/getting-started/installation/
-    goto :browseract_done
+    echo [INFO] BrowserAct requires uv. Install: https://docs.astral.sh/uv/getting-started/installation/
+    goto :ba_done
 )
 echo [INFO] Installing BrowserAct via uv...
 uv tool install browser-act-cli --python 3.12 >nul 2>&1
 where browser-act >nul 2>&1
 if errorlevel 1 (
     echo [WARN] BrowserAct install may have failed. Try: uv tool install browser-act-cli --python 3.12
-    goto :browseract_done
+    goto :ba_done
 )
 echo [OK] BrowserAct installed
 if not exist "%BRIDGE_DIR%\skills\browseract" mkdir "%BRIDGE_DIR%\skills\browseract"
-if not exist "%BRIDGE_DIR%\skills\browseract\SKILL.md" (
-    curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browseract\SKILL.md" 2>nul
-)
-:browseract_done
+if not exist "%BRIDGE_DIR%\skills\browseract\SKILL.md" curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browseract\SKILL.md" 2>nul
+:ba_done
 
-REM --- Camoufox (stealth browser for BrowserAct) ---
+REM --- Camoufox ---
 where browser-act >nul 2>&1
 if errorlevel 1 goto :camoufox_done
 echo [INFO] Checking Camoufox stealth browser...
-for /f "delims=" %%p in ('where browser-act 2^>nul') do set "BA_PATH=%%p"
-set "CAMOUFOX_DIR=%LOCALAPPDATA%\camoufox"
-if exist "%CAMOUFOX_DIR%" (
+%PYTHON% -c "import camoufox;print('ok')" >nul 2>&1
+if not errorlevel 1 (
     echo [OK] Camoufox stealth browser ready
     goto :camoufox_done
 )
-%PYTHON% -c "import camoufox;print('ok')" >nul 2>&1
-if not errorlevel 1 (
-    echo [OK] Camoufox python package available
-    goto :camoufox_done
-)
-echo [INFO] Installing Camoufox (stealth browser)...
 %PYTHON% -m camoufox fetch >nul 2>&1
 echo       Done.
 :camoufox_done
@@ -179,29 +167,31 @@ REM Step 5: Install and start bridge service
 REM ============================================================
 echo [4/6] Installing as system service...
 
-REM Kill any existing bridge process on our port
-for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do (
-    taskkill /F /PID %%P >nul 2>nul
-)
+REM Kill any existing bridge on our port
+for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do taskkill /F /PID %%P >nul 2>nul
 
-REM --- Choose service method (goto-based, no if/else blocks with parens) ---
-set "SERVICE_METHOD=none"
-where nssm >nul 2>&1
-if not errorlevel 1 goto :use_nssm
-
-:use_schtasks
-set "SERVICE_METHOD=schtasks"
-echo       NSSM not found, using Scheduled Task...
-
-REM Write start_bridge.bat — use ! delayed expansion for paths
+REM Create start_bridge.bat (for manual use and schtasks)
 echo @echo off> "%BRIDGE_DIR%\start_bridge.bat"
 echo cd /d "%BRIDGE_DIR%">> "%BRIDGE_DIR%\start_bridge.bat"
 echo set ARENA_AGENT_HOME=%BRIDGE_DIR%>> "%BRIDGE_DIR%\start_bridge.bat"
 echo set ARENA_TOKEN_FILE=%TOKEN_FILE%>> "%BRIDGE_DIR%\start_bridge.bat"
 echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT%>> "%BRIDGE_DIR%\start_bridge.bat"
 
+REM Create start_hidden.vbs (launches start_bridge.bat with NO visible window)
+echo Set WshShell = CreateObject^("WScript.Shell"^)> "%BRIDGE_DIR%\start_hidden.vbs"
+echo WshShell.Run """%BRIDGE_DIR%\start_bridge.bat""", 0, False>> "%BRIDGE_DIR%\start_hidden.vbs"
+
+set "SERVICE_METHOD=none"
+
+where nssm >nul 2>&1
+if not errorlevel 1 goto :use_nssm
+
+:use_schtasks
+set "SERVICE_METHOD=schtasks"
+echo       NSSM not found, using Scheduled Task with hidden window...
+
 schtasks /delete /tn "ArenaUnifiedBridge" /f >nul 2>&1
-schtasks /create /tn "ArenaUnifiedBridge" /tr "%BRIDGE_DIR%\start_bridge.bat" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
+schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"%BRIDGE_DIR%\start_hidden.vbs\"" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
 schtasks /run /tn "ArenaUnifiedBridge" >nul 2>&1
 echo       [OK] Scheduled task installed and started.
 goto :service_installed
@@ -214,11 +204,8 @@ nssm stop ArenaUnifiedBridge >nul 2>&1
 ping -n 2 127.0.0.1 >nul
 nssm remove ArenaUnifiedBridge confirm >nul 2>&1
 
-REM Find pythonw (no console window)
 set "PYW=%PYTHON%"
-for %%p in ("%PYTHON%") do (
-    if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
-)
+for %%p in ("%PYTHON%") do if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
 
 nssm install ArenaUnifiedBridge "%PYW%" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
 nssm set ArenaUnifiedBridge AppDirectory "%BRIDGE_DIR%" >nul 2>&1
@@ -257,18 +244,18 @@ for /L %%i in (1,1,20) do (
         )
     )
 )
-if not "!HEALTHY!"=="1" (
-    echo.
-    echo  [WARN] Bridge not responding after 40 seconds.
-    echo.
-    echo  Check logs: %BRIDGE_DIR%\logs\bridge.log
-    echo  %BRIDGE_DIR%\logs\bridge_err.log
-    echo.
-    echo  Start manually:
-    echo    cd /d "%BRIDGE_DIR%"
-    echo    %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --port %PORT%
-    echo.
-)
+if "!HEALTHY!"=="1" goto :healthy_ok
+echo.
+echo  [WARN] Bridge not responding after 40 seconds.
+echo.
+echo  Check logs: %BRIDGE_DIR%\logs\bridge.log
+echo  %BRIDGE_DIR%\logs\bridge_err.log
+echo.
+echo  Start manually:
+echo    cd /d "%BRIDGE_DIR%"
+echo    %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --port %PORT%
+echo.
+:healthy_ok
 
 REM ============================================================
 REM Summary
@@ -283,41 +270,39 @@ echo   Dashboard:  http://127.0.0.1:%PORT%/gui
 echo   Health:     http://127.0.0.1:%PORT%/health
 echo   Token file: %TOKEN_FILE%
 echo.
-if defined AUTH_TOKEN (
-    echo   Your token:
-    echo   %AUTH_TOKEN%
-    echo.
-    echo   Dashboard (with auth):
-    echo   http://127.0.0.1:%PORT%/gui?token=%AUTH_TOKEN%
-    echo.
-)
+
+if not defined AUTH_TOKEN goto :no_token
+echo   Your token:
+echo   %AUTH_TOKEN%
+echo.
+echo   Dashboard with login:
+echo   http://127.0.0.1:%PORT%/gui
+echo.
+:no_token
 
 echo   Your secure Tailscale URL:
-if defined TS_URL (
-    echo   https://%TS_URL%
-) else (
-    echo   (not configured - install Tailscale: https://tailscale.com)
-)
+if not defined TS_URL echo   not configured - install Tailscale: https://tailscale.com
+if defined TS_URL echo   https://%TS_URL%
 echo.
 
 echo   Manage:
-if "%SERVICE_METHOD%"=="nssm" (
-    echo     nssm status ArenaUnifiedBridge
-    echo     nssm restart ArenaUnifiedBridge
-    echo     nssm stop ArenaUnifiedBridge
-) else (
-    echo     schtasks /run /tn "ArenaUnifiedBridge"
-    echo     schtasks /end /tn "ArenaUnifiedBridge"
-    echo     Or: start_bridge.bat
-)
+if "%SERVICE_METHOD%"=="nssm" goto :manage_nssm
+echo     schtasks /run /tn "ArenaUnifiedBridge"
+echo     schtasks /end /tn "ArenaUnifiedBridge"
+echo     Or: start_bridge.bat
+goto :manage_done
+:manage_nssm
+echo     nssm status ArenaUnifiedBridge
+echo     nssm restart ArenaUnifiedBridge
+echo     nssm stop ArenaUnifiedBridge
+:manage_done
+
 echo.
 echo   Optional:
 echo   tailscale funnel --bg %PORT%
 echo.
 echo   Installed skills:
-if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
-    for /f %%c in ('dir /b "%BRIDGE_DIR%\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo   SuperPowers   - %%c skills in skills\superpowers\
-)
+if exist "%BRIDGE_DIR%\skills\superpowers\skills" echo   SuperPowers   - skills\superpowers\
 where browser-act >nul 2>&1
 if not errorlevel 1 echo   BrowserAct    - installed
 echo.
