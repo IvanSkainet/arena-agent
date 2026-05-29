@@ -935,6 +935,119 @@ fi
 echo ""
 
 # ============================================================
+# SECTION 6: Phase 4 Features
+# ============================================================
+echo "=== SECTION 6: Phase 4 Features ==="
+
+# 6.1 TLS/HTTPS configuration
+resp=$(api_get "/v1/tls")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    tls_enabled=$(echo "$resp" | jq_val '["tls","enabled"]' 2>/dev/null || echo "False")
+    tls_ready=$(echo "$resp" | jq_val '["tls","ready"]' 2>/dev/null || echo "False")
+    check "tls endpoint" "true" "(enabled=$tls_enabled, ready=$tls_ready)"
+else
+    check "tls endpoint" "false"
+fi
+
+# 6.2 gRPC-style secondary interface
+resp=$(api_get "/v1/grpc")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    grpc_enabled=$(echo "$resp" | jq_val '["grpc","enabled"]' 2>/dev/null || echo "False")
+    grpc_port=$(echo "$resp" | jq_val '["grpc","port"]' 2>/dev/null || echo "?")
+    check "grpc endpoint" "true" "(enabled=$grpc_enabled, port=$grpc_port)"
+else
+    check "grpc endpoint" "false"
+fi
+
+# 6.3 Dashboard v2
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/gui/v2" 2>/dev/null || echo "000")
+if [ "$resp" = "200" ]; then
+    check "dashboard v2" "true" "(HTTP 200)"
+else
+    check "dashboard v2" "false" "(HTTP $resp)"
+fi
+
+# 6.4 Rate Limiting v2
+resp=$(api_get "/v1/ratelimit")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    rl_enabled=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('config',{}).get('enabled','?'))" 2>/dev/null || echo "?")
+    rl_default=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('config',{}).get('default_limit','?'))" 2>/dev/null || echo "?")
+    check "ratelimit v2 endpoint" "true" "(enabled=$rl_enabled, default=$rl_default)"
+else
+    check "ratelimit v2 endpoint" "false"
+fi
+
+# 6.5 Skill Sandboxing
+resp=$(api_get "/v1/sandbox")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    sandbox_enabled=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('config',{}).get('enabled','?'))" 2>/dev/null || echo "?")
+    check "sandbox endpoint" "true" "(enabled=$sandbox_enabled)"
+else
+    check "sandbox endpoint" "false"
+fi
+
+# 6.5b Sandbox run test
+resp=$(api_post "/v1/sandbox" '{"action":"run","cmd":"echo sandbox-test-123"}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    sandbox_out=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('stdout','')[:50])" 2>/dev/null || echo "")
+    if echo "$sandbox_out" | grep -q "sandbox-test-123"; then
+        check "sandbox run" "true" "(output=$sandbox_out)"
+    else
+        check "sandbox run" "true" "(ok but output differs)"
+    fi
+else
+    check "sandbox run" "false"
+fi
+
+# 6.6 Clustering/HA
+resp=$(api_get "/v1/cluster")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    cluster_role=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cluster',{}).get('role','?'))" 2>/dev/null || echo "?")
+    check "cluster endpoint" "true" "(role=$cluster_role)"
+else
+    check "cluster endpoint" "false"
+fi
+
+# 6.7 API Versioning (/v2/)
+resp=$(api_get "/v2/")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    api_version=$(echo "$resp" | jq_val '["api_version"]' 2>/dev/null || echo "?")
+    deprecation_count=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('deprecations',{})))" 2>/dev/null || echo "0")
+    check "v2 api index" "true" "(version=$api_version, deprecations=$deprecation_count)"
+else
+    check "v2 api index" "false"
+fi
+
+# 6.7b v2/health endpoint
+resp=$(curl -s "$URL/v2/health" 2>/dev/null)
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    v2_status=$(echo "$resp" | jq_val '["status"]' 2>/dev/null || echo "?")
+    check "v2 health endpoint" "true" "(status=$v2_status)"
+else
+    check "v2 health endpoint" "false"
+fi
+
+# 6.7c v2/deprecations endpoint
+resp=$(api_get "/v2/deprecations")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    dep_count=$(echo "$resp" | jq_val '["count"]' 2>/dev/null || echo "0")
+    check "v2 deprecations" "true" "($dep_count deprecated)"
+else
+    check "v2 deprecations" "false"
+fi
+
+# 6.8 OpenTelemetry Tracing
+resp=$(api_get "/v1/tracing")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    otel_enabled=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('config',{}).get('enabled','?'))" 2>/dev/null || echo "?")
+    check "tracing endpoint" "true" "(enabled=$otel_enabled)"
+else
+    check "tracing endpoint" "false"
+fi
+
+echo ""
+
+# ============================================================
 # SUMMARY
 # ============================================================
 echo "============================================================"

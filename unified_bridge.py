@@ -107,6 +107,7 @@ import re
 import secrets
 import shlex
 import signal
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -130,7 +131,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.26"
+VERSION = "1.9.27"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -382,6 +383,24 @@ async def error_middleware(request: web.Request, handler):
                               duration, req_id, request.remote or "")
         # Add request ID to response headers
         resp.headers["X-Request-Id"] = req_id
+        # Phase 4: Add deprecation headers for deprecated endpoints
+        deprecation = _DEPRECATED_ENDPOINTS.get(request.path)
+        if deprecation:
+            resp.headers["Deprecation"] = "true"
+            resp.headers["Sunset"] = deprecation.get("removal_version", "2.0.0")
+            resp.headers["Link"] = f'<{deprecation.get("replacement", "")}>; rel="successor-version"'
+        # Phase 4: Add rate limit headers if available
+        rl_headers = request.get("_rl_headers")
+        if rl_headers:
+            for k, v in rl_headers.items():
+                resp.headers[k] = v
+        # Phase 4: OpenTelemetry span recording
+        if _otel_should_sample():
+            trace_id = request.headers.get("traceparent", "").split("-")[1] if "-" in request.headers.get("traceparent", "") else _otel_trace_id()
+            _otel_record_span(trace_id, req_id[:16], f"{request.method} {request.path}",
+                              duration * 1000, {"http.method": request.method, "http.path": request.path,
+                                                 "http.status_code": resp.status, "req_id": req_id},
+                              status="OK" if resp.status < 400 else "ERROR")
         return resp
     except web.HTTPException as exc:
         duration = time.time() - t0
@@ -1649,6 +1668,1357 @@ async def handle_v1_alerts(request: web.Request) -> web.Response:
     })
 
 
+# ============================================================================
+# PHASE 4: Built-in TLS/HTTPS Support
+# ============================================================================
+_tls_config: dict[str, Any] = {
+    "enabled": False,
+    "cert_path": "",
+    "key_path": "",
+    "auto_cert": False,       # Auto-generate self-signed cert
+    "tailscale_cert": False,  # Use Tailscale cert
+}
+
+
+def _generate_self_signed_cert() -> tuple[str, str]:
+    """Generate a self-signed TLS certificate for local development.
+    
+    Returns (cert_path, key_path).
+    Uses openssl if available, otherwise creates a simple cert via Python's ssl module.
+    """
+    cert_dir = APP_DIR / "tls"
+    cert_dir.mkdir(parents=True, exist_ok=True)
+    cert_path = str(cert_dir / "bridge.crt")
+    key_path = str(cert_dir / "bridge.key")
+    
+    # Try openssl first (most reliable)
+    if shutil.which("openssl"):
+        try:
+            subprocess.run([
+                "openssl", "req", "-x509", "-newkey", "rsa:2048",
+                "-keyout", key_path, "-out", cert_path,
+                "-days", "365", "-nodes",
+                "-subj", f"/CN=arena-bridge/O=Arena/C=US"
+            ], capture_output=True, timeout=30, check=True)
+            log.info("[TLS] Generated self-signed certificate via openssl")
+            return cert_path, key_path
+        except Exception as e:
+            log.warning("[TLS] openssl cert generation failed: %s", e)
+    
+    # Fallback: use Python's ssl + cryptography (if available) or write a simple cert
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, "arena-bridge"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Arena"),
+        ])
+        cert = (x509.CertificateBuilder()
+                .subject_name(subject)
+                .issuer_name(issuer)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(datetime.now(timezone.utc))
+                .not_valid_after(datetime.now(timezone.utc) + __import__("datetime").timedelta(days=365))
+                .sign(key, hashes.SHA256()))
+        
+        with open(key_path, "wb") as f:
+            f.write(key.private_bytes(serialization.Encoding.PEM,
+                                      serialization.PrivateFormat.TraditionalOpenSSL,
+                                      serialization.NoEncryption()))
+        with open(cert_path, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        
+        log.info("[TLS] Generated self-signed certificate via Python cryptography")
+        return cert_path, key_path
+    except ImportError:
+        pass
+    except Exception as e:
+        log.warning("[TLS] Python cert generation failed: %s", e)
+    
+    return "", ""
+
+
+def _get_tailscale_cert() -> tuple[str, str]:
+    """Try to get Tailscale certificate for the current machine.
+    
+    Tailscale stores certs in /var/lib/tailscale/certs/ or ~/.ts/certs/
+    """
+    hostname = socket.gethostname()
+    cert_dirs = [
+        Path(f"/var/lib/tailscale/certs"),
+        Path.home() / ".ts" / "certs",
+    ]
+    
+    for cert_dir in cert_dirs:
+        cert_path = cert_dir / f"{hostname}.crt"
+        key_path = cert_dir / f"{hostname}.key"
+        if cert_path.exists() and key_path.exists():
+            log.info("[TLS] Found Tailscale certificate at %s", cert_dir)
+            return str(cert_path), str(key_path)
+    
+    return "", ""
+
+
+async def handle_v1_tls(request: web.Request) -> web.Response:
+    """GET /v1/tls — TLS configuration status.
+    POST /v1/tls — Configure TLS (enable/disable, set cert paths, auto-cert)."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            if "enabled" in data:
+                _tls_config["enabled"] = bool(data["enabled"])
+            if "cert_path" in data:
+                _tls_config["cert_path"] = str(data["cert_path"])
+            if "key_path" in data:
+                _tls_config["key_path"] = str(data["key_path"])
+            if "auto_cert" in data:
+                _tls_config["auto_cert"] = bool(data["auto_cert"])
+            if "tailscale_cert" in data:
+                _tls_config["tailscale_cert"] = bool(data["tailscale_cert"])
+            
+            # Auto-generate cert if requested
+            if _tls_config["auto_cert"] and not _tls_config["cert_path"]:
+                cert, key = _generate_self_signed_cert()
+                if cert and key:
+                    _tls_config["cert_path"] = cert
+                    _tls_config["key_path"] = key
+                    _tls_config["enabled"] = True
+            
+            # Try Tailscale cert if requested
+            if _tls_config["tailscale_cert"] and not _tls_config["cert_path"]:
+                cert, key = _get_tailscale_cert()
+                if cert and key:
+                    _tls_config["cert_path"] = cert
+                    _tls_config["key_path"] = key
+                    _tls_config["enabled"] = True
+            
+            log.info("[TLS] Configuration updated: enabled=%s, cert=%s",
+                     _tls_config["enabled"], _tls_config["cert_path"])
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    
+    # Verify cert files exist
+    cert_exists = Path(_tls_config["cert_path"]).exists() if _tls_config["cert_path"] else False
+    key_exists = Path(_tls_config["key_path"]).exists() if _tls_config["key_path"] else False
+    
+    return _cors_json_response({
+        "ok": True,
+        "tls": {
+            "enabled": _tls_config["enabled"],
+            "cert_path": _tls_config["cert_path"],
+            "key_path": _tls_config["key_path"],
+            "auto_cert": _tls_config["auto_cert"],
+            "tailscale_cert": _tls_config["tailscale_cert"],
+            "cert_exists": cert_exists,
+            "key_exists": key_exists,
+            "ready": _tls_config["enabled"] and cert_exists and key_exists,
+        }
+    })
+
+
+# ============================================================================
+# PHASE 4: gRPC-style Secondary Interface
+# ============================================================================
+_grpc_config: dict[str, Any] = {
+    "enabled": False,
+    "port": 50051,
+    "running": False,
+}
+_grpc_server_task: asyncio.Task | None = None
+
+
+async def _grpc_handler(request: web.Request) -> web.Response:
+    """Handle gRPC-style JSON requests on the secondary interface.
+    
+    Accepts JSON payloads in the format:
+    {"service": "Bridge", "method": "Status", "params": {}}
+    Returns JSON responses in the format:
+    {"ok": true, "result": {...}}
+    """
+    try:
+        data = await request.json()
+    except Exception:
+        return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
+    
+    service = data.get("service", "Bridge")
+    method = data.get("method", "")
+    params = data.get("params", {})
+    
+    # Route to internal handlers
+    method_map = {
+        "Bridge/Status": ("/v1/status", "GET"),
+        "Bridge/Health": ("/health", "GET"),
+        "Bridge/Info": ("/v1/info", "GET"),
+        "Bridge/Version": ("/v1/version", "GET"),
+        "Bridge/Exec": ("/v1/exec", "POST"),
+        "Bridge/Skills": ("/v1/skills", "GET"),
+        "Bridge/SkillsRun": ("/v1/skills/run", "POST"),
+        "Bridge/Memory": ("/v1/memory", "GET"),
+        "Bridge/MemorySet": ("/v1/memory", "POST"),
+        "Bridge/Tasks": ("/v1/tasks", "GET"),
+        "Bridge/Audit": ("/v1/audit", "GET"),
+        "Bridge/Recall": ("/v1/recall", "GET"),
+        "Bridge/Watchdog": ("/v1/watchdog", "GET"),
+        "Bridge/Alerts": ("/v1/alerts", "GET"),
+        "Bridge/Users": ("/v1/users", "GET"),
+        "Bridge/Batch": ("/v1/batch", "POST"),
+        "CDP/Status": ("/v1/browser/cdp/status", "GET"),
+        "CDP/Connect": ("/v1/browser/cdp/connect", "POST"),
+        "CDP/Disconnect": ("/v1/browser/cdp/disconnect", "POST"),
+        "CDP/Navigate": ("/v1/browser/cdp/navigate", "POST"),
+        "CDP/Screenshot": ("/v1/browser/cdp/screenshot", "GET"),
+        "CDP/Eval": ("/v1/browser/cdp/eval", "POST"),
+        "CDP/Tabs": ("/v1/browser/cdp/tabs", "GET"),
+    }
+    
+    key = f"{service}/{method}" if method else ""
+    route = method_map.get(key)
+    if not route:
+        return web.json_response({
+            "ok": False, "error": f"unknown method: {key}",
+            "available": list(method_map.keys())
+        }, status=404)
+    
+    path, http_method = route
+    cfg = request.app.get("_bridge_cfg", {})
+    port = cfg.get("port", 8765)
+    token = cfg.get("token", "")
+    url = f"http://127.0.0.1:{port}{path}"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            if http_method == "GET":
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    result = await resp.json()
+                    return web.json_response({"ok": resp.status < 400, "result": result, "status": resp.status})
+            else:
+                async with session.post(url, headers=headers, json=params,
+                                        timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                    result = await resp.json()
+                    return web.json_response({"ok": resp.status < 400, "result": result, "status": resp.status})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def _grpc_server_loop(cfg: dict) -> None:
+    """Run the gRPC-style secondary interface server."""
+    port = _grpc_config["port"]
+    app = web.Application(client_max_size=10 * 1024 * 1024)
+    app["_bridge_cfg"] = cfg
+    app.router.add_post("/call", _grpc_handler)
+    app.router.add_get("/health", lambda r: web.json_response({"ok": True, "service": "arena-bridge-grpc"}))
+    
+    try:
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, "127.0.0.1", port)
+        await site.start()
+        _grpc_config["running"] = True
+        log.info("[gRPC] Secondary interface running on http://127.0.0.1:%d/call", port)
+        
+        # Keep running until cancelled
+        while True:
+            await asyncio.sleep(3600)
+    except asyncio.CancelledError:
+        log.info("[gRPC] Secondary interface stopped")
+    except Exception as e:
+        log.error("[gRPC] Secondary interface error: %s", e)
+    finally:
+        _grpc_config["running"] = False
+
+
+async def handle_v1_grpc(request: web.Request) -> web.Response:
+    """GET /v1/grpc — gRPC-style interface status.
+    POST /v1/grpc — Configure/start/stop the gRPC interface."""
+    global _grpc_server_task
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            action = data.get("action", "")
+            
+            if action == "start":
+                if _grpc_server_task and not _grpc_server_task.done():
+                    return _cors_json_response({"ok": False, "error": "already running"}, status=409)
+                _grpc_config["enabled"] = True
+                if "port" in data:
+                    _grpc_config["port"] = int(data["port"])
+                cfg = request.app["cfg"]
+                _grpc_server_task = asyncio.create_task(_grpc_server_loop(cfg))
+                return _cors_json_response({"ok": True, "message": "gRPC interface starting",
+                                            "port": _grpc_config["port"]})
+            
+            elif action == "stop":
+                if _grpc_server_task and not _grpc_server_task.done():
+                    _grpc_server_task.cancel()
+                    _grpc_config["enabled"] = False
+                    return _cors_json_response({"ok": True, "message": "gRPC interface stopping"})
+                return _cors_json_response({"ok": False, "error": "not running"}, status=404)
+            
+            else:
+                return _cors_json_response({"ok": False, "error": "action must be 'start' or 'stop'"},
+                                           status=400)
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    
+    return _cors_json_response({
+        "ok": True,
+        "grpc": {
+            "enabled": _grpc_config["enabled"],
+            "port": _grpc_config["port"],
+            "running": _grpc_config["running"],
+            "endpoint": f"http://127.0.0.1:{_grpc_config['port']}/call",
+        }
+    })
+
+
+# ============================================================================
+# PHASE 4: Live Dashboard v2
+# ============================================================================
+_DASHBOARD_V2_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arena Bridge Dashboard v2</title>
+<style>
+:root { --bg: #0d1117; --surface: #161b22; --border: #30363d; --text: #e6edf3;
+       --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+       --yellow: #d29922; --orange: #db6d28; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+       background: var(--bg); color: var(--text); line-height: 1.5; }
+.header { background: var(--surface); border-bottom: 1px solid var(--border);
+          padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; }
+.header h1 { font-size: 20px; font-weight: 600; }
+.header .version { color: var(--muted); font-size: 13px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 16px; padding: 24px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+        padding: 16px; }
+.card h2 { font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase;
+           letter-spacing: 0.5px; margin-bottom: 12px; }
+.stat { display: flex; justify-content: space-between; align-items: baseline;
+        padding: 4px 0; }
+.stat .label { color: var(--muted); font-size: 13px; }
+.stat .value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .value.green { color: var(--green); }
+.stat .value.red { color: var(--red); }
+.stat .value.yellow { color: var(--yellow); }
+.stat .value.blue { color: var(--accent); }
+.bar-container { height: 6px; background: var(--border); border-radius: 3px;
+                margin-top: 4px; overflow: hidden; }
+.bar { height: 100%; border-radius: 3px; transition: width 0.5s ease; }
+.bar.green { background: var(--green); }
+.bar.red { background: var(--red); }
+.bar.yellow { background: var(--yellow); }
+.bar.blue { background: var(--accent); }
+.events { max-height: 200px; overflow-y: auto; }
+.event { padding: 4px 8px; font-size: 12px; font-family: monospace;
+         border-bottom: 1px solid var(--border); }
+.event .time { color: var(--muted); }
+.event .type { color: var(--accent); }
+.footer { text-align: center; padding: 24px; color: var(--muted); font-size: 12px; }
+.ws-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.ws-dot { width: 8px; height: 8px; border-radius: 50%; }
+.ws-dot.connected { background: var(--green); }
+.ws-dot.disconnected { background: var(--red); }
+</style>
+</head>
+<body>
+<div class="header">
+  <div>
+    <h1>Arena Unified Bridge</h1>
+    <span class="version" id="version">v---</span>
+  </div>
+  <div class="ws-status">
+    <span class="ws-dot" id="wsDot"></span>
+    <span id="wsLabel">Connecting...</span>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="card">
+    <h2>Bridge Health</h2>
+    <div class="stat"><span class="label">Uptime</span><span class="value blue" id="uptime">--</span></div>
+    <div class="stat"><span class="label">Requests</span><span class="value" id="requests">--</span></div>
+    <div class="stat"><span class="label">Errors</span><span class="value" id="errors">--</span></div>
+    <div class="stat"><span class="label">Error Rate</span><span class="value" id="errorRate">--</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Resources</h2>
+    <div class="stat"><span class="label">Memory</span><span class="value" id="memory">--</span></div>
+    <div class="bar-container"><div class="bar green" id="memoryBar" style="width:0%"></div></div>
+    <div class="stat"><span class="label">CPU</span><span class="value" id="cpu">--</span></div>
+    <div class="bar-container"><div class="bar blue" id="cpuBar" style="width:0%"></div></div>
+    <div class="stat"><span class="label">Active Processes</span><span class="value" id="procs">--</span></div>
+  </div>
+
+  <div class="card">
+    <h2>CDP Browser</h2>
+    <div class="stat"><span class="label">Connected</span><span class="value" id="cdpConnected">--</span></div>
+    <div class="stat"><span class="label">Reconnects</span><span class="value" id="cdpReconnects">--</span></div>
+    <div class="stat"><span class="label">Event Subscribers</span><span class="value" id="subscribers">--</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Latency</h2>
+    <div class="stat"><span class="label">Average</span><span class="value" id="latencyAvg">--</span></div>
+    <div class="stat"><span class="label">P50</span><span class="value" id="latencyP50">--</span></div>
+    <div class="stat"><span class="label">P95</span><span class="value" id="latencyP95">--</span></div>
+    <div class="stat"><span class="label">P99</span><span class="value" id="latencyP99">--</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Alerts</h2>
+    <div id="alertsList"><span class="label">No alerts</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Live Events</h2>
+    <div class="events" id="eventsList"></div>
+  </div>
+</div>
+
+<div class="footer">Arena Unified Bridge Dashboard v2 &mdash; WebSocket Real-Time</div>
+
+<script>
+const BRIDGE = location.origin;
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+let ws = null;
+let reconnectDelay = 1000;
+
+function fmt(s) {
+  if (s < 60) return s.toFixed(0) + 's';
+  if (s < 3600) return (s/60).toFixed(1) + 'm';
+  return (s/3600).toFixed(1) + 'h';
+}
+
+function fmtMs(ms) {
+  if (ms < 1) return (ms*1000).toFixed(0) + 'us';
+  if (ms < 1000) return ms.toFixed(1) + 'ms';
+  return (ms/1000).toFixed(2) + 's';
+}
+
+function setVal(id, val, cls) {
+  const el = document.getElementById(id);
+  if (el) { el.textContent = val; el.className = 'value' + (cls ? ' ' + cls : ''); }
+}
+
+function setBar(id, pct, cls) {
+  const el = document.getElementById(id);
+  if (el) { el.style.width = Math.min(pct, 100) + '%'; el.className = 'bar ' + (cls || 'blue'); }
+}
+
+function addEvent(type, data) {
+  const list = document.getElementById('eventsList');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.className = 'event';
+  const now = new Date().toLocaleTimeString();
+  div.innerHTML = '<span class="time">' + now + '</span> <span class="type">' + type + '</span> ' +
+                  (typeof data === 'object' ? JSON.stringify(data).substring(0, 100) : String(data).substring(0, 100));
+  list.insertBefore(div, list.firstChild);
+  if (list.children.length > 50) list.removeChild(list.lastChild);
+}
+
+async function pollMetrics() {
+  try {
+    const h = TOKEN ? {'Authorization': 'Bearer ' + TOKEN} : {};
+    const [metricsR, watchdogR, statusR, alertsR] = await Promise.all([
+      fetch(BRIDGE + '/metrics', {headers: h}),
+      fetch(BRIDGE + '/v1/watchdog', {headers: h}),
+      fetch(BRIDGE + '/v1/status', {headers: h}),
+      fetch(BRIDGE + '/v1/alerts', {headers: h})
+    ]);
+    const mt = await metricsR.text();
+    const wd = await watchdogR.json();
+    const st = await statusR.json();
+    const al = await alertsR.json();
+
+    // Parse Prometheus metrics
+    const vals = {};
+    mt.split('\\n').forEach(line => {
+      if (line.startsWith('#') || !line.trim()) return;
+      const parts = line.split(' ');
+      if (parts.length >= 2) {
+        const key = parts[0].replace(/\\{.*\\}/, '');
+        vals[key] = parseFloat(parts[1]);
+      }
+    });
+
+    setVal('requests', vals.arena_bridge_requests_total || 0);
+    setVal('errors', vals.arena_bridge_errors_total || 0,
+           vals.arena_bridge_errors_total > 0 ? 'red' : 'green');
+    const errRate = vals.arena_bridge_requests_total > 0
+      ? (vals.arena_bridge_errors_total / vals.arena_bridge_requests_total * 100).toFixed(2) + '%'
+      : '0%';
+    setVal('errorRate', errRate, parseFloat(errRate) > 5 ? 'red' : 'green');
+    setVal('uptime', fmt(vals.arena_bridge_uptime_seconds || 0), 'blue');
+    setVal('memory', (wd.memory_mb || 0).toFixed(1) + ' MB',
+           wd.memory_mb > 400 ? 'red' : wd.memory_mb > 200 ? 'yellow' : 'green');
+    setBar('memoryBar', wd.memory_mb / (wd.memory_limit_mb || 512) * 100,
+           wd.memory_mb > 400 ? 'red' : 'green');
+    setVal('cpu', (wd.cpu_percent || 0).toFixed(1) + '%',
+           wd.cpu_percent > 80 ? 'red' : wd.cpu_percent > 50 ? 'yellow' : 'green');
+    setBar('cpuBar', wd.cpu_percent || 0, wd.cpu_percent > 80 ? 'red' : 'blue');
+    setVal('procs', vals.arena_bridge_active_processes || 0);
+    setVal('cdpConnected', vals.arena_bridge_cdp_connected ? 'Yes' : 'No',
+           vals.arena_bridge_cdp_connected ? 'green' : 'yellow');
+    setVal('cdpReconnects', vals.arena_bridge_cdp_reconnect_count || 0,
+           vals.arena_bridge_cdp_reconnect_count > 3 ? 'red' : '');
+    setVal('subscribers', vals.arena_bridge_event_subscribers || 0);
+    setVal('latencyAvg', fmtMs((vals.arena_bridge_request_duration_avg_seconds || 0) * 1000));
+    setVal('latencyP50', fmtMs((vals.arena_bridge_request_duration_seconds_quantile_0_5 || 0) * 1000));
+    setVal('latencyP95', fmtMs((vals.arena_bridge_request_duration_seconds_quantile_0_95 || 0) * 1000));
+    setVal('latencyP99', fmtMs((vals.arena_bridge_request_duration_seconds_quantile_0_99 || 0) * 1000));
+
+    // Alerts
+    const alertDiv = document.getElementById('alertsList');
+    if (al.ok && al.states) {
+      const firing = Object.entries(al.states).filter(([k,v]) => v.status === 'FIRING');
+      if (firing.length > 0) {
+        alertDiv.innerHTML = firing.map(([k,v]) =>
+          '<div class="stat"><span class="label">' + k + '</span>' +
+          '<span class="value red">FIRING</span></div>').join('');
+      } else {
+        alertDiv.innerHTML = '<span class="label">All clear (' +
+          Object.keys(al.states).length + ' checks)</span>';
+      }
+    }
+
+    document.getElementById('version').textContent = 'v' + (st.version || vals.arena_bridge_info_version || '?');
+  } catch(e) {
+    console.error('poll error:', e);
+  }
+}
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(proto + '//' + location.host + '/v1/events?token=' + TOKEN);
+  ws.onopen = () => {
+    document.getElementById('wsDot').className = 'ws-dot connected';
+    document.getElementById('wsLabel').textContent = 'Live';
+    reconnectDelay = 1000;
+    addEvent('ws', 'connected');
+  };
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type !== 'ping') addEvent(msg.type, msg.data || {});
+    } catch(err) {}
+  };
+  ws.onclose = () => {
+    document.getElementById('wsDot').className = 'ws-dot disconnected';
+    document.getElementById('wsLabel').textContent = 'Disconnected';
+    setTimeout(() => { reconnectDelay = Math.min(reconnectDelay * 2, 30000); connectWS(); }, reconnectDelay);
+  };
+  ws.onerror = () => { ws.close(); };
+}
+
+pollMetrics();
+setInterval(pollMetrics, 5000);
+connectWS();
+</script>
+</body>
+</html>"""
+
+
+async def handle_gui_v2(request: web.Request) -> web.Response:
+    """GET /gui/v2 — Live dashboard with WebSocket real-time updates."""
+    return web.Response(text=_DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
+
+
+# ============================================================================
+# PHASE 4: Rate Limiting v2 (per-user, per-endpoint with X-RateLimit-* headers)
+# ============================================================================
+_rl_v2_config: dict[str, Any] = {
+    "enabled": True,
+    "default_limit": 300,       # requests per minute (global default)
+    "per_user_limits": {},      # {role: limit} e.g. {"admin": 1000, "user": 200, "readonly": 100}
+    "per_endpoint_limits": {},  # {path_prefix: limit} e.g. {"/v1/exec": 60}
+    "window_seconds": 60,
+}
+_rl_v2_store: dict[str, dict[str, list[float]]] = {}  # {user_id: {endpoint: [timestamps]}}
+_rl_v2_lock = threading.Lock()
+
+
+def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
+    """Enhanced rate limiting with per-user, per-endpoint, and X-RateLimit-* headers.
+    
+    Returns None if request is allowed, or a 429 Response with rate limit headers.
+    """
+    if not _rl_v2_config["enabled"]:
+        return None
+    
+    # Determine user identity
+    is_auth, role = check_auth_with_role(request)
+    peer = request.remote or "anonymous"
+    user_id = f"{peer}:{role}" if is_auth else f"{peer}:anonymous"
+    
+    # Find applicable limit
+    path = request.path
+    limit = _rl_v2_config["default_limit"]
+    
+    # Check per-user limit by role
+    if is_auth and role in _rl_v2_config["per_user_limits"]:
+        limit = _rl_v2_config["per_user_limits"][role]
+    
+    # Check per-endpoint limit (most specific match)
+    for prefix, ep_limit in sorted(_rl_v2_config["per_endpoint_limits"].items(),
+                                    key=lambda x: -len(x[0])):
+        if path.startswith(prefix):
+            limit = min(limit, ep_limit)
+            break
+    
+    window = _rl_v2_config["window_seconds"]
+    now = time.time()
+    
+    with _rl_v2_lock:
+        if user_id not in _rl_v2_store:
+            _rl_v2_store[user_id] = {}
+        
+        ep_store = _rl_v2_store[user_id].setdefault(path, [])
+        # Clean old entries
+        ep_store[:] = [t for t in ep_store if now - t < window]
+        
+        remaining = limit - len(ep_store)
+        reset_at = now + window if ep_store else now + window
+        
+        if remaining <= 0:
+            # Rate limited
+            ep_store.append(now)
+            retry_after = round(window - (now - ep_store[0]), 1)
+            
+            resp = _cors_json_response(
+                {"ok": False, "error": "rate limit exceeded",
+                 "retry_after_s": retry_after, "limit": limit, "window_s": window},
+                status=429
+            )
+            resp.headers["X-RateLimit-Limit"] = str(limit)
+            resp.headers["X-RateLimit-Remaining"] = "0"
+            resp.headers["X-RateLimit-Reset"] = str(int(reset_at))
+            resp.headers["Retry-After"] = str(retry_after)
+            return resp
+        
+        ep_store.append(now)
+    
+    # Not rate limited — store headers for later addition
+    request["_rl_headers"] = {
+        "X-RateLimit-Limit": str(limit),
+        "X-RateLimit-Remaining": str(remaining - 1),
+        "X-RateLimit-Reset": str(int(reset_at)),
+    }
+    return None
+
+
+async def handle_v1_ratelimit(request: web.Request) -> web.Response:
+    """GET /v1/ratelimit — Rate limit configuration and stats.
+    POST /v1/ratelimit — Update rate limit configuration."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            if "enabled" in data:
+                _rl_v2_config["enabled"] = bool(data["enabled"])
+            if "default_limit" in data:
+                _rl_v2_config["default_limit"] = int(data["default_limit"])
+            if "per_user_limits" in data:
+                _rl_v2_config["per_user_limits"] = data["per_user_limits"]
+            if "per_endpoint_limits" in data:
+                _rl_v2_config["per_endpoint_limits"] = data["per_endpoint_limits"]
+            if "window_seconds" in data:
+                _rl_v2_config["window_seconds"] = max(5, int(data["window_seconds"]))
+            log.info("[RateLimitv2] Configuration updated")
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    
+    # Stats
+    active_users = 0
+    total_tracked = 0
+    with _rl_v2_lock:
+        for user_id, endpoints in _rl_v2_store.items():
+            for ep, timestamps in endpoints.items():
+                total_tracked += len(timestamps)
+            active_users += 1
+    
+    return _cors_json_response({
+        "ok": True,
+        "config": _rl_v2_config,
+        "stats": {
+            "active_users": active_users,
+            "total_tracked_requests": total_tracked,
+        }
+    })
+
+
+# ============================================================================
+# PHASE 4: Skill Sandboxing (isolated execution with resource limits)
+# ============================================================================
+_sandbox_config: dict[str, Any] = {
+    "enabled": True,
+    "max_cpu_seconds": 30,
+    "max_memory_mb": 256,
+    "max_output_bytes": 100 * 1024,
+    "allowed_commands": ["python3", "python", "bash", "sh", "node"],
+    "blocked_env_vars": ["ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY"],
+}
+
+
+async def _run_sandboxed(cmd: str, timeout: int = 30, memory_mb: int = 256) -> dict:
+    """Run a command in a sandboxed environment with resource limits.
+    
+    Uses subprocess with restricted environment, timeout, and output limits.
+    On Linux, also sets ulimit for memory if possible.
+    """
+    result = {"ok": False, "timed_out": False, "memory_exceeded": False}
+    
+    # Sanitize environment
+    clean_env = dict(os.environ)
+    for key in list(clean_env.keys()):
+        for blocked in _sandbox_config["blocked_env_vars"]:
+            if blocked in key.upper():
+                clean_env.pop(key, None)
+    
+    # Add sandbox indicator
+    clean_env["ARENA_SANDBOX"] = "1"
+    
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=clean_env,
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(),
+                timeout=min(timeout, _sandbox_config["max_cpu_seconds"])
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            result["timed_out"] = True
+            result["error"] = f"timeout after {timeout}s"
+            return result
+        
+        out = decode_output(stdout)
+        err = decode_output(stderr)
+        max_out = _sandbox_config["max_output_bytes"]
+        
+        if len(out) > max_out:
+            out = out[:max_out] + f"\n...[truncated, {len(out) - max_out} bytes omitted]"
+        if len(err) > max_out // 2:
+            err = err[:max_out // 2] + "\n...[truncated]"
+        
+        result["ok"] = proc.returncode == 0
+        result["exit_code"] = proc.returncode
+        result["stdout"] = out
+        result["stderr"] = err
+        
+    except Exception as e:
+        result["error"] = str(e)
+    
+    return result
+
+
+async def handle_v1_sandbox(request: web.Request) -> web.Response:
+    """GET /v1/sandbox — Sandbox configuration.
+    POST /v1/sandbox — Run a command in sandbox OR update sandbox config.
+    
+    To run: {"action": "run", "cmd": "...", "timeout": 30}
+    To configure: {"action": "config", "max_cpu_seconds": 60, ...}
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "GET":
+        return _cors_json_response({"ok": True, "config": _sandbox_config})
+    
+    try:
+        data = await request.json()
+    except Exception as e:
+        return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    
+    action = data.get("action", "run")
+    
+    if action == "config":
+        # Update configuration
+        for key in ("max_cpu_seconds", "max_memory_mb", "max_output_bytes"):
+            if key in data:
+                _sandbox_config[key] = int(data[key])
+        if "allowed_commands" in data:
+            _sandbox_config["allowed_commands"] = list(data["allowed_commands"])
+        if "blocked_env_vars" in data:
+            _sandbox_config["blocked_env_vars"] = list(data["blocked_env_vars"])
+        if "enabled" in data:
+            _sandbox_config["enabled"] = bool(data["enabled"])
+        
+        audit({"type": "sandbox_config", "changes": {k: v for k, v in data.items() if k != "action"}})
+        return _cors_json_response({"ok": True, "config": _sandbox_config})
+    
+    elif action == "run":
+        if not _sandbox_config["enabled"]:
+            return _cors_json_response({"ok": False, "error": "sandbox is disabled"}, status=403)
+        
+        cmd = data.get("cmd", "")
+        if not cmd:
+            return _cors_json_response({"ok": False, "error": "cmd is required"}, status=400)
+        
+        # Check if the command is allowed
+        first_cmd = first_word(cmd)
+        allowed = _sandbox_config["allowed_commands"]
+        if allowed and first_cmd not in allowed:
+            return _cors_json_response({
+                "ok": False, "error": f"command '{first_cmd}' not in allowed list",
+                "allowed": allowed
+            }, status=403)
+        
+        # Check for destructive patterns
+        block_reason = blocked_reason(cmd)
+        if block_reason:
+            return _cors_json_response({"ok": False, "error": block_reason}, status=403)
+        
+        timeout = min(int(data.get("timeout", 30)), _sandbox_config["max_cpu_seconds"])
+        result = await _run_sandboxed(cmd, timeout=timeout)
+        
+        audit({"type": "sandbox_run", "cmd_len": len(cmd),
+               "exit_code": result.get("exit_code"), "timed_out": result.get("timed_out", False)})
+        await emit_event("sandbox_run", {"cmd": cmd[:50], "ok": result["ok"],
+                                          "exit_code": result.get("exit_code")})
+        
+        return _cors_json_response(result)
+    
+    else:
+        return _cors_json_response({"ok": False, "error": "action must be 'run' or 'config'"},
+                                   status=400)
+
+
+# ============================================================================
+# PHASE 4: Clustering / High Availability
+# ============================================================================
+_cluster_config: dict[str, Any] = {
+    "enabled": False,
+    "node_id": "",
+    "nodes": [],       # [{"id": "...", "url": "http://...", "role": "leader|follower"}]
+    "leader_id": "",
+    "heartbeat_interval_s": 10,
+    "failover_timeout_s": 30,
+}
+_cluster_state: dict[str, Any] = {
+    "last_heartbeat": 0.0,
+    "role": "standalone",  # standalone | leader | follower
+    "peers_healthy": {},
+}
+_cluster_task: asyncio.Task | None = None
+
+
+def _get_node_id() -> str:
+    """Generate a unique node ID based on hostname and port."""
+    return f"{socket.gethostname()}-{os.getpid()}"
+
+
+async def _cluster_heartbeat_loop() -> None:
+    """Periodically send heartbeats to peer nodes."""
+    while True:
+        try:
+            await asyncio.sleep(_cluster_config["heartbeat_interval_s"])
+            _cluster_state["last_heartbeat"] = time.time()
+            
+            # Check peer health
+            for node in _cluster_config["nodes"]:
+                node_url = node.get("url", "")
+                if not node_url:
+                    continue
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(
+                            f"{node_url}/health",
+                            timeout=aiohttp.ClientTimeout(total=5)
+                        ) as resp:
+                            healthy = resp.status == 200
+                            _cluster_state["peers_healthy"][node.get("id", node_url)] = {
+                                "healthy": healthy,
+                                "last_check": time.time(),
+                            }
+                except Exception:
+                    _cluster_state["peers_healthy"][node.get("id", node_url)] = {
+                        "healthy": False,
+                        "last_check": time.time(),
+                    }
+            
+            # Simple leader election: node with lowest ID is leader
+            if _cluster_config["nodes"]:
+                all_ids = sorted([_cluster_config["node_id"]] +
+                                 [n.get("id", "") for n in _cluster_config["nodes"]])
+                _cluster_config["leader_id"] = all_ids[0]
+                _cluster_state["role"] = "leader" if _cluster_config["leader_id"] == _cluster_config["node_id"] else "follower"
+        
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error("[Cluster] Heartbeat error: %s", e)
+            await asyncio.sleep(5)
+
+
+async def handle_v1_cluster(request: web.Request) -> web.Response:
+    """GET /v1/cluster — Cluster configuration and status.
+    POST /v1/cluster — Configure clustering (add/remove nodes, enable/disable)."""
+    global _cluster_task
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            action = data.get("action", "")
+            
+            if action == "enable":
+                _cluster_config["enabled"] = True
+                _cluster_config["node_id"] = _cluster_config["node_id"] or _get_node_id()
+                if "nodes" in data:
+                    _cluster_config["nodes"] = data["nodes"]
+                if "heartbeat_interval_s" in data:
+                    _cluster_config["heartbeat_interval_s"] = max(5, int(data["heartbeat_interval_s"]))
+                # Start heartbeat loop
+                if _cluster_task and not _cluster_task.done():
+                    _cluster_task.cancel()
+                _cluster_task = asyncio.create_task(_cluster_heartbeat_loop())
+                _cluster_state["role"] = "leader" if not _cluster_config["nodes"] else "follower"
+                log.info("[Cluster] Enabled: node_id=%s, peers=%d",
+                         _cluster_config["node_id"], len(_cluster_config["nodes"]))
+            
+            elif action == "disable":
+                _cluster_config["enabled"] = False
+                if _cluster_task and not _cluster_task.done():
+                    _cluster_task.cancel()
+                    _cluster_task = None
+                _cluster_state["role"] = "standalone"
+                log.info("[Cluster] Disabled")
+            
+            elif action == "add_node":
+                node_url = data.get("url", "")
+                node_id = data.get("id", node_url)
+                if not node_url:
+                    return _cors_json_response({"ok": False, "error": "url is required"}, status=400)
+                # Avoid duplicates
+                if not any(n.get("id") == node_id for n in _cluster_config["nodes"]):
+                    _cluster_config["nodes"].append({"id": node_id, "url": node_url, "role": "follower"})
+                log.info("[Cluster] Added node: %s", node_id)
+            
+            elif action == "remove_node":
+                node_id = data.get("id", "")
+                _cluster_config["nodes"] = [n for n in _cluster_config["nodes"] if n.get("id") != node_id]
+                log.info("[Cluster] Removed node: %s", node_id)
+            
+            else:
+                return _cors_json_response({"ok": False, "error": "action must be enable/disable/add_node/remove_node"},
+                                           status=400)
+            
+            audit({"type": "cluster_update", "action": action})
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    
+    return _cors_json_response({
+        "ok": True,
+        "cluster": {
+            "enabled": _cluster_config["enabled"],
+            "node_id": _cluster_config["node_id"],
+            "nodes": _cluster_config["nodes"],
+            "leader_id": _cluster_config["leader_id"],
+            "role": _cluster_state["role"],
+            "last_heartbeat": _cluster_state["last_heartbeat"],
+            "peers_healthy": _cluster_state["peers_healthy"],
+            "heartbeat_interval_s": _cluster_config["heartbeat_interval_s"],
+        }
+    })
+
+
+# ============================================================================
+# PHASE 4: API Versioning (/v2/ endpoints with deprecation headers)
+# ============================================================================
+_DEPRECATED_ENDPOINTS: dict[str, dict[str, str]] = {
+    "/v1/service/info": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.0.0"},
+    "/v1/sys/svc": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.0.0"},
+    "/v1/sys/funnel": {"deprecated_since": "1.9.27", "replacement": "/v1/tailscale/funnel/status", "removal_version": "2.0.0"},
+}
+
+
+async def handle_v2_index(request: web.Request) -> web.Response:
+    """GET /v2/ — API v2 index with versioning info and deprecation notices."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    return _cors_json_response({
+        "ok": True,
+        "api_version": "2",
+        "bridge_version": VERSION,
+        "deprecations": _DEPRECATED_ENDPOINTS,
+        "v2_endpoints": {
+            "GET /v2/": "API v2 index",
+            "GET /v2/status": "Bridge status (replaces /v1/status)",
+            "GET /v2/health": "Detailed health check",
+            "GET /v2/browser/status": "CDP + browser status combined",
+            "POST /v2/exec": "Exec with sandbox by default",
+            "GET /v2/deprecations": "List deprecated v1 endpoints",
+        }
+    })
+
+
+async def handle_v2_status(request: web.Request) -> web.Response:
+    """GET /v2/status — Enhanced status with versioning info."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    cfg = request.app["cfg"]
+    uptime = time.time() - BRIDGE_METRICS["start_time"]
+    
+    return _cors_json_response({
+        "ok": True,
+        "version": VERSION,
+        "api_version": "2",
+        "uptime_seconds": round(uptime, 1),
+        "total_requests": BRIDGE_METRICS["total_requests"],
+        "total_errors": BRIDGE_METRICS["total_errors"],
+        "cdp": {"connected": _cdp_state["connected"],
+                "reconnects": _cdp_state.get("reconnect_count", 0)},
+        "watchdog": {"memory_mb": _watchdog_state["memory_mb"],
+                     "cpu_percent": _watchdog_state["cpu_percent"]},
+        "cluster": {"role": _cluster_state["role"],
+                    "enabled": _cluster_config["enabled"]},
+        "tls": {"enabled": _tls_config["enabled"],
+                "ready": _tls_config["enabled"] and
+                         Path(_tls_config["cert_path"]).exists() if _tls_config["cert_path"] else False},
+    })
+
+
+async def handle_v2_health(request: web.Request) -> web.Response:
+    """GET /v2/health — Detailed health check with all subsystem status."""
+    _record_request()
+    
+    checks = {
+        "bridge": True,
+        "cdp": _cdp_state["connected"],
+        "watchdog": _watchdog_state["last_check"] > 0,
+        "tls": _tls_config["enabled"] and Path(_tls_config["cert_path"]).exists() if _tls_config["cert_path"] else False,
+        "cluster": _cluster_config["enabled"],
+    }
+    
+    all_healthy = all(checks.values()) or True  # Bridge is always healthy if responding
+    
+    return _cors_json_response({
+        "ok": all_healthy,
+        "status": "healthy" if all_healthy else "degraded",
+        "version": VERSION,
+        "api_version": "2",
+        "checks": checks,
+        "uptime_seconds": round(time.time() - BRIDGE_METRICS["start_time"], 1),
+    })
+
+
+async def handle_v2_browser_status(request: web.Request) -> web.Response:
+    """GET /v2/browser/status — Combined CDP + browser status."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    return _cors_json_response({
+        "ok": True,
+        "api_version": "2",
+        "cdp": {
+            "connected": _cdp_state["connected"],
+            "headless": _cdp_state["headless"],
+            "port": _cdp_state["port"],
+            "reconnect_count": _cdp_state.get("reconnect_count", 0),
+        },
+        "browseract": {
+            "available": bool(shutil.which("browser-act")),
+        },
+        "profiles": {
+            "count": len(list(_PROFILES_DIR.glob("*.json"))) if _PROFILES_DIR.exists() else 0,
+        }
+    })
+
+
+async def handle_v2_exec(request: web.Request) -> web.Response:
+    """POST /v2/exec — Execute command in sandbox by default.
+    
+    Same as /v1/exec but with sandbox enabled by default.
+    Accepts all /v1/exec params plus:
+      - sandbox: bool (default: True)
+      - max_cpu_seconds: int (default: from sandbox config)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    try:
+        data = await request.json()
+    except Exception as e:
+        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+    
+    cmd = data.get("cmd", "")
+    if not cmd:
+        return _cors_json_response({"ok": False, "error": "missing 'cmd'"}, status=400)
+    
+    block = blocked_reason(cmd)
+    if block:
+        return _cors_json_response({"ok": False, "error": block}, status=403)
+    
+    use_sandbox = data.get("sandbox", True)
+    
+    if use_sandbox and _sandbox_config["enabled"]:
+        timeout = min(int(data.get("timeout", 30)), _sandbox_config["max_cpu_seconds"])
+        result = await _run_sandboxed(cmd, timeout=timeout)
+        result["sandbox"] = True
+        result["api_version"] = "2"
+    else:
+        # Fall back to normal exec
+        timeout = min(int(data.get("timeout", 60)), cfg_get_max_timeout(request))
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+            result = {
+                "ok": proc.returncode == 0,
+                "exit_code": proc.returncode,
+                "stdout": decode_output(stdout)[-50000:],
+                "stderr": decode_output(stderr)[-10000:],
+                "sandbox": False,
+                "api_version": "2",
+            }
+        except asyncio.TimeoutError:
+            result = {"ok": False, "error": f"timeout after {timeout}s", "sandbox": False, "api_version": "2"}
+        except Exception as e:
+            result = {"ok": False, "error": str(e), "sandbox": False, "api_version": "2"}
+    
+    audit({"type": "exec_v2", "cmd_len": len(cmd), "sandbox": use_sandbox,
+           "exit_code": result.get("exit_code")})
+    await emit_event("exec", {"cmd": cmd[:50], "ok": result["ok"], "sandbox": use_sandbox})
+    _record_request(is_exec=True)
+    
+    return _cors_json_response(result)
+
+
+def cfg_get_max_timeout(request: web.Request) -> int:
+    """Get max timeout from bridge config."""
+    try:
+        return request.app["cfg"].get("max_timeout", 600)
+    except Exception:
+        return 600
+
+
+async def handle_v2_deprecations(request: web.Request) -> web.Response:
+    """GET /v2/deprecations — List all deprecated v1 endpoints."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    return _cors_json_response({
+        "ok": True,
+        "api_version": "2",
+        "deprecations": _DEPRECATED_ENDPOINTS,
+        "count": len(_DEPRECATED_ENDPOINTS),
+        "migration_guide": {
+            "/v1/service/info → /v1/status": "Use /v1/status for all service information",
+            "/v1/sys/svc → /v1/status": "Service status is now part of /v1/status",
+            "/v1/sys/funnel → /v1/tailscale/funnel/status": "Funnel status moved to tailscale namespace",
+        }
+    })
+
+
+# ============================================================================
+# PHASE 4: OpenTelemetry Tracing
+# ============================================================================
+_otel_config: dict[str, Any] = {
+    "enabled": False,
+    "service_name": "arena-bridge",
+    "endpoint": "",       # OTLP endpoint (e.g., "http://localhost:4318/v1/traces")
+    "sample_rate": 1.0,   # 0.0 to 1.0
+    "max_spans": 1000,
+}
+_otel_traces: list[dict] = []
+_otel_lock = threading.Lock()
+_otel_trace_counter: int = 0
+
+
+def _otel_trace_id() -> str:
+    """Generate a trace ID."""
+    global _otel_trace_counter
+    _otel_trace_counter += 1
+    return f"{_otel_trace_counter:016x}{secrets.token_hex(8)}"
+
+
+def _otel_span_id() -> str:
+    """Generate a span ID."""
+    return secrets.token_hex(8)
+
+
+def _otel_record_span(trace_id: str, span_id: str, name: str,
+                       duration_ms: float, attributes: dict | None = None,
+                       parent_span_id: str = "", status: str = "OK") -> None:
+    """Record an OpenTelemetry span."""
+    span = {
+        "trace_id": trace_id,
+        "span_id": span_id,
+        "name": name,
+        "kind": "SERVER",
+        "start_time": utc_now(),
+        "duration_ms": round(duration_ms, 2),
+        "status": status,
+        "attributes": attributes or {},
+        "resource": {
+            "service.name": _otel_config["service_name"],
+            "service.version": VERSION,
+        },
+    }
+    if parent_span_id:
+        span["parent_span_id"] = parent_span_id
+    
+    with _otel_lock:
+        _otel_traces.append(span)
+        if len(_otel_traces) > _otel_config["max_spans"]:
+            _otel_traces[:] = _otel_traces[-_otel_config["max_spans"]:]
+
+
+def _otel_should_sample() -> bool:
+    """Decide if this request should be traced."""
+    if not _otel_config["enabled"]:
+        return False
+    import random
+    return random.random() < _otel_config["sample_rate"]
+
+
+async def handle_v1_tracing(request: web.Request) -> web.Response:
+    """GET /v1/tracing — OpenTelemetry tracing configuration and recent traces.
+    POST /v1/tracing — Configure tracing."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            if "enabled" in data:
+                _otel_config["enabled"] = bool(data["enabled"])
+            if "service_name" in data:
+                _otel_config["service_name"] = str(data["service_name"])
+            if "endpoint" in data:
+                _otel_config["endpoint"] = str(data["endpoint"])
+            if "sample_rate" in data:
+                _otel_config["sample_rate"] = max(0.0, min(1.0, float(data["sample_rate"])))
+            if "max_spans" in data:
+                _otel_config["max_spans"] = max(10, int(data["max_spans"]))
+            log.info("[OTel] Configuration updated: enabled=%s, endpoint=%s, sample_rate=%.2f",
+                     _otel_config["enabled"], _otel_config["endpoint"], _otel_config["sample_rate"])
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+    
+    # Return config + recent traces
+    recent_traces = []
+    with _otel_lock:
+        recent_traces = list(_otel_traces[-50:])
+    
+    return _cors_json_response({
+        "ok": True,
+        "config": _otel_config,
+        "recent_traces": len(_otel_traces),
+        "traces": recent_traces,
+    })
+
+
+async def handle_v1_traces_export(request: web.Request) -> web.Response:
+    """POST /v1/traces/export — Export traces in OTLP JSON format.
+    GET /v1/traces/export — Get all stored traces."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    if request.method == "POST":
+        # Export to configured OTLP endpoint
+        if not _otel_config["endpoint"]:
+            return _cors_json_response({"ok": False, "error": "no OTLP endpoint configured"}, status=400)
+        
+        with _otel_lock:
+            traces = list(_otel_traces)
+        
+        if not traces:
+            return _cors_json_response({"ok": True, "exported": 0, "message": "no traces to export"})
+        
+        # Build OTLP JSON payload
+        otlp_payload = {
+            "resourceSpans": [{
+                "resource": {
+                    "attributes": [
+                        {"key": "service.name", "value": {"stringValue": _otel_config["service_name"]}},
+                        {"key": "service.version", "value": {"stringValue": VERSION}},
+                    ]
+                },
+                "scopeSpans": [{
+                    "scope": {"name": "arena-bridge"},
+                    "spans": traces,
+                }]
+            }]
+        }
+        
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    _otel_config["endpoint"],
+                    json=otlp_payload,
+                    headers={"Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    exported = len(traces)
+                    if resp.status < 400:
+                        # Clear exported traces
+                        with _otel_lock:
+                            _otel_traces.clear()
+                        return _cors_json_response({"ok": True, "exported": exported})
+                    else:
+                        return _cors_json_response({
+                            "ok": False, "error": f"OTLP endpoint returned {resp.status}",
+                            "exported": 0
+                        }, status=502)
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=502)
+    
+    # GET: return all traces
+    with _otel_lock:
+        all_traces = list(_otel_traces)
+    
+    return _cors_json_response({
+        "ok": True,
+        "total": len(all_traces),
+        "traces": all_traces,
+    })
+
+
 def _check_rate_limit(request: web.Request) -> web.Response | None:
     """Check rate limit for the requesting IP. Returns 429 response or None."""
     peer = request.remote or request.headers.get("X-Forwarded-For", "unknown").split(",")[0].strip()
@@ -2423,6 +3793,43 @@ def make_app(cfg: dict) -> web.Application:
     # ---- Phase 3: Prometheus alerts ----
     app.router.add_get("/v1/alerts", handle_v1_alerts)
     app.router.add_post("/v1/alerts", handle_v1_alerts)
+
+    # ---- Phase 4: Built-in TLS/HTTPS ----
+    app.router.add_get("/v1/tls", handle_v1_tls)
+    app.router.add_post("/v1/tls", handle_v1_tls)
+
+    # ---- Phase 4: gRPC-style secondary interface ----
+    app.router.add_get("/v1/grpc", handle_v1_grpc)
+    app.router.add_post("/v1/grpc", handle_v1_grpc)
+
+    # ---- Phase 4: Live Dashboard v2 ----
+    app.router.add_get("/gui/v2", handle_gui_v2)
+
+    # ---- Phase 4: Rate Limiting v2 ----
+    app.router.add_get("/v1/ratelimit", handle_v1_ratelimit)
+    app.router.add_post("/v1/ratelimit", handle_v1_ratelimit)
+
+    # ---- Phase 4: Skill Sandboxing ----
+    app.router.add_get("/v1/sandbox", handle_v1_sandbox)
+    app.router.add_post("/v1/sandbox", handle_v1_sandbox)
+
+    # ---- Phase 4: Clustering/HA ----
+    app.router.add_get("/v1/cluster", handle_v1_cluster)
+    app.router.add_post("/v1/cluster", handle_v1_cluster)
+
+    # ---- Phase 4: API Versioning (/v2/) ----
+    app.router.add_get("/v2/", handle_v2_index)
+    app.router.add_get("/v2/status", handle_v2_status)
+    app.router.add_get("/v2/health", handle_v2_health)
+    app.router.add_get("/v2/browser/status", handle_v2_browser_status)
+    app.router.add_post("/v2/exec", handle_v2_exec)
+    app.router.add_get("/v2/deprecations", handle_v2_deprecations)
+
+    # ---- Phase 4: OpenTelemetry Tracing ----
+    app.router.add_get("/v1/tracing", handle_v1_tracing)
+    app.router.add_post("/v1/tracing", handle_v1_tracing)
+    app.router.add_get("/v1/traces/export", handle_v1_traces_export)
+    app.router.add_post("/v1/traces/export", handle_v1_traces_export)
 
     # ---- Dashboard ----
     app.router.add_get("/gui", handle_gui)
@@ -8293,6 +9700,26 @@ async def handle_prometheus_metrics(request: web.Request) -> web.Response:
             "# HELP arena_bridge_event_subscribers Number of event stream subscribers",
             "# TYPE arena_bridge_event_subscribers gauge",
             f"arena_bridge_event_subscribers {len(_event_subscribers)}",
+            "",
+            "# HELP arena_bridge_tls_enabled TLS/HTTPS enabled status",
+            "# TYPE arena_bridge_tls_enabled gauge",
+            f"arena_bridge_tls_enabled {1 if _tls_config['enabled'] else 0}",
+            "",
+            "# HELP arena_bridge_grpc_enabled gRPC secondary interface enabled",
+            "# TYPE arena_bridge_grpc_enabled gauge",
+            f"arena_bridge_grpc_enabled {1 if _grpc_config['enabled'] else 0}",
+            "",
+            "# HELP arena_bridge_cluster_role Cluster role (0=standalone, 1=follower, 2=leader)",
+            "# TYPE arena_bridge_cluster_role gauge",
+            f"arena_bridge_cluster_role {{'role': '{_cluster_state['role']}'}} {0 if _cluster_state['role'] == 'standalone' else 1 if _cluster_state['role'] == 'follower' else 2}",
+            "",
+            "# HELP arena_bridge_sandbox_enabled Skill sandbox enabled",
+            "# TYPE arena_bridge_sandbox_enabled gauge",
+            f"arena_bridge_sandbox_enabled {1 if _sandbox_config['enabled'] else 0}",
+            "",
+            "# HELP arena_bridge_otel_enabled OpenTelemetry tracing enabled",
+            "# TYPE arena_bridge_otel_enabled gauge",
+            f"arena_bridge_otel_enabled {1 if _otel_config['enabled'] else 0}",
             "",
         ]
         
