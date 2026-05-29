@@ -130,7 +130,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.23"
+VERSION = "1.9.24"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -140,6 +140,100 @@ def _subprocess_kwargs() -> dict:
     if sys.platform == "win32":
         return {"creationflags": _NO_WINDOW_FLAG}
     return {}
+
+
+def _ensure_session_env() -> None:
+    """Ensure session environment variables are set in os.environ.
+    
+    When running inside a systemd user service, the environment may be minimal
+    even if Environment= is set in the unit file (race conditions, older systemd).
+    This function ensures critical variables are set so the bridge itself
+    (not just child processes) has access to them.
+    """
+    if os.name == "nt":
+        return  # Not applicable on Windows
+    
+    uid = os.getuid()
+    
+    if not os.environ.get("XDG_RUNTIME_DIR"):
+        xdg = f"/run/user/{uid}"
+        if os.path.isdir(xdg):
+            os.environ["XDG_RUNTIME_DIR"] = xdg
+    
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        dbus_path = f"/run/user/{uid}/bus"
+        if os.path.exists(dbus_path):
+            os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
+    
+    if not os.environ.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):
+        try:
+            for xfile in os.listdir("/tmp/.X11-unix"):
+                if xfile.startswith("X"):
+                    os.environ["DISPLAY"] = f":{xfile[1:]}"
+                    break
+        except Exception:
+            pass
+    
+    if not os.environ.get("WAYLAND_DISPLAY") and os.environ.get("XDG_RUNTIME_DIR"):
+        wayland_sock = os.path.join(os.environ["XDG_RUNTIME_DIR"], "wayland-0")
+        if os.path.exists(wayland_sock):
+            os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+
+
+def _load_config_file() -> dict:
+    """Load optional bridge.yml configuration file.
+    
+    Looks for bridge.yml in:
+    1. $ARENA_AGENT_HOME/bridge.yml
+    2. $HOME/arena-bridge/bridge.yml
+    3. ./bridge.yml
+    
+    Returns empty dict if no config file found.
+    """
+    search_paths = []
+    env_home = os.environ.get("ARENA_AGENT_HOME")
+    if env_home:
+        search_paths.append(Path(env_home) / "bridge.yml")
+    search_paths.append(Path.home() / "arena-bridge" / "bridge.yml")
+    search_paths.append(Path("bridge.yml"))
+    
+    for path in search_paths:
+        if path.exists():
+            try:
+                import yaml
+                with open(path) as f:
+                    cfg = yaml.safe_load(f) or {}
+                log.info("[Config] Loaded configuration from %s", path)
+                return cfg
+            except ImportError:
+                # No PyYAML — try JSON fallback
+                json_path = path.with_suffix('.json')
+                if json_path.exists():
+                    try:
+                        import json as _json
+                        with open(json_path) as f:
+                            cfg = _json.load(f) or {}
+                        log.info("[Config] Loaded JSON configuration from %s", json_path)
+                        return cfg
+                    except Exception:
+                        pass
+                log.debug("[Config] bridge.yml found at %s but PyYAML not installed, skipping", path)
+                return {}
+            except Exception as e:
+                log.warning("[Config] Failed to load %s: %s", path, e)
+                return {}
+    return {}
+
+
+def _get_bridge_port() -> int:
+    """Get the port the bridge is running on (from cfg or default)."""
+    try:
+        app = getattr(_get_bridge_port, '_app', None)
+        if app:
+            return app.get("cfg", {}).get("port", 8765)
+    except Exception:
+        pass
+    return 8765
 
 
 AUDIT_CMD_LIMIT = 4000
@@ -272,6 +366,12 @@ class ResourceError(BridgeError):
 @web.middleware
 async def error_middleware(request: web.Request, handler):
     """Catch all unhandled exceptions, return structured JSON, log stack traces."""
+    # Rate limiting (skip for /health, /metrics, /gui which are lightweight)
+    if request.path not in ("/health", "/metrics", "/gui", "/", "/favicon.ico"):
+        rl = _check_rate_limit(request)
+        if rl:
+            return rl
+
     # Generate request ID for tracing
     # Generate or accept request ID (limit client-provided to 64 chars)
     req_id = (request.headers.get("X-Request-Id") or str(uuid.uuid4())[:8])[:64]
@@ -541,6 +641,35 @@ BRIDGE_METRICS: dict[str, Any] = {
     "request_durations": [],
 }
 _metrics_lock = threading.Lock()
+
+# Rate limiter — sliding window per IP
+_rate_limit_window: float = 60.0  # 60-second window
+_rate_limit_max: int = 300  # max requests per window per IP
+_rate_limit_store: dict[str, list[float]] = {}
+_rate_limit_lock = threading.Lock()
+
+
+def _check_rate_limit(request: web.Request) -> web.Response | None:
+    """Check rate limit for the requesting IP. Returns 429 response or None."""
+    peer = request.remote or request.headers.get("X-Forwarded-For", "unknown").split(",")[0].strip()
+    now = time.time()
+    
+    with _rate_limit_lock:
+        timestamps = _rate_limit_store.get(peer, [])
+        # Remove entries older than window
+        timestamps = [t for t in timestamps if now - t < _rate_limit_window]
+        
+        if len(timestamps) >= _rate_limit_max:
+            _rate_limit_store[peer] = timestamps
+            return _cors_json_response(
+                {"ok": False, "error": "rate limit exceeded", "retry_after_s": round(_rate_limit_window - (now - timestamps[0]), 1)},
+                status=429
+            )
+        
+        timestamps.append(now)
+        _rate_limit_store[peer] = timestamps
+    
+    return None
 
 CAUTIOUS_ALLOW = {
     "pwd", "ls", "dir", "tree", "find", "fd", "rg", "grep", "cat", "type",
@@ -1258,6 +1387,13 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/metrics", handle_v1_metrics)
     app.router.add_get("/v1/logs", handle_v1_logs)
 
+    # ---- Prometheus & API docs (public) ----
+    app.router.add_get("/metrics", handle_prometheus_metrics)
+    app.router.add_get("/api-docs", handle_api_docs)
+
+    # ---- Browser auto-switch ----
+    app.router.add_post("/v1/browser/browse", handle_v1_browser_browse)
+
     # ---- Dashboard ----
     app.router.add_get("/gui", handle_gui)
 
@@ -1294,7 +1430,7 @@ async def on_startup(app: web.Application):
 
 
 async def on_cleanup(app: web.Application):
-    """Stop background task runner."""
+    """Stop background task runner and clean up resources."""
     tr = app.get("task_runner")
     if tr:
         tr.cancel()
@@ -1302,6 +1438,19 @@ async def on_cleanup(app: web.Application):
             await tr
         except asyncio.CancelledError:
             pass
+    
+    # Stop CDP watcher
+    try:
+        _stop_cdp_watcher()
+    except Exception:
+        pass
+    
+    # Close CDP connection
+    try:
+        if _cdp_state.get("manager"):
+            await asyncio.wait_for(_cdp_state["manager"].close(), timeout=10)
+    except Exception:
+        pass
 
 
 # ============================================================================
@@ -6831,6 +6980,167 @@ async def handle_v1_mission_show(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+# --- /v1/browser/browse POST — Unified browser endpoint with auto CDP/BrowserAct switching ---
+
+async def handle_v1_browser_browse(request):
+    """POST /v1/browser/browse — Unified browser endpoint with auto CDP/BrowserAct switching.
+    
+    Automatically selects the best browser backend:
+    - If stealth=true or captcha=true: Use BrowserAct (Camoufox-based, anti-detection)
+    - Otherwise: Use CDP (headless Chromium, faster)
+    
+    Body JSON:
+        url: string (required)
+        action: string ("extract" | "shot" | "click" | "type", default: "extract")
+        stealth: bool (default: false) — use stealth browser (BrowserAct)
+        captcha: bool (default: false) — expect CAPTCHA on page
+        wait_for: string (optional CSS selector)
+        timeout: float (default: 15)
+        width: int (default: 1280, for screenshots)
+        height: int (default: 720, for screenshots)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+    
+    url = body.get("url")
+    if not url:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
+    
+    action = body.get("action", "extract")
+    stealth = body.get("stealth", False)
+    captcha = body.get("captcha", False)
+    wait_for = body.get("wait_for")
+    timeout = body.get("timeout", 15)
+    width = body.get("width", 1280)
+    height = body.get("height", 720)
+    
+    # Auto-switch logic: BrowserAct for stealth/captcha, CDP for everything else
+    use_browseract = stealth or captcha
+    
+    if use_browseract:
+        # Use BrowserAct (Camoufox-based stealth browser)
+        try:
+            ba_skill = Path(APP_DIR) / "skills" / "browseract" / "run.sh"
+            if not ba_skill.exists():
+                _record_request(is_error=True, count_request=False)
+                return _cors_json_response({"ok": False, "error": "BrowserAct skill not installed"}, status=503)
+            
+            cmd = ["bash", str(ba_skill), action, url]
+            if wait_for:
+                cmd.extend(["--wait-for", wait_for])
+            if action == "shot":
+                cmd.extend(["--width", str(width), "--height", str(height)])
+            
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 30)
+            
+            if proc.returncode == 0 and stdout:
+                try:
+                    result = json.loads(stdout.decode("utf-8", errors="replace"))
+                    result["backend"] = "browseract"
+                    result["stealth"] = True
+                    return _cors_json_response(result)
+                except json.JSONDecodeError:
+                    text = stdout.decode("utf-8", errors="replace")
+                    return _cors_json_response({"ok": True, "backend": "browseract", "stealth": True, "output": text[:50000]})
+            else:
+                err = stderr.decode("utf-8", errors="replace")[:2000] if stderr else "unknown error"
+                _record_request(is_error=True, count_request=False)
+                return _cors_json_response({"ok": False, "error": f"BrowserAct failed (rc={proc.returncode}): {err}"}, status=500)
+        except asyncio.TimeoutError:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": f"BrowserAct timed out ({timeout}s)"}, status=408)
+        except Exception as e:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+    
+    else:
+        # Use CDP (headless Chromium — faster)
+        if not _cdp_state["connected"]:
+            # Try to auto-connect
+            try:
+                cdp = _get_cdp_module()
+                if cdp:
+                    mgr = cdp.CDPTabManager(port=_cdp_state["port"], headless=_cdp_state["headless"], auto_launch=True)
+                    await asyncio.wait_for(mgr.connect(), timeout=60)
+                    _cdp_state["manager"] = mgr
+                    _cdp_state["connected"] = True
+                    _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
+                    _start_cdp_watcher()
+                else:
+                    _record_request(is_error=True, count_request=False)
+                    return _cors_json_response({"ok": False, "error": "CDP module not available"}, status=503)
+            except Exception as e:
+                _record_request(is_error=True, count_request=False)
+                return _cors_json_response({"ok": False, "error": f"CDP auto-connect failed: {e}"}, status=503)
+        
+        mgr = _cdp_state.get("manager")
+        if not mgr or not mgr.active_tab or not mgr.active_tab.connected:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": "No active CDP tab"}, status=503)
+        
+        try:
+            if action == "extract":
+                browser = mgr.active_tab._browser
+                await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
+                if wait_for:
+                    safe_selector = json.dumps(wait_for)
+                    expr = f"new Promise((resolve, reject) => {{ const check = () => {{ if (document.querySelector({safe_selector})) resolve(true); else setTimeout(check, 200); }}; setTimeout(() => reject('timeout'), {(timeout-2)*1000}); check(); }})"
+                    await asyncio.wait_for(browser.eval_js(expr), timeout=timeout)
+                text_content = await asyncio.wait_for(browser.eval_js("document.body ? document.body.innerText.substring(0, 50000) : ''"), timeout=10)
+                title = await asyncio.wait_for(browser.eval_js("document.title"), timeout=5)
+                return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "url": url, "title": title, "text": (text_content or "")[:20000], "text_len": len(text_content or "")})
+            
+            elif action == "shot":
+                browser = mgr.active_tab._browser
+                await asyncio.wait_for(browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False}), timeout=5)
+                await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
+                res = await asyncio.wait_for(browser.send("Page.captureScreenshot", {"format": "png"}), timeout=15)
+                if res and "result" in res and "data" in res["result"]:
+                    return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "format": "png", "data": res["result"]["data"], "width": width, "height": height})
+                else:
+                    _record_request(is_error=True, count_request=False)
+                    return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
+            
+            elif action == "click":
+                selector = body.get("selector")
+                if not selector:
+                    return _cors_json_response({"ok": False, "error": "missing 'selector' for click action"}, status=400)
+                await asyncio.wait_for(mgr.active_tab.click(selector), timeout=timeout)
+                return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "action": "click", "selector": selector})
+            
+            elif action == "type":
+                selector = body.get("selector")
+                text = body.get("text")
+                if not selector or not text:
+                    return _cors_json_response({"ok": False, "error": "missing 'selector' and 'text' for type action"}, status=400)
+                await asyncio.wait_for(mgr.active_tab.type_text(selector, text), timeout=timeout)
+                return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "action": "type", "selector": selector})
+            
+            else:
+                _record_request(is_error=True, count_request=False)
+                return _cors_json_response({"ok": False, "error": f"Unknown action: {action}. Supported: extract, shot, click, type"}, status=400)
+        
+        except asyncio.TimeoutError:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": f"CDP {action} timed out ({timeout}s)"}, status=408)
+        except Exception as e:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 # --- /v1/metrics GET — Bridge performance metrics ---
 
 async def handle_v1_metrics(request: web.Request) -> web.Response:
@@ -6858,13 +7168,163 @@ async def handle_v1_metrics(request: web.Request) -> web.Response:
                 "active_processes": len(ACTIVE_PROCESSES),
             }
         return _cors_json_response(result)
-
-
-    # ============================================================================
-    # HANDLERS — MCP Streamable HTTP
-    # ============================================================================
     except Exception as e:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# --- /metrics GET — Prometheus-compatible metrics endpoint ---
+
+async def handle_prometheus_metrics(request: web.Request) -> web.Response:
+    """GET /metrics — Prometheus-compatible metrics endpoint.
+    
+    Returns metrics in Prometheus text exposition format.
+    No auth required — this is standard for /metrics endpoints (scraped by Prometheus).
+    """
+    try:
+        with _metrics_lock:
+            uptime = round(time.time() - BRIDGE_METRICS["start_time"], 1)
+            durations = BRIDGE_METRICS["request_durations"]
+            avg_duration = round(sum(durations) / len(durations), 6) if durations else 0.0
+            p50 = sorted(durations)[len(durations)//2] if durations else 0.0
+            p95 = sorted(durations)[int(len(durations)*0.95)] if len(durations) >= 20 else (sorted(durations)[-1] if durations else 0.0)
+            p99 = sorted(durations)[int(len(durations)*0.99)] if len(durations) >= 100 else (sorted(durations)[-1] if durations else 0.0)
+
+        lines = [
+            "# HELP arena_bridge_uptime_seconds Bridge uptime in seconds",
+            "# TYPE arena_bridge_uptime_seconds gauge",
+            f"arena_bridge_uptime_seconds {uptime}",
+            "",
+            "# HELP arena_bridge_requests_total Total number of requests",
+            "# TYPE arena_bridge_requests_total counter",
+            f"arena_bridge_requests_total {BRIDGE_METRICS['total_requests']}",
+            "",
+            "# HELP arena_bridge_exec_total Total number of exec operations",
+            "# TYPE arena_bridge_exec_total counter",
+            f"arena_bridge_exec_total {BRIDGE_METRICS['total_exec']}",
+            "",
+            "# HELP arena_bridge_errors_total Total number of errors",
+            "# TYPE arena_bridge_errors_total counter",
+            f"arena_bridge_errors_total {BRIDGE_METRICS['total_errors']}",
+            "",
+            "# HELP arena_bridge_request_duration_avg_seconds Average request duration",
+            "# TYPE arena_bridge_request_duration_avg_seconds gauge",
+            f"arena_bridge_request_duration_avg_seconds {avg_duration}",
+            "",
+            "# HELP arena_bridge_request_duration_seconds Request duration quantiles",
+            "# TYPE arena_bridge_request_duration_seconds summary",
+            f'arena_bridge_request_duration_seconds{{quantile="0.5"}} {p50}',
+            f'arena_bridge_request_duration_seconds{{quantile="0.95"}} {p95}',
+            f'arena_bridge_request_duration_seconds{{quantile="0.99"}} {p99}',
+            "",
+            "# HELP arena_bridge_active_processes Number of active subprocesses",
+            "# TYPE arena_bridge_active_processes gauge",
+            f"arena_bridge_active_processes {len(ACTIVE_PROCESSES)}",
+            "",
+            "# HELP arena_bridge_cdp_connected CDP connection status (1=connected, 0=disconnected)",
+            "# TYPE arena_bridge_cdp_connected gauge",
+            f"arena_bridge_cdp_connected {1 if _cdp_state['connected'] else 0}",
+            "",
+            "# HELP arena_bridge_cdp_reconnect_count Total number of CDP auto-reconnects",
+            "# TYPE arena_bridge_cdp_reconnect_count counter",
+            f"arena_bridge_cdp_reconnect_count {_cdp_state.get('reconnect_count', 0)}",
+            "",
+            "# HELP arena_bridge_info Bridge version info",
+            "# TYPE arena_bridge_info gauge",
+            f'arena_bridge_info{{version="{VERSION}"}} 1',
+            "",
+        ]
+        
+        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4; charset=utf-8")
+    except Exception as e:
+        return web.Response(text=f"# ERROR: {e}\n", status=500, content_type="text/plain")
+
+
+# --- /api-docs GET — OpenAPI 3.0 specification ---
+
+async def handle_api_docs(request: web.Request) -> web.Response:
+    """GET /api-docs — OpenAPI 3.0 specification for all bridge endpoints."""
+    spec = {
+        "openapi": "3.0.3",
+        "info": {
+            "title": "Arena Unified Bridge API",
+            "version": VERSION,
+            "description": "Unified bridge for AI agent orchestration: CDP browser control, BrowserAct stealth browsing, SuperPowers skills, task management, and system monitoring."
+        },
+        "servers": [{"url": f"http://{socket.gethostname()}:{_get_bridge_port()}"}],
+        "security": [{"BearerAuth": []}],
+        "components": {
+            "securitySchemes": {
+                "BearerAuth": {"type": "http", "scheme": "bearer"}
+            }
+        },
+        "paths": {
+            "/health": {"get": {"summary": "Health check", "tags": ["Bridge"], "responses": {"200": {"description": "OK"}}}},
+            "/v1/version": {"get": {"summary": "Bridge version", "tags": ["Bridge"], "responses": {"200": {"description": "Version info"}}}},
+            "/v1/status": {"get": {"summary": "Bridge status", "tags": ["Bridge"], "responses": {"200": {"description": "Status info"}}}},
+            "/v1/info": {"get": {"summary": "Bridge info", "tags": ["Bridge"], "responses": {"200": {"description": "Detailed info"}}}},
+            "/v1/metrics": {"get": {"summary": "Bridge metrics (JSON)", "tags": ["Bridge"], "responses": {"200": {"description": "Metrics JSON"}}}},
+            "/metrics": {"get": {"summary": "Prometheus metrics (text)", "tags": ["Bridge"], "responses": {"200": {"description": "Prometheus text format"}}}},
+            "/v1/browser/cdp/status": {"get": {"summary": "CDP connection status", "tags": ["CDP"], "responses": {"200": {"description": "CDP status"}}}},
+            "/v1/browser/cdp/diag": {"get": {"summary": "CDP diagnostics", "tags": ["CDP"], "responses": {"200": {"description": "Diagnostic info"}}}},
+            "/v1/browser/cdp/health": {"get": {"summary": "CDP health dashboard", "tags": ["CDP"], "responses": {"200": {"description": "Health info with reconnect history"}}}},
+            "/v1/browser/cdp/connect": {"post": {"summary": "Connect to browser via CDP", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"port": {"type": "integer", "default": 9222}, "headless": {"type": "boolean", "default": True}}}}}}, "responses": {"200": {"description": "Connected"}}}},
+            "/v1/browser/cdp/disconnect": {"post": {"summary": "Disconnect CDP", "tags": ["CDP"], "responses": {"200": {"description": "Disconnected"}}}},
+            "/v1/browser/cdp/navigate": {"post": {"summary": "Navigate to URL", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}}}}}}, "responses": {"200": {"description": "Navigation result"}}}},
+            "/v1/browser/cdp/eval": {"post": {"summary": "Evaluate JavaScript", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"expression": {"type": "string"}}}}}}, "responses": {"200": {"description": "Eval result"}}}},
+            "/v1/browser/cdp/screenshot": {"post": {"summary": "Take screenshot", "tags": ["CDP"], "responses": {"200": {"description": "Screenshot data"}}}},
+            "/v1/browser/cdp/dom": {"get": {"summary": "Dump DOM", "tags": ["CDP"], "responses": {"200": {"description": "DOM HTML"}}}},
+            "/v1/browser/cdp/tabs": {"get": {"summary": "List browser tabs", "tags": ["CDP"], "responses": {"200": {"description": "Tab list"}}}},
+            "/v1/browser/cdp/tabs/new": {"post": {"summary": "Open new tab", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}, "activate": {"type": "boolean"}}}}}}, "responses": {"200": {"description": "New tab info"}}}},
+            "/v1/browser/cdp/tabs/close": {"post": {"summary": "Close tab", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"tab_id": {"type": "string"}}}}}}, "responses": {"200": {"description": "Close result"}}}},
+            "/v1/browser/cdp/tabs/activate": {"post": {"summary": "Activate tab", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"tab_id": {"type": "string"}}}}}}, "responses": {"200": {"description": "Activation result"}}}},
+            "/v1/browser/cdp/click": {"post": {"summary": "Click element", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"selector": {"type": "string"}}}}}}, "responses": {"200": {"description": "Click result"}}}},
+            "/v1/browser/cdp/type": {"post": {"summary": "Type text into element", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"selector": {"type": "string"}, "text": {"type": "string"}}}}}}, "responses": {"200": {"description": "Type result"}}}},
+            "/v1/browser/cdp/cookies": {"get": {"summary": "Get cookies", "tags": ["CDP"], "responses": {"200": {"description": "Cookie list"}}}},
+            "/v1/browser/cdp/cookies/set": {"post": {"summary": "Set cookies", "tags": ["CDP"], "responses": {"200": {"description": "Set result"}}}},
+            "/v1/browser/cdp/cookies/delete": {"post": {"summary": "Delete cookies", "tags": ["CDP"], "responses": {"200": {"description": "Delete result"}}}},
+            "/v1/browser/cdp/cookies/clear": {"post": {"summary": "Clear all cookies", "tags": ["CDP"], "responses": {"200": {"description": "Clear result"}}}},
+            "/v1/browser/cdp/network/start": {"post": {"summary": "Start network monitoring", "tags": ["CDP"], "responses": {"200": {"description": "Monitor started"}}}},
+            "/v1/browser/cdp/network/stop": {"post": {"summary": "Stop network monitoring", "tags": ["CDP"], "responses": {"200": {"description": "Monitor stopped"}}}},
+            "/v1/browser/cdp/network/requests": {"get": {"summary": "Get captured network requests", "tags": ["CDP"], "responses": {"200": {"description": "Request list"}}}},
+            "/v1/browser/cdp/network/har": {"get": {"summary": "Get HAR export", "tags": ["CDP"], "responses": {"200": {"description": "HAR data"}}}},
+            "/v1/browser/cdp/intercept/start": {"post": {"summary": "Start request interception", "tags": ["CDP"], "responses": {"200": {"description": "Interception started"}}}},
+            "/v1/browser/cdp/intercept/stop": {"post": {"summary": "Stop request interception", "tags": ["CDP"], "responses": {"200": {"description": "Interception stopped"}}}},
+            "/v1/browser/cdp/stealth/extract": {"post": {"summary": "Stealth extract page content via CDP", "tags": ["CDP Stealth"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}, "wait_for": {"type": "string"}, "timeout": {"type": "number", "default": 15}}}}}}, "responses": {"200": {"description": "Extracted content"}}}},
+            "/v1/browser/cdp/stealth/shot": {"post": {"summary": "Stealth screenshot via CDP", "tags": ["CDP Stealth"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"url": {"type": "string"}, "width": {"type": "integer", "default": 1280}, "height": {"type": "integer", "default": 720}, "full_page": {"type": "boolean", "default": false}, "format": {"type": "string", "enum": ["png", "jpeg"], "default": "png"}, "timeout": {"type": "number", "default": 15}}}}}}, "responses": {"200": {"description": "Screenshot data"}}}},
+            "/v1/browser/cdp/raw-info": {"get": {"summary": "Raw CDP HTTP info", "tags": ["CDP Debug"], "responses": {"200": {"description": "Raw CDP data"}}}},
+            "/v1/browser/cdp/test-launch": {"get": {"summary": "Test CDP browser launch", "tags": ["CDP Debug"], "responses": {"200": {"description": "Launch test result"}}}},
+            "/v1/browser/cdp/test-ws": {"get": {"summary": "Test CDP WebSocket", "tags": ["CDP Debug"], "responses": {"200": {"description": "WS test result"}}}},
+            "/v1/exec": {"post": {"summary": "Execute command", "tags": ["Exec"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}}}}}, "responses": {"200": {"description": "Command result"}}}},
+            "/v1/kill": {"post": {"summary": "Kill process by PID", "tags": ["Exec"], "responses": {"200": {"description": "Kill result"}}}},
+            "/v1/skills": {"get": {"summary": "List available skills", "tags": ["Skills"], "responses": {"200": {"description": "Skill list"}}}},
+            "/v1/skills/run": {"post": {"summary": "Execute a skill", "tags": ["Skills"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}}}}}}, "responses": {"200": {"description": "Skill output"}}},
+            "/v1/tasks": {"get": {"summary": "List tasks", "tags": ["Tasks"], "responses": {"200": {"description": "Task list"}}}},
+            "/v1/memory": {"get": {"summary": "List memory facts", "tags": ["Memory"], "responses": {"200": {"description": "Memory entries"}}}},
+            "/v1/recall": {"get": {"summary": "Recall relevant facts", "tags": ["Memory"], "responses": {"200": {"description": "Recalled facts"}}}},
+            "/v1/sysinfo": {"get": {"summary": "System information", "tags": ["System"], "responses": {"200": {"description": "System info"}}}},
+            "/v1/audit": {"get": {"summary": "Audit log", "tags": ["System"], "responses": {"200": {"description": "Audit entries"}}}},
+            "/v1/doctor": {"get": {"summary": "Run diagnostics", "tags": ["System"], "responses": {"200": {"description": "Diagnostic results"}}}},
+            "/gui": {"get": {"summary": "Web dashboard", "tags": ["Bridge"], "responses": {"200": {"description": "HTML dashboard"}}}},
+            "/api-docs": {"get": {"summary": "OpenAPI specification", "tags": ["Bridge"], "responses": {"200": {"description": "OpenAPI 3.0 JSON"}}}},
+        },
+        "tags": [
+            {"name": "Bridge", "description": "Core bridge operations"},
+            {"name": "CDP", "description": "Chrome DevTools Protocol browser control"},
+            {"name": "CDP Stealth", "description": "Stealth-aware content extraction and screenshots via CDP"},
+            {"name": "CDP Debug", "description": "CDP diagnostic and testing endpoints"},
+            {"name": "Exec", "description": "Command execution"},
+            {"name": "Skills", "description": "Skill system"},
+            {"name": "Tasks", "description": "Task management"},
+            {"name": "Memory", "description": "Memory and recall"},
+            {"name": "System", "description": "System information and diagnostics"},
+        ],
+    }
+    return _cors_json_response(spec)
+
+
+# ============================================================================
+# HANDLERS — MCP Streamable HTTP
+# ============================================================================
 
 async def handle_mcp_post(request: web.Request) -> web.Response:
     """MCP Streamable HTTP — main endpoint."""
@@ -7108,10 +7568,31 @@ def _signal_handler(sig: int, frame: Any) -> None:
     """Signal handler for graceful shutdown."""
     sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
     log.info("[UnifiedBridge] Received %s, shutting down gracefully...", sig_name)
+    
+    # Stop CDP watcher
+    try:
+        _stop_cdp_watcher()
+    except Exception:
+        pass
+    
+    # Close CDP connection synchronously (we're in a signal handler, can't await)
+    try:
+        if _cdp_state.get("manager"):
+            mgr = _cdp_state["manager"]
+            # Try to kill browser process if we launched it
+            if mgr._browser_proc and mgr._browser_proc.poll() is None:
+                mgr._browser_proc.terminate()
+                try:
+                    mgr._browser_proc.wait(timeout=3)
+                except Exception:
+                    mgr._browser_proc.kill()
+    except Exception:
+        pass
+    
     if _shutdown_event is not None:
         _shutdown_event.set()
     # Force exit after a short delay if event loop doesn't stop
-    threading.Timer(3.0, lambda: os._exit(0)).start()
+    threading.Timer(5.0, lambda: os._exit(0)).start()
 
 
 # ============================================================================
@@ -7236,6 +7717,34 @@ def serve(args: argparse.Namespace) -> None:
     # Handle --background daemonization (Linux only)
     if getattr(args, "background", False) and os.name != "nt":
         _daemonize()
+
+    # Ensure session environment variables are set (critical for systemd)
+    _ensure_session_env()
+
+    # Load optional config file
+    file_cfg = _load_config_file()
+    if file_cfg.get("port"):
+        args.port = int(file_cfg["port"])
+    if file_cfg.get("profile"):
+        args.profile = file_cfg["profile"]
+    if file_cfg.get("timeout"):
+        args.timeout = int(file_cfg["timeout"])
+    if file_cfg.get("max_concurrent"):
+        args.max_concurrent = int(file_cfg["max_concurrent"])
+    if file_cfg.get("bind"):
+        args.bind = file_cfg["bind"]
+    cdp_cfg = file_cfg.get("cdp", {})
+    if cdp_cfg.get("port"):
+        _cdp_state["port"] = int(cdp_cfg["port"])
+    if cdp_cfg.get("headless") is not None:
+        _cdp_state["headless"] = bool(cdp_cfg["headless"])
+    if file_cfg.get("rate_limit"):
+        global _rate_limit_max, _rate_limit_window
+        rl = file_cfg["rate_limit"]
+        if rl.get("max_requests"):
+            _rate_limit_max = int(rl["max_requests"])
+        if rl.get("window_seconds"):
+            _rate_limit_window = float(rl["window_seconds"])
 
     # If --token-file was provided, set env var so resolve_token() finds it
     tf = getattr(args, "token_file", "") or ""

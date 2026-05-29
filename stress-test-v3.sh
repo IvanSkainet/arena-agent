@@ -593,6 +593,55 @@ else
     check "cdp stealth extract" "skip" "CDP connect failed"
 fi
 
+# 1.17 CDP Stealth screenshot (connect first, then shot)
+echo "  Testing CDP stealth screenshot..."
+resp=$(api_post "/v1/browser/cdp/connect" '{"port":9222,"headless":true}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    resp=$(api_post "/v1/browser/cdp/stealth/shot" '{"url":"https://example.com","format":"png","timeout":15}')
+    if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+        shot_format=$(echo "$resp" | jq_val '["format"]' 2>/dev/null || echo "?")
+        shot_has_data=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print('yes' if d.get('data') else 'no')" 2>/dev/null || echo "?")
+        shot_width=$(echo "$resp" | jq_val '["width"]' 2>/dev/null || echo "?")
+        check "cdp stealth shot" "true" "(format=$shot_format, data=$shot_has_data, width=$shot_width)"
+    else
+        err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown")
+        check "cdp stealth shot" "false" "$err"
+    fi
+    # Disconnect
+    api_post "/v1/browser/cdp/disconnect" >/dev/null 2>&1
+else
+    check "cdp stealth shot" "skip" "CDP connect failed"
+fi
+
+# 1.18 Rate limit test — /metrics should be accessible without auth
+resp=$(curl -s --max-time 5 "$URL/metrics" 2>/dev/null | head -1)
+if echo "$resp" | grep -q "arena_bridge"; then
+    check "prometheus metrics endpoint" "true"
+else
+    check "prometheus metrics endpoint" "false"
+fi
+
+# 1.19 API docs endpoint
+resp=$(curl -s --max-time 5 "$URL/api-docs" 2>/dev/null)
+if echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('openapi'); print('ok')" 2>/dev/null | grep -q ok; then
+    api_paths=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('paths',{})))" 2>/dev/null || echo "?")
+    check "openapi docs endpoint" "true" "($api_paths paths)"
+else
+    check "openapi docs endpoint" "false"
+fi
+
+# 1.20 Browser browse auto-switch endpoint (CDP mode)
+echo "  Testing /v1/browser/browse auto-switch..."
+resp=$(api_post "/v1/browser/browse" '{"url":"https://example.com","action":"extract"}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    browse_backend=$(echo "$resp" | jq_val '["backend"]' 2>/dev/null || echo "?")
+    browse_text_len=$(echo "$resp" | jq_val '["text_len"]' 2>/dev/null || echo "0")
+    check "browser browse (cdp auto)" "true" "(backend=$browse_backend, text_len=$browse_text_len)"
+else
+    err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown")
+    check "browser browse (cdp auto)" "false" "$err"
+fi
+
 echo ""
 
 # ============================================================
