@@ -38,7 +38,7 @@
         "-q",
         "mcp-server-sqlite",
         "--db-path",
-        "C:\\Users\\Ivan\\arena-bridge\\memory\\facts.db"
+        "%USERPROFILE%\\arena-bridge\\memory\\facts.db"
       ],
       "env": {}
     },

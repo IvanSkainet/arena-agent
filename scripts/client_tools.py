@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 import argparse, json, os, shutil, subprocess, textwrap
-AURL=os.getenv('AURL') or os.getenv('ARENA_BRIDGE_URL') or 'https://cachyos-x8664.tail328f18.ts.net'
+AURL=os.getenv('AURL') or os.getenv('ARENA_BRIDGE_URL') or ''
 ATOK=os.getenv('ATOK') or os.getenv('ARENA_BRIDGE_TOKEN') or ''
 def run(c): return subprocess.run(c,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=20)
 def doctor(a):

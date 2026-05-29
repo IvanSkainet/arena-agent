@@ -77,6 +77,13 @@ if [ -z "$VERSION" ]; then
 fi
 ok "Bridge v$VERSION downloaded"
 
+# --- Step 1b: Add Homebrew paths for macOS Apple Silicon ---
+for brew_prefix in /opt/homebrew /usr/local; do
+    if [ -d "$brew_prefix/bin" ]; then
+        PATH="$brew_prefix/bin:$PATH"
+    fi
+done
+
 # --- Step 2: Check Python ---
 PY=""
 for cand in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
@@ -383,9 +390,27 @@ Environment=ARENA_TOKEN_FILE=${ESCAPED_TOKEN_FILE}
 Environment=HOME=${HOME}
 Environment=XDG_RUNTIME_DIR=/run/user/${ACTUAL_UID}
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${ACTUAL_UID}/bus
-Environment=DISPLAY=:0
-Environment=WAYLAND_DISPLAY=wayland-0
-Environment=LD_LIBRARY_PATH=/usr/lib/chromium:/usr/lib64/chromium
+EOF
+    # Auto-detect display environment — only set if actually available
+    if [ -n "$DISPLAY" ]; then
+        echo "Environment=DISPLAY=${DISPLAY}" >> "$SD_DIR/arena-bridge.service"
+    elif [ -d "/tmp/.X11-unix" ]; then
+        echo "Environment=DISPLAY=:0" >> "$SD_DIR/arena-bridge.service"
+    fi
+    if [ -n "$WAYLAND_DISPLAY" ]; then
+        echo "Environment=WAYLAND_DISPLAY=${WAYLAND_DISPLAY}" >> "$SD_DIR/arena-bridge.service"
+    elif [ -S "${XDG_RUNTIME_DIR:-/run/user/${ACTUAL_UID}}/wayland-0" ]; then
+        echo "Environment=WAYLAND_DISPLAY=wayland-0" >> "$SD_DIR/arena-bridge.service"
+    fi
+    # Auto-detect Chromium library path
+    CHROMIUM_LIB=""
+    for libdir in /usr/lib/chromium /usr/lib64/chromium /usr/lib/chromium-browser /usr/lib64/chromium-browser /snap/chromium/current/usr/lib; do
+        if [ -d "$libdir" ]; then CHROMIUM_LIB="$libdir"; break; fi
+    done
+    if [ -n "$CHROMIUM_LIB" ]; then
+        echo "Environment=LD_LIBRARY_PATH=${CHROMIUM_LIB}" >> "$SD_DIR/arena-bridge.service"
+    fi
+    cat >> "$SD_DIR/arena-bridge.service" << EOF
 
 [Install]
 WantedBy=default.target
@@ -431,7 +456,13 @@ EOF
 
 else
     info "No systemd/launchd detected. Starting with nohup."
-    PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
+    if command -v ss >/dev/null 2>&1; then
+        PIDS="$(ss -tlnp "sport = :$PORT" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)"
+    elif command -v lsof >/dev/null 2>&1; then
+        PIDS="$(lsof -ti :"$PORT" 2>/dev/null || true)"
+    else
+        PIDS=""
+    fi
     [ -n "$PIDS" ] && kill $PIDS 2>/dev/null || true
     ARENA_TOKEN_FILE="$TOKEN_FILE" nohup "$PY" -u "$BRIDGE_PY" serve --root "$HOME" --profile "$PROFILE" --port "$PORT" \
         >> "$INSTALL_DIR/logs/bridge.log" 2>&1 &

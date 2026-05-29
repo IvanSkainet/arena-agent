@@ -3,7 +3,7 @@
 # All legacy flat commands preserved as aliases for backward compat.
 set -euo pipefail
 ROOT="${ARENA_AGENT_HOME:-$HOME/arena-bridge}"
-BV="${ARENA_BRIDGE_URL:-https://cachyos-x8664.tail328f18.ts.net}"
+BV="${ARENA_BRIDGE_URL:-}"
 P="python3"
 N="$ROOT/js/node_modules"
 NE="NODE_PATH=$N"

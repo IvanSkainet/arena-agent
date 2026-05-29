@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# stress-test-v3.sh — Arena Unified Bridge v1.9.0 CDP/BrowserAct/SuperPowers Test Suite
+# stress-test-v3.sh — Arena Unified Bridge Test Suite
 # Works in bash, zsh, and fish (via bash invocation)
 # Usage: bash stress-test-v3.sh [BRIDGE_URL] [TOKEN]
 set -euo pipefail

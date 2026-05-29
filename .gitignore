@@ -13,6 +13,7 @@ memory/facts.jsonl
 memory/history.jsonl
 .arena-local-bridge/
 audit.jsonl
+audit.jsonl.*
 
 # Backups (use git tags/releases, not files in repo)
 backups/
@@ -43,6 +44,11 @@ node_modules/
 # Token (NEVER commit)
 token.txt
 
+# Environment files (NEVER commit)
+.env
+.env.*
+users.json
+
 # Temp
 *.tmp
 *.bak
@@ -53,6 +59,11 @@ arena-installer-v2/backup-*/
 # Tests output
 reports/shots/*.png
 reports/recordings/*.mp4
+
+# Queue data (runtime state, not source code)
+queue/done/*.json
+queue/failed/*.json
+queue/tasks-archive-*.tgz
 
 # Generated
 start_ArenaUnifiedBridge.ps1

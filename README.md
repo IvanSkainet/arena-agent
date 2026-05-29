@@ -14,7 +14,7 @@
 
 Arena Local Agent is a tiny local HTTP/MCP server that lets any AI (ChatGPT, Claude, Gemini, Grok, GLM, your own scripts, …) safely drive your computer — execute commands, browse the web, save memory, capture screenshots, run skills, manage the queue of background tasks.
 
-It exposes a single secure URL like `https://your-pc.tail328f18.ts.net` (over Tailscale Funnel) and listens to a REST API, MCP protocol, WebSocket and a built-in web dashboard at `/gui`.
+It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (over Tailscale Funnel) and listens to a REST API, MCP protocol, WebSocket and a built-in web dashboard at `/gui`.
 
 **Goal:** *"Unzip the folder, run one installer, your AI has hands."*
 

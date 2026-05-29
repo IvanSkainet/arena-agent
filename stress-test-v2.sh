@@ -140,7 +140,7 @@ echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin)" 2>/dev/null && 
 
 # ── 5. BACKUP ──────────────────────────────────────────────
 check "5.1 Create backup"
-R=$(curl -s -H "$AUTH" -H "Content-Type: application/json" -X POST -d '{"paths":["/home/ivan/arena-bridge/memory"]}' "$URL/v1/backup")
+R=$(curl -s -H "$AUTH" -H "Content-Type: application/json" -X POST -d '{"paths":["memory"]}' "$URL/v1/backup")
 echo "$R" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('ok')==True" 2>/dev/null && ok "backup created" || fail "backup failed"
 
 # ── 6. CONCURRENT REQUESTS ─────────────────────────────────

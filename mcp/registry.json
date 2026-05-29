@@ -4,7 +4,7 @@
     "args": [
       "-y",
       "@modelcontextprotocol/server-filesystem",
-      "/home/ivan"
+      "${HOME}"
     ],
     "description": "File system access (read/write/list) inside given root.",
     "tags": [
@@ -30,7 +30,7 @@
       "-q",
       "mcp-server-sqlite",
       "--db-path",
-      "/home/ivan/arena-bridge/memory/facts.db"
+      "${HOME}/arena-bridge/memory/facts.db"
     ],
     "description": "SQLite query tool over local DB.",
     "tags": [
@@ -44,7 +44,7 @@
       "-q",
       "mcp-server-git",
       "--repository",
-      "/home/ivan"
+      "${HOME}"
     ],
     "description": "Git operations (status, log, diff, branch).",
     "tags": [

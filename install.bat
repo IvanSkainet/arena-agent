@@ -15,7 +15,7 @@ echo.
 REM --- All paths are inside THIS directory ---
 set "BRIDGE_DIR=%~dp0"
 set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
-set "PORT=8765"
+if defined ARENA_PORT (set "PORT=%ARENA_PORT%") else (set "PORT=8765")
 set "PROFILE=owner-shell"
 set "TOKEN_FILE=%BRIDGE_DIR%\token.txt"
 
@@ -95,7 +95,7 @@ REM --- Generate token (preserve existing) ---
 echo.
 echo [3/4] Generating auth token...
 if not exist "%TOKEN_FILE%" (
-    %PYTHON% -c "import secrets; print(secrets.token_urlsafe(32))" > "%TOKEN_FILE%"
+    %PYTHON% -c "import secrets; print(secrets.token_urlsafe(32), end='')" > "%TOKEN_FILE%"
     echo       New token generated.
 ) else (
     echo       Existing token preserved.
@@ -230,6 +230,13 @@ if not errorlevel 1 (
     schtasks /create /tn "ArenaUnifiedBridge" /tr "%BRIDGE_DIR%\start_bridge.bat" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
     schtasks /run /tn "ArenaUnifiedBridge" >nul 2>&1
     echo [OK] Scheduled task installed and started.
+)
+
+REM --- Add Windows Firewall rule for bridge port ---
+netsh advfirewall firewall show rule name="Arena Bridge" >nul 2>&1
+if errorlevel 1 (
+    netsh advfirewall firewall add rule name="Arena Bridge" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>&1
+    if not errorlevel 1 echo [OK] Firewall rule added for port %PORT%
 )
 
 REM --- Wait and verify ---

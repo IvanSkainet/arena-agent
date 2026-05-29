@@ -251,7 +251,7 @@ def handle_rpc(msg: dict) -> dict | None:
     return rpc_error(rid, -32601, f"Method not found: {m}")
 
 # ---------- HTTP handler ----------
-ALLOWED_ORIGINS = {"http://localhost", "http://127.0.0.1", "https://cachyos-x8664.tail328f18.ts.net", "null", ""}
+ALLOWED_ORIGINS = {"http://localhost", "http://127.0.0.1", os.getenv("ARENA_BRIDGE_URL", ""), "null", ""}
 
 class H(BaseHTTPRequestHandler):
     def log_message(self, fmt, *a): sys.stderr.write("%s - - [%s] %s\n" % (self.address_string(), self.log_date_time_string(), fmt % a))

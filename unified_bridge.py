@@ -117,7 +117,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 
@@ -131,7 +131,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.30"
+VERSION = "2.0.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -227,8 +227,11 @@ def _load_config_file() -> dict:
 
 
 def _get_bridge_port() -> int:
-    """Get the port the bridge is running on (default 8765)."""
-    return 8765
+    """Get the port the bridge is running on (from config or default 8765)."""
+    try:
+        return int(os.environ.get("ARENA_PORT", "8765"))
+    except (ValueError, TypeError):
+        return 8765
 
 
 AUDIT_CMD_LIMIT = 4000
@@ -236,7 +239,7 @@ BRIDGE_DIR = Path(__file__).resolve().parent
 APP_DIR = BRIDGE_DIR
 TOKEN_FILE = APP_DIR / "token.txt"
 AUDIT = APP_DIR / "audit.jsonl"
-RUN_DIR = APP_DIR / "runs"
+# RUN_DIR removed — was unused
 MAX_BODY = 1024 * 1024
 DEFAULT_MAX_OUTPUT = 2 * 1024 * 1024
 DEFAULT_MAX_CONCURRENT = 3
@@ -551,8 +554,9 @@ async def _cdp_watcher_loop():
             elif mgr.active_tab and not mgr.active_tab.connected:
                 # Tab was connected but now isn't — try a quick re-check
                 try:
+                    cdp_mod = _get_cdp_module()
                     tabs = await asyncio.get_event_loop().run_in_executor(
-                        None, list_tabs, _cdp_state["port"]
+                        None, cdp_mod.list_tabs, _cdp_state["port"]
                     )
                     if tabs:
                         needs_reconnect = True
@@ -1540,7 +1544,7 @@ async def handle_v1_profiles_load(request: web.Request) -> web.Response:
                 if url:
                     try:
                         await asyncio.wait_for(
-                            mgr_active_tab_navigate(url), timeout=10)
+                            mgr.active_tab.navigate(url), timeout=10)
                         restored["tabs"] += 1
                     except Exception:
                         pass
@@ -1935,6 +1939,10 @@ async def _grpc_server_loop(cfg: dict) -> None:
         log.error("[gRPC] Secondary interface error: %s", e)
     finally:
         _grpc_config["running"] = False
+        try:
+            await runner.cleanup()
+        except Exception:
+            pass
 
 
 async def handle_v1_grpc(request: web.Request) -> web.Response:
@@ -2317,6 +2325,11 @@ def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
         
         ep_store.append(now)
     
+    # Prune empty endpoint and user entries to prevent memory leak
+    _rl_v2_store[user_id] = {k: v for k, v in _rl_v2_store[user_id].items() if v}
+    if not _rl_v2_store[user_id]:
+        del _rl_v2_store[user_id]
+    
     # Not rate limited — store headers for later addition
     request["_rl_headers"] = {
         "X-RateLimit-Limit": str(limit),
@@ -2566,6 +2579,12 @@ async def _cluster_heartbeat_loop() -> None:
                         "last_check": time.time(),
                     }
             
+            # Prune stale peer entries (nodes no longer in config)
+            known_ids = {n.get("id", n.get("url", "")) for n in _cluster_config["nodes"]}
+            _cluster_state["peers_healthy"] = {
+                k: v for k, v in _cluster_state["peers_healthy"].items() if k in known_ids
+            }
+            
             # Simple leader election: node with lowest ID is leader
             if _cluster_config["nodes"]:
                 all_ids = sorted([_cluster_config["node_id"]] +
@@ -2658,9 +2677,9 @@ async def handle_v1_cluster(request: web.Request) -> web.Response:
 # PHASE 4: API Versioning (/v2/ endpoints with deprecation headers)
 # ============================================================================
 _DEPRECATED_ENDPOINTS: dict[str, dict[str, str]] = {
-    "/v1/service/info": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.0.0"},
-    "/v1/sys/svc": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.0.0"},
-    "/v1/sys/funnel": {"deprecated_since": "1.9.27", "replacement": "/v1/tailscale/funnel/status", "removal_version": "2.0.0"},
+    "/v1/service/info": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": VERSION},
+    "/v1/sys/svc": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": VERSION},
+    "/v1/sys/funnel": {"deprecated_since": "1.9.27", "replacement": "/v1/tailscale/funnel/status", "removal_version": VERSION},
 }
 
 
@@ -2726,7 +2745,7 @@ async def handle_v2_health(request: web.Request) -> web.Response:
         "cluster": _cluster_config["enabled"],
     }
     
-    all_healthy = all(checks.values()) or True  # Bridge is always healthy if responding
+    all_healthy = True  # Bridge is always healthy if responding
     
     return _cors_json_response({
         "ok": all_healthy,
@@ -2882,11 +2901,6 @@ def _otel_trace_id() -> str:
     return f"{_otel_trace_counter:016x}{secrets.token_hex(8)}"
 
 
-def _otel_span_id() -> str:
-    """Generate a span ID."""
-    return secrets.token_hex(8)
-
-
 def _otel_record_span(trace_id: str, span_id: str, name: str,
                        duration_ms: float, attributes: dict | None = None,
                        parent_span_id: str = "", status: str = "OK") -> None:
@@ -3037,6 +3051,11 @@ def _check_rate_limit(request: web.Request) -> web.Response | None:
         # Remove entries older than window
         timestamps = [t for t in timestamps if now - t < _rate_limit_window]
         
+        # Prune empty IP entries to prevent memory leak
+        if not timestamps and peer in _rate_limit_store:
+            del _rate_limit_store[peer]
+            return None
+        
         if len(timestamps) >= _rate_limit_max:
             _rate_limit_store[peer] = timestamps
             return _cors_json_response(
@@ -3112,25 +3131,6 @@ def decode_output(data: bytes) -> str:
             except UnicodeDecodeError:
                 continue
     return data.decode("utf-8", "replace")
-
-
-def read_limited(path: Path, max_bytes: int) -> tuple[str, bool, int]:
-    size = path.stat().st_size if path.exists() else 0
-    with path.open("rb") as f:
-        data = f.read(max_bytes + 1)
-    truncated = len(data) > max_bytes or size > max_bytes
-    data = data[:max_bytes]
-    if os.name == "nt":
-        for enc in ["utf-8", "cp866", "cp1251"]:
-            try:
-                return data.decode(enc), truncated, size
-            except UnicodeDecodeError:
-                continue
-        return data.decode("utf-8", "replace"), truncated, size
-    try:
-        return data.decode("utf-8"), truncated, size
-    except Exception:
-        return data.decode("utf-8", "replace"), truncated, size
 
 
 def b64_token(nbytes: int = 32) -> str:
@@ -3235,13 +3235,31 @@ def audit(event: dict[str, Any]) -> None:
             os.chmod(AUDIT, 0o600)
         except Exception:
             pass
+        # Auto-rotate audit log if over 50MB (keep up to 5 rotated copies)
+        try:
+            if AUDIT.exists() and AUDIT.stat().st_size > 50 * 1024 * 1024:
+                for i in range(5, 0, -1):
+                    old = APP_DIR / f"audit.jsonl.{i}"
+                    if old.exists():
+                        if i == 5:
+                            old.unlink()
+                        else:
+                            old.rename(APP_DIR / f"audit.jsonl.{i + 1}")
+                AUDIT.rename(APP_DIR / "audit.jsonl.1")
+        except Exception:
+            pass
 
 
 def read_tail(path: Path, lines: int = 100) -> list[str]:
+    """Read last N lines efficiently using deque (avoids loading entire file)."""
     if not path.exists():
         return []
     lines = max(1, min(lines, 1000))
-    return path.read_text(encoding="utf-8", errors="replace").splitlines()[-lines:]
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            return list(collections.deque(f, maxlen=lines))
+    except Exception:
+        return []
 
 
 # ============================================================================
@@ -3878,6 +3896,7 @@ async def on_startup(app: web.Application):
 
 async def on_cleanup(app: web.Application):
     """Stop background task runner and clean up resources."""
+    global _grpc_server_task, _cluster_task
     tr = app.get("task_runner")
     if tr:
         tr.cancel()
@@ -3904,6 +3923,22 @@ async def on_cleanup(app: web.Application):
             await asyncio.wait_for(_cdp_state["manager"].close(), timeout=10)
     except Exception:
         pass
+    
+    # Stop gRPC server task
+    if _grpc_server_task and not _grpc_server_task.done():
+        _grpc_server_task.cancel()
+        try:
+            await _grpc_server_task
+        except asyncio.CancelledError:
+            pass
+    
+    # Stop cluster heartbeat task
+    if _cluster_task and not _cluster_task.done():
+        _cluster_task.cancel()
+        try:
+            await _cluster_task
+        except asyncio.CancelledError:
+            pass
 
 
 # ============================================================================
@@ -5030,7 +5065,7 @@ def _browser_search_sync(query: str, n: int) -> dict:
     import re as _re
     url = f"https://html.duckduckgo.com/html/?q={_up.quote_plus(query)}"
     req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", "ArenaBridge/1.5")
+    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
     with urllib.request.urlopen(req_obj, timeout=15) as resp:
         content = resp.read().decode("utf-8", errors="replace")
     results = []
@@ -5095,7 +5130,7 @@ def _browser_read_sync(url: str) -> dict:
     import re as _re
     import html as _html
     req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", "ArenaBridge/1.5")
+    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
     with urllib.request.urlopen(req_obj, timeout=15) as resp:
         content = resp.read().decode("utf-8", errors="replace")
     # Extract title
@@ -5850,7 +5885,7 @@ def _browser_dump_sync(url: str) -> dict:
     import html as _html
 
     req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", "ArenaBridge/1.5")
+    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
     with urllib.request.urlopen(req_obj, timeout=20) as resp:
         content = resp.read().decode("utf-8", errors="replace")
 
@@ -5916,7 +5951,7 @@ def _browser_fetch_sync(url: str) -> dict:
     import urllib.request
 
     req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", "ArenaBridge/1.5")
+    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
     with urllib.request.urlopen(req_obj, timeout=20) as resp:
         raw = resp.read()
         content_type = resp.headers.get("Content-Type", "application/octet-stream")
@@ -5969,7 +6004,7 @@ def _browser_head_sync(url: str) -> dict:
     import urllib.request
 
     req_obj = urllib.request.Request(url, method="HEAD")
-    req_obj.add_header("User-Agent", "ArenaBridge/1.5")
+    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
     with urllib.request.urlopen(req_obj, timeout=15) as resp:
         headers = dict(resp.headers)
         status_code = resp.status
@@ -6102,7 +6137,7 @@ async def handle_v1_cdp_diag(request):
     _record_request()
 
     import shutil as _shutil
-    uid = os.getuid()
+    uid = os.getuid() if hasattr(os, 'getuid') else -1
     in_systemd = bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))
 
     diag = {
@@ -6168,7 +6203,7 @@ async def handle_v1_cdp_diag(request):
 
         # Show the Chromium command that would be used
         try:
-            test_cmd = cdp._build_chromium_cmd(exe, 9222, True, "/tmp/cdp-browser-test")
+            test_cmd = cdp._build_chromium_cmd(exe, 9222, True, os.path.join(tempfile.gettempdir(), "cdp-browser-test"))
             diag["headless_cmd"] = " ".join(test_cmd)
         except Exception:
             pass
@@ -9110,7 +9145,11 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
 
         if runner_sh.exists():
             # Use bash to execute .sh files (git may not preserve +x bit)
-            cmd = ["bash", str(runner_sh)] + list(args)
+            bash_path = shutil.which("bash")
+            if not bash_path:
+                return {"ok": False, "exit_code": -2, "stdout": "",
+                        "stderr": "bash not available — .sh skills require WSL or Git Bash on Windows"}
+            cmd = [bash_path, str(runner_sh)] + list(args)
         else:
             py = sys.executable or "python3"
             cmd = [py, str(runner_py)] + list(args)
@@ -10180,11 +10219,13 @@ def _daemonize() -> None:
         sys.stderr.flush()
         devnull = open(os.devnull, "r")
         os.dup2(devnull.fileno(), sys.stdin.fileno())
+        devnull.close()
         log_path = APP_DIR / "bridge.log"
         APP_DIR.mkdir(parents=True, exist_ok=True)
         log_f = open(log_path, "a", encoding="utf-8")
         os.dup2(log_f.fileno(), sys.stdout.fileno())
         os.dup2(log_f.fileno(), sys.stderr.fileno())
+        log_f.close()
 
 
 
