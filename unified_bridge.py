@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.3"
+VERSION = "2.0.4"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -2256,7 +2256,14 @@ connectWS();
 
 
 async def handle_gui_v2(request: web.Request) -> web.Response:
-    """GET /gui/v2 — Live dashboard with WebSocket real-time updates."""
+    """GET /gui/v2 — Live dashboard with WebSocket real-time updates.
+    Requires auth via header or ?token= URL param."""
+    cfg = request.app["cfg"]
+    url_token = request.query.get("token", "")
+    if not url_token or not hmac.compare_digest(url_token, cfg["token"]):
+        r = require_auth(request)
+        if r:
+            return r
     return web.Response(text=_DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
 
 
@@ -4850,8 +4857,15 @@ async def handle_v1_download(request: web.Request) -> web.Response:
 # ============================================================================
 
 async def handle_gui(request: web.Request) -> web.Response:
+    """GET /gui — Dashboard. Requires auth OR token in URL param (?token=...)."""
+    cfg = request.app["cfg"]
+    # Auth check: either valid Bearer/token header, or ?token= URL param
+    url_token = request.query.get("token", "")
+    if not url_token or not hmac.compare_digest(url_token, cfg["token"]):
+        r = require_auth(request)
+        if r:
+            return r
     try:
-        cfg = request.app["cfg"]
         # Try multiple locations for the dashboard
         candidates = [
             BRIDGE_DIR / "dashboard" / "index.html",
@@ -4865,17 +4879,16 @@ async def handle_gui(request: web.Request) -> web.Response:
                 html = html.replace("{{HOST}}", socket.gethostname())
                 return web.Response(text=html, content_type="text/html", charset="utf-8",
                                     headers={"Access-Control-Allow-Origin": "*"})
-        # Fallback: generate a minimal dashboard
+        # Fallback: generate a minimal dashboard (no token leak)
         fallback = f"""<!DOCTYPE html><html><head><title>Arena Bridge v{VERSION}</title></head>
         <body style='font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:2rem'>
         <h1>Arena Unified Bridge v{VERSION}</h1><p>Dashboard not found.</p>
         <p>API: <a href='/'>/</a> | Health: <a href='/health'>/health</a></p>
-        <p>Token: <code>{cfg['token'][:8]}...</code></p>
         </body></html>"""
         return web.Response(text=fallback, content_type="text/html", charset="utf-8",
                             headers={"Access-Control-Allow-Origin": "*"})
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+    except Exception:
+        return _cors_json_response({"ok": False, "error": "Internal server error"}, status=500)
 
 
 # ============================================================================
@@ -9216,7 +9229,8 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
         # Filter dangerous env vars from user-supplied extras
         if env_extra:
             _SKILL_BLOCKED_ENV = {"ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
-                                   "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH"}
+                                   "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH",
+                                   "PYTHONSTARTUP"}
             for k, v in env_extra.items():
                 if not any(b in k.upper() for b in _SKILL_BLOCKED_ENV):
                     env[k] = str(v) if not isinstance(v, str) else v

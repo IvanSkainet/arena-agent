@@ -959,8 +959,8 @@ else
     check "grpc endpoint" "false"
 fi
 
-# 6.3 Dashboard v2
-resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/gui/v2" 2>/dev/null || echo "000")
+# 6.3 Dashboard v2 (requires auth)
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/gui/v2?token=$TOKEN" 2>/dev/null || echo "000")
 if [ "$resp" = "200" ]; then
     check "dashboard v2" "true" "(HTTP 200)"
 else
