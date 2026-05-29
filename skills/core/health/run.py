@@ -11,11 +11,11 @@ from pathlib import Path
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME",
                            str(Path.home() / "arena-bridge"))).expanduser()
 
-results: list[tuple[bool, str, str]] = []
+results: list[tuple[bool, str, str, bool]] = []  # (ok, name, detail, critical)
 
 
-def add(ok: bool, name: str, detail: str = "") -> None:
-    results.append((ok, name, detail))
+def add(ok: bool, name: str, detail: str = "", *, critical: bool = True) -> None:
+    results.append((ok, name, detail, critical))
 
 
 def check_http() -> None:
@@ -38,7 +38,8 @@ def check_service(name: str) -> None:
 
 def check_agentctl(p: Path) -> None:
     if not p.exists():
-        add(False, "agentctl_exists", "missing")
+        # agentctl is optional/legacy — not a critical failure
+        add(False, "agentctl_exists", "missing", critical=False)
         return
     cp = subprocess.run([sys.executable, "-m", "py_compile", str(p)], capture_output=True, text=True)
     add(cp.returncode == 0, "agentctl_syntax",
@@ -91,15 +92,19 @@ def main() -> int:
     check_dirs()
     check_disk()
 
-    width = max(len(name) for _, name, _ in results)
+    width = max(len(name) for _, name, _, _ in results)
     fails = 0
-    for ok, name, detail in results:
+    critical_fails = 0
+    for ok, name, detail, critical in results:
         tag = "OK  " if ok else "FAIL"
         if not ok:
             fails += 1
+            if critical:
+                critical_fails += 1
+                tag = "CRIT"
         print(f"{tag}  {name.ljust(width)}  {detail}")
-    print(f"--- {len(results) - fails}/{len(results)} checks passed ---")
-    return 0 if fails == 0 else 1
+    print(f"--- {len(results) - fails}/{len(results)} checks passed, {critical_fails} critical ---")
+    return 0 if critical_fails == 0 else 1
 
 
 if __name__ == "__main__":

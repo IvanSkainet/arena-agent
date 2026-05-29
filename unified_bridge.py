@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.1"
+VERSION = "2.0.2"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -9292,9 +9292,16 @@ async def handle_v1_skills_run(request: web.Request) -> web.Response:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing name"}, status=400)
     # Prevent path traversal in skill names
-    if ".." in name or "/" in name or "\\" in name:
+    # Allow "/" for namespaced skills (e.g. "core/health", "superpowers/skills/brainstorming")
+    # but block ".." and "\" and verify resolved path stays within SKILLS_DIR
+    if ".." in name or "\\" in name:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "invalid skill name"}, status=400)
+    if "/" in name:
+        resolved = (SKILLS_DIR / name).resolve()
+        if not str(resolved).startswith(str(SKILLS_DIR.resolve())):
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": "invalid skill name"}, status=400)
     skill_args = data.get("args") or []
     skill_input = data.get("input") or {}
 
