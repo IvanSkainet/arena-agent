@@ -226,13 +226,7 @@ def _load_config_file() -> dict:
 
 
 def _get_bridge_port() -> int:
-    """Get the port the bridge is running on (from cfg or default)."""
-    try:
-        app = getattr(_get_bridge_port, '_app', None)
-        if app:
-            return app.get("cfg", {}).get("port", 8765)
-    except Exception:
-        pass
+    """Get the port the bridge is running on (default 8765)."""
     return 8765
 
 
@@ -366,8 +360,8 @@ class ResourceError(BridgeError):
 @web.middleware
 async def error_middleware(request: web.Request, handler):
     """Catch all unhandled exceptions, return structured JSON, log stack traces."""
-    # Rate limiting (skip for /health, /metrics, /gui which are lightweight)
-    if request.path not in ("/health", "/metrics", "/gui", "/", "/favicon.ico"):
+    # Rate limiting (skip for lightweight/public endpoints)
+    if request.path not in ("/health", "/metrics", "/gui", "/", "/favicon.ico", "/api-docs"):
         rl = _check_rate_limit(request)
         if rl:
             return rl
@@ -7183,11 +7177,17 @@ async def handle_prometheus_metrics(request: web.Request) -> web.Response:
     try:
         with _metrics_lock:
             uptime = round(time.time() - BRIDGE_METRICS["start_time"], 1)
-            durations = BRIDGE_METRICS["request_durations"]
+            durations = list(BRIDGE_METRICS["request_durations"])
             avg_duration = round(sum(durations) / len(durations), 6) if durations else 0.0
-            p50 = sorted(durations)[len(durations)//2] if durations else 0.0
-            p95 = sorted(durations)[int(len(durations)*0.95)] if len(durations) >= 20 else (sorted(durations)[-1] if durations else 0.0)
-            p99 = sorted(durations)[int(len(durations)*0.99)] if len(durations) >= 100 else (sorted(durations)[-1] if durations else 0.0)
+        
+        # Calculate quantiles outside the lock to avoid holding it too long
+        if durations:
+            sd = sorted(durations)
+            p50 = sd[len(sd)//2]
+            p95 = sd[int(len(sd)*0.95)] if len(sd) >= 20 else sd[-1]
+            p99 = sd[int(len(sd)*0.99)] if len(sd) >= 100 else sd[-1]
+        else:
+            p50 = p95 = p99 = 0.0
 
         lines = [
             "# HELP arena_bridge_uptime_seconds Bridge uptime in seconds",

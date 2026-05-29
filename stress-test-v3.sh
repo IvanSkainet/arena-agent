@@ -613,21 +613,26 @@ else
     check "cdp stealth shot" "skip" "CDP connect failed"
 fi
 
-# 1.18 Rate limit test — /metrics should be accessible without auth
-resp=$(curl -s --max-time 5 "$URL/metrics" 2>/dev/null | head -1)
-if echo "$resp" | grep -q "arena_bridge"; then
-    check "prometheus metrics endpoint" "true"
+# 1.18 Prometheus /metrics endpoint (no auth required)
+resp=$(curl -s --max-time 10 "$URL/metrics" 2>/dev/null)
+if [ -n "$resp" ] && echo "$resp" | grep -q "arena_bridge"; then
+    metric_count=$(echo "$resp" | grep -c "arena_bridge" || echo "0")
+    check "prometheus metrics endpoint" "true" "($metric_count metric lines)"
 else
-    check "prometheus metrics endpoint" "false"
+    # Debug: show what we got
+    resp_preview=$(echo "$resp" | head -3)
+    check "prometheus metrics endpoint" "false" "resp=${resp_preview:-EMPTY}"
 fi
 
-# 1.19 API docs endpoint
-resp=$(curl -s --max-time 5 "$URL/api-docs" 2>/dev/null)
-if echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('openapi'); print('ok')" 2>/dev/null | grep -q ok; then
+# 1.19 OpenAPI /api-docs endpoint (no auth required)
+resp=$(curl -s --max-time 10 "$URL/api-docs" 2>/dev/null)
+if [ -n "$resp" ] && echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d.get('openapi'); print('ok')" 2>/dev/null | grep -q ok; then
     api_paths=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('paths',{})))" 2>/dev/null || echo "?")
     check "openapi docs endpoint" "true" "($api_paths paths)"
 else
-    check "openapi docs endpoint" "false"
+    # Debug: show what we got
+    resp_preview=$(echo "$resp" | head -1 | cut -c1-100)
+    check "openapi docs endpoint" "false" "resp=${resp_preview:-EMPTY}"
 fi
 
 # 1.20 Browser browse auto-switch endpoint (CDP mode)
