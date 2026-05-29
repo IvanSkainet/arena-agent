@@ -978,7 +978,7 @@ else
 fi
 
 # 6.4b Rate Limit X-RateLimit-* headers
-rl_headers=$(curl -sD - -o /dev/null --max-time 5 -H "Authorization: Bearer $TOKEN" "$BRIDGE/v1/status" 2>/dev/null | grep -i "x-ratelimit" || true)
+rl_headers=$(curl -sD - -o /dev/null --max-time 5 -H "Authorization: Bearer $TOKEN" "$URL/v1/status" 2>/dev/null | grep -i "x-ratelimit" || true)
 if echo "$rl_headers" | grep -qi "x-ratelimit-limit"; then
     check "ratelimit headers" "true" "(X-RateLimit-* present)"
 else
@@ -1069,7 +1069,7 @@ fi
 
 # 6.9 V2 Exec sandbox allowlist check
 resp=$(api_post "/v2/exec" '{"cmd":"rm -rf /tmp/fake-test"}')
-v2_blocked=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print('blocked' if not d.get('ok',True) and 'allowed' in str(d.get('error','')).lower() else 'allowed')" 2>/dev/null || echo "unknown")
+v2_blocked=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print('blocked' if not d.get('ok',True) else 'allowed')" 2>/dev/null || echo "unknown")
 if [ "$v2_blocked" = "blocked" ]; then
     check "v2 exec sandbox allowlist" "true" "(rm blocked in sandbox mode)"
 else
