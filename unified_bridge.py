@@ -131,7 +131,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.28"
+VERSION = "1.9.29"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -363,7 +363,7 @@ async def error_middleware(request: web.Request, handler):
     """Catch all unhandled exceptions, return structured JSON, log stack traces."""
     # Rate limiting (skip for lightweight/public endpoints)
     if request.path not in ("/health", "/metrics", "/gui", "/", "/favicon.ico", "/api-docs"):
-        rl = _check_rate_limit(request)
+        rl = _check_rate_limit_v2(request) or _check_rate_limit(request)
         if rl:
             return rl
 
@@ -2790,6 +2790,14 @@ async def handle_v2_exec(request: web.Request) -> web.Response:
     use_sandbox = data.get("sandbox", True)
     
     if use_sandbox and _sandbox_config["enabled"]:
+        # Apply same command allowlist as /v1/sandbox
+        first_cmd = first_word(cmd)
+        allowed = _sandbox_config["allowed_commands"]
+        if allowed and first_cmd not in allowed:
+            return _cors_json_response({
+                "ok": False, "error": f"command '{first_cmd}' not in allowed list (sandbox mode)",
+                "allowed": allowed, "api_version": "2"
+            }, status=403)
         timeout = min(int(data.get("timeout", 30)), _sandbox_config["max_cpu_seconds"])
         result = await _run_sandboxed(cmd, timeout=timeout)
         result["sandbox"] = True

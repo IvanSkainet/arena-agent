@@ -977,6 +977,14 @@ else
     check "ratelimit v2 endpoint" "false"
 fi
 
+# 6.4b Rate Limit X-RateLimit-* headers
+rl_headers=$(curl -sD - -o /dev/null --max-time 5 -H "Authorization: Bearer $TOKEN" "$BRIDGE/v1/status" 2>/dev/null | grep -i "x-ratelimit" || true)
+if echo "$rl_headers" | grep -qi "x-ratelimit-limit"; then
+    check "ratelimit headers" "true" "(X-RateLimit-* present)"
+else
+    check "ratelimit headers" "false" "(no X-RateLimit-* headers)"
+fi
+
 # 6.5 Skill Sandboxing
 resp=$(api_get "/v1/sandbox")
 if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
@@ -1057,6 +1065,15 @@ if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
     check "tracing endpoint" "true" "(enabled=$otel_enabled)"
 else
     check "tracing endpoint" "false"
+fi
+
+# 6.9 V2 Exec sandbox allowlist check
+resp=$(api_post "/v2/exec" '{"cmd":"rm -rf /tmp/fake-test"}')
+v2_blocked=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print('blocked' if not d.get('ok',True) and 'allowed' in str(d.get('error','')).lower() else 'allowed')" 2>/dev/null || echo "unknown")
+if [ "$v2_blocked" = "blocked" ]; then
+    check "v2 exec sandbox allowlist" "true" "(rm blocked in sandbox mode)"
+else
+    check "v2 exec sandbox allowlist" "false" "(rm was not blocked!)"
 fi
 
 echo ""
