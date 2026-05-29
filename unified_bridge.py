@@ -100,6 +100,7 @@ import base64
 import collections
 import concurrent.futures
 import hashlib
+import hmac
 import json
 import multiprocessing
 import platform
