@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Arena Unified Bridge - Token Regeneration Script v2.0.0 (Linux/macOS)
+# Arena Unified Bridge - Token Regeneration Script v2.0.1 (Linux/macOS)
 # Regenerates token and restarts bridge automatically
 set -euo pipefail
 
-BRIDGE_DIR="$HOME/arena-bridge"
+BRIDGE_DIR="${ARENA_AGENT_HOME:-$HOME/arena-bridge}"
 TOKEN_FILE="$BRIDGE_DIR/token.txt"
 
 # Find Python
@@ -21,7 +21,7 @@ if [ -z "$PYTHON_CMD" ]; then
 fi
 
 echo "============================================================"
-echo "  Arena Unified Bridge - Token Regeneration v2.0.0"
+echo "  Arena Unified Bridge - Token Regeneration v2.0.1"
 echo "============================================================"
 echo
 

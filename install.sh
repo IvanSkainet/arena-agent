@@ -113,6 +113,12 @@ for d in "$INSTALL_DIR/memory" "$INSTALL_DIR/missions" \
 done
 ok "Directories ready"
 
+# --- Step 4a: Substitute paths in MCP registry.json ---
+REGISTRY_FILE="$INSTALL_DIR/mcp/registry.json"
+if [ -f "$REGISTRY_FILE" ]; then
+    sed -i "s|\${ARENA_AGENT_HOME}|$INSTALL_DIR|g" "$REGISTRY_FILE" 2>/dev/null || true
+fi
+
 # ============================================================
 # Step 4b: Migration from old versions
 # ============================================================

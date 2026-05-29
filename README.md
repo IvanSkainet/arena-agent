@@ -94,7 +94,7 @@ Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI
                                            │
         ┌──────────────────────────────────▼─────────────────────────────────┐
         │                                                                    │
-        │   localhost:8765   (one Python asyncio process, ~10K lines)       │
+        │   localhost:8765   (one Python asyncio process, ~10.5K lines)       │
         │                                                                    │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │             │
@@ -209,12 +209,12 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 
 ```
 arena-bridge/
-├── unified_bridge.py     ← the entire server (one file, ~5700 lines)
+├── unified_bridge.py     ← the entire server (one file, ~10.5K lines)
 ├── token.txt             ← your auth token (auto-generated)
 ├── install.bat           ← Windows installer (run this)
-├── install.sh            ← Linux/macOS installer (run this)
-├── update.bat            ← Windows updater (preserves token)
-├── update.sh             ← Linux/macOS updater (git pull + restart)
+├── install.sh            ← Linux/macOS installer (run this; re-run to update)
+├── regenerate_token.bat  ← Windows: regenerate auth token
+├── regenerate_token.sh   ← Linux/macOS: regenerate auth token
 ├── dashboard/
 │   └── index.html        ← single-file web dashboard
 ├── bin/                  ← user-facing CLIs

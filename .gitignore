@@ -49,6 +49,18 @@ token.txt
 .env.*
 users.json
 
+# Secrets & keys (NEVER commit)
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+id_ecdsa
+id_dsa
+*.sqlite
+*.db
+
 # Temp
 *.tmp
 *.bak

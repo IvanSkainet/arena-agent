@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -445,7 +445,7 @@ async def error_middleware(request: web.Request, handler):
             pass  # Don't let audit failure crash the error handler
         return _cors_json_response({
             "ok": False,
-            "error": f"Internal error: {type(e).__name__}: {e}",
+            "error": "Internal server error",
             "error_code": "INTERNAL_ERROR",
             "req_id": req_id,
         }, status=500, extra_headers={"X-Request-Id": req_id})
@@ -516,7 +516,7 @@ _cdp_state: Dict[str, Any] = {
     "last_disconnect_reason": None,  # Reason for last disconnect
 }
 
-_cdp_connecting = False  # Simple flag to prevent concurrent connect/disconnect
+_cdp_connect_lock = asyncio.Lock()  # Prevent concurrent connect/disconnect
 _cdp_watcher_task: Optional[asyncio.Task] = None  # Background watcher for auto-reconnect
 
 
@@ -535,7 +535,7 @@ async def _cdp_watcher_loop():
         try:
             await asyncio.sleep(10)
 
-            if not _cdp_state["connected"] or _cdp_connecting:
+            if not _cdp_state["connected"] or _cdp_connect_lock.locked():
                 continue
 
             mgr = _cdp_state.get("manager")
@@ -684,14 +684,17 @@ async def emit_event(event_type: str, data: dict | None = None) -> None:
     """Broadcast an event to all connected WebSocket subscribers."""
     payload = {"type": event_type, "ts": utc_now(), "data": data or {}}
     dead = []
-    for i, q in enumerate(_event_subscribers):
+    for i, q in enumerate(list(_event_subscribers)):  # Iterate over copy to avoid race
         try:
             q.put_nowait(payload)
         except asyncio.QueueFull:
-            dead.append(i)
-    # Remove full/dead queues in reverse order
-    for i in reversed(dead):
-        _event_subscribers.pop(i)
+            dead.append(q)
+    # Remove full/dead queues
+    for q in dead:
+        try:
+            _event_subscribers.remove(q)
+        except ValueError:
+            pass
 
 
 async def handle_v1_events(request: web.Request) -> web.WebSocketResponse:
@@ -1151,13 +1154,16 @@ def check_auth_with_role(request: web.Request, required_role: str | None = None)
     elif xt_header:
         token = xt_header
 
-    if users and token in users:
-        user_role = users[token].get("role", "user")
-        if required_role:
-            role_level = {"admin": 3, "user": 2, "readonly": 1}
-            if role_level.get(user_role, 0) < role_level.get(required_role, 0):
-                return False, user_role
-        return True, user_role
+    if users:
+        # Constant-time comparison for each stored token to prevent timing attacks
+        for stored_token, user_info in users.items():
+            if hmac.compare_digest(token, stored_token):
+                user_role = user_info.get("role", "user")
+                if required_role:
+                    role_level = {"admin": 3, "user": 2, "readonly": 1}
+                    if role_level.get(user_role, 0) < role_level.get(required_role, 0):
+                        return False, user_role
+                return True, user_role
 
     # Fall back to single-token auth
     cfg = request.app["cfg"]
@@ -1187,11 +1193,11 @@ async def handle_v1_users(request: web.Request) -> web.Response:
         for token, info in users.items():
             user_list.append({"name": info.get("name", "unknown"),
                               "role": info.get("role", "user"),
-                              "token_preview": token[:4] + "..." + token[-4:]})
+                              "token_length": len(token)})
         # Also show the primary admin token
         cfg = request.app["cfg"]
         user_list.insert(0, {"name": "primary_admin", "role": "admin",
-                             "token_preview": cfg["token"][:4] + "..." + cfg["token"][-4:]})
+                             "token_length": len(cfg["token"])})
         return _cors_json_response({"ok": True, "users": user_list, "count": len(user_list)})
 
     elif request.method == "POST":
@@ -1433,7 +1439,7 @@ async def handle_v1_profiles(request: web.Request) -> web.Response:
             # Save cookies
             if save_cookies:
                 try:
-                    tab = _cdp_active_tab()
+                    tab, err = await _cdp_active_tab()
                     if tab:
                         cookie_result = await asyncio.wait_for(tab.get_cookies(), timeout=10)
                         profile_data["cookies"] = cookie_result if isinstance(cookie_result, list) else []
@@ -1464,7 +1470,7 @@ async def handle_v1_profiles(request: web.Request) -> web.Response:
             # Save localStorage
             if save_local_storage:
                 try:
-                    tab = _cdp_active_tab()
+                    tab, err = await _cdp_active_tab()
                     if tab:
                         ls_result = await asyncio.wait_for(
                             tab.eval_js("JSON.stringify(Object.fromEntries(Object.entries(localStorage)))"),
@@ -1528,7 +1534,7 @@ async def handle_v1_profiles_load(request: web.Request) -> web.Response:
         # Restore cookies
         cookies = profile_data.get("cookies", [])
         if cookies:
-            tab = _cdp_active_tab()
+            tab, err = await _cdp_active_tab()
             if tab:
                 for cookie in cookies:
                     try:
@@ -1540,23 +1546,25 @@ async def handle_v1_profiles_load(request: web.Request) -> web.Response:
         # Restore tabs
         tabs = profile_data.get("tabs", [])
         if tabs:
-            for tab_info in tabs:
-                url = tab_info.get("url", "")
-                if url:
-                    try:
-                        await asyncio.wait_for(
-                            mgr.active_tab.navigate(url), timeout=10)
-                        restored["tabs"] += 1
-                    except Exception:
-                        pass
+            tab_nav, nav_err = await _cdp_active_tab()
+            if tab_nav:
+                for tab_info in tabs:
+                    url = tab_info.get("url", "")
+                    if url:
+                        try:
+                            await asyncio.wait_for(
+                                tab_nav.navigate(url), timeout=10)
+                            restored["tabs"] += 1
+                        except Exception:
+                            pass
 
         # Restore localStorage
         ls = profile_data.get("local_storage", {})
         if ls:
-            tab = _cdp_active_tab()
+            tab, err = await _cdp_active_tab()
             if tab:
                 try:
-                    pairs = [f"localStorage.setItem('{k}', {json.dumps(v)})" for k, v in ls.items()]
+                    pairs = [f"localStorage.setItem({json.dumps(k)}, {json.dumps(v)})" for k, v in ls.items()]
                     script = ";".join(pairs[:100])  # Limit to 100 items
                     await asyncio.wait_for(tab.eval_js(script), timeout=5)
                     restored["local_storage"] = True
@@ -3044,7 +3052,7 @@ async def handle_v1_traces_export(request: web.Request) -> web.Response:
 
 def _check_rate_limit(request: web.Request) -> web.Response | None:
     """Check rate limit for the requesting IP. Returns 429 response or None."""
-    peer = request.remote or request.headers.get("X-Forwarded-For", "unknown").split(",")[0].strip()
+    peer = request.remote or "anonymous"
     now = time.time()
     
     with _rate_limit_lock:
@@ -3987,6 +3995,10 @@ async def on_cleanup(app: web.Application):
         except asyncio.CancelledError:
             pass
 
+    # Shutdown thread pool executors
+    _EXECUTOR.shutdown(wait=False)
+    _SLOW_EXECUTOR.shutdown(wait=False)
+
 
 # ============================================================================
 # AUTH HELPER
@@ -4091,16 +4103,15 @@ async def handle_index(request: web.Request) -> web.Response:
 
 async def handle_health(request: web.Request) -> web.Response:
     try:
-        cfg = request.app["cfg"]
-        s = common_status(cfg)
-        for k in ["audit", "active_exec", "max_concurrent", "python"]:
-            s.pop(k, None)
-        # Add uptime_seconds (v1.5.0 improvement)
-        s["uptime_seconds"] = round(time.time() - BRIDGE_METRICS["start_time"], 1)
         _record_request()
-        return _cors_json_response(s)
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+        return _cors_json_response({
+            "ok": True,
+            "service": "arena-unified-bridge",
+            "version": VERSION,
+            "uptime_seconds": round(time.time() - BRIDGE_METRICS["start_time"], 1),
+        })
+    except Exception:
+        return _cors_json_response({"ok": False, "service": "arena-unified-bridge"}, status=500)
 
 
 async def handle_v1_version(request: web.Request) -> web.Response:
@@ -4638,6 +4649,14 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
     max_output = min(int(data.get("max_output", DEFAULT_MAX_OUTPUT)), cfg["max_output"])
     env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
     env = os.environ.copy()
+    # Block dangerous environment variables that could escalate privileges
+    _BLOCKED_ENV_PATTERNS = ["ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
+                              "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONSTARTUP"]
+    for k in list(env_extra.keys()):
+        for blocked in _BLOCKED_ENV_PATTERNS:
+            if blocked in k.upper():
+                del env_extra[k]
+                break
     env.update({str(k): str(v) for k, v in env_extra.items()})
 
     sem: asyncio.Semaphore = cfg["semaphore"]
@@ -5158,6 +5177,7 @@ async def handle_v1_browser_search(request: web.Request) -> web.Response:
 def _validate_url(url: str) -> str | None:
     """Validate URL scheme for browser endpoints. Returns error message or None."""
     from urllib.parse import urlparse
+    import ipaddress as _ipaddress
     try:
         parsed = urlparse(url)
     except Exception:
@@ -5165,12 +5185,19 @@ def _validate_url(url: str) -> str | None:
     if parsed.scheme not in ("http", "https"):
         return f"URL scheme '{parsed.scheme}' not allowed (only http/https)"
     hostname = parsed.hostname or ""
-    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+    # Block localhost / loopback
+    if hostname in ("localhost", "0.0.0.0", "::1", "::"):
         return "localhost/internal URLs not allowed"
+    # Block private/reserved IPs using ipaddress module
+    try:
+        addr = _ipaddress.ip_address(hostname)
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            return "private/internal URLs not allowed"
+    except ValueError:
+        pass  # hostname, not IP — continue with string checks
+    # Block cloud metadata
     if hostname.startswith("169.254."):
         return "cloud metadata URLs not allowed"
-    if hostname.startswith("10.") or hostname.startswith("192.168."):
-        return "private network URLs not allowed"
     return None
 
 
@@ -7079,7 +7106,6 @@ async def handle_v1_cdp_connect(request):
         port: int (default: 9222)
         headless: bool (default: true)
     """
-    global _cdp_connecting
     r = require_auth(request)
     if r: return r
     _record_request()
@@ -7100,7 +7126,7 @@ async def handle_v1_cdp_connect(request):
             "tab_count": _cdp_state["manager"].tab_count if _cdp_state["manager"] else 0,
         })
     
-    if _cdp_connecting:
+    if _cdp_connect_lock.locked():
         return _cors_json_response({"ok": False, "error": "CDP connect already in progress"}, status=409)
     
     # Parse optional body
@@ -7113,157 +7139,154 @@ async def handle_v1_cdp_connect(request):
     except Exception:
         pass
     
-    _cdp_connecting = True
-    try:
-        mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
-
-        # Read the diag file as a fallback — even if executor hangs, we may get partial info
-        diag_file_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "launch-diag.json")
-
+    async with _cdp_connect_lock:
         try:
-            await asyncio.wait_for(mgr.connect(), timeout=60)
-        except asyncio.TimeoutError:
-            _record_request(is_error=True, count_request=False)
-            # Gather diagnostics from multiple sources
-            browser_crashed = False
-            launch_diag = {}
-            stderr_info = ""
-            chromium_log = ""
+            mgr = cdp.CDPTabManager(port=port, headless=headless, auto_launch=True)
 
-            # Source 1: From the browser proc object
-            if mgr._browser_proc:
-                if mgr._browser_proc.poll() is not None:
-                    browser_crashed = True
-                launch_diag = getattr(mgr._browser_proc, '_cdp_launch_diag', {})
-                stderr_log = launch_diag.get("stderr_log", "")
-                if stderr_log:
-                    try:
-                        with open(stderr_log, "r") as f:
-                            stderr_info = f.read().strip()[:2000]
-                    except Exception:
-                        pass
+            # Read the diag file as a fallback — even if executor hangs, we may get partial info
+            diag_file_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "launch-diag.json")
 
-            # Source 2: From the diag file (fallback if executor hung)
-            if not launch_diag:
-                try:
-                    with open(diag_file_path, "r") as f:
-                        launch_diag = json.load(f)
-                except Exception:
-                    pass
-
-            # Source 3: From Chromium's stderr log directly
-            if not stderr_info:
-                try:
-                    stderr_log_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "chromium-launch.log")
-                    if os.path.exists(stderr_log_path):
-                        with open(stderr_log_path, "r") as f:
-                            chromium_log = f.read().strip()[:2000]
-                except Exception:
-                    pass
-
-            error_msg = "CDP connect timed out (60s)."
-            if browser_crashed:
-                error_msg += f" Browser exited (rc={mgr._browser_proc.returncode})."
-            if stderr_info:
-                error_msg += f" stderr: {stderr_info[:400]}"
-            elif chromium_log:
-                error_msg += f" chromium.log: {chromium_log[:400]}"
-            if launch_diag:
-                if launch_diag.get("direct_error"):
-                    error_msg += f" | Direct: {launch_diag['direct_error'][:200]}"
-                if launch_diag.get("direct_exception"):
-                    error_msg += f" | DirectExc: {launch_diag['direct_exception'][:200]}"
-                if launch_diag.get("systemd_run_error"):
-                    error_msg += f" | SystemdRun: {launch_diag['systemd_run_error'][:200]}"
-                if launch_diag.get("all_failed"):
-                    error_msg += " | ALL LAUNCH STRATEGIES FAILED"
-            else:
-                error_msg += " | No diagnostics available (executor may have hung). Try manually: chromium --remote-debugging-port=9222 --headless=new --no-sandbox --ozone-platform=headless &"
-
-            # Kill the browser process if it's still running
-            if mgr._browser_proc and mgr._browser_proc.poll() is None:
-                try:
-                    mgr._browser_proc.terminate()
-                    mgr._browser_proc.wait(timeout=2)
-                except Exception:
-                    try:
-                        mgr._browser_proc.kill()
-                    except Exception:
-                        pass
-
-            return _cors_json_response(
-                {"ok": False, "error": error_msg, "browser_crashed": browser_crashed,
-                 "diagnostics": launch_diag, "stderr": (stderr_info or chromium_log)[:1500]},
-                status=408
-            )
-        
-        _cdp_state["manager"] = mgr
-        _cdp_state["connected"] = True
-        _cdp_state["port"] = port
-        _cdp_state["headless"] = headless
-        _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
-        _cdp_state["last_disconnect_reason"] = None
-
-        # Emit event (Phase 3)
-        asyncio.create_task(emit_event("cdp_connect", {"port": port, "headless": headless}))
-
-        # Start the health watcher for auto-reconnect
-        _start_cdp_watcher()
-        
-        # Verify active tab is actually connected (auto-connect may have failed silently)
-        # v1.9.18: More aggressive retry with WS URL reconstruction
-        active_tab = mgr.active_tab
-        tab_connected = active_tab is not None and active_tab.connected
-        if active_tab and not active_tab.connected:
-            # Retry 1: Try connect again (sometimes first attempt fails)
             try:
-                await asyncio.wait_for(active_tab.connect(), timeout=25)
-                tab_connected = True
-                log.info("[CDP] Re-connected active tab %s on second attempt", mgr.active_tab_id)
-            except Exception as e:
-                log.warning("[CDP] Active tab auto-connect retry 1 failed: %s", e)
-            
-            # Retry 2: Reconstruct WS URL from target_id and try again
-            if not tab_connected:
-                old_url = active_tab.ws_url
-                new_url = f"ws://127.0.0.1:{port}/devtools/page/{active_tab.target_id}"
-                if new_url != old_url:
-                    log.info("[CDP] Retrying with constructed WS URL: %s (was: %s)", new_url, old_url[:60])
-                    active_tab.ws_url = new_url
+                await asyncio.wait_for(mgr.connect(), timeout=60)
+            except asyncio.TimeoutError:
+                _record_request(is_error=True, count_request=False)
+                # Gather diagnostics from multiple sources
+                browser_crashed = False
+                launch_diag = {}
+                stderr_info = ""
+                chromium_log = ""
+
+                # Source 1: From the browser proc object
+                if mgr._browser_proc:
+                    if mgr._browser_proc.poll() is not None:
+                        browser_crashed = True
+                    launch_diag = getattr(mgr._browser_proc, '_cdp_launch_diag', {})
+                    stderr_log = launch_diag.get("stderr_log", "")
+                    if stderr_log:
+                        try:
+                            with open(stderr_log, "r") as f:
+                                stderr_info = f.read().strip()[:2000]
+                        except Exception:
+                            pass
+
+                # Source 2: From the diag file (fallback if executor hung)
+                if not launch_diag:
                     try:
-                        await asyncio.wait_for(active_tab.connect(), timeout=15)
-                        tab_connected = True
-                        log.info("[CDP] Connected active tab with constructed WS URL")
-                    except Exception as e:
-                        log.warning("[CDP] Constructed WS URL retry failed: %s", e)
-                        active_tab.ws_url = old_url  # Restore original
-        
-        result = {
-            "ok": True,
-            "message": "CDP connected",
-            "port": port,
-            "headless": headless,
-            "tab_count": mgr.tab_count,
-            "active_tab_id": mgr.active_tab_id,
-            "tabs": [tab.to_dict() for tab in mgr.list_tabs()],
-            "ws_diagnostics": mgr.ws_diagnostics,
-        }
-        if not tab_connected:
-            result["warning"] = "Active tab is not connected — CDP page operations may fail. Try reconnecting."
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"Failed to connect: {str(e)}"},
-            status=500
-        )
-    finally:
-        _cdp_connecting = False
+                        with open(diag_file_path, "r") as f:
+                            launch_diag = json.load(f)
+                    except Exception:
+                        pass
+
+                # Source 3: From Chromium's stderr log directly
+                if not stderr_info:
+                    try:
+                        stderr_log_path = os.path.join(tempfile.gettempdir(), f"cdp-browser-{os.getpid()}", "chromium-launch.log")
+                        if os.path.exists(stderr_log_path):
+                            with open(stderr_log_path, "r") as f:
+                                chromium_log = f.read().strip()[:2000]
+                    except Exception:
+                        pass
+
+                error_msg = "CDP connect timed out (60s)."
+                if browser_crashed:
+                    error_msg += f" Browser exited (rc={mgr._browser_proc.returncode})."
+                if stderr_info:
+                    error_msg += f" stderr: {stderr_info[:400]}"
+                elif chromium_log:
+                    error_msg += f" chromium.log: {chromium_log[:400]}"
+                if launch_diag:
+                    if launch_diag.get("direct_error"):
+                        error_msg += f" | Direct: {launch_diag['direct_error'][:200]}"
+                    if launch_diag.get("direct_exception"):
+                        error_msg += f" | DirectExc: {launch_diag['direct_exception'][:200]}"
+                    if launch_diag.get("systemd_run_error"):
+                        error_msg += f" | SystemdRun: {launch_diag['systemd_run_error'][:200]}"
+                    if launch_diag.get("all_failed"):
+                        error_msg += " | ALL LAUNCH STRATEGIES FAILED"
+                else:
+                    error_msg += " | No diagnostics available (executor may have hung). Try manually: chromium --remote-debugging-port=9222 --headless=new --no-sandbox --ozone-platform=headless &"
+
+                # Kill the browser process if it's still running
+                if mgr._browser_proc and mgr._browser_proc.poll() is None:
+                    try:
+                        mgr._browser_proc.terminate()
+                        mgr._browser_proc.wait(timeout=2)
+                    except Exception:
+                        try:
+                            mgr._browser_proc.kill()
+                        except Exception:
+                            pass
+
+                return _cors_json_response(
+                    {"ok": False, "error": error_msg, "browser_crashed": browser_crashed,
+                     "diagnostics": launch_diag, "stderr": (stderr_info or chromium_log)[:1500]},
+                    status=408
+                )
+            
+            _cdp_state["manager"] = mgr
+            _cdp_state["connected"] = True
+            _cdp_state["port"] = port
+            _cdp_state["headless"] = headless
+            _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
+            _cdp_state["last_disconnect_reason"] = None
+
+            # Emit event (Phase 3)
+            asyncio.create_task(emit_event("cdp_connect", {"port": port, "headless": headless}))
+
+            # Start the health watcher for auto-reconnect
+            _start_cdp_watcher()
+            
+            # Verify active tab is actually connected (auto-connect may have failed silently)
+            # v1.9.18: More aggressive retry with WS URL reconstruction
+            active_tab = mgr.active_tab
+            tab_connected = active_tab is not None and active_tab.connected
+            if active_tab and not active_tab.connected:
+                # Retry 1: Try connect again (sometimes first attempt fails)
+                try:
+                    await asyncio.wait_for(active_tab.connect(), timeout=25)
+                    tab_connected = True
+                    log.info("[CDP] Re-connected active tab %s on second attempt", mgr.active_tab_id)
+                except Exception as e:
+                    log.warning("[CDP] Active tab auto-connect retry 1 failed: %s", e)
+                
+                # Retry 2: Reconstruct WS URL from target_id and try again
+                if not tab_connected:
+                    old_url = active_tab.ws_url
+                    new_url = f"ws://127.0.0.1:{port}/devtools/page/{active_tab.target_id}"
+                    if new_url != old_url:
+                        log.info("[CDP] Retrying with constructed WS URL: %s (was: %s)", new_url, old_url[:60])
+                        active_tab.ws_url = new_url
+                        try:
+                            await asyncio.wait_for(active_tab.connect(), timeout=15)
+                            tab_connected = True
+                            log.info("[CDP] Connected active tab with constructed WS URL")
+                        except Exception as e:
+                            log.warning("[CDP] Constructed WS URL retry failed: %s", e)
+                            active_tab.ws_url = old_url  # Restore original
+            
+            result = {
+                "ok": True,
+                "message": "CDP connected",
+                "port": port,
+                "headless": headless,
+                "tab_count": mgr.tab_count,
+                "active_tab_id": mgr.active_tab_id,
+                "tabs": [tab.to_dict() for tab in mgr.list_tabs()],
+                "ws_diagnostics": mgr.ws_diagnostics,
+            }
+            if not tab_connected:
+                result["warning"] = "Active tab is not connected — CDP page operations may fail. Try reconnecting."
+            return _cors_json_response(result)
+        except Exception as e:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response(
+                {"ok": False, "error": f"Failed to connect: {str(e)}"},
+                status=500
+            )
 
 
 async def handle_v1_cdp_disconnect(request):
     """POST /v1/browser/cdp/disconnect — Disconnect CDP session."""
-    global _cdp_connecting
     r = require_auth(request)
     if r: return r
     _record_request()
@@ -7271,45 +7294,43 @@ async def handle_v1_cdp_disconnect(request):
     if not _cdp_state["connected"]:
         return _cors_json_response({"ok": True, "message": "Not connected"})
     
-    if _cdp_connecting:
+    if _cdp_connect_lock.locked():
         return _cors_json_response({"ok": False, "error": "CDP operation in progress"}, status=409)
     
-    _cdp_connecting = True
-    try:
-        # Stop monitors/interceptors first
-        if _cdp_state.get("interceptor") and _cdp_state["interceptor"].active:
-            await _cdp_state["interceptor"].stop()
-        if _cdp_state.get("monitor") and _cdp_state["monitor"].active:
-            await _cdp_state["monitor"].stop()
-        if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
-            await _cdp_state["cookie_mgr"].stop()
-        
-        # Stop the health watcher before disconnecting
-        _stop_cdp_watcher()
+    async with _cdp_connect_lock:
+        try:
+            # Stop monitors/interceptors first
+            if _cdp_state.get("interceptor") and _cdp_state["interceptor"].active:
+                await _cdp_state["interceptor"].stop()
+            if _cdp_state.get("monitor") and _cdp_state["monitor"].active:
+                await _cdp_state["monitor"].stop()
+            if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
+                await _cdp_state["cookie_mgr"].stop()
+            
+            # Stop the health watcher before disconnecting
+            _stop_cdp_watcher()
 
-        # Close the manager
-        if _cdp_state["manager"]:
-            await _cdp_state["manager"].close()
-        
-        _cdp_state["manager"] = None
-        _cdp_state["monitor"] = None
-        _cdp_state["interceptor"] = None
-        _cdp_state["cookie_mgr"] = None
-        _cdp_state["connected"] = False
-        _cdp_state["last_disconnect_reason"] = "User disconnected"
+            # Close the manager
+            if _cdp_state["manager"]:
+                await _cdp_state["manager"].close()
+            
+            _cdp_state["manager"] = None
+            _cdp_state["monitor"] = None
+            _cdp_state["interceptor"] = None
+            _cdp_state["cookie_mgr"] = None
+            _cdp_state["connected"] = False
+            _cdp_state["last_disconnect_reason"] = "User disconnected"
 
-        # Emit event (Phase 3)
-        asyncio.create_task(emit_event("cdp_disconnect", {"reason": "User disconnected"}))
+            # Emit event (Phase 3)
+            asyncio.create_task(emit_event("cdp_disconnect", {"reason": "User disconnected"}))
 
-        return _cors_json_response({"ok": True, "message": "CDP disconnected"})
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"Disconnect error: {str(e)}"},
-            status=500
-        )
-    finally:
-        _cdp_connecting = False
+            return _cors_json_response({"ok": True, "message": "CDP disconnected"})
+        except Exception as e:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response(
+                {"ok": False, "error": f"Disconnect error: {str(e)}"},
+                status=500
+            )
 
 
 # ---- CDP Page Operations ----
@@ -9192,9 +9213,13 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
         env["SKILL_NAME"] = name
         env["SKILL_DIR"] = str(skill_dir)
         env["SKILL_ARGS"] = json.dumps(args)
+        # Filter dangerous env vars from user-supplied extras
         if env_extra:
+            _SKILL_BLOCKED_ENV = {"ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
+                                   "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH"}
             for k, v in env_extra.items():
-                env[k] = str(v) if not isinstance(v, str) else v
+                if not any(b in k.upper() for b in _SKILL_BLOCKED_ENV):
+                    env[k] = str(v) if not isinstance(v, str) else v
 
         if runner_sh.exists():
             # Use bash to execute .sh files (git may not preserve +x bit)
@@ -9266,6 +9291,10 @@ async def handle_v1_skills_run(request: web.Request) -> web.Response:
     if not name:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing name"}, status=400)
+    # Prevent path traversal in skill names
+    if ".." in name or "/" in name or "\\" in name:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "invalid skill name"}, status=400)
     skill_args = data.get("args") or []
     skill_input = data.get("input") or {}
 
@@ -9584,7 +9613,7 @@ async def handle_v1_browser_browse(request):
                 _record_request(is_error=True, count_request=False)
                 return _cors_json_response({"ok": False, "error": "BrowserAct skill not installed"}, status=503)
             
-            cmd = ["bash", str(ba_skill), action, url]
+            cmd = [shutil.which("bash") or "bash", str(ba_skill), action, url]
             if wait_for:
                 cmd.extend(["--wait-for", wait_for])
             if action == "shot":
@@ -9823,9 +9852,9 @@ async def handle_prometheus_metrics(request: web.Request) -> web.Response:
             "",
         ]
         
-        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4", charset="utf-8")
+        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4; charset=utf-8")
     except Exception as e:
-        return web.Response(text=f"# ERROR: {e}\n", status=500, content_type="text/plain", charset="utf-8")
+        return web.Response(text=f"# ERROR: internal error\n", status=500, content_type="text/plain; charset=utf-8")
 
 
 # --- /api-docs GET — OpenAPI 3.0 specification ---
@@ -9957,6 +9986,8 @@ async def handle_mcp_post(request: web.Request) -> web.Response:
 
 async def handle_mcp_delete(request: web.Request) -> web.Response:
     """Close MCP session."""
+    r = require_auth(request)
+    if r: return r
     try:
         sess = request.headers.get("Mcp-Session-Id", "")
         request.app["mcp_sessions"].pop(sess, None)

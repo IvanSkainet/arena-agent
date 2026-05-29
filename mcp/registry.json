@@ -4,9 +4,9 @@
     "args": [
       "-y",
       "@modelcontextprotocol/server-filesystem",
-      "${HOME}"
+      "${ARENA_AGENT_HOME}"
     ],
-    "description": "File system access (read/write/list) inside given root.",
+    "description": "File system access (read/write/list) inside Arena bridge directory.",
     "tags": [
       "fs",
       "official"
@@ -30,7 +30,7 @@
       "-q",
       "mcp-server-sqlite",
       "--db-path",
-      "${HOME}/arena-bridge/memory/facts.db"
+      "${ARENA_AGENT_HOME}/memory/facts.db"
     ],
     "description": "SQLite query tool over local DB.",
     "tags": [
@@ -44,7 +44,7 @@
       "-q",
       "mcp-server-git",
       "--repository",
-      "${HOME}"
+      "${ARENA_AGENT_HOME}"
     ],
     "description": "Git operations (status, log, diff, branch).",
     "tags": [
