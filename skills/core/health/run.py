@@ -64,8 +64,10 @@ def check_dirs() -> None:
         p = ROOT / d
         add(p.is_dir(), f"{d}_dir", str(p))
     facts = ROOT / "memory" / "facts.jsonl"
+    # facts.jsonl only exists after first memory write — not a critical failure
     add(facts.exists(), "facts_jsonl",
-        f"{facts.stat().st_size} bytes" if facts.exists() else "missing")
+        f"{facts.stat().st_size} bytes" if facts.exists() else "empty (no memories yet)",
+        critical=False)
     # Audit log can be at root or in logs/
     audit = ROOT / "audit.jsonl"
     if not audit.exists():
