@@ -1,6 +1,6 @@
 @echo off
 REM ============================================================
-REM  Arena Unified Bridge — Universal Windows Installer
+REM  Arena Unified Bridge — Windows Installer v2.0.4
 REM  Everything stays in this directory. No scattered files.
 REM  Run:  install.bat
 REM ============================================================
@@ -14,12 +14,16 @@ echo.
 
 REM --- All paths are inside THIS directory ---
 set "BRIDGE_DIR=%~dp0"
-set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
+REM Remove trailing backslash
+if "%BRIDGE_DIR:~-1%"=="\" set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
 if defined ARENA_PORT (set "PORT=%ARENA_PORT%") else (set "PORT=8765")
 set "PROFILE=owner-shell"
 set "TOKEN_FILE=%BRIDGE_DIR%\token.txt"
 
-REM --- Find Python (try multiple names) ---
+REM ============================================================
+REM Step 1: Find Python
+REM ============================================================
+echo [1/5] Finding Python...
 set "PYTHON="
 for %%c in (python python3 py) do (
     if not defined PYTHON (
@@ -28,186 +32,94 @@ for %%c in (python python3 py) do (
     )
 )
 if not defined PYTHON (
-    echo [ERROR] Python not found. Install Python 3.10+ and add to PATH.
-    echo         Download from: https://www.python.org/downloads/
+    echo.
+    echo  [ERROR] Python not found!
+    echo  Install Python 3.10+ and add to PATH.
+    echo  Download: https://www.python.org/downloads/
+    echo  IMPORTANT: Check "Add Python to PATH" during install.
+    echo.
     pause
     exit /b 1
 )
 
-for /f "tokens=2 delims= " %%v in ('%PYTHON% --version 2^>^&1') do set PYVER=%%v
-echo [OK] Python %PYVER% found
+for /f "tokens=2 delims= " %%v in ('%PYTHON% --version 2^>^&1') do set "PYVER=%%v"
+echo       Python %PYVER% found at: %PYTHON%
 
-REM --- Read version from bridge (no hardcoded version) ---
+REM --- Read version from bridge source ---
 set "VERSION=unknown"
 for /f "tokens=3" %%v in ('findstr /r "^VERSION = " "%BRIDGE_DIR%\unified_bridge.py" 2^>nul') do set "VERSION=%%v"
 set "VERSION=%VERSION:"=%"
-echo [OK] Bridge v%VERSION%
+echo       Bridge v%VERSION%
 
-REM --- Install dependencies ---
+REM ============================================================
+REM Step 2: Install Python dependencies
+REM ============================================================
 echo.
-echo [1/4] Installing Python dependencies...
-%PYTHON% -m pip install aiohttp psutil --quiet 2>nul
+echo [2/5] Installing Python dependencies...
+%PYTHON% -m pip install --quiet aiohttp psutil 2>nul
+if errorlevel 1 (
+    echo       [WARN] pip install failed, trying with --user...
+    %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
+)
 echo       Done.
 
-REM --- Create subdirectories (all inside BRIDGE_DIR) ---
+REM ============================================================
+REM Step 3: Create directory structure
+REM ============================================================
 echo.
-echo [2/4] Creating directory structure...
-for %%d in (memory missions hooks\pre_skill.d hooks\post_skill.d logs queue\inbox queue\running queue\done queue\failed reports\shots backups mcp subagents projects skills scripts bin) do (
+echo [3/5] Creating directory structure...
+for %%d in (memory sessions memory\sessions missions hooks hooks\pre_skill.d hooks\post_skill.d logs queue queue\inbox queue\running queue\done queue\failed reports reports\shots backups mcp subagents projects skills scripts bin) do (
     if not exist "%BRIDGE_DIR%\%%d" mkdir "%BRIDGE_DIR%\%%d"
 )
 echo       Done.
 
-REM --- Migration from old versions ---
-set "FOUND_OLD=0"
-for %%d in ("%USERPROFILE%\.arena-local-bridge" "%USERPROFILE%\.arena-agent" "%USERPROFILE%\arena-agent") do (
-    if exist "%%d" set "FOUND_OLD=1"
-)
-if "%FOUND_OLD%"=="1" (
-    echo.
-    echo  ========================================
-    echo   Migration from Old Versions
-    echo  ========================================
-    echo.
-    for %%d in ("%USERPROFILE%\.arena-local-bridge" "%USERPROFILE%\.arena-agent" "%USERPROFILE%\arena-agent") do (
-        if exist "%%d" (
-            echo [INFO] Found old directory: %%d
-            REM Migrate token if not already present
-            if exist "%%d\token.txt" if not exist "%TOKEN_FILE%" (
-                copy "%%d\token.txt" "%TOKEN_FILE%" >nul 2>&1
-                echo [OK] Token migrated from %%d
-            )
-            REM Migrate audit if not already present
-            if exist "%%d\audit.jsonl" if not exist "%BRIDGE_DIR%\audit.jsonl" (
-                copy "%%d\audit.jsonl" "%BRIDGE_DIR%\audit.jsonl" >nul 2>&1
-                echo [OK] Audit log migrated from %%d
-            )
-            set /p "REMOVE_OLD=Remove old directory %%d? [y/N]: "
-            if /i "!REMOVE_OLD!"=="y" (
-                rmdir /s /q "%%d" 2>nul
-                echo [OK] Removed %%d
-            )
-        )
-    )
-    echo [OK] Migration check complete
-)
-
 REM --- Generate token (preserve existing) ---
-echo.
-echo [3/4] Generating auth token...
 if not exist "%TOKEN_FILE%" (
     %PYTHON% -c "import secrets; print(secrets.token_urlsafe(32), end='')" > "%TOKEN_FILE%"
-    echo       New token generated.
+    echo       New auth token generated.
 ) else (
     echo       Existing token preserved.
 )
 
-REM ============================================================
-REM Optional Components
-REM ============================================================
-echo.
-echo  ========================================
-echo   Optional Components
-echo  ========================================
-echo.
-
-REM --- Tailscale ---
-where tailscale >nul 2>&1
-if not errorlevel 1 (
-    REM Check if logged in by reading DNSName from JSON output
-    set "TS_DNSNAME="
-    for /f "delims=" %%d in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); dns=d.get('Self',{}).get('DNSName','') or d.get('DNSName',''); print(dns.rstrip('.')) if dns else None" 2^>nul') do set "TS_DNSNAME=%%d"
-    if defined TS_DNSNAME (
-        echo [OK] Tailscale connected: !TS_DNSNAME!
-    ) else (
-        echo [WARN] Tailscale is installed but not logged in
-        set /p "TS_LOGIN=Run Tailscale login now? [y/N]: "
-        if /i "!TS_LOGIN!"=="y" (
-            tailscale login
-            echo [OK] Tailscale login initiated - follow the URL in output
-        ) else (
-            echo [INFO] You can login later: tailscale login
-        )
-    )
-) else (
-    echo [INFO] Tailscale not found. Install for internet access: https://tailscale.com
+REM --- Read token for later use ---
+set "AUTH_TOKEN="
+if exist "%TOKEN_FILE%" (
+    set /p "AUTH_TOKEN=" < "%TOKEN_FILE%"
 )
 
-REM --- SuperPowers ---
-if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
-    echo [OK] SuperPowers already installed in skills\superpowers\
-) else (
-    set /p "INSTALL_SP=Install SuperPowers? (agentic TDD, debugging, planning skills) [y/N]: "
-    if /i "!INSTALL_SP!"=="y" (
-        echo [INFO] Cloning SuperPowers from GitHub...
-        git clone --depth 1 https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers" 2>nul
-        if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
-            echo [OK] SuperPowers installed - 14 skills available
-        ) else (
-            echo [WARN] SuperPowers clone failed. Install later:
-            echo        git clone https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers"
-        )
-    ) else (
-        echo [INFO] SuperPowers skipped. Install later:
-        echo        git clone https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers"
-    )
-)
-
-REM --- BrowserAct ---
-where browser-act >nul 2>&1
-if not errorlevel 1 (
-    echo [OK] BrowserAct already installed
-) else (
-    where uv >nul 2>&1
-    if not errorlevel 1 (
-        set /p "INSTALL_BA=Install BrowserAct? (browser automation CLI for AI agents) [y/N]: "
-        if /i "!INSTALL_BA!"=="y" (
-            echo [INFO] Installing BrowserAct via uv (requires Python 3.12)...
-            uv tool install browser-act-cli --python 3.12 2>nul
-            where browser-act >nul 2>&1
-            if not errorlevel 1 (
-                echo [OK] BrowserAct installed
-                if not exist "%BRIDGE_DIR%\skills\browseract" mkdir "%BRIDGE_DIR%\skills\browseract"
-                if not exist "%BRIDGE_DIR%\skills\browseract\SKILL.md" (
-                    echo [INFO] Downloading BrowserAct skill file...
-                    curl -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browseract\SKILL.md" 2>nul
-                )
-            ) else (
-                echo [WARN] BrowserAct installation may have failed. Install manually:
-                echo        uv tool install browser-act-cli --python 3.12
-            )
-        ) else (
-            echo [INFO] BrowserAct skipped. Install later:
-            echo        uv tool install browser-act-cli --python 3.12
-        )
-    ) else (
-        echo [INFO] BrowserAct requires 'uv' package manager. Install uv first:
-        echo        https://docs.astral.sh/uv/getting-started/installation/
-        echo        Then: uv tool install browser-act-cli --python 3.12
-    )
-)
-
+REM ============================================================
+REM Step 4: Install and start bridge
+REM ============================================================
 echo.
-
-REM ============================================================
-REM Step 4: Install and start service
-REM ============================================================
-echo [4/4] Installing and starting service...
+echo [4/5] Installing bridge service...
 
 REM Kill any existing bridge process on our port
 for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do (
     taskkill /F /PID %%P >nul 2>nul
 )
 
+REM Try NSSM first, fallback to Scheduled Task
+set "SERVICE_METHOD=none"
+
 where nssm >nul 2>&1
 if not errorlevel 1 (
-    REM NSSM available - install as proper Windows service
+    set "SERVICE_METHOD=nssm"
+    echo       Using NSSM service manager...
+
     nssm stop ArenaUnifiedBridge >nul 2>&1
+    timeout /t 1 /nobreak >nul
     nssm remove ArenaUnifiedBridge confirm >nul 2>&1
 
-    REM Determine pythonw path (no console window)
+    REM Determine pythonw path (no console window for background service)
     set "PYW=%PYTHON%"
-    for %%p in ("%PYTHON%") do set "PYW=%%~dpPpythonw%%~xP"
-    if not exist "!PYW!" set "PYW=%PYTHON%"
+    for %%p in ("%PYTHON%") do (
+        set "PYW_DIR=%%~dpP"
+        set "PYW_EXT=%%~xP"
+    )
+    if defined PYW_DIR (
+        set "PYW=!PYW_DIR!pythonw!PYW_EXT!"
+        if not exist "!PYW!" set "PYW=%PYTHON%"
+    )
 
     nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
     nssm set ArenaUnifiedBridge AppDirectory "%BRIDGE_DIR%" >nul 2>&1
@@ -217,114 +129,105 @@ if not errorlevel 1 (
     nssm set ArenaUnifiedBridge AppStderr "%BRIDGE_DIR%\logs\bridge_err.log" >nul 2>&1
     nssm set ArenaUnifiedBridge AppEnvironmentExtra ARENA_AGENT_HOME=%BRIDGE_DIR% ARENA_TOKEN_FILE=%TOKEN_FILE% >nul 2>&1
     nssm start ArenaUnifiedBridge >nul 2>&1
-    echo [OK] NSSM service installed and started.
+    echo       [OK] NSSM service installed and started.
 ) else (
-    REM No NSSM - use Scheduled Task
-    echo @echo off > "%BRIDGE_DIR%\start_bridge.bat"
-    echo cd /d "%BRIDGE_DIR%" >> "%BRIDGE_DIR%\start_bridge.bat"
-    echo set ARENA_AGENT_HOME=%BRIDGE_DIR% >> "%BRIDGE_DIR%\start_bridge.bat"
-    echo set ARENA_TOKEN_FILE=token.txt >> "%BRIDGE_DIR%\start_bridge.bat"
-    echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT% >> "%BRIDGE_DIR%\start_bridge.bat"
+    set "SERVICE_METHOD=schtasks"
+    echo       NSSM not found, using Scheduled Task...
+
+    REM Create start script
+    echo @echo off> "%BRIDGE_DIR%\start_bridge.bat"
+    echo cd /d "%BRIDGE_DIR%">> "%BRIDGE_DIR%\start_bridge.bat"
+    echo set ARENA_AGENT_HOME=%BRIDGE_DIR%>> "%BRIDGE_DIR%\start_bridge.bat"
+    echo set ARENA_TOKEN_FILE=%TOKEN_FILE%>> "%BRIDGE_DIR%\start_bridge.bat"
+    echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT%>> "%BRIDGE_DIR%\start_bridge.bat"
 
     schtasks /delete /tn "ArenaUnifiedBridge" /f >nul 2>&1
     schtasks /create /tn "ArenaUnifiedBridge" /tr "%BRIDGE_DIR%\start_bridge.bat" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
     schtasks /run /tn "ArenaUnifiedBridge" >nul 2>&1
-    echo [OK] Scheduled task installed and started.
+    echo       [OK] Scheduled task installed and started.
 )
 
-REM --- Add Windows Firewall rule for bridge port ---
+REM --- Add Windows Firewall rule ---
 netsh advfirewall firewall show rule name="Arena Bridge" >nul 2>&1
 if errorlevel 1 (
     netsh advfirewall firewall add rule name="Arena Bridge" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>&1
-    if not errorlevel 1 echo [OK] Firewall rule added for port %PORT%
+    if not errorlevel 1 echo       [OK] Firewall rule added for port %PORT%
 )
 
-REM --- Wait and verify ---
-echo [INFO] Waiting for bridge to start...
-for /L %%i in (1,1,10) do (
-    curl -fsS "http://127.0.0.1:%PORT%/health" >nul 2>&1
-    if not errorlevel 1 (
-        echo [OK] Bridge is healthy! v%VERSION%
-        goto :healthy
+REM ============================================================
+REM Step 5: Wait for bridge and verify
+REM ============================================================
+echo.
+echo [5/5] Waiting for bridge to start...
+set "HEALTHY=0"
+for /L %%i in (1,1,15) do (
+    if "!HEALTHY!"=="0" (
+        curl --max-time 2 -fsS "http://127.0.0.1:%PORT%/health" >nul 2>&1
+        if not errorlevel 1 (
+            set "HEALTHY=1"
+            echo       Bridge is healthy! v%VERSION%
+        ) else (
+            echo       Waiting... %%i/15
+            timeout /t 2 /nobreak >nul
+        )
     )
-    timeout /t 1 /nobreak >nul
 )
-echo [WARN] Bridge not responding after 10s. Check: %BRIDGE_DIR%\logs\bridge.log
-:healthy
-
-REM --- Detect Tailscale URL ---
-REM Try multiple methods — must work for ALL users on ALL platforms
-set "TS_URL="
-
-REM Read token for API auth
-set "AUTH_TOKEN="
-if exist "%TOKEN_FILE%" (
-    for /f "delims=" %%t in ('type "%TOKEN_FILE%"') do set "AUTH_TOKEN=%%t"
+if "%HEALTHY%"=="0" (
+    echo.
+    echo  [WARN] Bridge not responding after 30s.
+    echo  Check logs at: %BRIDGE_DIR%\logs\bridge.log
+    echo  Or start manually:
+    echo    cd /d "%BRIDGE_DIR%"
+    echo    %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --port %PORT%
+    echo.
 )
 
-REM Method 1: Query the bridge API (most reliable)
-if defined TS_URL goto :ts_url_done
-if defined AUTH_TOKEN (
-    for /f "delims=" %%u in ('curl -s -H "Authorization: Bearer %AUTH_TOKEN%" "http://127.0.0.1:%PORT%/v1/sys/funnel" 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); print(d.get('funnel',{}).get('url',''))" 2^>nul') do set "TS_URL=%%u"
-)
-
-REM Method 2: tailscale status --json, read Self.DNSName
-if defined TS_URL goto :ts_url_done
-where tailscale >nul 2>&1
-if not errorlevel 1 (
-    for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); dns=d.get('Self',{}).get('DNSName','') or d.get('DNSName',''); print('https://'+dns.rstrip('.')) if dns else None" 2^>nul') do set "TS_URL=%%u"
-)
-
-REM Method 3: Parse from tailscale status text
-if defined TS_URL goto :ts_url_done
-where tailscale >nul 2>&1
-if not errorlevel 1 (
-    for /f "tokens=6 delims= " %%u in ('tailscale status 2^>nul ^| findstr /r "https://.*\.ts\.net"') do set "TS_URL=%%u"
-)
-
-:ts_url_done
-
+REM ============================================================
+REM Summary
+REM ============================================================
 echo.
 echo  ========================================
-echo   Installation Complete!
+echo   INSTALLATION COMPLETE
 echo  ========================================
 echo.
 echo   Directory:  %BRIDGE_DIR%
-echo   Dashboard:  http://127.0.0.1:%PORT%/gui
+echo   Dashboard:  http://127.0.0.1:%PORT%/gui?token=%AUTH_TOKEN%
 echo   Health:     http://127.0.0.1:%PORT%/health
 echo   Token file: %TOKEN_FILE%
 echo.
 
-REM Show token
-if exist "%TOKEN_FILE%" (
+if defined AUTH_TOKEN (
     echo   Your auth token:
-    for /f "delims=" %%t in ('type "%TOKEN_FILE%"') do echo   %%t
-    echo.
-)
-if defined TS_URL (
-    echo   Your secure Tailscale URL:
-    echo   %TS_URL%
+    echo   %AUTH_TOKEN%
     echo.
 )
 
 echo   Manage:
-where nssm >nul 2>&1
-if not errorlevel 1 (
+if "%SERVICE_METHOD%"=="nssm" (
     echo     nssm status ArenaUnifiedBridge
     echo     nssm restart ArenaUnifiedBridge
     echo     nssm stop ArenaUnifiedBridge
+    echo     nssm start ArenaUnifiedBridge
 ) else (
     echo     schtasks /run /tn "ArenaUnifiedBridge"
     echo     schtasks /end /tn "ArenaUnifiedBridge"
+    echo     Or run directly: start_bridge.bat
 )
 echo.
-echo   Optional:
-echo   tailscale funnel --bg %PORT%
+echo   Logs: %BRIDGE_DIR%\logs\bridge.log
 echo.
-echo   Installed skills:
-if exist "%BRIDGE_DIR%\skills\superpowers" echo   SuperPowers   - %BRIDGE_DIR%\skills\superpowers\
-if exist "%BRIDGE_DIR%\skills\browseract" echo   BrowserAct    - %BRIDGE_DIR%\skills\browseract\
-echo.
-echo   Update: re-run install.bat or: cd %BRIDGE_DIR% ^&^& git pull
+
+REM --- Tailscale (non-blocking, best-effort) ---
+where tailscale >nul 2>&1
+if not errorlevel 1 (
+    echo   Tailscale:
+    for /f "tokens=6 delims= " %%u in ('tailscale status 2^>nul ^| findstr /r "https://.*\.ts\.net"') do (
+        echo     URL: %%u
+    )
+    echo   Optional: tailscale funnel --bg %PORT%
+    echo.
+)
+
+echo   Update: re-run install.bat or: cd /d "%BRIDGE_DIR%" ^&^& git pull
 echo.
 pause
