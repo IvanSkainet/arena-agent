@@ -129,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.19"
+VERSION = "1.9.20"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3554,6 +3554,7 @@ async def handle_v1_cdp_raw_info(request):
             log.warning("[raw-info] /json/version fetch failed: %s", e)
 
         # Fetch /json/list — raw HTTP response
+        page_tabs = []  # Initialize BEFORE try to avoid UnboundLocalError if fetch fails
         try:
             def _get_tabs():
                 with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:
@@ -3940,20 +3941,20 @@ async def handle_v1_cdp_test_ws(request):
 
     try:
         loop = asyncio.get_event_loop()
-        logger.info("[test-ws] START port=%d", port)
+        log.info("[test-ws] START port=%d", port)
 
         # Step 0: Launch Chromium on the test port
         try:
             await loop.run_in_executor(None, cdp._kill_port_processes, port)
             await asyncio.sleep(0.3)
         except Exception as e:
-            logger.warning("[test-ws] Kill stale processes failed: %s", e)
+            log.warning("[test-ws] Kill stale processes failed: %s", e)
 
         browser_proc = await loop.run_in_executor(
             None, cdp.launch_browser, port, True
         )
         result["browser_pid"] = browser_proc.pid
-        logger.info("[test-ws] Browser launched pid=%d", browser_proc.pid)
+        log.info("[test-ws] Browser launched pid=%d", browser_proc.pid)
 
         # Wait for port to become ready (max 10s)
         port_ready = False
@@ -3977,7 +3978,7 @@ async def handle_v1_cdp_test_ws(request):
                 if tabs:
                     port_ready = True
                     result["port_ready_after_s"] = (attempt + 1) * 0.5
-                    logger.info("[test-ws] Port ready after %.1fs", (attempt + 1) * 0.5)
+                    log.info("[test-ws] Port ready after %.1fs", (attempt + 1) * 0.5)
                     break
             except Exception:
                 pass
@@ -4008,14 +4009,14 @@ async def handle_v1_cdp_test_ws(request):
                 "id": raw_version.get("id", "MISSING"),
             }
             result["http_endpoint_ok"] = True
-            logger.info("[test-ws] /json/version: keys=%s wsUrl=%s id=%s",
+            log.info("[test-ws] /json/version: keys=%s wsUrl=%s id=%s",
                         list(raw_version.keys()),
                         raw_version.get("webSocketDebuggerUrl", "MISSING")[:60],
                         raw_version.get("id", "MISSING")[:30])
         except Exception as e:
             result["raw_version_error"] = f"{type(e).__name__}: {e}"
             result["http_endpoint_ok"] = False
-            logger.warning("[test-ws] /json/version FAILED: %s", e)
+            log.warning("[test-ws] /json/version FAILED: %s", e)
 
         # Step 2: Fetch /json/list
         raw_tabs = []
@@ -4034,15 +4035,15 @@ async def handle_v1_cdp_test_ws(request):
                 tab_target_id = page_tabs[0].get("id", "")
                 result["tab_target_id"] = tab_target_id
                 for i, t in enumerate(page_tabs[:3]):
-                    logger.info("[test-ws] page[%d]: id=%s wsUrl=%s url=%s",
+                    log.info("[test-ws] page[%d]: id=%s wsUrl=%s url=%s",
                                 i, t.get("id", "?")[:20],
                                 t.get("webSocketDebuggerUrl", "MISSING")[:60],
                                 t.get("url", "?")[:50])
-            logger.info("[test-ws] /json/list: %d entries, %d pages",
+            log.info("[test-ws] /json/list: %d entries, %d pages",
                         len(raw_tabs), len(page_tabs))
         except Exception as e:
             result["raw_tabs_error"] = f"{type(e).__name__}: {e}"
-            logger.warning("[test-ws] /json/list FAILED: %s", e)
+            log.warning("[test-ws] /json/list FAILED: %s", e)
 
         # Construct WS URLs if webSocketDebuggerUrl is missing
         if not browser_ws_url:
@@ -4050,12 +4051,12 @@ async def handle_v1_cdp_test_ws(request):
             if browser_id:
                 browser_ws_url = f"ws://127.0.0.1:{port}/devtools/browser/{browser_id}"
                 result["browser_ws_constructed"] = True
-                logger.info("[test-ws] Constructed browser WS URL: %s", browser_ws_url)
+                log.info("[test-ws] Constructed browser WS URL: %s", browser_ws_url)
 
         if not tab_ws_url and tab_target_id:
             tab_ws_url = f"ws://127.0.0.1:{port}/devtools/page/{tab_target_id}"
             result["tab_ws_constructed"] = True
-            logger.info("[test-ws] Constructed tab WS URL: %s", tab_ws_url)
+            log.info("[test-ws] Constructed tab WS URL: %s", tab_ws_url)
 
         result["ws_url"] = browser_ws_url or "NONE"
         result["tab_ws_url"] = tab_ws_url[:80] if tab_ws_url else "NONE"
@@ -4091,20 +4092,20 @@ async def handle_v1_cdp_test_ws(request):
                         result["websockets_tab_cdp_error"] = str(e)
                     await ws.close()
                     result["ok"] = True
-                    logger.info("[test-ws] TAB WS OK (websockets, %.2fs)", elapsed)
+                    log.info("[test-ws] TAB WS OK (websockets, %.2fs)", elapsed)
                 except asyncio.TimeoutError:
                     elapsed = time.monotonic() - t0
                     result["websockets_tab_ok"] = False
                     result["websockets_tab_error"] = f"TIMEOUT after {elapsed:.1f}s"
                     result["websockets_tab_time_s"] = round(elapsed, 2)
                     result["tab_ws_connect_error"] = f"websockets TIMEOUT after {elapsed:.1f}s"
-                    logger.warning("[test-ws] TAB WS websockets TIMEOUT (%.1fs)", elapsed)
+                    log.warning("[test-ws] TAB WS websockets TIMEOUT (%.1fs)", elapsed)
                 except Exception as e:
                     result["websockets_tab_ok"] = False
                     result["websockets_tab_error"] = f"{type(e).__name__}: {e}"
                     result["websockets_tab_time_s"] = None
                     result["tab_ws_connect_error"] = f"websockets {type(e).__name__}: {e}"
-                    logger.warning("[test-ws] TAB WS websockets FAILED: %s", e)
+                    log.warning("[test-ws] TAB WS websockets FAILED: %s", e)
             except ImportError:
                 result["websockets_available"] = False
                 result["tab_ws_connect_error"] = "websockets library not available"
@@ -4136,22 +4137,22 @@ async def handle_v1_cdp_test_ws(request):
                             result["tab_cdp_error"] = str(e)
                         await tab_ws.close()
                         result["ok"] = True
-                        logger.info("[test-ws] TAB WS OK (aiohttp, %.2fs)", elapsed)
+                        log.info("[test-ws] TAB WS OK (aiohttp, %.2fs)", elapsed)
                 except asyncio.TimeoutError:
                     elapsed = time.monotonic() - t0
                     result["tab_ws_connect_ok"] = False
                     result["tab_ws_connect_error"] = f"aiohttp TIMEOUT after {elapsed:.1f}s"
                     result["tab_ws_connect_time_s"] = round(elapsed, 2)
-                    logger.warning("[test-ws] TAB WS aiohttp TIMEOUT (%.1fs)", elapsed)
+                    log.warning("[test-ws] TAB WS aiohttp TIMEOUT (%.1fs)", elapsed)
                 except Exception as e:
                     result["tab_ws_connect_ok"] = False
                     result["tab_ws_connect_error"] = f"aiohttp {type(e).__name__}: {e}"
                     result["tab_ws_connect_time_s"] = None
-                    logger.warning("[test-ws] TAB WS aiohttp FAILED: %s", e)
+                    log.warning("[test-ws] TAB WS aiohttp FAILED: %s", e)
         else:
             result["tab_ws_connect_ok"] = False
             result["tab_ws_connect_error"] = "No tab WS URL available"
-            logger.warning("[test-ws] No tab WS URL — cannot test tab WS")
+            log.warning("[test-ws] No tab WS URL — cannot test tab WS")
 
         # Step 4: Test BROWSER-level WS (only if tab WS worked, or as extra info)
         if browser_ws_url:
@@ -4179,11 +4180,11 @@ async def handle_v1_cdp_test_ws(request):
                     await ws.close()
                     if not result["ok"]:
                         result["ok"] = True
-                    logger.info("[test-ws] Browser WS OK (websockets, %.2fs)", elapsed)
+                    log.info("[test-ws] Browser WS OK (websockets, %.2fs)", elapsed)
                 except (asyncio.TimeoutError, Exception) as e:
                     result["ws_connect_ok"] = False
                     result["ws_connect_error"] = f"websockets {type(e).__name__}: {e}"
-                    logger.warning("[test-ws] Browser WS FAILED: %s", e)
+                    log.warning("[test-ws] Browser WS FAILED: %s", e)
             except ImportError:
                 result["ws_connect_ok"] = False
                 result["ws_connect_error"] = "websockets library not available"
@@ -4195,7 +4196,7 @@ async def handle_v1_cdp_test_ws(request):
         import traceback
         result["error"] = f"Unhandled: {type(e).__name__}: {e}"
         result["traceback"] = traceback.format_exc()
-        logger.error("[test-ws] UNHANDLED EXCEPTION: %s\n%s", e, traceback.format_exc())
+        log.error("[test-ws] UNHANDLED EXCEPTION: %s\n%s", e, traceback.format_exc())
     finally:
         # Always kill the test browser
         if browser_proc:

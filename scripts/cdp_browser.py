@@ -1710,79 +1710,118 @@ class CDPTabManager:
                 logger.warning("[CDPTabManager] Failed to auto-connect active tab: %s\n%s", e, traceback.format_exc())
                 self.ws_diagnostics["tab_ws_error"] = f"{type(e).__name__}: {e}"
 
-            # v1.9.19: If CDPTab.connect() failed all strategies, try a raw websockets
-            # probe to determine if the WS URL is even reachable. This helps distinguish
-            # between "URL is wrong" vs "aiohttp/websockets library bug" vs "Chromium issue".
+            # v1.9.20: If CDPTab.connect() failed all strategies, try a DIRECT
+            # websockets connection and wire it into the tab's CDPBrowser.
+            # The previous "probe only" approach just tested connectivity but
+            # left the tab disconnected. Now we USE the working connection.
             if not tab_connected and active_tab and active_tab.ws_url:
-                logger.info("[CDPManager] CDPTab.connect() failed. Trying raw websockets probe to %s",
+                logger.info("[CDPManager] CDPTab.connect() failed. Trying direct websockets fallback to %s",
                             active_tab.ws_url[:60])
-                self.ws_diagnostics["raw_probe_url"] = active_tab.ws_url
-                try:
-                    import websockets as _ws_mod
-                    raw_ws = await asyncio.wait_for(
-                        _ws_mod.connect(active_tab.ws_url, open_timeout=5, close_timeout=3),
-                        timeout=7
-                    )
-                    # If we get here, the WS connection actually works!
-                    # The issue was with CDPTab's multi-strategy approach.
-                    logger.info("[CDPManager] RAW websockets probe SUCCEEDED! Tab WS is reachable.")
-                    self.ws_diagnostics["raw_probe_ok"] = True
-                    # Send a test CDP command
-                    try:
-                        await raw_ws.send(json.dumps({"id": 1, "method": "Runtime.evaluate",
-                                                       "params": {"expression": "1+1"}}))
-                        resp = await asyncio.wait_for(raw_ws.recv(), timeout=3)
-                        logger.info("[CDPManager] RAW websockets CDP command OK: %s", resp[:100])
-                        self.ws_diagnostics["raw_probe_cdp_ok"] = True
-                        self.ws_diagnostics["raw_probe_cdp_preview"] = resp[:200]
-                    except Exception as e:
-                        logger.warning("[CDPManager] RAW websockets CDP command failed: %s", e)
-                        self.ws_diagnostics["raw_probe_cdp_error"] = str(e)
-                    await raw_ws.close()
-                except asyncio.TimeoutError:
-                    logger.warning("[CDPManager] RAW websockets probe TIMED OUT (7s) to %s", active_tab.ws_url)
-                    self.ws_diagnostics["raw_probe_ok"] = False
-                    self.ws_diagnostics["raw_probe_error"] = f"TIMEOUT (7s)"
-                except ImportError:
-                    logger.warning("[CDPManager] websockets library not available for raw probe")
-                    self.ws_diagnostics["raw_probe_ok"] = False
-                    self.ws_diagnostics["raw_probe_error"] = "websockets not installed"
-                except Exception as e:
-                    logger.warning("[CDPManager] RAW websockets probe FAILED: %s\n%s", e, traceback.format_exc())
-                    self.ws_diagnostics["raw_probe_ok"] = False
-                    self.ws_diagnostics["raw_probe_error"] = f"{type(e).__name__}: {e}"
+                self.ws_diagnostics["direct_fallback_url"] = active_tab.ws_url
 
-                # Try aiohttp raw probe too
-                if not self.ws_diagnostics.get("raw_probe_ok"):
-                    logger.info("[CDPManager] Trying raw aiohttp probe to %s", active_tab.ws_url[:60])
+                # Strategy A: websockets library direct connection
+                if HAS_WEBSOCKETS:
+                    try:
+                        direct_ws = await asyncio.wait_for(
+                            _websockets_mod.connect(active_tab.ws_url, open_timeout=5, close_timeout=3),
+                            timeout=7
+                        )
+                        logger.info("[CDPManager] Direct websockets fallback SUCCEEDED!")
+                        self.ws_diagnostics["direct_fallback_ok"] = True
+                        self.ws_diagnostics["direct_fallback_lib"] = "websockets"
+
+                        # Wire the working connection into the tab's CDPBrowser
+                        browser_inst = CDPBrowser(
+                            port=self.port, auto_launch=False, timeout=self.timeout
+                        )
+                        browser_inst._ws = WebsocketsCDPAdapter(direct_ws)
+                        browser_inst._session = None
+                        browser_inst._closing = True  # Prevent auto-reconnect
+
+                        # Enable core CDP domains
+                        try:
+                            await browser_inst.send("Page.enable")
+                            await browser_inst.send("Runtime.enable")
+                        except Exception as e:
+                            logger.warning("[CDPManager] CDP domain enable failed (non-fatal): %s", e)
+
+                        # Start the listener loop
+                        browser_inst._listener_task = asyncio.create_task(browser_inst._listen_loop())
+
+                        # Set the tab as connected
+                        active_tab._browser = browser_inst
+                        active_tab._connected = True
+                        tab_connected = True
+
+                        logger.info("[CDPManager] Tab %s CONNECTED via direct websockets fallback!",
+                                    active_tab.target_id)
+                    except asyncio.TimeoutError:
+                        logger.warning("[CDPManager] Direct websockets fallback TIMED OUT (7s)")
+                        self.ws_diagnostics["direct_fallback_ok"] = False
+                        self.ws_diagnostics["direct_fallback_error"] = "TIMEOUT (7s)"
+                    except Exception as e:
+                        logger.warning("[CDPManager] Direct websockets fallback FAILED: %s\n%s",
+                                       e, traceback.format_exc())
+                        self.ws_diagnostics["direct_fallback_ok"] = False
+                        self.ws_diagnostics["direct_fallback_error"] = f"{type(e).__name__}: {e}"
+
+                # Strategy B: aiohttp direct connection (if websockets failed or unavailable)
+                if not tab_connected:
+                    logger.info("[CDPManager] Trying direct aiohttp fallback to %s",
+                                active_tab.ws_url[:60])
+                    aiohttp_session = None
                     try:
                         ws_timeout = aiohttp.ClientTimeout(total=5, connect=3, sock_connect=3)
                         connector = aiohttp.TCPConnector(force_close=True, enable_cleanup_closed=True)
-                        async with aiohttp.ClientSession(timeout=ws_timeout, connector=connector) as session:
-                            raw_ws = await asyncio.wait_for(
-                                session.ws_connect(active_tab.ws_url, heartbeat=None, proxy=None),
-                                timeout=7
-                            )
-                            logger.info("[CDPManager] RAW aiohttp probe SUCCEEDED!")
-                            self.ws_diagnostics["raw_aiohttp_probe_ok"] = True
-                            try:
-                                await raw_ws.send_json({"id": 1, "method": "Runtime.evaluate",
-                                                         "params": {"expression": "1+1"}})
-                                msg = await asyncio.wait_for(raw_ws.receive(), timeout=3)
-                                if msg.type == aiohttp.WSMsgType.TEXT:
-                                    self.ws_diagnostics["raw_aiohttp_cdp_ok"] = True
-                                    self.ws_diagnostics["raw_aiohttp_cdp_preview"] = msg.data[:200]
-                            except Exception as e:
-                                self.ws_diagnostics["raw_aiohttp_cdp_error"] = str(e)
-                            await raw_ws.close()
+                        aiohttp_session = aiohttp.ClientSession(timeout=ws_timeout, connector=connector)
+                        direct_ws = await asyncio.wait_for(
+                            aiohttp_session.ws_connect(active_tab.ws_url, heartbeat=None, proxy=None),
+                            timeout=7
+                        )
+                        logger.info("[CDPManager] Direct aiohttp fallback SUCCEEDED!")
+                        self.ws_diagnostics["direct_aiohttp_fallback_ok"] = True
+                        self.ws_diagnostics["direct_fallback_lib"] = "aiohttp"
+
+                        # Wire the working connection into the tab's CDPBrowser
+                        browser_inst = CDPBrowser(
+                            port=self.port, auto_launch=False, timeout=self.timeout
+                        )
+                        browser_inst._ws = direct_ws
+                        browser_inst._session = aiohttp_session
+                        browser_inst._closing = True  # Prevent auto-reconnect
+
+                        # Enable core CDP domains
+                        try:
+                            await browser_inst.send("Page.enable")
+                            await browser_inst.send("Runtime.enable")
+                        except Exception as e:
+                            logger.warning("[CDPManager] CDP domain enable failed (non-fatal): %s", e)
+
+                        # Start the listener loop
+                        browser_inst._listener_task = asyncio.create_task(browser_inst._listen_loop())
+
+                        # Set the tab as connected
+                        active_tab._browser = browser_inst
+                        active_tab._connected = True
+                        tab_connected = True
+
+                        logger.info("[CDPManager] Tab %s CONNECTED via direct aiohttp fallback!",
+                                    active_tab.target_id)
                     except asyncio.TimeoutError:
-                        logger.warning("[CDPManager] RAW aiohttp probe TIMED OUT (7s)")
-                        self.ws_diagnostics["raw_aiohttp_probe_ok"] = False
-                        self.ws_diagnostics["raw_aiohttp_probe_error"] = f"TIMEOUT (7s)"
+                        logger.warning("[CDPManager] Direct aiohttp fallback TIMED OUT (7s)")
+                        self.ws_diagnostics["direct_aiohttp_fallback_ok"] = False
+                        self.ws_diagnostics["direct_aiohttp_fallback_error"] = "TIMEOUT (7s)"
+                        if aiohttp_session and not aiohttp_session.closed:
+                            await aiohttp_session.close()
                     except Exception as e:
-                        logger.warning("[CDPManager] RAW aiohttp probe FAILED: %s", e)
-                        self.ws_diagnostics["raw_aiohttp_probe_ok"] = False
-                        self.ws_diagnostics["raw_aiohttp_probe_error"] = f"{type(e).__name__}: {e}"
+                        logger.warning("[CDPManager] Direct aiohttp fallback FAILED: %s", e)
+                        self.ws_diagnostics["direct_aiohttp_fallback_ok"] = False
+                        self.ws_diagnostics["direct_aiohttp_fallback_error"] = f"{type(e).__name__}: {e}"
+                        if aiohttp_session and not aiohttp_session.closed:
+                            try:
+                                await aiohttp_session.close()
+                            except Exception:
+                                pass
         else:
             self.ws_diagnostics["tab_ws_connected"] = self._tabs[self._active_tab_id].connected if self._active_tab_id else False
 
