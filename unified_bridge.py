@@ -116,7 +116,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 
@@ -130,7 +130,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.22"
+VERSION = "1.9.23"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -385,9 +385,149 @@ _cdp_state: Dict[str, Any] = {
     "connected": False,
     "port": 9222,
     "headless": True,
+    "reconnect_count": 0,      # Number of auto-reconnects performed
+    "last_connect_time": None, # Timestamp of last successful connect
+    "last_disconnect_reason": None,  # Reason for last disconnect
 }
 
 _cdp_connecting = False  # Simple flag to prevent concurrent connect/disconnect
+_cdp_watcher_task: Optional[asyncio.Task] = None  # Background watcher for auto-reconnect
+
+
+# --- CDP Auto-Reconnect Watcher ---
+async def _cdp_watcher_loop():
+    """Background task that monitors CDP connection health and auto-reconnects.
+
+    Checks every 10 seconds:
+    1. Is the browser process still alive?
+    2. Is the WebSocket connection still open?
+    3. Can we still list tabs?
+
+    If any check fails, attempts to reconnect automatically.
+    """
+    while True:
+        try:
+            await asyncio.sleep(10)
+
+            if not _cdp_state["connected"] or _cdp_connecting:
+                continue
+
+            mgr = _cdp_state.get("manager")
+            if not mgr:
+                continue
+
+            needs_reconnect = False
+            reason = ""
+
+            # Check 1: Browser process alive (only if we launched it)
+            if mgr._browser_proc and mgr._browser_proc.poll() is not None:
+                needs_reconnect = True
+                reason = f"Browser process exited (rc={mgr._browser_proc.returncode})"
+                log.warning("[CDP-Watcher] %s", reason)
+
+            # Check 2: Active tab WebSocket still open
+            elif mgr.active_tab and not mgr.active_tab.connected:
+                # Tab was connected but now isn't — try a quick re-check
+                try:
+                    tabs = await asyncio.get_event_loop().run_in_executor(
+                        None, list_tabs, _cdp_state["port"]
+                    )
+                    if tabs:
+                        needs_reconnect = True
+                        reason = "Active tab WebSocket disconnected but browser still running"
+                        log.warning("[CDP-Watcher] %s", reason)
+                    else:
+                        needs_reconnect = True
+                        reason = "No tabs found — browser may have crashed"
+                        log.warning("[CDP-Watcher] %s", reason)
+                except Exception as e:
+                    needs_reconnect = True
+                    reason = f"Cannot reach browser debug port: {e}"
+                    log.warning("[CDP-Watcher] %s", reason)
+
+            # Check 3: Quick health probe — can we still evaluate JS?
+            elif mgr.active_tab and mgr.active_tab.connected:
+                try:
+                    result = await asyncio.wait_for(
+                        mgr.active_tab.eval_js("1"),
+                        timeout=5
+                    )
+                    if result is None:
+                        # None means the eval failed silently — WS might be stale
+                        log.debug("[CDP-Watcher] Health probe returned None — WS may be stale")
+                except asyncio.TimeoutError:
+                    needs_reconnect = True
+                    reason = "Health probe timed out (5s) — WebSocket likely dead"
+                    log.warning("[CDP-Watcher] %s", reason)
+                except ConnectionError:
+                    needs_reconnect = True
+                    reason = "Health probe got ConnectionError — WebSocket closed"
+                    log.warning("[CDP-Watcher] %s", reason)
+                except Exception as e:
+                    log.debug("[CDP-Watcher] Health probe error (non-fatal): %s", e)
+
+            if needs_reconnect:
+                log.info("[CDP-Watcher] Initiating auto-reconnect... reason: %s", reason)
+                _cdp_state["last_disconnect_reason"] = reason
+
+                # Try to gracefully close existing connection
+                try:
+                    if mgr:
+                        await asyncio.wait_for(mgr.close(), timeout=5)
+                except Exception as e:
+                    log.warning("[CDP-Watcher] Close failed (non-fatal): %s", e)
+
+                _cdp_state["connected"] = False
+                _cdp_state["manager"] = None
+
+                # Auto-reconnect
+                try:
+                    cdp = _get_cdp_module()
+                    if cdp:
+                        new_mgr = cdp.CDPTabManager(
+                            port=_cdp_state["port"],
+                            headless=_cdp_state["headless"],
+                            auto_launch=True,
+                        )
+                        await asyncio.wait_for(new_mgr.connect(), timeout=60)
+                        _cdp_state["manager"] = new_mgr
+                        _cdp_state["connected"] = True
+                        _cdp_state["reconnect_count"] += 1
+                        _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
+                        log.info("[CDP-Watcher] Auto-reconnect SUCCESSFUL (count=%d)",
+                                 _cdp_state["reconnect_count"])
+                    else:
+                        log.error("[CDP-Watcher] Cannot reconnect: cdp_browser module not found")
+                except asyncio.TimeoutError:
+                    log.error("[CDP-Watcher] Auto-reconnect TIMED OUT (60s)")
+                    _cdp_state["connected"] = False
+                except Exception as e:
+                    log.error("[CDP-Watcher] Auto-reconnect FAILED: %s", e)
+                    _cdp_state["connected"] = False
+
+        except asyncio.CancelledError:
+            log.info("[CDP-Watcher] Cancelled — shutting down")
+            break
+        except Exception as e:
+            log.error("[CDP-Watcher] Unexpected error: %s", e)
+
+
+def _start_cdp_watcher():
+    """Start the CDP health watcher if not already running."""
+    global _cdp_watcher_task
+    if _cdp_watcher_task and not _cdp_watcher_task.done():
+        return
+    _cdp_watcher_task = asyncio.create_task(_cdp_watcher_loop())
+    log.info("[CDP-Watcher] Started")
+
+
+def _stop_cdp_watcher():
+    """Stop the CDP health watcher."""
+    global _cdp_watcher_task
+    if _cdp_watcher_task and not _cdp_watcher_task.done():
+        _cdp_watcher_task.cancel()
+        _cdp_watcher_task = None
+        log.info("[CDP-Watcher] Stopped")
 
 
 # ============================================================================
@@ -1095,6 +1235,9 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_delete("/v1/browser/cdp/intercept/rule", handle_v1_cdp_intercept_rule)
     app.router.add_get("/v1/browser/cdp/intercept/rules", handle_v1_cdp_intercept_rule)
     app.router.add_get("/v1/browser/cdp/session/check", handle_v1_cdp_session_check)
+    app.router.add_post("/v1/browser/cdp/stealth/extract", handle_v1_cdp_stealth_extract)
+    app.router.add_post("/v1/browser/cdp/stealth/shot", handle_v1_cdp_stealth_shot)
+    app.router.add_get("/v1/browser/cdp/health", handle_v1_cdp_health)
 
     app.router.add_get("/v1/recall", handle_v1_recall)
     app.router.add_get("/v1/recall/digest", handle_v1_recall_digest)
@@ -3333,6 +3476,10 @@ async def handle_v1_cdp_status(request):
         "network_monitoring": _cdp_state.get("monitor") is not None and _cdp_state["monitor"].active if _cdp_state.get("monitor") else False,
         "interception_active": _cdp_state.get("interceptor") is not None and _cdp_state["interceptor"].active if _cdp_state.get("interceptor") else False,
         "cookie_manager_active": _cdp_state.get("cookie_mgr") is not None and _cdp_state["cookie_mgr"].active if _cdp_state.get("cookie_mgr") else False,
+        "reconnect_count": _cdp_state.get("reconnect_count", 0),
+        "last_connect_time": _cdp_state.get("last_connect_time"),
+        "last_disconnect_reason": _cdp_state.get("last_disconnect_reason"),
+        "watcher_active": _cdp_watcher_task is not None and not _cdp_watcher_task.done(),
     }
     
     if mgr:
@@ -3366,6 +3513,12 @@ async def handle_v1_cdp_diag(request):
             "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", ""),
             "DISPLAY": os.environ.get("DISPLAY", ""),
             "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", ""),
+        },
+        "bridge_env_ok": {
+            "DBUS_SESSION_BUS_ADDRESS": bool(os.environ.get("DBUS_SESSION_BUS_ADDRESS")),
+            "XDG_RUNTIME_DIR": bool(os.environ.get("XDG_RUNTIME_DIR")),
+            "DISPLAY": bool(os.environ.get("DISPLAY")),
+            "WAYLAND_DISPLAY": bool(os.environ.get("WAYLAND_DISPLAY")),
         },
         "systemd_run_available": bool(_shutil.which("systemd-run")),
         "in_systemd": in_systemd,
@@ -3544,12 +3697,21 @@ async def handle_v1_cdp_raw_info(request):
             result["raw_version"] = version_data
             result["raw_version_keys"] = list(version_data.keys())
             result["has_webSocketDebuggerUrl"] = "webSocketDebuggerUrl" in version_data
-            result["webSocketDebuggerUrl"] = version_data.get("webSocketDebuggerUrl", "MISSING")
-            result["version_id"] = version_data.get("id", "MISSING")
+            ws_url = version_data.get("webSocketDebuggerUrl", "")
+            result["webSocketDebuggerUrl"] = ws_url or "MISSING"
+            # Chromium /json/version doesn't include "id" field — extract from WS URL
+            version_id = version_data.get("id", "")
+            if not version_id and ws_url:
+                # ws://127.0.0.1:PORT/devtools/browser/<uuid>
+                import re
+                m = re.search(r'/devtools/browser/([^/]+)', ws_url)
+                if m:
+                    version_id = m.group(1)
+            result["version_id"] = version_id or "N/A"
             result["version_browser"] = version_data.get("Browser", "?")
             log.info("[raw-info] /json/version keys: %s", list(version_data.keys()))
-            log.info("[raw-info] webSocketDebuggerUrl: %s", version_data.get("webSocketDebuggerUrl", "MISSING"))
-            log.info("[raw-info] id: %s", version_data.get("id", "MISSING"))
+            log.info("[raw-info] webSocketDebuggerUrl: %s", ws_url or "MISSING")
+            log.info("[raw-info] id: %s", version_id or "N/A")
         except Exception as e:
             result["raw_version_error"] = f"{type(e).__name__}: {e}"
             log.warning("[raw-info] /json/version fetch failed: %s", e)
@@ -4004,10 +4166,17 @@ async def handle_v1_cdp_test_ws(request):
             raw_version = await loop.run_in_executor(None, _get_version)
             browser_ws_url = raw_version.get("webSocketDebuggerUrl", "")
             result["raw_version_keys"] = list(raw_version.keys())
+            # Chromium /json/version doesn't include "id" — extract from WS URL
+            version_id = raw_version.get("id", "")
+            if not version_id and browser_ws_url:
+                import re as _re
+                m = _re.search(r'/devtools/browser/([^/]+)', browser_ws_url)
+                if m:
+                    version_id = m.group(1)
             result["version_info"] = {
                 "Browser": raw_version.get("Browser", "?")[:50],
-                "webSocketDebuggerUrl": raw_version.get("webSocketDebuggerUrl", "MISSING")[:80],
-                "id": raw_version.get("id", "MISSING"),
+                "webSocketDebuggerUrl": (browser_ws_url or "MISSING")[:80],
+                "id": version_id or "N/A",
             }
             result["http_endpoint_ok"] = True
             log.info("[test-ws] /json/version: keys=%s wsUrl=%s id=%s",
@@ -4342,6 +4511,11 @@ async def handle_v1_cdp_connect(request):
         _cdp_state["connected"] = True
         _cdp_state["port"] = port
         _cdp_state["headless"] = headless
+        _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
+        _cdp_state["last_disconnect_reason"] = None
+
+        # Start the health watcher for auto-reconnect
+        _start_cdp_watcher()
         
         # Verify active tab is actually connected (auto-connect may have failed silently)
         # v1.9.18: More aggressive retry with WS URL reconstruction
@@ -4417,6 +4591,9 @@ async def handle_v1_cdp_disconnect(request):
         if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
             await _cdp_state["cookie_mgr"].stop()
         
+        # Stop the health watcher before disconnecting
+        _stop_cdp_watcher()
+
         # Close the manager
         if _cdp_state["manager"]:
             await _cdp_state["manager"].close()
@@ -4426,6 +4603,7 @@ async def handle_v1_cdp_disconnect(request):
         _cdp_state["interceptor"] = None
         _cdp_state["cookie_mgr"] = None
         _cdp_state["connected"] = False
+        _cdp_state["last_disconnect_reason"] = "User disconnected"
         
         return _cors_json_response({"ok": True, "message": "CDP disconnected"})
     except Exception as e:
@@ -5472,7 +5650,304 @@ async def handle_v1_cdp_session_check(request):
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-# --- /v1/recall GET — Smart memory recall with TF scoring ---
+# ---- CDP Stealth Extract/Shot (BrowserAct + CDP integration) ----
+
+async def _cdp_get_active_browser():
+    """Get the active tab's CDPBrowser instance, or None."""
+    mgr = _cdp_state.get("manager")
+    if not mgr or not _cdp_state["connected"]:
+        return None
+    tab = mgr.active_tab
+    if not tab or not tab.connected:
+        return None
+    return tab._browser
+
+
+async def handle_v1_cdp_stealth_extract(request):
+    """POST /v1/browser/cdp/stealth/extract — Navigate to URL via CDP and extract page content.
+
+    Uses the existing CDP connection for stealth-aware content extraction,
+    similar to browser-act extract but without launching a separate browser.
+
+    Body JSON:
+        url: string (required)
+        wait_for: string (optional CSS selector to wait for)
+        timeout: float (default: 15s)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    url = body.get("url")
+    if not url:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
+
+    wait_for = body.get("wait_for")
+    timeout = body.get("timeout", 15)
+
+    browser = await _cdp_get_active_browser()
+    if not browser:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "No active tab connected"}, status=400)
+
+    try:
+        # Navigate to the URL
+        await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
+
+        # Wait for specific element if requested
+        if wait_for:
+            safe_selector = json.dumps(wait_for)
+            expr = f"new Promise((resolve, reject) => {{ const check = () => {{ if (document.querySelector({safe_selector})) resolve(true); else setTimeout(check, 200); }}; setTimeout(() => reject('timeout'), {(timeout-2)*1000}); check(); }})"
+            await asyncio.wait_for(
+                browser.eval_js(expr),
+                timeout=timeout
+            )
+
+        # Extract content
+        html = await asyncio.wait_for(browser.dump_dom(), timeout=10)
+        title = await asyncio.wait_for(browser.eval_js("document.title"), timeout=5)
+        current_url = await asyncio.wait_for(browser.eval_js("window.location.href"), timeout=5)
+
+        # Extract text content using Readability-like approach
+        text_content = await asyncio.wait_for(
+            browser.eval_js(
+                "document.body ? document.body.innerText.substring(0, 50000) : ''"
+            ),
+            timeout=10
+        )
+
+        # Extract metadata
+        meta = await asyncio.wait_for(
+            browser.eval_js("""
+                (function() {
+                    var meta = {};
+                    var desc = document.querySelector('meta[name="description"]');
+                    if (desc) meta.description = desc.content;
+                    var ogTitle = document.querySelector('meta[property="og:title"]');
+                    if (ogTitle) meta.og_title = ogTitle.content;
+                    var ogDesc = document.querySelector('meta[property="og:description"]');
+                    if (ogDesc) meta.og_description = ogDesc.content;
+                    return JSON.stringify(meta);
+                })()
+            """),
+            timeout=5
+        )
+
+        result = {
+            "ok": True,
+            "url": current_url,
+            "title": title,
+            "html_len": len(html) if html else 0,
+            "text_len": len(text_content) if text_content else 0,
+            "text": (text_content or "")[:20000],
+            "metadata": json.loads(meta) if meta else {},
+        }
+
+        return _cors_json_response(result)
+
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": f"Extraction timed out ({timeout}s)"}, status=408)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_stealth_shot(request):
+    """POST /v1/browser/cdp/stealth/shot — Navigate to URL via CDP and take a screenshot.
+
+    Uses the existing CDP connection for stealth-aware screenshots,
+    similar to browser-act shot but without launching a separate browser.
+
+    Body JSON:
+        url: string (required)
+        width: int (default: 1280)
+        height: int (default: 720)
+        full_page: bool (default: false)
+        format: string ("png" or "jpeg", default: "png")
+        timeout: float (default: 15s)
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    if not _cdp_state["connected"]:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    url = body.get("url")
+    if not url:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
+
+    full_page = body.get("full_page", False)
+    img_format = body.get("format", "png")
+    timeout = body.get("timeout", 15)
+    width = body.get("width", 1280)
+    height = body.get("height", 720)
+
+    browser = await _cdp_get_active_browser()
+    if not browser:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "No active tab connected"}, status=400)
+
+    try:
+        # Set viewport size
+        await asyncio.wait_for(
+            browser.send("Emulation.setDeviceMetricsOverride", {
+                "width": width, "height": height,
+                "deviceScaleFactor": 1, "mobile": False,
+            }),
+            timeout=5
+        )
+
+        # Navigate
+        await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
+
+        # Take screenshot
+        params = {"format": img_format}
+        if full_page:
+            params["captureBeyondViewport"] = True
+        res = await asyncio.wait_for(browser.send("Page.captureScreenshot", params), timeout=15)
+
+        if res and "result" in res and "data" in res["result"]:
+            return _cors_json_response({
+                "ok": True,
+                "url": url,
+                "format": img_format,
+                "data": res["result"]["data"],
+                "width": width,
+                "height": height,
+                "full_page": full_page,
+            })
+        else:
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
+
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": f"Screenshot timed out ({timeout}s)"}, status=408)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_cdp_health(request):
+    """GET /v1/browser/cdp/health — CDP connection health dashboard.
+
+    Returns comprehensive health info including:
+    - Connection status and uptime
+    - Browser process status
+    - WebSocket health
+    - Reconnect history
+    - Active tab info
+    - Memory/resource usage
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    mgr = _cdp_state.get("manager")
+    connected = _cdp_state["connected"]
+
+    health = {
+        "ok": True,
+        "connected": connected,
+        "port": _cdp_state["port"],
+        "headless": _cdp_state["headless"],
+        "watcher_active": _cdp_watcher_task is not None and not _cdp_watcher_task.done(),
+        "reconnect_count": _cdp_state.get("reconnect_count", 0),
+        "last_connect_time": _cdp_state.get("last_connect_time"),
+        "last_disconnect_reason": _cdp_state.get("last_disconnect_reason"),
+        "bridge_uptime_s": round(time.time() - BRIDGE_METRICS["start_time"]),
+    }
+
+    if connected and mgr:
+        # Browser process info
+        if mgr._browser_proc:
+            proc = mgr._browser_proc
+            health["browser"] = {
+                "pid": proc.pid,
+                "alive": proc.poll() is None,
+                "returncode": proc.returncode,
+            }
+        else:
+            health["browser"] = {"alive": False, "note": "External browser (not launched by bridge)"}
+
+        # Tab info
+        tabs = mgr.list_tabs()
+        health["tabs"] = {
+            "count": len(tabs),
+            "active_id": mgr.active_tab_id,
+            "details": [t.to_dict() for t in tabs[:10]],
+        }
+
+        # Active tab health probe
+        if mgr.active_tab and mgr.active_tab.connected:
+            health["active_tab"] = {
+                "connected": True,
+                "target_id": mgr.active_tab.target_id,
+                "url": mgr.active_tab.url,
+                "title": mgr.active_tab.title,
+            }
+            # Quick health check — can we evaluate JS?
+            try:
+                result = await asyncio.wait_for(mgr.active_tab.eval_js("1+1"), timeout=3)
+                health["active_tab"]["health_probe"] = "ok" if result == 2 else f"unexpected result: {result}"
+            except asyncio.TimeoutError:
+                health["active_tab"]["health_probe"] = "timeout"
+            except ConnectionError:
+                health["active_tab"]["health_probe"] = "disconnected"
+            except Exception as e:
+                health["active_tab"]["health_probe"] = f"error: {type(e).__name__}"
+        else:
+            health["active_tab"] = {"connected": False}
+
+        # Connection uptime
+        if _cdp_state.get("last_connect_time"):
+            try:
+                last = datetime.fromisoformat(_cdp_state["last_connect_time"])
+                uptime = (datetime.now(timezone.utc) - last).total_seconds()
+                health["connection_uptime_s"] = round(uptime)
+            except Exception:
+                pass
+
+    else:
+        health["browser"] = {"alive": False}
+        health["tabs"] = {"count": 0}
+        health["active_tab"] = {"connected": False}
+
+    # System resource usage
+    try:
+        import resource as _resource
+        usage = _resource.getrusage(_resource.RUSAGE_SELF)
+        health["resources"] = {
+            "max_rss_mb": round(usage.ru_maxrss / 1024, 1),
+            "user_cpu_s": round(usage.ru_utime, 1),
+            "sys_cpu_s": round(usage.ru_stime, 1),
+        }
+    except Exception:
+        pass
+
+    return _cors_json_response(health)
+
 
 def _recall_sync(query: str, top: int) -> dict:
     """Recall relevant facts using term frequency scoring."""

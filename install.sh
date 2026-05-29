@@ -383,6 +383,9 @@ Environment=ARENA_TOKEN_FILE=${ESCAPED_TOKEN_FILE}
 Environment=HOME=${HOME}
 Environment=XDG_RUNTIME_DIR=/run/user/${ACTUAL_UID}
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/${ACTUAL_UID}/bus
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=LD_LIBRARY_PATH=/usr/lib/chromium:/usr/lib64/chromium
 
 [Install]
 WantedBy=default.target

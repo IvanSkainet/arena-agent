@@ -67,7 +67,7 @@ jq_check() {
 
 # ============================================================
 echo "============================================================"
-echo "  Arena Unified Bridge v1.9.19 — CDP/BrowserAct/SuperPowers"
+echo "  Arena Unified Bridge — CDP/BrowserAct/SuperPowers"
 echo "  Test Suite — $(stamp)"
 echo "  Bridge: $URL"
 echo "============================================================"
@@ -152,15 +152,23 @@ if [ "$module_avail" = "True" ]; then
     echo "  CDP diagnostics..."
     diag_resp=$(curl -s --max-time 5 -H "Authorization: Bearer $TOKEN" "$URL/v1/browser/cdp/diag" 2>/dev/null)
     if [ -n "$diag_resp" ]; then
-        dbus_addr=$(echo "$diag_resp" | jq_val '["bridge_env","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "?")
-        xdg_dir=$(echo "$diag_resp" | jq_val '["bridge_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "?")
+        dbus_addr=$(echo "$diag_resp" | jq_val '["bridge_env","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "")
+        xdg_dir=$(echo "$diag_resp" | jq_val '["bridge_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "")
         browser_bin=$(echo "$diag_resp" | jq_val '["browser_binary"]' 2>/dev/null || echo "?")
         dbus_ok=$(echo "$diag_resp" | jq_val '["dbus_socket_connectable"]' 2>/dev/null || echo "?")
+        # Show booleans for env presence
+        dbus_present=$(echo "$diag_resp" | jq_val '["bridge_env_ok","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "False")
+        xdg_present=$(echo "$diag_resp" | jq_val '["bridge_env_ok","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "False")
         # Also show session_env (the env that _build_session_env produces)
-        senv_dbus=$(echo "$diag_resp" | jq_val '["session_env","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "?")
-        senv_xdg=$(echo "$diag_resp" | jq_val '["session_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "?")
-        echo "    DBUS=$dbus_addr  XDG=$xdg_dir  BROWSER=$browser_bin  DBUS_SOCK=$dbus_ok"
-        echo "    session_env: DBUS=$senv_dbus  XDG=$senv_xdg"
+        senv_dbus=$(echo "$diag_resp" | jq_val '["session_env","DBUS_SESSION_BUS_ADDRESS"]' 2>/dev/null || echo "")
+        senv_xdg=$(echo "$diag_resp" | jq_val '["session_env","XDG_RUNTIME_DIR"]' 2>/dev/null || echo "")
+        # Display: show value if present, else "MISSING"
+        dbus_show="${dbus_addr:-MISSING}"
+        xdg_show="${xdg_dir:-MISSING}"
+        senv_dbus_show="${senv_dbus:-MISSING}"
+        senv_xdg_show="${senv_xdg:-MISSING}"
+        echo "    DBUS=$dbus_show  XDG=$xdg_show  BROWSER=$browser_bin  DBUS_SOCK=$dbus_ok"
+        echo "    session_env: DBUS=$senv_dbus_show  XDG=$senv_xdg_show"
     else
         echo "    (diag endpoint not available)"
     fi
@@ -495,6 +503,94 @@ if echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); sys.exit(
     check "cdp confirmed disconnected" "true"
 else
     check "cdp confirmed disconnected" "false" "Still showing connected"
+fi
+
+# 1.13 CDP Status shows reconnect/watcher info
+resp=$(api_get "/v1/browser/cdp/status")
+watcher_active=$(echo "$resp" | jq_val '["watcher_active"]' 2>/dev/null || echo "?")
+reconnect_count=$(echo "$resp" | jq_val '["reconnect_count"]' 2>/dev/null || echo "?")
+last_disconnect=$(echo "$resp" | jq_val '["last_disconnect_reason"]' 2>/dev/null || echo "none")
+if [ "$watcher_active" != "?" ]; then
+    check "cdp status watcher info" "true" "(watcher=$watcher_active, reconnects=$reconnect_count)"
+else
+    check "cdp status watcher info" "false" "watcher info not in response"
+fi
+
+# 1.14 CDP Multi-tab test
+echo "  Testing CDP multi-tab operations..."
+MULTITAB_OK="false"
+resp=$(api_post "/v1/browser/cdp/connect" '{"port":9222,"headless":true}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    # Create a new tab
+    resp=$(api_post "/v1/browser/cdp/tabs/new" '{"url":"https://example.org","activate":true}')
+    if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+        new_tab_id=$(echo "$resp" | jq_val '["tab_id"]' 2>/dev/null || echo "")
+        check "cdp multi-tab new tab" "true" "(tab_id=${new_tab_id:0:20})"
+        MULTITAB_OK="true"
+
+        # List tabs — should have 2+
+        resp=$(api_get "/v1/browser/cdp/tabs")
+        tab_count=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d.get('tabs',[])))" 2>/dev/null || echo "?")
+        if [ "$tab_count" -ge 2 ] 2>/dev/null; then
+            check "cdp multi-tab count" "true" "($tab_count tabs)"
+        else
+            check "cdp multi-tab count" "false" "expected 2+, got $tab_count"
+        fi
+
+        # Close the new tab
+        if [ -n "$new_tab_id" ] && [ "$new_tab_id" != "None" ]; then
+            resp=$(api_post "/v1/browser/cdp/tabs/close" "{\"tab_id\":\"$new_tab_id\"}")
+            if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+                check "cdp multi-tab close" "true"
+            else
+                check "cdp multi-tab close" "false"
+            fi
+        else
+            check "cdp multi-tab close" "skip" "No tab_id to close"
+        fi
+    else
+        err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown")
+        check "cdp multi-tab new tab" "false" "$err"
+    fi
+    # Disconnect after multi-tab test
+    api_post "/v1/browser/cdp/disconnect" >/dev/null 2>&1
+else
+    check "cdp multi-tab new tab" "skip" "CDP connect failed"
+    check "cdp multi-tab count" "skip" "CDP not connected"
+    check "cdp multi-tab close" "skip" "CDP not connected"
+fi
+
+# 1.15 CDP Health endpoint
+resp=$(api_get "/v1/browser/cdp/health")
+health_ok=$(echo "$resp" | jq_val '["ok"]' 2>/dev/null || echo "false")
+if [ "$health_ok" = "True" ]; then
+    health_connected=$(echo "$resp" | jq_val '["connected"]' 2>/dev/null || echo "?")
+    health_watcher=$(echo "$resp" | jq_val '["watcher_active"]' 2>/dev/null || echo "?")
+    health_reconnects=$(echo "$resp" | jq_val '["reconnect_count"]' 2>/dev/null || echo "?")
+    health_uptime=$(echo "$resp" | jq_val '["bridge_uptime_s"]' 2>/dev/null || echo "?")
+    check "cdp health endpoint" "true" "(connected=$health_connected, watcher=$health_watcher, reconnects=$health_reconnects, uptime=${health_uptime}s)"
+else
+    check "cdp health endpoint" "false"
+fi
+
+# 1.16 CDP Stealth extract (connect first, then extract)
+echo "  Testing CDP stealth extract..."
+resp=$(api_post "/v1/browser/cdp/connect" '{"port":9222,"headless":true}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    STEALTH_OK="true"
+    resp=$(api_post "/v1/browser/cdp/stealth/extract" '{"url":"https://example.com","timeout":15}')
+    if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+        extract_text_len=$(echo "$resp" | jq_val '["text_len"]' 2>/dev/null || echo "0")
+        extract_title=$(echo "$resp" | jq_val '["title"]' 2>/dev/null || echo "?")
+        check "cdp stealth extract" "true" "(title=$extract_title, text_len=$extract_text_len)"
+    else
+        err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown")
+        check "cdp stealth extract" "false" "$err"
+    fi
+    # Disconnect
+    api_post "/v1/browser/cdp/disconnect" >/dev/null 2>&1
+else
+    check "cdp stealth extract" "skip" "CDP connect failed"
 fi
 
 echo ""
