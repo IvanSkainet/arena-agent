@@ -851,6 +851,90 @@ check "recall endpoint" "$(echo "$resp" | jq_check '["ok"]' 2>/dev/null && echo 
 echo ""
 
 # ============================================================
+# SECTION 5: Phase 3 Features
+# ============================================================
+echo "=== SECTION 5: Phase 3 Features ==="
+
+# 5.1 WebSocket event stream (test via HTTP upgrade check — ws not easy in bash)
+# We test the /v1/events endpoint exists and accepts GET (returns 4xx for non-WS)
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/v1/events" -H "Authorization: Bearer $TOKEN" 2>/dev/null || echo "000")
+# WebSocket endpoint should return 400 or similar without proper upgrade
+# We just check it's not a 404 (endpoint exists)
+if [ "$resp" != "404" ]; then
+    check "ws events endpoint exists" "true" "(HTTP $resp)"
+else
+    check "ws events endpoint exists" "false" "(HTTP $resp)"
+fi
+
+# 5.2 Skills hot-reload
+resp=$(api_post "/v1/skills/reload" '{}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    skill_count=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
+    check "skills hot-reload" "true" "($skill_count skills)"
+else
+    check "skills hot-reload" "false"
+fi
+
+# 5.3 Request/response log
+resp=$(api_get "/v1/audit/log")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    entry_count=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
+    check "audit log endpoint" "true" "($entry_count entries)"
+else
+    check "audit log endpoint" "false"
+fi
+
+# 5.4 Watchdog
+resp=$(api_get "/v1/watchdog")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    mem=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('memory_mb','?'))" 2>/dev/null || echo "?")
+    uptime=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('uptime_seconds','?'))" 2>/dev/null || echo "?")
+    check "watchdog endpoint" "true" "(mem=${mem}MB, uptime=${uptime}s)"
+else
+    check "watchdog endpoint" "false"
+fi
+
+# 5.5 Multi-user auth (users list)
+resp=$(api_get "/v1/users")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    user_count=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
+    check "users endpoint" "true" "($user_count users)"
+else
+    check "users endpoint" "false"
+fi
+
+# 5.6 Batch operations
+resp=$(api_post "/v1/batch" '{"operations":[{"method":"GET","path":"/v1/status","id":"status"},{"method":"GET","path":"/health","id":"health"}]}')
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    total=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "0")
+    success=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('success',0))" 2>/dev/null || echo "0")
+    check "batch operations" "true" "($success/$total ok)"
+else
+    check "batch operations" "false"
+fi
+
+# 5.7 Browser session profiles (list, no CDP connected so save will fail gracefully)
+resp=$(api_get "/v1/profiles")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    profile_count=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('count',0))" 2>/dev/null || echo "0")
+    check "profiles list endpoint" "true" "($profile_count profiles)"
+else
+    check "profiles list endpoint" "false"
+fi
+
+# 5.8 Prometheus alerts
+resp=$(api_get "/v1/alerts")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    healthy=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('healthy','?'))" 2>/dev/null || echo "?")
+    firing=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('firing','?'))" 2>/dev/null || echo "?")
+    check "alerts endpoint" "true" "(healthy=$healthy, firing=$firing)"
+else
+    check "alerts endpoint" "false"
+fi
+
+echo ""
+
+# ============================================================
 # SUMMARY
 # ============================================================
 echo "============================================================"

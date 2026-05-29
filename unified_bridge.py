@@ -130,7 +130,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.25"
+VERSION = "1.9.26"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -377,6 +377,9 @@ async def error_middleware(request: web.Request, handler):
         duration = time.time() - t0
         log.debug("[%s] %s %s -> %d (%.3fs)", req_id, request.method,
                   request.path, resp.status, duration)
+        # Log request/response for observability (Phase 3)
+        _log_request_response(request.method, request.path, resp.status,
+                              duration, req_id, request.remote or "")
         # Add request ID to response headers
         resp.headers["X-Request-Id"] = req_id
         return resp
@@ -384,6 +387,8 @@ async def error_middleware(request: web.Request, handler):
         duration = time.time() - t0
         log.debug("[%s] %s %s -> HTTPException %d (%.3fs)", req_id, request.method,
                   request.path, exc.status, duration)
+        _log_request_response(request.method, request.path, exc.status,
+                              duration, req_id, request.remote or "")
         # Add CORS and request ID headers to HTTP exceptions
         exc.headers["Access-Control-Allow-Origin"] = "*"
         exc.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
@@ -393,6 +398,8 @@ async def error_middleware(request: web.Request, handler):
     except BridgeError as e:
         duration = time.time() - t0
         _record_request(duration=duration, is_error=True)
+        _log_request_response(request.method, request.path, e.http_status,
+                              duration, req_id, request.remote or "", error=str(e))
         log.warning("[%s] %s %s -> %s %s: %s (%.3fs)", req_id, request.method,
                     request.path, e.error_code, e.http_status, e, duration)
         return _cors_json_response(e.to_dict(), status=e.http_status,
@@ -402,6 +409,8 @@ async def error_middleware(request: web.Request, handler):
     except Exception as e:
         duration = time.time() - t0
         _record_request(duration=duration, is_error=True)
+        _log_request_response(request.method, request.path, 500,
+                              duration, req_id, request.remote or "", error=str(e))
         # Log full stack trace for debugging
         tb = _traceback.format_exc()
         log.error("[%s] %s %s UNHANDLED: %s\n%s", req_id, request.method,
@@ -641,6 +650,1003 @@ _rate_limit_window: float = 60.0  # 60-second window
 _rate_limit_max: int = 300  # max requests per window per IP
 _rate_limit_store: dict[str, list[float]] = {}
 _rate_limit_lock = threading.Lock()
+
+# ============================================================================
+# PHASE 3: WebSocket Real-Time Events
+# ============================================================================
+_event_subscribers: list[asyncio.Queue] = []
+
+async def emit_event(event_type: str, data: dict | None = None) -> None:
+    """Broadcast an event to all connected WebSocket subscribers."""
+    payload = {"type": event_type, "ts": utc_now(), "data": data or {}}
+    dead = []
+    for i, q in enumerate(_event_subscribers):
+        try:
+            q.put_nowait(payload)
+        except asyncio.QueueFull:
+            dead.append(i)
+    # Remove full/dead queues in reverse order
+    for i in reversed(dead):
+        _event_subscribers.pop(i)
+
+
+async def handle_v1_events(request: web.Request) -> web.WebSocketResponse:
+    """WebSocket /v1/events — Real-time event stream.
+
+    Clients connect via WebSocket and receive events as JSON messages.
+    Events include: cdp_connect, cdp_disconnect, task_start, task_done,
+    error, skill_run, exec, memory_update, browser_browse, alert.
+    """
+    r = require_auth(request)
+    if r:
+        ws = web.WebSocketResponse()
+        await ws.prepare(request)
+        await ws.send_json({"ok": False, "error": "unauthorized"})
+        await ws.close()
+        return ws
+
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    # Send welcome message
+    await ws.send_json({"type": "connected", "ts": utc_now(),
+                        "data": {"version": VERSION, "message": "Arena Bridge event stream"}})
+
+    # Subscribe
+    q: asyncio.Queue = asyncio.Queue(maxsize=500)
+    _event_subscribers.append(q)
+    log.info("[Events] Subscriber connected (total=%d)", len(_event_subscribers))
+
+    try:
+        # Two-task pattern: read from ws AND forward events from queue
+        async def _forward_events():
+            while not ws.closed:
+                try:
+                    payload = await asyncio.wait_for(q.get(), timeout=30)
+                    if not ws.closed:
+                        await ws.send_json(payload)
+                except asyncio.TimeoutError:
+                    # Send keepalive ping
+                    if not ws.closed:
+                        try:
+                            await ws.send_json({"type": "ping", "ts": utc_now()})
+                        except Exception:
+                            break
+                except Exception:
+                    break
+
+        forward_task = asyncio.create_task(_forward_events())
+
+        # Also read incoming messages (for future commands)
+        async for msg in ws:
+            if msg.type == aiohttp.WSMsgType.TEXT:
+                try:
+                    data = json.loads(msg.data)
+                    # Support subscribe/unsubscribe by event type
+                    if data.get("command") == "ping":
+                        await ws.send_json({"type": "pong", "ts": utc_now()})
+                except Exception:
+                    pass
+            elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE):
+                break
+
+        forward_task.cancel()
+        try:
+            await forward_task
+        except asyncio.CancelledError:
+            pass
+    finally:
+        if q in _event_subscribers:
+            _event_subscribers.remove(q)
+        log.info("[Events] Subscriber disconnected (total=%d)", len(_event_subscribers))
+
+    return ws
+
+
+# ============================================================================
+# PHASE 3: Plugin/Hot-Reload System for Skills
+# ============================================================================
+_skills_cache: dict[str, Any] = {"last_scan": 0.0, "skills": [], "mtimes": {}}
+_skills_cache_lock = threading.Lock()
+_SKILLS_CACHE_TTL = 5.0  # seconds before re-scan on access
+
+# Hot-reload: if True, skills are re-scanned on every /v1/skills request
+_hot_reload_skills: bool = True
+
+
+def _skills_list_sync_with_cache() -> dict:
+    """Scan skills with caching and hot-reload support.
+
+    If hot-reload is enabled, checks mtimes of skill directories
+    and only re-scans if something changed.
+    """
+    global _skills_cache
+
+    with _skills_cache_lock:
+        now = time.time()
+        # Return cached if fresh and no hot-reload
+        if not _hot_reload_skills and (now - _skills_cache["last_scan"]) < _SKILLS_CACHE_TTL:
+            return {"ok": True, "count": len(_skills_cache["skills"]),
+                    "skills": _skills_cache["skills"], "cached": True}
+
+        # Hot-reload: check mtimes
+        changed = False
+        if _skills_cache["last_scan"] > 0 and SKILLS_DIR.exists():
+            current_mtimes = {}
+            for p in sorted(SKILLS_DIR.rglob("*")):
+                if p.is_file() and p.suffix in (".json", ".yaml", ".yml", ".md", ".toml",
+                                                  ".sh", ".py"):
+                    try:
+                        current_mtimes[str(p)] = p.stat().st_mtime
+                    except OSError:
+                        pass
+            if current_mtimes != _skills_cache["mtimes"]:
+                changed = True
+                _skills_cache["mtimes"] = current_mtimes
+        else:
+            changed = True
+
+        # If nothing changed and cache is fresh, return cached
+        if not changed and (now - _skills_cache["last_scan"]) < _SKILLS_CACHE_TTL:
+            return {"ok": True, "count": len(_skills_cache["skills"]),
+                    "skills": _skills_cache["skills"], "cached": True}
+
+    # Re-scan (outside lock for performance)
+    result = _skills_list_sync()
+
+    with _skills_cache_lock:
+        _skills_cache["skills"] = result.get("skills", [])
+        _skills_cache["last_scan"] = time.time()
+        result["cached"] = False
+        result["hot_reload"] = _hot_reload_skills
+
+    return result
+
+
+async def handle_v1_skills_reload(request: web.Request) -> web.Response:
+    """POST /v1/skills/reload — Force reload skills cache."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    global _skills_cache
+    with _skills_cache_lock:
+        _skills_cache = {"last_scan": 0.0, "skills": [], "mtimes": {}}
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync_with_cache)
+        log.info("[Skills] Hot-reload: %d skills scanned", result.get("count", 0))
+        return _cors_json_response({"ok": True, "reloaded": True,
+                                    "count": result.get("count", 0),
+                                    "skills": result.get("skills", [])})
+    except Exception as e:
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ============================================================================
+# PHASE 3: Request/Response Logging
+# ============================================================================
+_REQ_LOG_FILE = APP_DIR / "requests.jsonl"
+_req_log_lock = threading.Lock()
+_REQ_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB before rotation
+_REQ_LOG_BACKUP_COUNT = 3
+
+
+def _log_request_response(method: str, path: str, status: int, duration: float,
+                           req_id: str, peer: str = "", error: str = "") -> None:
+    """Log request/response to requests.jsonl for observability."""
+    entry = {
+        "ts": utc_now(),
+        "req_id": req_id,
+        "method": method,
+        "path": path,
+        "status": status,
+        "duration_ms": round(duration * 1000, 2),
+        "peer": peer,
+    }
+    if error:
+        entry["error"] = error[:500]
+
+    try:
+        APP_DIR.mkdir(parents=True, exist_ok=True)
+
+        # Simple rotation: check size and rotate if needed
+        if _REQ_LOG_FILE.exists() and _REQ_LOG_FILE.stat().st_size > _REQ_LOG_MAX_BYTES:
+            for i in range(_REQ_LOG_BACKUP_COUNT, 0, -1):
+                old = APP_DIR / f"requests.jsonl.{i}"
+                older = APP_DIR / f"requests.jsonl.{i + 1}"
+                if old.exists():
+                    if i == _REQ_LOG_BACKUP_COUNT:
+                        old.unlink()
+                    else:
+                        try:
+                            old.rename(older)
+                        except OSError:
+                            pass
+            try:
+                _REQ_LOG_FILE.rename(APP_DIR / "requests.jsonl.1")
+            except OSError:
+                pass
+
+        with _req_log_lock:
+            with _REQ_LOG_FILE.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:
+        pass  # Don't let logging failure break requests
+
+
+async def handle_v1_audit_log(request: web.Request) -> web.Response:
+    """GET /v1/audit/log — Request/response log with filters.
+
+    Query params: lines=100, method=GET, path=/v1, status=200, from=2025-01-01
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        lines_count = min(int(request.query.get("lines", "100")), 1000)
+        method_filter = request.query.get("method", "").upper()
+        path_filter = request.query.get("path", "")
+        status_filter = request.query.get("status", "")
+    except (ValueError, TypeError):
+        lines_count = 100
+        method_filter = ""
+        path_filter = ""
+        status_filter = ""
+
+    entries = []
+    try:
+        if _REQ_LOG_FILE.exists():
+            all_lines = _REQ_LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+            for line in reversed(all_lines):  # Most recent first
+                try:
+                    entry = json.loads(line)
+                    if method_filter and entry.get("method", "").upper() != method_filter:
+                        continue
+                    if path_filter and path_filter not in entry.get("path", ""):
+                        continue
+                    if status_filter:
+                        try:
+                            if entry.get("status", 0) != int(status_filter):
+                                continue
+                        except ValueError:
+                            pass
+                    entries.append(entry)
+                    if len(entries) >= lines_count:
+                        break
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        log.error("Failed to read request log: %s", e)
+
+    return _cors_json_response({
+        "ok": True,
+        "log_file": str(_REQ_LOG_FILE),
+        "filters": {"method": method_filter, "path": path_filter,
+                    "status": status_filter, "lines": lines_count},
+        "count": len(entries),
+        "entries": entries,
+    })
+
+
+# ============================================================================
+# PHASE 3: Health Watchdog (auto-restart, memory/CPU monitoring, alerts)
+# ============================================================================
+_watchdog_state: dict[str, Any] = {
+    "last_check": 0.0,
+    "memory_mb": 0.0,
+    "cpu_percent": 0.0,
+    "alerts": [],
+    "restart_count": 0,
+    "auto_restart": True,
+    "memory_limit_mb": 512,
+    "cpu_limit_percent": 90.0,
+    "check_interval_s": 30,
+}
+_watchdog_task: asyncio.Task | None = None
+
+
+async def _watchdog_loop() -> None:
+    """Background watchdog that monitors bridge health and emits alerts."""
+    while True:
+        try:
+            await asyncio.sleep(_watchdog_state["check_interval_s"])
+
+            # Memory and CPU monitoring
+            mem_mb = 0.0
+            cpu_pct = 0.0
+            try:
+                import psutil
+                proc = psutil.Process()
+                mem_info = proc.memory_info()
+                mem_mb = mem_info.rss / (1024 * 1024)
+                cpu_pct = proc.cpu_percent(interval=1.0)
+            except ImportError:
+                # Fallback: read from /proc/self/status on Linux
+                try:
+                    if sys.platform != "win32":
+                        with open("/proc/self/status") as f:
+                            for line in f:
+                                if line.startswith("VmRSS:"):
+                                    mem_mb = int(line.split()[1]) / 1024  # kB to MB
+                                    break
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+            _watchdog_state["memory_mb"] = round(mem_mb, 1)
+            _watchdog_state["cpu_percent"] = round(cpu_pct, 1)
+            _watchdog_state["last_check"] = time.time()
+
+            # Check thresholds and emit alerts
+            alerts_now = []
+            if mem_mb > _watchdog_state["memory_limit_mb"]:
+                alert = {"type": "memory_high", "value_mb": round(mem_mb, 1),
+                         "limit_mb": _watchdog_state["memory_limit_mb"],
+                         "ts": utc_now()}
+                alerts_now.append(alert)
+                log.warning("[Watchdog] Memory alert: %.1f MB > %.0f MB limit",
+                            mem_mb, _watchdog_state["memory_limit_mb"])
+                await emit_event("alert", alert)
+
+            if cpu_pct > _watchdog_state["cpu_limit_percent"]:
+                alert = {"type": "cpu_high", "value_pct": round(cpu_pct, 1),
+                         "limit_pct": _watchdog_state["cpu_limit_percent"],
+                         "ts": utc_now()}
+                alerts_now.append(alert)
+                log.warning("[Watchdog] CPU alert: %.1f%% > %.1f%% limit",
+                            cpu_pct, _watchdog_state["cpu_limit_percent"])
+                await emit_event("alert", alert)
+
+            # Keep last 50 alerts
+            _watchdog_state["alerts"].extend(alerts_now)
+            _watchdog_state["alerts"] = _watchdog_state["alerts"][-50:]
+
+        except asyncio.CancelledError:
+            log.info("[Watchdog] Cancelled — shutting down")
+            break
+        except Exception as e:
+            log.error("[Watchdog] Unexpected error: %s", e)
+            await asyncio.sleep(10)
+
+
+def _start_watchdog() -> None:
+    """Start the health watchdog if not already running."""
+    global _watchdog_task
+    if _watchdog_task and not _watchdog_task.done():
+        return
+    _watchdog_task = asyncio.create_task(_watchdog_loop())
+    log.info("[Watchdog] Started (interval=%ds, mem_limit=%dMB, cpu_limit=%.0f%%)",
+             _watchdog_state["check_interval_s"],
+             _watchdog_state["memory_limit_mb"],
+             _watchdog_state["cpu_limit_percent"])
+
+
+def _stop_watchdog() -> None:
+    """Stop the health watchdog."""
+    global _watchdog_task
+    if _watchdog_task and not _watchdog_task.done():
+        _watchdog_task.cancel()
+        _watchdog_task = None
+        log.info("[Watchdog] Stopped")
+
+
+async def handle_v1_watchdog(request: web.Request) -> web.Response:
+    """GET /v1/watchdog — Watchdog status and configuration.
+    POST /v1/watchdog — Update watchdog settings."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            if "memory_limit_mb" in data:
+                _watchdog_state["memory_limit_mb"] = int(data["memory_limit_mb"])
+            if "cpu_limit_percent" in data:
+                _watchdog_state["cpu_limit_percent"] = float(data["cpu_limit_percent"])
+            if "check_interval_s" in data:
+                _watchdog_state["check_interval_s"] = max(10, int(data["check_interval_s"]))
+            if "auto_restart" in data:
+                _watchdog_state["auto_restart"] = bool(data["auto_restart"])
+            log.info("[Watchdog] Config updated: %s", data)
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+
+    return _cors_json_response({
+        "ok": True,
+        "memory_mb": _watchdog_state["memory_mb"],
+        "cpu_percent": _watchdog_state["cpu_percent"],
+        "memory_limit_mb": _watchdog_state["memory_limit_mb"],
+        "cpu_limit_percent": _watchdog_state["cpu_limit_percent"],
+        "check_interval_s": _watchdog_state["check_interval_s"],
+        "auto_restart": _watchdog_state["auto_restart"],
+        "last_check": _watchdog_state["last_check"],
+        "restart_count": _watchdog_state["restart_count"],
+        "recent_alerts": _watchdog_state["alerts"][-10:],
+        "uptime_seconds": round(time.time() - BRIDGE_METRICS["start_time"], 1),
+    })
+
+
+# ============================================================================
+# PHASE 3: Multi-User Auth with Roles
+# ============================================================================
+_USERS_FILE = APP_DIR / "users.json"
+_users_cache: dict[str, Any] = {"last_load": 0.0, "users": {}}
+_users_lock = threading.Lock()
+
+
+def _load_users() -> dict[str, dict]:
+    """Load user definitions from users.json.
+
+    Format: {"users": [{"token": "...", "role": "admin|user|readonly", "name": "..."}]}
+    Falls back to single-token auth if no users.json exists.
+    """
+    global _users_cache
+    now = time.time()
+
+    # Cache for 5 seconds
+    if (now - _users_cache["last_load"]) < 5.0 and _users_cache["users"]:
+        return _users_cache["users"]
+
+    users = {}
+    if _USERS_FILE.exists():
+        try:
+            data = json.loads(_USERS_FILE.read_text(encoding="utf-8"))
+            for u in data.get("users", []):
+                token = u.get("token", "")
+                if token:
+                    users[token] = {
+                        "role": u.get("role", "user"),
+                        "name": u.get("name", "unknown"),
+                    }
+            with _users_lock:
+                _users_cache["users"] = users
+                _users_cache["last_load"] = now
+            log.debug("[Auth] Loaded %d users from %s", len(users), _USERS_FILE)
+        except Exception as e:
+            log.warning("[Auth] Failed to load users.json: %s", e)
+
+    return users
+
+
+def check_auth_with_role(request: web.Request, required_role: str | None = None) -> tuple[bool, str]:
+    """Check auth and return (is_authenticated, role).
+
+    If multi-user auth is configured, validates against users.json.
+    Otherwise, falls back to single-token auth.
+    Role hierarchy: admin > user > readonly
+    """
+    # Try multi-user auth first
+    users = _load_users()
+    auth_header = request.headers.get("Authorization", "")
+    xt_header = request.headers.get("X-Arena-Token", "")
+    token = ""
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+    elif xt_header:
+        token = xt_header
+
+    if users and token in users:
+        user_role = users[token].get("role", "user")
+        if required_role:
+            role_level = {"admin": 3, "user": 2, "readonly": 1}
+            if role_level.get(user_role, 0) < role_level.get(required_role, 0):
+                return False, user_role
+        return True, user_role
+
+    # Fall back to single-token auth
+    cfg = request.app["cfg"]
+    cfg_token = cfg["token"]
+    if token == cfg_token:
+        return True, "admin"  # Single token = admin
+
+    return False, ""
+
+
+async def handle_v1_users(request: web.Request) -> web.Response:
+    """GET /v1/users — List users (admin only).
+    POST /v1/users — Add/update user (admin only).
+    DELETE /v1/users — Remove user (admin only)."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    # Only admin can manage users
+    is_auth, role = check_auth_with_role(request)
+    if not is_auth or role != "admin":
+        return _cors_json_response({"ok": False, "error": "admin role required"}, status=403)
+
+    if request.method == "GET":
+        users = _load_users()
+        user_list = []
+        for token, info in users.items():
+            user_list.append({"name": info.get("name", "unknown"),
+                              "role": info.get("role", "user"),
+                              "token_preview": token[:4] + "..." + token[-4:]})
+        # Also show the primary admin token
+        cfg = request.app["cfg"]
+        user_list.insert(0, {"name": "primary_admin", "role": "admin",
+                             "token_preview": cfg["token"][:4] + "..." + cfg["token"][-4:]})
+        return _cors_json_response({"ok": True, "users": user_list, "count": len(user_list)})
+
+    elif request.method == "POST":
+        try:
+            data = await request.json()
+            name = data.get("name", "")
+            new_token = data.get("token", "") or b64_token(24)
+            new_role = data.get("role", "user")
+            if new_role not in ("admin", "user", "readonly"):
+                return _cors_json_response({"ok": False, "error": "role must be admin, user, or readonly"}, status=400)
+            if not name:
+                return _cors_json_response({"ok": False, "error": "name is required"}, status=400)
+
+            # Load, update, save
+            users_data = {"users": []}
+            if _USERS_FILE.exists():
+                try:
+                    users_data = json.loads(_USERS_FILE.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+            # Add or update
+            updated = False
+            for u in users_data["users"]:
+                if u.get("name") == name:
+                    u["role"] = new_role
+                    u["token"] = new_token
+                    updated = True
+                    break
+            if not updated:
+                users_data["users"].append({"token": new_token, "role": new_role, "name": name})
+
+            _USERS_FILE.write_text(json.dumps(users_data, indent=2, ensure_ascii=False))
+            # Invalidate cache
+            global _users_cache
+            _users_cache = {"last_load": 0.0, "users": {}}
+
+            audit({"type": "user_add", "name": name, "role": new_role})
+            log.info("[Auth] User %s added/updated with role %s", name, new_role)
+            return _cors_json_response({"ok": True, "name": name, "role": new_role,
+                                        "token": new_token,
+                                        "note": "Save this token — it won't be shown again"})
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+
+    elif request.method == "DELETE":
+        try:
+            data = await request.json()
+            name = data.get("name", "")
+            if not name:
+                return _cors_json_response({"ok": False, "error": "name is required"}, status=400)
+
+            users_data = {"users": []}
+            if _USERS_FILE.exists():
+                try:
+                    users_data = json.loads(_USERS_FILE.read_text(encoding="utf-8"))
+                except Exception:
+                    pass
+
+            original_count = len(users_data["users"])
+            users_data["users"] = [u for u in users_data["users"] if u.get("name") != name]
+
+            if len(users_data["users"]) == original_count:
+                return _cors_json_response({"ok": False, "error": f"user {name} not found"}, status=404)
+
+            _USERS_FILE.write_text(json.dumps(users_data, indent=2, ensure_ascii=False))
+            _users_cache = {"last_load": 0.0, "users": {}}
+
+            audit({"type": "user_remove", "name": name})
+            log.info("[Auth] User %s removed", name)
+            return _cors_json_response({"ok": True, "removed": name})
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+
+    return _cors_json_response({"ok": False, "error": "method not supported"}, status=405)
+
+
+# ============================================================================
+# PHASE 3: Batch Operations API
+# ============================================================================
+
+async def handle_v1_batch(request: web.Request) -> web.Response:
+    """POST /v1/batch — Execute multiple operations in parallel.
+
+    Body: {"operations": [{"method": "GET", "path": "/v1/status"}, ...]}
+    Optional: "max_concurrent": 5, "fail_fast": false
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        data = await request.json()
+    except Exception as e:
+        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+
+    operations = data.get("operations", [])
+    if not operations:
+        return _cors_json_response({"ok": False, "error": "operations array is required"}, status=400)
+    if len(operations) > 20:
+        return _cors_json_response({"ok": False, "error": "maximum 20 operations per batch"}, status=400)
+
+    max_concurrent = min(data.get("max_concurrent", 5), 10)
+    fail_fast = data.get("fail_fast", False)
+    sem = asyncio.Semaphore(max_concurrent)
+
+    async def _execute_op(idx: int, op: dict) -> dict:
+        method = op.get("method", "GET").upper()
+        path = op.get("path", "")
+        body = op.get("body", {})
+        op_id = op.get("id", f"op_{idx}")
+
+        if not path:
+            return {"id": op_id, "ok": False, "error": "missing path", "status": 400}
+
+        async with sem:
+            t0 = time.time()
+            try:
+                # Build a sub-request to the internal handler
+                # For safety, we only allow internal API paths
+                if not path.startswith("/v1/") and path not in ("/health", "/metrics"):
+                    return {"id": op_id, "ok": False, "error": "only /v1/* and /health paths allowed",
+                            "status": 403}
+
+                # Use aiohttp client to call ourselves (cleanest approach)
+                cfg = request.app["cfg"]
+                port = cfg.get("port", 8765)
+                url = f"http://127.0.0.1:{port}{path}"
+                headers = {"Authorization": f"Bearer {cfg['token']}",
+                           "Content-Type": "application/json"}
+
+                async with aiohttp.ClientSession() as session:
+                    if method == "GET":
+                        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                            result = await resp.json()
+                            return {"id": op_id, "ok": resp.status < 400, "status": resp.status,
+                                    "data": result, "duration_ms": round((time.time() - t0) * 1000, 2)}
+                    elif method == "POST":
+                        async with session.post(url, headers=headers, json=body,
+                                                timeout=aiohttp.ClientTimeout(total=60)) as resp:
+                            result = await resp.json()
+                            return {"id": op_id, "ok": resp.status < 400, "status": resp.status,
+                                    "data": result, "duration_ms": round((time.time() - t0) * 1000, 2)}
+                    else:
+                        return {"id": op_id, "ok": False, "error": f"unsupported method: {method}",
+                                "status": 405}
+            except asyncio.TimeoutError:
+                return {"id": op_id, "ok": False, "error": "timeout", "status": 408,
+                        "duration_ms": round((time.time() - t0) * 1000, 2)}
+            except Exception as e:
+                return {"id": op_id, "ok": False, "error": str(e), "status": 500,
+                        "duration_ms": round((time.time() - t0) * 1000, 2)}
+
+    # Execute all operations in parallel
+    tasks = [_execute_op(i, op) for i, op in enumerate(operations)]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Process results
+    batch_results = []
+    errors = 0
+    for r in results:
+        if isinstance(r, Exception):
+            batch_results.append({"ok": False, "error": str(r), "status": 500})
+            errors += 1
+        else:
+            batch_results.append(r)
+            if not r.get("ok", True):
+                errors += 1
+
+    await emit_event("batch_complete", {"total": len(operations), "errors": errors})
+
+    return _cors_json_response({
+        "ok": errors == 0,
+        "total": len(operations),
+        "success": len(operations) - errors,
+        "errors": errors,
+        "results": batch_results,
+    })
+
+
+# ============================================================================
+# PHASE 3: Browser Session Profiles
+# ============================================================================
+_PROFILES_DIR = APP_DIR / "profiles"
+
+
+def _ensure_profiles_dir() -> Path:
+    """Ensure profiles directory exists."""
+    _PROFILES_DIR.mkdir(parents=True, exist_ok=True)
+    return _PROFILES_DIR
+
+
+async def handle_v1_profiles(request: web.Request) -> web.Response:
+    """GET /v1/profiles — List browser session profiles.
+    POST /v1/profiles — Save current browser session as profile.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    if request.method == "GET":
+        _ensure_profiles_dir()
+        profiles = []
+        for p in sorted(_PROFILES_DIR.glob("*.json")):
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                profiles.append({
+                    "name": p.stem,
+                    "created": data.get("created", ""),
+                    "cookie_count": len(data.get("cookies", [])),
+                    "tab_count": len(data.get("tabs", [])),
+                    "has_local_storage": bool(data.get("local_storage")),
+                    "size_bytes": p.stat().st_size,
+                })
+            except Exception:
+                profiles.append({"name": p.stem, "error": "corrupt profile file"})
+
+        return _cors_json_response({"ok": True, "profiles": profiles, "count": len(profiles)})
+
+    elif request.method == "POST":
+        try:
+            data = await request.json()
+            profile_name = data.get("name", f"profile_{int(time.time())}")
+            # Sanitize name
+            profile_name = re.sub(r'[^a-zA-Z0-9_\-.]', '_', profile_name)
+            save_cookies = data.get("cookies", True)
+            save_tabs = data.get("tabs", True)
+            save_local_storage = data.get("local_storage", False)
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+
+        # Need an active CDP connection
+        if not _cdp_state.get("connected") or not _cdp_state.get("manager"):
+            return _cors_json_response({"ok": False, "error": "CDP not connected. Connect first."}, status=400)
+
+        mgr = _cdp_state["manager"]
+        profile_data = {"created": utc_now(), "name": profile_name, "version": VERSION}
+
+        try:
+            # Save cookies
+            if save_cookies:
+                try:
+                    tab = _cdp_active_tab()
+                    if tab:
+                        cookie_result = await asyncio.wait_for(tab.get_cookies(), timeout=10)
+                        profile_data["cookies"] = cookie_result if isinstance(cookie_result, list) else []
+                except Exception as e:
+                    profile_data["cookies"] = []
+                    log.warning("[Profiles] Failed to save cookies: %s", e)
+
+            # Save tabs info
+            if save_tabs:
+                try:
+                    tabs_info = []
+                    if mgr.active_tab:
+                        # Get current tab URL and title
+                        try:
+                            eval_result = await asyncio.wait_for(
+                                mgr.active_tab.eval_js("JSON.stringify({url: location.href, title: document.title})"),
+                                timeout=5)
+                            if eval_result:
+                                tab_data = json.loads(eval_result) if isinstance(eval_result, str) else {}
+                                tabs_info.append(tab_data)
+                        except Exception:
+                            pass
+                    profile_data["tabs"] = tabs_info
+                except Exception as e:
+                    profile_data["tabs"] = []
+                    log.warning("[Profiles] Failed to save tabs: %s", e)
+
+            # Save localStorage
+            if save_local_storage:
+                try:
+                    tab = _cdp_active_tab()
+                    if tab:
+                        ls_result = await asyncio.wait_for(
+                            tab.eval_js("JSON.stringify(Object.fromEntries(Object.entries(localStorage)))"),
+                            timeout=5)
+                        profile_data["local_storage"] = json.loads(ls_result) if isinstance(ls_result, str) else {}
+                except Exception as e:
+                    profile_data["local_storage"] = {}
+                    log.warning("[Profiles] Failed to save localStorage: %s", e)
+
+            # Write profile
+            _ensure_profiles_dir()
+            profile_path = _PROFILES_DIR / f"{profile_name}.json"
+            profile_path.write_text(json.dumps(profile_data, indent=2, ensure_ascii=False))
+
+            audit({"type": "profile_save", "name": profile_name,
+                    "cookies": len(profile_data.get("cookies", [])),
+                    "tabs": len(profile_data.get("tabs", []))})
+            await emit_event("profile_saved", {"name": profile_name})
+
+            return _cors_json_response({
+                "ok": True, "name": profile_name,
+                "cookie_count": len(profile_data.get("cookies", [])),
+                "tab_count": len(profile_data.get("tabs", [])),
+                "has_local_storage": bool(profile_data.get("local_storage")),
+            })
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+    return _cors_json_response({"ok": False, "error": "method not supported"}, status=405)
+
+
+async def handle_v1_profiles_load(request: web.Request) -> web.Response:
+    """POST /v1/profiles/{name}/load — Load a browser session profile."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    name = request.match_info.get("name", "")
+    if not name:
+        return _cors_json_response({"ok": False, "error": "profile name required"}, status=400)
+
+    # Sanitize
+    name = re.sub(r'[^a-zA-Z0-9_\-.]', '_', name)
+    profile_path = _PROFILES_DIR / f"{name}.json"
+
+    if not profile_path.exists():
+        return _cors_json_response({"ok": False, "error": f"profile {name} not found"}, status=404)
+
+    try:
+        profile_data = json.loads(profile_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        return _cors_json_response({"ok": False, "error": f"corrupt profile: {e}"}, status=500)
+
+    # Need active CDP connection
+    if not _cdp_state.get("connected") or not _cdp_state.get("manager"):
+        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+
+    restored = {"cookies": 0, "tabs": 0, "local_storage": False}
+
+    try:
+        # Restore cookies
+        cookies = profile_data.get("cookies", [])
+        if cookies:
+            tab = _cdp_active_tab()
+            if tab:
+                for cookie in cookies:
+                    try:
+                        await asyncio.wait_for(tab.set_cookie(cookie), timeout=5)
+                        restored["cookies"] += 1
+                    except Exception:
+                        pass
+
+        # Restore tabs
+        tabs = profile_data.get("tabs", [])
+        if tabs:
+            for tab_info in tabs:
+                url = tab_info.get("url", "")
+                if url:
+                    try:
+                        await asyncio.wait_for(
+                            mgr_active_tab_navigate(url), timeout=10)
+                        restored["tabs"] += 1
+                    except Exception:
+                        pass
+
+        # Restore localStorage
+        ls = profile_data.get("local_storage", {})
+        if ls:
+            tab = _cdp_active_tab()
+            if tab:
+                try:
+                    pairs = [f"localStorage.setItem('{k}', {json.dumps(v)})" for k, v in ls.items()]
+                    script = ";".join(pairs[:100])  # Limit to 100 items
+                    await asyncio.wait_for(tab.eval_js(script), timeout=5)
+                    restored["local_storage"] = True
+                except Exception:
+                    pass
+
+        audit({"type": "profile_load", "name": name, "restored": restored})
+        await emit_event("profile_loaded", {"name": name, "restored": restored})
+
+        return _cors_json_response({
+            "ok": True, "name": name, "restored": restored,
+            "cookie_count": len(profile_data.get("cookies", [])),
+            "tab_count": len(profile_data.get("tabs", [])),
+        })
+    except Exception as e:
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ============================================================================
+# PHASE 3: Prometheus Alerts Configuration
+# ============================================================================
+
+_ALERTS_CONFIG = {
+    "bridge_down": {"enabled": True, "threshold_seconds": 30, "description": "Bridge unresponsive for >30s"},
+    "high_latency": {"enabled": True, "threshold_seconds": 5.0, "description": "Request latency >5s"},
+    "memory_leak": {"enabled": True, "threshold_mb": 512, "description": "Memory usage >512MB"},
+    "cdp_disconnect": {"enabled": True, "threshold_reconnects": 5, "description": "More than 5 CDP reconnects"},
+    "error_rate": {"enabled": True, "threshold_percent": 10.0, "description": "Error rate >10%"},
+    "rate_limit": {"enabled": True, "threshold_percent": 80.0, "description": "Rate limit >80% utilized"},
+}
+
+
+async def handle_v1_alerts(request: web.Request) -> web.Response:
+    """GET /v1/alerts — List alert configurations and current status.
+    POST /v1/alerts — Update alert configuration."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            for alert_name, config in data.items():
+                if alert_name in _ALERTS_CONFIG and isinstance(config, dict):
+                    for k, v in config.items():
+                        if k in _ALERTS_CONFIG[alert_name]:
+                            _ALERTS_CONFIG[alert_name][k] = v
+            log.info("[Alerts] Configuration updated")
+        except Exception as e:
+            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
+
+    # Compute current alert states
+    alert_states = {}
+    uptime = time.time() - BRIDGE_METRICS["start_time"]
+    total_reqs = BRIDGE_METRICS["total_requests"]
+    total_errors = BRIDGE_METRICS["total_errors"]
+
+    alert_states["bridge_down"] = {"status": "OK", "uptime_s": round(uptime, 1)}
+
+    # High latency check
+    durations = BRIDGE_METRICS.get("request_durations", [])
+    avg_dur = sum(durations[-100:]) / len(durations[-100:]) if durations else 0
+    alert_states["high_latency"] = {
+        "status": "FIRING" if avg_dur > _ALERTS_CONFIG["high_latency"]["threshold_seconds"] else "OK",
+        "avg_duration_s": round(avg_dur, 3),
+        "threshold_s": _ALERTS_CONFIG["high_latency"]["threshold_seconds"],
+    }
+
+    # Memory check
+    alert_states["memory_leak"] = {
+        "status": "FIRING" if _watchdog_state["memory_mb"] > _ALERTS_CONFIG["memory_leak"]["threshold_mb"] else "OK",
+        "current_mb": _watchdog_state["memory_mb"],
+        "threshold_mb": _ALERTS_CONFIG["memory_leak"]["threshold_mb"],
+    }
+
+    # CDP disconnect check
+    reconnects = _cdp_state.get("reconnect_count", 0)
+    alert_states["cdp_disconnect"] = {
+        "status": "FIRING" if reconnects > _ALERTS_CONFIG["cdp_disconnect"]["threshold_reconnects"] else "OK",
+        "reconnects": reconnects,
+        "threshold": _ALERTS_CONFIG["cdp_disconnect"]["threshold_reconnects"],
+    }
+
+    # Error rate check
+    error_rate = (total_errors / total_reqs * 100) if total_reqs > 0 else 0
+    alert_states["error_rate"] = {
+        "status": "FIRING" if error_rate > _ALERTS_CONFIG["error_rate"]["threshold_percent"] else "OK",
+        "error_rate_pct": round(error_rate, 2),
+        "threshold_pct": _ALERTS_CONFIG["error_rate"]["threshold_percent"],
+    }
+
+    # Rate limit utilization
+    rl_usage = 0.0
+    with _rate_limit_lock:
+        for timestamps in _rate_limit_store.values():
+            now = time.time()
+            recent = [t for t in timestamps if now - t < _rate_limit_window]
+            if recent:
+                rl_usage = max(rl_usage, len(recent) / _rate_limit_max * 100)
+    alert_states["rate_limit"] = {
+        "status": "FIRING" if rl_usage > _ALERTS_CONFIG["rate_limit"]["threshold_percent"] else "OK",
+        "usage_pct": round(rl_usage, 1),
+        "threshold_pct": _ALERTS_CONFIG["rate_limit"]["threshold_percent"],
+    }
+
+    firing = sum(1 for s in alert_states.values() if s.get("status") == "FIRING")
+
+    return _cors_json_response({
+        "ok": True,
+        "alerts": _ALERTS_CONFIG,
+        "states": alert_states,
+        "firing": firing,
+        "healthy": firing == 0,
+    })
 
 
 def _check_rate_limit(request: web.Request) -> web.Response | None:
@@ -1388,6 +2394,36 @@ def make_app(cfg: dict) -> web.Application:
     # ---- Browser auto-switch ----
     app.router.add_post("/v1/browser/browse", handle_v1_browser_browse)
 
+    # ---- Phase 3: WebSocket events ----
+    app.router.add_get("/v1/events", handle_v1_events)
+
+    # ---- Phase 3: Skills hot-reload ----
+    app.router.add_post("/v1/skills/reload", handle_v1_skills_reload)
+
+    # ---- Phase 3: Request/response log ----
+    app.router.add_get("/v1/audit/log", handle_v1_audit_log)
+
+    # ---- Phase 3: Watchdog ----
+    app.router.add_get("/v1/watchdog", handle_v1_watchdog)
+    app.router.add_post("/v1/watchdog", handle_v1_watchdog)
+
+    # ---- Phase 3: Multi-user auth ----
+    app.router.add_get("/v1/users", handle_v1_users)
+    app.router.add_post("/v1/users", handle_v1_users)
+    app.router.add_delete("/v1/users", handle_v1_users)
+
+    # ---- Phase 3: Batch operations ----
+    app.router.add_post("/v1/batch", handle_v1_batch)
+
+    # ---- Phase 3: Browser session profiles ----
+    app.router.add_get("/v1/profiles", handle_v1_profiles)
+    app.router.add_post("/v1/profiles", handle_v1_profiles)
+    app.router.add_post("/v1/profiles/{name}/load", handle_v1_profiles_load)
+
+    # ---- Phase 3: Prometheus alerts ----
+    app.router.add_get("/v1/alerts", handle_v1_alerts)
+    app.router.add_post("/v1/alerts", handle_v1_alerts)
+
     # ---- Dashboard ----
     app.router.add_get("/gui", handle_gui)
 
@@ -1420,7 +2456,9 @@ async def on_startup(app: web.Application):
     cfg = app["cfg"]
     cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
     app["task_runner"] = asyncio.ensure_future(task_runner_loop(app))
-    log.info("[UnifiedBridge v%s] Background task runner started", VERSION)
+    # Phase 3: Start health watchdog
+    _start_watchdog()
+    log.info("[UnifiedBridge v%s] Background task runner + watchdog started", VERSION)
 
 
 async def on_cleanup(app: web.Application):
@@ -1432,6 +2470,12 @@ async def on_cleanup(app: web.Application):
             await tr
         except asyncio.CancelledError:
             pass
+
+    # Phase 3: Stop health watchdog
+    try:
+        _stop_watchdog()
+    except Exception:
+        pass
     
     # Stop CDP watcher
     try:
@@ -4657,6 +5701,9 @@ async def handle_v1_cdp_connect(request):
         _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
         _cdp_state["last_disconnect_reason"] = None
 
+        # Emit event (Phase 3)
+        asyncio.create_task(emit_event("cdp_connect", {"port": port, "headless": headless}))
+
         # Start the health watcher for auto-reconnect
         _start_cdp_watcher()
         
@@ -4747,7 +5794,10 @@ async def handle_v1_cdp_disconnect(request):
         _cdp_state["cookie_mgr"] = None
         _cdp_state["connected"] = False
         _cdp_state["last_disconnect_reason"] = "User disconnected"
-        
+
+        # Emit event (Phase 3)
+        asyncio.create_task(emit_event("cdp_disconnect", {"reason": "User disconnected"}))
+
         return _cors_json_response({"ok": True, "message": "CDP disconnected"})
     except Exception as e:
         _record_request(is_error=True, count_request=False)
@@ -6592,7 +7642,7 @@ async def handle_v1_skills(request: web.Request) -> web.Response:
     _record_request()
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync)
+        result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync_with_cache)
         return _cors_json_response(result)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
@@ -7232,6 +8282,18 @@ async def handle_prometheus_metrics(request: web.Request) -> web.Response:
             "# TYPE arena_bridge_info gauge",
             f'arena_bridge_info{{version="{VERSION}"}} 1',
             "",
+            "# HELP arena_bridge_memory_mb Bridge memory usage in MB",
+            "# TYPE arena_bridge_memory_mb gauge",
+            f"arena_bridge_memory_mb {_watchdog_state['memory_mb']}",
+            "",
+            "# HELP arena_bridge_cpu_percent Bridge CPU usage percent",
+            "# TYPE arena_bridge_cpu_percent gauge",
+            f"arena_bridge_cpu_percent {_watchdog_state['cpu_percent']}",
+            "",
+            "# HELP arena_bridge_event_subscribers Number of event stream subscribers",
+            "# TYPE arena_bridge_event_subscribers gauge",
+            f"arena_bridge_event_subscribers {len(_event_subscribers)}",
+            "",
         ]
         
         return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4", charset="utf-8")
@@ -7306,6 +8368,14 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/doctor": {"get": {"summary": "Run diagnostics", "tags": ["System"], "responses": {"200": {"description": "Diagnostic results"}}}},
             "/gui": {"get": {"summary": "Web dashboard", "tags": ["Bridge"], "responses": {"200": {"description": "HTML dashboard"}}}},
             "/api-docs": {"get": {"summary": "OpenAPI specification", "tags": ["Bridge"], "responses": {"200": {"description": "OpenAPI 3.0 JSON"}}}},
+            "/v1/events": {"get": {"summary": "WebSocket real-time event stream", "tags": ["Events"], "responses": {"200": {"description": "WebSocket upgrade for events"}}}},
+            "/v1/skills/reload": {"post": {"summary": "Force reload skills cache", "tags": ["Skills"], "responses": {"200": {"description": "Reloaded skills"}}}},
+            "/v1/audit/log": {"get": {"summary": "Request/response log with filters", "tags": ["System"], "responses": {"200": {"description": "Request log entries"}}}},
+            "/v1/watchdog": {"get": {"summary": "Watchdog status and config", "tags": ["Watchdog"], "responses": {"200": {"description": "Watchdog info"}}}},
+            "/v1/users": {"get": {"summary": "List users (admin)", "tags": ["Auth"], "responses": {"200": {"description": "User list"}}}},
+            "/v1/batch": {"post": {"summary": "Execute multiple operations in parallel", "tags": ["Bridge"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"operations": {"type": "array", "items": {"type": "object", "properties": {"method": {"type": "string"}, "path": {"type": "string"}, "body": {"type": "object"}}}}, "max_concurrent": {"type": "integer", "default": 5}}}}}}, "responses": {"200": {"description": "Batch results"}}}},
+            "/v1/profiles": {"get": {"summary": "List browser session profiles", "tags": ["Profiles"], "responses": {"200": {"description": "Profile list"}}}},
+            "/v1/alerts": {"get": {"summary": "Alert configurations and status", "tags": ["Watchdog"], "responses": {"200": {"description": "Alert states"}}}},
         },
         "tags": [
             {"name": "Bridge", "description": "Core bridge operations"},
@@ -7317,6 +8387,10 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             {"name": "Tasks", "description": "Task management"},
             {"name": "Memory", "description": "Memory and recall"},
             {"name": "System", "description": "System information and diagnostics"},
+            {"name": "Events", "description": "Real-time WebSocket event stream"},
+            {"name": "Watchdog", "description": "Health monitoring and alerting"},
+            {"name": "Auth", "description": "Multi-user authentication and roles"},
+            {"name": "Profiles", "description": "Browser session profiles (cookies, tabs, localStorage)"},
         ],
     }
     return _cors_json_response(spec)
@@ -7569,6 +8643,12 @@ def _signal_handler(sig: int, frame: Any) -> None:
     sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
     log.info("[UnifiedBridge] Received %s, shutting down gracefully...", sig_name)
     
+    # Stop watchdog (Phase 3)
+    try:
+        _stop_watchdog()
+    except Exception:
+        pass
+
     # Stop CDP watcher
     try:
         _stop_cdp_watcher()
