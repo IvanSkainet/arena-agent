@@ -1161,7 +1161,7 @@ def check_auth_with_role(request: web.Request, required_role: str | None = None)
     # Fall back to single-token auth
     cfg = request.app["cfg"]
     cfg_token = cfg["token"]
-    if token == cfg_token:
+    if token and hmac.compare_digest(token, cfg_token):
         return True, "admin"  # Single token = admin
 
     return False, ""
@@ -3079,7 +3079,7 @@ CAUTIOUS_ALLOW = {
 }
 
 BLOCK_PATTERNS = [
-    r"\brm\s+-[^\n]*r[^\n]*f[^\n]*(/|~|\*)",
+    r"\brm\s+-[^\n]*[rf][^\n]*[rf][^\n]*(/|~|\*)",
     r"\bsudo\b",
     r"\bsu\b",
     r"\bmkfs(\.|\s|$)",
@@ -3359,32 +3359,78 @@ def call_tool(name: str, args: dict) -> dict:
             cmd = args.get("cmd", "")
             if not cmd:
                 return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'cmd' argument"}]}
+            # Security: check blocked patterns (same as /v1/exec)
+            block = blocked_reason(cmd)
+            if block:
+                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {block}"}]}
+            # Security: check profile allowlist
+            fw = first_word(cmd)
+            if CAUTIOUS_ALLOW and fw not in CAUTIOUS_ALLOW and fw.rstrip(".exe") not in CAUTIOUS_ALLOW:
+                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: command '{fw}' not in allowlist"}]}
             if platform.system() == "Windows":
                 rc, out, err = run_sd(["cmd", "/c", cmd], timeout=args.get("timeout", 60))
             else:
                 rc, out, err = run_sd(["bash", "-lc", cmd], timeout=args.get("timeout", 60))
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
+        # Sensitive files that must never be read via MCP
+        _MCP_BLOCKED_FILES = {"token.txt", "users.json", ".env", "id_rsa", "id_ed25519",
+                               "id_ecdsa", "id_dsa", ".netrc", ".ssh_config"}
+
         if name == "fs.read":
             p = os.path.expanduser(args.get("path", ""))
             if not p:
                 return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-            with open(p, "rb") as f:
-                data = f.read(args.get("max_bytes", 200000))
-            return text_content(data.decode("utf-8", "replace"))
+            # Security: block reading sensitive files
+            if Path(p).name in _MCP_BLOCKED_FILES:
+                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: reading {Path(p).name} is not allowed"}]}
+            # Security: restrict to home directory
+            resolved = Path(p).resolve()
+            home = Path.home().resolve()
+            if not under_root(resolved, home):
+                return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+            try:
+                with open(p, "rb") as f:
+                    data = f.read(args.get("max_bytes", 200000))
+                return text_content(data.decode("utf-8", "replace"))
+            except PermissionError:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+            except FileNotFoundError:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: file not found"}]}
         if name == "fs.write":
             p = os.path.expanduser(args.get("path", ""))
             content = args.get("content", "")
             if not p:
                 return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-            os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f:
-                f.write(content)
-            return text_content(f"wrote {len(content)} bytes to {p}")
+            # Security: block writing sensitive files
+            if Path(p).name in _MCP_BLOCKED_FILES:
+                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: writing {Path(p).name} is not allowed"}]}
+            # Security: restrict to home directory
+            resolved = Path(p).resolve()
+            home = Path.home().resolve()
+            if not under_root(resolved, home):
+                return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+            try:
+                os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(content)
+                return text_content(f"wrote {len(content)} bytes to {p}")
+            except PermissionError:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
         if name == "fs.list":
             p = os.path.expanduser(args.get("path", ""))
             if not p:
                 return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-            return text_content(json.dumps(sorted(os.listdir(p))))
+            # Security: restrict to home directory
+            resolved = Path(p).resolve()
+            home = Path.home().resolve()
+            if not under_root(resolved, home):
+                return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
+            try:
+                return text_content(json.dumps(sorted(os.listdir(p))))
+            except PermissionError:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+            except FileNotFoundError:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: directory not found"}]}
         if name == "browser.search":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
                                        "search", args.get("query", ""), "--n", str(args.get("n", 5))], timeout=30)
@@ -3949,11 +3995,11 @@ def check_auth(request: web.Request) -> bool:
     cfg = request.app["cfg"]
     token = cfg["token"]
     auth = request.headers.get("Authorization", "")
-    if auth == f"Bearer {token}":
+    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):
         return True
     # Also check X-Arena-Token for gateway compat
     xt = request.headers.get("X-Arena-Token", "")
-    if xt == token:
+    if xt and hmac.compare_digest(xt, token):
         return True
     return False
 
@@ -4758,6 +4804,12 @@ async def handle_v1_download(request: web.Request) -> web.Response:
     target_path = Path(target).expanduser()
     if not target_path.is_absolute():
         target_path = request.app["cfg"]["root"] / target_path
+    # Security: restrict downloads to home directory
+    try:
+        target_path.resolve().relative_to(Path.home().resolve())
+    except ValueError:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "path outside home directory"}, status=403)
     if not target_path.exists() or not target_path.is_file():
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "file not found"}, status=404)

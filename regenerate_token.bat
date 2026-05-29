@@ -1,5 +1,5 @@
 @echo off
-:: Arena Local Bridge - Token Regeneration Script v1.3.0
+:: Arena Unified Bridge - Token Regeneration Script v2.0.0
 :: Regenerates token and restarts bridge automatically
 
 setlocal enabledelayedexpansion
@@ -29,7 +29,7 @@ if not defined PYTHON (
 )
 
 echo ============================================================
-echo   Arena Local Bridge - Token Regeneration v1.3.0
+echo   Arena Unified Bridge - Token Regeneration v2.0.0
 echo ============================================================
 echo.
 

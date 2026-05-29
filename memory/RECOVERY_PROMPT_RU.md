@@ -48,7 +48,7 @@ a "agentctl sys status" 30
                                               Каталог: ~/arena-bridge/
 ```
 
-**Unified Bridge v1.2.0** — все сервисы на одном порте :8765 (bridge, MCP, SSE, WS, gateway, dashboard, task-runner).
+**Unified Bridge v2.0.0** — все сервисы на одном порте :8765 (bridge, MCP, SSE, WS, gateway, dashboard, task-runner).
 
 Если мост упал или требует перезапуска:
 - **Linux:** `systemctl --user restart arena-unified-bridge.service`

@@ -20,7 +20,7 @@ check(){ echo ""; echo -e "\033[36m>>> $1\033[0m"; }
 
 echo ""
 echo "========================================"
-echo " Arena Bridge v1.8.4 — Stress Test v2"
+echo " Arena Unified Bridge — Stress Test v2"
 echo "========================================"
 
 # ── 1. AUTH & SECURITY ──────────────────────────────────────

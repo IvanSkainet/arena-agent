@@ -3,7 +3,7 @@
 > **Cross-platform local automation bridge for AI agents.**
 > One process, one port, one Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v1.9.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.0.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -94,7 +94,7 @@ Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI
                                            │
         ┌──────────────────────────────────▼─────────────────────────────────┐
         │                                                                    │
-        │   localhost:8765   (one Python asyncio process, ~1500 lines)       │
+        │   localhost:8765   (one Python asyncio process, ~10K lines)       │
         │                                                                    │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │             │
@@ -303,7 +303,7 @@ The new token is written to disk; existing process keeps the old in memory. Clic
 
 ---
 
-## Roadmap (post-v1.8.1)
+## Roadmap (post-v2.0.0)
 
 - [ ] **Step 2: CDP browser deep dive** — proper click/type/screenshot/auth-flow via Chrome DevTools Protocol
 - [ ] **Step 3: Local semantic RAG memory** via SQLite FTS5
