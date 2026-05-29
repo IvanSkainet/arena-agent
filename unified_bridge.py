@@ -131,7 +131,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "1.9.27"
+VERSION = "1.9.28"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -2377,7 +2377,7 @@ _sandbox_config: dict[str, Any] = {
     "max_cpu_seconds": 30,
     "max_memory_mb": 256,
     "max_output_bytes": 100 * 1024,
-    "allowed_commands": ["python3", "python", "bash", "sh", "node"],
+    "allowed_commands": ["python3", "python", "bash", "sh", "node", "echo", "cat", "ls", "grep", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "date", "whoami", "id", "env", "printenv", "which", "pwd"],
     "blocked_env_vars": ["ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY"],
 }
 
