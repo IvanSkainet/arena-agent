@@ -657,12 +657,15 @@ class CDPBrowser:
             await self._session.close()
             raise
 
-        # Enable core domains
+        # Start the WebSocket listener FIRST — it must be running to process
+        # responses from Page.enable/Runtime.enable. Without this, send()
+        # hangs indefinitely waiting for a response that nobody reads.
+        self._listener_task = asyncio.create_task(self._listen_loop())
+
+        # Enable core domains (listener is now running to process responses)
         await self.send("Page.enable")
         await self.send("Runtime.enable")
 
-        # Start the WebSocket listener
-        self._listener_task = asyncio.create_task(self._listen_loop())
         logger.info("[CDP] Connected to %s", ws_url)
 
     async def close(self) -> None:
@@ -1236,12 +1239,16 @@ class CDPTab:
         # Instead, let CDPTabManager handle reconnection at its level.
         self._browser._closing = True  # Prevents _listen_loop from calling reconnect
 
-        # Enable core domains
+        # CRITICAL (v1.9.21): Start the listener loop BEFORE sending any CDP
+        # commands. The send() method awaits a response, which is resolved by
+        # the listener loop receiving incoming messages. If the listener isn't
+        # running, send() hangs indefinitely — this was the root cause of the
+        # "Active tab is not connected" bug through v1.9.20.
+        self._browser._listener_task = asyncio.create_task(self._browser._listen_loop())
+
+        # Enable core domains (now the listener can process responses)
         await self._browser.send("Page.enable")
         await self._browser.send("Runtime.enable")
-
-        # Start listener
-        self._browser._listener_task = asyncio.create_task(self._browser._listen_loop())
 
         self._connected = True
         logger.info("[CDPTab] Connected to tab %s (%s)", self.target_id, self.title or self.url)
@@ -1738,15 +1745,16 @@ class CDPTabManager:
                         browser_inst._session = None
                         browser_inst._closing = True  # Prevent auto-reconnect
 
-                        # Enable core CDP domains
+                        # Start listener FIRST — it must be running to process
+                        # responses from Page.enable/Runtime.enable
+                        browser_inst._listener_task = asyncio.create_task(browser_inst._listen_loop())
+
+                        # Enable core CDP domains (listener will process responses)
                         try:
                             await browser_inst.send("Page.enable")
                             await browser_inst.send("Runtime.enable")
                         except Exception as e:
                             logger.warning("[CDPManager] CDP domain enable failed (non-fatal): %s", e)
-
-                        # Start the listener loop
-                        browser_inst._listener_task = asyncio.create_task(browser_inst._listen_loop())
 
                         # Set the tab as connected
                         active_tab._browser = browser_inst
@@ -1790,15 +1798,16 @@ class CDPTabManager:
                         browser_inst._session = aiohttp_session
                         browser_inst._closing = True  # Prevent auto-reconnect
 
-                        # Enable core CDP domains
+                        # Start listener FIRST — it must be running to process
+                        # responses from Page.enable/Runtime.enable
+                        browser_inst._listener_task = asyncio.create_task(browser_inst._listen_loop())
+
+                        # Enable core CDP domains (listener will process responses)
                         try:
                             await browser_inst.send("Page.enable")
                             await browser_inst.send("Runtime.enable")
                         except Exception as e:
                             logger.warning("[CDPManager] CDP domain enable failed (non-fatal): %s", e)
-
-                        # Start the listener loop
-                        browser_inst._listener_task = asyncio.create_task(browser_inst._listen_loop())
 
                         # Set the tab as connected
                         active_tab._browser = browser_inst
@@ -1905,14 +1914,15 @@ class CDPTabManager:
         try:
             logger.info("[CDPTabManager] Browser-level WS connected, enabling Target domain...")
 
+            # Start browser event listener FIRST — it must be running to process
+            # the response from Target.setDiscoverTargets
+            self._browser_listener_task = asyncio.create_task(self._browser_listen_loop())
+
             # Enable Target domain to receive tab lifecycle events
             await asyncio.wait_for(
                 self._browser_send("Target.setDiscoverTargets", {"discover": True}),
                 timeout=5
             )
-
-            # Start browser event listener
-            self._browser_listener_task = asyncio.create_task(self._browser_listen_loop())
 
             logger.info("[CDPTabManager] Browser-level WS connected for Target events")
         except Exception as e:

@@ -232,12 +232,21 @@ if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
         ri_error=$(echo "$ri_resp" | jq_val '["error"]' 2>/dev/null || echo "")
         ri_tab_ws_err=$(echo "$ri_resp" | jq_val '["tab_ws_error"]' 2>/dev/null || echo "")
         ri_tab_ws_aio_err=$(echo "$ri_resp" | jq_val '["tab_ws_aiohttp_error"]' 2>/dev/null || echo "")
+        ri_version_err=$(echo "$ri_resp" | jq_val '["raw_version_error"]' 2>/dev/null || echo "")
+        ri_tabs_err=$(echo "$ri_resp" | jq_val '["raw_tabs_error"]' 2>/dev/null || echo "")
+        ri_tab_count=$(echo "$ri_resp" | jq_val '["tab_count"]' 2>/dev/null || echo "?")
+        ri_page_tab_count=$(echo "$ri_resp" | jq_val '["page_tab_count"]' 2>/dev/null || echo "?")
+        ri_port_ready=$(echo "$ri_resp" | jq_val '["port_ready_after_s"]' 2>/dev/null || echo "?")
+        ri_browser_died=$(echo "$ri_resp" | jq_val '["browser_died"]' 2>/dev/null || echo "")
         echo "    wsDebuggerUrl=$ri_ws_url  has_ws=$ri_has_ws  id=$ri_version_id"
-        echo "    browser=$ri_browser"
+        echo "    browser=$ri_browser  tabs=$ri_tab_count  page_tabs=$ri_page_tab_count  port_ready=${ri_port_ready}s"
         echo "    tab_ws_ok=$ri_tab_ws_ok  lib=$ri_tab_ws_lib  time=${ri_tab_ws_time}s  cdp=$ri_tab_ws_cdp"
+        if [ -n "$ri_version_err" ]; then echo "    raw_version_error: $ri_version_err"; fi
+        if [ -n "$ri_tabs_err" ]; then echo "    raw_tabs_error: $ri_tabs_err"; fi
         if [ -n "$ri_tab_ws_err" ]; then echo "    tab_ws_error: $ri_tab_ws_err"; fi
         if [ -n "$ri_tab_ws_aio_err" ]; then echo "    tab_ws_aiohttp_error: $ri_tab_ws_aio_err"; fi
-        if [ -n "$ri_error" ]; then echo "    error: $ri_error"; fi
+        if [ -n "$ri_error" ] && [ "$ri_error" != "None" ]; then echo "    error: $ri_error"; fi
+        if [ -n "$ri_browser_died" ] && [ "$ri_browser_died" != "False" ]; then echo "    BROWSER_DIED: rc=$(echo "$ri_resp" | jq_val '["browser_rc"]' 2>/dev/null)"; fi
         # Show tab WS URLs from raw /json/list
         echo "$ri_resp" | python3 -c "
 import json, sys
@@ -284,16 +293,25 @@ if [ "$module_avail" = "True" ] && [ "$BROWSER_AVAIL" = "true" ]; then
             ws_constructed=$(echo "$ws_resp" | jq_val '["tab_ws_constructed"]' 2>/dev/null || echo "")
             ws_http_ok=$(echo "$ws_resp" | jq_val '["http_endpoint_ok"]' 2>/dev/null || echo "?")
             ws_version_keys=$(echo "$ws_resp" | jq_val '["raw_version_keys"]' 2>/dev/null || echo "?")
+            ws_version_err=$(echo "$ws_resp" | jq_val '["raw_version_error"]' 2>/dev/null || echo "")
+            ws_tabs_err=$(echo "$ws_resp" | jq_val '["raw_tabs_error"]' 2>/dev/null || echo "")
+            ws_port_ready=$(echo "$ws_resp" | jq_val '["port_ready_after_s"]' 2>/dev/null || echo "?")
+            ws_browser_died=$(echo "$ws_resp" | jq_val '["browser_died"]' 2>/dev/null || echo "")
             echo "    browser_ws=$ws_browser_ws (${ws_browser_time}s) tab_ws=$ws_tab_ws (${ws_tab_time}s)"
             echo "    browser_url=$ws_url"
             echo "    tab_url=$ws_tab_url${ws_constructed:+ (constructed)}"
-            echo "    http_ok=$ws_http_ok  version_keys=$ws_version_keys"
+            echo "    http_ok=$ws_http_ok  version_keys=$ws_version_keys  port_ready=${ws_port_ready}s"
             echo "    websockets_lib=$ws_websockets_ok (${ws_websockets_time}s) tab=$ws_websockets_tab_ok (${ws_websockets_tab_time}s)"
+            if [ -n "$ws_version_err" ]; then echo "    raw_version_error: $ws_version_err"; fi
+            if [ -n "$ws_tabs_err" ]; then echo "    raw_tabs_error: $ws_tabs_err"; fi
             if [ -n "$ws_err" ]; then
                 echo "    browser_ws_error: $ws_err"
             fi
             if [ -n "$ws_tab_err" ]; then
                 echo "    tab_ws_error: $ws_tab_err"
+            fi
+            if [ -n "$ws_browser_died" ] && [ "$ws_browser_died" != "False" ]; then
+                echo "    BROWSER_DIED: rc=$(echo "$ws_resp" | jq_val '["browser_rc"]' 2>/dev/null)"
             fi
             # Show version info
             ws_ver_ws=$(echo "$ws_resp" | jq_val '["version_info","webSocketDebuggerUrl"]' 2>/dev/null || echo "?")
