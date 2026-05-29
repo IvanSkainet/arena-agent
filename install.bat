@@ -1,20 +1,22 @@
 @echo off
 REM ============================================================
-REM  Arena Unified Bridge — Windows Installer v2.0.4
-REM  Everything stays in this directory. No scattered files.
-REM  Run:  install.bat
+REM  Arena Unified Bridge — Windows Installer
+REM  Double-click this file to install. Window stays open on errors.
 REM ============================================================
-setlocal enabledelayedexpansion
 
+REM === ANTI-CLOSE: Re-launch with cmd /k so window NEVER closes ===
+if "%~1"==":RUN" goto :main
+cmd /k "%~0" :RUN
+exit /b
+
+:main
 echo.
 echo  ========================================
 echo   Arena Unified Bridge - Installer
 echo  ========================================
 echo.
 
-REM --- All paths are inside THIS directory ---
 set "BRIDGE_DIR=%~dp0"
-REM Remove trailing backslash
 if "%BRIDGE_DIR:~-1%"=="\" set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
 if defined ARENA_PORT (set "PORT=%ARENA_PORT%") else (set "PORT=8765")
 set "PROFILE=owner-shell"
@@ -38,14 +40,12 @@ if not defined PYTHON (
     echo  Download: https://www.python.org/downloads/
     echo  IMPORTANT: Check "Add Python to PATH" during install.
     echo.
-    pause
-    exit /b 1
+    goto :end
 )
 
 for /f "tokens=2 delims= " %%v in ('%PYTHON% --version 2^>^&1') do set "PYVER=%%v"
-echo       Python %PYVER% found at: %PYTHON%
+echo       Python %PYVER% found
 
-REM --- Read version from bridge source ---
 set "VERSION=unknown"
 for /f "tokens=3" %%v in ('findstr /r "^VERSION = " "%BRIDGE_DIR%\unified_bridge.py" 2^>nul') do set "VERSION=%%v"
 set "VERSION=%VERSION:"=%"
@@ -58,22 +58,21 @@ echo.
 echo [2/5] Installing Python dependencies...
 %PYTHON% -m pip install --quiet aiohttp psutil 2>nul
 if errorlevel 1 (
-    echo       [WARN] pip install failed, trying with --user...
+    echo       [WARN] pip install had issues, trying --user...
     %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
 )
 echo       Done.
 
 REM ============================================================
-REM Step 3: Create directory structure
+REM Step 3: Create directories + token
 REM ============================================================
 echo.
 echo [3/5] Creating directory structure...
-for %%d in (memory sessions memory\sessions missions hooks hooks\pre_skill.d hooks\post_skill.d logs queue queue\inbox queue\running queue\done queue\failed reports reports\shots backups mcp subagents projects skills scripts bin) do (
+for %%d in (memory missions hooks hooks\pre_skill.d hooks\post_skill.d logs queue queue\inbox queue\running queue\done queue\failed reports reports\shots backups mcp subagents projects skills scripts bin) do (
     if not exist "%BRIDGE_DIR%\%%d" mkdir "%BRIDGE_DIR%\%%d"
 )
 echo       Done.
 
-REM --- Generate token (preserve existing) ---
 if not exist "%TOKEN_FILE%" (
     %PYTHON% -c "import secrets; print(secrets.token_urlsafe(32), end='')" > "%TOKEN_FILE%"
     echo       New auth token generated.
@@ -81,24 +80,22 @@ if not exist "%TOKEN_FILE%" (
     echo       Existing token preserved.
 )
 
-REM --- Read token for later use ---
 set "AUTH_TOKEN="
 if exist "%TOKEN_FILE%" (
     set /p "AUTH_TOKEN=" < "%TOKEN_FILE%"
 )
 
 REM ============================================================
-REM Step 4: Install and start bridge
+REM Step 4: Install and start bridge service
 REM ============================================================
 echo.
 echo [4/5] Installing bridge service...
 
-REM Kill any existing bridge process on our port
+REM Kill any existing bridge on our port
 for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do (
     taskkill /F /PID %%P >nul 2>nul
 )
 
-REM Try NSSM first, fallback to Scheduled Task
 set "SERVICE_METHOD=none"
 
 where nssm >nul 2>&1
@@ -107,18 +104,12 @@ if not errorlevel 1 (
     echo       Using NSSM service manager...
 
     nssm stop ArenaUnifiedBridge >nul 2>&1
-    timeout /t 1 /nobreak >nul
+    ping -n 2 127.0.0.1 >nul
     nssm remove ArenaUnifiedBridge confirm >nul 2>&1
 
-    REM Determine pythonw path (no console window for background service)
     set "PYW=%PYTHON%"
     for %%p in ("%PYTHON%") do (
-        set "PYW_DIR=%%~dpP"
-        set "PYW_EXT=%%~xP"
-    )
-    if defined PYW_DIR (
-        set "PYW=!PYW_DIR!pythonw!PYW_EXT!"
-        if not exist "!PYW!" set "PYW=%PYTHON%"
+        if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
     )
 
     nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
@@ -134,7 +125,6 @@ if not errorlevel 1 (
     set "SERVICE_METHOD=schtasks"
     echo       NSSM not found, using Scheduled Task...
 
-    REM Create start script
     echo @echo off> "%BRIDGE_DIR%\start_bridge.bat"
     echo cd /d "%BRIDGE_DIR%">> "%BRIDGE_DIR%\start_bridge.bat"
     echo set ARENA_AGENT_HOME=%BRIDGE_DIR%>> "%BRIDGE_DIR%\start_bridge.bat"
@@ -147,7 +137,7 @@ if not errorlevel 1 (
     echo       [OK] Scheduled task installed and started.
 )
 
-REM --- Add Windows Firewall rule ---
+REM --- Windows Firewall rule ---
 netsh advfirewall firewall show rule name="Arena Bridge" >nul 2>&1
 if errorlevel 1 (
     netsh advfirewall firewall add rule name="Arena Bridge" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>&1
@@ -167,18 +157,26 @@ for /L %%i in (1,1,15) do (
             set "HEALTHY=1"
             echo       Bridge is healthy! v%VERSION%
         ) else (
-            echo       Waiting... %%i/15
-            timeout /t 2 /nobreak >nul
+            <nul set /p "=      Waiting... "
+            echo %%i/15
+            ping -n 3 127.0.0.1 >nul
         )
     )
 )
-if "%HEALTHY%"=="0" (
+if "!HEALTHY!"=="0" (
     echo.
-    echo  [WARN] Bridge not responding after 30s.
-    echo  Check logs at: %BRIDGE_DIR%\logs\bridge.log
-    echo  Or start manually:
+    echo  [WARN] Bridge not responding after 30 seconds.
+    echo.
+    echo  Possible causes:
+    echo    - Python dependencies failed to install
+    echo    - Port %PORT% is already in use
+    echo    - Antivirus blocking the process
+    echo.
+    echo  Try starting manually:
     echo    cd /d "%BRIDGE_DIR%"
     echo    %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --port %PORT%
+    echo.
+    echo  Check logs: %BRIDGE_DIR%\logs\bridge.log
     echo.
 )
 
@@ -191,7 +189,7 @@ echo   INSTALLATION COMPLETE
 echo  ========================================
 echo.
 echo   Directory:  %BRIDGE_DIR%
-echo   Dashboard:  http://127.0.0.1:%PORT%/gui?token=%AUTH_TOKEN%
+echo   Dashboard:  http://127.0.0.1:%PORT%/gui
 echo   Health:     http://127.0.0.1:%PORT%/health
 echo   Token file: %TOKEN_FILE%
 echo.
@@ -200,6 +198,9 @@ if defined AUTH_TOKEN (
     echo   Your auth token:
     echo   %AUTH_TOKEN%
     echo.
+    echo   Dashboard (with auth):
+    echo   http://127.0.0.1:%PORT%/gui?token=%AUTH_TOKEN%
+    echo.
 )
 
 echo   Manage:
@@ -207,27 +208,16 @@ if "%SERVICE_METHOD%"=="nssm" (
     echo     nssm status ArenaUnifiedBridge
     echo     nssm restart ArenaUnifiedBridge
     echo     nssm stop ArenaUnifiedBridge
-    echo     nssm start ArenaUnifiedBridge
 ) else (
     echo     schtasks /run /tn "ArenaUnifiedBridge"
     echo     schtasks /end /tn "ArenaUnifiedBridge"
-    echo     Or run directly: start_bridge.bat
+    echo     Or: start_bridge.bat
 )
 echo.
 echo   Logs: %BRIDGE_DIR%\logs\bridge.log
+echo   Update: cd /d "%BRIDGE_DIR%" ^&^& git pull ^&^& install.bat
 echo.
 
-REM --- Tailscale (non-blocking, best-effort) ---
-where tailscale >nul 2>&1
-if not errorlevel 1 (
-    echo   Tailscale:
-    for /f "tokens=6 delims= " %%u in ('tailscale status 2^>nul ^| findstr /r "https://.*\.ts\.net"') do (
-        echo     URL: %%u
-    )
-    echo   Optional: tailscale funnel --bg %PORT%
-    echo.
-)
-
-echo   Update: re-run install.bat or: cd /d "%BRIDGE_DIR%" ^&^& git pull
+:end
 echo.
 pause
