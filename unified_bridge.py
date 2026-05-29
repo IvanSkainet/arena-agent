@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Arena Unified Bridge v1.8.1
+Arena Unified Bridge
 
 Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /health          GET   Public health check
