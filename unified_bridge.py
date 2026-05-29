@@ -9852,9 +9852,9 @@ async def handle_prometheus_metrics(request: web.Request) -> web.Response:
             "",
         ]
         
-        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4; charset=utf-8")
-    except Exception as e:
-        return web.Response(text=f"# ERROR: internal error\n", status=500, content_type="text/plain; charset=utf-8")
+        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4", charset="utf-8")
+    except Exception:
+        return web.Response(text="# ERROR: internal error\n", status=500, content_type="text/plain", charset="utf-8")
 
 
 # --- /api-docs GET — OpenAPI 3.0 specification ---

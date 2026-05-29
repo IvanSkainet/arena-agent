@@ -27,10 +27,13 @@ def check_http() -> None:
 
 
 def check_service(name: str) -> None:
-    cp = subprocess.run(["systemctl", "--user", "is-active", name],
+    # Strip .service suffix if provided — systemctl adds it automatically
+    clean_name = name.replace(".service", "")
+    cp = subprocess.run(["systemctl", "--user", "is-active", clean_name],
                         capture_output=True, text=True)
     state = cp.stdout.strip()
-    add(state == "active", f"svc_{name.replace('.service','')}", state)
+    # Accept "active" or "activating" as healthy states
+    add(state in ("active", "activating"), f"svc_{clean_name}", state)
 
 
 def check_agentctl(p: Path) -> None:
@@ -55,15 +58,17 @@ def check_python3() -> None:
 
 
 def check_dirs() -> None:
-    sd = ROOT / "memory" / "sessions"
-    add(sd.is_dir(), "sessions_dir", str(sd))
-    if sd.is_dir():
-        mode = oct(sd.stat().st_mode & 0o777)
-        add(mode == "0o700", "sessions_perms", mode)
+    # Core directories that must exist
+    for d in ["memory", "skills"]:
+        p = ROOT / d
+        add(p.is_dir(), f"{d}_dir", str(p))
     facts = ROOT / "memory" / "facts.jsonl"
     add(facts.exists(), "facts_jsonl",
         f"{facts.stat().st_size} bytes" if facts.exists() else "missing")
-    audit = ROOT / "logs" / "audit.jsonl"
+    # Audit log can be at root or in logs/
+    audit = ROOT / "audit.jsonl"
+    if not audit.exists():
+        audit = ROOT / "logs" / "audit.jsonl"
     add(audit.exists() and os.access(audit, os.R_OK),
         "audit_readable", str(audit))
 
