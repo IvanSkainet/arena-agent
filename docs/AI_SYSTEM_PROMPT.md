@@ -115,8 +115,9 @@ Body: {"type": "success|warning|error|attention|melody"}
 ### First Time Setup
 
 1. **Install the bridge:**
-   - Windows: Download and run `install.bat`
-   - Linux/macOS: `curl -fsSL https://raw.githubusercontent.com/IvanSkainet/arena-agent/master/install.sh | bash`
+   - Download the latest release from https://github.com/IvanSkainet/arena-agent/releases
+   - Windows: Extract ZIP, then run `install.bat`
+   - Linux/macOS: Extract ZIP, then run `chmod +x install.sh && ./install.sh`
 
 2. **Get your token:**
    - After installation, your token is shown in the output
@@ -156,5 +157,8 @@ Body: {"type": "success|warning|error|attention|melody"}
 
 ### Update
 
-- Windows: `cd bridge-dir && git pull && install.bat`
-- Linux/macOS: `cd ~/arena-bridge && git pull && ./install.sh`
+1. Download the latest release from https://github.com/IvanSkainet/arena-agent/releases
+2. Extract the ZIP over your existing bridge folder
+3. Re-run the installer:
+   - Windows: `cd bridge-dir && install.bat`
+   - Linux/macOS: `cd ~/arena-bridge && ./install.sh`

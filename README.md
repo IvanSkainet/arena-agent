@@ -46,14 +46,29 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 
 ## 📦 Quick Start
 
-### 1. Get the code
+### 1. Download the latest release
 
-```bash
-git clone https://github.com/IvanSkainet/arena-agent.git arena-bridge
+> ⚠️ **Always download from [Releases](https://github.com/IvanSkainet/arena-agent/releases).** The `master` branch is the development branch and may contain unstable or untested changes. Only tagged releases are production-ready.
+
+Go to **[latest release](https://github.com/IvanSkainet/arena-agent/releases/latest)** and download the ZIP archive. Extract it to a folder of your choice, for example `C:\Users\You\arena-bridge` (Windows) or `~/arena-bridge` (Linux/macOS).
+
+<details>
+<summary>📦 Alternative: one-liner downloads</summary>
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip" -OutFile "arena-agent.zip"
+Expand-Archive arena-agent.zip -DestinationPath arena-bridge
 cd arena-bridge
 ```
 
-Or download the [latest release](https://github.com/IvanSkainet/arena-agent/releases) ZIP and extract.
+**Linux / macOS:**
+```bash
+curl -fsSL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip -o arena-agent.zip
+unzip arena-agent.zip -d arena-bridge
+cd arena-bridge
+```
+</details>
 
 ### 2. Run the installer
 
@@ -100,8 +115,18 @@ For a ready-to-use system prompt template, see [`docs/AI_SYSTEM_PROMPT.md`](docs
 
 ### 4. Update
 
+Download the [latest release](https://github.com/IvanSkainet/arena-agent/releases/latest) ZIP and extract it over your existing folder (or into a new one). Then re-run the installer:
+
+**Windows:**
 ```cmd
-cd /d "C:\Users\You\arena-bridge" && git pull && install.bat
+cd /d "C:\Users\You\arena-bridge"
+install.bat
+```
+
+**Linux / macOS:**
+```bash
+cd ~/arena-bridge
+./install.sh
 ```
 
 The installer preserves your existing token by default. Say `N` when asked about regenerating.
