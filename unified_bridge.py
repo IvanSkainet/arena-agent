@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.8"
+VERSION = "2.0.9"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -668,6 +668,9 @@ BRIDGE_METRICS: dict[str, Any] = {
     "request_durations": [],
 }
 _metrics_lock = threading.Lock()
+
+# Global reference to the aiohttp Application (set in make_app)
+_app_ref: Any = None
 
 # Rate limiter — sliding window per IP
 _rate_limit_window: float = 60.0  # 60-second window
@@ -3084,7 +3087,7 @@ def _check_rate_limit(request: web.Request) -> web.Response | None:
     return None
 
 CAUTIOUS_ALLOW = {
-    "pwd", "ls", "dir", "tree", "find", "fd", "rg", "grep", "cat", "type",
+    "echo", "pwd", "ls", "dir", "tree", "find", "fd", "rg", "grep", "cat", "type",
     "head", "tail", "wc", "whoami", "hostname", "uname", "ver", "systeminfo",
     "ipconfig", "ifconfig", "ip", "ss", "netstat", "python", "python3", "py",
     "node", "npm", "pnpm", "yarn", "bun", "deno", "uv", "git", "gh", "go",
@@ -3378,10 +3381,12 @@ def call_tool(name: str, args: dict) -> dict:
             block = blocked_reason(cmd)
             if block:
                 return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {block}"}]}
-            # Security: check profile allowlist
-            fw = first_word(cmd)
-            if CAUTIOUS_ALLOW and fw not in CAUTIOUS_ALLOW and fw.rstrip(".exe") not in CAUTIOUS_ALLOW:
-                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: command '{fw}' not in allowlist"}]}
+            # Security: check profile allowlist (only for cautious profile)
+            profile = os.environ.get("ARENA_PROFILE", "owner-shell")
+            if profile == "cautious":
+                fw = first_word(cmd)
+                if CAUTIOUS_ALLOW and fw not in CAUTIOUS_ALLOW and fw.rstrip(".exe") not in CAUTIOUS_ALLOW:
+                    return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: command '{fw}' not in allowlist"}]}
             if platform.system() == "Windows":
                 rc, out, err = run_sd(["cmd", "/c", cmd], timeout=args.get("timeout", 60))
             else:
@@ -3478,32 +3483,54 @@ def call_tool(name: str, args: dict) -> dict:
                                     f"--screenshot={png}", args.get("url", "")], timeout=45)
             return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args.get("url", "")}))
         if name == "mem.set":
+            key = args.get("key", "")
+            value = args.get("value", "")
+            if not key:
+                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'key' argument"}]}
             tags = args.get("tags") or []
-            cmd_args = [os.path.join(BIN, "agentctl"), "mem", "set", args.get("key", ""), args.get("value", "")]
-            if tags:
-                cmd_args += ["--tags"] + list(tags)
-            rc, out, err = run_local(cmd_args, timeout=15)
-            return text_content(out or err)
+            entry = {"key": key, "value": value, "tags": tags,
+                     "timestamp": datetime.now(timezone.utc).isoformat()}
+            _write_fact(entry)
+            audit({"type": "memory_set", "key": key, "via": "mcp"})
+            return text_content(json.dumps({"ok": True, "fact": entry}, ensure_ascii=False))
         if name == "mem.get":
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "mem", "get", args.get("query", "")], timeout=15)
-            return text_content(out or err)
+            q = args.get("query", args.get("q", ""))
+            facts = _load_facts()
+            if q:
+                import fnmatch as _fn
+                q_low = q.lower()
+                scored = []
+                for f in facts:
+                    if q_low in json.dumps(f, ensure_ascii=False).lower():
+                        scored.append(f)
+                facts = scored
+            return text_content(json.dumps({"ok": True, "count": len(facts), "facts": facts[-50:]}, ensure_ascii=False))
         if name == "sys.status":
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "sys", "status"], timeout=30)
-            return text_content(out or err)
+            cfg = _app_ref.get("cfg", {}) if _app_ref else {}
+            return text_content(json.dumps(common_status(cfg), ensure_ascii=False))
         if name == "skill.list":
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "list"], timeout=15)
-            return text_content(out or err)
+            result = _skills_list_sync_with_cache()
+            skills = result.get("skills", [])
+            return text_content(json.dumps({"ok": True, "count": len(skills), "skills": skills}, ensure_ascii=False))
         if name == "skill.run":
             sk = args.get("name", "")
             extra = args.get("args") or []
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", sk] + list(extra), timeout=300)
-            return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-3000:]}, ensure_ascii=False))
+            result = _skills_run_sync(sk, list(extra))
+            return text_content(json.dumps(result, ensure_ascii=False))
         if name == "hooks.list":
-            rc, out, err = run_local([sys.executable, os.path.join(BIN, "hooks_runner.py"), "list"], timeout=10)
-            return text_content(out or err)
+            hooks_dir = BRIDGE_DIR / "hooks"
+            pre_dir = hooks_dir / "pre_skill.d"
+            post_dir = hooks_dir / "post_skill.d"
+            hooks = []
+            for d, phase in [(pre_dir, "pre"), (post_dir, "post")]:
+                if d.exists():
+                    for f in sorted(d.iterdir()):
+                        if f.is_file():
+                            hooks.append({"phase": phase, "name": f.name, "path": str(f)})
+            return text_content(json.dumps({"ok": True, "count": len(hooks), "hooks": hooks}, ensure_ascii=False))
         if name == "snapshot":
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", "system/sys-snapshot"], timeout=60)
-            return text_content(out or err)
+            result = _skills_run_sync("system/sys-snapshot", [])
+            return text_content(json.dumps(result, ensure_ascii=False))
         if name == "subagent.spawn":
             cmd_args = [sys.executable, os.path.join(BIN, "subagent.py"), "spawn", args.get("cmd", "")]
             if args.get("name"):
@@ -3745,6 +3772,10 @@ def make_app(cfg: dict) -> web.Application:
     app = web.Application(client_max_size=50 * 1024 * 1024, middlewares=[error_middleware])
     app["cfg"] = cfg
     app["mcp_sessions"] = {}
+
+    # Store app reference for MCP tool calls that need access to config
+    global _app_ref
+    _app_ref = app
 
     # ---- Public endpoints ----
     app.router.add_get("/", handle_index)
@@ -9432,7 +9463,11 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
                 if not any(b in k.upper() for b in _SKILL_BLOCKED_ENV):
                     env[k] = str(v) if not isinstance(v, str) else v
 
-        if runner_sh.exists():
+        # On Windows, prefer run.py over run.sh (bash may not be available)
+        if sys.platform == "win32" and runner_py.exists():
+            py = sys.executable or "python3"
+            cmd = [py, str(runner_py)] + list(args)
+        elif runner_sh.exists():
             # Use bash to execute .sh files (git may not preserve +x bit)
             bash_path = shutil.which("bash")
             if not bash_path:
