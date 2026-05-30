@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.9"
+VERSION = "2.1.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3281,6 +3281,114 @@ def read_tail(path: Path, lines: int = 100) -> list[str]:
 
 
 # ============================================================================
+# LOG ROTATION & DISK SAFETY (v2.1.0 — prevents disk fill)
+# ============================================================================
+
+_MAX_LOG_SIZE = 10 * 1024 * 1024  # 10MB — max size before forced rotation
+_MAX_LOG_BACKUPS = 3               # keep up to .1, .2, .3 rotated copies
+
+# All log files that the bridge creates and should be rotated
+_LOG_FILES_TO_ROTATE = [
+    APP_DIR / "bridge.log",
+    APP_DIR / "requests.jsonl",
+    APP_DIR / "audit.jsonl",
+]
+
+
+def _rotate_file_if_oversized(path: Path, max_bytes: int = _MAX_LOG_SIZE,
+                               backups: int = _MAX_LOG_BACKUPS) -> bool:
+    """Rotate a log file if it exceeds max_bytes. Returns True if rotated."""
+    try:
+        if not path.exists() or path.stat().st_size <= max_bytes:
+            return False
+        # Shift existing backups: .N → delete, .1 → .2, etc.
+        for i in range(backups, 0, -1):
+            old = Path(f"{path}.{i}")
+            if old.exists():
+                if i == backups:
+                    old.unlink()
+                else:
+                    try:
+                        old.rename(Path(f"{path}.{i + 1}"))
+                    except OSError:
+                        pass
+        # Current → .1
+        try:
+            path.rename(Path(f"{path}.1"))
+        except OSError:
+            pass
+        return True
+    except Exception:
+        return False
+
+
+def _rotate_all_logs_on_startup() -> None:
+    """Rotate any oversized log files at bridge startup."""
+    rotated = []
+    for lf in _LOG_FILES_TO_ROTATE:
+        if _rotate_file_if_oversized(lf):
+            rotated.append(lf.name)
+    # Also rotate the Windows Tee-Object log if it exists
+    for name in ("ArenaUnifiedBridge.log", "bridge_err.log"):
+        for parent in (Path.home() / "arena-agent" / "logs",
+                       Path.home() / "arena-bridge" / "logs",
+                       APP_DIR / "logs"):
+            lf = parent / name
+            if _rotate_file_if_oversized(lf, max_bytes=_MAX_LOG_SIZE, backups=2):
+                rotated.append(f"{parent.name}/{name}")
+    if rotated:
+        log.warning("[LogRotation] Rotated oversized log files at startup: %s", ", ".join(rotated))
+
+
+def _check_disk_space() -> float:
+    """Return disk usage percentage for the partition containing APP_DIR."""
+    try:
+        if sys.platform == "win32":
+            import ctypes
+            free_bytes = ctypes.c_ulonglong(0)
+            total_bytes = ctypes.c_ulonglong(0)
+            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
+                str(APP_DIR.drive), None, ctypes.pointer(total_bytes),
+                ctypes.pointer(free_bytes))
+            if total_bytes.value > 0:
+                return round((1 - free_bytes.value / total_bytes.value) * 100, 1)
+        else:
+            stat = os.statvfs(str(APP_DIR.parent))
+            total = stat.f_blocks * stat.f_frsize
+            free = stat.f_bavail * stat.f_frsize
+            if total > 0:
+                return round((1 - free / total) * 100, 1)
+    except Exception:
+        pass
+    return -1  # unknown
+
+
+async def _log_cleanup_loop(app: web.Application) -> None:
+    """Periodic background task: rotate oversized logs and warn on disk space."""
+    _rotate_all_logs_on_startup()
+    while True:
+        try:
+            await asyncio.sleep(1800)  # every 30 minutes
+            # Rotate logs
+            rotated = []
+            for lf in _LOG_FILES_TO_ROTATE:
+                if _rotate_file_if_oversized(lf):
+                    rotated.append(lf.name)
+            if rotated:
+                log.info("[LogCleanup] Rotated: %s", ", ".join(rotated))
+            # Check disk space
+            pct = _check_disk_space()
+            if pct >= 0 and pct > 90:
+                log.critical("[DiskSpace] Disk usage at %.1f%%! Consider cleaning up files.", pct)
+            elif pct >= 0 and pct > 80:
+                log.warning("[DiskSpace] Disk usage at %.1f%%", pct)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error("[LogCleanup] Error: %s", e)
+
+
+# ============================================================================
 # MCP TOOLS REGISTRY (from mcp_stream_server.py)
 # ============================================================================
 
@@ -3981,9 +4089,11 @@ async def on_startup(app: web.Application):
     cfg = app["cfg"]
     cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
     app["task_runner"] = asyncio.ensure_future(task_runner_loop(app))
+    # v2.1.0: Start log cleanup + disk monitor
+    app["log_cleanup"] = asyncio.ensure_future(_log_cleanup_loop(app))
     # Phase 3: Start health watchdog
     _start_watchdog()
-    log.info("[UnifiedBridge v%s] Background task runner + watchdog started", VERSION)
+    log.info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", VERSION)
 
 
 async def on_cleanup(app: web.Application):
@@ -3994,6 +4104,14 @@ async def on_cleanup(app: web.Application):
         tr.cancel()
         try:
             await tr
+        except asyncio.CancelledError:
+            pass
+    # v2.1.0: Stop log cleanup
+    lc = app.get("log_cleanup")
+    if lc:
+        lc.cancel()
+        try:
+            await lc
         except asyncio.CancelledError:
             pass
 
@@ -4287,6 +4405,7 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
             "mem_avail_mb": mem_avail // (1024 * 1024),
             "disk_total_gb": disk.total // (1024 ** 3),
             "disk_free_gb": disk.free // (1024 ** 3),
+            "disk_usage_percent": round(disk.used / disk.total * 100, 1) if disk.total > 0 else 0,
         })
     except Exception as e:
         _record_request(is_error=True, count_request=False)
@@ -10552,17 +10671,19 @@ def _daemonize() -> None:
             return
 
         # Redirect standard file descriptors
+        # stdout/stderr go to /dev/null — the Python logging module's
+        # RotatingFileHandler already writes to bridge.log with proper
+        # rotation. Previously, dup2 to bridge.log caused unbounded growth
+        # because aiohttp access logs bypassed the RotatingFileHandler.
         sys.stdout.flush()
         sys.stderr.flush()
-        devnull = open(os.devnull, "r")
-        os.dup2(devnull.fileno(), sys.stdin.fileno())
-        devnull.close()
-        log_path = APP_DIR / "bridge.log"
-        APP_DIR.mkdir(parents=True, exist_ok=True)
-        log_f = open(log_path, "a", encoding="utf-8")
-        os.dup2(log_f.fileno(), sys.stdout.fileno())
-        os.dup2(log_f.fileno(), sys.stderr.fileno())
-        log_f.close()
+        devnull_r = open(os.devnull, "r")
+        os.dup2(devnull_r.fileno(), sys.stdin.fileno())
+        devnull_r.close()
+        devnull_w = open(os.devnull, "w")
+        os.dup2(devnull_w.fileno(), sys.stdout.fileno())
+        os.dup2(devnull_w.fileno(), sys.stderr.fileno())
+        devnull_w.close()
 
 
 
@@ -10666,6 +10787,9 @@ def serve(args: argparse.Namespace) -> None:
 
     app = make_app(cfg)
 
+    # v2.1.0: Rotate oversized logs before starting the server
+    _rotate_all_logs_on_startup()
+
     # Set up graceful shutdown signal handlers
     global _shutdown_event
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -10679,7 +10803,9 @@ def serve(args: argparse.Namespace) -> None:
     log.info("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner")
     log.info("Stop with Ctrl+C.")
 
-    web.run_app(app, host=args.bind, port=args.port, print=None)
+    # access_log=None disables aiohttp's default AccessLogger which writes
+    # every HTTP request to stderr — this was the #1 cause of disk fill bugs.
+    web.run_app(app, host=args.bind, port=args.port, print=None, access_log=None)
 
 
 def token_cmd(_: argparse.Namespace) -> None:

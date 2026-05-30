@@ -470,6 +470,13 @@ else
         PIDS=""
     fi
     [ -n "$PIDS" ] && kill $PIDS 2>/dev/null || true
+    # v2.1.0: Rotate log if over 10MB before starting (prevents disk fill)
+    LOG_FILE="$INSTALL_DIR/logs/bridge.log"
+    if [ -f "$LOG_FILE" ] && [ "$(stat -f%z "$LOG_FILE" 2>/dev/null || stat -c%s "$LOG_FILE" 2>/dev/null || echo 0)" -gt 10485760 ]; then
+        [ -f "$LOG_FILE.2" ] && rm -f "$LOG_FILE.2"
+        [ -f "$LOG_FILE.1" ] && mv -f "$LOG_FILE.1" "$LOG_FILE.2"
+        mv -f "$LOG_FILE" "$LOG_FILE.1"
+    fi
     ARENA_TOKEN_FILE="$TOKEN_FILE" nohup "$PY" -u "$BRIDGE_PY" serve --root "$HOME" --profile "$PROFILE" --port "$PORT" \
         >> "$INSTALL_DIR/logs/bridge.log" 2>&1 &
     ok "Bridge started with nohup (won't survive reboot)"

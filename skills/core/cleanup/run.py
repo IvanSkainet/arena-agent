@@ -15,6 +15,10 @@ CATEGORIES = [
     ("reports", ROOT / "reports", ("*.md", "*.json", "*.html")),
     ("queue_done", ROOT / "queue" / "done", ("*.json",)),
     ("queue_failed", ROOT / "queue" / "failed", ("*.json",)),
+    # v2.1.0: rotated log files (NOT the active bridge.log — that's managed by RotatingFileHandler)
+    ("rotated_logs", ROOT / "logs", ("*.log.1", "*.log.2", "*.log.3",
+                                      "*.jsonl.1", "*.jsonl.2", "*.jsonl.3",
+                                      "*.jsonl.4", "*.jsonl.5")),
 ]
 
 

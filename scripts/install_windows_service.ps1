@@ -429,6 +429,15 @@ if (-not `$token) {
     `$token = & "$PYTHON" -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip('='))" 2>`$null
     Set-Content -Path "$TOKEN_FILE" -Value `$token -Encoding UTF8
 }
+# v2.1.0: Rotate log if over 10MB before starting (prevents disk fill)
+`$logFile = "$LOG_DIR\ArenaUnifiedBridge.log"
+if (Test-Path `$logFile) {
+    if ((Get-Item `$logFile).Length -gt 10MB) {
+        if (Test-Path "`$logFile.2") { Remove-Item "`$logFile.2" -Force -ErrorAction SilentlyContinue }
+        if (Test-Path "`$logFile.1") { Move-Item "`$logFile.1" "`$logFile.2" -Force -ErrorAction SilentlyContinue }
+        Move-Item "`$logFile" "`$logFile.1" -Force -ErrorAction SilentlyContinue
+    }
+}
 & "$PYTHON" -u "$BRIDGE_DIR\unified_bridge.py" serve --root "$HOME_DIR" --profile owner-shell --token `$token *>> "$LOG_DIR\ArenaUnifiedBridge.log"
 "@
 Set-Content -Path "$BRIDGE_DIR\start_ArenaUnifiedBridge.ps1" -Value $startScript -Encoding UTF8

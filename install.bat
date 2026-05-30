@@ -222,6 +222,10 @@ nssm set ArenaUnifiedBridge DisplayName "Arena Unified Bridge v!VERSION!" >nul 2
 nssm set ArenaUnifiedBridge Start SERVICE_AUTO_START >nul 2>&1
 nssm set ArenaUnifiedBridge AppStdout "%BRIDGE_DIR%\logs\bridge.log" >nul 2>&1
 nssm set ArenaUnifiedBridge AppStderr "%BRIDGE_DIR%\logs\bridge_err.log" >nul 2>&1
+REM v2.1.0: NSSM log rotation — rotate at 5MB, keep 3 copies
+nssm set ArenaUnifiedBridge AppRotateFiles 1 >nul 2>&1
+nssm set ArenaUnifiedBridge AppRotateBytes 5242880 >nul 2>&1
+nssm set ArenaUnifiedBridge AppRotateBackups 3 >nul 2>&1
 nssm set ArenaUnifiedBridge AppEnvironmentExtra ARENA_AGENT_HOME=%BRIDGE_DIR% ARENA_TOKEN_FILE=%TOKEN_FILE% >nul 2>&1
 nssm start ArenaUnifiedBridge >nul 2>&1
 echo       [OK] NSSM service installed and started.
