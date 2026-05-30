@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.4.0"
+VERSION = "2.5.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -514,6 +514,9 @@ _cdp_state: Dict[str, Any] = {
     "reconnect_count": 0,      # Number of auto-reconnects performed
     "last_connect_time": None, # Timestamp of last successful connect
     "last_disconnect_reason": None,  # Reason for last disconnect
+    "last_navigation_time": None,    # Timestamp of last navigate call (skip probes during nav)
+    "_consecutive_probe_timeouts": 0, # Tolerate N slow probes before reconnecting
+    "_consecutive_none_probes": 0,    # Tolerate N None probes before reconnecting
 }
 
 _cdp_connect_lock = asyncio.Lock()  # Prevent concurrent connect/disconnect
@@ -578,26 +581,47 @@ async def _cdp_watcher_loop():
                     reason = f"Cannot reach browser debug port: {e}"
                     log.warning("[CDP-Watcher] %s", reason)
 
-            # Check 3: Quick health probe — can we still evaluate JS?
+            # Check 3: Health probe — tolerant of heavy pages
             elif mgr.active_tab and mgr.active_tab.connected:
-                try:
-                    result = await asyncio.wait_for(
-                        mgr.active_tab.eval_js("1"),
-                        timeout=5
-                    )
-                    if result is None:
-                        # None means the eval failed silently — WS might be stale
-                        log.debug("[CDP-Watcher] Health probe returned None — WS may be stale")
-                except asyncio.TimeoutError:
-                    needs_reconnect = True
-                    reason = "Health probe timed out (5s) — WebSocket likely dead"
-                    log.warning("[CDP-Watcher] %s", reason)
-                except ConnectionError:
-                    needs_reconnect = True
-                    reason = "Health probe got ConnectionError — WebSocket closed"
-                    log.warning("[CDP-Watcher] %s", reason)
-                except Exception as e:
-                    log.debug("[CDP-Watcher] Health probe error (non-fatal): %s", e)
+                # Skip probe if navigation was recently initiated (heavy page loading)
+                last_nav = _cdp_state.get("last_navigation_time")
+                if last_nav and (time.time() - last_nav) < 30:
+                    log.debug("[CDP-Watcher] Skipping health probe — recent navigation (%.1fs ago)",
+                              time.time() - last_nav)
+                else:
+                    try:
+                        result = await asyncio.wait_for(
+                            mgr.active_tab.eval_js("1"),
+                            timeout=15  # Increased from 5s — heavy pages can block JS
+                        )
+                        if result is None:
+                            # None can mean WS is stale, but tolerate a few
+                            _cdp_state["_consecutive_none_probes"] = _cdp_state.get("_consecutive_none_probes", 0) + 1
+                            if _cdp_state["_consecutive_none_probes"] >= 3:
+                                needs_reconnect = True
+                                reason = f"Health probe returned None {_cdp_state['_consecutive_none_probes']}x — WS likely stale"
+                                log.warning("[CDP-Watcher] %s", reason)
+                            else:
+                                log.debug("[CDP-Watcher] Health probe None (%d/3 tolerated)",
+                                          _cdp_state["_consecutive_none_probes"])
+                        else:
+                            _cdp_state["_consecutive_none_probes"] = 0
+                            _cdp_state["_consecutive_probe_timeouts"] = 0
+                    except asyncio.TimeoutError:
+                        # Don't immediately reconnect — heavy pages can block JS event loop
+                        _cdp_state["_consecutive_probe_timeouts"] = _cdp_state.get("_consecutive_probe_timeouts", 0) + 1
+                        if _cdp_state["_consecutive_probe_timeouts"] >= 2:
+                            needs_reconnect = True
+                            reason = f"Health probe timed out {_cdp_state['_consecutive_probe_timeouts']}x consecutively (15s each)"
+                            log.warning("[CDP-Watcher] %s", reason)
+                        else:
+                            log.info("[CDP-Watcher] Health probe timed out (1/2 tolerated) — heavy page?")
+                    except ConnectionError:
+                        needs_reconnect = True
+                        reason = "Health probe got ConnectionError — WebSocket closed"
+                        log.warning("[CDP-Watcher] %s", reason)
+                    except Exception as e:
+                        log.debug("[CDP-Watcher] Health probe error (non-fatal): %s", e)
 
             if needs_reconnect:
                 log.info("[CDP-Watcher] Initiating auto-reconnect... reason: %s", reason)
@@ -7864,9 +7888,10 @@ async def handle_v1_cdp_navigate(request):
 
     tab, err = await _cdp_active_tab(tab_id)
     if err: return err
+    # Track navigation time so watcher skips probes during page loads
+    _cdp_state["last_navigation_time"] = time.time()
 
     original_tab_id = tab.target_id
-
     try:
         # v2.4.0: Hard timeout — 28s CDP, 30s asyncio (increased from 20s for heavy sites)
         result = await asyncio.wait_for(tab.navigate(url, wait=wait, timeout=28), timeout=30)
@@ -8696,7 +8721,10 @@ async def handle_v1_desktop_windows(request):
 # ---- CDP Tab Management ----
 
 async def handle_v1_cdp_tabs(request):
-    """GET /v1/browser/cdp/tabs — List all tracked tabs."""
+    """GET /v1/browser/cdp/tabs — List all tracked tabs.
+    
+    Auto-connects any disconnected tabs that have ws_url before listing.
+    """
     r = require_auth(request)
     if r: return r
     _record_request()
@@ -8706,6 +8734,15 @@ async def handle_v1_cdp_tabs(request):
     
     mgr = _cdp_state["manager"]
     tabs = mgr.list_tabs()
+    
+    # Auto-connect disconnected tabs that have ws_url (lazy connect)
+    for tab in tabs:
+        if not tab.connected and tab.ws_url:
+            try:
+                await asyncio.wait_for(tab.connect(), timeout=15)
+                log.debug("[CDP-Tabs] Auto-connected tab %s", tab.target_id)
+            except Exception as e:
+                log.debug("[CDP-Tabs] Auto-connect failed for %s: %s", tab.target_id, e)
     
     return _cors_json_response({
         "ok": True,
@@ -8834,24 +8871,27 @@ async def _ensure_cookie_manager():
     
     Tries the active tab first, then falls back to any connected tab.
     If no tab is connected, attempts to connect the first available tab.
+    Includes proper error logging instead of silent None returns.
     """
     if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
         return _cdp_state["cookie_mgr"]
     
     cdp = _get_cdp_module()
     if not cdp:
+        log.warning("[Cookie] cdp_browser module not available")
         return None
     
     # Get the CDPBrowser instance from active tab
     tab, _ = await _cdp_active_tab()
     
     # If active tab is not connected, try to find any connected tab
-    if not tab or not tab._browser:
+    if not tab or not getattr(tab, '_browser', None):
         mgr = _cdp_state.get("manager")
         if mgr:
             for t in mgr.list_tabs():
-                if t.connected and t._browser:
+                if t.connected and getattr(t, '_browser', None):
                     tab = t
+                    log.info("[Cookie] Using non-active connected tab: %s", t.target_id)
                     break
             
             # If still no connected tab, try connecting the first available one
@@ -8859,21 +8899,38 @@ async def _ensure_cookie_manager():
                 for t in mgr.list_tabs():
                     if t.ws_url:
                         try:
-                            await t.connect()
+                            await asyncio.wait_for(t.connect(), timeout=15)
                             tab = t
+                            log.info("[Cookie] Connected tab %s for cookie manager", t.target_id)
                             break
-                        except Exception:
+                        except Exception as e:
+                            log.warning("[Cookie] Failed to connect tab %s: %s", t.target_id, e)
                             continue
     
-    if not tab or not tab._browser:
+    if not tab:
+        log.error("[Cookie] No tab available for cookie manager — CDP may be disconnected")
+        return None
+    
+    if not getattr(tab, '_browser', None):
+        log.error("[Cookie] Tab %s has no _browser instance — tab in half-connected state", 
+                  getattr(tab, 'target_id', 'unknown'))
         return None
     
     try:
         mgr = cdp.CDPCookieManager(tab._browser)
-        await mgr.start()
+        await asyncio.wait_for(mgr.start(), timeout=10)
         _cdp_state["cookie_mgr"] = mgr
+        log.info("[Cookie] Cookie manager started successfully for tab %s", 
+                 getattr(tab, 'target_id', 'unknown'))
         return mgr
-    except Exception:
+    except asyncio.TimeoutError:
+        log.error("[Cookie] Cookie manager start timed out (10s) — browser may be unresponsive")
+        return None
+    except ConnectionError as e:
+        log.error("[Cookie] Cookie manager start failed — ConnectionError: %s", e)
+        return None
+    except Exception as e:
+        log.error("[Cookie] Cookie manager start failed: %s: %s", type(e).__name__, e)
         return None
 
 
@@ -10146,7 +10203,14 @@ async def handle_v1_backup_download(request: web.Request) -> web.Response:
 # --- /v1/backup POST — Create backup ---
 
 def _backup_sync(paths: list[str], name: str) -> dict:
-    """Create zip of specified directories."""
+    """Create zip of specified directories.
+    
+    Improved in v2.5.0:
+    - Configurable limits via environment variables
+    - Increased default file count (5000) and size (500MB)
+    - Longer time limit (300s) for large workspaces
+    - Truncation warning in response when limits are hit
+    """
     SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".next", ".turbo", ".arena", "venv", "shots", "reports", "logs"}
     BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -10158,19 +10222,25 @@ def _backup_sync(paths: list[str], name: str) -> dict:
     backup_path = BACKUPS_DIR / name
     file_count = 0
     start_time = time.time()
-    MAX_BACKUP_TIME = 60  # 60 seconds max for backup creation
+    MAX_BACKUP_TIME = int(os.environ.get("ARENA_BACKUP_MAX_TIME", 300))  # 300s (5 min) configurable
+    MAX_BACKUP_SIZE = int(os.environ.get("ARENA_BACKUP_MAX_SIZE", 500 * 1024 * 1024))  # 500MB configurable
+    MAX_FILE_COUNT = int(os.environ.get("ARENA_BACKUP_MAX_FILES", 5000))  # 5000 files configurable
+    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB per file
+    truncated = False
+    truncation_reason = ""
 
     total_size = 0
-    MAX_BACKUP_SIZE = 100 * 1024 * 1024  # 100MB max backup
     with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zf:
         for path_str in paths:
             # Check time limit
             if time.time() - start_time > MAX_BACKUP_TIME:
+                truncated = True
+                truncation_reason = f"time limit ({MAX_BACKUP_TIME}s)"
                 break
             p = Path(path_str).expanduser()
             if p.is_file():
                 fsize = p.stat().st_size
-                if total_size + fsize > MAX_BACKUP_SIZE:
+                if fsize > MAX_FILE_SIZE or total_size + fsize > MAX_BACKUP_SIZE:
                     continue
                 zf.write(p, p.name)
                 total_size += fsize
@@ -10179,17 +10249,27 @@ def _backup_sync(paths: list[str], name: str) -> dict:
                 for root, dirs, files in os.walk(p, topdown=True):
                     # Check time limit during walk
                     if time.time() - start_time > MAX_BACKUP_TIME:
+                        truncated = True
+                        truncation_reason = f"time limit ({MAX_BACKUP_TIME}s)"
                         break
                     dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
                     for fname in files:
                         if time.time() - start_time > MAX_BACKUP_TIME:
+                            truncated = True
+                            truncation_reason = f"time limit ({MAX_BACKUP_TIME}s)"
+                            break
+                        if file_count >= MAX_FILE_COUNT:
+                            truncated = True
+                            truncation_reason = f"file count limit ({MAX_FILE_COUNT})"
                             break
                         fpath = Path(root) / fname
                         try:
                             fsize = fpath.stat().st_size
-                            if fsize > 50 * 1024 * 1024:
+                            if fsize > MAX_FILE_SIZE:
                                 continue
                             if total_size + fsize > MAX_BACKUP_SIZE:
+                                truncated = True
+                                truncation_reason = f"size limit ({MAX_BACKUP_SIZE // (1024*1024)}MB)"
                                 break
                         except Exception:
                             continue
@@ -10197,13 +10277,18 @@ def _backup_sync(paths: list[str], name: str) -> dict:
                         zf.write(fpath, arcname)
                         total_size += fsize
                         file_count += 1
-                        if file_count >= 500:
-                            break
-                    if file_count >= 500 or total_size >= MAX_BACKUP_SIZE:
+                    if file_count >= MAX_FILE_COUNT or total_size >= MAX_BACKUP_SIZE:
                         break
 
     size = backup_path.stat().st_size if backup_path.exists() else 0
-    return {"ok": True, "backup_path": str(backup_path), "size": size, "file_count": file_count}
+    result = {"ok": True, "backup_path": str(backup_path), "size": size, 
+              "file_count": file_count, "duration_s": round(time.time() - start_time, 1)}
+    if truncated:
+        result["truncated"] = True
+        result["truncation_reason"] = truncation_reason
+        log.warning("[Backup] Backup truncated: %s (files=%d, size=%dMB)", 
+                    truncation_reason, file_count, size // (1024*1024))
+    return result
 
 
 async def handle_v1_backup(request: web.Request) -> web.Response:
@@ -10223,17 +10308,18 @@ async def handle_v1_backup(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": "invalid backup name"}, status=400)
     try:
         loop = asyncio.get_event_loop()
-        # Use dedicated slow executor with timeout to avoid blocking main pool
+        # Use dedicated slow executor with increased timeout for large workspaces
         result = await asyncio.wait_for(
             loop.run_in_executor(_SLOW_EXECUTOR, _backup_sync, paths, name),
-            timeout=120.0
+            timeout=360.0  # 6 minutes — matches MAX_BACKUP_TIME + overhead
         )
         audit({"type": "backup", "name": name, "paths": paths, "size": result.get("size", 0),
-               "file_count": result.get("file_count", 0)})
+               "file_count": result.get("file_count", 0),
+               "truncated": result.get("truncated", False)})
         return _cors_json_response(result)
     except asyncio.TimeoutError:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Backup timed out (120s) — directory may be too large"}, status=504)
+        return _cors_json_response({"ok": False, "error": "Backup timed out (360s) — directory too large. Set ARENA_BACKUP_MAX_TIME env to increase."}, status=504)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
