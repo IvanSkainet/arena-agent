@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -519,6 +519,12 @@ _cdp_state: Dict[str, Any] = {
 _cdp_connect_lock = asyncio.Lock()  # Prevent concurrent connect/disconnect
 _cdp_watcher_task: Optional[asyncio.Task] = None  # Background watcher for auto-reconnect
 
+# --- CDP Event-Loop Blockage Detector (v2.3.0) ---
+_cdp_loop_healthy_ts: float = time.time()  # Last time the event loop was responsive
+_cdp_loop_check_task: Optional[asyncio.Task] = None
+CDP_LOOP_CHECK_INTERVAL = 5.0   # seconds between checks
+CDP_LOOP_BLOCK_THRESHOLD = 30.0  # seconds before declaring blocked
+
 
 # --- CDP Auto-Reconnect Watcher ---
 async def _cdp_watcher_loop():
@@ -639,22 +645,68 @@ async def _cdp_watcher_loop():
             log.error("[CDP-Watcher] Unexpected error: %s", e)
 
 
+async def _cdp_loop_blockage_detector():
+    """Detect when the asyncio event loop is blocked for too long (v2.3.0).
+
+    Uses a simple liveness pattern: schedule a callback from the event loop
+    and measure how long it actually takes to run. If the loop is blocked
+    (e.g., by a hanging CDP operation), the callback will be delayed.
+    Logs a CRITICAL warning if blocked > threshold seconds.
+    """
+    global _cdp_loop_healthy_ts
+    while True:
+        try:
+            loop = asyncio.get_running_loop()
+            start = time.monotonic()
+
+            fut = loop.create_future()
+            loop.call_soon(lambda: fut.set_result(None) if not fut.done() else None)
+            await asyncio.wait_for(fut, timeout=5.0)
+
+            delay = time.monotonic() - start
+            _cdp_loop_healthy_ts = time.time()
+
+            if delay > 2.0:
+                log.warning("[CDP-LoopCheck] Event loop delayed %.2fs (threshold: 2s)", delay)
+
+        except asyncio.TimeoutError:
+            blocked_for = time.time() - _cdp_loop_healthy_ts
+            log.critical(
+                "[CDP-LoopCheck] EVENT LOOP APPEARS BLOCKED for %.1fs! "
+                "This likely indicates a hanging CDP operation. "
+                "Last healthy: %.1fs ago",
+                blocked_for, time.time() - _cdp_loop_healthy_ts
+            )
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            log.error("[CDP-LoopCheck] Unexpected error: %s", e)
+
+        await asyncio.sleep(CDP_LOOP_CHECK_INTERVAL)
+
+
 def _start_cdp_watcher():
-    """Start the CDP health watcher if not already running."""
-    global _cdp_watcher_task
+    """Start the CDP health watcher and loop blockage detector."""
+    global _cdp_watcher_task, _cdp_loop_check_task
     if _cdp_watcher_task and not _cdp_watcher_task.done():
         return
     _cdp_watcher_task = asyncio.create_task(_cdp_watcher_loop())
-    log.info("[CDP-Watcher] Started")
+    # Start event-loop blockage detector
+    if not _cdp_loop_check_task or _cdp_loop_check_task.done():
+        _cdp_loop_check_task = asyncio.create_task(_cdp_loop_blockage_detector())
+    log.info("[CDP-Watcher] Started (with loop blockage detector)")
 
 
 def _stop_cdp_watcher():
-    """Stop the CDP health watcher."""
-    global _cdp_watcher_task
+    """Stop the CDP health watcher and loop blockage detector."""
+    global _cdp_watcher_task, _cdp_loop_check_task
     if _cdp_watcher_task and not _cdp_watcher_task.done():
         _cdp_watcher_task.cancel()
         _cdp_watcher_task = None
-        log.info("[CDP-Watcher] Stopped")
+    if _cdp_loop_check_task and not _cdp_loop_check_task.done():
+        _cdp_loop_check_task.cancel()
+        _cdp_loop_check_task = None
+    log.info("[CDP-Watcher] Stopped (including loop blockage detector)")
 
 
 # ============================================================================
@@ -4245,7 +4297,7 @@ async def handle_index(request: web.Request) -> web.Response:
                 "GET /v1/browser/head?url=",
                 "GET /v1/browser/cdp/status", "POST /v1/browser/cdp/connect", "POST /v1/browser/cdp/disconnect",
                 "POST /v1/browser/cdp/navigate", "GET /v1/browser/cdp/screenshot", "GET /v1/browser/cdp/dom",
-                "POST /v1/browser/cdp/eval", "POST /v1/browser/cdp/click", "POST /v1/browser/cdp/type",
+                "POST /v1/browser/cdp/eval", "POST /v1/browser/cdp/click (selector|x,y)", "POST /v1/browser/cdp/type",
                 "GET /v1/browser/cdp/tabs", "POST /v1/browser/cdp/tabs/new", "POST /v1/browser/cdp/tabs/close",
                 "POST /v1/browser/cdp/tabs/activate", "GET/POST/DELETE /v1/browser/cdp/cookies",
                 "POST /v1/browser/cdp/cookies/clear", "GET/POST /v1/browser/cdp/cookies/profiles",
@@ -7790,7 +7842,8 @@ async def handle_v1_cdp_navigate(request):
     if err: return err
     
     try:
-        result = await tab.navigate(url, wait=wait)
+        # v2.3.0: Hard timeout — 18s CDP, 20s asyncio
+        result = await asyncio.wait_for(tab.navigate(url, wait=wait, timeout=18), timeout=20)
         return _cors_json_response({
             "ok": True,
             "url": url,
@@ -7799,8 +7852,9 @@ async def handle_v1_cdp_navigate(request):
         })
     except asyncio.TimeoutError:
         _record_request(is_error=True, count_request=False)
+        log.error("[CDP] navigate timed out (20s) for URL: %.200s", url)
         return _cors_json_response(
-            {"ok": False, "error": f"Navigation timed out for {url}"},
+            {"ok": False, "error": f"Navigation timed out (20s limit): {url}", "timeout": 20},
             status=408
         )
     except Exception as e:
@@ -7832,7 +7886,8 @@ async def handle_v1_cdp_screenshot(request):
     if err: return err
     
     try:
-        img_bytes = await tab.screenshot(path=save_path)
+        # v2.3.0: Hard timeout — 18s CDP, 20s asyncio
+        img_bytes = await asyncio.wait_for(tab.screenshot(path=save_path, timeout=18), timeout=20)
         if img_bytes is None:
             _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
@@ -7854,6 +7909,13 @@ async def handle_v1_cdp_screenshot(request):
                 content_type="image/png",
                 headers={"Access-Control-Allow-Origin": "*"}
             )
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        log.error("[CDP] screenshot timed out (20s)")
+        return _cors_json_response(
+            {"ok": False, "error": "Screenshot timed out (20s limit)", "timeout": 20},
+            status=408
+        )
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -7876,7 +7938,8 @@ async def handle_v1_cdp_dom(request):
     if err: return err
     
     try:
-        html = await tab.dump_dom()
+        # v2.3.0: Hard timeout — 18s CDP, 20s asyncio
+        html = await asyncio.wait_for(tab.dump_dom(timeout=18), timeout=20)
         if html is None:
             _record_request(is_error=True, count_request=False)
             return _cors_json_response({"ok": False, "error": "Failed to dump DOM"}, status=500)
@@ -7895,6 +7958,13 @@ async def handle_v1_cdp_dom(request):
             "truncated": truncated,
             "tab_id": tab.target_id,
         })
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        log.error("[CDP] DOM dump timed out (20s)")
+        return _cors_json_response(
+            {"ok": False, "error": "DOM dump timed out (20s limit)", "timeout": 20},
+            status=408
+        )
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -7902,76 +7972,134 @@ async def handle_v1_cdp_dom(request):
 
 async def handle_v1_cdp_eval(request):
     """POST /v1/browser/cdp/eval — Evaluate JavaScript.
-    
+
     Body JSON:
         expression: string (required)
         tab_id: string (optional)
+
+    v2.3.0: Added 15s hard timeout to prevent system freezes from
+    infinite JS loops or huge DOM serialization. Results >1MB are
+    truncated to prevent OOM.
     """
     r = require_auth(request)
     if r: return r
     _record_request()
-    
+
     try:
         body = await request.json()
     except Exception:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
     expression = body.get("expression")
     if not expression:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'expression' parameter"}, status=400)
-    
+
     tab_id = body.get("tab_id")
     tab, err = await _cdp_active_tab(tab_id)
     if err: return err
-    
+
     try:
-        result = await tab.eval_js(expression)
+        # v2.3.0: Hard timeout — CDP-level 14s, asyncio-level 15s
+        result = await asyncio.wait_for(tab.eval_js(expression, timeout=14), timeout=15)
+
+        # v2.3.0: Truncate large results to prevent OOM / response bloat
+        CDP_EVAL_MAX_RESULT = 1 * 1024 * 1024  # 1MB
+        truncated = False
+        if isinstance(result, str) and len(result) > CDP_EVAL_MAX_RESULT:
+            original_len = len(result)
+            result = result[:CDP_EVAL_MAX_RESULT] + f"\n...[truncated, {original_len} total chars]"
+            truncated = True
+            log.warning("[CDP] eval result truncated: %d -> %d chars", original_len, CDP_EVAL_MAX_RESULT)
+
         return _cors_json_response({
             "ok": True,
             "result": result,
+            "truncated": truncated,
             "tab_id": tab.target_id,
         })
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        log.error("[CDP] eval_js timed out (15s) — expression: %.200s", expression)
+        return _cors_json_response(
+            {"ok": False, "error": "JavaScript evaluation timed out (15s limit)", "timeout": 15},
+            status=408
+        )
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 async def handle_v1_cdp_click(request):
-    """POST /v1/browser/cdp/click — Click element by CSS selector.
-    
+    """POST /v1/browser/cdp/click — Click element by CSS selector or coordinates.
+
     Body JSON:
-        selector: string (required)
+        selector: string (optional) — CSS selector for element click
+        x: number (optional) — X coordinate for coordinate click
+        y: number (optional) — Y coordinate for coordinate click
         tab_id: string (optional)
+
+    Either 'selector' OR both 'x' and 'y' must be provided.
+    Coordinate clicks use CDP Input.dispatchMouseEvent and can reach
+    iframe content (e.g., reCAPTCHA) that CSS selectors cannot.
+
+    v2.3.0: Added x/y coordinate support and 15s hard timeout.
     """
     r = require_auth(request)
     if r: return r
     _record_request()
-    
+
     try:
         body = await request.json()
     except Exception:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
     selector = body.get("selector")
-    if not selector:
+    x = body.get("x")
+    y = body.get("y")
+
+    if not selector and (x is None or y is None):
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'selector' parameter"}, status=400)
-    
+        return _cors_json_response(
+            {"ok": False, "error": "Provide 'selector' or both 'x' and 'y' coordinates"},
+            status=400
+        )
+
     tab_id = body.get("tab_id")
     tab, err = await _cdp_active_tab(tab_id)
     if err: return err
-    
+
     try:
-        clicked = await tab.click(selector)
-        return _cors_json_response({
-            "ok": True,
-            "clicked": clicked,
-            "selector": selector,
-            "tab_id": tab.target_id,
-        })
+        if selector:
+            # CSS selector click (existing behavior)
+            clicked = await asyncio.wait_for(tab.click(selector, timeout=14), timeout=15)
+            return _cors_json_response({
+                "ok": True,
+                "clicked": clicked,
+                "selector": selector,
+                "mode": "selector",
+                "tab_id": tab.target_id,
+            })
+        else:
+            # Coordinate click via CDP Input.dispatchMouseEvent
+            clicked = await asyncio.wait_for(tab.click_at(float(x), float(y), timeout=14), timeout=15)
+            return _cors_json_response({
+                "ok": True,
+                "clicked": clicked,
+                "x": float(x),
+                "y": float(y),
+                "mode": "coordinates",
+                "tab_id": tab.target_id,
+            })
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        log.error("[CDP] click timed out (15s)")
+        return _cors_json_response(
+            {"ok": False, "error": "Click operation timed out (15s limit)", "timeout": 15},
+            status=408
+        )
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -8006,13 +8134,21 @@ async def handle_v1_cdp_type(request):
     if err: return err
     
     try:
-        typed = await tab.type_text(selector, text)
+        # v2.3.0: Hard timeout — 14s CDP, 15s asyncio
+        typed = await asyncio.wait_for(tab.type_text(selector, text, timeout=14), timeout=15)
         return _cors_json_response({
             "ok": True,
             "typed": typed,
             "selector": selector,
             "tab_id": tab.target_id,
         })
+    except asyncio.TimeoutError:
+        _record_request(is_error=True, count_request=False)
+        log.error("[CDP] type_text timed out (15s)")
+        return _cors_json_response(
+            {"ok": False, "error": "Type operation timed out (15s limit)", "timeout": 15},
+            status=408
+        )
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)

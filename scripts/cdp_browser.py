@@ -1026,6 +1026,55 @@ class CDPBrowser:
         result = await self.eval_js(expr, timeout=timeout)
         return result is True
 
+    async def click_at(self, x: float, y: float,
+                       timeout: Optional[float] = None) -> bool:
+        """Click at screen coordinates using CDP Input.dispatchMouseEvent.
+
+        This can click inside iframes, cross-origin frames, and shadow DOM
+        where CSS selectors cannot reach (e.g., reCAPTCHA checkbox).
+
+        Args:
+            x: X coordinate (CSS pixels from viewport origin)
+            y: Y coordinate (CSS pixels from viewport origin)
+            timeout: Override default timeout
+
+        Returns:
+            True if the CDP dispatch commands succeeded
+        """
+        try:
+            # Move mouse to position
+            await self.send("Input.dispatchMouseEvent", {
+                "type": "mouseMoved",
+                "x": x,
+                "y": y,
+            }, timeout=timeout)
+
+            # Small delay to allow hover effects to settle
+            await asyncio.sleep(0.05)
+
+            # Mouse pressed
+            await self.send("Input.dispatchMouseEvent", {
+                "type": "mousePressed",
+                "x": x,
+                "y": y,
+                "button": "left",
+                "clickCount": 1,
+            }, timeout=timeout)
+
+            # Mouse released
+            await self.send("Input.dispatchMouseEvent", {
+                "type": "mouseReleased",
+                "x": x,
+                "y": y,
+                "button": "left",
+                "clickCount": 1,
+            }, timeout=timeout)
+
+            return True
+        except Exception as e:
+            logger.error("[CDP] click_at(%s, %s) failed: %s", x, y, e)
+            return False
+
     async def type_text(self, selector: str, text: str,
                         timeout: Optional[float] = None) -> bool:
         """Type text into an element matching a CSS selector.
@@ -1338,6 +1387,17 @@ class CDPTab:
         if not self._connected or not self._browser:
             raise ConnectionError(f"Tab {self.target_id} is not connected")
         return await self._browser.click(selector, timeout)
+
+    async def click_at(self, x: float, y: float,
+                       timeout: Optional[float] = None) -> bool:
+        """Click at coordinates in this tab.
+
+        Uses CDP Input.dispatchMouseEvent — can reach iframe content
+        (e.g., reCAPTCHA) that CSS selectors cannot.
+        """
+        if not self._connected or not self._browser:
+            raise ConnectionError(f"Tab {self.target_id} is not connected")
+        return await self._browser.click_at(x, y, timeout)
 
     async def type_text(self, selector: str, text: str,
                         timeout: Optional[float] = None) -> bool:
