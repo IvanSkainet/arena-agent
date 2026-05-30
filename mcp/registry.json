@@ -1,113 +1,38 @@
 {
   "filesystem": {
     "command": "npx",
-    "args": [
-      "-y",
-      "@modelcontextprotocol/server-filesystem",
-      "${ARENA_AGENT_HOME}"
-    ],
-    "description": "File system access (read/write/list) inside Arena bridge directory.",
-    "tags": [
-      "fs",
-      "official"
-    ]
+    "args": ["-y", "@modelcontextprotocol/server-filesystem", "~"],
+    "description": "File system access (read/write/list) inside given root.",
+    "tags": ["fs", "official"]
   },
   "fetch": {
     "command": "uvx",
-    "args": [
-      "-q",
-      "mcp-server-fetch"
-    ],
+    "args": ["-q", "mcp-server-fetch"],
     "description": "HTTP fetch tool (server-side).",
-    "tags": [
-      "web",
-      "official"
-    ]
-  },
-  "sqlite": {
-    "command": "uvx",
-    "args": [
-      "-q",
-      "mcp-server-sqlite",
-      "--db-path",
-      "${ARENA_AGENT_HOME}/memory/facts.db"
-    ],
-    "description": "SQLite query tool over local DB.",
-    "tags": [
-      "db",
-      "official"
-    ]
+    "tags": ["web", "official"]
   },
   "git": {
     "command": "uvx",
-    "args": [
-      "-q",
-      "mcp-server-git",
-      "--repository",
-      "${ARENA_AGENT_HOME}"
-    ],
+    "args": ["-q", "mcp-server-git", "--repository", "~"],
     "description": "Git operations (status, log, diff, branch).",
-    "tags": [
-      "git",
-      "official"
-    ]
+    "tags": ["git", "official"]
   },
   "memory": {
     "command": "npx",
-    "args": [
-      "-y",
-      "@modelcontextprotocol/server-memory"
-    ],
+    "args": ["-y", "@modelcontextprotocol/server-memory"],
     "description": "Knowledge-graph long-term memory.",
-    "tags": [
-      "memory",
-      "official"
-    ]
+    "tags": ["memory", "official"]
   },
   "time": {
     "command": "uvx",
-    "args": [
-      "-q",
-      "mcp-server-time"
-    ],
+    "args": ["-q", "mcp-server-time"],
     "description": "Time, timezones, date math.",
-    "tags": [
-      "util",
-      "official"
-    ]
-  },
-  "puppeteer": {
-    "command": "npx",
-    "args": [
-      "-y",
-      "@modelcontextprotocol/server-puppeteer"
-    ],
-    "description": "Browser automation via Puppeteer (chromium needed).",
-    "tags": [
-      "browser"
-    ]
-  },
-  "everything": {
-    "command": "npx",
-    "args": [
-      "-y",
-      "@modelcontextprotocol/server-everything"
-    ],
-    "description": "Reference server with all MCP feature types.",
-    "tags": [
-      "test",
-      "official"
-    ]
+    "tags": ["util", "official"]
   },
   "arena-stream": {
     "command": "echo",
-    "args": [
-      "arena-mcp-stream runs on http://127.0.0.1:8767/mcp"
-    ],
-    "description": "Local arena-mcp-stream service (20 tools).",
-    "tags": [
-      "local",
-      "arena"
-    ]
+    "args": ["arena-mcp-stream runs on http://127.0.0.1:8765/mcp"],
+    "description": "Local arena bridge MCP endpoint (Streamable HTTP + SSE + WebSocket).",
+    "tags": ["local", "arena"]
   }
 }

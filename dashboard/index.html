@@ -580,7 +580,7 @@ async function refreshOverview() {
       document.getElementById("pingDot").className = "ping ok";
       document.getElementById("pingText").textContent = "Connected";
       document.getElementById("statVersion").textContent = health.version || "--";
-      document.getElementById("statHost").textContent = health.host || "--";
+      document.getElementById("statHost").textContent = health.host || sysinfo.hostname || "--";
       document.getElementById("sidebarVersion").textContent = health.version || "--";
       document.getElementById("versionTag").textContent = "v" + (health.version || "--");
 
@@ -1643,11 +1643,23 @@ async function runDoctor() {
       if (svc && svc.ok) {
         svcEl.innerHTML = "";
         const items = [];
+        // Windows: only show the active service method
         if (svc.windows_service) {
-          items.push(["NSSM/Windows Service", svc.windows_service.running, svc.windows_service.detail || ""]);
+          const nssmRunning = svc.windows_service.running;
+          const nssmDetail = svc.windows_service.detail || "";
+          // If NSSM is not registered, skip it (user uses Scheduled Task instead)
+          if (nssmDetail.includes("not registered")) {
+            // Don't show — no NSSM installed
+          } else {
+            items.push(["NSSM/Windows Service", nssmRunning, nssmDetail]);
+          }
         }
         if (svc.scheduled_task) {
-          items.push(["Scheduled Task", svc.scheduled_task.running, svc.scheduled_task.detail || ""]);
+          // Skip showing Scheduled Task if NSSM is running (redundant)
+          const nssmRunning = svc.windows_service && svc.windows_service.running;
+          if (!nssmRunning) {
+            items.push(["Scheduled Task", svc.scheduled_task.running, svc.scheduled_task.detail || ""]);
+          }
         }
         if (svc.systemd_user) {
           items.push(["systemd Service", svc.systemd_user.active, svc.systemd_user.detail || ""]);

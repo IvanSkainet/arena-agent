@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.7"
+VERSION = "2.0.8"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -4244,6 +4244,10 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
             cpu_percent = load_avg[0] * 100 / max(cpu_logical, 1) if load_avg[0] > 0 else 0.0
         return _cors_json_response({
             "ok": True,
+            "hostname": socket.gethostname(),
+            "python_version": platform.python_version(),
+            "os_build": get_clean_platform_name(),
+            "platform": platform.machine(),
             "cpu_cores": cpu_physical,
             "cpu_threads": cpu_logical,
             "cpu_percent": round(cpu_percent, 1),
@@ -5070,6 +5074,131 @@ def _winsound_melody() -> None:
         winsound.Beep(f, d)
 
 
+def _generate_wav_bytes(freq: int, duration_ms: int, volume: float = 0.5) -> bytes:
+    """Generate a simple WAV file in memory with a sine wave tone."""
+    import struct, math
+    sample_rate = 22050
+    num_samples = int(sample_rate * duration_ms / 1000)
+    # Simple sine wave with fade-in/fade-out (20ms) to avoid clicks
+    fade_samples = min(int(sample_rate * 0.02), num_samples // 4)
+    samples = []
+    for i in range(num_samples):
+        t = i / sample_rate
+        val = math.sin(2 * math.pi * freq * t) * volume * 32767
+        # Fade in/out
+        if i < fade_samples:
+            val *= i / fade_samples
+        elif i > num_samples - fade_samples:
+            val *= (num_samples - i) / fade_samples
+        samples.append(int(val))
+    # WAV header + data
+    data_size = num_samples * 2  # 16-bit samples
+    header = struct.pack('<4sI4s4sIHHIIHH4sI',
+        b'RIFF', 36 + data_size, b'WAVE', b'fmt ', 16,
+        1,  # PCM
+        1,  # mono
+        sample_rate,
+        sample_rate * 2,  # byte rate
+        2,  # block align
+        16, # bits per sample
+        b'data', data_size
+    )
+    data = header + b''.join(struct.pack('<h', max(-32768, min(32767, s))) for s in samples)
+    return data
+
+
+def _linux_play_beep(beep_type: str, freq: int, dur: int) -> dict:
+    """Synchronous Linux sound playback — tries multiple methods."""
+    import shutil, tempfile, os as _os
+
+    # Define melodies per type (sequence of freq, duration_ms pairs)
+    melodies = {
+        "success": [(523, 120), (659, 120), (784, 200)],      # C-E-G ascending (bright, happy)
+        "warning": [(440, 200), (380, 300)],                    # A4 drop to near-G#4 (alerting)
+        "error":   [(330, 200), (262, 400)],                    # E4 drop to C4 (serious, low)
+        "attention": [(880, 80), (880, 80), (880, 200)],       # A5 triple (urgent, sharp)
+        "melody": [(523, 150), (659, 150), (784, 150), (1047, 300)],  # C5-E5-G5-C6
+    }
+
+    notes = melodies.get(beep_type, [(freq, dur)])
+
+    # Method 1: paplay (PulseAudio/PipeWire — most common on modern Linux)
+    if shutil.which("paplay"):
+        try:
+            # Generate combined WAV for the melody
+            wav_parts = []
+            for f, d in notes:
+                wav_parts.append(_generate_wav_bytes(f, d))
+            # Add 50ms silence between notes
+            silence = _generate_wav_bytes(1, 50, volume=0.0)
+            combined = wav_parts[0]
+            for part in wav_parts[1:]:
+                combined = combined[:-44]  # strip WAV header from subsequent
+                combined += silence[44:]   # add silence without header
+                combined += part[44:]      # add next note without header
+            # Fix total data size in header
+            import struct as _struct
+            total_data_size = len(combined) - 8
+            combined = combined[:4] + _struct.pack('<I', total_data_size) + combined[8:]
+            # Fix data chunk size
+            data_chunk_size = len(combined) - 44
+            combined = combined[:40] + _struct.pack('<I', data_chunk_size) + combined[44:]
+
+            # Write to temp file and play
+            tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            tmp.write(combined)
+            tmp.close()
+            try:
+                subprocess.run(["paplay", tmp.name], timeout=3, **_subprocess_kwargs())
+                return {"ok": True, "type": beep_type, "method": "paplay"}
+            finally:
+                try: _os.unlink(tmp.name)
+                except: pass
+        except Exception:
+            pass
+
+    # Method 2: aplay (ALSA — common fallback)
+    if shutil.which("aplay"):
+        try:
+            wav_parts = []
+            for f, d in notes:
+                wav_parts.append(_generate_wav_bytes(f, d))
+            silence = _generate_wav_bytes(1, 50, volume=0.0)
+            combined = wav_parts[0]
+            for part in wav_parts[1:]:
+                combined = combined[:-44]
+                combined += silence[44:]
+                combined += part[44:]
+            import struct as _struct
+            total_data_size = len(combined) - 8
+            combined = combined[:4] + _struct.pack('<I', total_data_size) + combined[8:]
+            data_chunk_size = len(combined) - 44
+            combined = combined[:40] + _struct.pack('<I', data_chunk_size) + combined[44:]
+
+            tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            tmp.write(combined)
+            tmp.close()
+            try:
+                subprocess.run(["aplay", "-q", tmp.name], timeout=3, **_subprocess_kwargs())
+                return {"ok": True, "type": beep_type, "method": "aplay"}
+            finally:
+                try: _os.unlink(tmp.name)
+                except: pass
+        except Exception:
+            pass
+
+    # Method 3: beep command (requires pcspkr module)
+    if shutil.which("beep"):
+        try:
+            for f, d in notes:
+                subprocess.run(["beep", "-f", str(f), "-l", str(d)], timeout=3)
+            return {"ok": True, "type": beep_type, "method": "beep"}
+        except Exception:
+            pass
+
+    return {"ok": True, "type": beep_type, "note": "no sound device, simulated"}
+
+
 async def handle_v1_beep(request: web.Request) -> web.Response:
     """POST /v1/beep — play a sound notification. Body: {type?, frequency?, duration?}."""
     r = require_auth(request)
@@ -5097,16 +5226,10 @@ async def handle_v1_beep(request: web.Request) -> web.Response:
         except Exception as e:
             return _cors_json_response({"ok": False, "error": str(e)})
     else:
-        # Linux: try beep command or terminal bell
-        try:
-            import shutil
-            if shutil.which("beep"):
-                await asyncio.get_event_loop().run_in_executor(_EXECUTOR, subprocess.run, ["beep", "-f", str(freq), "-l", str(dur)], True, True, 5)
-                return _cors_json_response({"ok": True, "type": beep_type})
-        except Exception:
-            pass
-        # Fallback: terminal bell (won't work in HTTP context, but try)
-        return _cors_json_response({"ok": True, "type": beep_type, "note": "no sound device, simulated"})
+        # Linux: try multiple sound methods with distinguishable melodies
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _linux_play_beep, beep_type, freq, dur)
+        return _cors_json_response(result)
 
 
 def _check_internet_sync() -> bool:
@@ -5531,13 +5654,16 @@ def _sys_svc_sync() -> dict:
     bridge_procs = []
     try:
         if sys.platform == "win32":
+            # Use wmic to get process IDs only (count actual processes, not lines)
             out = subprocess.check_output(
-                'wmic process where "commandline like \'%unified_bridge%\'" get processid,commandline /format:list',
+                'wmic process where "commandline like \'%unified_bridge%\'" get processid /format:list',
                 shell=True, stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
             for line in out.splitlines():
                 line = line.strip()
-                if line.startswith("CommandLine=") or line.startswith("ProcessId="):
-                    bridge_procs.append(line)
+                if line.startswith("ProcessId="):
+                    pid = line.split("=", 1)[1].strip()
+                    if pid:
+                        bridge_procs.append(f"PID {pid}")
         else:
             out = subprocess.check_output(
                 ["ps", "aux"], stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
@@ -9276,7 +9402,7 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
                 skill_dir = d
                 break
         else:
-            # Recursive search: "hello" could be at skills/sandbox/hello/
+            # Recursive search: "health" could be at skills/core/health/
             # Also find prompt-only skills (SKILL.md without runner)
             for d in SKILLS_DIR.rglob(name):
                 if d.is_dir() and (

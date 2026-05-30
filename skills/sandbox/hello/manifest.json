@@ -1,7 +1,0 @@
-{
-  "name": "sandbox/hello",
-  "description": "",
-  "args": [],
-  "timeout": 300,
-  "mode": "safe"
-}
