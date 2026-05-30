@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -2695,9 +2695,9 @@ async def handle_v1_cluster(request: web.Request) -> web.Response:
 # PHASE 4: API Versioning (/v2/ endpoints with deprecation headers)
 # ============================================================================
 _DEPRECATED_ENDPOINTS: dict[str, dict[str, str]] = {
-    "/v1/service/info": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": VERSION},
-    "/v1/sys/svc": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": VERSION},
-    "/v1/sys/funnel": {"deprecated_since": "1.9.27", "replacement": "/v1/tailscale/funnel/status", "removal_version": VERSION},
+    "/v1/service/info": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.3.0"},
+    "/v1/sys/svc": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.3.0"},
+    "/v1/sys/funnel": {"deprecated_since": "1.9.27", "replacement": "/v1/tailscale/funnel/status", "removal_version": "2.3.0"},
 }
 
 
@@ -3145,8 +3145,8 @@ def decode_output(data: bytes) -> str:
     if os.name == "nt":
         for codec in ["utf-8", "cp866", "cp1251"]:
             try:
-                return data.decode(codec, "strict")
-            except UnicodeDecodeError:
+                return data.decode(codec, errors="replace")
+            except Exception:
                 continue
     return data.decode("utf-8", "replace")
 
@@ -3906,6 +3906,7 @@ def make_app(cfg: dict) -> web.Application:
     # ---- Dashboard API (auth required) ----
     app.router.add_get("/v1/memory", handle_v1_memory)
     app.router.add_post("/v1/memory", handle_v1_memory_set)
+    app.router.add_delete("/v1/memory", handle_v1_memory_delete)
     app.router.add_get("/v1/missions", handle_v1_missions)
     app.router.add_post("/v1/beep", handle_v1_beep)
     app.router.add_get("/v1/doctor", handle_v1_doctor)
@@ -4169,14 +4170,38 @@ def check_auth(request: web.Request) -> bool:
     xt = request.headers.get("X-Arena-Token", "")
     if xt and hmac.compare_digest(xt, token):
         return True
+    # v2.1.1: Also check multi-user tokens from users.json
+    is_authed, _ = check_auth_with_role(request)
+    if is_authed:
+        return True
     return False
 
 
 def require_auth(request: web.Request) -> web.Response | None:
-    """Returns None if auth OK, or a 401 Response if not."""
-    if not check_auth(request):
-        return _cors_json_response({"ok": False, "error": "unauthorized"}, status=401)
-    return None
+    """Returns None if auth OK, or a 401 Response if not.
+    
+    Includes auth-specific rate limiting: 10 failed attempts per minute per IP.
+    """
+    if check_auth(request):
+        return None
+    # Auth-specific rate limiting (v2.1.1)
+    peer = request.remote or "unknown"
+    now = time.time()
+    with _rate_limit_lock:
+        key = f"auth_fail:{peer}"
+        if key not in _rate_limit_store:
+            _rate_limit_store[key] = []
+        # Remove entries older than 60 seconds
+        _rate_limit_store[key] = [t for t in _rate_limit_store[key] if now - t < 60]
+        if len(_rate_limit_store[key]) >= 10:
+            log.warning("[Auth-RateLimit] IP %s has %d failed auth attempts in 60s", peer, len(_rate_limit_store[key]))
+            return _cors_json_response(
+                {"ok": False, "error": "too many failed auth attempts, try again later"},
+                status=429,
+                extra_headers={"Retry-After": "60"}
+            )
+        _rate_limit_store[key].append(now)
+    return _cors_json_response({"ok": False, "error": "unauthorized"}, status=401)
 
 
 def common_status(cfg: dict) -> dict:
@@ -5126,8 +5151,8 @@ def _load_facts() -> list[dict]:
                         seen[key] = item
                     except json.JSONDecodeError:
                         pass
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("[Memory] Failed to load facts from %s: %s", MEMORY_FILE, e)
     return [seen[k] for k in order if k in seen]
 
 
@@ -5143,8 +5168,22 @@ def _write_fact(entry: dict) -> None:
             f.write(json.dumps(fact, ensure_ascii=False) + "\n")
 
 
+def _delete_fact(key: str) -> bool:
+    """Delete a fact by key. Returns True if found and deleted, False if not found."""
+    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    existing = _load_facts()
+    before = len(existing)
+    filtered = [f for f in existing if f.get("key") != key]
+    if len(filtered) == before:
+        return False
+    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
+        for fact in filtered:
+            f.write(json.dumps(fact, ensure_ascii=False) + "\n")
+    return True
+
+
 async def handle_v1_memory(request: web.Request) -> web.Response:
-    """GET /v1/memory — list memory facts. Optional ?q=filter."""
+    """GET /v1/memory — list memory facts. Optional ?q=filter, ?offset=N, ?limit=N."""
     try:
         r = require_auth(request)
         if r: return r
@@ -5155,7 +5194,19 @@ async def handle_v1_memory(request: web.Request) -> web.Response:
         q = qs.get("q", [""])[0].lower()
         if q:
             facts = [f for f in facts if q in json.dumps(f, ensure_ascii=False).lower()]
-        return _cors_json_response({"ok": True, "count": len(facts), "facts": facts[-100:]})
+        # Pagination support (v2.1.1)
+        total = len(facts)
+        try:
+            offset = max(0, int(qs.get("offset", ["0"])[0]))
+            limit = min(500, max(1, int(qs.get("limit", ["100"])[0])))
+        except (ValueError, TypeError):
+            offset = 0
+            limit = 100
+        page = facts[offset:offset + limit]
+        result = {"ok": True, "total": total, "count": len(page), "facts": page}
+        if offset + limit < total:
+            result["next_offset"] = offset + limit
+        return _cors_json_response(result)
     except Exception as e:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -5183,6 +5234,28 @@ async def handle_v1_memory_set(request: web.Request) -> web.Response:
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_EXECUTOR, _write_fact, entry)
     return _cors_json_response({"ok": True, "fact": entry})
+
+
+async def handle_v1_memory_delete(request: web.Request) -> web.Response:
+    """DELETE /v1/memory — delete a memory fact by key. Body: {key: "name"}."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        data = await request.json()
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+    key = str(data.get("key", "")).strip()
+    if not key:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing key"}, status=400)
+    loop = asyncio.get_event_loop()
+    deleted = await loop.run_in_executor(_EXECUTOR, _delete_fact, key)
+    if deleted:
+        audit({"event": "memory_delete", "key": key})
+        return _cors_json_response({"ok": True, "deleted": key})
+    return _cors_json_response({"ok": False, "error": "key not found"}, status=404)
 
 
 def _list_missions_sync() -> list[dict]:
@@ -5428,11 +5501,13 @@ async def handle_v1_doctor(request: web.Request) -> web.Response:
         import shutil
         sound_ok = bool(shutil.which("beep") or shutil.which("paplay"))
         checks.append({"name": "Sound", "ok": sound_ok, "detail": "beep/paplay available" if sound_ok else "no sound device", "critical": False})
-    # Disk
+    # Disk — use 80% usage threshold (consistent with disk monitoring)
     try:
         import shutil as _shutil
         disk = _shutil.disk_usage(str(Path.home()))
-        checks.append({"name": "Disk free", "ok": disk.free > 1024**3, "detail": f"{disk.free // (1024**3)} GB"})
+        usage_pct = round(disk.used / disk.total * 100, 1) if disk.total > 0 else 0
+        disk_ok = usage_pct < 80
+        checks.append({"name": "Disk free", "ok": disk_ok, "detail": f"{disk.free // (1024**3)} GB free ({usage_pct}% used)"})
     except Exception:
         pass
 

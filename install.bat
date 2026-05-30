@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 REM ============================================================
-REM  Arena Unified Bridge — Windows Installer v2.0.6
+REM  Arena Unified Bridge — Windows Installer v2.1.0
 REM  Full parity with install.sh. Window stays open on errors.
 REM ============================================================
 

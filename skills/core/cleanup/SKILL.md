@@ -14,6 +14,7 @@ Rotate / prune old data to keep the platform tidy.
 - `~/arena-bridge/reports/`         — generated digests/reports older than N days
 - `~/arena-bridge/queue/done/`      — completed tasks older than N days
 - `~/arena-bridge/queue/failed/`    — failed tasks older than N days
+- `~/arena-bridge/logs/`            — rotated log files (`*.log.1`, `*.log.2`, `*.log.3`, `*.jsonl.1` – `*.jsonl.5`)
 
 Always keeps at least `--keep` newest items in each category, regardless of age.
 

@@ -1,6 +1,6 @@
 {
   "name": "core/cleanup",
-  "description": "Prune old backups, sessions, reports, completed tasks",
+  "description": "Prune old backups, sessions, reports, completed tasks, rotated logs",
   "args": [
     {"name": "--days", "required": false},
     {"name": "--keep", "required": false},

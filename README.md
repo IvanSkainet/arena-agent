@@ -5,7 +5,7 @@
 **Cross-platform local automation bridge for AI agents.**
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v2.1.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.1.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -30,7 +30,7 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 |----------|---------|
 | **Cross-platform** | Installer auto-detects Windows / Linux / macOS and picks the right packaging strategy (NSSM Service, Scheduled Task, systemd user unit, or launchd agent) |
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
-| **137 routes** | 120+ handlers covering exec, memory, browser, CDP, tasks, skills, audit, watchdog, profiles, and more |
+| **138 routes** | 120+ handlers covering exec, memory, browser, CDP, tasks, skills, audit, watchdog, profiles, and more |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
@@ -161,11 +161,11 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
                                            │
         ┌──────────────────────────────────▼──────────────────────────────────┐
         │                                                                     │
-        │   localhost:8765   (one Python asyncio process, ~10.8K lines)       │
+        │   localhost:8765   (one Python asyncio process, ~10.8K lines)        │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │              │
-        │   │ 137 routes   │  │ Streamable   │  │ WebSocket    │              │
+        │   │ 138 routes   │  │ Streamable   │  │ WebSocket    │              │
         │   └──────────────┘  └──────────────┘  └──────────────┘              │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
@@ -236,8 +236,9 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/memory` | List memory facts (key/value/tags JSONL) |
+| `GET` | `/v1/memory` | List memory facts (key/value/tags JSONL, pagination: `?offset=&limit=`) |
 | `POST` | `/v1/memory` | Set memory fact |
+| `DELETE` | `/v1/memory` | Delete memory fact by key |
 | `GET` | `/v1/recall?q=…&top=5` | TF-scored fuzzy search + digest |
 | `GET` | `/v1/recall/digest` | Memory digest |
 
@@ -589,6 +590,21 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 
 ## 📋 Changelog
 
+### v2.1.1 — Surgical fixes, multi-user auth, memory DELETE, auth rate limit
+- **Fixed:** `check_auth()` now checks `users.json` tokens — multi-user auth works on all endpoints, not just `/v1/users`
+- **Fixed:** `decode_output()` on Windows uses `errors="replace"` instead of `strict` — one bad byte no longer kills entire output
+- **Fixed:** `/v1/doctor` disk check uses 80% threshold (consistent with disk monitoring) instead of hardcoded 1 GB
+- **Fixed:** `_load_facts()` logs errors instead of silently swallowing them
+- **Fixed:** Cleanup skill docs (SKILL.md, manifest.json) now list `rotated_logs` category
+- **Fixed:** `install.bat` header comment updated from v2.0.6 to v2.1.0
+- **Fixed:** `_arena_helper.py` replaced from garbage data to working version/token helper
+- **Added:** `DELETE /v1/memory` endpoint — delete a specific memory fact by key
+- **Added:** `/v1/memory` pagination — `?offset=N&limit=N` params, `total` and `next_offset` in response
+- **Added:** Auth-specific rate limiting — 10 failed auth attempts per minute per IP (429 with `Retry-After`)
+- **Updated:** Deprecated endpoints `removal_version` bumped from `VERSION` (2.1.0) to `"2.3.0"`
+- **Updated:** Roadmap — removed "Multi-user token support" (already implemented)
+- **Updated:** `AI_SYSTEM_PROMPT.md` — removed incorrect token query param, added v2.1.0+ endpoints
+
 ### v2.1.0 — Critical disk fill bug fix + log rotation + disk monitoring
 - **Fixed:** aiohttp AccessLogger not disabled — was the #1 cause of disk exhaustion (could fill 242 GB in hours)
 - **Fixed:** Linux daemon mode redirected stdout/stderr to bridge.log, bypassing RotatingFileHandler rotation
@@ -634,7 +650,6 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - [ ] Replace `wmic` (deprecated in Win11) with CIM cmdlets in `_sys_*` helpers
 - [ ] Linux Wayland recording in `mission-record` (currently x11grab only)
 - [ ] AnythingLLM / Open WebUI integration recipes in `skills/`
-- [ ] Multi-user token support
 - [ ] Webhook notifications for events
 
 ---
