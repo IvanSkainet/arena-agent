@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.6"
+VERSION = "2.0.7"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -8968,11 +8968,19 @@ async def handle_v1_tasks_get(request: web.Request) -> web.Response:
 # --- /v1/tasks POST — Submit task ---
 
 def _task_submit_sync(data: dict) -> dict:
-    """Create JSON file in INBOX."""
+    """Create JSON file in INBOX. Supports both cmd-based and title-based tasks."""
     task_id = str(uuid.uuid4())[:8]
+    cmd = data.get("cmd", "")
+    title = data.get("title", "")
+    # If title provided without cmd, create a descriptive task (not a command)
+    if title and not cmd:
+        cmd = f"# {title}"
     task = {
         "id": task_id,
-        "cmd": data.get("cmd", ""),
+        "cmd": cmd,
+        "title": title or cmd,
+        "description": data.get("description", ""),
+        "priority": data.get("priority", "normal"),
         "cwd": data.get("cwd", str(Path.home())),
         "timeout": data.get("timeout", 3600),
         "env": data.get("env", {}),
@@ -8982,11 +8990,12 @@ def _task_submit_sync(data: dict) -> dict:
     INBOX.mkdir(parents=True, exist_ok=True)
     task_path = INBOX / f"{task_id}.json"
     task_path.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "task_id": task_id}
+    return {"ok": True, "task_id": task_id, "task": task}
 
 
 async def handle_v1_tasks_post(request: web.Request) -> web.Response:
-    """POST /v1/tasks — Submit task. Body: {cmd, cwd?, timeout?, env?}."""
+    """POST /v1/tasks — Submit task. Body: {cmd, title?, description?, priority?, cwd?, timeout?, env?}
+    Accepts either 'cmd' (command to run) or 'title' (descriptive task without command)."""
     r = require_auth(request)
     if r: return r
     _record_request()
@@ -8996,17 +9005,18 @@ async def handle_v1_tasks_post(request: web.Request) -> web.Response:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
     cmd = data.get("cmd", "")
-    if not cmd:
+    title = data.get("title", "")
+    if not cmd and not title:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing cmd"}, status=400)
+        return _cors_json_response({"ok": False, "error": "missing cmd or title"}, status=400)
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _task_submit_sync, data)
-        audit({"type": "task_submit", "task_id": result.get("task_id"), "cmd": cmd})
+        audit({"type": "task_submit", "task_id": result.get("task_id"), "cmd": cmd or title})
         return _cors_json_response(result)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+        return _cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
 
 # --- /v1/tasks/clean POST — Clean completed tasks ---
@@ -9998,7 +10008,7 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/kill": {"post": {"summary": "Kill process by PID", "tags": ["Exec"], "responses": {"200": {"description": "Kill result"}}}},
             "/v1/skills": {"get": {"summary": "List available skills", "tags": ["Skills"], "responses": {"200": {"description": "Skill list"}}}},
             "/v1/skills/run": {"post": {"summary": "Execute a skill", "tags": ["Skills"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}}}}}}, "responses": {"200": {"description": "Skill output"}}},
-            "/v1/tasks": {"get": {"summary": "List tasks", "tags": ["Tasks"], "responses": {"200": {"description": "Task list"}}}},
+            "/v1/tasks": {"get": {"summary": "List tasks", "tags": ["Tasks"], "responses": {"200": {"description": "Task list"}}}, "post": {"summary": "Create task (cmd or title)", "tags": ["Tasks"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string", "description": "Command to execute"}, "title": {"type": "string", "description": "Task title (if no cmd)"}, "description": {"type": "string"}, "priority": {"type": "string", "enum": ["low", "normal", "high"]}}}}}}, "responses": {"200": {"description": "Created task"}}}},
             "/v1/memory": {"get": {"summary": "List memory facts", "tags": ["Memory"], "responses": {"200": {"description": "Memory entries"}}}},
             "/v1/recall": {"get": {"summary": "Recall relevant facts", "tags": ["Memory"], "responses": {"200": {"description": "Recalled facts"}}}},
             "/v1/sysinfo": {"get": {"summary": "System information", "tags": ["System"], "responses": {"200": {"description": "System info"}}}},
