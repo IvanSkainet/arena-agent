@@ -1,6 +1,7 @@
 @echo off
+setlocal enabledelayedexpansion
 REM ============================================================
-REM  Arena Unified Bridge — Windows Installer
+REM  Arena Unified Bridge — Windows Installer v2.0.6
 REM  Full parity with install.sh. Window stays open on errors.
 REM ============================================================
 
@@ -53,7 +54,7 @@ echo print(t[q1:q2]if q1^>0 and q2^>0 else'unknown')>>"%TEMP%\arena_ver.py"
 %PYTHON% "%TEMP%\arena_ver.py" >"%TEMP%\arena_ver.txt" 2>nul
 set /p "VERSION=" <"%TEMP%\arena_ver.txt"
 del "%TEMP%\arena_ver.py" "%TEMP%\arena_ver.txt" >nul 2>&1
-echo       Bridge v%VERSION%
+echo       Bridge v!VERSION!
 
 REM ============================================================
 REM Step 2: Install Python dependencies
@@ -167,8 +168,15 @@ REM Step 5: Install and start bridge service
 REM ============================================================
 echo [4/6] Installing as system service...
 
-REM Kill any existing bridge on our port
+REM Stop any existing bridge service/task BEFORE killing processes
+schtasks /end /tn "ArenaUnifiedBridge" >nul 2>&1
+where nssm >nul 2>&1
+if not errorlevel 1 nssm stop ArenaUnifiedBridge >nul 2>&1
+ping -n 2 127.0.0.1 >nul
+
+REM Kill any remaining bridge processes on our port
 for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do taskkill /F /PID %%P >nul 2>nul
+ping -n 2 127.0.0.1 >nul
 
 REM Create start_bridge.bat (for manual use and schtasks)
 echo @echo off> "%BRIDGE_DIR%\start_bridge.bat"
@@ -200,16 +208,17 @@ goto :service_installed
 set "SERVICE_METHOD=nssm"
 echo       Using NSSM service manager...
 
-nssm stop ArenaUnifiedBridge >nul 2>&1
-ping -n 2 127.0.0.1 >nul
 nssm remove ArenaUnifiedBridge confirm >nul 2>&1
 
+REM Find pythonw.exe (no console window) for NSSM
 set "PYW=%PYTHON%"
-for %%p in ("%PYTHON%") do if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
+for %%p in ("%PYTHON%") do (
+    if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
+)
 
-nssm install ArenaUnifiedBridge "%PYW%" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
+nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
 nssm set ArenaUnifiedBridge AppDirectory "%BRIDGE_DIR%" >nul 2>&1
-nssm set ArenaUnifiedBridge DisplayName "Arena Unified Bridge v%VERSION%" >nul 2>&1
+nssm set ArenaUnifiedBridge DisplayName "Arena Unified Bridge v!VERSION!" >nul 2>&1
 nssm set ArenaUnifiedBridge Start SERVICE_AUTO_START >nul 2>&1
 nssm set ArenaUnifiedBridge AppStdout "%BRIDGE_DIR%\logs\bridge.log" >nul 2>&1
 nssm set ArenaUnifiedBridge AppStderr "%BRIDGE_DIR%\logs\bridge_err.log" >nul 2>&1
@@ -232,21 +241,21 @@ REM ============================================================
 echo.
 echo [5/6] Waiting for bridge to start...
 set "HEALTHY=0"
-for /L %%i in (1,1,20) do (
+for /L %%i in (1,1,30) do (
     if "!HEALTHY!"=="0" (
-        curl --max-time 2 -fsS "http://127.0.0.1:%PORT%/health" >nul 2>&1
+        curl --max-time 3 -fsS "http://127.0.0.1:%PORT%/health" >nul 2>&1
         if not errorlevel 1 (
             set "HEALTHY=1"
-            echo       Bridge is healthy! v%VERSION%
+            echo       Bridge is healthy! v!VERSION!
         ) else (
-            echo       Waiting... %%i/20
+            echo       Waiting... %%i/30
             ping -n 3 127.0.0.1 >nul
         )
     )
 )
 if "!HEALTHY!"=="1" goto :healthy_ok
 echo.
-echo  [WARN] Bridge not responding after 40 seconds.
+echo  [WARN] Bridge not responding after 90 seconds.
 echo.
 echo  Check logs: %BRIDGE_DIR%\logs\bridge.log
 echo  %BRIDGE_DIR%\logs\bridge_err.log

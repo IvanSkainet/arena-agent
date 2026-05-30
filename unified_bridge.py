@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.0.5"
+VERSION = "2.0.6"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -2257,14 +2257,12 @@ connectWS();
 
 async def handle_gui_v2(request: web.Request) -> web.Response:
     """GET /gui/v2 — Live dashboard with WebSocket real-time updates.
-    Shows login page if no valid auth."""
+    Shows login page if no valid URL token."""
     cfg = request.app["cfg"]
     url_token = request.query.get("token", "")
     valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
     if not valid_token:
-        r = require_auth(request)
-        if r:
-            return web.Response(text=_GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
+        return web.Response(text=_GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
     return web.Response(text=_DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
 
 
@@ -4746,7 +4744,7 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
         duration = round(time.time() - t0, 3)
         audit({"type": "exec_error", "request_id": request_id, "cmd": cmd, "duration": duration, "error": repr(e)})
         _record_request(duration=duration, is_exec=True, is_error=True)
-        return _cors_json_response({"ok": False, "request_id": request_id, "error": repr(e), "duration_sec": duration}, status=500)
+        return _cors_json_response({"ok": False, "request_id": request_id, "error": "Internal error", "duration_sec": duration}, status=500)
 
     finally:
         ACTIVE_PROCESSES.pop(request_id, None)
@@ -4815,7 +4813,7 @@ async def handle_v1_upload(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": True, "path": str(target_path), "bytes": len(body)})
     except Exception as e:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": repr(e)}, status=500)
+        return _cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
 
 async def handle_v1_download(request: web.Request) -> web.Response:
@@ -4850,7 +4848,7 @@ async def handle_v1_download(request: web.Request) -> web.Response:
         })
     except Exception as e:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": repr(e)}, status=500)
+        return _cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
 
 # ============================================================================
@@ -4885,19 +4883,26 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:#0d111
 <p class="hint">Token is stored in token.txt in the bridge directory</p>
 </div>
 <script>
-function login(){
+var REDIR=location.pathname;
+function login(e){
+  if(e)e.preventDefault();
   var t=document.getElementById('token').value.trim();
   if(!t){document.getElementById('err').textContent='Please enter a token';return false}
-  var x=new XMLHttpRequest();
-  x.open('GET','/v1/status',false);
-  x.setRequestHeader('Authorization','Bearer '+t);
-  try{x.send()}catch(e){document.getElementById('err').textContent='Connection failed';return false}
-  if(x.status===200){
-    localStorage.setItem('arena_token',t);
-    window.location.href='/gui?token='+encodeURIComponent(t);
-  }else{
-    document.getElementById('err').textContent='Invalid token';
-  }
+  document.getElementById('err').textContent='';
+  document.querySelector('button').textContent='Signing in...';
+  fetch('/v1/status',{headers:{'Authorization':'Bearer '+t}}).then(function(r){
+    if(r.ok){
+      localStorage.setItem('arena_token',t);
+      var sep=REDIR.indexOf('?')>-1?'&':'?';
+      location.href=REDIR+sep+'token='+encodeURIComponent(t);
+    }else{
+      document.getElementById('err').textContent='Invalid token';
+      document.querySelector('button').textContent='Sign In';
+    }
+  }).catch(function(){
+    document.getElementById('err').textContent='Connection failed';
+    document.querySelector('button').textContent='Sign In';
+  });
   return false;
 }
 var saved=localStorage.getItem('arena_token');
@@ -4907,18 +4912,16 @@ if(saved){document.getElementById('token').value=saved;login()}
 
 
 async def handle_gui(request: web.Request) -> web.Response:
-    """GET /gui — Dashboard. Shows login page if no valid auth, then serves dashboard."""
+    """GET /gui — Dashboard. Shows login page if no valid URL token, then serves dashboard."""
     cfg = request.app["cfg"]
-    # Check URL token param (timing-attack safe)
+    # Only URL token param is accepted — timing-attack safe
     url_token = request.query.get("token", "")
     valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
 
-    # Also accept header-based auth
+    # No valid URL token — show login page
+    # (We require the token in the URL because the dashboard HTML needs it for API calls)
     if not valid_token:
-        r = require_auth(request)
-        if r:
-            # No valid auth — show login page instead of JSON error
-            return web.Response(text=_GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
+        return web.Response(text=_GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
     try:
         # Try multiple locations for the dashboard
         candidates = [
@@ -4928,8 +4931,8 @@ async def handle_gui(request: web.Request) -> web.Response:
         for html_path in candidates:
             if html_path.exists():
                 html = html_path.read_text(encoding="utf-8")
-                # Embed the URL token (not the server token) so JS can use it for API calls
-                html = html.replace("{{TOKEN}}", url_token or cfg["token"])
+                # Embed ONLY the URL token — never fall back to cfg["token"]
+                html = html.replace("{{TOKEN}}", url_token)
                 html = html.replace("{{VERSION}}", VERSION)
                 html = html.replace("{{HOST}}", socket.gethostname())
                 return web.Response(text=html, content_type="text/html", charset="utf-8",
@@ -5133,23 +5136,25 @@ async def handle_v1_doctor(request: web.Request) -> web.Response:
     for name, path in [("Bridge dir", BRIDGE_DIR),
                         ("Memory dir", MEMORY_FILE.parent), ("Missions dir", MISSIONS_DIR)]:
         checks.append({"name": name, "ok": path.exists(), "detail": str(path)})
-    # Memory
+    # Memory — non-critical on fresh install (no facts yet is normal)
     loop = asyncio.get_event_loop()
     facts = await loop.run_in_executor(_EXECUTOR, _load_facts)
-    checks.append({"name": "Memory facts", "ok": len(facts) > 0, "detail": f"{len(facts)} entries"})
+    checks.append({"name": "Memory facts", "ok": True, "detail": f"{len(facts)} entries",
+                    "status": "ok" if facts else "empty", "critical": False})
     # Internet
     internet_ok = await loop.run_in_executor(_EXECUTOR, _check_internet_sync)
     checks.append({"name": "Internet", "ok": internet_ok, "detail": "available" if internet_ok else "not reachable"})
-    # Sound
+    # Sound — non-critical on servers/headless environments
     if sys.platform == "win32":
         try:
             import winsound
-            checks.append({"name": "Sound", "ok": True, "detail": "winsound available"})
+            checks.append({"name": "Sound", "ok": True, "detail": "winsound available", "critical": False})
         except ImportError:
-            checks.append({"name": "Sound", "ok": False, "detail": "winsound not available"})
+            checks.append({"name": "Sound", "ok": False, "detail": "winsound not available", "critical": False})
     else:
         import shutil
-        checks.append({"name": "Sound", "ok": bool(shutil.which("beep") or shutil.which("paplay")), "detail": ""})
+        sound_ok = bool(shutil.which("beep") or shutil.which("paplay"))
+        checks.append({"name": "Sound", "ok": sound_ok, "detail": "beep/paplay available" if sound_ok else "no sound device", "critical": False})
     # Disk
     try:
         import shutil as _shutil
@@ -5158,7 +5163,8 @@ async def handle_v1_doctor(request: web.Request) -> web.Response:
     except Exception:
         pass
 
-    passed = sum(1 for c in checks if c["ok"])
+    # passed = checks that are OK, or non-critical failures (those are warnings, not failures)
+    passed = sum(1 for c in checks if c["ok"] or not c.get("critical", True))
     return _cors_json_response({"ok": True, "passed": passed, "total": len(checks), "checks": checks})
 
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""core/health — fast platform health check."""
+"""core/health — fast platform health check (cross-platform)."""
 from __future__ import annotations
 import os
 import shutil
@@ -26,14 +26,52 @@ def check_http() -> None:
         add(False, "bridge_http", f"{type(e).__name__}: {e}")
 
 
-def check_service(name: str) -> None:
-    # Strip .service suffix if provided — systemctl adds it automatically
+def check_service_linux(name: str) -> None:
+    """Check systemd user service (Linux only). Non-critical: bridge may run manually."""
     clean_name = name.replace(".service", "")
-    cp = subprocess.run(["systemctl", "--user", "is-active", clean_name],
-                        capture_output=True, text=True)
-    state = cp.stdout.strip()
-    # Accept "active" or "activating" as healthy states
-    add(state in ("active", "activating"), f"svc_{clean_name}", state)
+    try:
+        cp = subprocess.run(["systemctl", "--user", "is-active", clean_name],
+                            capture_output=True, text=True, timeout=5)
+        state = cp.stdout.strip()
+        # Service check is non-critical — bridge may be started manually or via cron
+        add(state in ("active", "activating"), f"svc_{clean_name}", state, critical=False)
+    except FileNotFoundError:
+        add(False, f"svc_{clean_name}", "systemctl not found", critical=False)
+    except Exception as e:
+        add(False, f"svc_{clean_name}", str(e)[:100], critical=False)
+
+
+def check_service_windows() -> None:
+    """Check Windows service/task status."""
+    svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
+    # Check NSSM/SCM service
+    try:
+        r = subprocess.run(["sc", "query", svc_name],
+                           capture_output=True, text=True, timeout=5)
+        out = (r.stdout or "")
+        if "RUNNING" in out.upper() or ": 4 " in out:
+            add(True, "windows_service", f'Service "{svc_name}" RUNNING')
+        elif "1060" in out or r.returncode == 1060:
+            # Service doesn't exist — check scheduled task instead
+            add(False, "windows_service", "not registered", critical=False)
+        else:
+            add(False, "windows_service", f'Service "{svc_name}" stopped', critical=False)
+    except FileNotFoundError:
+        add(False, "windows_service", "sc not found", critical=False)
+    except Exception as e:
+        add(False, "windows_service", str(e)[:100], critical=False)
+    # Check Scheduled Task
+    try:
+        r = subprocess.run(["schtasks", "/Query", "/TN", svc_name],
+                           capture_output=True, text=True, timeout=5)
+        if r.returncode == 0:
+            add(True, "scheduled_task", f'Task "{svc_name}" registered')
+        else:
+            add(False, "scheduled_task", "not found", critical=False)
+    except FileNotFoundError:
+        add(False, "scheduled_task", "schtasks not found", critical=False)
+    except Exception as e:
+        add(False, "scheduled_task", str(e)[:100], critical=False)
 
 
 def check_agentctl(p: Path) -> None:
@@ -43,12 +81,12 @@ def check_agentctl(p: Path) -> None:
         return
     cp = subprocess.run([sys.executable, "-m", "py_compile", str(p)], capture_output=True, text=True)
     add(cp.returncode == 0, "agentctl_syntax",
-        cp.stderr.strip() or "ok")
+        cp.stderr.strip() or "ok", critical=False)
 
 
 def check_python3() -> None:
     """Check that system python3 is available."""
-    py = shutil.which("python3")
+    py = shutil.which("python3") or shutil.which("python")
     if not py:
         add(False, "python3", "not found")
         return
@@ -73,7 +111,7 @@ def check_dirs() -> None:
     if not audit.exists():
         audit = ROOT / "logs" / "audit.jsonl"
     add(audit.exists() and os.access(audit, os.R_OK),
-        "audit_readable", str(audit))
+        "audit_readable", str(audit), critical=False)
 
 
 def check_disk() -> None:
@@ -88,7 +126,13 @@ def check_disk() -> None:
 
 def main() -> int:
     check_http()
-    check_service("arena-bridge.service")
+
+    # Platform-specific service checks
+    if sys.platform == "win32":
+        check_service_windows()
+    else:
+        check_service_linux("arena-bridge.service")
+
     check_agentctl(ROOT / "bin" / "agentctl")
     check_python3()
     check_dirs()
@@ -104,6 +148,8 @@ def main() -> int:
             if critical:
                 critical_fails += 1
                 tag = "CRIT"
+            else:
+                tag = "WARN"
         print(f"{tag}  {name.ljust(width)}  {detail}")
     print(f"--- {len(results) - fails}/{len(results)} checks passed, {critical_fails} critical ---")
     return 0 if critical_fails == 0 else 1

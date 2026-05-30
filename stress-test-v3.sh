@@ -103,6 +103,35 @@ resp=$(api_get "/v1/version")
 ver=$(echo "$resp" | jq_val '["version"]' 2>/dev/null || echo "unknown")
 check "bridge version" "true" "(v$ver)"
 
+# 0.4 GUI login page (no auth → should show login HTML)
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/gui" 2>/dev/null || echo "000")
+if [ "$resp" = "200" ]; then
+    body=$(curl -s "$URL/gui" 2>/dev/null | head -c 500)
+    if echo "$body" | grep -qi "login\|sign.*in\|auth.*token"; then
+        check "gui login page" "true" "(unauthenticated /gui shows login)"
+    else
+        check "gui login page" "false" "(got 200 but no login form found)"
+    fi
+else
+    check "gui login page" "false" "(HTTP $resp, expected 200)"
+fi
+
+# 0.5 GUI dashboard (with token → should show dashboard or fallback)
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/gui?token=$TOKEN" 2>/dev/null || echo "000")
+if [ "$resp" = "200" ]; then
+    check "gui dashboard" "true" "(authenticated /gui?token=... returns 200)"
+else
+    check "gui dashboard" "false" "(HTTP $resp, expected 200)"
+fi
+
+# 0.6 GUI v2 login page (no auth → should show login HTML)
+resp=$(curl -s -o /dev/null -w "%{http_code}" "$URL/gui/v2" 2>/dev/null || echo "000")
+if [ "$resp" = "200" ]; then
+    check "gui v2 login page" "true" "(unauthenticated /gui/v2 shows login)"
+else
+    check "gui v2 login page" "false" "(HTTP $resp, expected 200)"
+fi
+
 echo ""
 
 # ============================================================
@@ -644,7 +673,12 @@ if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
     check "browser browse (cdp auto)" "true" "(backend=$browse_backend, text_len=$browse_text_len)"
 else
     err=$(echo "$resp" | jq_val '["error"]' 2>/dev/null || echo "unknown")
-    check "browser browse (cdp auto)" "false" "$err"
+    # If the error is about missing browser, it's a SKIP (environment), not a FAIL
+    if echo "$err" | grep -qi "not found\|No such file\|binary not found\|not installed\|not available"; then
+        check "browser browse (cdp auto)" "skip" "No browser available ($err)"
+    else
+        check "browser browse (cdp auto)" "false" "$err"
+    fi
 fi
 
 echo ""
@@ -738,15 +772,20 @@ echo ""
 # ============================================================
 echo "=== SECTION 3: SuperPowers ==="
 
-# 3.1 SuperPowers directory exists
-if [ -d "$BRIDGE_HOME/skills/superpowers/skills" ]; then
-    sp_count=$(ls -1 "$BRIDGE_HOME/skills/superpowers/skills/" 2>/dev/null | wc -l)
-    check "superpowers directory" "true" "($sp_count skills)"
-elif [ -d "$BRIDGE_HOME/skills/superpowers" ]; then
-    sp_count=$(ls -1 "$BRIDGE_HOME/skills/superpowers/" 2>/dev/null | wc -l)
-    check "superpowers directory" "true" "($sp_count entries)"
+# 3.1 SuperPowers directory exists (check bridge-reported dir AND BRIDGE_HOME)
+SP_DIR=""
+# First, check the directory the bridge actually uses (from /v1/info)
+BRIDGE_DIR=$(api_get "/v1/info" | python3 -c "import json,sys;d=json.load(sys.stdin);print(d.get('bridge_dir',''))" 2>/dev/null || echo "")
+if [ -d "$BRIDGE_DIR/skills/superpowers/skills" ]; then
+    SP_DIR="$BRIDGE_DIR/skills/superpowers"
+elif [ -d "$BRIDGE_HOME/skills/superpowers/skills" ]; then
+    SP_DIR="$BRIDGE_HOME/skills/superpowers"
+fi
+if [ -n "$SP_DIR" ]; then
+    sp_count=$(ls -1 "$SP_DIR/skills/" 2>/dev/null | wc -l)
+    check "superpowers directory" "true" "($sp_count skills at $SP_DIR)"
 else
-    check "superpowers directory" "false" "Not found at $BRIDGE_HOME/skills/superpowers/"
+    check "superpowers directory" "skip" "No superpowers directory found (install: git clone https://github.com/obra/superpowers.git skills/superpowers)"
 fi
 
 # 3.2 Bridge skills list includes superpowers
@@ -839,6 +878,16 @@ fi
 # 4.5 Health skill
 resp=$(api_post "/v1/skills/run" '{"name":"core/health"}')
 check "health skill" "$(echo "$resp" | jq_check '["ok"]' 2>/dev/null && echo true || echo false)"
+
+# 4.5b Doctor endpoint — all checks should pass (Memory facts is non-critical)
+resp=$(api_get "/v1/doctor")
+if echo "$resp" | jq_check '["ok"]' 2>/dev/null; then
+    passed=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('passed',0))" 2>/dev/null || echo "?")
+    total=$(echo "$resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "?")
+    check "doctor endpoint" "true" "($passed/$total checks)"
+else
+    check "doctor endpoint" "false"
+fi
 
 # 4.6 Audit log
 resp=$(api_get "/v1/audit")
