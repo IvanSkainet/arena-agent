@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -3993,6 +3993,13 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/browser/cdp/eval", handle_v1_cdp_eval)
     app.router.add_post("/v1/browser/cdp/click", handle_v1_cdp_click)
     app.router.add_post("/v1/browser/cdp/type", handle_v1_cdp_type)
+    # Desktop automation (v2.4.0)
+    app.router.add_get("/v1/desktop/screenshot", handle_v1_desktop_screenshot)
+    app.router.add_post("/v1/desktop/click", handle_v1_desktop_click)
+    app.router.add_post("/v1/desktop/type", handle_v1_desktop_type)
+    app.router.add_post("/v1/desktop/key", handle_v1_desktop_key)
+    app.router.add_post("/v1/desktop/mouse", handle_v1_desktop_mouse)
+    app.router.add_get("/v1/desktop/windows", handle_v1_desktop_windows)
     app.router.add_get("/v1/browser/cdp/tabs", handle_v1_cdp_tabs)
     app.router.add_post("/v1/browser/cdp/tabs/new", handle_v1_cdp_tabs_new)
     app.router.add_post("/v1/browser/cdp/tabs/close", handle_v1_cdp_tabs_close)
@@ -4146,6 +4153,17 @@ async def on_startup(app: web.Application):
     app["log_cleanup"] = asyncio.ensure_future(_log_cleanup_loop(app))
     # Phase 3: Start health watchdog
     _start_watchdog()
+    # v2.4.0: Auto-start ydotoold for Wayland desktop automation
+    if shutil.which("ydotoold") and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid()):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ydotoold",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            log.info("[Desktop] ydotoold started (PID %d) for Wayland automation", proc.pid)
+        except Exception as e:
+            log.debug("[Desktop] Could not start ydotoold (non-fatal): %s", e)
     log.info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", VERSION)
 
 
@@ -4298,6 +4316,8 @@ async def handle_index(request: web.Request) -> web.Response:
                 "GET /v1/browser/cdp/status", "POST /v1/browser/cdp/connect", "POST /v1/browser/cdp/disconnect",
                 "POST /v1/browser/cdp/navigate", "GET /v1/browser/cdp/screenshot", "GET /v1/browser/cdp/dom",
                 "POST /v1/browser/cdp/eval", "POST /v1/browser/cdp/click (selector|x,y)", "POST /v1/browser/cdp/type",
+                "GET /v1/desktop/screenshot", "POST /v1/desktop/click", "POST /v1/desktop/type",
+                "POST /v1/desktop/key", "POST /v1/desktop/mouse", "GET /v1/desktop/windows",
                 "GET /v1/browser/cdp/tabs", "POST /v1/browser/cdp/tabs/new", "POST /v1/browser/cdp/tabs/close",
                 "POST /v1/browser/cdp/tabs/activate", "GET/POST/DELETE /v1/browser/cdp/cookies",
                 "POST /v1/browser/cdp/cookies/clear", "GET/POST /v1/browser/cdp/cookies/profiles",
@@ -7814,36 +7834,52 @@ async def handle_v1_cdp_disconnect(request):
 
 async def handle_v1_cdp_navigate(request):
     """POST /v1/browser/cdp/navigate — Navigate to URL.
-    
+
     Body JSON:
         url: string (required)
         tab_id: string (optional, uses active tab if not specified)
         wait: bool (default: true)
+
+    v2.4.0: Increased timeout to 30s. After navigation, auto-refreshes
+    the tab list and activates the correct tab (fixes tab-switching bug
+    where navigation created a new tab and CDP lost connection).
     """
     r = require_auth(request)
     if r: return r
     _record_request()
-    
+
     try:
         body = await request.json()
     except Exception:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
     url = body.get("url")
     if not url:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'url' parameter"}, status=400)
-    
+
     tab_id = body.get("tab_id")
     wait = body.get("wait", True)
-    
+
     tab, err = await _cdp_active_tab(tab_id)
     if err: return err
-    
+
+    original_tab_id = tab.target_id
+
     try:
-        # v2.3.0: Hard timeout — 18s CDP, 20s asyncio
-        result = await asyncio.wait_for(tab.navigate(url, wait=wait, timeout=18), timeout=20)
+        # v2.4.0: Hard timeout — 28s CDP, 30s asyncio (increased from 20s for heavy sites)
+        result = await asyncio.wait_for(tab.navigate(url, wait=wait, timeout=28), timeout=30)
+
+        # v2.4.0: Auto-refresh tab list after navigation
+        # Navigation may have created a new tab or changed the active one
+        mgr = _cdp_state.get("manager")
+        if mgr:
+            try:
+                await mgr.sync_tabs()
+            except Exception as e:
+                log.debug("[CDP] Tab sync after navigate failed (non-fatal): %s", e)
+
         return _cors_json_response({
             "ok": True,
             "url": url,
@@ -7852,9 +7888,9 @@ async def handle_v1_cdp_navigate(request):
         })
     except asyncio.TimeoutError:
         _record_request(is_error=True, count_request=False)
-        log.error("[CDP] navigate timed out (20s) for URL: %.200s", url)
+        log.error("[CDP] navigate timed out (30s) for URL: %.200s", url)
         return _cors_json_response(
-            {"ok": False, "error": f"Navigation timed out (20s limit): {url}", "timeout": 20},
+            {"ok": False, "error": f"Navigation timed out (30s limit): {url}", "timeout": 30},
             status=408
         )
     except Exception as e:
@@ -8152,6 +8188,509 @@ async def handle_v1_cdp_type(request):
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+# ============================================================================
+# DESKTOP AUTOMATION (v2.4.0)
+# ============================================================================
+# Endpoints for controlling the desktop environment (Wayland/X11):
+#   /v1/desktop/screenshot  — Take a screenshot of the desktop
+#   /v1/desktop/click       — Click at coordinates on the desktop
+#   /v1/desktop/type        — Type text on the desktop
+#   /v1/desktop/key         — Press a key on the desktop
+#   /v1/desktop/mouse       — Move mouse to coordinates
+#   /v1/desktop/windows     — List open windows
+# ============================================================================
+
+async def _desktop_exec(cmd: str, timeout: float = 10) -> dict:
+    """Run a desktop automation command and return result dict."""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return {
+            "ok": proc.returncode == 0,
+            "exit_code": proc.returncode,
+            "stdout": stdout.decode("utf-8", errors="replace"),
+            "stderr": stderr.decode("utf-8", errors="replace"),
+        }
+    except asyncio.TimeoutError:
+        proc.kill()
+        return {"ok": False, "error": f"Command timed out ({timeout}s)"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _detect_desktop_env() -> dict:
+    """Detect the desktop environment and available tools."""
+    import shutil
+    session_type = os.environ.get("XDG_SESSION_TYPE", "unknown")
+    wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
+    display = os.environ.get("DISPLAY", "")
+    return {
+        "session_type": session_type,
+        "wayland": bool(wayland_display),
+        "x11": bool(display),
+        "has_ydotool": shutil.which("ydotool") is not None,
+        "has_xdotool": shutil.which("xdotool") is not None,
+        "has_spectacle": shutil.which("spectacle") is not None,
+        "has_grim": shutil.which("grim") is not None,
+        "has_scrot": shutil.which("scrot") is not None,
+        "has_wtype": shutil.which("wtype") is not None,
+    }
+
+
+async def handle_v1_desktop_screenshot(request):
+    """GET /v1/desktop/screenshot — Take a screenshot of the desktop.
+
+    Query params:
+        format: "png" | "base64" (default: "base64")
+        display: string (optional, e.g. ":0" or "wayland-0")
+
+    Uses spectacle (KDE) or grim (Wayland) or scrot (X11) depending
+    on what's available. Returns the screenshot as base64 PNG.
+
+    v2.4.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    qs = parse_qs(request.query_string)
+    fmt = qs.get("format", ["base64"])[0]
+
+    # Create temp file for screenshot
+    import tempfile
+    tmp_path = tempfile.mktemp(suffix=".png", prefix="arena_desktop_")
+
+    env = _detect_desktop_env()
+
+    # Choose screenshot tool based on availability
+    cmd = None
+    if env["has_spectacle"]:
+        # spectacle works on both Wayland and X11 (KDE)
+        wayland_env = f'WAYLAND_DISPLAY={os.environ.get("WAYLAND_DISPLAY", "wayland-0")}'
+        display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+        cmd = f'{wayland_env} {display_env} spectacle -b -n -f -o {tmp_path}'
+    elif env["has_grim"] and env["wayland"]:
+        cmd = f'grim {tmp_path}'
+    elif env["has_scrot"] and env["x11"]:
+        cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
+    else:
+        return _cors_json_response(
+            {"ok": False, "error": "No screenshot tool available (need spectacle, grim, or scrot)"},
+            status=500
+        )
+
+    result = await _desktop_exec(cmd, timeout=15)
+
+    if not result["ok"] or not os.path.exists(tmp_path):
+        # Clean up
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response(
+            {"ok": False, "error": f"Screenshot failed: {result.get('stderr', result.get('error', 'unknown'))}"},
+            status=500
+        )
+
+    try:
+        with open(tmp_path, "rb") as f:
+            img_bytes = f.read()
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+    if not img_bytes:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Screenshot file is empty"}, status=500)
+
+    if fmt == "base64":
+        import base64 as _b64
+        b64_data = _b64.b64encode(img_bytes).decode("ascii")
+        return _cors_json_response({
+            "ok": True,
+            "format": "base64",
+            "data": b64_data,
+            "size_bytes": len(img_bytes),
+            "tool": "spectacle" if env["has_spectacle"] else ("grim" if env["has_grim"] else "scrot"),
+        })
+    else:
+        return web.Response(
+            body=img_bytes,
+            content_type="image/png",
+            headers={"Access-Control-Allow-Origin": "*"}
+        )
+
+
+async def handle_v1_desktop_click(request):
+    """POST /v1/desktop/click — Click at coordinates on the desktop.
+
+    Body JSON:
+        x: number (required) — X coordinate in pixels
+        y: number (required) — Y coordinate in pixels
+        button: "left" | "middle" | "right" (default: "left")
+        double: bool (default: false) — double-click
+
+    Uses ydotool (Wayland) or xdotool (X11) depending on what's available.
+
+    v2.4.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    x = body.get("x")
+    y = body.get("y")
+    if x is None or y is None:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'x' and/or 'y' coordinates"}, status=400)
+
+    button = body.get("button", "left")
+    double = body.get("double", False)
+
+    # ydotool button codes: left=0x110, middle=0x112, right=0x111
+    btn_map = {"left": "0x110", "middle": "0x112", "right": "0x111"}
+    btn_code = btn_map.get(button, "0x110")
+
+    env = _detect_desktop_env()
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    if env["has_ydotool"]:
+        # ydotool works on both Wayland and X11 (requires ydotoold)
+        click_count = 2 if double else 1
+        cmd = f'ydotool mousemove --absolute {int(x)} {int(y)} && ydotool click {btn_code}'
+        if double:
+            cmd += f' && sleep 0.05 && ydotool click {btn_code}'
+    elif env["has_xdotool"]:
+        click_type = "1" if button == "left" else ("2" if button == "middle" else "3")
+        click_opt = "--repeat 2" if double else ""
+        cmd = f'{display_env} xdotool mousemove {int(x)} {int(y)} click {click_opt} {click_type}'
+    else:
+        return _cors_json_response(
+            {"ok": False, "error": "No click tool available (need ydotool or xdotool)"},
+            status=500
+        )
+
+    result = await _desktop_exec(cmd, timeout=10)
+
+    tool = "ydotool" if env["has_ydotool"] else "xdotool"
+    if not result["ok"]:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response(
+            {"ok": False, "error": f"Click failed ({tool}): {result.get('stderr', result.get('error', ''))}"},
+            status=500
+        )
+
+    return _cors_json_response({
+        "ok": True,
+        "x": int(x),
+        "y": int(y),
+        "button": button,
+        "double": double,
+        "tool": tool,
+    })
+
+
+async def handle_v1_desktop_type(request):
+    """POST /v1/desktop/type — Type text on the desktop.
+
+    Body JSON:
+        text: string (required) — Text to type
+        delay: number (optional, default: 50) — Delay between keystrokes in ms
+        clear: bool (default: false) — Clear existing text first (Ctrl+A then type)
+
+    Uses ydotool/wtype (Wayland) or xdotool (X11).
+
+    v2.4.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    text = body.get("text")
+    if text is None:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'text' parameter"}, status=400)
+
+    delay = body.get("delay", 50)
+    clear = body.get("clear", False)
+
+    env = _detect_desktop_env()
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # Escape text for shell
+    import shlex
+    escaped_text = shlex.quote(text)
+
+    if env["has_ydotool"]:
+        cmd = f'ydotool type --key-delay {delay} {escaped_text}'
+    elif env["has_wtype"]:
+        cmd = f'wtype {escaped_text}'
+    elif env["has_xdotool"]:
+        cmd = f'{display_env} xdotool type --delay {delay} {escaped_text}'
+    else:
+        return _cors_json_response(
+            {"ok": False, "error": "No type tool available (need ydotool, wtype, or xdotool)"},
+            status=500
+        )
+
+    if clear:
+        clear_cmd = ""
+        if env["has_ydotool"]:
+            clear_cmd = "ydotool key 29:1 30:1 30:0 29:0 && sleep 0.1 && "  # Ctrl+A
+        elif env["has_xdotool"]:
+            clear_cmd = f"{display_env} xdotool key ctrl+a && sleep 0.1 && "
+        cmd = clear_cmd + cmd
+
+    result = await _desktop_exec(cmd, timeout=15)
+
+    tool = "ydotool" if env["has_ydotool"] else ("wtype" if env["has_wtype"] else "xdotool")
+    if not result["ok"]:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response(
+            {"ok": False, "error": f"Type failed ({tool}): {result.get('stderr', result.get('error', ''))}"},
+            status=500
+        )
+
+    return _cors_json_response({
+        "ok": True,
+        "text": text,
+        "tool": tool,
+    })
+
+
+async def handle_v1_desktop_key(request):
+    """POST /v1/desktop/key — Press a key or key combo on the desktop.
+
+    Body JSON:
+        key: string (required) — Key name (e.g. "Return", "Escape", "ctrl+a")
+        keys: array (optional) — List of keys for combo (e.g. ["ctrl", "a"])
+
+    Uses ydotool (Wayland) or xdotool (X11).
+
+    v2.4.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    key = body.get("key")
+    keys = body.get("keys")
+
+    if not key and not keys:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'key' or 'keys' parameter"}, status=400)
+
+    env = _detect_desktop_env()
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # ydotool key codes mapping for common keys
+    ydotool_key_map = {
+        "Return": "28", "Enter": "28", "Escape": "1", "Tab": "15",
+        "BackSpace": "14", "Delete": "111", "Space": "57",
+        "Up": "103", "Down": "108", "Left": "105", "Right": "106",
+        "ctrl": "29", "shift": "42", "alt": "56", "super": "125",
+    }
+
+    if env["has_ydotool"]:
+        if key:
+            # Single key or combo like "ctrl+a"
+            if "+" in key:
+                parts = key.split("+")
+                ydotool_keys = []
+                for p in parts:
+                    code = ydotool_key_map.get(p, None)
+                    if code is None:
+                        # Try as a character
+                        if len(p) == 1:
+                            code = str(ord(p.upper()) - 36)  # approximate
+                        else:
+                            code = ydotool_key_map.get(p.lower(), None)
+                    if code:
+                        ydotool_keys.append(code)
+
+                # Build key combo: press modifiers, press key, release key, release modifiers
+                cmd_parts = []
+                # Press all
+                for k in ydotool_keys:
+                    cmd_parts.append(f"{k}:1")
+                # Release all in reverse
+                for k in reversed(ydotool_keys):
+                    cmd_parts.append(f"{k}:0")
+                cmd = f'ydotool key {" ".join(cmd_parts)}'
+            else:
+                # Single key
+                code = ydotool_key_map.get(key)
+                if code:
+                    cmd = f'ydotool key {code}:1 {code}:0'
+                else:
+                    cmd = f'ydotool key {key}'
+        elif keys:
+            cmd_parts = []
+            for k in keys:
+                code = ydotool_key_map.get(k)
+                if code:
+                    cmd_parts.append(f"{code}:1")
+            for k in reversed(keys):
+                code = ydotool_key_map.get(k)
+                if code:
+                    cmd_parts.append(f"{code}:0")
+            cmd = f'ydotool key {" ".join(cmd_parts)}'
+    elif env["has_xdotool"]:
+        key_str = key or "+".join(keys)
+        import shlex
+        cmd = f'{display_env} xdotool key {shlex.quote(key_str)}'
+    else:
+        return _cors_json_response(
+            {"ok": False, "error": "No key tool available (need ydotool or xdotool)"},
+            status=500
+        )
+
+    result = await _desktop_exec(cmd, timeout=10)
+
+    tool = "ydotool" if env["has_ydotool"] else "xdotool"
+    if not result["ok"]:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response(
+            {"ok": False, "error": f"Key press failed ({tool}): {result.get('stderr', result.get('error', ''))}"},
+            status=500
+        )
+
+    return _cors_json_response({
+        "ok": True,
+        "key": key or "+".join(keys) if keys else key,
+        "tool": tool,
+    })
+
+
+async def handle_v1_desktop_mouse(request):
+    """POST /v1/desktop/mouse — Move mouse to coordinates.
+
+    Body JSON:
+        x: number (required) — X coordinate in pixels
+        y: number (required) — Y coordinate in pixels
+        absolute: bool (default: true) — absolute vs relative coordinates
+
+    v2.4.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    x = body.get("x")
+    y = body.get("y")
+    if x is None or y is None:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "missing 'x' and/or 'y'"}, status=400)
+
+    absolute = body.get("absolute", True)
+
+    env = _detect_desktop_env()
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    if env["has_ydotool"]:
+        abs_flag = "--absolute" if absolute else ""
+        cmd = f'ydotool mousemove {abs_flag} {int(x)} {int(y)}'
+    elif env["has_xdotool"]:
+        cmd = f'{display_env} xdotool mousemove {int(x)} {int(y)}'
+    else:
+        return _cors_json_response(
+            {"ok": False, "error": "No mouse tool available (need ydotool or xdotool)"},
+            status=500
+        )
+
+    result = await _desktop_exec(cmd, timeout=10)
+    tool = "ydotool" if env["has_ydotool"] else "xdotool"
+
+    return _cors_json_response({
+        "ok": result["ok"],
+        "x": int(x),
+        "y": int(y),
+        "absolute": absolute,
+        "tool": tool,
+    })
+
+
+async def handle_v1_desktop_windows(request):
+    """GET /v1/desktop/windows — List open desktop windows.
+
+    v2.4.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    env = _detect_desktop_env()
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # Try wmctrl first (works on both X11 and XWayland)
+    if shutil.which("wmctrl"):
+        result = await _desktop_exec(f'{display_env} wmctrl -l -p 2>/dev/null', timeout=5)
+        if result["ok"]:
+            windows = []
+            for line in result["stdout"].strip().split("\n"):
+                if not line.strip():
+                    continue
+                parts = line.split(None, 5)
+                if len(parts) >= 5:
+                    windows.append({
+                        "id": parts[0],
+                        "desktop": parts[1],
+                        "pid": parts[2],
+                        "host": parts[3],
+                        "title": parts[4] if len(parts) == 5 else " ".join(parts[4:]),
+                    })
+            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "wmctrl"})
+
+    # Fallback to xdotool
+    if env["has_xdotool"]:
+        result = await _desktop_exec(f'{display_env} xdotool search --onlyvisible --name "" 2>/dev/null', timeout=5)
+        if result["ok"] and result["stdout"].strip():
+            window_ids = result["stdout"].strip().split("\n")
+            windows = []
+            for wid in window_ids[:20]:  # Limit to 20 windows
+                geom = await _desktop_exec(f'{display_env} xdotool getwindowgeometry {wid} 2>/dev/null', timeout=3)
+                name = await _desktop_exec(f'{display_env} xdotool getwindowname {wid} 2>/dev/null', timeout=3)
+                windows.append({
+                    "id": wid,
+                    "title": name.get("stdout", "").strip() if name["ok"] else "",
+                    "geometry": geom.get("stdout", "").strip() if geom["ok"] else "",
+                })
+            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "xdotool"})
+
+    return _cors_json_response({"ok": True, "count": 0, "windows": [], "tool": "none"})
 
 
 # ---- CDP Tab Management ----
