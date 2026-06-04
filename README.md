@@ -35,7 +35,7 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
-| **15-tab dashboard** | Overview, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Backup, Settings |
+| **15-tab dashboard** | Overview, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
 | **Built-in AI tooling** | MCP server with 20+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
@@ -324,13 +324,10 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/cluster` | Cluster status |
 | `GET` | `/metrics` | Prometheus-compatible metrics |
 
-### Backups & Reports
+### Reports & Missions
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/backups` | List existing zip backups |
-| `GET` | `/v1/backup/{name}` | Download a specific backup |
-| `POST` | `/v1/backup` | Create new backup |
 | `GET` | `/v1/reports` | List screenshots and reports |
 | `GET` | `/v1/missions` | List scripted missions |
 | `GET` | `/v1/mission/show?name=…` | Show mission details |
@@ -390,7 +387,6 @@ The dashboard at `/gui` has **15 tabs** and works in any modern browser without 
 | **Agents** | Sub-agent registry |
 | **Doctor** | 9 self-tests + service/Funnel status + disk free check |
 | **Audit** | All events, filter by category, stats |
-| **Backup** | Create/list/download backups |
 | **Settings** | Tokens, sound notifications, Tailscale Funnel toggle, restart, export config |
 
 ---
@@ -407,8 +403,8 @@ Previous versions could fill the entire disk because aiohttp's default AccessLog
 | **Periodic cleanup** | `_log_cleanup_loop()` | Background task every 30 min, rotates logs over 10 MB |
 | **Disk monitor** | `disk_usage_percent` | Warning at 80%, critical at 90%, visible in `/v1/sysinfo` |
 | **Script-level rotation** | `install.bat`, `install.sh` | Rotate at 10 MB before starting bridge |
-| **NSSM rotation** | `AppRotateFiles=1` | 5 MB, 3 backup copies in Windows service |
-| **Cleanup skill** | `core/cleanup` | Covers old backups, sessions, reports, completed tasks |
+| **NSSM rotation** | `AppRotateFiles=1` | 5 MB, 3 rotated copies in Windows service |
+| **Cleanup skill** | `core/cleanup` | Covers old sessions, reports, completed tasks |
 
 All log files — `bridge.log`, `audit.jsonl` (50 MB cap), `requests.jsonl` (10 MB cap) — are now properly rotated.
 
@@ -491,7 +487,6 @@ arena-bridge/
 ├── queue/                ← task queue (inbox/running/done/failed)
 ├── reports/              ← screenshots, recordings
 ├── logs/                 ← bridge log files (rotated)
-├── backups/              ← zip backups
 ├── hooks/                ← pre/post skill hooks
 ├── agents/               ← agent configurations
 ├── subagents/            ← subagent spawn/track
@@ -612,7 +607,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - **Added:** Periodic log cleanup — background task every 30 min rotates oversized logs
 - **Added:** Disk usage monitoring — warnings at 80%, critical at 90%
 - **Added:** `disk_usage_percent` field in `/v1/sysinfo`
-- **Added:** NSSM log rotation in `install.bat` (`AppRotateFiles`, 5 MB, 3 backups)
+- **Added:** NSSM log rotation in `install.bat` (`AppRotateFiles`, 5 MB, 3 rotated copies)
 - **Added:** Log rotation in `install_windows_service.ps1` and `install.sh` (rotate at 10 MB)
 - **Updated:** Cleanup skill covers rotated log files
 
@@ -660,7 +655,7 @@ Issues and PRs welcome. Please:
 - Keep `unified_bridge.py` a **single file** with **stdlib + aiohttp** only.
 - Stress-test with `stress-test-v3.sh` before sending PRs.
 - Pure-ASCII PowerShell scripts (no unicode dashes/emoji — they break Cyrillic Windows installs).
-- Backup before destructive ops.
+- Snapshot before destructive ops (use external backup tools).
 
 ---
 

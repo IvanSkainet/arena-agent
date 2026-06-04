@@ -10,8 +10,6 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/status       GET   Bridge status (auth required)
   - /v1/sysinfo      GET   Hardware/system info (auth required)
   - /v1/hwinfo       GET   Extended hardware info: mobo, BIOS, GPU, RAM modules, disks
-  - /v1/backups      GET   List existing backups
-  - /v1/backup/{name} GET  Download a specific backup zip
   - /v1/inventory    GET   Full system inventory (runtimes, browsers, etc) via inventory.py
   - /v1/ps           GET   Active processes (auth required)
   - /v1/audit        GET   Audit log (auth required)
@@ -37,7 +35,6 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/tasks        GET   List task queue (auth required)
   - /v1/tasks        POST  Submit task (auth required)
   - /v1/tasks/clean  POST  Clean completed tasks (auth required)
-  - /v1/backup       POST  Create backup (auth required)
   - /v1/skills       GET   List skills (auth required)
   - /v1/skills/run   POST  Run a skill (auth required)
   - /v1/hooks        GET   List hooks (auth required)
@@ -132,7 +129,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.5.1"
+VERSION = "2.5.2"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -453,7 +450,7 @@ async def error_middleware(request: web.Request, handler):
 
 # Thread pool executor for running blocking I/O in async handlers
 _EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="bridge_io")
-# Dedicated executor for potentially slow operations (hwinfo, backup)
+# Dedicated executor for potentially slow operations (hwinfo)
 # to avoid blocking the main executor pool
 _SLOW_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix="bridge_slow")
 
@@ -3841,7 +3838,7 @@ SUBAGENTS_DIR = ROOT_AGENT / "subagents"
 MEMORY_FILE = ROOT_AGENT / "memory" / "facts.jsonl"
 MISSIONS_DIR = ROOT_AGENT / "missions"
 REPORTS_DIR = ROOT_AGENT / "reports"
-BACKUPS_DIR = ROOT_AGENT / "backups"
+# BACKUPS_DIR removed in v2.5.2 — backup feature deleted
 
 
 def move_atomic(src: Path, dst: Path) -> None:
@@ -4069,9 +4066,6 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/tasks", handle_v1_tasks_get)
     app.router.add_post("/v1/tasks", handle_v1_tasks_post)
     app.router.add_post("/v1/tasks/clean", handle_v1_tasks_clean)
-    app.router.add_post("/v1/backup", handle_v1_backup)
-    app.router.add_get("/v1/backups", handle_v1_backups)
-    app.router.add_get("/v1/backup/{name}", handle_v1_backup_download)
     app.router.add_get("/v1/skills", handle_v1_skills)
     app.router.add_post("/v1/skills/run", handle_v1_skills_run)
     app.router.add_get("/v1/hooks", handle_v1_hooks)
@@ -4368,9 +4362,6 @@ async def handle_index(request: web.Request) -> web.Response:
 
                 "GET /v1/recall?q=&top=5", "GET /v1/recall/digest",
                 "GET /v1/tasks?status=&limit=20", "POST /v1/tasks", "POST /v1/tasks/clean",
-                "POST /v1/backup",
-        "GET /v1/backups",
-        "GET /v1/backup/{name}",
         "GET /v1/inventory?section=&format=text|json",
                 "GET /v1/skills", "POST /v1/skills/run",
                 "GET /v1/hooks", "GET /v1/agents",
@@ -10349,193 +10340,6 @@ async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
         result = await loop.run_in_executor(_EXECUTOR, _tasks_clean_sync)
         audit({"type": "tasks_clean", "removed": result.get("removed", 0)})
         return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-# --- /v1/backups GET — List existing backups ---
-
-def _backups_list_sync() -> dict:
-    """List zip files in BACKUPS_DIR with size + mtime."""
-    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
-    items = []
-    for p in sorted(BACKUPS_DIR.glob("*.zip"), key=lambda x: x.stat().st_mtime, reverse=True):
-        try:
-            st = p.stat()
-            items.append({
-                "name": p.name,
-                "size": st.st_size,
-                "modified": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
-                "created_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
-            })
-        except Exception:
-            continue
-    return {"ok": True, "count": len(items), "backups": items, "dir": str(BACKUPS_DIR)}
-
-
-async def handle_v1_backups(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _backups_list_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-# --- /v1/backup/{name} GET — Download specific backup ---
-
-async def handle_v1_backup_download(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    name = request.match_info.get("name", "")
-    # Security: no path traversal
-    if not name or "/" in name or "\\" in name or ".." in name:
-        return _cors_json_response({"ok": False, "error": "invalid name"}, status=400)
-    if not name.endswith(".zip"):
-        name += ".zip"
-    path = BACKUPS_DIR / name
-    if not path.exists() or not path.is_file():
-        return _cors_json_response({"ok": False, "error": "not found"}, status=404)
-    try:
-        return web.FileResponse(
-            path=path,
-            headers={
-                "Access-Control-Allow-Origin": "*",
-                "Content-Disposition": f'attachment; filename="{name}"',
-                "Content-Type": "application/zip",
-            },
-        )
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-# --- /v1/backup POST — Create backup ---
-
-def _backup_sync(paths: list[str], name: str) -> dict:
-    """Create zip of specified directories.
-    
-    Improved in v2.5.0:
-    - Configurable limits via environment variables
-    - Increased default file count (5000) and size (500MB)
-    - Longer time limit (300s) for large workspaces
-    - Truncation warning in response when limits are hit
-    """
-    SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", ".next", ".turbo", ".arena", "venv", "shots", "reports", "logs"}
-    BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if not name:
-        name = f"backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
-    if not name.endswith(".zip"):
-        name += ".zip"
-
-    backup_path = BACKUPS_DIR / name
-    file_count = 0
-    start_time = time.time()
-    MAX_BACKUP_TIME = int(os.environ.get("ARENA_BACKUP_MAX_TIME", 300))  # 300s (5 min) configurable
-    MAX_BACKUP_SIZE = int(os.environ.get("ARENA_BACKUP_MAX_SIZE", 500 * 1024 * 1024))  # 500MB configurable
-    MAX_FILE_COUNT = int(os.environ.get("ARENA_BACKUP_MAX_FILES", 5000))  # 5000 files configurable
-    MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB per file
-    truncated = False
-    truncation_reason = ""
-
-    total_size = 0
-    with zipfile.ZipFile(backup_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-        for path_str in paths:
-            # Check time limit
-            if time.time() - start_time > MAX_BACKUP_TIME:
-                truncated = True
-                truncation_reason = f"time limit ({MAX_BACKUP_TIME}s)"
-                break
-            p = Path(path_str).expanduser()
-            if p.is_file():
-                fsize = p.stat().st_size
-                if fsize > MAX_FILE_SIZE or total_size + fsize > MAX_BACKUP_SIZE:
-                    continue
-                zf.write(p, p.name)
-                total_size += fsize
-                file_count += 1
-            elif p.is_dir():
-                for root, dirs, files in os.walk(p, topdown=True):
-                    # Check time limit during walk
-                    if time.time() - start_time > MAX_BACKUP_TIME:
-                        truncated = True
-                        truncation_reason = f"time limit ({MAX_BACKUP_TIME}s)"
-                        break
-                    dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-                    for fname in files:
-                        if time.time() - start_time > MAX_BACKUP_TIME:
-                            truncated = True
-                            truncation_reason = f"time limit ({MAX_BACKUP_TIME}s)"
-                            break
-                        if file_count >= MAX_FILE_COUNT:
-                            truncated = True
-                            truncation_reason = f"file count limit ({MAX_FILE_COUNT})"
-                            break
-                        fpath = Path(root) / fname
-                        try:
-                            fsize = fpath.stat().st_size
-                            if fsize > MAX_FILE_SIZE:
-                                continue
-                            if total_size + fsize > MAX_BACKUP_SIZE:
-                                truncated = True
-                                truncation_reason = f"size limit ({MAX_BACKUP_SIZE // (1024*1024)}MB)"
-                                break
-                        except Exception:
-                            continue
-                        arcname = str(fpath.relative_to(p.parent))
-                        zf.write(fpath, arcname)
-                        total_size += fsize
-                        file_count += 1
-                    if file_count >= MAX_FILE_COUNT or total_size >= MAX_BACKUP_SIZE:
-                        break
-
-    size = backup_path.stat().st_size if backup_path.exists() else 0
-    result = {"ok": True, "backup_path": str(backup_path), "size": size, 
-              "file_count": file_count, "duration_s": round(time.time() - start_time, 1)}
-    if truncated:
-        result["truncated"] = True
-        result["truncation_reason"] = truncation_reason
-        log.warning("[Backup] Backup truncated: %s (files=%d, size=%dMB)", 
-                    truncation_reason, file_count, size // (1024*1024))
-    return result
-
-
-async def handle_v1_backup(request: web.Request) -> web.Response:
-    """POST /v1/backup — Create backup. Body: {paths?: [list], name?: string}."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-    paths = data.get("paths", [str(BRIDGE_DIR)])
-    name = data.get("name", "")
-    # Validate backup name for path traversal
-    if name and (".." in name or "/" in name or "\\" in name):
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "invalid backup name"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        # Use dedicated slow executor with increased timeout for large workspaces
-        result = await asyncio.wait_for(
-            loop.run_in_executor(_SLOW_EXECUTOR, _backup_sync, paths, name),
-            timeout=360.0  # 6 minutes — matches MAX_BACKUP_TIME + overhead
-        )
-        audit({"type": "backup", "name": name, "paths": paths, "size": result.get("size", 0),
-               "file_count": result.get("file_count", 0),
-               "truncated": result.get("truncated", False)})
-        return _cors_json_response(result)
-    except asyncio.TimeoutError:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Backup timed out (360s) — directory too large. Set ARENA_BACKUP_MAX_TIME env to increase."}, status=504)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)

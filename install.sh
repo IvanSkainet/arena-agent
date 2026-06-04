@@ -105,7 +105,7 @@ ok "Python packages ready"
 info "Creating directory structure..."
 for d in "$INSTALL_DIR/memory" "$INSTALL_DIR/missions" \
          "$INSTALL_DIR/queue/inbox" "$INSTALL_DIR/queue/running" "$INSTALL_DIR/queue/done" "$INSTALL_DIR/queue/failed" \
-         "$INSTALL_DIR/reports" "$INSTALL_DIR/logs" "$INSTALL_DIR/backups" \
+         "$INSTALL_DIR/reports" "$INSTALL_DIR/logs" \
          "$INSTALL_DIR/hooks/pre_skill.d" "$INSTALL_DIR/hooks/post_skill.d" \
          "$INSTALL_DIR/skills" "$INSTALL_DIR/subagents" "$INSTALL_DIR/mcp" \
          "$INSTALL_DIR/projects" "$INSTALL_DIR/scripts" "$INSTALL_DIR/bin"; do

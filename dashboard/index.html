@@ -111,7 +111,6 @@ button.sm{padding:4px 10px;font-size:11px}
 <a data-tab="agents"><span class="icon">&#9978;</span>Agents</a>
 <a data-tab="doctor"><span class="icon">&#9764;</span>🏥 Doctor</a>
 <a data-tab="audit"><span class="icon">&#128196;</span>📜 Audit</a>
-<a data-tab="backup"><span class="icon">&#128190;</span>Backup</a>
 <a data-tab="settings"><span class="icon">&#9881;</span>⚙️ Settings</a>
 </nav>
 <div class="sidebar-footer">
@@ -390,20 +389,6 @@ Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /d
 <table><thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead><tbody id="auditTable"></tbody></table>
 </div>
 
-<!-- ==================== BACKUP ==================== -->
-<div class="tab" id="tab-backup">
-<h1>Backup</h1>
-<div class="card">
-<div class="row">
-<button class="success" onclick="createBackup()">Create Backup</button>
-<button onclick="loadBackups()">Refresh</button>
-</div>
-<div id="backupProgress" style="display:none;margin-top:8px"><span class="spinner"></span> Creating backup...</div>
-</div>
-<h2>Existing Backups</h2>
-<table><thead><tr><th>Name</th><th>Size</th><th>Date</th><th>Actions</th></tr></thead><tbody id="backupsTable"></tbody></table>
-</div>
-
 <!-- ==================== SETTINGS ==================== -->
 <div class="tab" id="tab-settings">
 <h1>Settings</h1>
@@ -491,7 +476,6 @@ document.querySelectorAll(".sidebar nav a").forEach(a => {
     if (tabName === "hooks") loadHooks();
     if (tabName === "agents") loadAgents();
     if (tabName === "audit") loadAudit();
-    if (tabName === "backup") loadBackups();
     if (tabName === "settings") refreshSettings();
     if (tabName === "doctor") runDoctor();
   });
@@ -1901,76 +1885,6 @@ async function auditStats() {
     }
   } catch(e) {
     panel.innerHTML = "Error: " + esc(e.message||"Unknown");
-  }
-}
-
-// ===== BACKUP =====
-async function createBackup() {
-  const progEl = document.getElementById("backupProgress");
-  progEl.style.display = "block";
-  try {
-    const result = await api("/v1/backup", {method: "POST"});
-    progEl.style.display = "none";
-    if (result.ok) {
-      loadBackups();
-    } else {
-      alert("Backup error: " + (result.error||"?"));
-    }
-  } catch(e) {
-    progEl.style.display = "none";
-    alert("Backup failed: " + (e.message||"Unknown error"));
-  }
-}
-
-async function loadBackups() {
-  const tbody = document.getElementById("backupsTable");
-  try {
-    const result = await api("/v1/backups");
-    if (!result.ok) { tbody.innerHTML = "<tr><td colspan='4'>Error: " + esc(result.error||"?") + "</td></tr>"; return; }
-    const backups = result.backups || [];
-    if (!backups.length) { tbody.innerHTML = "<tr><td colspan='4'>No backups found</td></tr>"; return; }
-    tbody.innerHTML = "";
-    backups.forEach(b => {
-      const tr = document.createElement("tr");
-      const tdName = document.createElement("td");
-      tdName.textContent = b.name || b.filename || "?";
-      const tdSize = document.createElement("td");
-      tdSize.textContent = formatBytes(b.size || 0);
-      const tdDate = document.createElement("td");
-      tdDate.className = "mono";
-      tdDate.textContent = relTime(b.created_at || b.modified);
-      const tdActions = document.createElement("td");
-      const dlBtn = document.createElement("button");
-      dlBtn.className = "info sm";
-      dlBtn.textContent = "Download";
-      dlBtn.addEventListener("click", () => downloadBackup(b.name || b.filename));
-      tdActions.appendChild(dlBtn);
-      tr.appendChild(tdName); tr.appendChild(tdSize); tr.appendChild(tdDate); tr.appendChild(tdActions);
-      tbody.appendChild(tr);
-    });
-  } catch(e) {
-    tbody.innerHTML = "<tr><td colspan='4'>Error loading backups: " + esc(e.message||"Unknown") + "</td></tr>";
-  }
-}
-
-async function downloadBackup(name) {
-  // /v1/backup/{name} requires Authorization header — fetch as blob then save
-  try {
-    const r = await fetch(BASE + "/v1/backup/" + encodeURIComponent(name), {
-      headers: { "Authorization": "Bearer " + TOKEN }
-    });
-    if (!r.ok) { alert("Download failed: HTTP " + r.status); return; }
-    const blob = await r.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  } catch (e) {
-    alert("Download error: " + (e.message || "unknown"));
   }
 }
 
