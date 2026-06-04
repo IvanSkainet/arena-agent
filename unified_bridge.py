@@ -132,7 +132,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.5.0"
+VERSION = "2.5.1"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -581,21 +581,25 @@ async def _cdp_watcher_loop():
                     reason = f"Cannot reach browser debug port: {e}"
                     log.warning("[CDP-Watcher] %s", reason)
 
-            # Check 3: Health probe — tolerant of heavy pages
+            # Check 3: Health probe — tolerant of heavy pages (v2.5.1: improved resilience)
             elif mgr.active_tab and mgr.active_tab.connected:
                 # Skip probe if navigation was recently initiated (heavy page loading)
                 last_nav = _cdp_state.get("last_navigation_time")
-                if last_nav and (time.time() - last_nav) < 30:
+                if last_nav and (time.time() - last_nav) < 45:
                     log.debug("[CDP-Watcher] Skipping health probe — recent navigation (%.1fs ago)",
                               time.time() - last_nav)
                 else:
                     try:
+                        # v2.5.1: Use lighter-weight CDP command instead of eval_js.
+                        # Runtime.evaluate runs JS and waits for the result, which can
+                        # be blocked by heavy pages doing synchronous JS work. Instead,
+                        # use a simple CDP ping (Target.getTargetInfo) that only checks
+                        # if the WebSocket is alive without needing JS execution.
                         result = await asyncio.wait_for(
-                            mgr.active_tab.eval_js("1"),
-                            timeout=15  # Increased from 5s — heavy pages can block JS
+                            mgr.active_tab.send("Target.getTargetInfo"),
+                            timeout=10  # 10s — pure WS round-trip, no JS execution
                         )
                         if result is None:
-                            # None can mean WS is stale, but tolerate a few
                             _cdp_state["_consecutive_none_probes"] = _cdp_state.get("_consecutive_none_probes", 0) + 1
                             if _cdp_state["_consecutive_none_probes"] >= 3:
                                 needs_reconnect = True
@@ -608,20 +612,31 @@ async def _cdp_watcher_loop():
                             _cdp_state["_consecutive_none_probes"] = 0
                             _cdp_state["_consecutive_probe_timeouts"] = 0
                     except asyncio.TimeoutError:
-                        # Don't immediately reconnect — heavy pages can block JS event loop
+                        # v2.5.1: More tolerant — WS ping timing out once is not fatal.
+                        # Heavy pages may block the CDP message loop briefly.
                         _cdp_state["_consecutive_probe_timeouts"] = _cdp_state.get("_consecutive_probe_timeouts", 0) + 1
-                        if _cdp_state["_consecutive_probe_timeouts"] >= 2:
+                        if _cdp_state["_consecutive_probe_timeouts"] >= 3:
                             needs_reconnect = True
-                            reason = f"Health probe timed out {_cdp_state['_consecutive_probe_timeouts']}x consecutively (15s each)"
+                            reason = f"Health probe timed out {_cdp_state['_consecutive_probe_timeouts']}x consecutively (10s each)"
                             log.warning("[CDP-Watcher] %s", reason)
                         else:
-                            log.info("[CDP-Watcher] Health probe timed out (1/2 tolerated) — heavy page?")
+                            log.info("[CDP-Watcher] Health probe timed out (%d/3 tolerated) — heavy page?",
+                                     _cdp_state["_consecutive_probe_timeouts"])
                     except ConnectionError:
                         needs_reconnect = True
                         reason = "Health probe got ConnectionError — WebSocket closed"
                         log.warning("[CDP-Watcher] %s", reason)
                     except Exception as e:
-                        log.debug("[CDP-Watcher] Health probe error (non-fatal): %s", e)
+                        # v2.5.1: Some CDP errors (e.g. Target domain not available)
+                        # are non-fatal. Only reconnect on consecutive failures.
+                        _cdp_state["_consecutive_probe_errors"] = _cdp_state.get("_consecutive_probe_errors", 0) + 1
+                        if _cdp_state["_consecutive_probe_errors"] >= 3:
+                            needs_reconnect = True
+                            reason = f"Health probe error {_cdp_state['_consecutive_probe_errors']}x: {e}"
+                            log.warning("[CDP-Watcher] %s", reason)
+                        else:
+                            log.debug("[CDP-Watcher] Health probe error (%d/3 tolerated): %s",
+                                      _cdp_state["_consecutive_probe_errors"], e)
 
             if needs_reconnect:
                 log.info("[CDP-Watcher] Initiating auto-reconnect... reason: %s", reason)
@@ -8037,10 +8052,13 @@ async def handle_v1_cdp_eval(request):
     Body JSON:
         expression: string (required)
         tab_id: string (optional)
+        timeout: number (optional, default: 14) — CDP-level timeout in seconds (max 60)
 
     v2.3.0: Added 15s hard timeout to prevent system freezes from
     infinite JS loops or huge DOM serialization. Results >1MB are
     truncated to prevent OOM.
+    v2.5.1: Configurable timeout, better error messages for heavy eval,
+            and explicit `ok: false` with reason when JS throws.
     """
     r = require_auth(request)
     if r: return r
@@ -8057,35 +8075,90 @@ async def handle_v1_cdp_eval(request):
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "missing 'expression' parameter"}, status=400)
 
+    # v2.5.1: Allow caller to specify a longer timeout for heavy computations
+    cdp_timeout = min(body.get("timeout", 14), 60)  # Cap at 60s
+    asyncio_timeout = cdp_timeout + 1
+
     tab_id = body.get("tab_id")
     tab, err = await _cdp_active_tab(tab_id)
     if err: return err
 
     try:
-        # v2.3.0: Hard timeout — CDP-level 14s, asyncio-level 15s
-        result = await asyncio.wait_for(tab.eval_js(expression, timeout=14), timeout=15)
+        # v2.5.1: Use CDP Runtime.evaluate directly so we can distinguish
+        # between JS exceptions and transport-level failures.
+        eval_result = await asyncio.wait_for(
+            tab.send("Runtime.evaluate", {
+                "expression": expression,
+                "returnByValue": True,
+                "timeout": cdp_timeout * 1000,  # CDP expects ms
+            }),
+            timeout=asyncio_timeout
+        )
 
-        # v2.3.0: Truncate large results to prevent OOM / response bloat
-        CDP_EVAL_MAX_RESULT = 1 * 1024 * 1024  # 1MB
-        truncated = False
-        if isinstance(result, str) and len(result) > CDP_EVAL_MAX_RESULT:
-            original_len = len(result)
-            result = result[:CDP_EVAL_MAX_RESULT] + f"\n...[truncated, {original_len} total chars]"
-            truncated = True
-            log.warning("[CDP] eval result truncated: %d -> %d chars", original_len, CDP_EVAL_MAX_RESULT)
+        if eval_result and "result" in eval_result:
+            inner = eval_result["result"]
+            # Check for JS exception
+            if "exceptionDetails" in inner:
+                exc = inner["exceptionDetails"]
+                exc_text = ""
+                if "exception" in exc and "description" in exc["exception"]:
+                    exc_text = exc["exception"]["description"]
+                elif "text" in exc:
+                    exc_text = exc["text"]
+                log.warning("[CDP] eval JS exception: %s", exc_text)
+                return _cors_json_response({
+                    "ok": False,
+                    "error": f"JavaScript exception: {exc_text}",
+                    "exception_details": exc,
+                }, status=400)
 
+            # Successful evaluation
+            result_val = inner.get("result", {}).get("value")
+            # Convert to string for consistency with eval_js behavior
+            if result_val is not None:
+                result_str = str(result_val) if not isinstance(result_val, str) else result_val
+            else:
+                result_str = None
+
+            # v2.3.0: Truncate large results to prevent OOM / response bloat
+            CDP_EVAL_MAX_RESULT = 1 * 1024 * 1024  # 1MB
+            truncated = False
+            if isinstance(result_str, str) and len(result_str) > CDP_EVAL_MAX_RESULT:
+                original_len = len(result_str)
+                result_str = result_str[:CDP_EVAL_MAX_RESULT] + f"\n...[truncated, {original_len} total chars]"
+                truncated = True
+                log.warning("[CDP] eval result truncated: %d -> %d chars", original_len, CDP_EVAL_MAX_RESULT)
+
+            return _cors_json_response({
+                "ok": True,
+                "result": result_str,
+                "truncated": truncated,
+                "tab_id": tab.target_id,
+            })
+
+        # v2.5.1: CDP returned no result — likely WebSocket issue
+        log.warning("[CDP] eval returned no result — possible WS issue")
         return _cors_json_response({
-            "ok": True,
-            "result": result,
-            "truncated": truncated,
-            "tab_id": tab.target_id,
-        })
+            "ok": False,
+            "error": "CDP returned empty result — WebSocket may be stale. Try reconnecting.",
+        }, status=502)
+
     except asyncio.TimeoutError:
         _record_request(is_error=True, count_request=False)
-        log.error("[CDP] eval_js timed out (15s) — expression: %.200s", expression)
+        log.error("[CDP] eval_js timed out (%ds) — expression: %.200s", asyncio_timeout, expression)
         return _cors_json_response(
-            {"ok": False, "error": "JavaScript evaluation timed out (15s limit)", "timeout": 15},
+            {"ok": False, "error": f"JavaScript evaluation timed out ({cdp_timeout}s limit). "
+             "The expression may contain an infinite loop or heavy computation. "
+             "Try a shorter expression or increase the 'timeout' parameter.",
+             "timeout": cdp_timeout},
             status=408
+        )
+    except ConnectionError as e:
+        _record_request(is_error=True, count_request=False)
+        log.error("[CDP] eval connection error: %s", e)
+        return _cors_json_response(
+            {"ok": False, "error": f"CDP connection lost during eval: {e}. Try reconnecting."},
+            status=502
         )
     except Exception as e:
         _record_request(is_error=True, count_request=False)
@@ -8363,10 +8436,13 @@ async def handle_v1_desktop_click(request):
         y: number (required) — Y coordinate in pixels
         button: "left" | "middle" | "right" (default: "left")
         double: bool (default: false) — double-click
+        activate: bool (default: true) — v2.5.1: focus window at coords before clicking
 
     Uses ydotool (Wayland) or xdotool (X11) depending on what's available.
 
     v2.4.0: New endpoint.
+    v2.5.1: Added window activation before click — ensures the target window
+             receives the click even on bare WMs (no EWMH) or Wayland compositors.
     """
     r = require_auth(request)
     if r: return r
@@ -8386,6 +8462,7 @@ async def handle_v1_desktop_click(request):
 
     button = body.get("button", "left")
     double = body.get("double", False)
+    do_activate = body.get("activate", True)
 
     # ydotool button codes: left=0x110, middle=0x112, right=0x111
     btn_map = {"left": "0x110", "middle": "0x112", "right": "0x111"}
@@ -8394,22 +8471,52 @@ async def handle_v1_desktop_click(request):
     env = _detect_desktop_env()
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
+    # v2.5.1: Build command sequence — optionally activate window before clicking.
+    # On Wayland, ydotool clicks go to whatever is under the cursor, but the
+    # compositor may not focus the window. On X11 without EWMH WM, xdotool
+    # windowactivate fails. The workaround: move the mouse first, then use
+    # xdotool search --name or kdotool to activate the window at that position.
+    cmd_parts = []
+
     if env["has_ydotool"]:
-        # ydotool works on both Wayland and X11 (requires ydotoold)
-        click_count = 2 if double else 1
-        cmd = f'ydotool mousemove --absolute {int(x)} {int(y)} && ydotool click {btn_code}'
+        # Move mouse to target position first
+        cmd_parts.append(f'ydotool mousemove --absolute {int(x)} {int(y)}')
+
+        # v2.5.1: On Wayland/KDE, try kdotool to activate window at position
+        if do_activate and shutil.which("kdotool"):
+            # kdotool can activate windows by position on KDE Plasma Wayland
+            cmd_parts.append(
+                f'kdotool search --position {int(x)} {int(y)} 2>/dev/null && '
+                f'kdotool activate $(kdotool search --position {int(x)} {int(y)} 2>/dev/null | head -1) 2>/dev/null || true'
+            )
+
+        # Click at the position
+        cmd_parts.append(f'ydotool click {btn_code}')
         if double:
-            cmd += f' && sleep 0.05 && ydotool click {btn_code}'
+            cmd_parts.append(f'sleep 0.05 && ydotool click {btn_code}')
     elif env["has_xdotool"]:
+        # v2.5.1: Try to find and activate the window at (x,y) before clicking.
+        # This works even without a full EWMH window manager.
+        if do_activate:
+            # Get window at (x,y) using xdotool, then activate it
+            cmd_parts.append(
+                f'{display_env} xdotool mousemove {int(x)} {int(y)} && '
+                f'{display_env} xdotool getmouselocation --shell 2>/dev/null | grep WINDOW | cut -d= -f2 | '
+                f'xargs -I{{}} {display_env} xdotool windowactivate {{}} 2>/dev/null || true'
+            )
+        else:
+            cmd_parts.append(f'{display_env} xdotool mousemove {int(x)} {int(y)}')
+
         click_type = "1" if button == "left" else ("2" if button == "middle" else "3")
         click_opt = "--repeat 2" if double else ""
-        cmd = f'{display_env} xdotool mousemove {int(x)} {int(y)} click {click_opt} {click_type}'
+        cmd_parts.append(f'{display_env} xdotool click {click_opt} {click_type}')
     else:
         return _cors_json_response(
             {"ok": False, "error": "No click tool available (need ydotool or xdotool)"},
             status=500
         )
 
+    cmd = " && ".join(cmd_parts)
     result = await _desktop_exec(cmd, timeout=10)
 
     tool = "ydotool" if env["has_ydotool"] else "xdotool"
@@ -8943,7 +9050,12 @@ async def _ensure_cookie_manager():
         
         # Create a thin wrapper that uses tab.send() instead of browser.send()
         class TabCookieManager:
-            """Lightweight cookie manager that uses tab-level CDP commands."""
+            """Lightweight cookie manager that uses tab-level CDP commands.
+            
+            v2.5.1: Fixed interface to match CDPCookieManager — set_cookie now
+            accepts the same keyword arguments as CDPCookieManager.set_cookie,
+            so the handler code doesn't need to know which implementation it's using.
+            """
             def __init__(self, tab):
                 self._tab = tab
                 self.active = True
@@ -8960,8 +9072,34 @@ async def _ensure_cookie_manager():
                     return res["result"].get("cookies", [])
                 return []
             
-            async def set_cookie(self, cookie):
-                return await self._tab.send("Network.setCookie", cookie, timeout=10)
+            # v2.5.1: Match CDPCookieManager.set_cookie signature
+            async def set_cookie(self, name: str, value: str, domain: str = "",
+                                 path: str = "/", secure: bool = False,
+                                 http_only: bool = False, same_site: str = "",
+                                 expires=None, priority: str = "Medium",
+                                 same_party: bool = False,
+                                 source_scheme: str = "NonSecure") -> bool:
+                params = {
+                    "name": name,
+                    "value": value,
+                    "path": path,
+                    "secure": secure,
+                    "httpOnly": http_only,
+                }
+                if domain:
+                    params["domain"] = domain
+                if same_site and same_site in ("Strict", "Lax", "None"):
+                    params["sameSite"] = same_site
+                if expires is not None:
+                    params["expires"] = expires
+                try:
+                    res = await self._tab.send("Network.setCookie", params, timeout=10)
+                    if res and "result" in res:
+                        return res["result"].get("success", False)
+                    return True  # CDP didn't report failure
+                except Exception as e:
+                    log.warning("[Cookie] TabCookieManager.set_cookie failed: %s", e)
+                    return False
             
             async def delete_cookie(self, name, domain=""):
                 params = {"name": name}

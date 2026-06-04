@@ -370,6 +370,21 @@ if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
     SD_DIR="$HOME/.config/systemd/user"
     mkdir -p "$SD_DIR"
 
+    # v2.5.1: Clean up legacy service files from old arena-agent package.
+    # The unified bridge now includes task-runner internally, so these
+    # separate services are obsolete and cause crash loops if left behind.
+    for _legacy_svc in arena-task-runner arena-local-bridge arena-mcp-stream arena-mcp-ws arena-web-gateway; do
+        if [ -f "$SD_DIR/${_legacy_svc}.service" ]; then
+            info "Removing legacy service: ${_legacy_svc}.service"
+            systemctl --user stop "${_legacy_svc}.service" 2>/dev/null || true
+            systemctl --user disable "${_legacy_svc}.service" 2>/dev/null || true
+            rm -f "$SD_DIR/${_legacy_svc}.service"
+            # Also clean any override dirs
+            rm -rf "$SD_DIR/${_legacy_svc}.service.d"
+        fi
+    done
+    systemctl --user daemon-reload 2>/dev/null || true
+
     ESCAPED_BRIDGE_PY=$(systemd_escape "$BRIDGE_PY")
     ESCAPED_TOKEN_FILE=$(systemd_escape "$TOKEN_FILE")
     ESCAPED_INSTALL_DIR=$(systemd_escape "$INSTALL_DIR")

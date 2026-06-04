@@ -36,21 +36,28 @@ OS="$(uname -s)"
 
 # --- Stop and remove systemd service ---
 if [ "$OS" = "Linux" ] && command -v systemctl >/dev/null 2>&1; then
-    if systemctl --user is-active arena-bridge >/dev/null 2>&1; then
-        systemctl --user stop arena-bridge 2>/dev/null || true
-        ok "systemd service stopped"
-    fi
-    if systemctl --user is-enabled arena-bridge >/dev/null 2>&1; then
-        systemctl --user disable arena-bridge 2>/dev/null || true
-        ok "systemd service disabled"
-    fi
-    # Remove service file
-    SD_FILE="$HOME/.config/systemd/user/arena-bridge.service"
-    if [ -f "$SD_FILE" ]; then
-        rm -f "$SD_FILE"
-        systemctl --user daemon-reload 2>/dev/null || true
-        ok "systemd service file removed"
-    fi
+    # v2.5.1: Clean up ALL arena-related services, including legacy ones
+    for SVC in arena-bridge arena-task-runner arena-local-bridge arena-mcp-stream arena-mcp-ws arena-web-gateway; do
+        if systemctl --user is-active "$SVC" >/dev/null 2>&1; then
+            systemctl --user stop "$SVC" 2>/dev/null || true
+            ok "systemd service $SVC stopped"
+        fi
+        if systemctl --user is-enabled "$SVC" >/dev/null 2>&1; then
+            systemctl --user disable "$SVC" 2>/dev/null || true
+            ok "systemd service $SVC disabled"
+        fi
+        # Remove service file and override dirs
+        SD_FILE="$HOME/.config/systemd/user/${SVC}.service"
+        if [ -f "$SD_FILE" ]; then
+            rm -f "$SD_FILE"
+            ok "systemd service file ${SVC}.service removed"
+        fi
+        if [ -d "${SD_FILE}.d" ]; then
+            rm -rf "${SD_FILE}.d"
+            ok "systemd service override dir ${SVC}.service.d removed"
+        fi
+    done
+    systemctl --user daemon-reload 2>/dev/null || true
 fi
 
 # --- Stop and remove launchd service ---
