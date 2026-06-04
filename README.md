@@ -5,7 +5,7 @@
 **Cross-platform local automation bridge for AI agents.**
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v2.2.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.5.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -16,7 +16,7 @@ One process · One port · One Python file — drives your computer from any cha
 
 ## ✨ What is this?
 
-Arena Unified Bridge is a tiny local HTTP/MCP server that lets any AI — ChatGPT, Claude, Gemini, Grok, GLM, your own scripts — **safely drive your computer**. Execute commands, browse the web, save memory, capture screenshots, run skills, manage a queue of background tasks, and even control a real browser via Chrome DevTools Protocol.
+Arena Unified Bridge is a tiny local HTTP/MCP server that lets any AI — ChatGPT, Claude, Gemini, Grok, GLM, your own scripts — **safely drive your computer**. Execute commands, browse the web, save memory, capture screenshots, run skills, manage a queue of background tasks, control a real browser via Chrome DevTools Protocol, and even automate the desktop with clicks, typing, and key presses on Wayland and X11.
 
 It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (over Tailscale Funnel) and serves a REST API, MCP protocol, WebSocket events, and a built-in web dashboard at `/gui`.
 
@@ -30,12 +30,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 |----------|---------|
 | **Cross-platform** | Installer auto-detects Windows / Linux / macOS and picks the right packaging strategy (NSSM Service, Scheduled Task, systemd user unit, or launchd agent) |
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
-| **138 routes** | 120+ handlers covering exec, memory, browser, CDP, tasks, skills, audit, watchdog, profiles, and more |
+| **141 routes** | 130+ handlers covering exec, memory, browser, CDP, desktop, tasks, skills, audit, watchdog, profiles, and more |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
+| **6 Desktop endpoints** | Wayland/X11 desktop automation: screenshot, click, type, key press, mouse move, window list (via ydotool/kdotool) |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
-| **15-tab dashboard** | Overview, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Settings |
+| **14-tab dashboard** | Overview, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
 | **Built-in AI tooling** | MCP server with 20+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
@@ -161,11 +162,11 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
                                            │
         ┌──────────────────────────────────▼──────────────────────────────────┐
         │                                                                     │
-        │   localhost:8765   (one Python asyncio process, ~10.8K lines)        │
+        │   localhost:8765   (one Python asyncio process, ~11.7K lines)       │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │              │
-        │   │ 138 routes   │  │ Streamable   │  │ WebSocket    │              │
+        │   │ 141 routes   │  │ Streamable   │  │ WebSocket    │              │
         │   └──────────────┘  └──────────────┘  └──────────────┘              │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
@@ -173,10 +174,10 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │   │ Dashboard    │  │ /messages    │  │ /run, /tool  │              │
         │   └──────────────┘  └──────────────┘  └──────────────┘              │
         │                                                                     │
-        │   ┌──────────────┐  ┌──────────────────────────────────────┐        │
-        │   │ CDP browser  │  │  Async Task Runner (queue/inbox)      │        │
-        │   │ 36 endpoints │  │  + Log Cleanup + Disk Monitor         │        │
-        │   └──────────────┘  └──────────────────────────────────────┘        │
+        │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐      │
+        │   │ CDP browser  │  │ Desktop API  │  │  Async Task Runner   │      │
+        │   │ 36 endpoints │  │ 6 endpoints  │  │  + Log + Disk Mon.   │      │
+        │   └──────────────┘  └──────────────┘  └──────────────────────┘      │
         │                                                                     │
         └─────────────────────────────────────────────────────────────────────┘
                                            │
@@ -213,32 +214,34 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/doctor` | 9 self-tests (Python, dirs, network, disk, sound…) |
 | `GET` | `/v1/metrics` | Bridge performance metrics |
 | `GET` | `/v1/logs?level=&lines=` | Structured log viewer with level filter |
-| `GET` | `/v1/watchdog` | Health watchdog status (memory/CPU/alerts) |
+| `GET/POST` | `/v1/watchdog` | Health watchdog status (memory/CPU/alerts) |
 | `GET` | `/v1/ps` | List active exec processes |
 
 ### Execution
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/exec` | Execute a shell command (with safety rules) |
-| `POST` | `/v1/kill` | Kill a running process |
-| `POST` | `/v1/batch` | Batch multiple commands |
+| `POST` | `/v1/exec` | Execute a shell command. Body: `{"cmd": "..."}` (with safety rules) |
+| `POST` | `/v1/kill` | Kill a running process. Body: `{"pid": N}` |
+| `POST` | `/v1/batch` | Batch operations in parallel. Body: `{"operations": [{"method": "GET", "path": "/v1/status"}, ...]}` |
 | `POST` | `/v1/restart` | Graceful restart (uses NSSM/systemd respawn) |
 
 ### File Operations
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/upload?path=…` | Upload binary file (multipart) |
-| `GET` | `/v1/download?path=…` | Download file |
+| `POST` | `/v1/upload?path=…` | Upload binary file (`--data-binary`, path must be inside user home) |
+| `GET` | `/v1/download?path=…` | Download file (path must be inside user home) |
+
+> **Security:** Upload and download paths are restricted to the user's home directory. Path traversal (`..`) is blocked. The bridge binary itself cannot be overwritten.
 
 ### Memory & Recall
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/v1/memory` | List memory facts (key/value/tags JSONL, pagination: `?offset=&limit=`) |
-| `POST` | `/v1/memory` | Set memory fact |
-| `DELETE` | `/v1/memory` | Delete memory fact by key |
+| `POST` | `/v1/memory` | Set memory fact. Body: `{"key": "...", "value": "...", "tags": [...]}` |
+| `DELETE` | `/v1/memory` | Delete memory fact by key. Body: `{"key": "..."}` |
 | `GET` | `/v1/recall?q=…&top=5` | TF-scored fuzzy search + digest |
 | `GET` | `/v1/recall/digest` | Memory digest |
 
@@ -247,7 +250,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/v1/tasks` | List task queue |
-| `POST` | `/v1/tasks` | Submit background task |
+| `POST` | `/v1/tasks` | Submit background task. Body: `{"cmd": "...", "title": "..."}` |
 | `POST` | `/v1/tasks/clean` | Clean completed tasks |
 
 ### Skills & Hooks
@@ -271,24 +274,37 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/browser/dump?url=…` | Full page dump with links |
 | `GET` | `/v1/browser/fetch?url=…` | Raw content fetch |
 | `GET` | `/v1/browser/head?url=…` | HTTP HEAD request |
-| `POST` | `/v1/browser/browse` | Smart browse with rendering |
+| `POST` | `/v1/browser/browse` | Smart browse with rendering (auto-selects CDP or BrowserAct) |
 
 ### Chrome DevTools Protocol (36 endpoints)
 
 | Feature | Endpoints | What it does |
 |---------|-----------|--------------|
 | **Connection** | `cdp/connect`, `disconnect`, `status`, `diag`, `health`, `raw-info`, `test-launch`, `test-ws` | Launch/connect to Chromium with stealth profile |
-| **Navigation** | `cdp/navigate` | Go to URL, wait for load |
+| **Navigation** | `cdp/navigate` | Go to URL, wait for load (30s timeout) |
 | **Interaction** | `cdp/click`, `cdp/type` | Click elements, type text with events |
 | **Screenshots** | `cdp/screenshot`, `cdp/stealth/shot` | Full-page or viewport PNG capture |
 | **DOM** | `cdp/dom` | Query DOM elements by CSS selector |
-| **JavaScript** | `cdp/eval` | Execute arbitrary JS in the page |
+| **JavaScript** | `cdp/eval` | Execute arbitrary JS in the page (configurable timeout) |
 | **Tabs** | `cdp/tabs`, `tabs/new`, `tabs/close`, `tabs/activate` | Multi-tab management |
 | **Cookies** | `cdp/cookies` (GET/POST/DELETE), `cookies/clear`, `cookies/profiles` | Cookie management with profile save/load |
 | **Network** | `cdp/network/start`, `network/stop`, `network/requests`, `network/har` | Network monitoring and HAR export |
-| **Intercept** | `cdp/intercept/start`, `intercept/stop`, `intercept/rule`, `intercept/rules` | Network interception with custom rules |
+| **Intercept** | `cdp/intercept/start`, `intercept/stop`, `intercept/rule` (POST/DELETE), `intercept/rules` | Network interception with custom rules |
 | **Stealth** | `cdp/stealth/extract`, `stealth/shot` | Anti-detection browser automation |
 | **Session** | `cdp/session/check` | Session management and diagnostics |
+
+### Desktop Automation (6 endpoints)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/desktop/screenshot` | Take a screenshot of the desktop (PNG) |
+| `POST` | `/v1/desktop/click` | Click at coordinates. Body: `{"x": N, "y": N, "button": "left"}` |
+| `POST` | `/v1/desktop/type` | Type text on the desktop. Body: `{"text": "..."}` |
+| `POST` | `/v1/desktop/key` | Press a key. Body: `{"key": "Return"}` |
+| `POST` | `/v1/desktop/mouse` | Move mouse. Body: `{"action": "move", "x": N, "y": N}` |
+| `GET` | `/v1/desktop/windows` | List open windows with titles and positions |
+
+> **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+).
 
 ### Audit & Logs
 
@@ -309,6 +325,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `POST` | `/v1/token/regenerate` | Rotate auth token |
 | `GET/POST/DELETE` | `/v1/users` | User management |
 | `GET/POST` | `/v1/profiles` | Safety profiles (cautious / owner-shell) |
+| `POST` | `/v1/profiles/{name}/load` | Load a named safety profile |
 | `GET/POST` | `/v1/ratelimit` | Rate limiter configuration |
 
 ### Observability & Advanced
@@ -321,8 +338,8 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET/POST` | `/v1/alerts` | Alert management |
 | `GET` | `/v1/tls` | TLS configuration |
 | `GET/POST` | `/v1/sandbox` | Sandbox configuration |
-| `GET` | `/v1/cluster` | Cluster status |
-| `GET` | `/metrics` | Prometheus-compatible metrics |
+| `GET/POST` | `/v1/cluster` | Cluster status |
+| `GET` | `/metrics` | Prometheus-compatible metrics (text format) |
 
 ### Reports & Missions
 
@@ -362,7 +379,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/gui` | Web dashboard (single-file HTML/JS) |
-| `GET` | `/api-docs` | OpenAPI-style documentation |
+| `GET` | `/api-docs` | OpenAPI 3.0 specification (JSON) |
 
 > Full list: `GET /` returns a JSON catalog of all routes.
 
@@ -370,7 +387,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 
 ## 🖥️ Web Dashboard
 
-The dashboard at `/gui` has **15 tabs** and works in any modern browser without external dependencies (single self-contained HTML file).
+The dashboard at `/gui` has **14 tabs** and works in any modern browser without external dependencies (single self-contained HTML file).
 
 | Tab | What it does |
 |-----|--------------|
@@ -382,7 +399,7 @@ The dashboard at `/gui` has **15 tabs** and works in any modern browser without 
 | **Browser** | One-click `search`, `read`, `dump`, `fetch`, `HEAD`, screenshot |
 | **Reports** | Browse and download screenshots / reports |
 | **Tasks** | Queue inbox / running / done / failed, submit new task, clean |
-| **Skills** | 7 core skills + 14 Superpowers + BrowserAct |
+| **Skills** | Core skills + Superpowers + BrowserAct |
 | **Hooks** | List pre/post hooks |
 | **Agents** | Sub-agent registry |
 | **Doctor** | 9 self-tests + service/Funnel status + disk free check |
@@ -454,7 +471,7 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 
 ```
 arena-bridge/
-├── unified_bridge.py     ← the entire server (one file, ~10.8K lines)
+├── unified_bridge.py     ← the entire server (one file, ~11.7K lines)
 ├── token.txt             ← your auth token (auto-generated)
 ├── install.bat           ← Windows installer (run this)
 ├── install.sh            ← Linux/macOS installer (run this; re-run to update)
@@ -466,7 +483,7 @@ arena-bridge/
 ├── _arena_helper.py      ← Installer helper (version detection, token gen)
 │
 ├── dashboard/
-│   └── index.html        ← single-file web dashboard (15 tabs)
+│   └── index.html        ← single-file web dashboard (14 tabs)
 │
 ├── docs/
 │   ├── AI_SYSTEM_PROMPT.md   ← Ready-to-use AI system prompt template
@@ -474,7 +491,7 @@ arena-bridge/
 │   └── AGENTS.md.template    ← Agent config template
 │
 ├── bin/                  ← user-facing CLIs (agentctl, bridge-curl, etc.)
-├── scripts/              ← background helpers (inventory, hwinfo, CDP, etc.)
+├── scripts/              ← background helpers (inventory, hwinfo, CDP, desktop, etc.)
 ├── skills/               ← AI-runnable playbooks
 │   ├── superpowers/      ← 14 curated AI skills from obra/superpowers
 │   ├── core/             ← cleanup, digest, health, snapshot
@@ -522,7 +539,7 @@ All knobs are environment variables (set before running `install.*` or starting 
 | Windows 11 | `install.bat` | NSSM | smoke-tested |
 | Debian 13 (trixie) | `install.sh` | systemd-user | smoke-tested |
 | Ubuntu 22.04 / 24.04 | `install.sh` | systemd-user | via container |
-| Arch / CachyOS | `install.sh` | systemd-user | pacman-aware |
+| CachyOS (Arch) | `install.sh` | systemd-user | daily-driver |
 | Fedora 40+ | `install.sh` | systemd-user | dnf-aware |
 | macOS 13+ (Apple Silicon) | `install.sh` | launchd | help wanted |
 | FreeBSD 14 | `install.sh` | rc.d / nohup | help wanted |
@@ -536,8 +553,9 @@ Cross-platform installer auto-detects `apt`, `dnf`, `pacman`, `apk`, `zypper`, `
 - **Token-only auth** by default. Token is a 256-bit base64-url string stored at `token.txt` (`chmod 600` on Linux).
 - **No request is auth-free** except `/health` and `/` index.
 - **`/v1/exec` filters commands** via blocked patterns (`rm -rf /`, `sudo`, `su`, `format`, `mkfs`, `diskpart`, `bcdedit`, `reg delete`, `curl|sh`, encoded PowerShell, ...) and a `CAUTIOUS_ALLOW` allowlist for safe read-only commands. Customize in `unified_bridge.py`.
+- **File operations are sandboxed** — upload and download paths must be inside the user's home directory. Path traversal (`..`) is blocked, and the bridge binary itself cannot be overwritten.
 - **Profile system**: `owner-shell` (permissive) and `cautious` (restricted). Switch via `ARENA_PROFILE` env var.
-- **Rate limiting**: 300 requests per minute per IP, configurable via `/v1/ratelimit`.
+- **Rate limiting**: 300 requests per minute per IP, configurable via `/v1/ratelimit`. Auth failures are rate-limited separately at 10 attempts per minute per IP.
 - **CORS** enabled on all responses (browser-based AI dashboards can call you).
 - **Audit log** records every exec, every upload/download, every token/funnel/restart event with automatic rotation at 50 MB.
 - **No telemetry, no analytics, no phone-home.** The only outbound calls are:
@@ -566,6 +584,12 @@ nssm status ArenaUnifiedBridge
 - Periodically check and rotate oversized logs (every 30 min)
 - Warn when disk usage exceeds 80%
 
+### CDP WebSocket becomes unstable on heavy pages
+**Improved in v2.5.1.** The health probe now uses lightweight `Target.getTargetInfo` instead of `eval_js`, and the WebSocket ping check is tolerant of occasional timeouts. The bridge will reconnect automatically after 3 consecutive failures.
+
+### Desktop click/key not reaching the target window
+**Fixed in v2.5.1.** Desktop click now automatically activates the target window (via `kdotool`/`xdotool`) before sending the click event, ensuring the input reaches the correct window.
+
 ### PowerShell windows pop up on every dashboard refresh
 Bridge < v1.6.7 spawned `wmic`/`tailscale`/`schtasks` without `CREATE_NO_WINDOW`. Fixed in v2.0+ — all subprocess calls use the `_NO_WINDOW_FLAG` on Windows.
 
@@ -584,6 +608,37 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.5.2 — Remove backup feature
+- **Removed:** Backup feature entirely (`/v1/backup/*` endpoints and `backups/` directory) — it could create oversized archives (44 GB+) and is not reliably fixable. Use external backup tools instead.
+
+### v2.5.1 — CDP resilience, desktop focus, eval fixes, cookie manager
+- **Fixed:** `arena-task-runner.service` crash loop — `install.sh` now cleans up old service units before registering new ones
+- **Fixed:** CDP WebSocket instability on heavy pages — replaced `eval_js` health probe with `Target.getTargetInfo`, added 3-timeout tolerance before reconnect
+- **Fixed:** Desktop click/key not reaching windows — added automatic window activation (via `kdotool`/`xdotool`) before click
+- **Fixed:** Heavy `cdp/eval` returning `ok: false` — now uses `Runtime.evaluate` directly with proper error messages and configurable timeout
+- **Fixed:** Cookie manager 500 error — `TabCookieManager.set_cookie()` interface fixed to match actual method signature
+- **Fixed:** `uninstall.sh` now removes all arena-related service units (including stale ones like `arena-task-runner`)
+
+### v2.5.0 — Cookie manager fallback, bug fixes
+- **Fixed:** Cookie manager crash — added `TabCookieManager` fallback when `CDPCookieManager` is unavailable
+- **Fixed:** 5 critical bugs found during Arena.ai testing (command execution, response handling, error propagation)
+
+### v2.4.0 — Desktop automation, navigate improvements
+- **Added:** Desktop Automation API — 6 new endpoints: `/v1/desktop/screenshot`, `/v1/desktop/click`, `/v1/desktop/type`, `/v1/desktop/key`, `/v1/desktop/mouse`, `/v1/desktop/windows`
+- **Added:** Wayland support via `ydotool`/`kdotool` with auto-start of `ydotoold` daemon
+- **Added:** X11 fallback via `xdotool`
+- **Fixed:** CDP navigate timeout increased to 30s for heavy sites
+- **Fixed:** Auto-refresh tab list after navigation
+
+### v2.3.0 — Critical CDP safety fixes
+- **Fixed:** CDP commands could freeze the system — added 15s hard timeout to all CDP operations
+- **Fixed:** CDP click and type now have coordinate support and timeout protection
+- **Added:** Safety timeouts prevent system freezes from unresponsive CDP targets
+
+### v2.2.0 — 14 surgical fixes
+- Version bump consolidating 14 bug fixes and improvements verified across all endpoints
+- Updated deprecated endpoint `removal_version` targets
 
 ### v2.1.1 — Surgical fixes, multi-user auth, memory DELETE, auth rate limit
 - **Fixed:** `check_auth()` now checks `users.json` tokens — multi-user auth works on all endpoints, not just `/v1/users`
