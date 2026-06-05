@@ -106,7 +106,7 @@ def cmd_start(args: list[str]) -> int:
         if session_type == "wayland":
             # Wayland recording
             if shutil.which("wf-recorder"):
-                ff_args = ["wf-recorder", "-y", "-f", str(out_path)]
+                ff_args = ["wf-recorder", "-f", str(out_path)]
                 backend_name = "wf-recorder"
             else:
                 # Fallback to ffmpeg kmsgrab (often requires root/CAP_SYS_ADMIN, but standard fallback)

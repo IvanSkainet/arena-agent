@@ -6,7 +6,7 @@
 (он не должен помнить всё сам).
 
 Источники:
-  - ~/arena-bridge/memory/facts.jsonl    (key/value/tags)
+  - ~/arena-bridge/memory/facts.db      (SQLite memory database)
   - ~/arena-bridge/memory/sessions/*.jsonl (last 20)
   - ~/arena-bridge/reports/snapshots/*.md  (last 5)
   - ~/arena-bridge/subagents/*/summary.json
@@ -17,13 +17,21 @@
 """
 from __future__ import annotations
 import argparse, json, os, re, sys
+import sqlite3
 from pathlib import Path
 from collections import Counter
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
-MEM  = ROOT / "memory"
-RPT  = ROOT / "reports"
-SUB  = ROOT / "subagents"
+def get_root_dir() -> Path:
+    return Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+
+def get_mem_dir() -> Path:
+    return get_root_dir() / "memory"
+
+def get_rpt_dir() -> Path:
+    return get_root_dir() / "reports"
+
+def get_sub_dir() -> Path:
+    return get_root_dir() / "subagents"
 
 
 def tokenize(s: str) -> list[str]:
@@ -38,22 +46,41 @@ def score(text: str, q_tokens: list[str]) -> int:
 
 
 def recall_facts(q_tokens: list[str], top: int) -> list[dict]:
-    """Возврат top фактов из facts.jsonl с ненулевым score."""
-    p = MEM / "facts.jsonl"
+    """Возврат top фактов из facts.db с ненулевым score."""
+    p = get_mem_dir() / "facts.db"
     if not p.exists(): return []
     items = []
-    for line in p.read_text(errors="replace").splitlines():
-        line = line.strip()
-        if not line: continue
-        sc = score(line, q_tokens)
-        if sc > 0:
-            items.append({"score": sc, "text": line[:500]})
+    try:
+        with sqlite3.connect(p) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts")
+            for r in cursor:
+                key = r['key'] or ""
+                value = r['value'] or ""
+                try:
+                    tags_list = json.loads(r['tags']) if r['tags'] else []
+                except Exception:
+                    tags_list = []
+                
+                fact_obj = {
+                    "ts": r['timestamp'],
+                    "type": "fact",
+                    "key": key,
+                    "value": value,
+                    "tags": tags_list
+                }
+                line = json.dumps(fact_obj, ensure_ascii=False)
+                sc = score(line, q_tokens)
+                if sc > 0:
+                    items.append({"score": sc, "text": line[:500]})
+    except Exception as e:
+        print(f"error querying database in recall_facts: {e}", file=sys.stderr)
     items.sort(key=lambda x: x["score"], reverse=True)
     return items[:top]
 
 
 def recall_snapshots(q_tokens: list[str], top: int) -> list[dict]:
-    snap_dir = RPT / "snapshots"
+    snap_dir = get_rpt_dir() / "snapshots"
     if not snap_dir.exists(): return []
     items = []
     for f in sorted(snap_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:30]:
@@ -69,9 +96,10 @@ def recall_snapshots(q_tokens: list[str], top: int) -> list[dict]:
 
 
 def recall_subagents(q_tokens: list[str], top: int) -> list[dict]:
-    if not SUB.exists(): return []
+    sub_dir = get_sub_dir()
+    if not sub_dir.exists(): return []
     items = []
-    for d in SUB.iterdir():
+    for d in sub_dir.iterdir():
         s = d / "summary.json"
         if not s.exists(): continue
         try:
@@ -88,7 +116,7 @@ def recall_subagents(q_tokens: list[str], top: int) -> list[dict]:
 
 
 def recall_sessions(q_tokens: list[str], top: int) -> list[dict]:
-    sd = MEM / "sessions"
+    sd = get_mem_dir() / "sessions"
     if not sd.exists(): return []
     items = []
     for f in sorted(sd.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
@@ -119,23 +147,46 @@ def cmd_recall(args) -> int:
 def cmd_digest(_args) -> int:
     """Сводный markdown для подкладывания нового LLM в начало чата."""
     lines = ["# Memory digest", ""]
-    # Последние 10 фактов
-    p = MEM / "facts.jsonl"
+    # Последние 10 фактов из SQLite
+    p = get_mem_dir() / "facts.db"
     if p.exists():
-        facts = [l for l in p.read_text(errors="replace").splitlines() if l.strip()][-10:]
         lines.append("## Recent facts (last 10)")
-        for f in facts: lines.append(f"- {f[:200]}")
+        try:
+            with sqlite3.connect(p) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts ORDER BY timestamp DESC LIMIT 10")
+                facts = []
+                for r in cursor:
+                    key = r['key'] or ""
+                    value = r['value'] or ""
+                    try:
+                        tags_list = json.loads(r['tags']) if r['tags'] else []
+                    except Exception:
+                        tags_list = []
+                    fact_obj = {
+                        "ts": r['timestamp'],
+                        "type": "fact",
+                        "key": key,
+                        "value": value,
+                        "tags": tags_list
+                    }
+                    facts.append(json.dumps(fact_obj, ensure_ascii=False))
+                facts.reverse()
+                for f in facts: lines.append(f"- {f[:200]}")
+        except Exception as e:
+            lines.append(f"Error reading facts: {e}")
         lines.append("")
     # Последние 3 snapshot
-    snap_dir = RPT / "snapshots"
+    snap_dir = get_rpt_dir() / "snapshots"
     if snap_dir.exists():
         snaps = sorted(snap_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:3]
         lines.append("## Recent snapshots")
         for s in snaps: lines.append(f"- {s.name}")
         lines.append("")
     # Последние 5 subagents
-    if SUB.exists():
-        subs = sorted(SUB.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
+    sub_dir = get_sub_dir()
+    if sub_dir.exists():
+        subs = sorted(sub_dir.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True)[:5]
         lines.append("## Recent subagents")
         for d in subs:
             mp = d / "meta.json"

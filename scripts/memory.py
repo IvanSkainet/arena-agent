@@ -6,11 +6,15 @@ import datetime as dt
 import json
 import os
 import sys
+import sqlite3
 from pathlib import Path
 
-ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
-MEM = ROOT / "memory"
-FACTS = MEM / "facts.jsonl"
+def get_mem_dir() -> Path:
+    root = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+    return root / "memory"
+
+def get_db_path() -> Path:
+    return get_mem_dir() / "facts.db"
 
 
 def now() -> str:
@@ -18,11 +22,55 @@ def now() -> str:
 
 
 def append(obj: dict) -> None:
-    MEM.mkdir(parents=True, exist_ok=True)
-    with FACTS.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(obj, ensure_ascii=False, sort_keys=True) + "\n")
+    mem_dir = get_mem_dir()
+    mem_dir.mkdir(parents=True, exist_ok=True)
+    db_path = get_db_path()
+    
+    with sqlite3.connect(db_path) as conn:
+        # Ensure schema matches unified_bridge.py exactly
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS memory_facts (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            tags TEXT,
+            timestamp TEXT
+        );
+        ''')
+        conn.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+            key, value, tags, content=memory_facts, content_rowid=rowid, tokenize="trigram"
+        );
+        ''')
+        conn.executescript('''
+        CREATE TRIGGER IF NOT EXISTS memory_facts_ai AFTER INSERT ON memory_facts BEGIN
+            INSERT INTO memory_fts(rowid, key, value, tags) VALUES (new.rowid, new.key, new.value, new.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_facts_ad AFTER DELETE ON memory_facts BEGIN
+            INSERT INTO memory_fts(memory_fts, rowid, key, value, tags) VALUES ('delete', old.rowid, old.key, old.value, old.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_facts_au AFTER UPDATE ON memory_facts BEGIN
+            INSERT INTO memory_fts(memory_fts, rowid, key, value, tags) VALUES ('delete', old.rowid, old.key, old.value, old.tags);
+            INSERT INTO memory_fts(rowid, key, value, tags) VALUES (new.rowid, new.key, new.value, new.tags);
+        END;
+        ''')
+        
+        key = obj.get("key", "")
+        value = obj.get("value", "")
+        tags = json.dumps(obj.get("tags", []))
+        timestamp = obj.get("ts", "")
+        
+        conn.execute("""
+        INSERT INTO memory_facts (key, value, tags, timestamp)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value=excluded.value,
+            tags=excluded.tags,
+            timestamp=excluded.timestamp
+        """, (key, value, tags, timestamp))
+        conn.commit()
+        
     try:
-        os.chmod(FACTS, 0o600)
+        os.chmod(db_path, 0o600)
     except Exception:
         pass
 
@@ -96,24 +144,44 @@ def remember(args: argparse.Namespace) -> int:
 
 
 def recall(args: argparse.Namespace) -> int:
-    if not FACTS.exists():
+    db_path = get_db_path()
+    if not db_path.exists():
         print("no facts")
         return 0
     q = (args.query or "").lower()
     rows: list[dict] = []
-    for line in FACTS.read_text(encoding="utf-8").splitlines():
-        try:
-            obj = json.loads(line)
-        except Exception:
-            continue
-        hay = (
-            str(obj.get("key", "")) + " " +
-            str(obj.get("value", "")) + " " +
-            json.dumps(obj.get("tags", []), ensure_ascii=False)
-        ).lower()
-        if q and q not in hay:
-            continue
-        rows.append(obj)
+    
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts ORDER BY timestamp ASC")
+            for r in cursor:
+                key = r['key'] or ""
+                value = r['value'] or ""
+                try:
+                    tags_list = json.loads(r['tags']) if r['tags'] else []
+                except Exception:
+                    tags_list = []
+                
+                obj = {
+                    "ts": r['timestamp'],
+                    "key": key,
+                    "value": value,
+                    "tags": tags_list
+                }
+                
+                hay = (
+                    str(key) + " " +
+                    str(value) + " " +
+                    json.dumps(tags_list, ensure_ascii=False)
+                ).lower()
+                if q and q not in hay:
+                    continue
+                rows.append(obj)
+    except Exception as e:
+        print(f"error querying database: {e}", file=sys.stderr)
+        return 1
+
     for obj in rows[-args.limit:]:
         tags = obj.get("tags") or []
         suffix = f" --tags {','.join(tags)}" if tags else ""

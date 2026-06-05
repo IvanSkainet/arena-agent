@@ -3336,16 +3336,25 @@ def sanitize_audit_event(event: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+_WEBHOOKS_CACHE = None
+
 def _load_webhooks() -> dict:
+    global _WEBHOOKS_CACHE
+    if _WEBHOOKS_CACHE is not None:
+        return _WEBHOOKS_CACHE
     if WEBHOOKS_FILE.exists():
         try:
             data = json.loads(WEBHOOKS_FILE.read_text(encoding="utf-8"))
+            _WEBHOOKS_CACHE = data
             return data
         except Exception:
             pass
-    return {"urls": [], "events": ["*"]}
+    _WEBHOOKS_CACHE = {"urls": [], "events": ["*"]}
+    return _WEBHOOKS_CACHE
 
 def _save_webhooks(data: dict) -> None:
+    global _WEBHOOKS_CACHE
+    _WEBHOOKS_CACHE = data
     WEBHOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
     WEBHOOKS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -6456,7 +6465,18 @@ def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
                 time.sleep(0.5)
                 
             active = bool(_CLOUDFLARED_STATE["url"])
-            return {"ok": active, "action": "start", "port": port, "url": _CLOUDFLARED_STATE["url"], "log": _CLOUDFLARED_STATE["log"]}
+            if not active:
+                proc = _CLOUDFLARED_STATE["proc"]
+                if proc and proc.poll() is None:
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=2)
+                    except Exception:
+                        try: proc.kill()
+                        except: pass
+                _CLOUDFLARED_STATE["proc"] = None
+                return {"ok": False, "action": "start", "error": "cloudflared timed out generating a tunnel URL", "log": list(_CLOUDFLARED_STATE["log"])}
+            return {"ok": True, "action": "start", "port": port, "url": _CLOUDFLARED_STATE["url"], "log": _CLOUDFLARED_STATE["log"]}
         except Exception as e:
             return {"ok": False, "error": str(e)}
             
@@ -10743,16 +10763,28 @@ def _skill_install_sync(name: str, url: str) -> dict:
     
     try:
         if url.endswith(".zip"):
-            import tempfile, zipfile, urllib.request
+            import tempfile, zipfile, urllib.request, shutil
             with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-                urllib.request.urlretrieve(url, tmp.name)
+                if os.path.exists(url):
+                    shutil.copy(url, tmp.name)
+                elif url.startswith("file://"):
+                    local_p = url[7:]
+                    if os.path.exists(local_p):
+                        shutil.copy(local_p, tmp.name)
+                else:
+                    urllib.request.urlretrieve(url, tmp.name)
                 with zipfile.ZipFile(tmp.name, 'r') as zip_ref:
-                    root_names = set(p.split("/")[0] for p in zip_ref.namelist() if p)
+                    # Filter out junk directories/files like __MACOSX, .DS_Store, desktop.ini, etc.
+                    non_junk_names = [p for p in zip_ref.namelist() if p and not any(part.startswith('.') or part in ('__MACOSX', 'desktop.ini', 'Thumbs.db') for part in p.split('/'))]
+                    root_names = set(p.split("/")[0] for p in non_junk_names if p)
                     if len(root_names) == 1:
                         root = list(root_names)[0]
                         temp_ext = target_dir.parent / (name + "_temp")
                         zip_ref.extractall(temp_ext)
-                        os.rename(temp_ext / root, target_dir)
+                        if (temp_ext / root).exists():
+                            os.rename(temp_ext / root, target_dir)
+                        else:
+                            zip_ref.extractall(target_dir)
                         import shutil
                         shutil.rmtree(temp_ext, ignore_errors=True)
                     else:
@@ -10760,7 +10792,7 @@ def _skill_install_sync(name: str, url: str) -> dict:
                 os.unlink(tmp.name)
         else:
             import subprocess
-            subprocess.run(["git", "clone", "--depth", "1", url, str(target_dir)], check=True, capture_output=True)
+            subprocess.run(["git", "clone", "--depth", "1", "--", url, str(target_dir)], check=True, capture_output=True)
             # Remove .git folder so it's not a submodule/repo anymore
             import shutil
             shutil.rmtree(target_dir / ".git", ignore_errors=True)
