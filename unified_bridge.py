@@ -10655,26 +10655,59 @@ def _skills_list_sync() -> dict:
     if not SKILLS_DIR.exists():
         return {"ok": True, "count": 0, "skills": []}
 
-    for p in sorted(SKILLS_DIR.rglob("*")):
-        if p.is_file() and p.suffix in (".json", ".yaml", ".yml", ".md", ".toml"):
-            rel = p.relative_to(SKILLS_DIR)
-            skill_info: dict[str, Any] = {
-                "name": str(rel.with_suffix("")),
-                "file": str(rel),
-                "ext": p.suffix,
-                "size": p.stat().st_size,
-            }
-            # Try to parse JSON skill definitions
-            if p.suffix == ".json":
-                try:
-                    data = json.loads(p.read_text(encoding="utf-8"))
-                    skill_info["description"] = data.get("description", "")
-                    skill_info["version"] = data.get("version", "")
-                except Exception:
-                    pass
-            skills.append(skill_info)
+    for p in sorted(SKILLS_DIR.iterdir()):
+        if p.is_dir() and not p.name.startswith("."):
+            # Handle third-party differently
+            if p.name == "third_party":
+                for tp in sorted(p.iterdir()):
+                    if tp.is_dir() and not tp.name.startswith("."):
+                        _parse_skill_folder(tp, skills, is_third_party=True)
+            else:
+                # Top level skill or category? 
+                # If it has manifest.json or SKILL.md or run.sh/run.py directly, it's a skill
+                if any((p/f).exists() for f in ["manifest.json", "SKILL.md", "run.sh", "run.py", f"{p.name}.py", f"{p.name}.sh"]):
+                    _parse_skill_folder(p, skills, is_third_party=False)
+                else:
+                    # Category folder (like "core", "web")
+                    for sub in sorted(p.iterdir()):
+                        if sub.is_dir() and not sub.name.startswith("."):
+                            _parse_skill_folder(sub, skills, is_third_party=False, category=p.name)
 
     return {"ok": True, "count": len(skills), "skills": skills}
+
+def _parse_skill_folder(d: Path, skills: list, is_third_party: bool = False, category: str = ""):
+    prefix = ("third_party/" if is_third_party else (f"{category}/" if category else ""))
+    name = f"{prefix}{d.name}"
+    
+    skill_info = {
+        "name": name,
+        "file": str(d.relative_to(SKILLS_DIR)),
+        "is_third_party": is_third_party,
+        "description": "",
+        "version": ""
+    }
+    
+    manifest = d / "manifest.json"
+    if manifest.exists():
+        try:
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            skill_info["description"] = data.get("description", "")
+            skill_info["version"] = data.get("version", "")
+        except Exception:
+            pass
+            
+    if not skill_info["description"]:
+        skill_md = d / "SKILL.md"
+        if skill_md.exists():
+            try:
+                lines = skill_md.read_text(encoding="utf-8").splitlines()
+                desc_lines = [l.strip() for l in lines if l.strip() and not l.startswith("#")][:2]
+                if desc_lines:
+                    skill_info["description"] = " ".join(desc_lines)[:100]
+            except Exception:
+                pass
+                
+    skills.append(skill_info)
 
 
 async def handle_v1_skills(request: web.Request) -> web.Response:
@@ -10810,15 +10843,30 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
             # Recursive search: "health" could be at skills/core/health/
             # Also find prompt-only skills (SKILL.md without runner)
             for d in SKILLS_DIR.rglob(name):
-                if d.is_dir() and (
-                    (d / "run.sh").exists() or (d / "run.py").exists() or (d / "SKILL.md").exists()
-                ):
-                    skill_dir = d
-                    break
+                if d.is_dir():
+                    # Check for any valid runner
+                    valid = False
+                    for cand in ["run.sh", "run.py", "SKILL.md", f"{d.name}.py", f"{d.name}.sh", "main.py", "app.py", "start.sh", "index.js", f"{d.name}"]:
+                        if (d / cand).exists():
+                            valid = True
+                            break
+                    if valid:
+                        skill_dir = d
+                        break
 
     runner_sh = skill_dir / "run.sh"
     runner_py = skill_dir / "run.py"
     skill_md = skill_dir / "SKILL.md"
+    
+    # Fallback to common generic entrypoints for third_party skills
+    if not runner_sh.exists() and not runner_py.exists() and skill_dir.exists():
+        for candidate in [f"{skill_dir.name}.py", f"{skill_dir.name}.sh", "main.py", "app.py", "start.sh", "index.js", f"{skill_dir.name}"]:
+            cp = skill_dir / candidate
+            if cp.exists() and cp.is_file():
+                if candidate.endswith(".py"): runner_py = cp
+                elif candidate.endswith(".js"): runner_sh = cp # Will handle JS in exec
+                else: runner_sh = cp
+                break
 
     # --- Executable skills (run.sh / run.py) ---
     if skill_dir.exists() and (runner_sh.exists() or runner_py.exists()):
@@ -10842,12 +10890,25 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
             py = sys.executable or "python3"
             cmd = [py, str(runner_py)] + list(args)
         elif runner_sh.exists():
-            # Use bash to execute .sh files (git may not preserve +x bit)
-            bash_path = shutil.which("bash")
-            if not bash_path:
-                return {"ok": False, "exit_code": -2, "stdout": "",
-                        "stderr": "bash not available — .sh skills require WSL or Git Bash on Windows"}
-            cmd = [bash_path, str(runner_sh)] + list(args)
+            if runner_sh.suffix == ".js":
+                cmd = ["node", str(runner_sh)] + list(args)
+            elif runner_sh.suffix == ".py":
+                cmd = ["python3", str(runner_sh)] + list(args)
+            elif runner_sh.name == skill_dir.name and not "." in runner_sh.name:
+                with open(runner_sh, 'rb') as f:
+                    shebang = f.read(50)
+                    if b"python" in shebang:
+                        cmd = ["python3", str(runner_sh)] + list(args)
+                    else:
+                        bash_path = shutil.which("bash") or "bash"
+                        cmd = [bash_path, str(runner_sh)] + list(args)
+            else:
+                # Use bash to execute .sh files (git may not preserve +x bit)
+                bash_path = shutil.which("bash")
+                if not bash_path:
+                    return {"ok": False, "exit_code": -2, "stdout": "",
+                            "stderr": "bash not available — .sh skills require WSL or Git Bash on Windows"}
+                cmd = [bash_path, str(runner_sh)] + list(args)
         else:
             py = sys.executable or "python3"
             cmd = [py, str(runner_py)] + list(args)
