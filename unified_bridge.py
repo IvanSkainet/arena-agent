@@ -3331,6 +3331,42 @@ def sanitize_audit_event(event: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def _load_webhooks() -> dict:
+    if WEBHOOKS_FILE.exists():
+        try:
+            data = json.loads(WEBHOOKS_FILE.read_text(encoding="utf-8"))
+            return data
+        except Exception:
+            pass
+    return {"urls": [], "events": ["*"]}
+
+def _save_webhooks(data: dict) -> None:
+    WEBHOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WEBHOOKS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+def _fire_webhooks(event: dict) -> None:
+    try:
+        wh = _load_webhooks()
+        if not wh.get("urls"):
+            return
+            
+        etype = event.get("type", event.get("event", "unknown"))
+        filters = set(wh.get("events", ["*"]))
+        if "*" not in filters and etype not in filters:
+            return
+            
+        payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
+        for url in wh["urls"]:
+            try:
+                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+                with urllib.request.urlopen(req, timeout=5):
+                    pass
+            except Exception as e:
+                log.debug("[Webhooks] Failed to send to %s: %s", url, e)
+    except Exception as e:
+        log.debug("[Webhooks] Internal error: %s", e)
+
+
 def audit(event: dict[str, Any]) -> None:
     APP_DIR.mkdir(parents=True, exist_ok=True)
     event = {"ts": utc_now(), **sanitize_audit_event(event)}
@@ -3355,6 +3391,10 @@ def audit(event: dict[str, Any]) -> None:
                 AUDIT.rename(APP_DIR / "audit.jsonl.1")
         except Exception:
             pass
+    try:
+        _SLOW_EXECUTOR.submit(_fire_webhooks, event)
+    except Exception:
+        pass
 
 
 def read_tail(path: Path, lines: int = 100) -> list[str]:
@@ -3840,6 +3880,7 @@ MEMORY_FILE = ROOT_AGENT / "memory" / "facts.jsonl"
 MEMORY_DB = ROOT_AGENT / "memory" / "facts.db"
 MISSIONS_DIR = ROOT_AGENT / "missions"
 REPORTS_DIR = ROOT_AGENT / "reports"
+WEBHOOKS_FILE = ROOT_AGENT / "webhooks.json"
 # BACKUPS_DIR removed in v2.5.2 — backup feature deleted
 
 
@@ -4014,6 +4055,8 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/cloudflared/tunnel/{action}", handle_v1_cloudflared_tunnel)
     app.router.add_get("/v1/cloudflared/tunnel/{action}", handle_v1_cloudflared_tunnel)
     app.router.add_post("/v1/restart", handle_v1_restart)
+    app.router.add_get("/v1/webhooks", handle_v1_webhooks_get)
+    app.router.add_post("/v1/webhooks", handle_v1_webhooks_set)
     app.router.add_get("/v1/config", handle_v1_config)
     app.router.add_get("/v1/browser/dump", handle_v1_browser_dump)
     app.router.add_get("/v1/browser/fetch", handle_v1_browser_fetch)
@@ -6680,6 +6723,34 @@ async def handle_v1_restart(request: web.Request) -> web.Response:
 
 
 # --- /v1/config GET — Token-free configuration dump ---
+
+async def handle_v1_webhooks_get(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    loop = asyncio.get_event_loop()
+    data = await loop.run_in_executor(_EXECUTOR, _load_webhooks)
+    return _cors_json_response({"ok": True, "webhooks": data})
+
+async def handle_v1_webhooks_set(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        data = await request.json()
+    except Exception:
+        return _cors_json_response({"ok": False, "error": "invalid json"}, status=400)
+    
+    urls = data.get("urls", [])
+    events = data.get("events", ["*"])
+    if not isinstance(urls, list) or not isinstance(events, list):
+        return _cors_json_response({"ok": False, "error": "urls and events must be lists"}, status=400)
+    
+    cfg = {"urls": [str(u) for u in urls if str(u).startswith("http")], "events": [str(e) for e in events]}
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(_EXECUTOR, _save_webhooks, cfg)
+    audit({"type": "webhooks_updated", "urls_count": len(cfg["urls"])})
+    return _cors_json_response({"ok": True, "webhooks": cfg})
 
 async def handle_v1_config(request: web.Request) -> web.Response:
     r = require_auth(request)

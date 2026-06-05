@@ -434,6 +434,20 @@ Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /d
 <button class="info" onclick="exportConfig()">Export Config</button></div>
 </div>
 <div class="card">
+<h2>Webhooks</h2>
+<div class="row" style="flex-wrap:wrap">
+<label style="flex:1;min-width:200px">
+  Webhook URLs (one per line):<br>
+  <textarea id="setWebhookUrls" style="width:100%;height:60px" placeholder="https://discord.com/api/webhooks/..."></textarea>
+</label>
+<label style="flex:1;min-width:200px">
+  Events (comma separated, * for all):<br>
+  <input type="text" id="setWebhookEvents" style="width:100%" placeholder="*, exec_done, task_submit">
+</label>
+</div>
+<button onclick="saveWebhooks()">Save Webhooks</button>
+</div>
+<div class="card">
 <h2>Sound Notifications</h2>
 <div class="row">
 <button onclick="testBeep('success')">Success</button>
@@ -1965,8 +1979,40 @@ async function refreshSettings() {
         aUrl.style.display = "none";
       }
     }
+    // Webhooks
+    const wh = await api("/v1/webhooks");
+    if (wh && wh.ok && wh.webhooks) {
+      document.getElementById("setWebhookUrls").value = (wh.webhooks.urls || []).join("\n");
+      document.getElementById("setWebhookEvents").value = (wh.webhooks.events || []).join(", ");
+    }
   } catch(e) {
     // Silent fail
+  }
+}
+
+async function saveWebhooks() {
+  const urlsRaw = document.getElementById("setWebhookUrls").value;
+  const eventsRaw = document.getElementById("setWebhookEvents").value;
+  
+  const urls = urlsRaw.split("\n").map(s => s.trim()).filter(s => s.startsWith("http"));
+  const events = eventsRaw.split(",").map(s => s.trim()).filter(s => s.length > 0);
+  
+  if (events.length === 0) events.push("*");
+  
+  try {
+    const res = await api("/v1/webhooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ urls, events })
+    });
+    if (res.ok) {
+      alert("Webhooks saved successfully.");
+      refreshSettings();
+    } else {
+      alert("Error saving webhooks: " + res.error);
+    }
+  } catch (e) {
+    alert("Error: " + e.message);
   }
 }
 
