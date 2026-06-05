@@ -695,7 +695,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 
 - [ ] **Cloudflare Tunnel** as an alternative to Tailscale Funnel (no account required)
 - [ ] **Plugin architecture** for third-party skill install/uninstall
-- [ ] **Local semantic RAG memory** via SQLite FTS5
+- [x] **Local semantic RAG memory** via SQLite FTS5
 - [ ] **AppContainer sandboxing** on Windows for opt-in command isolation
 - [ ] Replace `wmic` (deprecated in Win11) with CIM cmdlets in `_sys_*` helpers
 - [ ] Linux Wayland recording in `mission-record` (currently x11grab only)
