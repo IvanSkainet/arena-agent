@@ -693,7 +693,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 
 ## 🗺️ Roadmap
 
-- [ ] **Cloudflare Tunnel** as an alternative to Tailscale Funnel (no account required)
+- [x] **Cloudflare Tunnel** as an alternative to Tailscale Funnel (no account required)
 - [ ] **Plugin architecture** for third-party skill install/uninstall
 - [x] **Local semantic RAG memory** via SQLite FTS5
 - [ ] **AppContainer sandboxing** on Windows for opt-in command isolation
