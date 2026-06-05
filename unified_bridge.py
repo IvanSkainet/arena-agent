@@ -4011,6 +4011,8 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/token/regenerate", handle_v1_token_regenerate)
     app.router.add_post("/v1/tailscale/funnel/{action}", handle_v1_tailscale_funnel)
     app.router.add_get("/v1/tailscale/funnel/{action}", handle_v1_tailscale_funnel)
+    app.router.add_post("/v1/cloudflared/tunnel/{action}", handle_v1_cloudflared_tunnel)
+    app.router.add_get("/v1/cloudflared/tunnel/{action}", handle_v1_cloudflared_tunnel)
     app.router.add_post("/v1/restart", handle_v1_restart)
     app.router.add_get("/v1/config", handle_v1_config)
     app.router.add_get("/v1/browser/dump", handle_v1_browser_dump)
@@ -6343,6 +6345,112 @@ async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+
+_CLOUDFLARED_STATE = {"proc": None, "url": "", "log": []}
+
+def _cloudflared_monitor_thread(proc, port: int):
+    import re
+    while True:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        line_str = line.strip()
+        _CLOUDFLARED_STATE["log"].append(line_str)
+        if len(_CLOUDFLARED_STATE["log"]) > 100:
+            _CLOUDFLARED_STATE["log"].pop(0)
+        match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_str)
+        if match:
+            _CLOUDFLARED_STATE["url"] = match.group(0)
+
+def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
+    import subprocess as _sp
+    import shutil as _shutil_local
+    action = (action or "").lower()
+    if action not in ("start", "stop", "status"):
+        return {"ok": False, "error": "action must be start|stop|status"}
+    cf = _shutil_local.which("cloudflared")
+    if not cf and platform.system() == "Windows":
+        candidates = [
+            r"C:\Program Files\cloudflared\cloudflared.exe",
+            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+        ]
+        for c in candidates:
+            if os.path.isfile(c):
+                cf = c; break
+    if not cf:
+        # allow local binary in agent folder
+        local_cf = ROOT_AGENT / ("cloudflared.exe" if platform.system() == "Windows" else "cloudflared")
+        if local_cf.exists():
+            cf = str(local_cf)
+
+    if action == "start":
+        if not cf:
+            return {"ok": False, "error": "cloudflared binary not found"}
+        if _CLOUDFLARED_STATE["proc"] and _CLOUDFLARED_STATE["proc"].poll() is None:
+            return {"ok": True, "action": "start", "already_running": True, "url": _CLOUDFLARED_STATE["url"]}
+        _CLOUDFLARED_STATE["url"] = ""
+        _CLOUDFLARED_STATE["log"].clear()
+        try:
+            _CLOUDFLARED_STATE["proc"] = _sp.Popen(
+                [cf, "tunnel", "--url", f"http://127.0.0.1:{port}"],
+                stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True,
+                **_subprocess_kwargs()
+            )
+            t = threading.Thread(target=_cloudflared_monitor_thread, args=(_CLOUDFLARED_STATE["proc"], port), daemon=True)
+            t.start()
+            
+            # Wait up to 10 seconds for URL
+            for _ in range(20):
+                if _CLOUDFLARED_STATE["url"] or _CLOUDFLARED_STATE["proc"].poll() is not None:
+                    break
+                time.sleep(0.5)
+                
+            active = bool(_CLOUDFLARED_STATE["url"])
+            return {"ok": active, "action": "start", "port": port, "url": _CLOUDFLARED_STATE["url"], "log": _CLOUDFLARED_STATE["log"]}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+            
+    if action == "stop":
+        proc = _CLOUDFLARED_STATE["proc"]
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=5)
+            except Exception:
+                try: proc.kill()
+                except: pass
+        _CLOUDFLARED_STATE["proc"] = None
+        _CLOUDFLARED_STATE["url"] = ""
+        return {"ok": True, "action": "stop"}
+        
+    # status
+    proc = _CLOUDFLARED_STATE["proc"]
+    running = proc is not None and proc.poll() is None
+    installed = cf is not None
+    return {
+        "ok": True, 
+        "action": "status", 
+        "installed": installed,
+        "active": running, 
+        "url": _CLOUDFLARED_STATE["url"],
+        "log": _CLOUDFLARED_STATE["log"] if running else []
+    }
+
+async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    action = request.match_info.get("action", "status")
+    cfg = request.app["cfg"]
+    port = cfg.get("port", 8765)
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _cloudflared_funnel_action_sync, action, port)
+        audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 # --- /v1/restart POST — Graceful shutdown (scheduled task / systemd / launchd will respawn) ---
 

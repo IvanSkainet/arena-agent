@@ -412,10 +412,20 @@ Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /d
 <div id="envInfo" class="mono" style="font-size:12px;white-space:pre-wrap">Loading...</div>
 </div>
 <div class="card">
-<h2>Tailscale Funnel</h2>
-<div class="row"><span id="tsToggleStatus" class="badge gray">Unknown</span>
-<button id="tsFunnelStart" onclick="tsFunnelToggle('start')">Start</button>
-<button id="tsFunnelStop" class="danger" onclick="tsFunnelToggle('stop')">Stop</button></div>
+<h2>Tunnels</h2>
+<div class="row">
+  <span style="font-weight:600;width:120px">Tailscale</span>
+  <span id="tsToggleStatus" class="badge gray">Unknown</span>
+  <button id="tsFunnelStart" onclick="tsFunnelToggle('start')">Start</button>
+  <button id="tsFunnelStop" class="danger" onclick="tsFunnelToggle('stop')">Stop</button>
+</div>
+<div class="row" style="margin-top:8px">
+  <span style="font-weight:600;width:120px">Cloudflare</span>
+  <span id="cfToggleStatus" class="badge gray">Unknown</span>
+  <button id="cfFunnelStart" onclick="cfFunnelToggle('start')">Start</button>
+  <button id="cfFunnelStop" class="danger" onclick="cfFunnelToggle('stop')">Stop</button>
+  <a id="cfUrl" href="#" target="_blank" style="margin-left:8px;font-size:12px;display:none" class="mono"></a>
+</div>
 </div>
 <div class="card">
 <h2>Actions</h2>
@@ -1932,12 +1942,28 @@ async function refreshSettings() {
     document.getElementById("setRequests").textContent = overviewMetrics.requests;
     document.getElementById("setErrors").textContent = overviewMetrics.errors;
     // Tailscale status
-    const fn = await api("/v1/sys/funnel");
-    if (fn && fn.ok && fn.funnel) {
+    const fn = await api("/v1/tailscale/funnel/status");
+    if (fn && fn.ok) {
       const badge = document.getElementById("tsToggleStatus");
-      const active = !!fn.funnel.active;
+      const active = !!fn.active;
       badge.className = "badge " + (active ? "ok" : "fail");
       badge.textContent = active ? "Active" : "Inactive";
+    }
+    // Cloudflare status
+    const cf = await api("/v1/cloudflared/tunnel/status");
+    if (cf && cf.ok) {
+      const badge = document.getElementById("cfToggleStatus");
+      const active = !!cf.active;
+      badge.className = "badge " + (active ? "ok" : "fail");
+      badge.textContent = active ? "Active" : "Inactive";
+      const aUrl = document.getElementById("cfUrl");
+      if (active && cf.url) {
+        aUrl.href = cf.url;
+        aUrl.textContent = cf.url;
+        aUrl.style.display = "inline-block";
+      } else {
+        aUrl.style.display = "none";
+      }
     }
   } catch(e) {
     // Silent fail
@@ -1948,13 +1974,25 @@ async function tsFunnelToggle(action) {
   try {
     const result = await api("/v1/tailscale/funnel/" + action, {method: "POST"});
     if (result.ok) {
-      refreshSettings();
       refreshOverview();
     } else {
       alert("Error: " + (result.error||"?"));
     }
   } catch(e) {
-    alert("Error toggling funnel: " + (e.message||"Unknown error"));
+    alert("Error toggling Tailscale funnel: " + (e.message||"Unknown error"));
+  }
+}
+
+async function cfFunnelToggle(action) {
+  try {
+    const result = await api("/v1/cloudflared/tunnel/" + action, {method: "POST"});
+    if (result.ok) {
+      refreshOverview();
+    } else {
+      alert("Error: " + (result.error||"?"));
+    }
+  } catch(e) {
+    alert("Error toggling Cloudflare tunnel: " + (e.message||"Unknown error"));
   }
 }
 
