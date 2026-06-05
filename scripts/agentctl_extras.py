@@ -58,7 +58,7 @@ def run_status(args=[]):
             r = urllib.request.urlopen(req, timeout=2)
             mcp_ok = r.status == 200
             print(f"  MCP Streamable HTTP: {'OK' if mcp_ok else 'FAIL'}")
-        except: print("  MCP Streamable HTTP: FAIL")
+        except Exception: print("  MCP Streamable HTTP: FAIL")
     else:
         print("  All sub-services: DOWN (bridge not running)")
 
@@ -136,7 +136,7 @@ def run_status(args=[]):
                 r = subprocess.run(["schtasks", "/query", "/tn", svc_name, "/fo", "TABLE"], capture_output=True, text=True, timeout=5)
                 running = "Running" in r.stdout or "Выполняется" in r.stdout or "Running" in r.stdout
                 state = "running" if running and _check_port(8765) == "LISTEN" else "stopped"
-            except: state = "unknown"
+            except Exception: state = "unknown"
             print(f"  - {desc}: {state}")
         # Also check if bridge is reachable even without scheduled task
         if _check_port(8765) == "LISTEN":
@@ -447,14 +447,14 @@ def cmd_beep(args: list[str]) -> int:
             idx = args.index("--frequency")
             if idx + 1 < len(args):
                 try: custom_freq = int(args[idx+1])
-                except: pass
+                except Exception: pass
                 
         custom_dur = None
         if "--duration" in args:
             idx = args.index("--duration")
             if idx + 1 < len(args):
                 try: custom_dur = int(args[idx+1])
-                except: pass
+                except Exception: pass
 
         if platform.system() == "Windows":
             import winsound

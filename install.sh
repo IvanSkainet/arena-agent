@@ -223,7 +223,7 @@ try:
     d = json.load(sys.stdin)
     dns = d.get('Self', {}).get('DNSName', '') or d.get('DNSName', '')
     if dns: print(dns.rstrip('.'))
-except: pass
+except Exception: pass
 " 2>/dev/null)" || TS_DNSNAME=""
     if [ -n "$TS_DNSNAME" ]; then
         ok "Tailscale connected: $TS_DNSNAME"
@@ -524,7 +524,7 @@ try:
     url = d.get('funnel', {}).get('url', '')
     if url:
         print(url)
-except: pass
+except Exception: pass
 " 2>/dev/null)" || TS_URL=""
 fi
 # Method 2: tailscale status --json, read Self.DNSName
@@ -540,7 +540,7 @@ try:
         if not dns.startswith('https://'):
             dns = 'https://' + dns
         print(dns)
-except: pass
+except Exception: pass
 " 2>/dev/null)" || TS_URL=""
 fi
 # Method 3: Parse from tailscale status text (works even without --json)

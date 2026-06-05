@@ -107,7 +107,7 @@ def issue_list(args):
     for state in ['open','closed']:
         for f in (p/'issues'/state).glob('*.json'):
             try: obj=json.loads(f.read_text()); rows.append((state,obj))
-            except: pass
+            except Exception: pass
     for state,obj in sorted(rows, key=lambda x:x[1].get('created_at','')): print(f"{obj.get('id')}\t{state}\t{obj.get('title')}")
 def issue_close(args):
     p=project_path(args.name); src=p/'issues/open'/f'{args.id}.json'; srcmd=p/'issues/open'/f'{args.id}.md'

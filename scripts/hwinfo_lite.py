@@ -47,7 +47,7 @@ def collect_all():
             else:
                 info["os"]["name_pretty"] = "Windows 10"
             info["os"]["build"] = build
-        except:
+        except Exception:
             info["os"]["name_pretty"] = "Windows " + info["os"]["release"]
     else:
         info["os"]["name_pretty"] = platform.platform()
