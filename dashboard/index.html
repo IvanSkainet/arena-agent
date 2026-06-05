@@ -337,6 +337,14 @@ Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /d
 <!-- ==================== SKILLS ==================== -->
 <div class="tab" id="tab-skills">
 <h1>Skills</h1>
+<div class="card" style="margin-bottom:12px">
+  <h2>Install Third-Party Skill</h2>
+  <div class="row">
+    <input id="installSkillName" placeholder="Skill name (e.g. test-skill)">
+    <input id="installSkillUrl" placeholder="Git or ZIP URL" style="flex:1">
+    <button class="success" onclick="installSkill()">Install</button>
+  </div>
+</div>
 <button onclick="loadSkills()" style="margin-bottom:12px">Refresh</button>
 <table><thead><tr><th>Name</th><th>Description</th><th>Actions</th></tr></thead><tbody id="skillsTable"></tbody></table>
 <div id="skillDetail" class="detail-panel"></div>
@@ -1518,6 +1526,50 @@ function showSkillDetail(skill) {
   pre.style.cssText = "white-space:pre-wrap;margin-top:8px";
   pre.textContent = JSON.stringify(skill, null, 2);
   panel.appendChild(pre);
+  
+  if (skill.file && skill.file.includes("third_party")) {
+    const rmBtn = document.createElement("button");
+    rmBtn.className = "danger sm";
+    rmBtn.style.marginTop = "8px";
+    rmBtn.textContent = "Uninstall";
+    rmBtn.onclick = () => uninstallSkill(skill.name || skill.id);
+    panel.appendChild(rmBtn);
+  }
+}
+
+async function installSkill() {
+  const name = document.getElementById("installSkillName").value.trim();
+  const url = document.getElementById("installSkillUrl").value.trim();
+  if (!name || !url) return alert("Skill name and URL are required.");
+  try {
+    const res = await api("/v1/skills/install", {method: "POST", body: JSON.stringify({name, url})});
+    if (res.ok) {
+      alert("Skill installed successfully!");
+      document.getElementById("installSkillName").value = "";
+      document.getElementById("installSkillUrl").value = "";
+      loadSkills();
+    } else {
+      alert("Install failed: " + res.error);
+    }
+  } catch(e) {
+    alert("Error: " + e.message);
+  }
+}
+
+async function uninstallSkill(name) {
+  if (!confirm(`Are you sure you want to uninstall '${name}'?`)) return;
+  try {
+    const res = await api("/v1/skills/uninstall", {method: "POST", body: JSON.stringify({name})});
+    if (res.ok) {
+      alert("Skill uninstalled.");
+      loadSkills();
+      document.getElementById("skillDetail").className = "detail-panel";
+    } else {
+      alert("Uninstall failed: " + res.error);
+    }
+  } catch(e) {
+    alert("Error: " + e.message);
+  }
 }
 
 async function runSkill(skill) {

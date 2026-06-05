@@ -4114,6 +4114,8 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/tasks", handle_v1_tasks_post)
     app.router.add_post("/v1/tasks/clean", handle_v1_tasks_clean)
     app.router.add_get("/v1/skills", handle_v1_skills)
+    app.router.add_post("/v1/skills/install", handle_v1_skills_install)
+    app.router.add_post("/v1/skills/uninstall", handle_v1_skills_uninstall)
     app.router.add_post("/v1/skills/run", handle_v1_skills_run)
     app.router.add_get("/v1/hooks", handle_v1_hooks)
     app.router.add_get("/v1/agents", handle_v1_agents)
@@ -10683,6 +10685,103 @@ async def handle_v1_skills(request: web.Request) -> web.Response:
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync_with_cache)
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+def _skill_install_sync(name: str, url: str) -> dict:
+    if not name or not url:
+        return {"ok": False, "error": "name and url are required"}
+    if ".." in name or "/" in name or "\\" in name:
+        return {"ok": False, "error": "invalid skill name"}
+        
+    target_dir = SKILLS_DIR / "third_party" / name
+    if target_dir.exists():
+        return {"ok": False, "error": "skill already installed"}
+        
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        if url.endswith(".zip"):
+            import tempfile, zipfile, urllib.request
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                urllib.request.urlretrieve(url, tmp.name)
+                with zipfile.ZipFile(tmp.name, 'r') as zip_ref:
+                    root_names = set(p.split("/")[0] for p in zip_ref.namelist() if p)
+                    if len(root_names) == 1:
+                        root = list(root_names)[0]
+                        temp_ext = target_dir.parent / (name + "_temp")
+                        zip_ref.extractall(temp_ext)
+                        os.rename(temp_ext / root, target_dir)
+                        import shutil
+                        shutil.rmtree(temp_ext, ignore_errors=True)
+                    else:
+                        zip_ref.extractall(target_dir)
+                os.unlink(tmp.name)
+        else:
+            import subprocess
+            subprocess.run(["git", "clone", "--depth", "1", url, str(target_dir)], check=True, capture_output=True)
+            # Remove .git folder so it's not a submodule/repo anymore
+            import shutil
+            shutil.rmtree(target_dir / ".git", ignore_errors=True)
+        return {"ok": True, "path": str(target_dir), "name": name}
+    except Exception as e:
+        import shutil
+        shutil.rmtree(target_dir, ignore_errors=True)
+        return {"ok": False, "error": str(e)}
+
+def _skill_uninstall_sync(name: str) -> dict:
+    if not name or ".." in name or "/" in name or "\\" in name:
+        return {"ok": False, "error": "invalid skill name"}
+    
+    target_dir = SKILLS_DIR / "third_party" / name
+    if not target_dir.exists():
+        target_dir = SKILLS_DIR / name
+        if not target_dir.exists():
+            return {"ok": False, "error": f"skill '{name}' not found"}
+            
+    try:
+        import shutil
+        shutil.rmtree(target_dir)
+        return {"ok": True, "removed": name}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def handle_v1_skills_install(request: web.Request) -> web.Response:
+    """POST /v1/skills/install — Install a third-party skill from git or zip."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        data = await request.json()
+        name = str(data.get("name", "")).strip()
+        url = str(data.get("url", "")).strip()
+        
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _skill_install_sync, name, url)
+        if result.get("ok"):
+            audit({"type": "skill_installed", "name": name, "url": url})
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+async def handle_v1_skills_uninstall(request: web.Request) -> web.Response:
+    """POST /v1/skills/uninstall — Uninstall a third-party skill."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        data = await request.json()
+        name = str(data.get("name", "")).strip()
+        
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _skill_uninstall_sync, name)
+        if result.get("ok"):
+            audit({"type": "skill_uninstalled", "name": name})
         return _cors_json_response(result)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
