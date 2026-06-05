@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import sys
 import os
+import sqlite3
 
 # --- Windows pythonw.exe stdout/stderr fix ---
 if sys.stdout is None:
@@ -3836,6 +3837,7 @@ HOOKS_DIR = ROOT_AGENT / "hooks"
 AGENTS_DIR = ROOT_AGENT / "agents"
 SUBAGENTS_DIR = ROOT_AGENT / "subagents"
 MEMORY_FILE = ROOT_AGENT / "memory" / "facts.jsonl"
+MEMORY_DB = ROOT_AGENT / "memory" / "facts.db"
 MISSIONS_DIR = ROOT_AGENT / "missions"
 REPORTS_DIR = ROOT_AGENT / "reports"
 # BACKUPS_DIR removed in v2.5.2 — backup feature deleted
@@ -4179,6 +4181,9 @@ def make_app(cfg: dict) -> web.Application:
 
 async def on_startup(app: web.Application):
     """Start background task runner and initialize async primitives."""
+    # Initialize Memory DB (non-blocking)
+    await asyncio.get_event_loop().run_in_executor(_EXECUTOR, init_memory_db)
+    
     cfg = app["cfg"]
     cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
     app["task_runner"] = asyncio.ensure_future(task_runner_loop(app))
@@ -5234,54 +5239,169 @@ async def handle_gui(request: web.Request) -> web.Response:
 # HANDLERS — Dashboard API endpoints
 # ============================================================================
 
+def init_memory_db():
+    MEMORY_DB.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(MEMORY_DB) as conn:
+        conn.execute('''
+        CREATE TABLE IF NOT EXISTS memory_facts (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            tags TEXT,
+            timestamp TEXT
+        );
+        ''')
+        conn.execute('''
+        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+            key, value, tags, content=memory_facts, content_rowid=rowid, tokenize="trigram"
+        );
+        ''')
+        conn.executescript('''
+        CREATE TRIGGER IF NOT EXISTS memory_facts_ai AFTER INSERT ON memory_facts BEGIN
+            INSERT INTO memory_fts(rowid, key, value, tags) VALUES (new.rowid, new.key, new.value, new.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_facts_ad AFTER DELETE ON memory_facts BEGIN
+            INSERT INTO memory_fts(memory_fts, rowid, key, value, tags) VALUES ('delete', old.rowid, old.key, old.value, old.tags);
+        END;
+        CREATE TRIGGER IF NOT EXISTS memory_facts_au AFTER UPDATE ON memory_facts BEGIN
+            INSERT INTO memory_fts(memory_fts, rowid, key, value, tags) VALUES ('delete', old.rowid, old.key, old.value, old.tags);
+            INSERT INTO memory_fts(rowid, key, value, tags) VALUES (new.rowid, new.key, new.value, new.tags);
+        END;
+        ''')
+        
+    if MEMORY_FILE.exists():
+        migrated_path = MEMORY_FILE.with_suffix(".jsonl.migrated")
+        if not migrated_path.exists():
+            with sqlite3.connect(MEMORY_DB) as conn:
+                try:
+                    with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    item = json.loads(line)
+                                    key = item.get("key", "")
+                                    value = item.get("value", "")
+                                    tags = json.dumps(item.get("tags", []))
+                                    timestamp = item.get("timestamp", "")
+                                    
+                                    conn.execute("""
+                                    INSERT INTO memory_facts (key, value, tags, timestamp)
+                                    VALUES (?, ?, ?, ?)
+                                    ON CONFLICT(key) DO UPDATE SET
+                                        value=excluded.value,
+                                        tags=excluded.tags,
+                                        timestamp=excluded.timestamp
+                                    """, (key, value, tags, timestamp))
+                                except json.JSONDecodeError:
+                                    pass
+                    conn.commit()
+                except Exception as e:
+                    log.error("[Memory] Failed to migrate facts: %s", e)
+            try:
+                MEMORY_FILE.rename(migrated_path)
+            except OSError:
+                pass
+
+
 def _load_facts() -> list[dict]:
-    """Load memory facts from JSONL. Deduplicates by key (last write wins)."""
-    if not MEMORY_FILE.exists():
-        return []
-    seen: dict[str, dict] = {}
-    order: list[str] = []
-    try:
-        with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        item = json.loads(line)
-                        key = item.get("key", "")
-                        if key not in seen:
-                            order.append(key)
-                        seen[key] = item
-                    except json.JSONDecodeError:
-                        pass
-    except Exception as e:
-        log.warning("[Memory] Failed to load facts from %s: %s", MEMORY_FILE, e)
-    return [seen[k] for k in order if k in seen]
+    """Load all memory facts from SQLite FTS5 database."""
+    with sqlite3.connect(MEMORY_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        query = """
+        SELECT key, value, tags, timestamp 
+        FROM memory_facts 
+        ORDER BY timestamp ASC
+        """
+        cursor = conn.execute(query)
+        rows = cursor.fetchall()
+        facts = []
+        for r in rows:
+            try:
+                tags = json.loads(r['tags']) if r['tags'] else []
+            except Exception:
+                tags = []
+            facts.append({
+                "key": r['key'],
+                "value": r['value'],
+                "tags": tags,
+                "timestamp": r['timestamp']
+            })
+        return facts
+
+def _search_facts_paged(q: str = "", offset: int = 0, limit: int = 100) -> tuple[int, list[dict]]:
+    """Load memory facts from SQLite FTS5 database with pagination and search."""
+    with sqlite3.connect(MEMORY_DB) as conn:
+        conn.row_factory = sqlite3.Row
+        
+        if q:
+            safe_q = '"' + q.replace('"', '""') + '"'
+            count_query = "SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH ?"
+            try:
+                total = conn.execute(count_query, (safe_q,)).fetchone()[0]
+                query = """
+                SELECT m.key, m.value, m.tags, m.timestamp 
+                FROM memory_facts m
+                JOIN memory_fts f ON m.rowid = f.rowid
+                WHERE memory_fts MATCH ?
+                ORDER BY m.timestamp ASC
+                LIMIT ? OFFSET ?
+                """
+                cursor = conn.execute(query, (safe_q, limit, offset))
+            except sqlite3.OperationalError as e:
+                log.error(f"[Memory] SQLite FTS query error: {e}")
+                return 0, []
+        else:
+            total = conn.execute("SELECT COUNT(*) FROM memory_facts").fetchone()[0]
+            query = """
+            SELECT key, value, tags, timestamp 
+            FROM memory_facts 
+            ORDER BY timestamp ASC
+            LIMIT ? OFFSET ?
+            """
+            cursor = conn.execute(query, (limit, offset))
+            
+        rows = cursor.fetchall()
+        
+        facts = []
+        for r in rows:
+            try:
+                tags = json.loads(r['tags']) if r['tags'] else []
+            except Exception:
+                tags = []
+            facts.append({
+                "key": r['key'],
+                "value": r['value'],
+                "tags": tags,
+                "timestamp": r['timestamp']
+            })
+            
+        return total, facts
 
 
 def _write_fact(entry: dict) -> None:
     """Write a fact entry, overwriting any existing entry with the same key."""
-    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    existing = _load_facts()
-    key = entry.get("key", "")
-    existing = [f for f in existing if f.get("key") != key]
-    existing.append(entry)
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        for fact in existing:
-            f.write(json.dumps(fact, ensure_ascii=False) + "\n")
+    with sqlite3.connect(MEMORY_DB) as conn:
+        key = entry.get("key", "")
+        value = entry.get("value", "")
+        tags = json.dumps(entry.get("tags", []))
+        timestamp = entry.get("timestamp", "")
+        conn.execute("""
+        INSERT INTO memory_facts (key, value, tags, timestamp)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value=excluded.value,
+            tags=excluded.tags,
+            timestamp=excluded.timestamp
+        """, (key, value, tags, timestamp))
+        conn.commit()
 
 
 def _delete_fact(key: str) -> bool:
     """Delete a fact by key. Returns True if found and deleted, False if not found."""
-    MEMORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    existing = _load_facts()
-    before = len(existing)
-    filtered = [f for f in existing if f.get("key") != key]
-    if len(filtered) == before:
-        return False
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        for fact in filtered:
-            f.write(json.dumps(fact, ensure_ascii=False) + "\n")
-    return True
+    with sqlite3.connect(MEMORY_DB) as conn:
+        cur = conn.execute("DELETE FROM memory_facts WHERE key = ?", (key,))
+        conn.commit()
+        return cur.rowcount > 0
 
 
 async def handle_v1_memory(request: web.Request) -> web.Response:
@@ -5290,22 +5410,20 @@ async def handle_v1_memory(request: web.Request) -> web.Response:
         r = require_auth(request)
         if r: return r
         _record_request()
-        loop = asyncio.get_event_loop()
-        facts = await loop.run_in_executor(_EXECUTOR, _load_facts)
+        
         qs = parse_qs(request.query_string)
-        q = qs.get("q", [""])[0].lower()
-        if q:
-            facts = [f for f in facts if q in json.dumps(f, ensure_ascii=False).lower()]
-        # Pagination support (v2.1.1)
-        total = len(facts)
+        q = qs.get("q", [""])[0]
         try:
             offset = max(0, int(qs.get("offset", ["0"])[0]))
             limit = min(500, max(1, int(qs.get("limit", ["100"])[0])))
         except (ValueError, TypeError):
             offset = 0
             limit = 100
-        page = facts[offset:offset + limit]
-        result = {"ok": True, "total": total, "count": len(page), "facts": page}
+            
+        loop = asyncio.get_event_loop()
+        total, facts = await loop.run_in_executor(_EXECUTOR, _search_facts_paged, q, offset, limit)
+        
+        result = {"ok": True, "total": total, "count": len(facts), "facts": facts}
         if offset + limit < total:
             result["next_offset"] = offset + limit
         return _cors_json_response(result)
