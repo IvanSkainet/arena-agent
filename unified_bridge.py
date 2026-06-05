@@ -130,7 +130,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.6.0"
+VERSION = "2.7.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a CIM/powershell/tailscale subprocess. No-op on Linux/macOS.
