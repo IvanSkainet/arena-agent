@@ -700,7 +700,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - [x] Replace `wmic` (deprecated in Win11) with CIM cmdlets in `_sys_*` helpers
 - [ ] Linux Wayland recording in `mission-record` (currently x11grab only)
 - [ ] AnythingLLM / Open WebUI integration recipes in `skills/`
-- [ ] Webhook notifications for events
+- [x] Webhook notifications for events
 
 ---
 
