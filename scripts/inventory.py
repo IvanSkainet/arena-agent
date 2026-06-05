@@ -75,26 +75,21 @@ def _ver(cmd_name: str, version_arg: str = "--version", timeout: float = 3.0) ->
     return line or path  # at least confirm presence
 
 
-def _parse_wmic_list(text: str) -> list[dict]:
-    """Parse 'wmic ... /format:list' output (Win text-mode produces \\n\\n separators)."""
-    text = text.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "")
-    blocks: list[dict] = []
-    current: dict = {}
-    for line in text.split("\n"):
-        line = line.strip()
-        if not line:
-            continue
-        if "=" not in line:
-            continue
-        k, v = line.split("=", 1)
-        k, v = k.strip(), v.strip()
-        if k in current:
-            blocks.append(current)
-            current = {}
-        current[k] = v
-    if current:
-        blocks.append(current)
-    return blocks
+def _get_cim_json(class_name: str, properties: str) -> list[dict]:
+    """Parse Get-CimInstance output as JSON."""
+    try:
+        cmd = f'powershell -NoProfile -NonInteractive -Command "Get-CimInstance {class_name} | Select-Object {properties} | ConvertTo-Json -Compress"'
+        out = _run(cmd, shell=True)
+        if not out or not out.strip():
+            return []
+        data = json.loads(out.strip())
+        if isinstance(data, dict):
+            return [data]
+        if isinstance(data, list):
+            return data
+    except Exception:
+        pass
+    return []
 
 
 # ============================================================
@@ -164,18 +159,16 @@ def get_os() -> dict:
         info["build_version"] = _run(["sw_vers", "-buildVersion"]).strip()
     elif sys_name == "Windows":
         # win32_operatingsystem for build/caption
-        out = _run(["wmic", "os", "get",
-                    "Caption,Version,BuildNumber,OSArchitecture,InstallDate,LastBootUpTime",
-                    "/format:list"])
-        blocks = _parse_wmic_list(out)
+        blocks = _get_cim_json("Win32_OperatingSystem", "Caption,Version,BuildNumber,OSArchitecture,InstallDate,LastBootUpTime")
         if blocks:
             d = blocks[0]
-            info["caption"] = d.get("Caption", "")
-            info["build_number"] = d.get("BuildNumber", "")
-            info["architecture"] = d.get("OSArchitecture", "")
-            # 20210513120000.000000+000 → 2021-05-13 12:00:00 UTC+0
+            info["caption"] = str(d.get("Caption", ""))
+            info["build_number"] = str(d.get("BuildNumber", ""))
+            info["architecture"] = str(d.get("OSArchitecture", ""))
             for key, src in [("install_date", "InstallDate"), ("last_boot", "LastBootUpTime")]:
-                v = d.get(src, "")
+                v = str(d.get(src, ""))
+                if isinstance(d.get(src), dict) and "DateTime" in d[src]:
+                    v = str(d[src]["DateTime"])
                 if len(v) >= 14:
                     info[key] = f"{v[0:4]}-{v[4:6]}-{v[6:8]} {v[8:10]}:{v[10:12]}:{v[12:14]}"
     return info
@@ -237,20 +230,17 @@ def get_cpu() -> dict:
         except Exception:
             pass
     elif sys_name == "Windows":
-        out = _run(["wmic", "cpu", "get",
-                    "Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed,Manufacturer",
-                    "/format:list"])
-        blocks = _parse_wmic_list(out)
+        blocks = _get_cim_json("Win32_Processor", "Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed,Manufacturer")
         if blocks:
             d = blocks[0]
-            info["name"] = d.get("Name", "").strip()
-            info["manufacturer"] = d.get("Manufacturer", "").strip()
+            info["name"] = str(d.get("Name", "")).strip()
+            info["manufacturer"] = str(d.get("Manufacturer", "")).strip()
             try:
-                info["cores_physical"] = int(d.get("NumberOfCores", "0"))
+                info["cores_physical"] = int(d.get("NumberOfCores") or 0)
             except Exception:
                 pass
             try:
-                mh = int(d.get("MaxClockSpeed", "0"))
+                mh = int(d.get("MaxClockSpeed") or 0)
                 if mh:
                     info["max_ghz"] = round(mh / 1000.0, 2)
             except Exception:
@@ -340,11 +330,8 @@ def get_memory() -> dict:
             info["load_percent"] = stat.dwMemoryLoad
         except Exception:
             pass
-        # modules via wmic
-        out = _run(["wmic", "memorychip", "get",
-                    "Capacity,Speed,Manufacturer,PartNumber,DeviceLocator,ConfiguredClockSpeed",
-                    "/format:list"])
-        for d in _parse_wmic_list(out):
+        # modules via CIM
+        for d in _get_cim_json("Win32_PhysicalMemory", "Capacity,Speed,Manufacturer,PartNumber"):
             cap = d.get("Capacity", "")
             try:
                 cap_gb = round(int(cap) / (1024**3), 1)
@@ -388,9 +375,7 @@ def get_gpu() -> dict:
                 unit = mv.group(2)
                 info["gpus"][-1]["vram_mb"] = size * 1024 if unit == "GB" else size
     elif sys_name == "Windows":
-        out = _run(["wmic", "path", "win32_VideoController", "get",
-                    "Name,AdapterRAM,DriverVersion,VideoProcessor", "/format:list"])
-        for d in _parse_wmic_list(out):
+        for d in _get_cim_json("Win32_VideoController", "Name,AdapterRAM,DriverVersion"):
             if not d.get("Name"):
                 continue
             try:
@@ -437,9 +422,7 @@ def get_motherboard() -> dict:
     sys_name = platform.system()
     info: dict[str, Any] = {"motherboard": None, "bios": None}
     if sys_name == "Windows":
-        out = _run(["wmic", "baseboard", "get",
-                    "Manufacturer,Product,Version,SerialNumber", "/format:list"])
-        blocks = _parse_wmic_list(out)
+        blocks = _get_cim_json("Win32_BaseBoard", "Manufacturer,Product,Version")
         if blocks:
             d = blocks[0]
             info["motherboard"] = {
@@ -448,9 +431,7 @@ def get_motherboard() -> dict:
                 "version": d.get("Version", "").strip(),
                 "serial": d.get("SerialNumber", "").strip(),
             }
-        out2 = _run(["wmic", "bios", "get",
-                     "Manufacturer,SMBIOSBIOSVersion,ReleaseDate", "/format:list"])
-        bblocks = _parse_wmic_list(out2)
+        bblocks = _get_cim_json("Win32_BIOS", "SMBIOSBIOSVersion,Manufacturer,ReleaseDate")
         if bblocks:
             d = bblocks[0]
             rd = d.get("ReleaseDate", "")
@@ -544,10 +525,7 @@ def get_disks() -> list[dict]:
                 except Exception:
                     continue
     elif sys_name == "Windows":
-        out = _run(["wmic", "logicaldisk", "get",
-                    "DeviceID,Size,FreeSpace,FileSystem,VolumeName,DriveType",
-                    "/format:list"])
-        for d in _parse_wmic_list(out):
+        for d in _get_cim_json("Win32_LogicalDisk", "DeviceID,Size,FreeSpace,FileSystem,VolumeName,Description"):
             if not d.get("DeviceID") or not d.get("Size"):
                 continue
             try:
@@ -809,10 +787,7 @@ def get_displays() -> dict:
         if resolutions:
             info["resolutions"] = resolutions
     elif sys_name == "Windows":
-        out = _run(["wmic", "desktopmonitor", "get",
-                    "ScreenWidth,ScreenHeight,Name", "/format:list"])
-        screens = []
-        for d in _parse_wmic_list(out):
+        for d in _get_cim_json("Win32_DesktopMonitor", "Name,ScreenWidth,ScreenHeight"):
             w = d.get("ScreenWidth")
             h = d.get("ScreenHeight")
             if w and h:

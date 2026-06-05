@@ -5,49 +5,56 @@ import subprocess
 import json
 import datetime
 
-def get_wmic_all_list(class_name):
-    """Utility to run wmic class get and parse all properties as dictionary list cleanly aggregated"""
+def get_cim_all_list(class_name):
+    """Utility to run Get-CimInstance and parse all properties as dictionary list"""
     try:
-        res = subprocess.run(f"wmic {class_name} get /format:list", capture_output=True, text=True, shell=True)
-        items = []
-        current = {}
-        for line in res.stdout.splitlines():
-            line_str = line.strip()
-            if "=" in line_str:
-                k, v = line_str.split("=", 1)
-                key = k.strip().lower()
-                val = v.strip()
-                if val.isdigit(): val = int(val)
-                
-                # If key is already in current, it means we transitioned to a new instance!
-                if key in current:
-                    items.append(current)
-                    current = {}
-                current[key] = val
-        if current:
-            items.append(current)
-        return items
+        # Use PowerShell to run CIM cmdlet and output JSON
+        # Filter is needed if class_name has 'where', but let's handle simple classes and WQL paths
+        cmd = class_name
+        if " path " in class_name.lower():
+            cmd = class_name.split("path ", 1)[1]
+        
+        # If there's a where clause, convert to CIM Filter
+        # simple translation: nicconfig where IPEnabled=True -> Win32_NetworkAdapterConfiguration -Filter "IPEnabled=True"
+        if " where " in cmd.lower():
+            parts = cmd.lower().split(" where ", 1)
+            cls = parts[0].strip()
+            filter_str = parts[1].strip()
+            ps_cmd = f"Get-CimInstance {cls} -Filter \\\"{filter_str}\\\" | ConvertTo-Json -Compress"
+        else:
+            cls = cmd.strip()
+            # If not starting with Win32_, append it
+            if not cls.lower().startswith("win32_") and not cls.lower().startswith("cim_"):
+                cls = "Win32_" + cls
+            ps_cmd = f"Get-CimInstance {cls} | ConvertTo-Json -Compress"
+            
+        res = subprocess.run(f"powershell -NoProfile -Command \"{ps_cmd}\"", capture_output=True, text=True, shell=True)
+        if not res.stdout.strip():
+            return []
+            
+        data = json.loads(res.stdout)
+        if isinstance(data, dict):
+            return [data]
+        if isinstance(data, list):
+            return data
+        return []
     except Exception:
         return []
 
 def get_uptime():
     try:
-        res = subprocess.run("wmic os get LastBootUpTime /format:list", capture_output=True, text=True, shell=True)
-        for line in res.stdout.splitlines():
-            if "LastBootUpTime=" in line:
-                boot_str = line.split("=", 1)[1].strip().split('.')[0]
-                y = int(boot_str[0:4])
-                m = int(boot_str[4:6])
-                d = int(boot_str[6:8])
-                hh = int(boot_str[8:10])
-                mm = int(boot_str[10:12])
-                ss = int(boot_str[12:14])
-                boot_time = datetime.datetime(y, m, d, hh, mm, ss)
-                now = datetime.datetime.now()
-                delta = now - boot_time
-                hours = delta.seconds // 3600
-                minutes = (delta.seconds % 3600) // 60
-                return f"{delta.days} days, {hours} hours, {minutes} minutes"
+        res = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_OperatingSystem).LastBootUpTime | ConvertTo-Json\"", capture_output=True, text=True, shell=True)
+        if res.stdout.strip():
+            data = json.loads(res.stdout)
+            # PowerShell might return a date string like "/Date(1682390192000)/" or just a formatted string
+            # Better to get milliseconds directly
+            res2 = subprocess.run("powershell -NoProfile -Command \"[int64]((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalSeconds\"", capture_output=True, text=True, shell=True)
+            if res2.stdout.strip() and res2.stdout.strip().isdigit():
+                seconds = int(res2.stdout.strip())
+                days = seconds // 86400
+                hours = (seconds % 86400) // 3600
+                minutes = (seconds % 3600) // 60
+                return f"{days} days, {hours} hours, {minutes} minutes"
     except Exception:
         pass
     return "Unknown"
@@ -71,17 +78,17 @@ def collect_standard():
             "uptime": os_data.get("uptime")
         },
         "motherboard": {
-            "manufacturer": board.get("manufacturer"),
-            "product": board.get("product"),
+            "manufacturer": board.get("Manufacturer"),
+            "product": board.get("Product"),
             "bios_name": board.get("bios_name")
         },
         "cpu": {
-            "name": cpu.get("name"),
-            "physical_cores": cpu.get("numberofcores"),
-            "logical_processors": cpu.get("numberoflogicalprocessors")
+            "name": cpu.get("Name"),
+            "physical_cores": cpu.get("NumberOfCores"),
+            "logical_processors": cpu.get("NumberOfLogicalProcessors")
         },
         "gpu": {
-            "name": gpu.get("name"),
+            "name": gpu.get("Name"),
             "vram_mb": gpu.get("vram_mb")
         },
         "ram": {
@@ -130,73 +137,64 @@ def collect_full():
     if platform.system() == "Windows":
         # 1. Motherboard & BIOS Full
         try:
-            m_res = subprocess.run("wmic baseboard get /format:list", capture_output=True, text=True, shell=True)
-            for line in m_res.stdout.splitlines():
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    info["motherboard"][k.strip().lower()] = v.strip()
-            info["motherboard"]["bios_name"] = info["motherboard"].get("product", "")
-            b_res = subprocess.run("wmic bios get /format:list", capture_output=True, text=True, shell=True)
-            for line in b_res.stdout.splitlines():
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    info["motherboard"][f"bios_{k.strip().lower()}"] = v.strip()
+            mb_data = get_cim_all_list("Win32_BaseBoard")
+            if mb_data:
+                info["motherboard"] = mb_data[0]
+            info["motherboard"]["bios_name"] = info["motherboard"].get("Product", "")
+            bios_data = get_cim_all_list("Win32_BIOS")
+            if bios_data:
+                for k, v in bios_data[0].items():
+                    info["motherboard"][f"bios_{k}"] = v
         except: pass
 
         # 2. CPU Full Details
-        info["cpu"] = get_wmic_all_list("cpu")
+        info["cpu"] = get_cim_all_list("Win32_Processor")
         
         # 3. GPU Full Details
-        gpus = get_wmic_all_list("path win32_VideoController")
+        gpus = get_cim_all_list("Win32_VideoController")
         for g in gpus:
-            if "adapterram" in g and isinstance(g["adapterram"], int):
-                g["vram_mb"] = round(abs(g["adapterram"]) / (1024**2), 1)
+            if "AdapterRAM" in g and isinstance(g["AdapterRAM"], (int, float)):
+                g["vram_mb"] = round(abs(g["AdapterRAM"]) / (1024**2), 1)
         info["gpu"] = gpus
 
         # 4. RAM Full Details
         try:
             ram_os = {}
-            ram_res = subprocess.run("wmic os get TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory /format:list", capture_output=True, text=True, shell=True)
-            for line in ram_res.stdout.splitlines():
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    val = int(v.strip())
-                    ram_os[k.strip().lower()] = val
-            if "totalvisiblememorysize" in ram_os:
-                total = ram_os["totalvisiblememorysize"]
-                free = ram_os.get("freephysicalmemory", 0)
+            res = subprocess.run("powershell -NoProfile -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory | ConvertTo-Json -Compress\"", capture_output=True, text=True, shell=True)
+            if res.stdout.strip():
+                ram_os = json.loads(res.stdout)
+                
+            if "TotalVisibleMemorySize" in ram_os:
+                total = int(ram_os["TotalVisibleMemorySize"])
+                free = int(ram_os.get("FreePhysicalMemory", 0))
                 ram_os["total_gb"] = round(total / (1024**2), 2)
                 ram_os["free_gb"] = round(free / (1024**2), 2)
                 ram_os["used_gb"] = round((total - free) / (1024**2), 2)
                 ram_os["used_pct"] = round(((total - free) / total) * 100, 1)
             info["ram"]["system_memory"] = ram_os
             info["ram"].update(ram_os)
-            info["ram"]["chips"] = get_wmic_all_list("memorychip")
+            info["ram"]["chips"] = get_cim_all_list("Win32_PhysicalMemory")
         except: pass
 
         # 5. Storage details
         try:
-            disk_res = subprocess.run("wmic logicaldisk get caption, filesystem, freespace, size", capture_output=True, text=True, shell=True)
+            disks = get_cim_all_list("Win32_LogicalDisk")
             cleaned_disks = {}
-            for line in disk_res.stdout.splitlines():
-                parts = line.strip().split()
-                if len(parts) >= 3 and parts[0].endswith(':'):
-                    cap = parts[0]
-                    try:
-                        size = int(parts[-1])
-                        free = int(parts[-2])
-                        fs = parts[1] if len(parts) == 4 else "NTFS"
-                        cleaned_disks[cap] = {
-                            "filesystem": fs,
-                            "total_gb": round(size / (1024**3), 2),
-                            "free_gb": round(free / (1024**3), 2),
-                            "used_gb": round((size - free) / (1024**3), 2),
-                            "used_pct": round(((size - free) / size) * 100, 1)
-                        }
-                    except:
-                        pass
+            for d in disks:
+                if d.get("DeviceID") and d.get("Size"):
+                    cap = d["DeviceID"]
+                    size = int(d["Size"])
+                    free = int(d.get("FreeSpace", 0))
+                    fs = d.get("FileSystem", "NTFS")
+                    cleaned_disks[cap] = {
+                        "filesystem": fs,
+                        "total_gb": round(size / (1024**3), 2),
+                        "free_gb": round(free / (1024**3), 2),
+                        "used_gb": round((size - free) / (1024**3), 2),
+                        "used_pct": round(((size - free) / size) * 100, 1) if size else 0
+                    }
             info["storage"] = cleaned_disks
-            info["physical_drives"] = get_wmic_all_list("diskdrive")
+            info["physical_drives"] = get_cim_all_list("Win32_DiskDrive")
         except: pass
 
         # 6. Network details
@@ -206,13 +204,14 @@ def collect_full():
                 net_data = json.loads(net_res.stdout)
                 if not isinstance(net_data, list): net_data = [net_data]
                 info["network"]["adapters"] = net_data
-            info["network"]["adapters_config"] = get_wmic_all_list("nicconfig where IPEnabled=True")
+            info["network"]["adapters_config"] = get_cim_all_list("Win32_NetworkAdapterConfiguration where IPEnabled=True")
         except: pass
 
         # 7. Processes summary
         try:
-            p_count = subprocess.run("wmic process get caption | find /c /v """, capture_output=True, text=True, shell=True)
-            info["processes"]["count"] = int(p_count.stdout.strip()) if p_count.stdout.strip().isdigit() else "Unknown"
+            p_count = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_Process).Count\"", capture_output=True, text=True, shell=True)
+            if p_count.stdout.strip().isdigit():
+                info["processes"]["count"] = int(p_count.stdout.strip())
         except: pass
 
     else:

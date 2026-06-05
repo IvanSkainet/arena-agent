@@ -55,50 +55,45 @@ def windows_check() -> dict:
     # 1. Get Physical vs Logical Cores
     physical_cores = None
     try:
-        res = subprocess.run("wmic cpu get NumberOfCores", capture_output=True, text=True, shell=True)
-        lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
-        if len(lines) > 1:
-            physical_cores = int(lines[1])
+        res = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_Processor).NumberOfCores\"", capture_output=True, text=True, shell=True)
+        if res.stdout.strip():
+            physical_cores = int(res.stdout.strip().splitlines()[0])
     except:
         pass
         
     # 2. Get GPU Name
     gpu_name = None
     try:
-        res = subprocess.run("wmic path win32_VideoController get name", capture_output=True, text=True, shell=True)
-        lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
-        if len(lines) > 1:
-            gpu_name = lines[1]
+        res = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_VideoController).Name\"", capture_output=True, text=True, shell=True)
+        if res.stdout.strip():
+            gpu_name = res.stdout.strip().splitlines()[0]
     except:
         pass
         
     # 3. Get Total RAM
     total_ram_gb = None
     try:
-        res = subprocess.run("wmic computersystem get TotalPhysicalMemory", capture_output=True, text=True, shell=True)
-        lines = [l.strip() for l in res.stdout.splitlines() if l.strip()]
-        if len(lines) > 1:
-            total_ram_gb = round(int(lines[1]) / (1024**3), 2)
+        res = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory\"", capture_output=True, text=True, shell=True)
+        if res.stdout.strip():
+            total_ram_gb = round(int(res.stdout.strip().splitlines()[0]) / (1024**3), 2)
     except:
         pass
         
     # 4. Get Disk Drives Free Space
     disk_drives = {}
     try:
-        res = subprocess.run("wmic logicaldisk get caption, freespace, size", capture_output=True, text=True, shell=True)
-        for line in res.stdout.splitlines():
-            parts = line.strip().split()
-            if len(parts) == 3 and parts[0].endswith(':'):
-                caption = parts[0]
-                try:
-                    free = int(parts[1])
-                    size = int(parts[2])
-                    disk_drives[caption] = {
-                        "free_gb": round(free / (1024**3), 2),
-                        "total_gb": round(size / (1024**3), 2)
+        res = subprocess.run("powershell -NoProfile -Command \"Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, FreeSpace, Size | ConvertTo-Json -Compress\"", capture_output=True, text=True, shell=True)
+        out = res.stdout.strip()
+        if out:
+            import json
+            data = json.loads(out)
+            if isinstance(data, dict): data = [data]
+            for d in data:
+                if d.get("DeviceID") and d.get("Size"):
+                    disk_drives[d["DeviceID"]] = {
+                        "size_gb": round(int(d["Size"]) / (1024**3), 2),
+                        "free_gb": round(int(d["FreeSpace"]) / (1024**3), 2)
                     }
-                except:
-                    pass
     except:
         pass
 

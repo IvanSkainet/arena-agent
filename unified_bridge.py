@@ -133,7 +133,7 @@ import traceback as _traceback
 VERSION = "2.6.0"
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
-# triggers a wmic/powershell/tailscale subprocess. No-op on Linux/macOS.
+# triggers a CIM/powershell/tailscale subprocess. No-op on Linux/macOS.
 _NO_WINDOW_FLAG = 0x08000000 if sys.platform == "win32" else 0
 def _subprocess_kwargs() -> dict:
     """Common kwargs to silence subprocess child windows on Windows."""
@@ -4440,29 +4440,37 @@ async def handle_v1_status(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-def _sysinfo_wmic_sync() -> tuple[int, int]:
-    """Synchronous helper to run wmic for CPU info (Windows only)."""
+def _sysinfo_cim_sync() -> tuple[int, int]:
+    """Synchronous helper to run CIM cmdlets for CPU info (Windows only)."""
     cpu_physical = multiprocessing.cpu_count()
     cpu_logical = multiprocessing.cpu_count()
     try:
-        out_bytes = subprocess.check_output(
-            "wmic cpu get NumberOfCores,NumberOfLogicalProcessors", shell=True, **_subprocess_kwargs())
-        for enc in ["utf-16", "utf-8", "cp866"]:
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", 
+               "Get-CimInstance Win32_Processor | Select-Object NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress"]
+        out_bytes = subprocess.check_output(cmd, **_subprocess_kwargs())
+        
+        out = ""
+        for enc in ["utf-8", "utf-16", "cp866"]:
             try:
-                out = out_bytes.decode(enc, errors="ignore")
-                break
+                out = out_bytes.decode(enc, errors="ignore").strip()
+                if out:
+                    break
             except Exception:
                 continue
-        lines = [l.strip().split() for l in out.splitlines() if l.strip()]
-        if len(lines) > 1:
-            headers = [h.lower() for h in lines[0]]
-            ci = next((i for i, h in enumerate(headers) if "numberofcores" in h), None)
-            ti = next((i for i, h in enumerate(headers) if "numberoflogicalprocessors" in h), None)
-            if ci is not None and ti is not None:
-                cpu_physical = int(lines[1][ci])
-                cpu_logical = int(lines[1][ti])
-    except Exception:
-        pass
+                
+        if out:
+            data = json.loads(out)
+            if isinstance(data, list):
+                cpu_physical = sum(int(item.get("NumberOfCores", 0) or 0) for item in data)
+                cpu_logical = sum(int(item.get("NumberOfLogicalProcessors", 0) or 0) for item in data)
+            elif isinstance(data, dict):
+                cpu_physical = int(data.get("NumberOfCores", 0) or 0)
+                cpu_logical = int(data.get("NumberOfLogicalProcessors", 0) or 0)
+                
+            if cpu_physical == 0: cpu_physical = multiprocessing.cpu_count()
+            if cpu_logical == 0: cpu_logical = multiprocessing.cpu_count()
+    except Exception as e:
+        log.debug("[SysInfo] Failed to get CPU via CIM: %s", e)
     return cpu_physical, cpu_logical
 
 
@@ -4506,7 +4514,7 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
         cpu_logical = multiprocessing.cpu_count()
         if sys.platform == "win32":
             loop = asyncio.get_event_loop()
-            cpu_physical, cpu_logical = await loop.run_in_executor(_EXECUTOR, _sysinfo_wmic_sync)
+            cpu_physical, cpu_logical = await loop.run_in_executor(_EXECUTOR, _sysinfo_cim_sync)
 
         # CPU load: cross-platform (Windows has no os.getloadavg)
         cpu_percent = 0.0
@@ -4576,76 +4584,67 @@ def _hwinfo_sync():
             return ""
 
     if platform.system() == "Windows":
-        # Helper: parse wmic /format:list output as list of dicts.
-        # wmic on Windows outputs each "Key=Value" line followed by extra blank lines
-        # (Python's text mode converts \r\r\n -> \n\n). Block separator is "\n\n+" run of blanks
-        # but in practice every entry has blanks too, so simplest: collect all KV pairs into one block,
-        # then split into per-entry blocks based on RECORD pattern.
-        # However wmic typically returns ONE entry per call for system items (cpu, bios, baseboard)
-        # and we already iterate gpus/disks/memorychip separately.
-        # Strategy: treat each contiguous group of non-blank lines as a single record's prefix,
-        # but use "key seen twice" as the trigger to start a new block.
-        def parse_wmic_list(text):
-            text = text.replace("\r\r\n", "\n").replace("\r\n", "\n").replace("\r", "")
-            blocks = []
-            current = {}
-            for line in text.split("\n"):
-                line = line.strip()
-                if not line:
-                    continue
-                if "=" not in line:
-                    continue
-                k, v = line.split("=", 1)
-                k = k.strip(); v = v.strip()
-                # If we already have this key, start a new record
-                if k in current:
-                    blocks.append(current)
-                    current = {}
-                current[k] = v
-            if current:
-                blocks.append(current)
-            return blocks
+        def get_cim_json(class_name, properties):
+            cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", 
+                   f"Get-CimInstance {class_name} | Select-Object {properties} | ConvertTo-Json -Compress"]
+            try:
+                out = _run(cmd, timeout=10)
+                if not out or not out.strip():
+                    return []
+                data = json.loads(out.strip())
+                if isinstance(data, dict):
+                    return [data]
+                if isinstance(data, list):
+                    return data
+            except Exception:
+                pass
+            return []
 
         # Motherboard
-        mb_blocks = parse_wmic_list(_run(["wmic", "baseboard", "get", "Manufacturer,Product,Version", "/format:list"]))
+        mb_blocks = get_cim_json("Win32_BaseBoard", "Manufacturer,Product,Version")
         if mb_blocks and mb_blocks[0].get("Manufacturer"):
             d = mb_blocks[0]
             info["motherboard"] = {
-                "manufacturer": d.get("Manufacturer", ""),
-                "product": d.get("Product", ""),
-                "version": d.get("Version", ""),
+                "manufacturer": str(d.get("Manufacturer") or ""),
+                "product": str(d.get("Product") or ""),
+                "version": str(d.get("Version") or ""),
             }
         # BIOS
-        bios_blocks = parse_wmic_list(_run(["wmic", "bios", "get", "SMBIOSBIOSVersion,Manufacturer,ReleaseDate", "/format:list"]))
+        bios_blocks = get_cim_json("Win32_BIOS", "SMBIOSBIOSVersion,Manufacturer,ReleaseDate")
         if bios_blocks and bios_blocks[0].get("SMBIOSBIOSVersion"):
             d = bios_blocks[0]
+            # ReleaseDate from CIM might be a dict like {'value': '...', 'DateTime': '...'} or string
+            # We'll just cast to string and take first 8 chars if it matches YYYYMMDD
+            rd = str(d.get("ReleaseDate") or "")
+            if isinstance(d.get("ReleaseDate"), dict) and "DateTime" in d["ReleaseDate"]:
+                rd = str(d["ReleaseDate"]["DateTime"])
             info["bios"] = {
-                "version": d.get("SMBIOSBIOSVersion", ""),
-                "manufacturer": d.get("Manufacturer", ""),
-                "release_date": d.get("ReleaseDate", "")[:8],
+                "version": str(d.get("SMBIOSBIOSVersion") or ""),
+                "manufacturer": str(d.get("Manufacturer") or ""),
+                "release_date": rd[:8] if len(rd) >= 8 else rd,
             }
         # CPU
-        cpu_blocks = parse_wmic_list(_run(["wmic", "cpu", "get", "Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed", "/format:list"]))
+        cpu_blocks = get_cim_json("Win32_Processor", "Name,NumberOfCores,NumberOfLogicalProcessors,MaxClockSpeed")
         if cpu_blocks and cpu_blocks[0].get("Name"):
             d = cpu_blocks[0]
-            try: cores = int(d.get("NumberOfCores", "0"))
+            try: cores = int(d.get("NumberOfCores") or 0)
             except: cores = 0
-            try: threads = int(d.get("NumberOfLogicalProcessors", "0"))
+            try: threads = int(d.get("NumberOfLogicalProcessors") or 0)
             except: threads = 0
-            try: ghz = round(int(d.get("MaxClockSpeed", "0")) / 1000.0, 2)
+            try: ghz = round(int(d.get("MaxClockSpeed") or 0) / 1000.0, 2)
             except: ghz = 0
-            info["cpu"] = {"name": d["Name"], "cores": cores, "threads": threads, "max_ghz": ghz}
+            info["cpu"] = {"name": str(d.get("Name") or ""), "cores": cores, "threads": threads, "max_ghz": ghz}
         # GPU
-        gpu_blocks = parse_wmic_list(_run(["wmic", "path", "win32_VideoController", "get", "Name,AdapterRAM", "/format:list"]))
+        gpu_blocks = get_cim_json("Win32_VideoController", "Name,AdapterRAM")
         for d in gpu_blocks:
             if d.get("Name"):
-                try: vram_mb = int(d.get("AdapterRAM", "0")) // (1024 * 1024)
+                try: vram_mb = int(d.get("AdapterRAM") or 0) // (1024 * 1024)
                 except: vram_mb = 0
-                info["gpus"].append({"name": d["Name"], "vram_mb": vram_mb})
+                info["gpus"].append({"name": str(d.get("Name") or ""), "vram_mb": vram_mb})
         if info["gpus"]:
             info["gpu"] = info["gpus"][0]
         # RAM modules
-        ram_blocks = parse_wmic_list(_run(["wmic", "memorychip", "get", "Capacity,Speed,Manufacturer,PartNumber", "/format:list"]))
+        ram_blocks = get_cim_json("Win32_PhysicalMemory", "Capacity,Speed,Manufacturer,PartNumber")
         total_bytes = 0
         for d in ram_blocks:
             if d.get("Capacity"):
@@ -4654,25 +4653,25 @@ def _hwinfo_sync():
                     total_bytes += cap
                     info["ram_modules"].append({
                         "size_gb": round(cap / (1024 ** 3), 1),
-                        "speed_mhz": int(d.get("Speed", "0") or 0),
-                        "manufacturer": d.get("Manufacturer", "").strip(),
-                        "part_number": d.get("PartNumber", "").strip(),
+                        "speed_mhz": int(d.get("Speed") or 0),
+                        "manufacturer": str(d.get("Manufacturer") or "").strip(),
+                        "part_number": str(d.get("PartNumber") or "").strip(),
                     })
                 except Exception:
                     pass
         if total_bytes:
             info["ram_total_gb"] = round(total_bytes / (1024 ** 3), 1)
         # Disks
-        disk_blocks = parse_wmic_list(_run(["wmic", "logicaldisk", "get", "DeviceID,Size,FreeSpace,FileSystem,VolumeName", "/format:list"]))
+        disk_blocks = get_cim_json("Win32_LogicalDisk", "DeviceID,Size,FreeSpace,FileSystem,VolumeName")
         for d in disk_blocks:
             if d.get("DeviceID") and d.get("Size"):
                 try:
                     size = int(d["Size"])
-                    free = int(d.get("FreeSpace", "0") or 0)
+                    free = int(d.get("FreeSpace") or 0)
                     info["disks"].append({
-                        "device": d["DeviceID"],
-                        "volume": d.get("VolumeName", "").strip(),
-                        "filesystem": d.get("FileSystem", "").strip(),
+                        "device": str(d.get("DeviceID") or ""),
+                        "volume": str(d.get("VolumeName") or "").strip(),
+                        "filesystem": str(d.get("FileSystem") or "").strip(),
                         "total_gb": round(size / (1024 ** 3), 1),
                         "free_gb": round(free / (1024 ** 3), 1),
                         "used_pct": round((size - free) / size * 100, 1) if size else 0,
@@ -4839,7 +4838,7 @@ async def handle_v1_hwinfo(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": True, "hwinfo": info})
     except asyncio.TimeoutError:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "hwinfo collection timed out (30s) — wmic commands may be hung"}, status=504)
+        return _cors_json_response({"ok": False, "error": "hwinfo collection timed out (30s) — CIM cmdlets may be hung"}, status=504)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -6099,16 +6098,20 @@ def _sys_svc_sync() -> dict:
     bridge_procs = []
     try:
         if sys.platform == "win32":
-            # Use wmic to get process IDs only (count actual processes, not lines)
+            # Use CIM to get process IDs
             out = subprocess.check_output(
-                'wmic process where "commandline like \'%unified_bridge%\'" get processid /format:list',
+                'powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process -Filter \\"CommandLine LIKE \'%unified_bridge%\'\\" | Select-Object ProcessId | ConvertTo-Json -Compress"',
                 shell=True, stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
-            for line in out.splitlines():
-                line = line.strip()
-                if line.startswith("ProcessId="):
-                    pid = line.split("=", 1)[1].strip()
-                    if pid:
-                        bridge_procs.append(f"PID {pid}")
+            if out.strip():
+                try:
+                    data = json.loads(out.strip())
+                    if isinstance(data, dict):
+                        bridge_procs.append(f"PID {data.get('ProcessId')}")
+                    elif isinstance(data, list):
+                        for item in data:
+                            bridge_procs.append(f"PID {item.get('ProcessId')}")
+                except json.JSONDecodeError:
+                    pass
         else:
             out = subprocess.check_output(
                 ["ps", "aux"], stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
