@@ -100,17 +100,35 @@ def cmd_start(args: list[str]) -> int:
         str(out_path),
     ]
     if system == "Linux":
-        display = os.environ.get("DISPLAY", ":0")
-        ff_args = [ff, "-y", "-loglevel", "error",
-                   "-f", "x11grab", "-framerate", "10",
-                   "-i", display, *common_out]
+        session_type = os.environ.get("XDG_SESSION_TYPE", "x11").lower()
+        backend_name = "ffmpeg-x11grab"
+        
+        if session_type == "wayland":
+            # Wayland recording
+            if shutil.which("wf-recorder"):
+                ff_args = ["wf-recorder", "-y", "-f", str(out_path)]
+                backend_name = "wf-recorder"
+            else:
+                # Fallback to ffmpeg kmsgrab (often requires root/CAP_SYS_ADMIN, but standard fallback)
+                ff_args = [ff, "-y", "-loglevel", "error",
+                           "-device", "/dev/dri/card0",
+                           "-f", "kmsgrab", "-framerate", "10",
+                           "-i", "-", "-vf", "hwdownload,format=bgr0", *common_out]
+                backend_name = "ffmpeg-kmsgrab"
+        else:
+            display = os.environ.get("DISPLAY", ":0")
+            ff_args = [ff, "-y", "-loglevel", "error",
+                       "-f", "x11grab", "-framerate", "10",
+                       "-i", display, *common_out]
     elif system == "Darwin":
+        backend_name = "ffmpeg-avfoundation"
         # avfoundation: list with `ffmpeg -f avfoundation -list_devices true -i ""`
         # "1" is the typical main display index; could also be "Capture screen 0"
         ff_args = [ff, "-y", "-loglevel", "error",
                    "-f", "avfoundation", "-framerate", "10",
                    "-i", "1", *common_out]
     elif system == "Windows":
+        backend_name = "ffmpeg-gdigrab"
         ff_args = [ff, "-y", "-loglevel", "error",
                    "-f", "gdigrab", "-framerate", "10",
                    "-i", "desktop", *common_out]
@@ -139,10 +157,10 @@ def cmd_start(args: list[str]) -> int:
         "out": str(out_path),
         "started": stamp,
         "name": name,
-        "backend": system,
+        "backend": backend_name,
     }
     meta_file().write_text(json.dumps(meta, indent=2))
-    print(json.dumps({"ok": True, "pid": p.pid, "out": str(out_path), "backend": system}))
+    print(json.dumps({"ok": True, "pid": p.pid, "out": str(out_path), "backend": backend_name}))
     return 0
 
 

@@ -698,7 +698,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - [x] **Local semantic RAG memory** via SQLite FTS5
 - [ ] **AppContainer sandboxing** on Windows for opt-in command isolation
 - [x] Replace `wmic` (deprecated in Win11) with CIM cmdlets in `_sys_*` helpers
-- [ ] Linux Wayland recording in `mission-record` (currently x11grab only)
+- [x] Linux Wayland recording in `mission-record` (currently x11grab only)
 - [ ] AnythingLLM / Open WebUI integration recipes in `skills/`
 - [x] Webhook notifications for events
 - [ ] Code and repository cleanup (remove unused test files, old configs)
