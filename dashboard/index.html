@@ -1486,7 +1486,8 @@ async function loadSkills() {
     skills.forEach(s => {
       const tr = document.createElement("tr");
       const tdName = document.createElement("td");
-      tdName.textContent = s.name || s.id || "?";
+      const badge = s.is_third_party ? `<span class="badge warning" style="margin-right:6px;font-size:10px">Plugin</span>` : `<span class="badge ok" style="margin-right:6px;font-size:10px">Core</span>`;
+      tdName.innerHTML = badge + esc(s.name || s.id || "?");
       tdName.style.cursor = "pointer";
       tdName.style.color = "var(--blue)";
       tdName.addEventListener("click", () => showSkillDetail(s));
