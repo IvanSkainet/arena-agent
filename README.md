@@ -701,6 +701,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - [ ] Linux Wayland recording in `mission-record` (currently x11grab only)
 - [ ] AnythingLLM / Open WebUI integration recipes in `skills/`
 - [x] Webhook notifications for events
+- [ ] Code and repository cleanup (remove unused test files, old configs)
 
 ---
 

@@ -1,0 +1,5 @@
+{
+  "name": "weather",
+  "version": "1.0.0",
+  "description": "Fetches current weather for a specified city using wttr.in"
+}
