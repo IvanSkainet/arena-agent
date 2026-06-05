@@ -129,7 +129,7 @@ def collect_full():
             else:
                 info["os"]["name_pretty"] = "Windows 10"
             info["os"]["build"] = build
-        except:
+        except Exception:
             info["os"]["name_pretty"] = "Windows " + info["os"]["release"]
     else:
         info["os"]["name_pretty"] = platform.platform()
@@ -145,7 +145,8 @@ def collect_full():
             if bios_data:
                 for k, v in bios_data[0].items():
                     info["motherboard"][f"bios_{k}"] = v
-        except: pass
+        except Exception:
+            pass
 
         # 2. CPU Full Details
         info["cpu"] = get_cim_all_list("Win32_Processor")
@@ -174,7 +175,8 @@ def collect_full():
             info["ram"]["system_memory"] = ram_os
             info["ram"].update(ram_os)
             info["ram"]["chips"] = get_cim_all_list("Win32_PhysicalMemory")
-        except: pass
+        except Exception:
+            pass
 
         # 5. Storage details
         try:
@@ -195,7 +197,8 @@ def collect_full():
                     }
             info["storage"] = cleaned_disks
             info["physical_drives"] = get_cim_all_list("Win32_DiskDrive")
-        except: pass
+        except Exception:
+            pass
 
         # 6. Network details
         try:
@@ -205,14 +208,16 @@ def collect_full():
                 if not isinstance(net_data, list): net_data = [net_data]
                 info["network"]["adapters"] = net_data
             info["network"]["adapters_config"] = get_cim_all_list("Win32_NetworkAdapterConfiguration where IPEnabled=True")
-        except: pass
+        except Exception:
+            pass
 
         # 7. Processes summary
         try:
             p_count = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_Process).Count\"", capture_output=True, text=True, shell=True)
             if p_count.stdout.strip().isdigit():
                 info["processes"]["count"] = int(p_count.stdout.strip())
-        except: pass
+        except Exception:
+            pass
 
     else:
         info["cpu"]["logical_processors"] = os.cpu_count()

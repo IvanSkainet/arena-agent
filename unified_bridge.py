@@ -4689,18 +4689,18 @@ def _hwinfo_sync():
         if cpu_blocks and cpu_blocks[0].get("Name"):
             d = cpu_blocks[0]
             try: cores = int(d.get("NumberOfCores") or 0)
-            except: cores = 0
+            except Exception: cores = 0
             try: threads = int(d.get("NumberOfLogicalProcessors") or 0)
-            except: threads = 0
+            except Exception: threads = 0
             try: ghz = round(int(d.get("MaxClockSpeed") or 0) / 1000.0, 2)
-            except: ghz = 0
+            except Exception: ghz = 0
             info["cpu"] = {"name": str(d.get("Name") or ""), "cores": cores, "threads": threads, "max_ghz": ghz}
         # GPU
         gpu_blocks = get_cim_json("Win32_VideoController", "Name,AdapterRAM")
         for d in gpu_blocks:
             if d.get("Name"):
                 try: vram_mb = int(d.get("AdapterRAM") or 0) // (1024 * 1024)
-                except: vram_mb = 0
+                except Exception: vram_mb = 0
                 info["gpus"].append({"name": str(d.get("Name") or ""), "vram_mb": vram_mb})
         if info["gpus"]:
             info["gpu"] = info["gpus"][0]
@@ -5656,7 +5656,7 @@ def _linux_play_beep(beep_type: str, freq: int, dur: int) -> dict:
                 return {"ok": True, "type": beep_type, "method": "paplay"}
             finally:
                 try: _os.unlink(tmp.name)
-                except: pass
+                except Exception: pass
         except Exception:
             pass
 
@@ -5686,7 +5686,7 @@ def _linux_play_beep(beep_type: str, freq: int, dur: int) -> dict:
                 return {"ok": True, "type": beep_type, "method": "aplay"}
             finally:
                 try: _os.unlink(tmp.name)
-                except: pass
+                except Exception: pass
         except Exception:
             pass
 
@@ -6473,7 +6473,7 @@ def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
                         proc.wait(timeout=2)
                     except Exception:
                         try: proc.kill()
-                        except: pass
+                        except Exception: pass
                 _CLOUDFLARED_STATE["proc"] = None
                 return {"ok": False, "action": "start", "error": "cloudflared timed out generating a tunnel URL", "log": list(_CLOUDFLARED_STATE["log"])}
             return {"ok": True, "action": "start", "port": port, "url": _CLOUDFLARED_STATE["url"], "log": _CLOUDFLARED_STATE["log"]}
@@ -6488,7 +6488,7 @@ def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
                 proc.wait(timeout=5)
             except Exception:
                 try: proc.kill()
-                except: pass
+                except Exception: pass
         _CLOUDFLARED_STATE["proc"] = None
         _CLOUDFLARED_STATE["url"] = ""
         return {"ok": True, "action": "stop"}
