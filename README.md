@@ -5,7 +5,7 @@
 **Cross-platform local automation bridge for AI agents.**
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v2.5.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.7.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -608,6 +608,16 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.7.0 — Memory DB, Cloudflare Quick Tunnels, Webhooks, AppContainer Sandbox & Universal Plugins
+- **Added:** Local Semantic RAG Memory via SQLite FTS5 with `trigram` tokenizer, fully replacing obsolete `facts.jsonl` in both the bridge and CLI tools (`scripts/memory.py`, `bin/memory_recall.py`)
+- **Added:** Cloudflare Quick Tunnels integration (`cloudflared`) managed directly from the dashboard, featuring auto-cleanup of stale daemon processes
+- **Added:** Plugin architecture for installing/uninstalling third-party skills from ZIP (with automatic un-nesting and macOS metadata cleaning) or GitHub repositories with flag injection protections
+- **Added:** Webhook notifications for bridge events with built-in in-memory caching for zero-I/O background performance
+- **Added:** Linux Wayland video recording support via `wf-recorder` or `kmsgrab` fallback to `mission-record`
+- **Added:** AppContainer sandboxing on Windows (`scripts/appcontainer_run.ps1`) for isolated command execution
+- **Added:** Modern PowerShell CIM-cmdlets (`Get-CimInstance`) replacing deprecated `wmic` across all scripts, including `scripts/hwinfo_lite.py`
+- **Added:** Full automated test suite inside `tests/test_unified_bridge.py` running on `pytest` to verify all components natively on any platform
 
 ### v2.5.2 — Remove backup feature
 - **Removed:** Backup feature entirely (`/v1/backup/*` endpoints and `backups/` directory) — it could create oversized archives (44 GB+) and is not reliably fixable. Use external backup tools instead.
