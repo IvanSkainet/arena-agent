@@ -2520,6 +2520,11 @@ async def _run_sandboxed(cmd: str, timeout: int = 30, memory_mb: int = 256) -> d
     # Add sandbox indicator
     clean_env["ARENA_SANDBOX"] = "1"
     
+    if sys.platform == "win32":
+        ac_runner = ROOT_AGENT / "scripts" / "appcontainer_run.ps1"
+        if ac_runner.exists():
+            cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ac_runner}" "{cmd}"'
+
     try:
         proc = await asyncio.create_subprocess_shell(
             cmd,
