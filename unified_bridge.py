@@ -136,7 +136,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.9.0"
+VERSION = "2.9.1"
 
 # ============================================================================
 # DESKTOP CONTROL STATE (v2.9.0)
@@ -9282,10 +9282,61 @@ async def handle_v1_desktop_windows(request):
 async def _get_active_window() -> dict | None:
     """Get currently active (focused) window info. Used by input guard.
 
-    Tries multiple backends: xdotool (X11/XWayland), kdotool (KDE Wayland),
-    wmctrl fallback. Returns dict with id, title, pid, class or None.
+    Tries multiple backends in order of reliability:
+    1. KWin DBus (KDE Plasma Wayland — most reliable)
+    2. xdotool (X11 / XWayland)
+    3. kdotool (KDE Wayland fallback)
+    4. wmctrl (generic fallback)
+    Returns dict with id, title, pid, class or None.
     """
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # Strategy 0: KWin DBus (KDE Plasma Wayland — native, most reliable)
+    # Uses org.kde.KWin to get active window caption and ID
+    if shutil.which("dbus-send") or shutil.which("qdbus") or shutil.which("qdbus6"):
+        try:
+            # Try qdbus6 first (KDE Plasma 6)
+            qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
+            if qdbus:
+                # Get active window caption
+                result = await _desktop_exec(
+                    f'{qdbus} org.kde.KWin /KWin org.kde.KWin.getActiveOutputName 2>/dev/null',
+                    timeout=2)
+                # Get active window info via KWin scripting
+                result = await _desktop_exec(
+                    f'{qdbus} org.kde.KWin /KWin supportInformation 2>/dev/null | '
+                    f'grep -A2 "Active window"',
+                    timeout=3)
+                # Simpler approach: get active window via kscreen/kwin
+                result = await _desktop_exec(
+                    f'dbus-send --session --dest=org.kde.KWin --type=method_call '
+                    f'--print-reply /KWin org.kde.KWin.getActiveWindowId 2>/dev/null',
+                    timeout=3)
+                if result["ok"] and result["stdout"].strip():
+                    # Parse int32 from dbus reply
+                    import re as _re
+                    match = _re.search(r'int32\s+(\d+)|int64\s+(\d+)', result["stdout"])
+                    if match:
+                        wid = match.group(1) or match.group(2)
+                        if wid and wid != "0":
+                            # Get window caption
+                            caption_r = await _desktop_exec(
+                                f'dbus-send --session --dest=org.kde.KWin --type=method_call '
+                                f'--print-reply /KWin org.kde.KWin.getWindowCaption int32:{wid} 2>/dev/null',
+                                timeout=2)
+                            title = ""
+                            if caption_r["ok"] and caption_r["stdout"].strip():
+                                # Parse string from dbus reply: string "caption"
+                                cap_match = _re.search(r'string\s+"(.+)"', caption_r["stdout"])
+                                if cap_match:
+                                    title = cap_match.group(1)
+                            return {
+                                "id": wid,
+                                "title": title,
+                                "backend": "kwin_dbus",
+                            }
+        except Exception:
+            pass  # Fall through to other strategies
 
     # Strategy 1: xdotool getactivewindow (X11 / XWayland)
     if shutil.which("xdotool"):
@@ -9453,8 +9504,23 @@ async def handle_v1_desktop_focus(request):
     focus_ok = False
     focus_tool = "none"
 
+    # Strategy A: KWin DBus (KDE Plasma Wayland — native, most reliable)
+    # Tries to activate window via KWin scripting / DBus interface
+    if not focus_ok:
+        try:
+            wid_int = int(target_id, 0)  # Parse hex or decimal window ID
+            result = await _desktop_exec(
+                f'dbus-send --session --dest=org.kde.KWin --type=method_call '
+                f'/KWin org.kde.KWin.setActiveWindow int32:{wid_int} 2>/dev/null',
+                timeout=5)
+            if result["ok"] and result["exit_code"] == 0:
+                focus_ok = True
+                focus_tool = "kwin_dbus"
+        except (ValueError, Exception):
+            pass
+
     # Try wmctrl -ia first (most reliable on XWayland/X11)
-    if shutil.which("wmctrl"):
+    if not focus_ok and shutil.which("wmctrl"):
         result = await _desktop_exec(
             f'{display_env} wmctrl -i -a {target_id} 2>/dev/null', timeout=5)
         if result["ok"] and result["exit_code"] == 0:
@@ -9477,6 +9543,29 @@ async def handle_v1_desktop_focus(request):
         if result["ok"] and result["exit_code"] == 0:
             focus_ok = True
             focus_tool = "kdotool"
+
+    # Strategy F: KDE KWin scripting via qdbus (last resort)
+    if not focus_ok:
+        qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
+        if qdbus:
+            try:
+                wid_int = int(target_id, 0)
+                # Use KWin scripting to activate window
+                script = f'const area = workspace.clientArea(0, 0, 0); '
+                script += f'var clients = workspace.windowList(); '
+                script += f'for (var i = 0; i < clients.length; i++) {{ '
+                script += f'  if (clients[i].internalId === {wid_int} || clients[i].frameId === {wid_int}) {{ '
+                script += f'    workspace.activeClient = clients[i]; break; '
+                script += f'  }} '
+                script += f'}}; '
+                import shlex
+                result = await _desktop_exec(
+                    f'{qdbus} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript '
+                    f'eval 2>/dev/null',
+                    timeout=5)
+                # Simpler: try kdotool with window class search
+            except (ValueError, Exception):
+                pass
 
     if not focus_ok:
         _record_request(is_error=True, count_request=False)

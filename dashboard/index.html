@@ -109,6 +109,7 @@ button.sm{padding:4px 10px;font-size:11px}
 <a data-tab="skills"><span class="icon">&#9881;</span>Skills</a>
 <a data-tab="hooks"><span class="icon">&#10227;</span>Hooks</a>
 <a data-tab="agents"><span class="icon">&#9978;</span>Agents</a>
+<a data-tab="control"><span class="icon">&#128274;</span>🛡️ Control</a>
 <a data-tab="doctor"><span class="icon">&#9764;</span>🏥 Doctor</a>
 <a data-tab="audit"><span class="icon">&#128196;</span>📜 Audit</a>
 <a data-tab="settings"><span class="icon">&#9881;</span>⚙️ Settings</a>
@@ -153,6 +154,16 @@ v<span id="sidebarVersion">{{VERSION}}</span>
 <div class="card" id="networkCard">
 <div class="row"><span style="font-size:12px;font-weight:600;width:120px">Tailscale Funnel</span><span id="tsFunnelStatus" class="badge gray">Unknown</span></div>
 <div class="row"><span style="font-size:12px;font-weight:600;width:120px">Public URL</span><span id="tsFunnelUrl" class="mono" style="font-size:12px">--</span></div>
+</div>
+
+<h2>Agent Control <span class="badge gray" id="overviewControlBadge">checking...</span></h2>
+<div class="card" id="controlOverviewCard">
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Control State</span><span id="overviewControlState" class="badge ok">Active</span></div>
+<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Active Window</span><span id="overviewActiveWindow" class="mono" style="font-size:12px">--</span></div>
+<div class="row" style="gap:6px">
+<button id="overviewPauseBtn" class="warning sm" onclick="controlPause()" style="display:none">&#9208; Pause</button>
+<button id="overviewResumeBtn" class="success sm" onclick="controlResume()" style="display:none">&#9654; Resume</button>
+</div>
 </div>
 
 <h2>Bridge Metrics</h2>
@@ -397,6 +408,83 @@ Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /d
 <table><thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead><tbody id="auditTable"></tbody></table>
 </div>
 
+<!-- ==================== CONTROL (v2.9.0) ==================== -->
+<div class="tab" id="tab-control">
+<h1>Agent Control <span class="version-tag">v2.9.0</span></h1>
+
+<div class="card" style="text-align:center;padding:24px">
+<div id="controlBigStatus" style="font-size:48px;margin-bottom:8px">&#9989;</div>
+<div id="controlBigLabel" style="font-size:20px;font-weight:700;margin-bottom:4px">ACTIVE</div>
+<div id="controlBigReason" style="font-size:13px;color:var(--text2)"></div>
+</div>
+
+<div class="card">
+<h2>Control Actions</h2>
+<div class="row" style="gap:10px;flex-wrap:wrap">
+<button id="ctrlPauseBtn" class="warning" onclick="controlPause()" style="font-size:14px;padding:10px 24px">&#9208; Pause Agent</button>
+<button id="ctrlResumeBtn" class="success" onclick="controlResume()" style="font-size:14px;padding:10px 24px;display:none">&#9654; Resume Agent</button>
+<button id="ctrlRevokeBtn" class="danger" onclick="controlRevoke()" style="font-size:14px;padding:10px 24px">&#128683; Revoke Control</button>
+</div>
+<p style="font-size:11px;color:var(--text2);margin-top:8px">
+<strong>Pause:</strong> Temporarily blocks all desktop input (click/type/key/mouse/focus). Non-desktop APIs still work.<br>
+<strong>Revoke:</strong> Hard revoke. Blocks all desktop input until explicitly resumed.<br>
+<strong>Resume:</strong> Re-enables desktop control after pause or revoke.
+</p>
+</div>
+
+<div class="card">
+<h2>Control Status</h2>
+<table>
+<tr><th style="width:180px">Property</th><th>Value</th></tr>
+<tr><td>Control State</td><td><span id="ctrlStatusBadge" class="badge ok">active</span></td></tr>
+<tr><td>Reason</td><td id="ctrlReason" class="mono">--</td></tr>
+<tr><td>Paused At</td><td id="ctrlPausedAt" class="mono">--</td></tr>
+<tr><td>Revoked At</td><td id="ctrlRevokedAt" class="mono">--</td></tr>
+<tr><td>Last Agent Action</td><td id="ctrlLastAgent" class="mono">--</td></tr>
+<tr><td>Last User Input</td><td id="ctrlLastUser" class="mono">--</td></tr>
+<tr><td>Session ID</td><td id="ctrlSession" class="mono">--</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>Active Window</h2>
+<div class="row" style="gap:8px;margin-bottom:8px">
+<button class="sm" onclick="refreshActiveWindow()">&#8635; Refresh</button>
+<span class="mono" style="font-size:12px" id="ctrlActiveWinText">Loading...</span>
+</div>
+<table>
+<tr><th style="width:120px">Property</th><th>Value</th></tr>
+<tr><td>Window ID</td><td id="ctrlWinId" class="mono">--</td></tr>
+<tr><td>Title</td><td id="ctrlWinTitle" class="mono">--</td></tr>
+<tr><td>PID</td><td id="ctrlWinPid" class="mono">--</td></tr>
+<tr><td>Class</td><td id="ctrlWinClass" class="mono">--</td></tr>
+<tr><td>Backend</td><td id="ctrlWinBackend" class="mono">--</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>Focus Window</h2>
+<div class="row" style="gap:8px;margin-bottom:8px">
+<input type="text" id="ctrlFocusTitle" placeholder="Window title (contains match)" style="flex:1">
+<button onclick="focusByTitle()">Focus by Title</button>
+</div>
+<div id="ctrlFocusResult" class="mono" style="font-size:12px;white-space:pre-wrap;color:var(--text2);display:none"></div>
+</div>
+
+<div class="card">
+<h2>Input Guard Test</h2>
+<p style="font-size:12px;color:var(--text2);margin-bottom:8px">
+Tests <code>require_active_title</code> -- verifies desktop click only works when the expected window is active.
+</p>
+<div class="row" style="gap:8px;margin-bottom:8px">
+<input type="text" id="guardTitleInput" placeholder="Required window title" style="flex:1">
+<button onclick="testInputGuard()">Test Guard</button>
+</div>
+<div id="guardTestResult" class="mono" style="font-size:12px;white-space:pre-wrap;color:var(--text2);display:none"></div>
+</div>
+
+</div>
+
 <!-- ==================== SETTINGS ==================== -->
 <div class="tab" id="tab-settings">
 <h1>Settings</h1>
@@ -510,6 +598,7 @@ document.querySelectorAll(".sidebar nav a").forEach(a => {
     if (tabName === "audit") loadAudit();
     if (tabName === "settings") refreshSettings();
     if (tabName === "doctor") runDoctor();
+    if (tabName === "control") refreshControlPanel();
   });
 });
 
@@ -706,6 +795,9 @@ async function refreshOverview() {
     document.getElementById("metricReqs").textContent = overviewMetrics.requests;
     document.getElementById("metricExecs").textContent = overviewMetrics.execs;
     document.getElementById("metricErrors").textContent = overviewMetrics.errors;
+
+    // v2.9.0: Refresh control overview card
+    refreshControlPanel();
 
   } catch(e) {
     document.getElementById("pingDot").className = "ping err";
@@ -2709,6 +2801,140 @@ function formatInventoryText(inv, onlySections) {
   }
 
   return lines.join("\n");
+}
+
+// ===== CONTROL PANEL (v2.9.0) =====
+async function refreshControlPanel() {
+  try {
+    const cs = await api("/v1/control/status");
+    if (!cs || !cs.ok) return;
+    const state = cs.control || "active";
+    const reason = cs.reason || "";
+
+    // Big status
+    const icons = {active: "&#9989;", paused: "&#9208;", revoked: "&#128683;"};
+    const labels = {active: "ACTIVE", paused: "PAUSED", revoked: "REVOKED"};
+    const colors = {active: "ok", paused: "warn", revoked: "fail"};
+    document.getElementById("controlBigStatus").innerHTML = icons[state] || "&#10067;";
+    document.getElementById("controlBigLabel").textContent = labels[state] || state;
+    document.getElementById("controlBigLabel").style.color = state === "active" ? "var(--green)" : state === "paused" ? "var(--yellow)" : "var(--red)";
+    document.getElementById("controlBigReason").textContent = reason;
+
+    // Status table
+    const badge = document.getElementById("ctrlStatusBadge");
+    badge.className = "badge " + colors[state];
+    badge.textContent = state;
+    document.getElementById("ctrlReason").textContent = reason || "--";
+    document.getElementById("ctrlPausedAt").textContent = cs.paused_at ? relTime(cs.paused_at) + " (" + cs.paused_at.slice(11,19) + ")" : "--";
+    document.getElementById("ctrlRevokedAt").textContent = cs.revoked_at ? relTime(cs.revoked_at) + " (" + cs.revoked_at.slice(11,19) + ")" : "--";
+    document.getElementById("ctrlLastAgent").textContent = cs.last_agent_input_at ? relTime(cs.last_agent_input_at) : "--";
+    document.getElementById("ctrlLastUser").textContent = cs.last_user_input_at ? relTime(cs.last_user_input_at) : "--";
+    document.getElementById("ctrlSession").textContent = cs.session_id || "--";
+
+    // Button visibility
+    document.getElementById("ctrlPauseBtn").style.display = state === "active" ? "inline-block" : "none";
+    document.getElementById("ctrlResumeBtn").style.display = state !== "active" ? "inline-block" : "none";
+    document.getElementById("ctrlRevokeBtn").style.display = state !== "revoked" ? "inline-block" : "none";
+
+    // Overview card
+    const ovState = document.getElementById("overviewControlState");
+    if (ovState) { ovState.className = "badge " + colors[state]; ovState.textContent = state; }
+    const ovBadge = document.getElementById("overviewControlBadge");
+    if (ovBadge) { ovBadge.className = "badge " + colors[state]; ovBadge.textContent = state; }
+    const ovPause = document.getElementById("overviewPauseBtn");
+    const ovResume = document.getElementById("overviewResumeBtn");
+    if (ovPause) ovPause.style.display = state === "active" ? "inline-block" : "none";
+    if (ovResume) ovResume.style.display = state !== "active" ? "inline-block" : "none";
+
+    // Also refresh active window
+    refreshActiveWindow();
+  } catch(e) {}
+}
+
+async function controlPause() {
+  const reason = prompt("Reason for pausing (optional):", "User paused from dashboard") || "Dashboard pause";
+  const r = await api("/v1/control/pause", {method: "POST", body: JSON.stringify({reason})});
+  if (r && r.ok) { refreshControlPanel(); }
+  else { alert("Pause failed: " + (r ? r.error : "unknown")); }
+}
+
+async function controlResume() {
+  if (!confirm("Resume agent desktop control?")) return;
+  const r = await api("/v1/control/resume", {method: "POST"});
+  if (r && r.ok) { refreshControlPanel(); }
+  else { alert("Resume failed: " + (r ? r.error : "unknown")); }
+}
+
+async function controlRevoke() {
+  if (!confirm("REVOKE agent desktop control? This blocks all desktop input until resumed.")) return;
+  const r = await api("/v1/control/revoke", {method: "POST", body: JSON.stringify({reason: "User revoked from dashboard"})});
+  if (r && r.ok) { refreshControlPanel(); }
+  else { alert("Revoke failed: " + (r ? r.error : "unknown")); }
+}
+
+async function refreshActiveWindow() {
+  try {
+    const aw = await api("/v1/desktop/active_window");
+    const textEl = document.getElementById("ctrlActiveWinText");
+    if (aw && aw.ok && aw.id !== null) {
+      const title = aw.title || "(no title)";
+      if (textEl) textEl.textContent = `[${aw.backend}] ${title} (id=${aw.id})`;
+      document.getElementById("ctrlWinId").textContent = aw.id || "--";
+      document.getElementById("ctrlWinTitle").textContent = aw.title || "--";
+      document.getElementById("ctrlWinPid").textContent = aw.pid || "--";
+      document.getElementById("ctrlWinClass").textContent = aw.class || "--";
+      document.getElementById("ctrlWinBackend").textContent = aw.backend || "--";
+      // Overview
+      const ovWin = document.getElementById("overviewActiveWindow");
+      if (ovWin) ovWin.textContent = title;
+    } else {
+      if (textEl) textEl.textContent = "No active window detected";
+      document.getElementById("ctrlWinId").textContent = "--";
+      document.getElementById("ctrlWinTitle").textContent = "--";
+      document.getElementById("ctrlWinPid").textContent = "--";
+      document.getElementById("ctrlWinClass").textContent = "--";
+      document.getElementById("ctrlWinBackend").textContent = aw ? aw.backend || "--" : "--";
+    }
+  } catch(e) {}
+}
+
+async function focusByTitle() {
+  const title = document.getElementById("ctrlFocusTitle").value.trim();
+  if (!title) { alert("Enter a window title"); return; }
+  const resEl = document.getElementById("ctrlFocusResult");
+  resEl.style.display = "block";
+  resEl.textContent = "Focusing...";
+  try {
+    const r = await api("/v1/desktop/focus", {method: "POST", body: JSON.stringify({title, verify: true, timeout_ms: 1500})});
+    resEl.textContent = JSON.stringify(r, null, 2);
+    refreshActiveWindow();
+  } catch(e) {
+    resEl.textContent = "Error: " + e.message;
+  }
+}
+
+async function testInputGuard() {
+  const title = document.getElementById("guardTitleInput").value.trim();
+  if (!title) { alert("Enter a required window title"); return; }
+  const resEl = document.getElementById("guardTestResult");
+  resEl.style.display = "block";
+  resEl.textContent = "Testing...";
+  try {
+    // Test with a safe click at (0,0) with input guard
+    const r = await api("/v1/desktop/click", {method: "POST", body: JSON.stringify({x: 0, y: 0, require_active_title: title})});
+    if (r.ok) {
+      resEl.textContent = "PASS: Input guard allowed (active window matches '" + title + "')";
+      resEl.style.color = "var(--green)";
+    } else if (r.error && r.error.includes("input_guard")) {
+      resEl.textContent = "BLOCKED: Active window does not match '" + title + "'\nActive: " + (r.active_window ? r.active_window.title : "unknown");
+      resEl.style.color = "var(--red)";
+    } else {
+      resEl.textContent = "Result: " + JSON.stringify(r, null, 2);
+      resEl.style.color = "var(--text2)";
+    }
+  } catch(e) {
+    resEl.textContent = "Error: " + e.message;
+  }
 }
 
 </script>
