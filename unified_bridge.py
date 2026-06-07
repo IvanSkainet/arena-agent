@@ -48,6 +48,12 @@ Single asyncio-based process that multiplexes ALL services on one port (8765):
   - /v1/restart      POST  Graceful shutdown (auto-restart via task/systemd)
   - /v1/config       GET   Token-free configuration dump
   - /v1/metrics      GET   Bridge performance metrics
+  - /v1/desktop/active_window GET  Get currently active window (v2.9.0)
+  - /v1/desktop/focus POST  Focus window by id/title (v2.9.0)
+  - /v1/control/status GET  Control lease status (v2.9.0)
+  - /v1/control/pause POST Pause agent desktop control (v2.9.0)
+  - /v1/control/resume POST Resume agent desktop control (v2.9.0)
+  - /v1/control/revoke POST Revoke agent desktop control (v2.9.0)
   - /gui             GET   Dashboard HTML
   - /mcp             POST  MCP Streamable HTTP (JSON-RPC)
   - /mcp             DELETE Close MCP session
@@ -130,7 +136,50 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.8.0"
+VERSION = "2.9.0"
+
+# ============================================================================
+# DESKTOP CONTROL STATE (v2.9.0)
+# ============================================================================
+# Global state for agent control lease. Allows user to pause/revoke
+# desktop automation from local environment (hotkey, tray, or API).
+import threading as _threading
+
+_control_state = {
+    "status": "active",          # "active" | "paused" | "revoked"
+    "reason": None,              # optional reason string
+    "paused_at": None,           # ISO timestamp when paused
+    "revoked_at": None,          # ISO timestamp when revoked
+    "last_agent_input_at": None, # ISO timestamp of last agent action
+    "last_user_input_at": None,  # ISO timestamp of last detected user input
+    "session_id": None,          # optional session identifier
+}
+_control_lock = _threading.Lock()
+
+
+def _control_check() -> dict | None:
+    """Check if agent control is currently allowed.
+    Returns None if OK, or an error dict if paused/revoked."""
+    with _control_lock:
+        st = _control_state["status"]
+        if st == "active":
+            return None
+        elif st == "paused":
+            return {"ok": False, "error": "control_paused",
+                    "message": "Agent desktop control is paused by user",
+                    "status": st, "reason": _control_state["reason"]}
+        elif st == "revoked":
+            return {"ok": False, "error": "control_revoked",
+                    "message": "User revoked desktop control",
+                    "status": st, "reason": _control_state["reason"]}
+        return None
+
+
+def _control_record_agent_action():
+    """Record that the agent just performed a desktop action."""
+    with _control_lock:
+        _control_state["last_agent_input_at"] = utc_now()
+
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
 # triggers a CIM/powershell/tailscale subprocess. No-op on Linux/macOS.
@@ -4097,6 +4146,13 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/desktop/key", handle_v1_desktop_key)
     app.router.add_post("/v1/desktop/mouse", handle_v1_desktop_mouse)
     app.router.add_get("/v1/desktop/windows", handle_v1_desktop_windows)
+    app.router.add_get("/v1/desktop/active_window", handle_v1_desktop_active_window)
+    app.router.add_post("/v1/desktop/focus", handle_v1_desktop_focus)
+    # Desktop control lease (v2.9.0)
+    app.router.add_get("/v1/control/status", handle_v1_control_status)
+    app.router.add_post("/v1/control/pause", handle_v1_control_pause)
+    app.router.add_post("/v1/control/resume", handle_v1_control_resume)
+    app.router.add_post("/v1/control/revoke", handle_v1_control_revoke)
     app.router.add_get("/v1/browser/cdp/tabs", handle_v1_cdp_tabs)
     app.router.add_post("/v1/browser/cdp/tabs/new", handle_v1_cdp_tabs_new)
     app.router.add_post("/v1/browser/cdp/tabs/close", handle_v1_cdp_tabs_close)
@@ -4417,6 +4473,8 @@ async def handle_index(request: web.Request) -> web.Response:
                 "POST /v1/browser/cdp/eval", "POST /v1/browser/cdp/click (selector|x,y)", "POST /v1/browser/cdp/type",
                 "GET /v1/desktop/screenshot", "POST /v1/desktop/click", "POST /v1/desktop/type",
                 "POST /v1/desktop/key", "POST /v1/desktop/mouse", "GET /v1/desktop/windows",
+                "GET /v1/desktop/active_window", "POST /v1/desktop/focus",
+                "GET /v1/control/status", "POST /v1/control/pause", "POST /v1/control/resume", "POST /v1/control/revoke",
                 "GET /v1/browser/cdp/tabs", "POST /v1/browser/cdp/tabs/new", "POST /v1/browser/cdp/tabs/close",
                 "POST /v1/browser/cdp/tabs/activate", "GET/POST/DELETE /v1/browser/cdp/cookies",
                 "POST /v1/browser/cdp/cookies/clear", "GET/POST /v1/browser/cdp/cookies/profiles",
@@ -8761,9 +8819,16 @@ async def handle_v1_desktop_click(request):
     v2.4.0: New endpoint.
     v2.5.1: Added window activation before click — ensures the target window
              receives the click even on bare WMs (no EWMH) or Wayland compositors.
+    v2.9.0: Added control check and require_active_title input guard.
     """
     r = require_auth(request)
     if r: return r
+
+    # v2.9.0: Check if agent control is allowed
+    ctrl_err = _control_check()
+    if ctrl_err:
+        return _cors_json_response(ctrl_err, status=403)
+
     _record_request()
 
     try:
@@ -8781,6 +8846,21 @@ async def handle_v1_desktop_click(request):
     button = body.get("button", "left")
     double = body.get("double", False)
     do_activate = body.get("activate", True)
+
+    # v2.9.0: Input guard — verify active window title if requested
+    require_title = body.get("require_active_title")
+    if require_title:
+        active = await _get_active_window()
+        if active and require_title.lower() not in active.get("title", "").lower():
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({
+                "ok": False, "error": "input_guard_failed",
+                "message": f"Active window does not match required title",
+                "active_window": active,
+                "required_title_contains": require_title,
+            }, status=409)
+
+    _control_record_agent_action()
 
     # ydotool button codes: left=0x110, middle=0x112, right=0x111
     btn_map = {"left": "0x110", "middle": "0x112", "right": "0x111"}
@@ -8866,9 +8946,16 @@ async def handle_v1_desktop_type(request):
     Uses ydotool/wtype (Wayland) or xdotool (X11).
 
     v2.4.0: New endpoint.
+    v2.9.0: Added control check and require_active_title input guard.
     """
     r = require_auth(request)
     if r: return r
+
+    # v2.9.0: Check if agent control is allowed
+    ctrl_err = _control_check()
+    if ctrl_err:
+        return _cors_json_response(ctrl_err, status=403)
+
     _record_request()
 
     try:
@@ -8876,6 +8963,21 @@ async def handle_v1_desktop_type(request):
     except Exception:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    # v2.9.0: Input guard
+    require_title = body.get("require_active_title")
+    if require_title:
+        active = await _get_active_window()
+        if active and require_title.lower() not in active.get("title", "").lower():
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({
+                "ok": False, "error": "input_guard_failed",
+                "message": "Active window does not match required title",
+                "active_window": active,
+                "required_title_contains": require_title,
+            }, status=409)
+
+    _control_record_agent_action()
 
     text = body.get("text")
     if text is None:
@@ -8939,9 +9041,16 @@ async def handle_v1_desktop_key(request):
     Uses ydotool (Wayland) or xdotool (X11).
 
     v2.4.0: New endpoint.
+    v2.9.0: Added control check and require_active_title input guard.
     """
     r = require_auth(request)
     if r: return r
+
+    # v2.9.0: Check if agent control is allowed
+    ctrl_err = _control_check()
+    if ctrl_err:
+        return _cors_json_response(ctrl_err, status=403)
+
     _record_request()
 
     try:
@@ -8949,6 +9058,21 @@ async def handle_v1_desktop_key(request):
     except Exception:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    # v2.9.0: Input guard
+    require_title = body.get("require_active_title")
+    if require_title:
+        active = await _get_active_window()
+        if active and require_title.lower() not in active.get("title", "").lower():
+            _record_request(is_error=True, count_request=False)
+            return _cors_json_response({
+                "ok": False, "error": "input_guard_failed",
+                "message": "Active window does not match required title",
+                "active_window": active,
+                "required_title_contains": require_title,
+            }, status=409)
+
+    _control_record_agent_action()
 
     key = body.get("key")
     keys = body.get("keys")
@@ -9048,10 +9172,18 @@ async def handle_v1_desktop_mouse(request):
         absolute: bool (default: true) — absolute vs relative coordinates
 
     v2.4.0: New endpoint.
+    v2.9.0: Added control check.
     """
     r = require_auth(request)
     if r: return r
+
+    # v2.9.0: Check if agent control is allowed
+    ctrl_err = _control_check()
+    if ctrl_err:
+        return _cors_json_response(ctrl_err, status=403)
+
     _record_request()
+    _control_record_agent_action()
 
     try:
         body = await request.json()
@@ -9141,6 +9273,384 @@ async def handle_v1_desktop_windows(request):
             return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "xdotool"})
 
     return _cors_json_response({"ok": True, "count": 0, "windows": [], "tool": "none"})
+
+
+# ============================================================================
+# Desktop: Active Window + Focus + Control Lease (v2.9.0)
+# ============================================================================
+
+async def _get_active_window() -> dict | None:
+    """Get currently active (focused) window info. Used by input guard.
+
+    Tries multiple backends: xdotool (X11/XWayland), kdotool (KDE Wayland),
+    wmctrl fallback. Returns dict with id, title, pid, class or None.
+    """
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # Strategy 1: xdotool getactivewindow (X11 / XWayland)
+    if shutil.which("xdotool"):
+        result = await _desktop_exec(
+            f'{display_env} xdotool getactivewindow 2>/dev/null', timeout=3)
+        if result["ok"] and result["stdout"].strip():
+            wid = result["stdout"].strip().split("\n")[0]
+            name_r = await _desktop_exec(
+                f'{display_env} xdotool getwindowname {wid} 2>/dev/null', timeout=2)
+            pid_r = await _desktop_exec(
+                f'{display_env} xdotool getwindowpid {wid} 2>/dev/null', timeout=2)
+            cls_r = await _desktop_exec(
+                f'{display_env} xdotool getwindowclassname {wid} 2>/dev/null || '
+                f'xprop -id {wid} WM_CLASS 2>/dev/null | cut -d\\" -f2', timeout=2)
+            geom_r = await _desktop_exec(
+                f'{display_env} xdotool getwindowgeometry {wid} 2>/dev/null', timeout=2)
+            return {
+                "id": wid,
+                "title": name_r.get("stdout", "").strip() if name_r["ok"] else "",
+                "pid": pid_r.get("stdout", "").strip() if pid_r["ok"] else None,
+                "class": cls_r.get("stdout", "").strip() if cls_r["ok"] else "",
+                "geometry": geom_r.get("stdout", "").strip() if geom_r["ok"] else "",
+                "backend": "xdotool",
+            }
+
+    # Strategy 2: kdotool (KDE Plasma Wayland)
+    if shutil.which("kdotool"):
+        result = await _desktop_exec(
+            'kdotool search --active 2>/dev/null || '
+            'kdotool search --onlyvisible --active 2>/dev/null', timeout=3)
+        if result["ok"] and result["stdout"].strip():
+            wid = result["stdout"].strip().split("\n")[0]
+            return {
+                "id": wid,
+                "title": "",  # kdotool doesn't easily give title
+                "backend": "kdotool",
+            }
+
+    # Strategy 3: wmctrl active window (reads * marker)
+    if shutil.which("wmctrl"):
+        result = await _desktop_exec(
+            f'{display_env} wmctrl -l -p 2>/dev/null', timeout=3)
+        if result["ok"]:
+            for line in result["stdout"].strip().split("\n"):
+                if "*" in line:
+                    parts = line.split(None, 5)
+                    if len(parts) >= 5:
+                        return {
+                            "id": parts[0],
+                            "desktop": parts[1],
+                            "pid": parts[2],
+                            "host": parts[3],
+                            "title": parts[4] if len(parts) == 5 else " ".join(parts[4:]),
+                            "active": True,
+                            "backend": "wmctrl",
+                        }
+
+    return None
+
+
+async def handle_v1_desktop_active_window(request):
+    """GET /v1/desktop/active_window — Get currently active (focused) window.
+
+    Returns a lightweight response with the active window's id, title, pid,
+    class, and geometry. Much cheaper than taking a full screenshot.
+
+    v2.9.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    active = await _get_active_window()
+    if active:
+        return _cors_json_response({"ok": True, **active})
+    return _cors_json_response({
+        "ok": True,
+        "id": None,
+        "title": None,
+        "backend": "none",
+        "message": "Could not determine active window",
+    })
+
+
+async def handle_v1_desktop_focus(request):
+    """POST /v1/desktop/focus — Focus (activate) a window by id or title.
+
+    Body JSON:
+        id: string (optional) — Window ID to focus
+        title: string (optional) — Focus window whose title contains this string
+        verify: bool (default: true) — Verify the window is active after focus
+        timeout_ms: int (default: 1500) — Time to wait for verification
+
+    v2.9.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+
+    # v2.9.0: Check if agent control is allowed
+    ctrl_err = _control_check()
+    if ctrl_err:
+        return _cors_json_response(ctrl_err, status=403)
+
+    _record_request()
+
+    try:
+        body = await request.json()
+    except Exception:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
+
+    window_id = body.get("id")
+    title_contains = body.get("title")
+    do_verify = body.get("verify", True)
+    verify_timeout_ms = body.get("timeout_ms", 1500)
+
+    if not window_id and not title_contains:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({
+            "ok": False, "error": "missing 'id' or 'title' parameter",
+        }, status=400)
+
+    # Record active window before focus attempt
+    active_before = await _get_active_window()
+
+    env = _detect_desktop_env()
+    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # Resolve target window ID
+    target_id = window_id
+    target_title = ""
+
+    if not target_id and title_contains:
+        # Search by title
+        if shutil.which("wmctrl"):
+            result = await _desktop_exec(
+                f'{display_env} wmctrl -l -p 2>/dev/null', timeout=5)
+            if result["ok"]:
+                for line in result["stdout"].strip().split("\n"):
+                    parts = line.split(None, 5)
+                    if len(parts) >= 5:
+                        t = parts[4] if len(parts) == 5 else " ".join(parts[4:])
+                        if title_contains.lower() in t.lower():
+                            target_id = parts[0]
+                            target_title = t
+                            break
+        if not target_id and env["has_xdotool"]:
+            import shlex
+            result = await _desktop_exec(
+                f'{display_env} xdotool search --name {shlex.quote(title_contains)} 2>/dev/null',
+                timeout=5)
+            if result["ok"] and result["stdout"].strip():
+                target_id = result["stdout"].strip().split("\n")[0]
+
+    if not target_id:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({
+            "ok": False,
+            "error": "window_not_found",
+            "message": f"Could not find window matching: {title_contains or window_id}",
+            "active_before": active_before,
+        }, status=404)
+
+    # Attempt to focus the window
+    focus_ok = False
+    focus_tool = "none"
+
+    # Try wmctrl -ia first (most reliable on XWayland/X11)
+    if shutil.which("wmctrl"):
+        result = await _desktop_exec(
+            f'{display_env} wmctrl -i -a {target_id} 2>/dev/null', timeout=5)
+        if result["ok"] and result["exit_code"] == 0:
+            focus_ok = True
+            focus_tool = "wmctrl"
+
+    # Try xdotool windowactivate
+    if not focus_ok and env["has_xdotool"]:
+        result = await _desktop_exec(
+            f'{display_env} xdotool windowactivate --sync {target_id} 2>/dev/null',
+            timeout=5)
+        if result["ok"] and result["exit_code"] == 0:
+            focus_ok = True
+            focus_tool = "xdotool"
+
+    # Try kdotool for KDE Wayland
+    if not focus_ok and shutil.which("kdotool"):
+        result = await _desktop_exec(
+            f'kdotool activate {target_id} 2>/dev/null', timeout=5)
+        if result["ok"] and result["exit_code"] == 0:
+            focus_ok = True
+            focus_tool = "kdotool"
+
+    if not focus_ok:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({
+            "ok": False,
+            "error": "focus_failed",
+            "message": "All focus methods failed",
+            "target_id": target_id,
+            "active_before": active_before,
+            "backend": env.get("session_type", "unknown"),
+        }, status=500)
+
+    # Verification: wait and check if window is now active
+    active_after = None
+    verify_ok = False
+    if do_verify:
+        await asyncio.sleep(verify_timeout_ms / 1000.0)
+        active_after = await _get_active_window()
+        if active_after:
+            # Check if active window matches our target
+            if (active_after.get("id") == target_id or
+                    (target_title and target_title.lower() in
+                     active_after.get("title", "").lower()) or
+                    (title_contains and title_contains.lower() in
+                     active_after.get("title", "").lower())):
+                verify_ok = True
+    else:
+        verify_ok = True  # skip verification
+
+    _control_record_agent_action()
+
+    return _cors_json_response({
+        "ok": verify_ok,
+        "focused": focus_ok,
+        "verified": verify_ok if do_verify else None,
+        "target_id": target_id,
+        "target_title": target_title,
+        "active_before": active_before,
+        "active_after": active_after,
+        "tool": focus_tool,
+        "backend": env.get("session_type", "unknown"),
+    })
+
+
+# ---- Control Lease Endpoints (v2.9.0) ----
+
+async def handle_v1_control_status(request):
+    """GET /v1/control/status — Check if agent desktop control is active/paused/revoked.
+
+    v2.9.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    with _control_lock:
+        return _cors_json_response({
+            "ok": True,
+            "control": _control_state["status"],
+            "reason": _control_state["reason"],
+            "paused_at": _control_state["paused_at"],
+            "revoked_at": _control_state["revoked_at"],
+            "last_agent_input_at": _control_state["last_agent_input_at"],
+            "last_user_input_at": _control_state["last_user_input_at"],
+            "session_id": _control_state["session_id"],
+        })
+
+
+async def handle_v1_control_pause(request):
+    """POST /v1/control/pause — Pause agent desktop control.
+
+    Body JSON (optional):
+        reason: string — Reason for pausing
+        session_id: string — Optional session to target
+
+    While paused, all desktop input endpoints (click, type, key, mouse, focus)
+    return 403 control_paused.
+
+    v2.9.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    reason = None
+    try:
+        body = await request.json()
+        reason = body.get("reason")
+    except Exception:
+        pass
+
+    with _control_lock:
+        if _control_state["status"] == "revoked":
+            return _cors_json_response({
+                "ok": False, "error": "control_revoked",
+                "message": "Control is revoked. Use /v1/control/resume to re-activate.",
+            }, status=409)
+
+        _control_state["status"] = "paused"
+        _control_state["reason"] = reason
+        _control_state["paused_at"] = utc_now()
+
+    log.info("[Control] Agent desktop control PAUSED (reason: %s)", reason)
+    return _cors_json_response({
+        "ok": True,
+        "control": "paused",
+        "reason": reason,
+        "paused_at": _control_state["paused_at"],
+    })
+
+
+async def handle_v1_control_resume(request):
+    """POST /v1/control/resume — Resume agent desktop control after pause/revoke.
+
+    Body JSON (optional):
+        session_id: string — Optional session to resume
+
+    v2.9.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    with _control_lock:
+        prev = _control_state["status"]
+        _control_state["status"] = "active"
+        _control_state["reason"] = None
+        _control_state["paused_at"] = None
+        _control_state["revoked_at"] = None
+        resumed_at = utc_now()
+
+    log.info("[Control] Agent desktop control RESUMED (was: %s)", prev)
+    return _cors_json_response({
+        "ok": True,
+        "control": "active",
+        "previous_status": prev,
+        "resumed_at": resumed_at,
+    })
+
+
+async def handle_v1_control_revoke(request):
+    """POST /v1/control/revoke — Hard revoke agent desktop control.
+
+    Body JSON (optional):
+        reason: string — Reason for revocation
+
+    After revocation, all desktop input endpoints return 403 control_revoked.
+    Only /v1/control/resume can re-enable control.
+
+    v2.9.0: New endpoint.
+    """
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+
+    reason = None
+    try:
+        body = await request.json()
+        reason = body.get("reason")
+    except Exception:
+        pass
+
+    with _control_lock:
+        _control_state["status"] = "revoked"
+        _control_state["reason"] = reason or "User revoked control"
+        _control_state["revoked_at"] = utc_now()
+
+    log.warning("[Control] Agent desktop control REVOKED (reason: %s)", reason)
+    return _cors_json_response({
+        "ok": True,
+        "control": "revoked",
+        "reason": _control_state["reason"],
+        "revoked_at": _control_state["revoked_at"],
+    })
 
 
 # ---- CDP Tab Management ----
