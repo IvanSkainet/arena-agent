@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.10.1 — 2026-06-08
+
+### Installer transparency / anti-false-positive
+- `install.bat` and `install.sh` now show a prominent background-service transparency notice before registering/updating any background service, scheduled task, systemd unit, or launchd agent.
+- Installers now require explicit confirmation before service registration. Use `ARENA_ACCEPT_BACKGROUND=1` or `ARENA_ASSUME_YES=1` for unattended automation.
+- README documents expected background processes and legacy helper names (`local_bridge.py`, `mcp_ws_server.py`, `web_gateway.py`, `agentctl task-watch`), plus PowerShell/Linux/macOS inspection and cleanup commands.
+- Runtime bridge version bumped to `2.10.1` so `/health` and `/v1/version` identify this release.
+
 ## v2.10.0 — 2026-06-08
 
 ### Fixed

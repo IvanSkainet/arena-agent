@@ -5,7 +5,7 @@
 **Cross-platform local automation bridge for AI agents.**
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v2.10.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.10.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -719,6 +719,12 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.10.1 — Installer transparency and anti-false-positive release
+- **Installers:** `install.bat` and `install.sh` now show a prominent `TRANSPARENCY NOTICE - BACKGROUND SERVICE` before registering/updating any background service, scheduled task, systemd unit, or launchd agent.
+- **Consent:** installers now ask for explicit confirmation (`Continue and install/update the background service? [y/N]`) before service registration. Automation can opt in with `ARENA_ACCEPT_BACKGROUND=1` or `ARENA_ASSUME_YES=1`.
+- **Docs:** README now documents expected background processes, legacy helper names (`local_bridge.py`, `mcp_ws_server.py`, `web_gateway.py`, `agentctl task-watch`), inspection commands, and cleanup/uninstall commands to avoid the project being mistaken for malware.
+- **Version:** bridge runtime version bumped to `2.10.1` so `/health` and `/v1/version` identify this transparency release.
 
 ### v2.10.0 — Bridge hardening, screenshot transforms, layout-safe typing & OpenAPI alias
 - **Docs:** Added a prominent transparency section explaining expected background processes, Windows scheduled tasks/services, legacy helper names, and manual cleanup commands so the project is not mistaken for malware.
