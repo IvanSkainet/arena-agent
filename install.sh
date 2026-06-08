@@ -132,7 +132,11 @@ ok "Python $PYVER found"
 
 # --- Step 3: Install dependencies ---
 info "Installing Python dependencies..."
-"$PY" -m pip install aiohttp psutil websockets --quiet 2>/dev/null || true
+if [ -f "$INSTALL_DIR/requirements.txt" ]; then
+    "$PY" -m pip install -r "$INSTALL_DIR/requirements.txt" --quiet 2>/dev/null || true
+else
+    "$PY" -m pip install aiohttp psutil websockets --quiet 2>/dev/null || true
+fi
 ok "Python packages ready"
 
 # --- Step 4: Create subdirectories (all inside INSTALL_DIR) ---
@@ -279,6 +283,48 @@ except Exception: pass
     fi
 else
     info "Tailscale not found. Install it for internet access: https://tailscale.com"
+fi
+
+# --- 6a-bis: cloudflared (optional Cloudflare Quick Tunnel) ---
+# Not bundled in the repo (it's a ~40 MB binary). Fetched on demand here so the
+# repository stays lightweight. The bridge looks for it on PATH first, then in
+# the install directory, so either source works.
+CF_BIN="$INSTALL_DIR/cloudflared"
+if command -v cloudflared >/dev/null 2>&1; then
+    ok "cloudflared found on PATH"
+elif [ -f "$CF_BIN" ]; then
+    ok "cloudflared present in install directory"
+else
+    UNAME_S="$(uname -s)"
+    UNAME_M="$(uname -m)"
+    CF_URL=""
+    case "$UNAME_S" in
+        Linux)
+            case "$UNAME_M" in
+                x86_64|amd64) CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64" ;;
+                aarch64|arm64) CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" ;;
+                armv7l|armhf) CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm" ;;
+            esac
+            ;;
+        Darwin)
+            # macOS ships cloudflared as a .tgz; Homebrew is the simplest path.
+            info "cloudflared not found. On macOS install it with: brew install cloudflared"
+            ;;
+    esac
+    if [ -n "$CF_URL" ]; then
+        if [ "${ARENA_ASSUME_YES:-}" = "1" ] || ask "Download cloudflared (~40 MB) for Cloudflare Quick Tunnels? (Tailscale is the recommended option)"; then
+            info "Downloading cloudflared for $UNAME_S/$UNAME_M ..."
+            if command -v curl >/dev/null 2>&1; then
+                curl -fsSL "$CF_URL" -o "$CF_BIN" && chmod +x "$CF_BIN" && ok "cloudflared installed at $CF_BIN" || warn "cloudflared download failed (you can install it later)"
+            elif command -v wget >/dev/null 2>&1; then
+                wget -qO "$CF_BIN" "$CF_URL" && chmod +x "$CF_BIN" && ok "cloudflared installed at $CF_BIN" || warn "cloudflared download failed (you can install it later)"
+            else
+                warn "Neither curl nor wget found; skipping cloudflared download"
+            fi
+        else
+            info "cloudflared skipped. Re-run the installer or download it later from https://github.com/cloudflare/cloudflared/releases/latest"
+        fi
+    fi
 fi
 
 # --- 6b: SuperPowers (agentic skills framework) ---

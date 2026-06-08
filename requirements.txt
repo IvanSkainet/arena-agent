@@ -1,0 +1,9 @@
+# Arena Unified Bridge — runtime dependencies
+#
+# Core (required): the bridge will not start without this.
+aiohttp>=3.9
+
+# Recommended: richer process/system info for /v1/ps, /v1/sysinfo, metrics.
+# The bridge degrades gracefully if these are missing.
+psutil>=5.9
+websockets>=12.0

@@ -1,0 +1,64 @@
+[project]
+name = "arena-unified-bridge"
+version = "2.10.1"
+description = "Cross-platform local automation bridge for AI agents — one process, one port, one Python file."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "IvanSkainet" }]
+keywords = ["ai", "agent", "automation", "mcp", "bridge", "cdp", "desktop-automation"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+]
+
+# Core runtime dependency. Everything else is optional and degrades gracefully.
+dependencies = [
+    "aiohttp>=3.9",
+]
+
+[project.optional-dependencies]
+# Recommended extras for full system inventory and websocket transport.
+full = [
+    "psutil>=5.9",
+    "websockets>=12.0",
+]
+# Tooling for contributors.
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/IvanSkainet/arena-agent"
+Repository = "https://github.com/IvanSkainet/arena-agent"
+Changelog = "https://github.com/IvanSkainet/arena-agent/blob/master/CHANGELOG.md"
+
+# ---------------------------------------------------------------------------
+# Tooling configuration (no build-system: this is a single-file app run
+# directly via `python unified_bridge.py serve`, not a pip-installed package).
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+# The codebase is large and organically grown; start lint adoption gradually.
+extend-exclude = ["cloudflared", "backups", "logs", "reports"]
+
+[tool.ruff.lint]
+# Conservative starter rule set — expand over time as the code is cleaned up.
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line length handled by formatter, not enforced yet
+    "E722",  # bare except — to be cleaned up incrementally
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

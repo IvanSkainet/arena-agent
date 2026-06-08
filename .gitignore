@@ -41,6 +41,10 @@ node_modules/
 .next/
 .turbo/
 
+# cloudflared binary — fetched on demand by the installer, not committed (~40 MB)
+cloudflared
+cloudflared.exe
+
 # Token (NEVER commit)
 token.txt
 

@@ -94,8 +94,13 @@ REM Step 2: Install Python dependencies
 REM ============================================================
 echo.
 echo [2/6] Installing Python dependencies...
-%PYTHON% -m pip install --quiet aiohttp psutil 2>nul
-if errorlevel 1 %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
+if exist "%BRIDGE_DIR%\requirements.txt" (
+    %PYTHON% -m pip install --quiet -r "%BRIDGE_DIR%\requirements.txt" 2>nul
+    if errorlevel 1 %PYTHON% -m pip install --quiet --user -r "%BRIDGE_DIR%\requirements.txt" 2>nul
+) else (
+    %PYTHON% -m pip install --quiet aiohttp psutil 2>nul
+    if errorlevel 1 %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
+)
 echo       Done.
 
 REM ============================================================
@@ -142,6 +147,26 @@ if not defined TS_URL (
 )
 echo [OK] Tailscale connected: %TS_URL%
 :tailscale_done
+
+REM --- cloudflared (optional Cloudflare Quick Tunnel) ---
+REM Not bundled in the repo (~40 MB binary); fetched on demand here.
+where cloudflared >nul 2>&1
+if not errorlevel 1 (
+    echo [OK] cloudflared found on PATH
+    goto :cloudflared_done
+)
+if exist "%BRIDGE_DIR%\cloudflared.exe" (
+    echo [OK] cloudflared present in install directory
+    goto :cloudflared_done
+)
+echo [INFO] Downloading cloudflared.exe for Cloudflare Quick Tunnels ^(optional^)...
+curl --max-time 120 -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%BRIDGE_DIR%\cloudflared.exe" 2>nul
+if exist "%BRIDGE_DIR%\cloudflared.exe" (
+    echo [OK] cloudflared installed at %BRIDGE_DIR%\cloudflared.exe
+) else (
+    echo [WARN] cloudflared download skipped/failed. Get it later: https://github.com/cloudflare/cloudflared/releases/latest
+)
+:cloudflared_done
 
 REM --- SuperPowers ---
 if exist "%BRIDGE_DIR%\skills\superpowers\skills" goto :sp_exists
