@@ -141,44 +141,14 @@ VERSION = "2.10.2"
 # ============================================================================
 # DESKTOP CONTROL STATE (v2.9.0)
 # ============================================================================
-# Global state for agent control lease. Allows user to pause/revoke
-# desktop automation from local environment (hotkey, tray, or API).
-import threading as _threading
-
-_control_state = {
-    "status": "active",          # "active" | "paused" | "revoked"
-    "reason": None,              # optional reason string
-    "paused_at": None,           # ISO timestamp when paused
-    "revoked_at": None,          # ISO timestamp when revoked
-    "last_agent_input_at": None, # ISO timestamp of last agent action
-    "last_user_input_at": None,  # ISO timestamp of last detected user input
-    "session_id": None,          # optional session identifier
-}
-_control_lock = _threading.Lock()
-
-
-def _control_check() -> dict | None:
-    """Check if agent control is currently allowed.
-    Returns None if OK, or an error dict if paused/revoked."""
-    with _control_lock:
-        st = _control_state["status"]
-        if st == "active":
-            return None
-        elif st == "paused":
-            return {"ok": False, "error": "control_paused",
-                    "message": "Agent desktop control is paused by user",
-                    "status": st, "reason": _control_state["reason"]}
-        elif st == "revoked":
-            return {"ok": False, "error": "control_revoked",
-                    "message": "User revoked desktop control",
-                    "status": st, "reason": _control_state["reason"]}
-        return None
-
-
-def _control_record_agent_action():
-    """Record that the agent just performed a desktop action."""
-    with _control_lock:
-        _control_state["last_agent_input_at"] = utc_now()
+# The control-lease state and helpers now live in arena/control.py; re-exported
+# here so existing references (`unified_bridge._control_state`, etc.) keep working.
+from arena.control import (  # noqa: E402,F401
+    _control_check,
+    _control_lock,
+    _control_record_agent_action,
+    _control_state,
+)
 
 
 # Security primitives (command blocklist, desktop-input-injection guard, and
@@ -193,14 +163,17 @@ from arena.security import (  # noqa: E402,F401
 )
 
 
-# CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
-# triggers a CIM/powershell/tailscale subprocess. No-op on Linux/macOS.
-_NO_WINDOW_FLAG = 0x08000000 if sys.platform == "win32" else 0
-def _subprocess_kwargs() -> dict:
-    """Common kwargs to silence subprocess child windows on Windows."""
-    if sys.platform == "win32":
-        return {"creationflags": _NO_WINDOW_FLAG}
-    return {}
+# Pure helper utilities now live in arena/util.py; re-exported for compatibility.
+from arena.util import (  # noqa: E402,F401
+    _NO_WINDOW_FLAG,
+    _subprocess_kwargs,
+    b64_token,
+    decode_output,
+    first_word,
+    get_clean_platform_name,
+    under_root,
+    utc_now,
+)
 
 
 def _ensure_session_env() -> None:
@@ -3260,53 +3233,9 @@ BIN = str(BRIDGE_DIR / "bin")
 # HELPERS
 # ============================================================================
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+# utc_now, get_clean_platform_name, decode_output, b64_token, first_word and
+# under_root now live in arena/util.py (re-exported near the top of this file).
 
-
-def get_clean_platform_name() -> str:
-    p = platform.platform()
-    if sys.platform == "win32":
-        try:
-            build = int(platform.version().split(".")[-1])
-            if build >= 22000:
-                p = p.replace("Windows-10", f"Windows-11 (Build {build})")
-                p = p.replace("Windows-post2016Server", f"Windows-11 (Build {build})")
-        except Exception:
-            pass
-    return p
-
-
-def decode_output(data: bytes) -> str:
-    if os.name == "nt":
-        for codec in ["utf-8", "cp866", "cp1251"]:
-            try:
-                return data.decode(codec, errors="replace")
-            except Exception:
-                continue
-    return data.decode("utf-8", "replace")
-
-
-def b64_token(nbytes: int = 32) -> str:
-    return base64.urlsafe_b64encode(secrets.token_bytes(nbytes)).decode().rstrip("=")
-
-
-def first_word(cmd: str) -> str:
-    try:
-        parts = shlex.split(cmd, posix=(os.name != "nt"))
-    except Exception:
-        parts = cmd.strip().split()
-    if not parts:
-        return ""
-    return Path(parts[0]).name.lower().removesuffix(".exe")
-
-
-def under_root(path: Path, root: Path) -> bool:
-    try:
-        path.resolve().relative_to(root.resolve())
-        return True
-    except Exception:
-        return False
 
 
 def _record_request(duration: float = 0.0, is_exec: bool = False, is_error: bool = False, count_request: bool = True) -> None:
@@ -6324,7 +6253,6 @@ def _token_regen_sync(target_path: str = "") -> dict:
       4. ~/arena-bridge/token.txt  (default)
     NEVER writes to multiple locations — that risks clobbering another instance's token.
     """
-    import secrets, base64
     new_tok = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
 
     target: Path
@@ -9059,7 +8987,6 @@ async def handle_v1_desktop_type(request):
             layout_switched = False
 
     # Escape text for shell
-    import shlex
     escaped_text = shlex.quote(text)
 
     if env["has_ydotool"]:
@@ -9207,7 +9134,6 @@ async def handle_v1_desktop_key(request):
             cmd = f'ydotool key {" ".join(cmd_parts)}'
     elif env["has_xdotool"]:
         key_str = key or "+".join(keys)
-        import shlex
         cmd = f'{display_env} xdotool key {shlex.quote(key_str)}'
     else:
         return _cors_json_response(
@@ -9553,7 +9479,6 @@ async def handle_v1_desktop_focus(request):
                             target_title = t
                             break
         if not target_id and env["has_xdotool"]:
-            import shlex
             result = await _desktop_exec(
                 f'{display_env} xdotool search --name {shlex.quote(title_contains)} 2>/dev/null',
                 timeout=5)
@@ -9627,7 +9552,6 @@ async def handle_v1_desktop_focus(request):
                 script += f'    workspace.activeClient = clients[i]; break; '
                 script += f'  }} '
                 script += f'}}; '
-                import shlex
                 result = await _desktop_exec(
                     f'{qdbus} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript '
                     f'eval 2>/dev/null',
