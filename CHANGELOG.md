@@ -1,14 +1,33 @@
 # Changelog
 
-## [Unreleased]
+## v2.10.2 — 2026-06-08
+
+First release built with CI, an expanded test suite, and safe-by-construction
+release packaging. No runtime feature changes — focused on correctness,
+security of the release process, and developer experience.
 
 ### Fixed
 - `scripts/mcp_stream_server.py`: added missing `import shutil` — the browser
   screenshot tool called `shutil.which()` without importing it, which would
-  raise `NameError` when invoked.
+  raise `NameError` when invoked (found by the new lint pass).
 - `unified_bridge.py`: import `Dict`/`Optional` from `typing` (referenced in
   annotations but never imported) and removed a redundant local `urlparse`
   import.
+
+### Security
+- **Release packaging is now safe by construction.** `scripts/pack_release.py`
+  previously could include `token.txt`, `users.json`, `audit.jsonl`,
+  `requests.jsonl`, and root-level `bridge.log` in the public release archive.
+  It now ships only git-tracked files (sensitive files are git-ignored) plus an
+  explicit `cloudflared` bundle and runtime-dir placeholders, and asserts the
+  archive contains no sensitive names before finishing.
+
+### Tests / CI
+- Added GitHub Actions CI: pytest on Python 3.10–3.13 plus a ruff lint pass
+  (critical correctness rules enforced as blocking; full rule set informational).
+- Added `tests/test_security.py` (60 tests) covering the safety-critical
+  surface: command blocklist, desktop-input-injection guard, SSRF validation,
+  audit redaction, token generation, and Bearer auth.
 
 ### Developer experience / repository hygiene
 - Removed the bundled ~39 MB `cloudflared` binary from version control; the
@@ -16,8 +35,6 @@
 - Added `requirements.txt` and `pyproject.toml` (explicit dependencies, ruff &
   pytest configuration); installers install dependencies from `requirements.txt`.
 - Added `.editorconfig` and `CONTRIBUTING.md`.
-- Added GitHub Actions CI: tests on Python 3.10–3.13 plus a ruff lint pass
-  (critical correctness rules enforced, full rule set informational).
 - Moved `AI_PROMPT_TEMPLATE.md` to `docs/` and `stress-test-v3.sh` to `dev/`;
   corrected the README structure section to match the real layout.
 
