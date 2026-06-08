@@ -46,7 +46,7 @@ open a pull request, please:
 - Keep changes focused and reviewable (one concern per PR).
 - Run `pytest` and `ruff check .` before submitting.
 - Stress-test with the load script before sending PRs that touch request
-  handling (`stress-test-v3.sh`).
+  handling (`dev/stress-test-v3.sh`).
 
 ## Security
 

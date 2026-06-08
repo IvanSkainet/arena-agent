@@ -569,9 +569,10 @@ arena-bridge/
 │   └── index.html        ← single-file web dashboard (14 tabs)
 │
 ├── docs/
-│   ├── AI_SYSTEM_PROMPT.md   ← Ready-to-use AI system prompt template
-│   ├── AGENT_PROTOCOL.md     ← Agent protocol documentation
-│   └── AGENTS.md.template    ← Agent config template
+│   └── AI_PROMPT_TEMPLATE.md ← Ready-to-use AI prompt template
+│
+├── dev/
+│   └── stress-test-v3.sh     ← load/stress test suite (run before PRs)
 │
 ├── bin/                  ← user-facing CLIs (agentctl, bridge-curl, etc.)
 ├── scripts/              ← background helpers (inventory, hwinfo, CDP, desktop, etc.)
@@ -852,7 +853,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 
 Issues and PRs welcome. Please:
 - Keep `unified_bridge.py` a **single file** with **stdlib + aiohttp** only.
-- Stress-test with `stress-test-v3.sh` before sending PRs.
+- Stress-test with `dev/stress-test-v3.sh` before sending PRs.
 - Pure-ASCII PowerShell scripts (no unicode dashes/emoji — they break Cyrillic Windows installs).
 - Snapshot before destructive ops (use external backup tools).
 
