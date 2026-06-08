@@ -104,6 +104,74 @@ The installer will:
 
 > **Everything stays in one folder.** No files are copied outside the repo directory.
 
+## 🧾 Transparency: background processes are expected (not malware)
+
+Arena Unified Bridge is a **local automation server**. After installation it intentionally runs in the background so your AI tools can keep talking to your machine after you close the terminal.
+
+This can look suspicious if you did not expect it — especially on Windows, where Task Manager may show `python.exe` processes. These processes are not hidden and are not meant to be stealthy: they are the bridge service, optional helper servers, and/or legacy helper scripts from older private builds.
+
+### Normal process names you may see
+
+| Process / command line contains | Why it exists |
+|---------------------------------|---------------|
+| `unified_bridge.py serve` | Current main bridge server (`http://127.0.0.1:8765`) |
+| `local_bridge.py serve` | Legacy pre-GitHub bridge name used by older private builds |
+| `mcp_ws_server.py` | Legacy MCP/WebSocket helper from older builds |
+| `web_gateway.py` | Legacy web gateway helper from older builds |
+| `agentctl task-watch` | Background task queue worker / legacy helper |
+| `cloudflared` or `tailscale` | Optional tunnel/exposure helper if you enabled remote access |
+| `ydotoold` | Linux/Wayland input automation daemon used for desktop control |
+
+### Windows: inspect, stop, and remove it
+
+Inspect Arena-related Python/background processes:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'arena|bridge|mcp_ws|web_gateway|agentctl|local_bridge' } |
+  Select-Object ProcessId, ParentProcessId, CommandLine |
+  Format-List
+```
+
+Inspect scheduled tasks/services:
+
+```powershell
+schtasks /query /fo LIST /v | findstr /i "Arena Bridge arena local_bridge unified_bridge agentctl mcp_ws web_gateway"
+sc query ArenaUnifiedBridge
+```
+
+Stop the current official install:
+
+```cmd
+uninstall.bat
+```
+
+If you are cleaning up an **old private/pre-GitHub build** that did not include the uninstaller, stop and remove stale tasks manually:
+
+```powershell
+# Stop matching Python helper processes
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'arena|bridge|mcp_ws|web_gateway|agentctl|local_bridge' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+# Remove known scheduled task names (ignore errors if they do not exist)
+schtasks /Delete /TN "ArenaUnifiedBridge" /F
+schtasks /Delete /TN "ArenaBridge" /F
+schtasks /Delete /TN "ArenaLocalBridge" /F
+```
+
+### Linux/macOS: inspect and remove
+
+```bash
+pgrep -af 'arena|bridge|unified_bridge|local_bridge|mcp_ws|web_gateway|agentctl'
+systemctl --user status arena-bridge.service  # Linux systemd user install
+./uninstall.sh
+```
+
+### Privacy promise
+
+The bridge does **not** install itself silently, does **not** hide its process names, and does **not** phone home. It only exposes the local/API functionality you installed it for. See [Security Model](#-security-model) for auth, safety filters, audit logs, and uninstall details.
+
 That's it. You now have:
 
 | URL | What |
@@ -451,6 +519,10 @@ nssm stop ArenaUnifiedBridge
 # Scheduled Task (used when NSSM is not installed)
 schtasks /run /tn "ArenaUnifiedBridge"
 schtasks /end /tn "ArenaUnifiedBridge"
+schtasks /query /tn "ArenaUnifiedBridge" /fo LIST /v
+
+# Remove stale scheduled task manually (normally uninstall.bat does this)
+schtasks /delete /tn "ArenaUnifiedBridge" /f
 
 # Manual start
 start_bridge.bat
@@ -572,12 +644,27 @@ Cross-platform installer auto-detects `apt`, `dnf`, `pacman`, `apk`, `zypper`, `
   - User-initiated calls from `/v1/browser/*` endpoints
   - MCP tool calls (exec, fs.read, fs.write, browser.search, etc.)
   - Tailscale status checks
+- **Not stealth software.** The bridge runs as a visible service/scheduled task with readable command lines and documented process names. It is designed to be inspectable and removable, not hidden.
 
 When in doubt, read `unified_bridge.py` — it's a single Python file.
 
 ---
 
 ## 🐛 Troubleshooting
+
+### I see `python.exe`, `local_bridge.py`, `mcp_ws_server.py`, or `web_gateway.py` in Task Manager — is this a virus?
+No — these are Arena bridge/background helper processes, especially from older private/pre-GitHub builds. They should be visible in Task Manager/PowerShell, and you can remove them.
+
+Use this to inspect:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'arena|bridge|mcp_ws|web_gateway|agentctl|local_bridge' } |
+  Select-Object ProcessId, ParentProcessId, CommandLine |
+  Format-List
+```
+
+Then run `uninstall.bat` from the bridge folder. If this was an old build without an uninstaller, stop the processes and remove stale scheduled tasks as shown in [Transparency: background processes are expected](#-transparency-background-processes-are-expected-not-malware).
 
 ### Bridge does not come back after restart on Windows
 The bridge uses a Scheduled Task (or NSSM if installed). Both auto-restart on failure. Verify:
@@ -632,6 +719,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ## 📋 Changelog
 
 ### v2.10.0 — Bridge hardening, screenshot transforms, layout-safe typing & OpenAPI alias
+- **Docs:** Added a prominent transparency section explaining expected background processes, Windows scheduled tasks/services, legacy helper names, and manual cleanup commands so the project is not mistaken for malware.
 - **Fixed:** `/v1/exec` can no longer bypass `/v1/control/pause` or `/v1/control/revoke` for desktop input injection commands (`ydotool`, `xdotool key/click/type`, `wtype`, etc.).
 - **Added:** `/v1/desktop/screenshot` now supports `format=jpeg|jpg|webp|png|base64`, `scale`, `max_width`, and `quality`.
 - **Added:** `/v1/desktop/type` now supports `ensure_latin` (default `true`) to avoid non-Latin XKB layout corruption on KDE/Wayland.
