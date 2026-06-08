@@ -122,7 +122,7 @@ import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, Optional
 import urllib.request
 from urllib.parse import parse_qs, urlparse
 
@@ -5987,7 +5987,6 @@ async def handle_v1_browser_search(request: web.Request) -> web.Response:
 
 def _validate_url(url: str) -> str | None:
     """Validate URL scheme for browser endpoints. Returns error message or None."""
-    from urllib.parse import urlparse
     import ipaddress as _ipaddress
     try:
         parsed = urlparse(url)

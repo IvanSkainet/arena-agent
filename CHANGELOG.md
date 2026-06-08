@@ -1,5 +1,26 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- `scripts/mcp_stream_server.py`: added missing `import shutil` — the browser
+  screenshot tool called `shutil.which()` without importing it, which would
+  raise `NameError` when invoked.
+- `unified_bridge.py`: import `Dict`/`Optional` from `typing` (referenced in
+  annotations but never imported) and removed a redundant local `urlparse`
+  import.
+
+### Developer experience / repository hygiene
+- Removed the bundled ~39 MB `cloudflared` binary from version control; the
+  installers now fetch the platform-correct binary on demand.
+- Added `requirements.txt` and `pyproject.toml` (explicit dependencies, ruff &
+  pytest configuration); installers install dependencies from `requirements.txt`.
+- Added `.editorconfig` and `CONTRIBUTING.md`.
+- Added GitHub Actions CI: tests on Python 3.10–3.13 plus a ruff lint pass
+  (critical correctness rules enforced, full rule set informational).
+- Moved `AI_PROMPT_TEMPLATE.md` to `docs/` and `stress-test-v3.sh` to `dev/`;
+  corrected the README structure section to match the real layout.
+
 ## v2.10.1 — 2026-06-08
 
 ### Installer transparency / anti-false-positive

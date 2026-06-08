@@ -23,7 +23,7 @@ Tools реализованы как настоящие, не заглушки:
   - sys.status      — статус bridge/services
 """
 from __future__ import annotations
-import json, os, secrets, subprocess, sys, threading, time
+import json, os, secrets, shutil, subprocess, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
