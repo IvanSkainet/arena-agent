@@ -136,7 +136,7 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.9.1"
+VERSION = "2.10.0"
 
 # ============================================================================
 # DESKTOP CONTROL STATE (v2.9.0)
@@ -179,6 +179,29 @@ def _control_record_agent_action():
     """Record that the agent just performed a desktop action."""
     with _control_lock:
         _control_state["last_agent_input_at"] = utc_now()
+
+
+# v2.10.0: Patterns that indicate a shell command would inject desktop input
+# (keyboard/mouse/touch). When control is paused/revoked these must be blocked
+# even via /v1/exec, otherwise the pause lease can be trivially bypassed by
+# shelling out to the same input tools the dedicated endpoints use.
+_INPUT_INJECTION_PATTERNS = [
+    r"\bydotool\b",
+    r"\bwtype\b",
+    r"\bdotoolc?\b",
+    r"\bxdotool\b\s+[^|;&]*\b(key|keydown|keyup|type|click|mouse(move|down|up)?|windowactivate|windowfocus)\b",
+    r"\bwlrctl\b",
+    r"\bydotoold\b",
+]
+
+
+def _is_input_injection_cmd(cmd: str) -> str | None:
+    """Return the matched pattern if cmd would inject desktop input, else None."""
+    low = cmd.lower()
+    for pat in _INPUT_INJECTION_PATTERNS:
+        if re.search(pat, low, flags=re.I | re.S):
+            return pat
+    return None
 
 
 # CREATE_NO_WINDOW flag (Windows) — prevents flashing console windows when GUI
@@ -3258,6 +3281,13 @@ BLOCK_PATTERNS = [
     r"\bchmod\s+-R\s+777\s+(/|~)",
     r"(curl|wget).*(\||>)\s*(sh|bash|zsh|fish|pwsh|powershell)",
     r"powershell(\.exe)?\s+.*-(enc|encodedcommand)\b",
+    # v2.10.0: block access to well-known secret material
+    r"(\.ssh/(id_[a-z0-9]+|identity)|/etc/shadow|\.gnupg/|\.netrc|\.git-credentials|\.aws/credentials|token\.txt)\b",
+    # v2.10.0: block common reverse-shell patterns
+    r"\bnc\b[^\n]*\s-e\b",
+    r"\bncat\b[^\n]*\s-e\b",
+    r"\b(bash|sh)\b\s+-i\b[^\n]*>&\s*/dev/tcp/",
+    r"/dev/tcp/\d",
 ]
 
 HOME = str(Path.home())
@@ -4198,6 +4228,7 @@ def make_app(cfg: dict) -> web.Application:
     # ---- Prometheus & API docs (public) ----
     app.router.add_get("/metrics", handle_prometheus_metrics)
     app.router.add_get("/api-docs", handle_api_docs)
+    app.router.add_get("/openapi.json", handle_api_docs)  # v2.10.0 alias
 
     # ---- Browser auto-switch ----
     app.router.add_post("/v1/browser/browse", handle_v1_browser_browse)
@@ -5031,6 +5062,26 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
                 "client": request.remote or "127.0.0.1"})
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": reason, "request_id": request_id}, status=403)
+
+    # v2.10.0: Honor the control lease for exec commands that would inject
+    # desktop input. General shell stays available while paused (so the agent
+    # can still diagnose/recover), but keyboard/mouse injection is blocked —
+    # closing the pause-bypass hole where exec could drive ydotool/xdotool.
+    ctrl_err = _control_check()
+    if ctrl_err:
+        inj = _is_input_injection_cmd(cmd)
+        if inj:
+            audit({"type": "exec_blocked_control", "request_id": request_id, "cmd": cmd,
+                   "reason": ctrl_err.get("error"), "matched": inj,
+                   "client": request.remote or "127.0.0.1"})
+            _record_request(is_error=True, count_request=False)
+            err = dict(ctrl_err)
+            err["request_id"] = request_id
+            err["message"] = (
+                "Desktop input injection blocked while control is "
+                f"{ctrl_err.get('status')}. Resume control to inject input."
+            )
+            return _cors_json_response(err, status=403)
 
     profile = cfg["profile"]
     fw = first_word(cmd)
@@ -8721,20 +8772,42 @@ async def handle_v1_desktop_screenshot(request):
     """GET /v1/desktop/screenshot — Take a screenshot of the desktop.
 
     Query params:
-        format: "png" | "base64" (default: "base64")
+        format: "png" | "jpeg"/"jpg" | "webp" | "base64" (default: "base64")
         display: string (optional, e.g. ":0" or "wayland-0")
+        scale: float in (0,1] — downscale factor (e.g. 0.5)
+        max_width: int — cap the width (preserves aspect ratio)
+        quality: int 1-100 — JPEG/WebP quality (default 80)
 
     Uses spectacle (KDE) or grim (Wayland) or scrot (X11) depending
-    on what's available. Returns the screenshot as base64 PNG.
+    on what's available. Returns the screenshot in the requested format.
 
     v2.4.0: New endpoint.
+    v2.10.0: format/scale/max_width/quality are now honored (PIL post-process).
     """
     r = require_auth(request)
     if r: return r
     _record_request()
 
     qs = parse_qs(request.query_string)
-    fmt = qs.get("format", ["base64"])[0]
+    fmt = qs.get("format", ["base64"])[0].lower()
+
+    # v2.10.0: parse optional transform params
+    def _qs_float(name):
+        try:
+            return float(qs.get(name, [None])[0])
+        except (TypeError, ValueError):
+            return None
+
+    def _qs_int(name):
+        try:
+            return int(qs.get(name, [None])[0])
+        except (TypeError, ValueError):
+            return None
+
+    scale = _qs_float("scale")
+    max_width = _qs_int("max_width")
+    quality = _qs_int("quality") or 80
+    quality = max(1, min(100, quality))
 
     # Create temp file for screenshot
     import tempfile
@@ -8786,23 +8859,66 @@ async def handle_v1_desktop_screenshot(request):
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": "Screenshot file is empty"}, status=500)
 
+    tool = "spectacle" if env["has_spectacle"] else ("grim" if env["has_grim"] else "scrot")
+
+    # v2.10.0: Apply transforms (scale/max_width) and encode to requested
+    # format. The captured file is always PNG; we re-encode via PIL when the
+    # caller asks for jpeg/webp or a resize. This dramatically reduces payload
+    # size and latency for vision agents (e.g. 2560x1440 PNG ~1.8MB -> 1280x720
+    # JPEG ~90KB).
+    out_format = "png"  # actual encoding of the bytes we return
+    transformed = False
+    if fmt in ("jpeg", "jpg", "webp") or scale or max_width:
+        try:
+            from PIL import Image as _PILImage
+            import io as _io
+            im = _PILImage.open(_io.BytesIO(img_bytes))
+            w, h = im.size
+            target_w = w
+            if scale and 0 < scale <= 1:
+                target_w = int(w * scale)
+            if max_width and max_width > 0:
+                target_w = min(target_w, max_width)
+            if target_w != w and target_w > 0:
+                target_h = max(1, int(h * (target_w / w)))
+                im = im.resize((target_w, target_h), _PILImage.LANCZOS)
+            buf = _io.BytesIO()
+            if fmt in ("jpeg", "jpg"):
+                im.convert("RGB").save(buf, format="JPEG", quality=quality)
+                out_format = "jpeg"
+            elif fmt == "webp":
+                im.save(buf, format="WEBP", quality=quality)
+                out_format = "webp"
+            else:
+                im.save(buf, format="PNG", optimize=True)
+                out_format = "png"
+            img_bytes = buf.getvalue()
+            transformed = True
+        except Exception as _e:
+            # Fall back to original PNG bytes if PIL is unavailable / fails.
+            audit({"type": "screenshot_transform_failed", "error": str(_e)})
+            out_format = "png"
+
+    _content_types = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
+
     if fmt == "base64":
         import base64 as _b64
         b64_data = _b64.b64encode(img_bytes).decode("ascii")
         return _cors_json_response({
             "ok": True,
             "format": "base64",
+            "encoding": out_format,
             "data": b64_data,
             "size_bytes": len(img_bytes),
-            "tool": "spectacle" if env["has_spectacle"] else ("grim" if env["has_grim"] else "scrot"),
+            "transformed": transformed,
+            "tool": tool,
         })
     else:
         return web.Response(
             body=img_bytes,
-            content_type="image/png",
+            content_type=_content_types.get(out_format, "image/png"),
             headers={"Access-Control-Allow-Origin": "*"}
         )
-
 
 async def handle_v1_desktop_click(request):
     """POST /v1/desktop/click — Click at coordinates on the desktop.
@@ -8942,11 +9058,16 @@ async def handle_v1_desktop_type(request):
         text: string (required) — Text to type
         delay: number (optional, default: 50) — Delay between keystrokes in ms
         clear: bool (default: false) — Clear existing text first (Ctrl+A then type)
+        ensure_latin: bool (default: true) — Switch KDE keyboard to the Latin
+            (first) layout before typing, so ydotool keycodes are not mangled
+            by a non-Latin active layout (e.g. RU). KDE/Wayland only;
+            best-effort.
 
     Uses ydotool/wtype (Wayland) or xdotool (X11).
 
     v2.4.0: New endpoint.
     v2.9.0: Added control check and require_active_title input guard.
+    v2.10.0: Added ensure_latin to make typing layout-independent.
     """
     r = require_auth(request)
     if r: return r
@@ -8986,9 +9107,25 @@ async def handle_v1_desktop_type(request):
 
     delay = body.get("delay", 50)
     clear = body.get("clear", False)
+    ensure_latin = body.get("ensure_latin", True)
 
     env = _detect_desktop_env()
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+
+    # v2.10.0: Make typing layout-independent. ydotool emits raw keycodes, so
+    # a non-Latin active layout (e.g. RU) corrupts text. Best-effort switch to
+    # the first (Latin) KDE layout via the keyboard DBus interface before typing.
+    layout_switched = False
+    if ensure_latin:
+        try:
+            res = await _desktop_exec(
+                "qdbus6 org.kde.keyboard /Layouts setLayout 0 "
+                "|| qdbus org.kde.keyboard /Layouts setLayout 0",
+                timeout=5,
+            )
+            layout_switched = bool(res.get("ok"))
+        except Exception:
+            layout_switched = False
 
     # Escape text for shell
     import shlex
@@ -9028,8 +9165,9 @@ async def handle_v1_desktop_type(request):
         "ok": True,
         "text": text,
         "tool": tool,
+        "ensure_latin": ensure_latin,
+        "layout_switched": layout_switched,
     })
-
 
 async def handle_v1_desktop_key(request):
     """POST /v1/desktop/key — Press a key or key combo on the desktop.
@@ -12236,6 +12374,13 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/browser/cdp/raw-info": {"get": {"summary": "Raw CDP HTTP info", "tags": ["CDP Debug"], "responses": {"200": {"description": "Raw CDP data"}}}},
             "/v1/browser/cdp/test-launch": {"get": {"summary": "Test CDP browser launch", "tags": ["CDP Debug"], "responses": {"200": {"description": "Launch test result"}}}},
             "/v1/browser/cdp/test-ws": {"get": {"summary": "Test CDP WebSocket", "tags": ["CDP Debug"], "responses": {"200": {"description": "WS test result"}}}},
+            "/v1/desktop/screenshot": {"get": {"summary": "Take desktop screenshot", "tags": ["Desktop"], "parameters": [
+                {"name": "format", "in": "query", "schema": {"type": "string", "enum": ["base64", "png", "jpeg", "jpg", "webp"], "default": "base64"}},
+                {"name": "scale", "in": "query", "schema": {"type": "number", "minimum": 0, "maximum": 1}},
+                {"name": "max_width", "in": "query", "schema": {"type": "integer", "minimum": 1}},
+                {"name": "quality", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 80}}
+            ], "responses": {"200": {"description": "Screenshot image bytes or base64 JSON"}}}},
+            "/v1/desktop/type": {"post": {"summary": "Type text on the desktop", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"text": {"type": "string"}, "delay": {"type": "integer", "default": 50}, "clear": {"type": "boolean", "default": False}, "ensure_latin": {"type": "boolean", "default": True}}, "required": ["text"]}}}}, "responses": {"200": {"description": "Type result"}}}},
             "/v1/exec": {"post": {"summary": "Execute command", "tags": ["Exec"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}}}}}, "responses": {"200": {"description": "Command result"}}}},
             "/v1/kill": {"post": {"summary": "Kill process by PID", "tags": ["Exec"], "responses": {"200": {"description": "Kill result"}}}},
             "/v1/skills": {"get": {"summary": "List available skills", "tags": ["Skills"], "responses": {"200": {"description": "Skill list"}}}},
@@ -12248,6 +12393,7 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/doctor": {"get": {"summary": "Run diagnostics", "tags": ["System"], "responses": {"200": {"description": "Diagnostic results"}}}},
             "/gui": {"get": {"summary": "Web dashboard", "tags": ["Bridge"], "responses": {"200": {"description": "HTML dashboard"}}}},
             "/api-docs": {"get": {"summary": "OpenAPI specification", "tags": ["Bridge"], "responses": {"200": {"description": "OpenAPI 3.0 JSON"}}}},
+            "/openapi.json": {"get": {"summary": "OpenAPI specification alias", "tags": ["Bridge"], "responses": {"200": {"description": "OpenAPI 3.0 JSON"}}}},
             "/v1/events": {"get": {"summary": "WebSocket real-time event stream", "tags": ["Events"], "responses": {"200": {"description": "WebSocket upgrade for events"}}}},
             "/v1/skills/reload": {"post": {"summary": "Force reload skills cache", "tags": ["Skills"], "responses": {"200": {"description": "Reloaded skills"}}}},
             "/v1/audit/log": {"get": {"summary": "Request/response log with filters", "tags": ["System"], "responses": {"200": {"description": "Request log entries"}}}},
@@ -12263,6 +12409,7 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             {"name": "CDP Stealth", "description": "Stealth-aware content extraction and screenshots via CDP"},
             {"name": "CDP Debug", "description": "CDP diagnostic and testing endpoints"},
             {"name": "Exec", "description": "Command execution"},
+            {"name": "Desktop", "description": "Desktop screenshot, input, focus and control lease"},
             {"name": "Skills", "description": "Skill system"},
             {"name": "Tasks", "description": "Task management"},
             {"name": "Memory", "description": "Memory and recall"},

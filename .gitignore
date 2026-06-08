@@ -95,3 +95,9 @@ debug*.bat
 debug*.py
 RESTORE_*.md
 worklog.md
+
+# Agent/deployment scratch artifacts
+_agent_backups/
+_selfheal*.sh
+requests.jsonl
+*.pid

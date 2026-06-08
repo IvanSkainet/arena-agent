@@ -1,0 +1,14 @@
+# Changelog
+
+## v2.10.0 — 2026-06-08
+
+### Fixed
+- Closed the control-lease bypass where `/v1/exec` could still inject desktop input while control was paused/revoked by blocking input-injection tools (`ydotool`, `xdotool` key/mouse/type, `wtype`, `dotool`, etc.) under a paused/revoked lease while keeping non-input shell diagnostics available.
+- Made `/v1/desktop/screenshot` honor `format`, `scale`, `max_width`, and `quality` parameters. The endpoint can now return JPEG/WebP/downscaled images instead of always returning full-size PNG.
+- Hardened `/v1/exec` safety patterns against obvious secret reads and reverse-shell payloads (`~/.ssh/id_*`, `.netrc`, `.git-credentials`, `.aws/credentials`, `token.txt`, `/etc/shadow`, `/dev/tcp`, `nc -e`, etc.).
+- Made `/v1/desktop/type` more reliable on KDE/Wayland with `ensure_latin` (default `true`), switching the keyboard layout to the first/Latin layout before typing to avoid RU/other-layout keycode corruption.
+- Added `/openapi.json` as an OpenAPI alias to improve API discoverability, and documented the new desktop screenshot/type parameters.
+
+### Notes
+- `owner-shell` remains a trusted/local-owner profile; these safety patterns reduce common foot-guns but are not a substitute for a sandbox or least-privilege deployment.
+- For vision agents, recommended screenshot parameters are now `format=jpeg&scale=0.5&quality=80` or `format=jpeg&max_width=1280&quality=80`.
