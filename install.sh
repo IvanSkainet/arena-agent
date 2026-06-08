@@ -25,6 +25,40 @@ echo " Arena Unified Bridge — Installer"
 echo "========================================"
 echo ""
 
+cat <<EOF
+========================================
+ TRANSPARENCY NOTICE - BACKGROUND SERVICE
+========================================
+ Arena Unified Bridge is a local automation server.
+ This installer will register a visible background service/agent when possible:
+
+   Linux:  systemd user service  arena-bridge.service
+   macOS:  launchd agent         com.arena.bridge
+   Local:  http://127.0.0.1:$PORT
+
+ You may see python/unified_bridge.py, ydotoold, tailscale, or cloudflared
+ processes depending on enabled features. This is expected and is NOT stealth
+ software. It lets your AI tools keep talking to this machine after this
+ terminal is closed.
+
+ To inspect later:
+   systemctl --user status arena-bridge.service   # Linux
+   launchctl print gui/\$UID/com.arena.bridge      # macOS
+
+ To remove later:
+   ./uninstall.sh
+EOF
+
+if [ "${ARENA_ACCEPT_BACKGROUND:-}" != "1" ] && [ "${ARENA_ASSUME_YES:-}" != "1" ]; then
+    if ! ask "Continue and install/update the background service?"; then
+        warn "Installation aborted by user. No service/agent was installed by this run."
+        warn "Set ARENA_ACCEPT_BACKGROUND=1 to skip this prompt in automation."
+        exit 0
+    fi
+fi
+
+echo ""
+
 # --- Step 1: Download or update the repo ---
 if [ -d "$INSTALL_DIR/.git" ]; then
     info "Updating existing installation at $INSTALL_DIR ..."
@@ -567,16 +601,28 @@ if [ -n "$TS_URL" ]; then
     echo "   $TS_URL"
 fi
 echo ""
+echo " Background service/agent:"
 if [ "$OS" = "Linux" ]; then
+    echo "   Name: arena-bridge.service (systemd --user)"
+    echo "   This is expected. It keeps the bridge available after this terminal closes."
+    echo "   To remove: $INSTALL_DIR/uninstall.sh"
+    echo ""
     echo " Manage:"
     echo "   systemctl --user status   arena-bridge"
     echo "   systemctl --user restart  arena-bridge"
     echo "   systemctl --user stop     arena-bridge"
     echo "   journalctl --user -u arena-bridge -f"
 elif [ "$OS" = "Darwin" ]; then
+    echo "   Name: com.arena.bridge (launchd)"
+    echo "   This is expected. It keeps the bridge available after this terminal closes."
+    echo "   To remove: $INSTALL_DIR/uninstall.sh"
+    echo ""
     echo " Manage:"
     echo "   launchctl print gui/\$UID/com.arena.bridge"
     echo "   launchctl kickstart -k gui/\$UID/com.arena.bridge"
+else
+    echo "   Started with nohup for this user session."
+    echo "   To remove: $INSTALL_DIR/uninstall.sh"
 fi
 echo ""
 echo " Optional:"

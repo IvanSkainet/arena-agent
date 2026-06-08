@@ -108,6 +108,8 @@ The installer will:
 
 Arena Unified Bridge is a **local automation server**. After installation it intentionally runs in the background so your AI tools can keep talking to your machine after you close the terminal.
 
+The installers (`install.bat` and `install.sh`) show this transparency notice and ask for confirmation before registering/updating the background service. Automation can opt in explicitly with `ARENA_ACCEPT_BACKGROUND=1`.
+
 This can look suspicious if you did not expect it — especially on Windows, where Task Manager may show `python.exe` processes. These processes are not hidden and are not meant to be stealthy: they are the bridge service, optional helper servers, and/or legacy helper scripts from older private builds.
 
 ### Normal process names you may see
@@ -720,6 +722,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 
 ### v2.10.0 — Bridge hardening, screenshot transforms, layout-safe typing & OpenAPI alias
 - **Docs:** Added a prominent transparency section explaining expected background processes, Windows scheduled tasks/services, legacy helper names, and manual cleanup commands so the project is not mistaken for malware.
+- **Installers:** `install.bat` and `install.sh` now show an explicit background-service transparency notice and require confirmation before installing/updating the service (set `ARENA_ACCEPT_BACKGROUND=1` for automation).
 - **Fixed:** `/v1/exec` can no longer bypass `/v1/control/pause` or `/v1/control/revoke` for desktop input injection commands (`ydotool`, `xdotool key/click/type`, `wtype`, etc.).
 - **Added:** `/v1/desktop/screenshot` now supports `format=jpeg|jpg|webp|png|base64`, `scale`, `max_width`, and `quality`.
 - **Added:** `/v1/desktop/type` now supports `ensure_latin` (default `true`) to avoid non-Latin XKB layout corruption on KDE/Wayland.

@@ -56,6 +56,39 @@ set /p "VERSION=" <"%TEMP%\arena_ver.txt"
 del "%TEMP%\arena_ver.py" "%TEMP%\arena_ver.txt" >nul 2>&1
 echo       Bridge v!VERSION!
 
+echo.
+echo  ========================================
+echo   TRANSPARENCY NOTICE - BACKGROUND SERVICE
+echo  ========================================
+echo   Arena Unified Bridge is a local automation server.
+echo   This installer will register a visible background service or scheduled task:
+echo.
+echo     Service/task name: ArenaUnifiedBridge
+echo     Local URL:         http://127.0.0.1:%PORT%
+echo     You may see:       python.exe, unified_bridge.py, or legacy helper names
+echo.
+echo   This is expected and is NOT stealth software. It lets your AI tools keep
+echo   talking to this machine after this terminal is closed.
+echo.
+echo   To inspect later:
+echo     schtasks /query /tn "ArenaUnifiedBridge" /fo LIST /v
+echo     sc query ArenaUnifiedBridge
+echo.
+echo   To remove later:
+echo     uninstall.bat
+echo.
+if /I "%ARENA_ACCEPT_BACKGROUND%"=="1" goto :transparency_ok
+if /I "%ARENA_ASSUME_YES%"=="1" goto :transparency_ok
+set "ARENA_BG_CONFIRM="
+set /p "ARENA_BG_CONFIRM=Continue and install/update the background service? [y/N]: "
+if /I not "%ARENA_BG_CONFIRM%"=="Y" (
+    echo.
+    echo  Installation aborted by user. No service/task was installed by this run.
+    echo  Set ARENA_ACCEPT_BACKGROUND=1 to skip this prompt in automation.
+    goto :end
+)
+:transparency_ok
+
 REM ============================================================
 REM Step 2: Install Python dependencies
 REM ============================================================
@@ -298,10 +331,16 @@ if not defined TS_URL echo   not configured - install Tailscale: https://tailsca
 if defined TS_URL echo   https://%TS_URL%
 echo.
 
+echo   Background service/task:
+echo     Name: ArenaUnifiedBridge
+echo     This is expected. It keeps the bridge available after this window closes.
+echo     To remove: uninstall.bat
+echo.
 echo   Manage:
 if "%SERVICE_METHOD%"=="nssm" goto :manage_nssm
 echo     schtasks /run /tn "ArenaUnifiedBridge"
 echo     schtasks /end /tn "ArenaUnifiedBridge"
+echo     schtasks /query /tn "ArenaUnifiedBridge" /fo LIST /v
 echo     Or: start_bridge.bat
 goto :manage_done
 :manage_nssm

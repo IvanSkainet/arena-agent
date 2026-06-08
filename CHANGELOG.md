@@ -9,6 +9,10 @@
 - Made `/v1/desktop/type` more reliable on KDE/Wayland with `ensure_latin` (default `true`), switching the keyboard layout to the first/Latin layout before typing to avoid RU/other-layout keycode corruption.
 - Added `/openapi.json` as an OpenAPI alias to improve API discoverability, and documented the new desktop screenshot/type parameters.
 
+### Documentation / transparency
+- Added a prominent README section explaining expected background processes, Windows scheduled tasks/services, legacy helper names, and manual cleanup commands so the project is not mistaken for malware.
+- `install.bat` and `install.sh` now show an explicit background-service transparency notice and require confirmation before installing/updating the service. Set `ARENA_ACCEPT_BACKGROUND=1` or `ARENA_ASSUME_YES=1` for unattended automation.
+
 ### Notes
 - `owner-shell` remains a trusted/local-owner profile; these safety patterns reduce common foot-guns but are not a substitute for a sandbox or least-privilege deployment.
 - For vision agents, recommended screenshot parameters are now `format=jpeg&scale=0.5&quality=80` or `format=jpeg&max_width=1280&quality=80`.
