@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.10.3 — 2026-06-08
+
+### Security
+- Hardened `arena/security.py::_validate_url` against SSRF bypasses in browser fetch endpoints (`/v1/browser/read`, `/dump`, `/fetch`, `/head`).
+- Blocked obfuscated internal hosts including `127.1`, octal IPv4 (`0177.0.0.1`), decimal integer IPv4 (`2130706433`), hex IPv4 (`0x7f000001`), IPv4-mapped IPv6 loopback, and `localhost.localdomain`.
+- Blocked metadata/internal hostnames such as `metadata.google.internal`, bare `metadata`, `.internal`, and `.local` names.
+- Added DNS resolution defense-in-depth: every A/AAAA result is checked for private, loopback, link-local, reserved, multicast, or unspecified addresses before fetch.
+
+### Tests
+- Added regression tests for the reported SSRF bypass payloads.
+
 ## v2.10.2 — 2026-06-08
 
 First release built with CI, an expanded test suite, and safe-by-construction

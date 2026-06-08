@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.10.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.10.3-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,8 +44,9 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.10.0
+### 🆕 What's new in v2.10.3
 
+- **SSRF hardening:** `/v1/browser/read`, `/dump`, `/fetch`, and `/head` now block obfuscated internal hosts such as `127.1`, octal/hex/decimal IPv4 forms, IPv4-mapped IPv6 loopback, `.local`/`.internal` names, and cloud metadata hostnames. DNS results are also checked for private/internal addresses before fetch.
 - **Fast vision screenshots:** `/v1/desktop/screenshot` now honors `format=jpeg|webp`, `scale`, `max_width`, and `quality` instead of always returning full-size PNG.
 - **Safer pause/resume:** `/v1/control/pause` now also blocks desktop input injection attempted through `/v1/exec` (`ydotool`, `xdotool key/click/type`, `wtype`, etc.) while still allowing non-input diagnostic shell commands.
 - **Layout-safe typing:** `/v1/desktop/type` adds `ensure_latin` (default `true`) to switch KDE keyboard layout to the first/Latin layout before typing, avoiding RU/other-layout keycode corruption.
@@ -640,6 +641,7 @@ Cross-platform installer auto-detects `apt`, `dnf`, `pacman`, `apk`, `zypper`, `
 - **`/v1/exec` filters commands** via blocked patterns (`rm -rf /`, `sudo`, `su`, `format`, `mkfs`, `diskpart`, `bcdedit`, `reg delete`, `curl|sh`, encoded PowerShell, obvious secret reads, reverse shells, ...) and a `CAUTIOUS_ALLOW` allowlist for safe read-only commands. Customize in `unified_bridge.py`.
 - **Control lease applies to input injection** — when `/v1/control/pause` or `/v1/control/revoke` is active, desktop endpoints are blocked, and `/v1/exec` also rejects commands that would inject keyboard/mouse input (`ydotool`, `xdotool key/click/type`, `wtype`, etc.). General shell diagnostics remain available to avoid self-lockout.
 - **File operations are sandboxed** — upload and download paths must be inside the user's home directory. Path traversal (`..`) is blocked, and the bridge binary itself cannot be overwritten.
+- **Browser fetch SSRF guard** — `/v1/browser/read`, `/dump`, `/fetch`, and `/head` only allow HTTP(S) public targets. The validator blocks localhost/private/link-local/reserved/multicast/unspecified addresses, obfuscated IPv4 spellings (`127.1`, octal, hex, integer forms), IPv4-mapped IPv6 loopback, internal/metadata hostnames, and DNS names resolving to internal addresses.
 - **Profile system**: `owner-shell` (permissive) and `cautious` (restricted). Switch via `ARENA_PROFILE` env var.
 - **Rate limiting**: 300 requests per minute per IP, configurable via `/v1/ratelimit`. Auth failures are rate-limited separately at 10 attempts per minute per IP.
 - **CORS** enabled on all responses (browser-based AI dashboards can call you).
@@ -721,6 +723,15 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.10.3 — SSRF hardening for browser fetch endpoints
+- **Security:** Hardened `_validate_url` for `/v1/browser/read`, `/dump`, `/fetch`, and `/head` against obfuscated internal-address bypasses (`127.1`, octal/hex/integer IPv4, IPv4-mapped IPv6 loopback) and cloud metadata/internal hostnames.
+- **Defense in depth:** DNS A/AAAA results are resolved and checked for private/internal addresses before fetch.
+- **Tests:** Added regression coverage for the reported SSRF bypasses, including `metadata.google.internal` and `localhost.localdomain`.
+
+### v2.10.2 — CI, security tests, and safe release packaging
+- **Security:** Release packaging now ships only git-tracked files plus explicit runtime placeholders and asserts that sensitive files are not included.
+- **Tests/CI:** Added GitHub Actions, `tests/test_security.py`, `requirements.txt`, `pyproject.toml`, and repository hygiene updates.
 
 ### v2.10.1 — Installer transparency and anti-false-positive release
 - **Installers:** `install.bat` and `install.sh` now show a prominent `TRANSPARENCY NOTICE - BACKGROUND SERVICE` before registering/updating any background service, scheduled task, systemd unit, or launchd agent.

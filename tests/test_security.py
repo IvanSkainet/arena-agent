@@ -101,6 +101,21 @@ def test_validate_url_blocks_unsafe(url):
 
 
 @pytest.mark.parametrize("url", [
+    "http://127.1/",
+    "http://0177.0.0.1/",
+    "http://2130706433/",
+    "http://0x7f000001/",
+    "http://metadata.google.internal/",
+    "http://metadata/",
+    "http://[::ffff:127.0.0.1]/",
+    "http://localhost.localdomain/",
+    "http://localhost./",
+])
+def test_validate_url_blocks_obfuscated_internal(url):
+    assert ub._validate_url(url) is not None, f"expected {url!r} blocked"
+
+
+@pytest.mark.parametrize("url", [
     "https://example.com/",
     "http://example.com/path?q=1",
     "https://api.github.com/repos/x/y",
