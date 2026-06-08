@@ -136,7 +136,20 @@ import traceback as _traceback
 # ============================================================================
 # VERSION & CONSTANTS
 # ============================================================================
-VERSION = "2.10.2"
+# Version, filesystem paths and tunable limits now live in arena/constants.py;
+# re-exported here so existing references (`unified_bridge.VERSION`, `APP_DIR`, …)
+# keep working.
+from arena.constants import (  # noqa: E402,F401
+    APP_DIR,
+    AUDIT,
+    AUDIT_CMD_LIMIT,
+    BRIDGE_DIR,
+    DEFAULT_MAX_CONCURRENT,
+    DEFAULT_MAX_OUTPUT,
+    MAX_BODY,
+    TOKEN_FILE,
+    VERSION,
+)
 
 # ============================================================================
 # DESKTOP CONTROL STATE (v2.9.0)
@@ -267,16 +280,8 @@ def _get_bridge_port() -> int:
         return 8765
 
 
-AUDIT_CMD_LIMIT = 4000
-BRIDGE_DIR = Path(__file__).resolve().parent
-APP_DIR = BRIDGE_DIR
-TOKEN_FILE = APP_DIR / "token.txt"
-AUDIT = APP_DIR / "audit.jsonl"
-# RUN_DIR removed — was unused
-MAX_BODY = 1024 * 1024
-DEFAULT_MAX_OUTPUT = 2 * 1024 * 1024
-DEFAULT_MAX_CONCURRENT = 3
-
+# Version, paths and limits now live in arena/constants.py (re-exported near the
+# top of this file). Runtime state stays here.
 ACTIVE_PROCESSES: dict[str, dict] = {}
 audit_lock = threading.Lock()
 
