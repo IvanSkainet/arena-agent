@@ -5,7 +5,7 @@
 **Cross-platform local automation bridge for AI agents.**
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
-[![Version](https://img.shields.io/badge/version-v2.8.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.10.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -30,9 +30,9 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 |----------|---------|
 | **Cross-platform** | Installer auto-detects Windows / Linux / macOS and picks the right packaging strategy (NSSM Service, Scheduled Task, systemd user unit, or launchd agent) |
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
-| **141 routes** | 130+ handlers covering exec, memory, browser, CDP, desktop, tasks, skills, audit, watchdog, profiles, and more |
+| **236 route registrations** | 130+ handlers covering exec, memory, browser, CDP, desktop, tasks, skills, audit, watchdog, profiles, OpenAPI, and more |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
-| **6 Desktop endpoints** | Wayland/X11 desktop automation: screenshot, click, type, key press, mouse move, window list (via ydotool/kdotool) |
+| **6 Desktop endpoints** | Wayland/X11 desktop automation: screenshot (PNG/JPEG/WebP + resize), click, layout-safe type, key press, mouse move, window list |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
@@ -42,6 +42,14 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
+
+### 🆕 What's new in v2.10.0
+
+- **Fast vision screenshots:** `/v1/desktop/screenshot` now honors `format=jpeg|webp`, `scale`, `max_width`, and `quality` instead of always returning full-size PNG.
+- **Safer pause/resume:** `/v1/control/pause` now also blocks desktop input injection attempted through `/v1/exec` (`ydotool`, `xdotool key/click/type`, `wtype`, etc.) while still allowing non-input diagnostic shell commands.
+- **Layout-safe typing:** `/v1/desktop/type` adds `ensure_latin` (default `true`) to switch KDE keyboard layout to the first/Latin layout before typing, avoiding RU/other-layout keycode corruption.
+- **Hardened owner-shell:** obvious secret reads (`~/.ssh/id_*`, `.netrc`, `.git-credentials`, `.aws/credentials`, `token.txt`, `/etc/shadow`) and common reverse-shell payloads are blocked by safety patterns.
+- **Better discoverability:** `/openapi.json` is now an alias for OpenAPI docs, and the new desktop parameters are documented.
 
 ---
 
@@ -221,7 +229,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/v1/exec` | Execute a shell command. Body: `{"cmd": "..."}` (with safety rules) |
+| `POST` | `/v1/exec` | Execute a shell command. Body: `{"cmd": "..."}` (safety rules; input-injection commands are blocked while desktop control is paused/revoked) |
 | `POST` | `/v1/kill` | Kill a running process. Body: `{"pid": N}` |
 | `POST` | `/v1/batch` | Batch operations in parallel. Body: `{"operations": [{"method": "GET", "path": "/v1/status"}, ...]}` |
 | `POST` | `/v1/restart` | Graceful restart (uses NSSM/systemd respawn) |
@@ -297,14 +305,14 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/desktop/screenshot` | Take a screenshot of the desktop (PNG) |
+| `GET` | `/v1/desktop/screenshot` | Take a desktop screenshot. Query: `format=png|jpeg|webp|base64`, `scale`, `max_width`, `quality` |
 | `POST` | `/v1/desktop/click` | Click at coordinates. Body: `{"x": N, "y": N, "button": "left"}` |
-| `POST` | `/v1/desktop/type` | Type text on the desktop. Body: `{"text": "..."}` |
+| `POST` | `/v1/desktop/type` | Type text. Body: `{"text": "...", "ensure_latin": true}` (default: layout-safe typing on KDE) |
 | `POST` | `/v1/desktop/key` | Press a key. Body: `{"key": "Return"}` |
 | `POST` | `/v1/desktop/mouse` | Move mouse. Body: `{"action": "move", "x": N, "y": N}` |
 | `GET` | `/v1/desktop/windows` | List open windows with titles and positions |
 
-> **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+).
+> **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+). For vision agents, prefer `GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80` or `max_width=1280` to reduce payload size dramatically.
 
 ### Audit & Logs
 
@@ -380,6 +388,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 |--------|------|-------------|
 | `GET` | `/gui` | Web dashboard (single-file HTML/JS) |
 | `GET` | `/api-docs` | OpenAPI 3.0 specification (JSON) |
+| `GET` | `/openapi.json` | OpenAPI 3.0 alias for tooling that expects this conventional path |
 
 > Full list: `GET /` returns a JSON catalog of all routes.
 
@@ -552,7 +561,8 @@ Cross-platform installer auto-detects `apt`, `dnf`, `pacman`, `apk`, `zypper`, `
 
 - **Token-only auth** by default. Token is a 256-bit base64-url string stored at `token.txt` (`chmod 600` on Linux).
 - **No request is auth-free** except `/health` and `/` index.
-- **`/v1/exec` filters commands** via blocked patterns (`rm -rf /`, `sudo`, `su`, `format`, `mkfs`, `diskpart`, `bcdedit`, `reg delete`, `curl|sh`, encoded PowerShell, ...) and a `CAUTIOUS_ALLOW` allowlist for safe read-only commands. Customize in `unified_bridge.py`.
+- **`/v1/exec` filters commands** via blocked patterns (`rm -rf /`, `sudo`, `su`, `format`, `mkfs`, `diskpart`, `bcdedit`, `reg delete`, `curl|sh`, encoded PowerShell, obvious secret reads, reverse shells, ...) and a `CAUTIOUS_ALLOW` allowlist for safe read-only commands. Customize in `unified_bridge.py`.
+- **Control lease applies to input injection** — when `/v1/control/pause` or `/v1/control/revoke` is active, desktop endpoints are blocked, and `/v1/exec` also rejects commands that would inject keyboard/mouse input (`ydotool`, `xdotool key/click/type`, `wtype`, etc.). General shell diagnostics remain available to avoid self-lockout.
 - **File operations are sandboxed** — upload and download paths must be inside the user's home directory. Path traversal (`..`) is blocked, and the bridge binary itself cannot be overwritten.
 - **Profile system**: `owner-shell` (permissive) and `cautious` (restricted). Switch via `ARENA_PROFILE` env var.
 - **Rate limiting**: 300 requests per minute per IP, configurable via `/v1/ratelimit`. Auth failures are rate-limited separately at 10 attempts per minute per IP.
@@ -599,6 +609,18 @@ Funnel periodically drops if the upstream port stops accepting (e.g. when the br
 tailscale funnel --bg 8765
 ```
 
+### Desktop commands typed as gibberish (e.g. `/time set day` → `.ешьу ыуе вфн`)
+This happens when raw keycodes are interpreted through a non-Latin active keyboard layout. **Improved in v2.10.0:** `/v1/desktop/type` uses `ensure_latin: true` by default on KDE, switching to the first/Latin layout before typing.
+
+### Screenshot is too large or slow for vision agents
+Use the v2.10.0 screenshot transforms instead of full-size PNG:
+
+```bash
+GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80
+# or
+GET /v1/desktop/screenshot?format=jpeg&max_width=1280&quality=80
+```
+
 ### "Token rejected (401)" after I clicked Regenerate
 The new token is written to disk; existing process keeps the old in memory. Click **Restart Bridge** in Settings or restart the service.
 
@@ -608,6 +630,17 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.10.0 — Bridge hardening, screenshot transforms, layout-safe typing & OpenAPI alias
+- **Fixed:** `/v1/exec` can no longer bypass `/v1/control/pause` or `/v1/control/revoke` for desktop input injection commands (`ydotool`, `xdotool key/click/type`, `wtype`, etc.).
+- **Added:** `/v1/desktop/screenshot` now supports `format=jpeg|jpg|webp|png|base64`, `scale`, `max_width`, and `quality`.
+- **Added:** `/v1/desktop/type` now supports `ensure_latin` (default `true`) to avoid non-Latin XKB layout corruption on KDE/Wayland.
+- **Hardened:** `/v1/exec` blocks obvious secret reads (`~/.ssh/id_*`, `.netrc`, `.git-credentials`, `.aws/credentials`, `token.txt`, `/etc/shadow`) and common reverse-shell patterns.
+- **Added:** `/openapi.json` alias and OpenAPI documentation for the new desktop parameters.
+
+### v2.9.1 — GUI Control Panel, KWin DBus focus & active window improvements
+- **Added/Improved:** desktop focus/control APIs and active window handling for KDE/Wayland/XWayland workflows.
+- **Improved:** control lease endpoints (`/v1/control/status`, `/pause`, `/resume`, `/revoke`) for safer desktop automation sessions.
 
 ### v2.8.0 — Memory DB Integrity Sync, Quality Hardening & Universal Plugins
 - **Added:** Local Semantic RAG Memory via SQLite FTS5 with `trigram` tokenizer, fully replacing obsolete `facts.jsonl` in both the bridge and CLI tools (`scripts/memory.py`, `bin/memory_recall.py`)
