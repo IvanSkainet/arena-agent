@@ -230,7 +230,7 @@ v<span id="sidebarVersion">{{VERSION}}</span>
 <div id="termSuggest" style="display:none;position:absolute;top:100%;left:0;right:80px;background:var(--bg2);border:1px solid var(--border);border-top:none;z-index:50;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:12px"></div>
 </div>
 <div class="row" style="margin-bottom:6px;font-size:11px;color:var(--text2)">
-Slash shortcuts: <code>/shot</code> /search /read /dump /head /hwinfo /status /doctor /sysinfo /audit /facts /tasks /ip /dns
+Slash shortcuts: <code>/shot</code> /search /read /dump /head /hardware /hwinfo /status /doctor /sysinfo /audit /facts /tasks /ip /dns
 </div>
 <div class="row" style="margin-bottom:12px">
 <select id="termTimeout" style="width:120px">
@@ -2370,7 +2370,8 @@ const SLASH_COMMANDS = {
   "/head":    { cmd: "agentctl browser py-head ",          hint: "HTTP HEAD request" },
   "/search":  { cmd: "agentctl browser py-search ",        hint: "DuckDuckGo search --n 5" },
   "/fetch":   { cmd: "agentctl browser py-fetch ",         hint: "Raw HTTP GET to URL" },
-  "/hwinfo":  { cmd: "curl -s http://127.0.0.1:8765/v1/hwinfo -H \"Authorization: Bearer $ARENA_TOKEN\"", hint: "Full hardware report" },
+  "/hardware":{ cmd: "curl -s http://127.0.0.1:8765/v1/hardware?include_inventory=0 -H \"Authorization: Bearer $ARENA_TOKEN\"", hint: "Unified hardware inventory" },
+  "/hwinfo":  { cmd: "curl -s http://127.0.0.1:8765/v1/hwinfo?include_inventory=0 -H \"Authorization: Bearer $ARENA_TOKEN\"", hint: "Hardware report (compat alias)" },
   "/status":  { cmd: "agentctl sys status",                hint: "Bridge + tunnel + ports overview" },
   "/doctor":  { cmd: "agentctl sys doctor",                hint: "System health checks" },
   "/sysinfo": { cmd: "agentctl sys info",                  hint: "CPU/RAM/Disk summary" },
@@ -2458,17 +2459,17 @@ async function refreshHwinfo() {
   let hw = null;
   let source = "";
 
-  // Try /v1/hwinfo first (bridge >= 1.6.1) with timeout to prevent UI freeze
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
-    const r = await api("/v1/hwinfo");
-    clearTimeout(timeoutId);
-    if (r && r.ok && r.hwinfo) {
-      hw = r.hwinfo;
-      source = "/v1/hwinfo (bridge)";
-    }
-  } catch (e) {}
+  // Try the unified hardware API first (v2.11.0+), then the legacy alias.
+  for (const endpoint of ["/v1/hardware?include_inventory=0", "/v1/hwinfo?include_inventory=0"]) {
+    try {
+      const r = await api(endpoint);
+      if (r && r.ok && (r.hardware || r.hwinfo)) {
+        hw = r.hardware || r.hwinfo;
+        source = endpoint.split("?")[0] + " (bridge)";
+        break;
+      }
+    } catch (e) {}
+  }
 
   // Fallback to /v1/sysinfo
   if (!hw) {
@@ -2497,7 +2498,7 @@ async function refreshHwinfo() {
 
   if (src) {
     src.textContent = source;
-    src.className = "badge " + (source.includes("hwinfo") ? "green" : "warn");
+    src.className = "badge " + (source.includes("hardware") || source.includes("hwinfo") ? "green" : "warn");
   }
 
   // Format
@@ -2511,7 +2512,8 @@ async function refreshHwinfo() {
   }
   if (hw.bios) {
     const b = hw.bios;
-    const date = b.release_date ? `${b.release_date.substring(0,4)}-${b.release_date.substring(4,6)}-${b.release_date.substring(6,8)}` : "";
+    let date = b.release_date || "";
+    if (/^\d{8}/.test(date)) date = `${date.substring(0,4)}-${date.substring(4,6)}-${date.substring(6,8)}`;
     lines.push(`BIOS:    ${b.manufacturer || ""} v${b.version || ""} ${date ? "(" + date + ")" : ""}`);
   }
   if (hw.cpu) {

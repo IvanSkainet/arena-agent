@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.10.3-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.11.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,14 +44,14 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.10.3
+### 🆕 What's new in v2.11.0
 
-- **SSRF hardening:** `/v1/browser/read`, `/dump`, `/fetch`, and `/head` now block obfuscated internal hosts such as `127.1`, octal/hex/decimal IPv4 forms, IPv4-mapped IPv6 loopback, `.local`/`.internal` names, and cloud metadata hostnames. DNS results are also checked for private/internal addresses before fetch.
-- **Fast vision screenshots:** `/v1/desktop/screenshot` now honors `format=jpeg|webp`, `scale`, `max_width`, and `quality` instead of always returning full-size PNG.
-- **Safer pause/resume:** `/v1/control/pause` now also blocks desktop input injection attempted through `/v1/exec` (`ydotool`, `xdotool key/click/type`, `wtype`, etc.) while still allowing non-input diagnostic shell commands.
-- **Layout-safe typing:** `/v1/desktop/type` adds `ensure_latin` (default `true`) to switch KDE keyboard layout to the first/Latin layout before typing, avoiding RU/other-layout keycode corruption.
-- **Hardened owner-shell:** obvious secret reads (`~/.ssh/id_*`, `.netrc`, `.git-credentials`, `.aws/credentials`, `token.txt`, `/etc/shadow`) and common reverse-shell payloads are blocked by safety patterns.
-- **Better discoverability:** `/openapi.json` is now an alias for OpenAPI docs, and the new desktop parameters are documented.
+- **Unified hardware API:** new `/v1/hardware` endpoint makes `scripts/inventory.py` the canonical collector, returns rich normalized hardware/system facts, and keeps `/v1/hwinfo` as a backward-compatible alias.
+- **Richer cross-platform inventory:** Windows CIM collection is fixed and expanded; Linux/NVIDIA facts are merged into hardware output; display, GPU, RAM, disk, runtime, browser, and package-manager sections are available to agents from one API.
+- **KDE Wayland window discovery:** `/v1/desktop/windows` now tries native KWin scripting first, then falls back to `wmctrl`/`xdotool`, improving desktop automation on Plasma Wayland without making `kdotool` mandatory.
+- **CDP path aliases:** `/v1/cdp/*` aliases now work alongside `/v1/browser/cdp/*`, reducing 404s from agents that infer shorter paths from documentation.
+- **Friendlier CDP session checks:** `/v1/browser/cdp/session/check` returns HTTP 200 with structured details when CDP is disconnected instead of treating that normal state as a bad request.
+- **Inventory polish:** noisy runtime probes such as `lua` and partial `dotnet` installs are handled more cleanly.
 
 ---
 
@@ -289,8 +289,9 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/v1/sysinfo` | CPU, RAM, disk + **disk_usage_percent** |
-| `GET` | `/v1/hwinfo` | Full hardware: mobo, BIOS, GPU, RAM modules |
-| `GET` | `/v1/inventory[?section=…]` | Deep inventory: runtimes, browsers, etc. |
+| `GET` | `/v1/hardware` | Canonical rich hardware/system inventory (normalized JSON from the unified collector) |
+| `GET` | `/v1/hwinfo` | Backward-compatible alias for `/v1/hardware` |
+| `GET` | `/v1/inventory[?section=…]` | Deep inventory: runtimes, browsers, displays, env, services, etc. |
 | `GET` | `/v1/doctor` | 9 self-tests (Python, dirs, network, disk, sound…) |
 | `GET` | `/v1/metrics` | Bridge performance metrics |
 | `GET` | `/v1/logs?level=&lines=` | Structured log viewer with level filter |
@@ -356,11 +357,11 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/browser/head?url=…` | HTTP HEAD request |
 | `POST` | `/v1/browser/browse` | Smart browse with rendering (auto-selects CDP or BrowserAct) |
 
-### Chrome DevTools Protocol (36 endpoints)
+### Chrome DevTools Protocol (36 endpoints + `/v1/cdp/*` aliases)
 
 | Feature | Endpoints | What it does |
 |---------|-----------|--------------|
-| **Connection** | `cdp/connect`, `disconnect`, `status`, `diag`, `health`, `raw-info`, `test-launch`, `test-ws` | Launch/connect to Chromium with stealth profile |
+| **Connection** | `/v1/browser/cdp/connect`, `disconnect`, `status`, `diag`, `health`, `raw-info`, `test-launch`, `test-ws` (`/v1/cdp/*` aliases also supported) | Launch/connect to Chromium with stealth profile |
 | **Navigation** | `cdp/navigate` | Go to URL, wait for load (30s timeout) |
 | **Interaction** | `cdp/click`, `cdp/type` | Click elements, type text with events |
 | **Screenshots** | `cdp/screenshot`, `cdp/stealth/shot` | Full-page or viewport PNG capture |
@@ -382,7 +383,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `POST` | `/v1/desktop/type` | Type text. Body: `{"text": "...", "ensure_latin": true}` (default: layout-safe typing on KDE) |
 | `POST` | `/v1/desktop/key` | Press a key. Body: `{"key": "Return"}` |
 | `POST` | `/v1/desktop/mouse` | Move mouse. Body: `{"action": "move", "x": N, "y": N}` |
-| `GET` | `/v1/desktop/windows` | List open windows with titles and positions |
+| `GET` | `/v1/desktop/windows` | List open windows with titles/positions; tries native KWin scripting on KDE Wayland, then wmctrl/xdotool fallbacks |
 
 > **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+). For vision agents, prefer `GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80` or `max_width=1280` to reduce payload size dramatically.
 
@@ -723,6 +724,15 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.11.0 — Unified hardware API, KDE Wayland windows, CDP aliases
+- **Added:** `/v1/hardware` as the canonical rich hardware/system inventory endpoint, backed by `scripts/inventory.py`; `/v1/hwinfo` remains a compatibility alias.
+- **Improved:** Hardware JSON now merges richer inventory facts, including motherboard/BIOS, NVIDIA VRAM/temperature/utilization, memory modules, disks, displays, network, runtimes, package managers, and browsers.
+- **Fixed:** Windows CIM inventory helper no longer silently fails because of an unsupported `_run(..., shell=True)` call; Windows display and logical disk collection were also hardened.
+- **Improved:** `/v1/desktop/windows` now tries native KDE/KWin scripting on Plasma Wayland before falling back to `wmctrl` and `xdotool`.
+- **Added:** Short `/v1/cdp/*` aliases for the existing `/v1/browser/cdp/*` endpoints to improve agent discoverability.
+- **Changed:** `/v1/browser/cdp/session/check` returns HTTP 200 with `connected: false` and actionable details when CDP is disconnected.
+- **Polished:** Runtime version probes now handle noisy `lua`/`dotnet` cases more cleanly.
 
 ### v2.10.3 — SSRF hardening for browser fetch endpoints
 - **Security:** Hardened `_validate_url` for `/v1/browser/read`, `/dump`, `/fetch`, and `/head` against obfuscated internal-address bypasses (`127.1`, octal/hex/integer IPv4, IPv4-mapped IPv6 loopback) and cloud metadata/internal hostnames.

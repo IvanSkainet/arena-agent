@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.11.0 — 2026-06-10
+
+### Added
+- Added `/v1/hardware` as the canonical rich hardware/system inventory endpoint. It is backed by `scripts/inventory.py`, returns normalized JSON for agents and GUI consumers, and keeps `/v1/hwinfo` as a backward-compatible alias.
+- Added short `/v1/cdp/*` aliases for the existing `/v1/browser/cdp/*` endpoints to reduce agent/tool 404s when shorter CDP paths are inferred from docs.
+
+### Improved
+- Unified the old split hardware collectors: motherboard/BIOS, CPU, memory modules, GPU/NVIDIA telemetry, disks, network, displays, runtimes, package managers, and browsers now come from one inventory source.
+- `/v1/desktop/windows` now tries native KDE/KWin scripting on Plasma Wayland before falling back to `wmctrl` and `xdotool`, improving Wayland window discovery without requiring `kdotool`.
+- `/v1/browser/cdp/session/check` now returns HTTP 200 with `connected: false` and actionable details when CDP is disconnected, instead of treating the normal disconnected state as a malformed request.
+- Runtime version probing is quieter for tools such as `lua` and partial `dotnet` installs.
+
+### Fixed
+- Fixed Windows CIM inventory collection: `_get_cim_json()` no longer calls `_run(..., shell=True)` on a helper that did not support `shell`, which previously caused Windows hardware sections to silently return empty data.
+- Fixed Windows display inventory (`screens` was referenced before assignment) and expanded Windows logical disk/GPU/RAM CIM property selection.
+
+### Tests
+- Added regression coverage for the inventory runner, noisy version filtering, and hardware normalization/NVIDIA merge path.
+
 ## v2.10.3 — 2026-06-08
 
 ### Security

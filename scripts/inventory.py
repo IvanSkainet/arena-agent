@@ -38,13 +38,22 @@ from typing import Any, Optional
 # Helpers
 # ============================================================
 
-def _run(cmd: list[str], timeout: float = 5.0, capture_stderr: bool = False) -> str:
-    """Run a command, return stdout (str) or empty string on failure."""
+def _run(cmd: list[str] | str, timeout: float = 5.0, capture_stderr: bool = False, shell: bool = False) -> str:
+    """Run a command, return stdout (str) or empty string on failure.
+
+    ``cmd`` is normally a list.  ``shell=True`` is supported only for legacy
+    call sites and keeps Windows console windows hidden.  Stderr is appended
+    only when explicitly requested, because many version probes print helpful
+    diagnostics to stderr even on success.
+    """
     try:
         kwargs: dict = {
             "capture_output": True,
             "text": True,
             "timeout": timeout,
+            "shell": shell,
+            "encoding": "utf-8",
+            "errors": "replace",
         }
         if platform.system() == "Windows":
             # Hide console window
@@ -54,7 +63,7 @@ def _run(cmd: list[str], timeout: float = 5.0, capture_stderr: bool = False) -> 
         if capture_stderr and r.stderr:
             out += r.stderr
         return out
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError, ValueError):
         return ""
 
 
@@ -63,23 +72,35 @@ def _which(name: str) -> Optional[str]:
 
 
 def _ver(cmd_name: str, version_arg: str = "--version", timeout: float = 3.0) -> Optional[str]:
-    """Get first line of `cmd --version` output if the command exists."""
+    """Get a compact, low-noise version string if the command exists."""
     path = _which(cmd_name)
     if not path:
         return None
     out = _run([path, version_arg], timeout=timeout)
     if not out:
-        # Some tools (e.g. node, java) only respond to -v or --version on stderr
+        # Some tools (e.g. java) only respond to -version on stderr.
         out = _run([path, version_arg], timeout=timeout, capture_stderr=True)
-    line = out.strip().splitlines()[0] if out.strip() else ""
-    return line or path  # at least confirm presence
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    if not lines:
+        return path
+    # Avoid surfacing multi-line CLI error banners as a "version".
+    noisy = ("could not be loaded", "unrecognized option", "unknown option", "usage:", "try '")
+    for line in lines[:4]:
+        low = line.lower()
+        if any(x in low for x in noisy):
+            continue
+        return line
+    return path
 
 
 def _get_cim_json(class_name: str, properties: str) -> list[dict]:
-    """Parse Get-CimInstance output as JSON."""
+    """Parse Get-CimInstance output as JSON (Windows, locale-independent)."""
     try:
-        cmd = f'powershell -NoProfile -NonInteractive -Command "Get-CimInstance {class_name} | Select-Object {properties} | ConvertTo-Json -Compress"'
-        out = _run(cmd, shell=True)
+        ps = (
+            f"Get-CimInstance {class_name} -ErrorAction SilentlyContinue | "
+            f"Select-Object {properties} | ConvertTo-Json -Compress -Depth 4"
+        )
+        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=12)
         if not out or not out.strip():
             return []
         data = json.loads(out.strip())
@@ -331,7 +352,7 @@ def get_memory() -> dict:
         except Exception:
             pass
         # modules via CIM
-        for d in _get_cim_json("Win32_PhysicalMemory", "Capacity,Speed,Manufacturer,PartNumber"):
+        for d in _get_cim_json("Win32_PhysicalMemory", "Capacity,Speed,ConfiguredClockSpeed,Manufacturer,PartNumber,DeviceLocator,BankLabel,SerialNumber"):
             cap = d.get("Capacity", "")
             try:
                 cap_gb = round(int(cap) / (1024**3), 1)
@@ -375,7 +396,7 @@ def get_gpu() -> dict:
                 unit = mv.group(2)
                 info["gpus"][-1]["vram_mb"] = size * 1024 if unit == "GB" else size
     elif sys_name == "Windows":
-        for d in _get_cim_json("Win32_VideoController", "Name,AdapterRAM,DriverVersion"):
+        for d in _get_cim_json("Win32_VideoController", "Name,AdapterRAM,DriverVersion,VideoProcessor,CurrentHorizontalResolution,CurrentVerticalResolution"):
             if not d.get("Name"):
                 continue
             try:
@@ -387,6 +408,8 @@ def get_gpu() -> dict:
                 "vram_mb": vram_mb,
                 "driver_version": d.get("DriverVersion", ""),
                 "video_processor": d.get("VideoProcessor", ""),
+                "resolution": (f"{d.get('CurrentHorizontalResolution')}x{d.get('CurrentVerticalResolution')}"
+                               if d.get('CurrentHorizontalResolution') and d.get('CurrentVerticalResolution') else ""),
             })
 
     # NVIDIA-SMI works on all 3 OSes if installed
@@ -422,7 +445,7 @@ def get_motherboard() -> dict:
     sys_name = platform.system()
     info: dict[str, Any] = {"motherboard": None, "bios": None}
     if sys_name == "Windows":
-        blocks = _get_cim_json("Win32_BaseBoard", "Manufacturer,Product,Version")
+        blocks = _get_cim_json("Win32_BaseBoard", "Manufacturer,Product,Version,SerialNumber")
         if blocks:
             d = blocks[0]
             info["motherboard"] = {
@@ -525,7 +548,7 @@ def get_disks() -> list[dict]:
                 except Exception:
                     continue
     elif sys_name == "Windows":
-        for d in _get_cim_json("Win32_LogicalDisk", "DeviceID,Size,FreeSpace,FileSystem,VolumeName,Description"):
+        for d in _get_cim_json("Win32_LogicalDisk", "DeviceID,Size,FreeSpace,FileSystem,VolumeName,Description,DriveType"):
             if not d.get("DeviceID") or not d.get("Size"):
                 continue
             try:
@@ -693,6 +716,17 @@ def get_runtimes() -> dict:
             v = _ver(name, "-version")
         elif name == "scala":
             v = _ver(name, "-version")
+        elif name == "lua":
+            v = _ver(name, "-v")
+        elif name == "dotnet":
+            # `dotnet --version` may print an error banner if only partial
+            # runtime bits are present. `--info` gives a cleaner first line.
+            v = _ver(name, "--version")
+            if v and ("dotnet" not in v.lower() and not v[0].isdigit()):
+                info = _run([_which(name) or name, "--info"], timeout=5, capture_stderr=True)
+                for ln in info.splitlines():
+                    if ln.strip().lower().startswith((".net sdk", ".net runtimes", "host:")):
+                        v = ln.strip(); break
         else:
             v = _ver(name)
         if v:
@@ -787,11 +821,20 @@ def get_displays() -> dict:
         if resolutions:
             info["resolutions"] = resolutions
     elif sys_name == "Windows":
-        for d in _get_cim_json("Win32_DesktopMonitor", "Name,ScreenWidth,ScreenHeight"):
-            w = d.get("ScreenWidth")
-            h = d.get("ScreenHeight")
+        screens: list[dict[str, Any]] = []
+        # Win32_VideoController is more reliable than Win32_DesktopMonitor for
+        # current resolution on modern Windows.
+        for d in _get_cim_json("Win32_VideoController", "Name,CurrentHorizontalResolution,CurrentVerticalResolution"):
+            w = d.get("CurrentHorizontalResolution")
+            h = d.get("CurrentVerticalResolution")
             if w and h:
-                screens.append({"name": d.get("Name", ""), "resolution": f"{w}x{h}"})
+                screens.append({"name": str(d.get("Name", "")), "resolution": f"{w}x{h}"})
+        if not screens:
+            for d in _get_cim_json("Win32_DesktopMonitor", "Name,ScreenWidth,ScreenHeight"):
+                w = d.get("ScreenWidth")
+                h = d.get("ScreenHeight")
+                if w and h:
+                    screens.append({"name": str(d.get("Name", "")), "resolution": f"{w}x{h}"})
         if screens:
             info["screens"] = screens
     return info

@@ -4007,7 +4007,8 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/info", handle_v1_info)
     app.router.add_get("/v1/status", handle_v1_status)
     app.router.add_get("/v1/sysinfo", handle_v1_sysinfo)
-    app.router.add_get("/v1/hwinfo", handle_v1_hwinfo)
+    app.router.add_get("/v1/hardware", handle_v1_hardware)
+    app.router.add_get("/v1/hwinfo", handle_v1_hwinfo)  # compatibility alias
     app.router.add_get("/v1/inventory", handle_v1_inventory)
     app.router.add_get("/v1/ps", handle_v1_ps)
     app.router.add_get("/v1/audit", handle_v1_audit)
@@ -4095,6 +4096,44 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_post("/v1/browser/cdp/stealth/extract", handle_v1_cdp_stealth_extract)
     app.router.add_post("/v1/browser/cdp/stealth/shot", handle_v1_cdp_stealth_shot)
     app.router.add_get("/v1/browser/cdp/health", handle_v1_cdp_health)
+
+    # Short CDP aliases for agents/tools that infer paths from docs.
+    app.router.add_get("/v1/cdp/status", handle_v1_cdp_status)
+    app.router.add_get("/v1/cdp/diag", handle_v1_cdp_diag)
+    app.router.add_get("/v1/cdp/raw-info", handle_v1_cdp_raw_info)
+    app.router.add_get("/v1/cdp/test-launch", handle_v1_cdp_test_launch)
+    app.router.add_get("/v1/cdp/test-ws", handle_v1_cdp_test_ws)
+    app.router.add_post("/v1/cdp/connect", handle_v1_cdp_connect)
+    app.router.add_post("/v1/cdp/disconnect", handle_v1_cdp_disconnect)
+    app.router.add_post("/v1/cdp/navigate", handle_v1_cdp_navigate)
+    app.router.add_get("/v1/cdp/screenshot", handle_v1_cdp_screenshot)
+    app.router.add_get("/v1/cdp/dom", handle_v1_cdp_dom)
+    app.router.add_post("/v1/cdp/eval", handle_v1_cdp_eval)
+    app.router.add_post("/v1/cdp/click", handle_v1_cdp_click)
+    app.router.add_post("/v1/cdp/type", handle_v1_cdp_type)
+    app.router.add_get("/v1/cdp/tabs", handle_v1_cdp_tabs)
+    app.router.add_post("/v1/cdp/tabs/new", handle_v1_cdp_tabs_new)
+    app.router.add_post("/v1/cdp/tabs/close", handle_v1_cdp_tabs_close)
+    app.router.add_post("/v1/cdp/tabs/activate", handle_v1_cdp_tabs_activate)
+    app.router.add_get("/v1/cdp/cookies", handle_v1_cdp_cookies_get)
+    app.router.add_post("/v1/cdp/cookies", handle_v1_cdp_cookies_set)
+    app.router.add_delete("/v1/cdp/cookies", handle_v1_cdp_cookies_delete)
+    app.router.add_post("/v1/cdp/cookies/clear", handle_v1_cdp_cookies_clear)
+    app.router.add_get("/v1/cdp/cookies/profiles", handle_v1_cdp_cookies_profiles)
+    app.router.add_post("/v1/cdp/cookies/profiles", handle_v1_cdp_cookies_profiles)
+    app.router.add_post("/v1/cdp/network/start", handle_v1_cdp_network_start)
+    app.router.add_post("/v1/cdp/network/stop", handle_v1_cdp_network_stop)
+    app.router.add_get("/v1/cdp/network/requests", handle_v1_cdp_network_requests)
+    app.router.add_get("/v1/cdp/network/har", handle_v1_cdp_network_har)
+    app.router.add_post("/v1/cdp/intercept/start", handle_v1_cdp_intercept_start)
+    app.router.add_post("/v1/cdp/intercept/stop", handle_v1_cdp_intercept_stop)
+    app.router.add_post("/v1/cdp/intercept/rule", handle_v1_cdp_intercept_rule)
+    app.router.add_delete("/v1/cdp/intercept/rule", handle_v1_cdp_intercept_rule)
+    app.router.add_get("/v1/cdp/intercept/rules", handle_v1_cdp_intercept_rule)
+    app.router.add_get("/v1/cdp/session/check", handle_v1_cdp_session_check)
+    app.router.add_post("/v1/cdp/stealth/extract", handle_v1_cdp_stealth_extract)
+    app.router.add_post("/v1/cdp/stealth/shot", handle_v1_cdp_stealth_shot)
+    app.router.add_get("/v1/cdp/health", handle_v1_cdp_health)
 
     app.router.add_get("/v1/recall", handle_v1_recall)
     app.router.add_get("/v1/recall/digest", handle_v1_recall_digest)
@@ -4379,6 +4418,7 @@ async def handle_index(request: web.Request) -> web.Response:
             "version": VERSION,
             "endpoints": [
                 "/health", "/v1/version", "/v1/info", "/v1/status", "/v1/sysinfo",
+                "/v1/hardware", "/v1/hwinfo", "/v1/inventory?section=&format=text|json",
                 "/v1/ps", "/v1/audit?lines=100", "/v1/audit/stats",
                 "POST /v1/exec", "POST /v1/kill",
                 "POST /v1/upload?path=", "GET /v1/download?path=",
@@ -4402,11 +4442,10 @@ async def handle_index(request: web.Request) -> web.Response:
                 "GET /v1/browser/cdp/network/requests", "GET /v1/browser/cdp/network/har",
                 "POST /v1/browser/cdp/intercept/start", "POST /v1/browser/cdp/intercept/stop",
                 "POST/DELETE/GET /v1/browser/cdp/intercept/rule|rules",
-                "GET /v1/browser/cdp/session/check",
+                "GET /v1/browser/cdp/session/check", "GET/POST /v1/cdp/* aliases",
 
                 "GET /v1/recall?q=&top=5", "GET /v1/recall/digest",
                 "GET /v1/tasks?status=&limit=20", "POST /v1/tasks", "POST /v1/tasks/clean",
-        "GET /v1/inventory?section=&format=text|json",
                 "GET /v1/skills", "POST /v1/skills/run",
                 "GET /v1/hooks", "GET /v1/agents",
                 "GET /v1/subagents", "POST /v1/subagents/spawn",
@@ -4789,6 +4828,83 @@ def _hwinfo_sync():
     return info
 
 
+def _hardware_from_inventory_sync(timeout: int = 45) -> dict:
+    """Return one normalized hardware/system inventory payload.
+
+    This is the canonical hardware API used by both /v1/hardware and the
+    backwards-compatible /v1/hwinfo endpoint. It reuses scripts/inventory.py so
+    GUI, agents, and reports see the same data instead of two divergent
+    collectors.
+    """
+    inv_result = _inventory_sync(None, "json", timeout)
+    if not inv_result.get("ok"):
+        legacy = _hwinfo_sync()
+        return {
+            "ok": True,
+            "source": "legacy_hwinfo_fallback",
+            "hardware": legacy,
+            "hwinfo": legacy,
+            "inventory_error": inv_result,
+        }
+
+    inv = inv_result.get("inventory") or {}
+    mb = inv.get("motherboard") or {}
+    memory = inv.get("memory") or {}
+    gpu = inv.get("gpu") or {}
+    gpus = list(gpu.get("gpus") or [])
+
+    nvidia_cards = gpu.get("nvidia") or []
+    for idx, card in enumerate(nvidia_cards):
+        if idx < len(gpus):
+            gpus[idx].update({k: v for k, v in card.items() if v not in (None, "")})
+            if "vram_total_mb" in card and not gpus[idx].get("vram_mb"):
+                gpus[idx]["vram_mb"] = card.get("vram_total_mb")
+        else:
+            gpus.append(dict(card))
+
+    cpu = inv.get("cpu") or {}
+    hardware = {
+        "generated_at": inv.get("generated_at"),
+        "os": inv.get("os") or {},
+        "cpu": {
+            "name": cpu.get("name") or cpu.get("processor"),
+            "manufacturer": cpu.get("manufacturer"),
+            "cores": cpu.get("cores_physical"),
+            "threads": cpu.get("cores_logical"),
+            "current_ghz": cpu.get("current_ghz"),
+            "max_ghz": cpu.get("max_ghz"),
+            "load_avg": cpu.get("load_avg"),
+            "raw": cpu,
+        },
+        "memory": memory,
+        "motherboard": mb.get("motherboard"),
+        "bios": mb.get("bios"),
+        "gpu": gpus[0] if gpus else None,
+        "gpus": gpus,
+        "disks": inv.get("disks") or [],
+        "network": inv.get("network") or {},
+        "displays": inv.get("displays") or {},
+        "runtimes": inv.get("runtimes") or {},
+        "package_managers": inv.get("package_managers") or {},
+        "browsers": inv.get("browsers") or {},
+    }
+
+    hardware["ram_total_gb"] = memory.get("total_gb")
+    hardware["ram_used_gb"] = memory.get("used_gb")
+    hardware["ram_avail_gb"] = memory.get("available_gb")
+    hardware["ram_modules"] = memory.get("modules") or []
+
+    return {
+        "ok": True,
+        "source": "inventory.py",
+        "hardware": hardware,
+        "hwinfo": hardware,
+        "inventory": inv,
+        "exit_code": inv_result.get("exit_code"),
+        "stderr": inv_result.get("stderr", ""),
+    }
+
+
 # --- /v1/inventory GET — Full system inventory via scripts/inventory.py ---
 
 def _inventory_sync(section: str | None = None, fmt: str = "text", timeout: int = 30) -> dict:
@@ -4863,24 +4979,37 @@ async def handle_v1_inventory(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-async def handle_v1_hwinfo(request: web.Request) -> web.Response:
+async def handle_v1_hardware(request: web.Request) -> web.Response:
+    """GET /v1/hardware — Canonical rich hardware/system inventory."""
     r = require_auth(request)
     if r: return r
     _record_request()
     try:
+        timeout = int(request.query.get("timeout", "45"))
+        timeout = min(max(10, timeout), 120)
+    except Exception:
+        timeout = 45
+    include_inventory = (request.query.get("include_inventory", "1").lower() not in ("0", "false", "no"))
+    try:
         loop = asyncio.get_event_loop()
-        # Use dedicated slow executor to avoid blocking the main pool
-        info = await asyncio.wait_for(
-            loop.run_in_executor(_SLOW_EXECUTOR, _hwinfo_sync),
-            timeout=30.0
+        result = await asyncio.wait_for(
+            loop.run_in_executor(_SLOW_EXECUTOR, _hardware_from_inventory_sync, timeout),
+            timeout=float(timeout) + 5.0,
         )
-        return _cors_json_response({"ok": True, "hwinfo": info})
+        if not include_inventory:
+            result.pop("inventory", None)
+        return _cors_json_response(result)
     except asyncio.TimeoutError:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "hwinfo collection timed out (30s) — CIM cmdlets may be hung"}, status=504)
+        return _cors_json_response({"ok": False, "error": f"hardware collection timed out ({timeout}s)"}, status=504)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+async def handle_v1_hwinfo(request: web.Request) -> web.Response:
+    """GET /v1/hwinfo — Backwards-compatible alias for /v1/hardware."""
+    return await handle_v1_hardware(request)
 
 
 
@@ -9225,6 +9354,91 @@ async def handle_v1_desktop_mouse(request):
     })
 
 
+async def _kwin_windows_via_script() -> dict | None:
+    """Best-effort native KDE Plasma/Wayland window listing via KWin script.
+
+    xdotool/wmctrl only see XWayland on Plasma Wayland. KWin's scripting API is
+    the native source of truth. The temporary script only reads window metadata,
+    writes JSON to a temp file, and unloads itself. If scripting is unavailable
+    or policy-blocked, callers fall back to wmctrl/xdotool.
+    """
+    qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
+    if not qdbus:
+        return None
+    desktop = (os.environ.get("XDG_CURRENT_DESKTOP") or "").lower()
+    session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
+    if "kde" not in desktop and "plasma" not in desktop and session != "wayland":
+        return None
+
+    plugin = "arena_windows_" + uuid.uuid4().hex
+    js_fd, js_path = tempfile.mkstemp(prefix="arena_kwin_windows_", suffix=".js")
+    out_fd, out_path = tempfile.mkstemp(prefix="arena_kwin_windows_", suffix=".json")
+    os.close(out_fd)
+    try:
+        js_template = r"""
+function val(o, k, d) { try { var v = o[k]; return (v === undefined || v === null) ? d : v; } catch(e) { return d; } }
+function geom(r) { try { return {x:r.x, y:r.y, width:r.width, height:r.height}; } catch(e) { return null; } }
+var windows = [];
+try {
+  var list = [];
+  if (workspace.windowList) list = workspace.windowList();
+  else if (workspace.windows) list = workspace.windows;
+  for (var i = 0; i < list.length; i++) {
+    var w = list[i];
+    windows.push({
+      id: String(val(w, 'windowId', val(w, 'internalId', ''))),
+      internal_id: String(val(w, 'internalId', '')),
+      title: String(val(w, 'caption', '')),
+      pid: val(w, 'pid', null),
+      resource_class: String(val(w, 'resourceClass', '')),
+      resource_name: String(val(w, 'resourceName', '')),
+      desktop_file: String(val(w, 'desktopFileName', '')),
+      active: !!val(w, 'active', false),
+      minimized: !!val(w, 'minimized', false),
+      full_screen: !!val(w, 'fullScreen', false),
+      geometry: geom(val(w, 'frameGeometry', null))
+    });
+  }
+} catch(e) { windows.push({error:String(e)}); }
+var f = new QFile(__OUT_PATH__);
+f.open(QIODevice.WriteOnly | QIODevice.Truncate);
+f.write(JSON.stringify({ok:true, backend:'kwin_script', count:windows.length, windows:windows}, null, 2));
+f.close();
+callDBus('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'unloadScript', __PLUGIN__);
+"""
+        js = js_template.replace("__OUT_PATH__", json.dumps(out_path)).replace("__PLUGIN__", json.dumps(plugin))
+        with os.fdopen(js_fd, "w", encoding="utf-8") as f:
+            f.write(js)
+        load = await _desktop_exec(
+            f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript {shlex.quote(js_path)} {shlex.quote(plugin)}',
+            timeout=3,
+        )
+        load_id = (load.get("stdout") or "").strip()
+        if not load.get("ok") or not load_id or load_id == "0":
+            return {"ok": False, "backend": "kwin_script", "error": "loadScript failed", "detail": load}
+        await _desktop_exec(f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.start', timeout=3)
+        for _ in range(20):
+            try:
+                if os.path.getsize(out_path) > 0:
+                    data = json.loads(Path(out_path).read_text(encoding="utf-8", errors="replace"))
+                    if isinstance(data, dict) and data.get("ok"):
+                        return data
+            except Exception:
+                pass
+            await asyncio.sleep(0.1)
+        return {"ok": False, "backend": "kwin_script", "error": "script produced no output"}
+    finally:
+        try:
+            await _desktop_exec(f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript {shlex.quote(plugin)}', timeout=2)
+        except Exception:
+            pass
+        for path in (js_path, out_path):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+
 async def handle_v1_desktop_windows(request):
     """GET /v1/desktop/windows — List open desktop windows.
 
@@ -9236,43 +9450,56 @@ async def handle_v1_desktop_windows(request):
 
     env = _detect_desktop_env()
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
+    attempts = []
 
-    # Try wmctrl first (works on both X11 and XWayland)
+    kwin = await _kwin_windows_via_script()
+    if kwin and kwin.get("ok"):
+        return _cors_json_response({**kwin, "tool": kwin.get("backend", "kwin_script"), "attempts": attempts})
+    if kwin:
+        attempts.append({"tool": "kwin_script", "ok": False, "error": kwin.get("error")})
+
+    # Generic EWMH/X11. Good on X11, partial on XWayland.
     if shutil.which("wmctrl"):
-        result = await _desktop_exec(f'{display_env} wmctrl -l -p 2>/dev/null', timeout=5)
-        if result["ok"]:
+        result = await _desktop_exec(f'{display_env} wmctrl -l -p -G 2>/dev/null', timeout=5)
+        attempts.append({"tool": "wmctrl", "ok": result.get("ok"), "stderr": result.get("stderr", "")[:200]})
+        if result["ok"] and result["stdout"].strip():
             windows = []
             for line in result["stdout"].strip().split("\n"):
                 if not line.strip():
                     continue
-                parts = line.split(None, 5)
-                if len(parts) >= 5:
+                parts = line.split(None, 8)
+                if len(parts) >= 8:
                     windows.append({
                         "id": parts[0],
                         "desktop": parts[1],
                         "pid": parts[2],
-                        "host": parts[3],
-                        "title": parts[4] if len(parts) == 5 else " ".join(parts[4:]),
+                        "geometry": {"x": parts[3], "y": parts[4], "width": parts[5], "height": parts[6]},
+                        "host": parts[7],
+                        "title": parts[8] if len(parts) >= 9 else "",
                     })
-            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "wmctrl"})
+            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "wmctrl", "attempts": attempts})
 
-    # Fallback to xdotool
+    # Last resort: xdotool. Useful for X11/XWayland, weak on native Wayland.
     if env["has_xdotool"]:
         result = await _desktop_exec(f'{display_env} xdotool search --onlyvisible --name "" 2>/dev/null', timeout=5)
+        attempts.append({"tool": "xdotool", "ok": result.get("ok"), "stderr": result.get("stderr", "")[:200]})
         if result["ok"] and result["stdout"].strip():
             window_ids = result["stdout"].strip().split("\n")
             windows = []
-            for wid in window_ids[:20]:  # Limit to 20 windows
-                geom = await _desktop_exec(f'{display_env} xdotool getwindowgeometry {wid} 2>/dev/null', timeout=3)
-                name = await _desktop_exec(f'{display_env} xdotool getwindowname {wid} 2>/dev/null', timeout=3)
+            for wid in window_ids[:50]:
+                wid_q = shlex.quote(wid)
+                geom = await _desktop_exec(f'{display_env} xdotool getwindowgeometry {wid_q} 2>/dev/null', timeout=3)
+                name = await _desktop_exec(f'{display_env} xdotool getwindowname {wid_q} 2>/dev/null', timeout=3)
+                pid = await _desktop_exec(f'{display_env} xdotool getwindowpid {wid_q} 2>/dev/null', timeout=3)
                 windows.append({
                     "id": wid,
                     "title": name.get("stdout", "").strip() if name["ok"] else "",
+                    "pid": pid.get("stdout", "").strip() if pid.get("ok") else None,
                     "geometry": geom.get("stdout", "").strip() if geom["ok"] else "",
                 })
-            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "xdotool"})
+            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "xdotool", "attempts": attempts})
 
-    return _cors_json_response({"ok": True, "count": 0, "windows": [], "tool": "none"})
+    return _cors_json_response({"ok": True, "count": 0, "windows": [], "tool": "none", "attempts": attempts})
 
 
 # ============================================================================
@@ -10630,8 +10857,14 @@ async def handle_v1_cdp_session_check(request):
     _record_request()
     
     if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
+        return _cors_json_response({
+            "ok": False,
+            "connected": False,
+            "error": "CDP not connected",
+            "detail": "Start or connect a CDP browser session with POST /v1/browser/cdp/connect before checking cookies/session state.",
+            "status_endpoint": "/v1/browser/cdp/status",
+            "connect_endpoint": "/v1/browser/cdp/connect",
+        })
     
     qs = parse_qs(request.query_string)
     domain = qs.get("domain", [None])[0]
@@ -12203,8 +12436,11 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/status": {"get": {"summary": "Bridge status", "tags": ["Bridge"], "responses": {"200": {"description": "Status info"}}}},
             "/v1/info": {"get": {"summary": "Bridge info", "tags": ["Bridge"], "responses": {"200": {"description": "Detailed info"}}}},
             "/v1/metrics": {"get": {"summary": "Bridge metrics (JSON)", "tags": ["Bridge"], "responses": {"200": {"description": "Metrics JSON"}}}},
+            "/v1/hardware": {"get": {"summary": "Canonical rich hardware/system inventory", "tags": ["System"], "responses": {"200": {"description": "Normalized hardware inventory"}}}},
+            "/v1/hwinfo": {"get": {"summary": "Compatibility alias for /v1/hardware", "tags": ["System"], "responses": {"200": {"description": "Hardware inventory"}}}},
             "/metrics": {"get": {"summary": "Prometheus metrics (text)", "tags": ["Bridge"], "responses": {"200": {"description": "Prometheus text format"}}}},
             "/v1/browser/cdp/status": {"get": {"summary": "CDP connection status", "tags": ["CDP"], "responses": {"200": {"description": "CDP status"}}}},
+            "/v1/cdp/status": {"get": {"summary": "Alias for /v1/browser/cdp/status", "tags": ["CDP"], "responses": {"200": {"description": "CDP status"}}}},
             "/v1/browser/cdp/diag": {"get": {"summary": "CDP diagnostics", "tags": ["CDP"], "responses": {"200": {"description": "Diagnostic info"}}}},
             "/v1/browser/cdp/health": {"get": {"summary": "CDP health dashboard", "tags": ["CDP"], "responses": {"200": {"description": "Health info with reconnect history"}}}},
             "/v1/browser/cdp/connect": {"post": {"summary": "Connect to browser via CDP", "tags": ["CDP"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"port": {"type": "integer", "default": 9222}, "headless": {"type": "boolean", "default": True}}}}}}, "responses": {"200": {"description": "Connected"}}}},
