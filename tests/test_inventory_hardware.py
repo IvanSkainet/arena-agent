@@ -54,3 +54,33 @@ def test_hardware_from_inventory_normalizes_and_merges_nvidia(monkeypatch):
     assert hw["gpu"]["temperature_c"] == 40
     assert hw["ram_total_gb"] == 32
     assert hw["ram_modules"] == [{"size_gb": 16}]
+
+
+def test_hardware_from_inventory_includes_device_sections(monkeypatch):
+    fake_inventory = {
+        "generated_at": "2026-06-10T00:00:00+00:00",
+        "os": {}, "cpu": {}, "memory": {}, "motherboard": {}, "gpu": {},
+        "disks": [], "network": {}, "displays": {}, "runtimes": {}, "package_managers": {}, "browsers": {},
+        "storage_devices": [{"path": "/dev/sda", "size_gb": 100}],
+        "pci_devices": [{"category": "gpu", "description": "GPU"}],
+        "usb_devices": [{"id": "1234:5678", "name": "USB"}],
+        "thermal": {"temperatures": [{"type": "cpu", "celsius": 42.0}]},
+    }
+    monkeypatch.setattr(ub, "_inventory_sync", lambda section, fmt, timeout: {"ok": True, "inventory": fake_inventory, "exit_code": 0, "stderr": ""})
+    hw = ub._hardware_from_inventory_sync()["hardware"]
+    assert hw["devices"]["storage"] == [{"path": "/dev/sda", "size_gb": 100}]
+    assert hw["devices"]["pci"][0]["category"] == "gpu"
+    assert hw["devices"]["usb"][0]["name"] == "USB"
+    assert hw["thermal"]["temperatures"][0]["celsius"] == 42.0
+
+
+def test_normalize_third_party_skill_name_accepts_listed_name():
+    assert ub._normalize_third_party_skill_name("third_party/weather") == ("weather", None)
+    assert ub._normalize_third_party_skill_name("weather") == ("weather", None)
+    assert ub._normalize_third_party_skill_name("skills/third_party/weather") == ("weather", None)
+
+
+def test_normalize_third_party_skill_name_rejects_core_and_traversal():
+    assert ub._normalize_third_party_skill_name("core/cleanup")[1]
+    assert ub._normalize_third_party_skill_name("../weather")[1]
+    assert ub._normalize_third_party_skill_name("third_party/../weather")[1]

@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.11.1 — 2026-06-10
+
+### Improved
+- `/v1/hardware` now exposes additional read-only device context: physical/block storage devices, PCI/PNP devices, USB devices, and thermal/sensor facts where available.
+- KDE Plasma Wayland window discovery no longer depends on `QFile` inside KWin scripting. The script now prints tokenized JSON to the user journal, which the bridge reads back, and still falls back to `wmctrl`/`xdotool`.
+
+### Fixed
+- `/v1/skills/uninstall` now accepts the same third-party names returned by `/v1/skills` (`third_party/<name>`) as well as bare third-party names, while rejecting core/category skills and path traversal.
+
+### Removed
+- Removed the broken test-only `skills/third_party/weather` skill from the production tree.
+
+### Tests
+- Added regression coverage for hardware device sections and third-party skill-name normalization.
+
 ## v2.11.0 — 2026-06-10
 
 ### Added

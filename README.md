@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.11.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.11.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,14 +44,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.11.0
+### 🆕 What's new in v2.11.1
 
-- **Unified hardware API:** new `/v1/hardware` endpoint makes `scripts/inventory.py` the canonical collector, returns rich normalized hardware/system facts, and keeps `/v1/hwinfo` as a backward-compatible alias.
-- **Richer cross-platform inventory:** Windows CIM collection is fixed and expanded; Linux/NVIDIA facts are merged into hardware output; display, GPU, RAM, disk, runtime, browser, and package-manager sections are available to agents from one API.
-- **KDE Wayland window discovery:** `/v1/desktop/windows` now tries native KWin scripting first, then falls back to `wmctrl`/`xdotool`, improving desktop automation on Plasma Wayland without making `kdotool` mandatory.
-- **CDP path aliases:** `/v1/cdp/*` aliases now work alongside `/v1/browser/cdp/*`, reducing 404s from agents that infer shorter paths from documentation.
-- **Friendlier CDP session checks:** `/v1/browser/cdp/session/check` returns HTTP 200 with structured details when CDP is disconnected instead of treating that normal state as a bad request.
-- **Inventory polish:** noisy runtime probes such as `lua` and partial `dotnet` installs are handled more cleanly.
+- **More hardware context:** `/v1/hardware` now includes physical storage devices, PCI/PNP devices, USB devices, and thermal/sensor facts where available, in addition to the v2.11 unified motherboard/BIOS/GPU/RAM/disk/network data.
+- **KDE Wayland windows fixed:** `/v1/desktop/windows` no longer relies on unavailable `QFile` inside KWin scripts; Plasma Wayland window data is returned through a tokenized KWin journal line, with wmctrl/xdotool fallbacks unchanged.
+- **Third-party skill uninstall fixed:** `/v1/skills/uninstall` accepts the exact names returned by `/v1/skills`, e.g. `third_party/weather`, while still rejecting core/category skills and path traversal.
+- **Removed test weather skill:** the broken `skills/third_party/weather` sample/test skill has been removed from the production tree.
+- **Regression tests:** added coverage for hardware device sections and third-party skill-name normalization.
 
 ---
 
@@ -724,6 +723,13 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.11.1 — Hardware device expansion, KWin journal windows, skill uninstall fix
+- **Improved:** `/v1/hardware` now includes `devices.storage`, `devices.pci`, `devices.usb`, and `thermal` sections where available.
+- **Fixed:** KDE/KWin window discovery no longer uses `QFile` inside KWin scripts; it now reads a tokenized JSON line from the user journal and falls back safely if unavailable.
+- **Fixed:** `/v1/skills/uninstall` now accepts `third_party/<name>` as returned by `/v1/skills`, plus bare third-party names, while rejecting core/category skills and traversal.
+- **Removed:** broken test-only `skills/third_party/weather` skill from the production tree.
+- **Tests:** Added regression coverage for hardware device normalization and third-party uninstall name normalization.
 
 ### v2.11.0 — Unified hardware API, KDE Wayland windows, CDP aliases
 - **Added:** `/v1/hardware` as the canonical rich hardware/system inventory endpoint, backed by `scripts/inventory.py`; `/v1/hwinfo` remains a compatibility alias.

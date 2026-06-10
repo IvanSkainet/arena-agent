@@ -4882,6 +4882,12 @@ def _hardware_from_inventory_sync(timeout: int = 45) -> dict:
         "gpu": gpus[0] if gpus else None,
         "gpus": gpus,
         "disks": inv.get("disks") or [],
+        "devices": {
+            "storage": inv.get("storage_devices") or [],
+            "pci": inv.get("pci_devices") or [],
+            "usb": inv.get("usb_devices") or [],
+        },
+        "thermal": inv.get("thermal") or {},
         "network": inv.get("network") or {},
         "displays": inv.get("displays") or {},
         "runtimes": inv.get("runtimes") or {},
@@ -9357,13 +9363,15 @@ async def handle_v1_desktop_mouse(request):
 async def _kwin_windows_via_script() -> dict | None:
     """Best-effort native KDE Plasma/Wayland window listing via KWin script.
 
-    xdotool/wmctrl only see XWayland on Plasma Wayland. KWin's scripting API is
-    the native source of truth. The temporary script only reads window metadata,
-    writes JSON to a temp file, and unloads itself. If scripting is unavailable
-    or policy-blocked, callers fall back to wmctrl/xdotool.
+    KWin's JS environment in Plasma 6 does not expose QFile, so the temporary
+    script prints a single tokenized JSON line to the user journal.  The bridge
+    reads that line back with journalctl and parses it.  If scripting or journal
+    access is unavailable, callers fall back to wmctrl/xdotool.
     """
     qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
     if not qdbus:
+        return None
+    if not shutil.which("journalctl"):
         return None
     desktop = (os.environ.get("XDG_CURRENT_DESKTOP") or "").lower()
     session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
@@ -9371,9 +9379,14 @@ async def _kwin_windows_via_script() -> dict | None:
         return None
 
     plugin = "arena_windows_" + uuid.uuid4().hex
-    js_fd, js_path = tempfile.mkstemp(prefix="arena_kwin_windows_", suffix=".js")
-    out_fd, out_path = tempfile.mkstemp(prefix="arena_kwin_windows_", suffix=".json")
-    os.close(out_fd)
+    token = "ARENA_KWIN_WINDOWS_" + uuid.uuid4().hex
+    since = int(time.time()) - 2
+    reports_dir = BRIDGE_DIR / "reports"
+    try:
+        reports_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        reports_dir = Path(tempfile.gettempdir())
+    js_fd, js_path = tempfile.mkstemp(prefix="arena_kwin_windows_", suffix=".js", dir=str(reports_dir))
     try:
         js_template = r"""
 function val(o, k, d) { try { var v = o[k]; return (v === undefined || v === null) ? d : v; } catch(e) { return d; } }
@@ -9400,43 +9413,47 @@ try {
     });
   }
 } catch(e) { windows.push({error:String(e)}); }
-var f = new QFile(__OUT_PATH__);
-f.open(QIODevice.WriteOnly | QIODevice.Truncate);
-f.write(JSON.stringify({ok:true, backend:'kwin_script', count:windows.length, windows:windows}, null, 2));
-f.close();
+print(__TOKEN__ + ' ' + JSON.stringify({ok:true, backend:'kwin_journal', count:windows.length, windows:windows}));
 callDBus('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'unloadScript', __PLUGIN__);
 """
-        js = js_template.replace("__OUT_PATH__", json.dumps(out_path)).replace("__PLUGIN__", json.dumps(plugin))
+        js = js_template.replace("__TOKEN__", json.dumps(token)).replace("__PLUGIN__", json.dumps(plugin))
         with os.fdopen(js_fd, "w", encoding="utf-8") as f:
             f.write(js)
+
         load = await _desktop_exec(
             f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript {shlex.quote(js_path)} {shlex.quote(plugin)}',
             timeout=3,
         )
         load_id = (load.get("stdout") or "").strip()
         if not load.get("ok") or not load_id or load_id == "0":
-            return {"ok": False, "backend": "kwin_script", "error": "loadScript failed", "detail": load}
+            return {"ok": False, "backend": "kwin_journal", "error": "loadScript failed", "detail": load}
         await _desktop_exec(f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.start', timeout=3)
+
         for _ in range(20):
-            try:
-                if os.path.getsize(out_path) > 0:
-                    data = json.loads(Path(out_path).read_text(encoding="utf-8", errors="replace"))
+            journal = await _desktop_exec(
+                f'journalctl --user -b --since @{since} -o cat --no-pager 2>/dev/null | grep {shlex.quote(token)} | tail -1',
+                timeout=3,
+            )
+            line = (journal.get("stdout") or "").strip()
+            if token in line:
+                try:
+                    payload = line.split(token, 1)[1].strip()
+                    data = json.loads(payload)
                     if isinstance(data, dict) and data.get("ok"):
                         return data
-            except Exception:
-                pass
+                except Exception as e:
+                    return {"ok": False, "backend": "kwin_journal", "error": f"journal parse failed: {e}", "line": line[:500]}
             await asyncio.sleep(0.1)
-        return {"ok": False, "backend": "kwin_script", "error": "script produced no output"}
+        return {"ok": False, "backend": "kwin_journal", "error": "script produced no journal output"}
     finally:
         try:
             await _desktop_exec(f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript {shlex.quote(plugin)}', timeout=2)
         except Exception:
             pass
-        for path in (js_path, out_path):
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+        try:
+            os.unlink(js_path)
+        except OSError:
+            pass
 
 
 async def handle_v1_desktop_windows(request):
@@ -11632,20 +11649,49 @@ def _skill_install_sync(name: str, url: str) -> dict:
         shutil.rmtree(target_dir, ignore_errors=True)
         return {"ok": False, "error": str(e)}
 
+def _normalize_third_party_skill_name(name: str) -> tuple[str | None, str | None]:
+    """Return safe third-party skill basename or an error string.
+
+    `/v1/skills` reports third-party skills as `third_party/<name>`, while the
+    original uninstall endpoint only accepted a bare basename and rejected `/`.
+    Accept both forms, but still reject category/core paths and traversal.
+    """
+    raw = (name or "").strip().strip("/")
+    if not raw:
+        return None, "missing skill name"
+    if raw.startswith("skills/third_party/"):
+        raw = raw[len("skills/third_party/"):]
+    elif raw.startswith("third_party/"):
+        raw = raw[len("third_party/"):]
+    elif "/" in raw or "\\" in raw:
+        return None, "only third-party skills can be uninstalled by this endpoint"
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", raw):
+        return None, "invalid skill name"
+    if raw in (".", ".."):  # defense in depth
+        return None, "invalid skill name"
+    return raw, None
+
+
 def _skill_uninstall_sync(name: str) -> dict:
-    if not name or ".." in name or "/" in name or "\\" in name:
-        return {"ok": False, "error": "invalid skill name"}
-    
-    target_dir = SKILLS_DIR / "third_party" / name
+    safe_name, err = _normalize_third_party_skill_name(name)
+    if err:
+        return {"ok": False, "error": err}
+
+    target_dir = (SKILLS_DIR / "third_party" / safe_name).resolve()
+    allowed_root = (SKILLS_DIR / "third_party").resolve()
+    try:
+        target_dir.relative_to(allowed_root)
+    except ValueError:
+        return {"ok": False, "error": "invalid skill path"}
     if not target_dir.exists():
-        target_dir = SKILLS_DIR / name
-        if not target_dir.exists():
-            return {"ok": False, "error": f"skill '{name}' not found"}
-            
+        return {"ok": False, "error": f"third-party skill '{safe_name}' not found"}
+    if not target_dir.is_dir():
+        return {"ok": False, "error": f"third-party skill '{safe_name}' is not a directory"}
+
     try:
         import shutil
         shutil.rmtree(target_dir)
-        return {"ok": True, "removed": name}
+        return {"ok": True, "removed": safe_name, "name": f"third_party/{safe_name}", "path": str(target_dir)}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

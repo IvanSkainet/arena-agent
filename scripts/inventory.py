@@ -571,6 +571,221 @@ def get_disks() -> list[dict]:
 
 
 # ============================================================
+# Section: low-level hardware devices (best-effort, read-only)
+# ============================================================
+
+def get_storage_devices() -> list[dict]:
+    """Physical/block storage devices, not just mounted filesystems."""
+    sys_name = platform.system()
+    devices: list[dict[str, Any]] = []
+    if sys_name == "Linux":
+        if _which("lsblk"):
+            out = _run([
+                "lsblk", "-J", "-b", "-o",
+                "NAME,PATH,TYPE,SIZE,MODEL,SERIAL,TRAN,ROTA,RM,FSTYPE,MOUNTPOINTS,LABEL,UUID",
+            ], timeout=5)
+            try:
+                data = json.loads(out) if out else {}
+                def walk(items: list[dict], parent: str | None = None) -> None:
+                    for item in items or []:
+                        size = item.get("size")
+                        try:
+                            size_gb = round(int(size) / (1024**3), 2) if size is not None else None
+                        except Exception:
+                            size_gb = None
+                        devices.append({
+                            "name": item.get("name"),
+                            "path": item.get("path"),
+                            "type": item.get("type"),
+                            "parent": parent,
+                            "size_gb": size_gb,
+                            "model": (item.get("model") or "").strip(),
+                            "serial": (item.get("serial") or "").strip(),
+                            "transport": item.get("tran"),
+                            "rotational": bool(item.get("rota")) if item.get("rota") is not None else None,
+                            "removable": bool(item.get("rm")) if item.get("rm") is not None else None,
+                            "filesystem": item.get("fstype"),
+                            "mountpoints": item.get("mountpoints") or [],
+                            "label": item.get("label"),
+                            "uuid": item.get("uuid"),
+                        })
+                        walk(item.get("children") or [], item.get("name"))
+                walk(data.get("blockdevices") or [])
+            except Exception:
+                pass
+    elif sys_name == "Windows":
+        for d in _get_cim_json("Win32_DiskDrive", "Model,SerialNumber,InterfaceType,MediaType,Size,Partitions,Status"):
+            try:
+                size_gb = round(int(d.get("Size") or 0) / (1024**3), 2) if d.get("Size") else None
+            except Exception:
+                size_gb = None
+            devices.append({
+                "model": str(d.get("Model", "")).strip(),
+                "serial": str(d.get("SerialNumber", "")).strip(),
+                "interface": str(d.get("InterfaceType", "")).strip(),
+                "media_type": str(d.get("MediaType", "")).strip(),
+                "size_gb": size_gb,
+                "partitions": d.get("Partitions"),
+                "status": d.get("Status"),
+            })
+    elif sys_name == "Darwin":
+        out = _run(["diskutil", "list", "-plist"], timeout=8)
+        if out:
+            try:
+                import plistlib
+                data = plistlib.loads(out.encode("utf-8", errors="replace"))
+                for disk in data.get("AllDisksAndPartitions", []):
+                    devices.append({
+                        "name": disk.get("DeviceIdentifier"),
+                        "size_gb": round(int(disk.get("Size") or 0) / (1024**3), 2) if disk.get("Size") else None,
+                        "partitions": len(disk.get("Partitions") or []),
+                    })
+            except Exception:
+                pass
+    return devices
+
+
+def _classify_pci(text: str) -> str:
+    low = text.lower()
+    if any(x in low for x in ("vga", "3d controller", "display")):
+        return "gpu"
+    if any(x in low for x in ("ethernet", "network", "wireless", "wi-fi")):
+        return "network"
+    if any(x in low for x in ("sata", "nvme", "raid", "storage")):
+        return "storage"
+    if "audio" in low:
+        return "audio"
+    if "usb" in low:
+        return "usb"
+    if "bridge" in low:
+        return "bridge"
+    return "other"
+
+
+def get_pci_devices() -> list[dict]:
+    """PCI/PNP hardware inventory, capped and categorized."""
+    sys_name = platform.system()
+    devices: list[dict[str, Any]] = []
+    if sys_name == "Linux" and _which("lspci"):
+        out = _run(["lspci", "-nn"], timeout=5)
+        for line in out.splitlines()[:200]:
+            m = re.match(r"^(\S+)\s+(.+?):\s+(.+)$", line)
+            if not m:
+                continue
+            cls = m.group(2).strip()
+            desc = m.group(3).strip()
+            devices.append({
+                "slot": m.group(1),
+                "class": cls,
+                "category": _classify_pci(cls + " " + desc),
+                "description": desc,
+            })
+    elif sys_name == "Windows":
+        ps_class_filter = "'Display','Net','HDC','SCSIAdapter','USB','MEDIA','Bluetooth'"
+        ps = (
+            "Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | "
+            f"Where-Object {{$_.PNPClass -in @({ps_class_filter})}} | "
+            "Select-Object Name,PNPClass,Manufacturer,DeviceID,Status | ConvertTo-Json -Compress -Depth 4"
+        )
+        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=15)
+        try:
+            data = json.loads(out) if out else []
+            if isinstance(data, dict):
+                data = [data]
+            for d in data[:200]:
+                devices.append({
+                    "class": d.get("PNPClass"),
+                    "category": _classify_pci(str(d.get("PNPClass", "")) + " " + str(d.get("Name", ""))),
+                    "name": d.get("Name"),
+                    "manufacturer": d.get("Manufacturer"),
+                    "status": d.get("Status"),
+                    "device_id": d.get("DeviceID"),
+                })
+        except Exception:
+            pass
+    return devices
+
+
+def get_usb_devices() -> list[dict]:
+    sys_name = platform.system()
+    devices: list[dict[str, Any]] = []
+    if sys_name == "Linux" and _which("lsusb"):
+        out = _run(["lsusb"], timeout=5)
+        for line in out.splitlines()[:200]:
+            m = re.match(r"Bus\s+(\d+)\s+Device\s+(\d+):\s+ID\s+([0-9a-fA-F:]+)\s*(.*)", line)
+            if m:
+                devices.append({"bus": m.group(1), "device": m.group(2), "id": m.group(3), "name": m.group(4).strip()})
+    elif sys_name == "Windows":
+        ps = (
+            "Get-CimInstance Win32_PnPEntity -ErrorAction SilentlyContinue | "
+            "Where-Object {$_.PNPClass -eq 'USB'} | "
+            "Select-Object Name,Manufacturer,DeviceID,Status | ConvertTo-Json -Compress -Depth 4"
+        )
+        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=15)
+        try:
+            data = json.loads(out) if out else []
+            if isinstance(data, dict):
+                data = [data]
+            for d in data[:200]:
+                devices.append({"name": d.get("Name"), "manufacturer": d.get("Manufacturer"), "status": d.get("Status"), "device_id": d.get("DeviceID")})
+        except Exception:
+            pass
+    elif sys_name == "Darwin":
+        out = _run(["system_profiler", "SPUSBDataType"], timeout=12)
+        for line in out.splitlines():
+            if line.startswith("        ") and line.strip().endswith(":"):
+                devices.append({"name": line.strip().rstrip(":")})
+    return devices
+
+
+def get_thermal() -> dict:
+    """Temperatures/fans where available without privileges."""
+    sys_name = platform.system()
+    info: dict[str, Any] = {"temperatures": []}
+    if sys_name == "Linux":
+        base = Path("/sys/class/thermal")
+        if base.exists():
+            for zone in sorted(base.glob("thermal_zone*"))[:32]:
+                try:
+                    typ = (zone / "type").read_text().strip()
+                    raw = int((zone / "temp").read_text().strip())
+                    info["temperatures"].append({"source": zone.name, "type": typ, "celsius": round(raw / 1000.0, 1)})
+                except Exception:
+                    pass
+        if _which("sensors"):
+            out = _run(["sensors", "-j"], timeout=5)
+            if out:
+                try:
+                    info["lm_sensors"] = json.loads(out)
+                except Exception:
+                    text = _run(["sensors"], timeout=5)
+                    if text:
+                        info["sensors_text"] = text[:4000]
+    elif sys_name == "Darwin":
+        if _which("powermetrics"):
+            info["note"] = "powermetrics is available but requires elevated privileges; skipped"
+    elif sys_name == "Windows":
+        # MSAcpi_ThermalZoneTemperature is not present on many desktops, but it
+        # is safe and locale-independent when available.
+        ps = (
+            "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction SilentlyContinue | "
+            "Select-Object InstanceName,CurrentTemperature | ConvertTo-Json -Compress"
+        )
+        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=10)
+        try:
+            data = json.loads(out) if out else []
+            if isinstance(data, dict):
+                data = [data]
+            for d in data:
+                k = d.get("CurrentTemperature")
+                c = round((int(k) / 10.0) - 273.15, 1) if k else None
+                info["temperatures"].append({"source": d.get("InstanceName"), "celsius": c})
+        except Exception:
+            pass
+    return info
+
+
+# ============================================================
 # Section: network
 # ============================================================
 
@@ -953,6 +1168,10 @@ SECTIONS = [
     ("motherboard", get_motherboard),
     ("gpu", get_gpu),
     ("disks", get_disks),
+    ("storage_devices", get_storage_devices),
+    ("pci_devices", get_pci_devices),
+    ("usb_devices", get_usb_devices),
+    ("thermal", get_thermal),
     ("network", get_network),
     ("runtimes", get_runtimes),
     ("package_managers", get_package_managers),
@@ -1075,6 +1294,29 @@ def format_text(data: dict) -> str:
             lines.append(f"  {d['device']:<10} {d.get('mount', ''):<15} "
                          f"{d.get('filesystem', ''):<7} "
                          f"{d['free_gb']:.1f}/{d['total_gb']:.1f} GB free ({d['used_pct']}% used)")
+
+    if "storage_devices" in data and data["storage_devices"]:
+        lines.append("\n### Storage devices")
+        for d in data["storage_devices"][:12]:
+            label = d.get("path") or d.get("name") or d.get("model") or "device"
+            size = f" {d.get('size_gb')} GB" if d.get("size_gb") is not None else ""
+            model = f" — {d.get('model')}" if d.get("model") else ""
+            lines.append(f"  {label:<18} {d.get('type','')}{size}{model}")
+
+    if "pci_devices" in data and data["pci_devices"]:
+        lines.append("\n### PCI devices")
+        for d in data["pci_devices"][:20]:
+            lines.append(f"  [{d.get('category','other')}] {d.get('description') or d.get('name') or ''}")
+
+    if "usb_devices" in data and data["usb_devices"]:
+        lines.append("\n### USB devices")
+        for d in data["usb_devices"][:20]:
+            lines.append(f"  {d.get('id',''):<10} {d.get('name') or d.get('manufacturer') or ''}")
+
+    if "thermal" in data and data["thermal"].get("temperatures"):
+        lines.append("\n### Thermal")
+        for t in data["thermal"].get("temperatures", [])[:12]:
+            lines.append(f"  {t.get('type') or t.get('source')}: {t.get('celsius')}°C")
 
     if "network" in data:
         n = data["network"]
