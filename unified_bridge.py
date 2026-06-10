@@ -205,6 +205,10 @@ from arena.hardware import (  # noqa: E402,F401
     merge_nvidia_gpu_facts,
     normalize_inventory_hardware,
 )
+from arena.inventory_runner import (  # noqa: E402,F401
+    find_inventory_script,
+    run_inventory,
+)
 
 
 def _ensure_session_env() -> None:
@@ -4856,53 +4860,15 @@ def _hardware_from_inventory_sync(timeout: int = 45) -> dict:
 # --- /v1/inventory GET — Full system inventory via scripts/inventory.py ---
 
 def _inventory_sync(section: str | None = None, fmt: str = "text", timeout: int = 30) -> dict:
-    """Run inventory.py and return the result. Cached for 60 seconds."""
-    import subprocess as _sp
-    import time as _time
-
-    # Locate inventory.py
-    candidates = [
-        BRIDGE_DIR / "scripts" / "inventory.py",
-        ROOT_AGENT / "scripts" / "inventory.py",
-    ]
-    script = None
-    for c in candidates:
-        if c.exists():
-            script = c
-            break
-    if not script:
-        return {"ok": False, "error": "inventory.py not found in any known location"}
-
-    args = [sys.executable or "python3", str(script)]
-    if fmt == "json":
-        args.append("--json")
-    if section:
-        args.extend(["--section", section])
-
-    try:
-        _env = os.environ.copy()
-        _env["PYTHONIOENCODING"] = "utf-8"
-        _env["PYTHONUTF8"] = "1"
-        kwargs: dict = {"capture_output": True, "text": True, "timeout": timeout,
-                        "encoding": "utf-8", "errors": "replace", "env": _env}
-        if platform.system() == "Windows":
-            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
-        r = _sp.run(args, **kwargs)
-        if fmt == "json":
-            try:
-                parsed = json.loads(r.stdout)
-                return {"ok": r.returncode == 0, "inventory": parsed,
-                        "exit_code": r.returncode, "stderr": r.stderr[-2000:]}
-            except Exception as e:
-                return {"ok": False, "error": f"JSON parse failed: {e}",
-                        "stdout": r.stdout[-2000:], "stderr": r.stderr[-2000:]}
-        return {"ok": r.returncode == 0, "text": r.stdout,
-                "exit_code": r.returncode, "stderr": r.stderr[-2000:],
-                "script": str(script)}
-    except _sp.TimeoutExpired:
-        return {"ok": False, "error": f"inventory.py timed out after {timeout}s"}
-    except Exception as e:
-        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    """Run inventory.py and return the result."""
+    return run_inventory(
+        bridge_dir=BRIDGE_DIR,
+        root_agent=ROOT_AGENT,
+        section=section,
+        fmt=fmt,
+        timeout=timeout,
+        python_executable=sys.executable or "python3",
+    )
 
 
 async def handle_v1_inventory(request: web.Request) -> web.Response:
