@@ -6813,17 +6813,27 @@ def _spawn_respawn_helper(port: int) -> tuple[bool, str]:
             svc_exists = "SERVICE_NAME" in (r.stdout or "")
         except Exception:
             pass
+        service_managed = False
         if svc_exists:
-            # NSSM auto-restarts on its own when the process exits. We just wait & exit.
-            # Drop a one-shot script that double-checks: if /health still down after 8s, force-start the service.
+            try:
+                # Only use the SCM/NSSM path when THIS bridge instance is
+                # actually service-managed. A stale service can coexist with an
+                # active Scheduled Task install and must not hijack restart.
+                service_managed = (_service_info_sync().get("running_as") == "nssm-service")
+            except Exception:
+                service_managed = False
+        if service_managed:
+            # NSSM/SCM-managed service is actually running. It should auto-restart
+            # when this process exits; the helper only force-starts it if health
+            # remains down. A stale stopped service must NOT take this branch.
             import tempfile
             sh_path = Path(tempfile.gettempdir()) / f"arena_nssm_kick_{os.getpid()}.bat"
             # Use a template + replace to avoid PowerShell-style quote/brace hell
             sh_template = r"""@echo off
 timeout /t 8 /nobreak >nul
-curl -s -o nul -w "%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%rena_kick_hc.txt" 2>nul
-set /p HC=<"%TEMP%rena_kick_hc.txt"
-del "%TEMP%rena_kick_hc.txt" >nul 2>&1
+curl -s -o nul -w "%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%\arena_kick_hc.txt" 2>nul
+set /p HC=<"%TEMP%\arena_kick_hc.txt"
+del "%TEMP%\arena_kick_hc.txt" >nul 2>&1
 if not "%HC%"=="200" (
     sc start __SVC__ >nul 2>&1
 )
@@ -6851,6 +6861,10 @@ if not "%HC%"=="200" (
         # Generate .bat with placeholders, then substitute (avoids escape hell)
         BAT_TEMPLATE = r"""@echo off
 timeout /t 2 /nobreak >nul
+REM Ensure the previous bridge process is gone. schtasks /End can stop only
+REM the wscript/task wrapper and leave python.exe orphaned.
+taskkill /PID __PID__ /F >nul 2>nul
+timeout /t 1 /nobreak >nul
 REM Try Scheduled Task first
 set "ARENA_TASK=__TASK__"
 schtasks /Query /TN "%ARENA_TASK%" >nul 2>&1
@@ -6864,9 +6878,9 @@ set TRIES=0
 :poll
 set /a TRIES+=1
 timeout /t 1 /nobreak >nul
-curl -s -o nul -w "%%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%rena_hc_chk.txt" 2>nul
-set /p HC=<"%TEMP%rena_hc_chk.txt"
-del "%TEMP%rena_hc_chk.txt" >nul 2>&1
+curl -s -o nul -w "%%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%\arena_hc_chk.txt" 2>nul
+set /p HC=<"%TEMP%\arena_hc_chk.txt"
+del "%TEMP%\arena_hc_chk.txt" >nul 2>&1
 if "%HC%"=="200" goto :cleanup
 if %TRIES% LSS 12 goto :poll
 REM Last-resort: launch pythonw directly with token from file
@@ -6887,6 +6901,7 @@ if defined PYW (
 """
         bat = (BAT_TEMPLATE
                .replace("__TASK__", task_name)
+               .replace("__PID__", str(os.getpid()))
                .replace("__PORT__", str(port))
                .replace("__BRIDGE__", bridge_py)
                .replace("__TOKEN_FILE__", token_file))

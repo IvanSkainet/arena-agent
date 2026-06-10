@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.11.3-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.11.4-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,12 +44,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.11.3
+### 🆕 What's new in v2.11.4
 
-- **Windows installer polish:** version detection now reads `arena/constants.py`, fixing `Bridge vunknown`; install health verification prints the actual `/health.version`.
-- **Windows inventory polish:** PowerShell/CIM probes force UTF-8 output and normalize CIM dates, reducing mojibake on localized Windows installs.
-- **Better Windows service diagnostics:** `/v1/service/info` and `/v1/sys/svc` distinguish stale stopped services from active Scheduled Tasks and include bridge process command lines.
-- **Agent capability map:** new `/v1/capabilities` returns a stable cross-platform map of available backends/features so agents can adapt instead of guessing.
+- **Windows restart fixed:** `/v1/restart` no longer mistakes a stale stopped Windows service for an active NSSM install, and the Scheduled Task helper now kills the old bridge PID before relaunching to avoid orphaned `python.exe` processes.
+- **Capability-aware stress test:** new `dev/stress-test-v4.py` exercises core API, hardware, service, skills, tasks, CDP, desktop endpoints when available, and optional restart without failing unsupported backends.
+- **Keeps v2.11.3 stabilization:** installer version detection, Windows UTF-8/CIM date fixes, service diagnostics, and `/v1/capabilities` remain the baseline.
 
 ---
 
@@ -722,6 +721,11 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.11.4 — Windows restart lifecycle and stress-test baseline
+- **Fixed:** Windows `/v1/restart` now uses the SCM/NSSM branch only when the service is actually running; stale stopped services no longer prevent Scheduled Task relaunch.
+- **Fixed:** Scheduled Task restart helper now force-kills the previous bridge PID before relaunching the task, preventing orphaned `python.exe` bridge processes.
+- **Added:** `dev/stress-test-v4.py`, a capability-aware cross-platform smoke/stress test runner for REST/core/hardware/service/skills/tasks/CDP/desktop/restart checks.
 
 ### v2.11.3 — Windows stabilization and capabilities map
 - **Fixed:** `install.bat`/`install.sh` now read the canonical version from `_arena_helper.py` / `arena/constants.py`, avoiding `Bridge vunknown` after the version constant moved out of `unified_bridge.py`.

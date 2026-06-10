@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.11.4 — 2026-06-10
+
+### Fixed
+- Windows `/v1/restart` now uses the SCM/NSSM restart path only when the Windows service is actually running. Stale stopped services no longer block Scheduled Task relaunch.
+- The Windows Scheduled Task restart helper now force-kills the previous bridge PID before relaunching the task, preventing orphaned `python.exe` bridge processes.
+
+### Added
+- Added `dev/stress-test-v4.py`, a capability-aware cross-platform smoke/stress test runner for REST/core/hardware/service/skills/tasks/CDP/desktop/restart checks.
+
 ## v2.11.3 — 2026-06-10
 
 ### Added
