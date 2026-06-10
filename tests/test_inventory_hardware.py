@@ -78,6 +78,7 @@ def test_normalize_third_party_skill_name_accepts_listed_name():
     assert ub._normalize_third_party_skill_name("third_party/weather") == ("weather", None)
     assert ub._normalize_third_party_skill_name("weather") == ("weather", None)
     assert ub._normalize_third_party_skill_name("skills/third_party/weather") == ("weather", None)
+    assert ub._normalize_third_party_skill_name("third_party/_probe") == ("_probe", None)
 
 
 def test_normalize_third_party_skill_name_rejects_core_and_traversal():

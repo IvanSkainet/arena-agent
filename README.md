@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.11.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.11.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,13 +44,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.11.1
+### 🆕 What's new in v2.11.2
 
-- **More hardware context:** `/v1/hardware` now includes physical storage devices, PCI/PNP devices, USB devices, and thermal/sensor facts where available, in addition to the v2.11 unified motherboard/BIOS/GPU/RAM/disk/network data.
-- **KDE Wayland windows fixed:** `/v1/desktop/windows` no longer relies on unavailable `QFile` inside KWin scripts; Plasma Wayland window data is returned through a tokenized KWin journal line, with wmctrl/xdotool fallbacks unchanged.
-- **Third-party skill uninstall fixed:** `/v1/skills/uninstall` accepts the exact names returned by `/v1/skills`, e.g. `third_party/weather`, while still rejecting core/category skills and path traversal.
-- **Removed test weather skill:** the broken `skills/third_party/weather` sample/test skill has been removed from the production tree.
-- **Regression tests:** added coverage for hardware device sections and third-party skill-name normalization.
+- **Third-party skill uninstall polish:** `/v1/skills/uninstall` now accepts every safe third-party basename that `/v1/skills` can list, including names beginning with `_`, while still rejecting core/category skills and path traversal.
+- **Keeps v2.11.1 improvements:** expanded `/v1/hardware` device/thermal sections, fixed KDE Wayland window discovery through KWin journal output, and removed the broken test `weather` skill.
 
 ---
 
@@ -723,6 +720,9 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.11.2 — Third-party uninstall safe-name polish
+- **Fixed:** `/v1/skills/uninstall` now accepts safe third-party skill names beginning with `_`, matching names that `/v1/skills` can list, while retaining traversal/core-skill protections.
 
 ### v2.11.1 — Hardware device expansion, KWin journal windows, skill uninstall fix
 - **Improved:** `/v1/hardware` now includes `devices.storage`, `devices.pci`, `devices.usb`, and `thermal` sections where available.

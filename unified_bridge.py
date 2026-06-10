@@ -11665,7 +11665,7 @@ def _normalize_third_party_skill_name(name: str) -> tuple[str | None, str | None
         raw = raw[len("third_party/"):]
     elif "/" in raw or "\\" in raw:
         return None, "only third-party skills can be uninstalled by this endpoint"
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", raw):
+    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}", raw):
         return None, "invalid skill name"
     if raw in (".", ".."):  # defense in depth
         return None, "invalid skill name"

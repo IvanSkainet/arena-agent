@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.11.2 — 2026-06-10
+
+### Fixed
+- `/v1/skills/uninstall` now accepts safe third-party skill basenames beginning with `_`, so it can remove every safe `third_party/<name>` entry that `/v1/skills` can list while still rejecting traversal and core/category skills.
+
+### Tests
+- Added regression coverage for underscore-prefixed third-party skill names.
+
 ## v2.11.1 — 2026-06-10
 
 ### Improved
