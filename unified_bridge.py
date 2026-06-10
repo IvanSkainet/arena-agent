@@ -232,6 +232,7 @@ from arena.desktop.runtime import (  # noqa: E402,F401
     _get_active_window,
     _kwin_windows_via_script,
 )
+from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
 from arena.http import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
@@ -8163,12 +8164,6 @@ async def handle_v1_desktop_screenshot(request):
         scale: float in (0,1] — downscale factor (e.g. 0.5)
         max_width: int — cap the width (preserves aspect ratio)
         quality: int 1-100 — JPEG/WebP quality (default 80)
-
-    Uses spectacle (KDE) or grim (Wayland) or scrot (X11) depending
-    on what's available. Returns the screenshot in the requested format.
-
-    v2.4.0: New endpoint.
-    v2.10.0: format/scale/max_width/quality are now honored (PIL post-process).
     """
     r = require_auth(request)
     if r: return r
@@ -8177,7 +8172,6 @@ async def handle_v1_desktop_screenshot(request):
     qs = parse_qs(request.query_string)
     fmt = qs.get("format", ["base64"])[0].lower()
 
-    # v2.10.0: parse optional transform params
     def _qs_float(name):
         try:
             return float(qs.get(name, [None])[0])
@@ -8190,121 +8184,38 @@ async def handle_v1_desktop_screenshot(request):
         except (TypeError, ValueError):
             return None
 
-    scale = _qs_float("scale")
-    max_width = _qs_int("max_width")
-    quality = _qs_int("quality") or 80
-    quality = max(1, min(100, quality))
-
-    # Create temp file for screenshot
-    import tempfile
-    tmp_path = tempfile.mktemp(suffix=".png", prefix="arena_desktop_")
-
-    env = _detect_desktop_env()
-
-    # Choose screenshot tool based on availability
-    cmd = None
-    if env["has_spectacle"]:
-        # spectacle works on both Wayland and X11 (KDE)
-        wayland_env = f'WAYLAND_DISPLAY={os.environ.get("WAYLAND_DISPLAY", "wayland-0")}'
-        display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-        cmd = f'{wayland_env} {display_env} spectacle -b -n -f -o {tmp_path}'
-    elif env["has_grim"] and env["wayland"]:
-        cmd = f'grim {tmp_path}'
-    elif env["has_scrot"] and env["x11"]:
-        cmd = f'DISPLAY={os.environ.get("DISPLAY", ":0")} scrot -o {tmp_path}'
-    else:
-        return _cors_json_response(
-            {"ok": False, "error": "No screenshot tool available (need spectacle, grim, or scrot)"},
-            status=500
-        )
-
-    result = await _desktop_exec(cmd, timeout=15)
-
-    if not result["ok"] or not os.path.exists(tmp_path):
-        # Clean up
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    shot = await capture_desktop_screenshot(
+        fmt=fmt,
+        scale=_qs_float("scale"),
+        max_width=_qs_int("max_width"),
+        quality=_qs_int("quality") or 80,
+        desktop_exec=_desktop_exec,
+        detect_env=_detect_desktop_env,
+        audit_fn=audit,
+    )
+    if not shot.get("ok"):
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"Screenshot failed: {result.get('stderr', result.get('error', 'unknown'))}"},
-            status=500
-        )
+        return _cors_json_response({"ok": False, "error": shot.get("error", "Screenshot failed")}, status=500)
 
-    try:
-        with open(tmp_path, "rb") as f:
-            img_bytes = f.read()
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-
-    if not img_bytes:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Screenshot file is empty"}, status=500)
-
-    tool = "spectacle" if env["has_spectacle"] else ("grim" if env["has_grim"] else "scrot")
-
-    # v2.10.0: Apply transforms (scale/max_width) and encode to requested
-    # format. The captured file is always PNG; we re-encode via PIL when the
-    # caller asks for jpeg/webp or a resize. This dramatically reduces payload
-    # size and latency for vision agents (e.g. 2560x1440 PNG ~1.8MB -> 1280x720
-    # JPEG ~90KB).
-    out_format = "png"  # actual encoding of the bytes we return
-    transformed = False
-    if fmt in ("jpeg", "jpg", "webp") or scale or max_width:
-        try:
-            from PIL import Image as _PILImage
-            import io as _io
-            im = _PILImage.open(_io.BytesIO(img_bytes))
-            w, h = im.size
-            target_w = w
-            if scale and 0 < scale <= 1:
-                target_w = int(w * scale)
-            if max_width and max_width > 0:
-                target_w = min(target_w, max_width)
-            if target_w != w and target_w > 0:
-                target_h = max(1, int(h * (target_w / w)))
-                im = im.resize((target_w, target_h), _PILImage.LANCZOS)
-            buf = _io.BytesIO()
-            if fmt in ("jpeg", "jpg"):
-                im.convert("RGB").save(buf, format="JPEG", quality=quality)
-                out_format = "jpeg"
-            elif fmt == "webp":
-                im.save(buf, format="WEBP", quality=quality)
-                out_format = "webp"
-            else:
-                im.save(buf, format="PNG", optimize=True)
-                out_format = "png"
-            img_bytes = buf.getvalue()
-            transformed = True
-        except Exception as _e:
-            # Fall back to original PNG bytes if PIL is unavailable / fails.
-            audit({"type": "screenshot_transform_failed", "error": str(_e)})
-            out_format = "png"
-
-    _content_types = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
-
+    img_bytes = shot["bytes"]
+    out_format = shot["encoding"]
     if fmt == "base64":
         import base64 as _b64
-        b64_data = _b64.b64encode(img_bytes).decode("ascii")
         return _cors_json_response({
             "ok": True,
             "format": "base64",
             "encoding": out_format,
-            "data": b64_data,
+            "data": _b64.b64encode(img_bytes).decode("ascii"),
             "size_bytes": len(img_bytes),
-            "transformed": transformed,
-            "tool": tool,
+            "transformed": shot.get("transformed", False),
+            "tool": shot.get("tool"),
         })
-    else:
-        return web.Response(
-            body=img_bytes,
-            content_type=_content_types.get(out_format, "image/png"),
-            headers={"Access-Control-Allow-Origin": "*"}
-        )
+    content_types = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
+    return web.Response(
+        body=img_bytes,
+        content_type=content_types.get(out_format, "image/png"),
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 async def handle_v1_desktop_click(request):
     """POST /v1/desktop/click — Click at coordinates on the desktop.
