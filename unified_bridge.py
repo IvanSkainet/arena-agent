@@ -234,6 +234,7 @@ from arena.desktop.runtime import (  # noqa: E402,F401
 )
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
 from arena.desktop.focus import focus_window  # noqa: E402,F401
+from arena.desktop.handlers import make_desktop_handlers  # noqa: E402,F401
 from arena.desktop.input import (  # noqa: E402,F401
     build_click_command,
     build_key_command,
@@ -245,7 +246,7 @@ from arena.http import (  # noqa: E402,F401
     _cors_json_response,
     cors_json_response,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -8162,436 +8163,16 @@ async def handle_v1_cdp_type(request):
 
 
 
-async def handle_v1_desktop_screenshot(request):
-    """GET /v1/desktop/screenshot — Take a screenshot of the desktop.
 
-    Query params:
-        format: "png" | "jpeg"/"jpg" | "webp" | "base64" (default: "base64")
-        display: string (optional, e.g. ":0" or "wayland-0")
-        scale: float in (0,1] — downscale factor (e.g. 0.5)
-        max_width: int — cap the width (preserves aspect ratio)
-        quality: int 1-100 — JPEG/WebP quality (default 80)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
 
-    qs = parse_qs(request.query_string)
-    fmt = qs.get("format", ["base64"])[0].lower()
 
-    def _qs_float(name):
-        try:
-            return float(qs.get(name, [None])[0])
-        except (TypeError, ValueError):
-            return None
 
-    def _qs_int(name):
-        try:
-            return int(qs.get(name, [None])[0])
-        except (TypeError, ValueError):
-            return None
 
-    shot = await capture_desktop_screenshot(
-        fmt=fmt,
-        scale=_qs_float("scale"),
-        max_width=_qs_int("max_width"),
-        quality=_qs_int("quality") or 80,
-        desktop_exec=_desktop_exec,
-        detect_env=_detect_desktop_env,
-        audit_fn=audit,
-    )
-    if not shot.get("ok"):
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": shot.get("error", "Screenshot failed")}, status=500)
 
-    img_bytes = shot["bytes"]
-    out_format = shot["encoding"]
-    if fmt == "base64":
-        import base64 as _b64
-        return _cors_json_response({
-            "ok": True,
-            "format": "base64",
-            "encoding": out_format,
-            "data": _b64.b64encode(img_bytes).decode("ascii"),
-            "size_bytes": len(img_bytes),
-            "transformed": shot.get("transformed", False),
-            "tool": shot.get("tool"),
-        })
-    content_types = {"png": "image/png", "jpeg": "image/jpeg", "webp": "image/webp"}
-    return web.Response(
-        body=img_bytes,
-        content_type=content_types.get(out_format, "image/png"),
-        headers={"Access-Control-Allow-Origin": "*"},
-    )
 
-async def handle_v1_desktop_click(request):
-    """POST /v1/desktop/click — Click at coordinates on the desktop.
 
-    Body JSON:
-        x: number (required) — X coordinate in pixels
-        y: number (required) — Y coordinate in pixels
-        button: "left" | "middle" | "right" (default: "left")
-        double: bool (default: false) — double-click
-        activate: bool (default: true) — v2.5.1: focus window at coords before clicking
 
-    Uses ydotool (Wayland) or xdotool (X11) depending on what's available.
 
-    v2.4.0: New endpoint.
-    v2.5.1: Added window activation before click — ensures the target window
-             receives the click even on bare WMs (no EWMH) or Wayland compositors.
-    v2.9.0: Added control check and require_active_title input guard.
-    """
-    r = require_auth(request)
-    if r: return r
-
-    # v2.9.0: Check if agent control is allowed
-    ctrl_err = _control_check()
-    if ctrl_err:
-        return _cors_json_response(ctrl_err, status=403)
-
-    _record_request()
-
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-
-    x = body.get("x")
-    y = body.get("y")
-    if x is None or y is None:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'x' and/or 'y' coordinates"}, status=400)
-
-    button = body.get("button", "left")
-    double = body.get("double", False)
-    do_activate = body.get("activate", True)
-
-    # v2.9.0: Input guard — verify active window title if requested
-    require_title = body.get("require_active_title")
-    if require_title:
-        active = await _get_active_window()
-        if active and require_title.lower() not in active.get("title", "").lower():
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({
-                "ok": False, "error": "input_guard_failed",
-                "message": f"Active window does not match required title",
-                "active_window": active,
-                "required_title_contains": require_title,
-            }, status=409)
-
-    _control_record_agent_action()
-
-    env = _detect_desktop_env()
-    cmd, tool, err = build_click_command(
-        env=env,
-        x=int(x),
-        y=int(y),
-        button=button,
-        double=double,
-        activate=do_activate,
-        has_kdotool=shutil.which("kdotool") is not None,
-    )
-    if err:
-        return _cors_json_response({"ok": False, "error": err}, status=500)
-    result = await _desktop_exec(cmd, timeout=10)
-    if not result["ok"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"Click failed ({tool}): {result.get('stderr', result.get('error', ''))}"},
-            status=500
-        )
-
-    return _cors_json_response({
-        "ok": True,
-        "x": int(x),
-        "y": int(y),
-        "button": button,
-        "double": double,
-        "tool": tool,
-    })
-
-
-async def handle_v1_desktop_type(request):
-    """POST /v1/desktop/type — Type text on the desktop.
-
-    Body JSON:
-        text: string (required) — Text to type
-        delay: number (optional, default: 50) — Delay between keystrokes in ms
-        clear: bool (default: false) — Clear existing text first (Ctrl+A then type)
-        ensure_latin: bool (default: true) — Switch KDE keyboard to the Latin
-            (first) layout before typing, so ydotool keycodes are not mangled
-            by a non-Latin active layout (e.g. RU). KDE/Wayland only;
-            best-effort.
-
-    Uses ydotool/wtype (Wayland) or xdotool (X11).
-
-    v2.4.0: New endpoint.
-    v2.9.0: Added control check and require_active_title input guard.
-    v2.10.0: Added ensure_latin to make typing layout-independent.
-    """
-    r = require_auth(request)
-    if r: return r
-
-    # v2.9.0: Check if agent control is allowed
-    ctrl_err = _control_check()
-    if ctrl_err:
-        return _cors_json_response(ctrl_err, status=403)
-
-    _record_request()
-
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-
-    # v2.9.0: Input guard
-    require_title = body.get("require_active_title")
-    if require_title:
-        active = await _get_active_window()
-        if active and require_title.lower() not in active.get("title", "").lower():
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({
-                "ok": False, "error": "input_guard_failed",
-                "message": "Active window does not match required title",
-                "active_window": active,
-                "required_title_contains": require_title,
-            }, status=409)
-
-    _control_record_agent_action()
-
-    text = body.get("text")
-    if text is None:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'text' parameter"}, status=400)
-
-    delay = body.get("delay", 50)
-    clear = body.get("clear", False)
-    ensure_latin = body.get("ensure_latin", True)
-
-    env = _detect_desktop_env()
-
-    # v2.10.0: Make typing layout-independent. ydotool emits raw keycodes, so
-    # a non-Latin active layout (e.g. RU) corrupts text. Best-effort switch to
-    # the first (Latin) KDE layout via the keyboard DBus interface before typing.
-    layout_switched = False
-    if ensure_latin:
-        try:
-            res = await _desktop_exec(
-                "qdbus6 org.kde.keyboard /Layouts setLayout 0 "
-                "|| qdbus org.kde.keyboard /Layouts setLayout 0",
-                timeout=5,
-            )
-            layout_switched = bool(res.get("ok"))
-        except Exception:
-            layout_switched = False
-
-    cmd, tool, err = build_type_command(env=env, text=text, delay=delay, clear=clear)
-    if err:
-        return _cors_json_response({"ok": False, "error": err}, status=500)
-
-    result = await _desktop_exec(cmd, timeout=15)
-    if not result["ok"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"Type failed ({tool}): {result.get('stderr', result.get('error', ''))}"},
-            status=500
-        )
-
-    return _cors_json_response({
-        "ok": True,
-        "text": text,
-        "tool": tool,
-        "ensure_latin": ensure_latin,
-        "layout_switched": layout_switched,
-    })
-
-async def handle_v1_desktop_key(request):
-    """POST /v1/desktop/key — Press a key or key combo on the desktop.
-
-    Body JSON:
-        key: string (required) — Key name (e.g. "Return", "Escape", "ctrl+a")
-        keys: array (optional) — List of keys for combo (e.g. ["ctrl", "a"])
-
-    Uses ydotool (Wayland) or xdotool (X11).
-
-    v2.4.0: New endpoint.
-    v2.9.0: Added control check and require_active_title input guard.
-    """
-    r = require_auth(request)
-    if r: return r
-
-    # v2.9.0: Check if agent control is allowed
-    ctrl_err = _control_check()
-    if ctrl_err:
-        return _cors_json_response(ctrl_err, status=403)
-
-    _record_request()
-
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-
-    # v2.9.0: Input guard
-    require_title = body.get("require_active_title")
-    if require_title:
-        active = await _get_active_window()
-        if active and require_title.lower() not in active.get("title", "").lower():
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({
-                "ok": False, "error": "input_guard_failed",
-                "message": "Active window does not match required title",
-                "active_window": active,
-                "required_title_contains": require_title,
-            }, status=409)
-
-    _control_record_agent_action()
-
-    key = body.get("key")
-    keys = body.get("keys")
-
-    if not key and not keys:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'key' or 'keys' parameter"}, status=400)
-
-    env = _detect_desktop_env()
-    cmd, tool, err, key_label = build_key_command(env=env, key=key, keys=keys)
-    if err:
-        return _cors_json_response({"ok": False, "error": err}, status=500)
-
-    result = await _desktop_exec(cmd, timeout=10)
-    if not result["ok"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"Key press failed ({tool}): {result.get('stderr', result.get('error', ''))}"},
-            status=500
-        )
-
-    return _cors_json_response({
-        "ok": True,
-        "key": key_label,
-        "tool": tool,
-    })
-
-
-async def handle_v1_desktop_mouse(request):
-    """POST /v1/desktop/mouse — Move mouse to coordinates.
-
-    Body JSON:
-        x: number (required) — X coordinate in pixels
-        y: number (required) — Y coordinate in pixels
-        absolute: bool (default: true) — absolute vs relative coordinates
-
-    v2.4.0: New endpoint.
-    v2.9.0: Added control check.
-    """
-    r = require_auth(request)
-    if r: return r
-
-    # v2.9.0: Check if agent control is allowed
-    ctrl_err = _control_check()
-    if ctrl_err:
-        return _cors_json_response(ctrl_err, status=403)
-
-    _record_request()
-    _control_record_agent_action()
-
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-
-    x = body.get("x")
-    y = body.get("y")
-    if x is None or y is None:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'x' and/or 'y'"}, status=400)
-
-    absolute = body.get("absolute", True)
-
-    env = _detect_desktop_env()
-    cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=absolute)
-    if err:
-        return _cors_json_response({"ok": False, "error": err}, status=500)
-
-    result = await _desktop_exec(cmd, timeout=10)
-
-    return _cors_json_response({
-        "ok": result["ok"],
-        "x": int(x),
-        "y": int(y),
-        "absolute": absolute,
-        "tool": tool,
-    })
-
-
-
-
-async def handle_v1_desktop_windows(request):
-    """GET /v1/desktop/windows — List open desktop windows.
-
-    v2.4.0: New endpoint.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    env = _detect_desktop_env()
-    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-    attempts = []
-
-    kwin = await _kwin_windows_via_script()
-    if kwin and kwin.get("ok"):
-        return _cors_json_response({**kwin, "tool": kwin.get("backend", "kwin_script"), "attempts": attempts})
-    if kwin:
-        attempts.append({"tool": "kwin_script", "ok": False, "error": kwin.get("error")})
-
-    # Generic EWMH/X11. Good on X11, partial on XWayland.
-    if shutil.which("wmctrl"):
-        result = await _desktop_exec(f'{display_env} wmctrl -l -p -G 2>/dev/null', timeout=5)
-        attempts.append({"tool": "wmctrl", "ok": result.get("ok"), "stderr": result.get("stderr", "")[:200]})
-        if result["ok"] and result["stdout"].strip():
-            windows = []
-            for line in result["stdout"].strip().split("\n"):
-                if not line.strip():
-                    continue
-                parts = line.split(None, 8)
-                if len(parts) >= 8:
-                    windows.append({
-                        "id": parts[0],
-                        "desktop": parts[1],
-                        "pid": parts[2],
-                        "geometry": {"x": parts[3], "y": parts[4], "width": parts[5], "height": parts[6]},
-                        "host": parts[7],
-                        "title": parts[8] if len(parts) >= 9 else "",
-                    })
-            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "wmctrl", "attempts": attempts})
-
-    # Last resort: xdotool. Useful for X11/XWayland, weak on native Wayland.
-    if env["has_xdotool"]:
-        result = await _desktop_exec(f'{display_env} xdotool search --onlyvisible --name "" 2>/dev/null', timeout=5)
-        attempts.append({"tool": "xdotool", "ok": result.get("ok"), "stderr": result.get("stderr", "")[:200]})
-        if result["ok"] and result["stdout"].strip():
-            window_ids = result["stdout"].strip().split("\n")
-            windows = []
-            for wid in window_ids[:50]:
-                wid_q = shlex.quote(wid)
-                geom = await _desktop_exec(f'{display_env} xdotool getwindowgeometry {wid_q} 2>/dev/null', timeout=3)
-                name = await _desktop_exec(f'{display_env} xdotool getwindowname {wid_q} 2>/dev/null', timeout=3)
-                pid = await _desktop_exec(f'{display_env} xdotool getwindowpid {wid_q} 2>/dev/null', timeout=3)
-                windows.append({
-                    "id": wid,
-                    "title": name.get("stdout", "").strip() if name["ok"] else "",
-                    "pid": pid.get("stdout", "").strip() if pid.get("ok") else None,
-                    "geometry": geom.get("stdout", "").strip() if geom["ok"] else "",
-                })
-            return _cors_json_response({"ok": True, "count": len(windows), "windows": windows, "tool": "xdotool", "attempts": attempts})
-
-    return _cors_json_response({"ok": True, "count": 0, "windows": [], "tool": "none", "attempts": attempts})
 
 
 # ============================================================================
@@ -8600,70 +8181,35 @@ async def handle_v1_desktop_windows(request):
 
 
 
-async def handle_v1_desktop_active_window(request):
-    """GET /v1/desktop/active_window — Get currently active (focused) window.
-
-    Returns a lightweight response with the active window's id, title, pid,
-    class, and geometry. Much cheaper than taking a full screenshot.
-
-    v2.9.0: New endpoint.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    active = await _get_active_window()
-    if active:
-        return _cors_json_response({"ok": True, **active})
-    return _cors_json_response({
-        "ok": True,
-        "id": None,
-        "title": None,
-        "backend": "none",
-        "message": "Could not determine active window",
-    })
 
 
-async def handle_v1_desktop_focus(request):
-    """POST /v1/desktop/focus — Focus (activate) a window by id or title."""
-    r = require_auth(request)
-    if r: return r
 
-    ctrl_err = _control_check()
-    if ctrl_err:
-        return _cors_json_response(ctrl_err, status=403)
 
-    _record_request()
 
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
 
-    window_id = body.get("id")
-    title_contains = body.get("title")
-    if not window_id and not title_contains:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'id' or 'title' parameter"}, status=400)
-
-    result = await focus_window(
-        window_id=window_id,
-        title_contains=title_contains,
-        verify=body.get("verify", True),
-        verify_timeout_ms=body.get("timeout_ms", 1500),
-        desktop_exec=_desktop_exec,
-        detect_env=_detect_desktop_env,
-        get_active_window=_get_active_window,
-    )
-    if not result.get("ok") and result.get("status"):
-        _record_request(is_error=True, count_request=False)
-        status = int(result.pop("status"))
-        return _cors_json_response(result, status=status)
-
-    _control_record_agent_action()
-    return _cors_json_response(result)
-
+_desktop_handler_ctx = DesktopHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    control_check=_control_check,
+    control_record_agent_action=_control_record_agent_action,
+    desktop_exec=_desktop_exec,
+    detect_desktop_env=_detect_desktop_env,
+    get_active_window=_get_active_window,
+    kwin_windows_via_script=_kwin_windows_via_script,
+    capture_screenshot=capture_desktop_screenshot,
+    focus_window=focus_window,
+    audit=audit,
+)
+_desktop_handlers = make_desktop_handlers(_desktop_handler_ctx)
+handle_v1_desktop_screenshot = _desktop_handlers.screenshot
+handle_v1_desktop_click = _desktop_handlers.click
+handle_v1_desktop_type = _desktop_handlers.type
+handle_v1_desktop_key = _desktop_handlers.key
+handle_v1_desktop_mouse = _desktop_handlers.mouse
+handle_v1_desktop_windows = _desktop_handlers.windows
+handle_v1_desktop_active_window = _desktop_handlers.active_window
+handle_v1_desktop_focus = _desktop_handlers.focus
 
 # ---- Control Lease Endpoints (v2.9.0) ----
 

@@ -71,3 +71,21 @@ class SkillHandlerContext:
     skill_path_is_safe: Callable[[str], bool]
     audit: Callable[[dict[str, Any]], None]
     log_info: Callable[..., None]
+
+
+@dataclass(frozen=True)
+class DesktopHandlerContext:
+    """Dependencies for desktop automation API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    control_check: Callable[[], dict | None]
+    control_record_agent_action: Callable[[], None]
+    desktop_exec: Callable[..., Any]
+    detect_desktop_env: Callable[[], dict[str, Any]]
+    get_active_window: Callable[[], Any]
+    kwin_windows_via_script: Callable[[], Any]
+    capture_screenshot: Callable[..., Any]
+    focus_window: Callable[..., Any]
+    audit: Callable[[dict[str, Any]], None]
