@@ -251,6 +251,7 @@ from arena.resources.listing import (  # noqa: E402,F401
     list_subagents,
     show_mission,
 )
+from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
 from arena.desktop.input import (  # noqa: E402,F401
     build_click_command,
     build_key_command,
@@ -268,7 +269,7 @@ from arena.observability.metrics import (  # noqa: E402,F401
     _record_request,
     record_request,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -5524,17 +5525,6 @@ def _list_missions_sync() -> list[dict]:
     return list_missions(MISSIONS_DIR)
 
 
-async def handle_v1_missions(request: web.Request) -> web.Response:
-    """GET /v1/missions — list missions."""
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        loop = asyncio.get_event_loop()
-        missions = await loop.run_in_executor(_EXECUTOR, _list_missions_sync)
-        return _cors_json_response({"ok": True, "count": len(missions), "missions": missions})
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 def _winsound_melody() -> None:
@@ -5767,17 +5757,6 @@ def _list_reports_sync() -> list[dict]:
     return list_reports(REPORTS_DIR)
 
 
-async def handle_v1_reports(request: web.Request) -> web.Response:
-    """GET /v1/reports — list reports."""
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        loop = asyncio.get_event_loop()
-        reports = await loop.run_in_executor(_EXECUTOR, _list_reports_sync)
-        return _cors_json_response({"ok": True, "count": len(reports), "reports": reports})
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 def _browser_search_sync(query: str, n: int) -> dict:
@@ -9619,18 +9598,6 @@ def _hooks_list_sync() -> dict:
     return list_hooks(HOOKS_DIR)
 
 
-async def handle_v1_hooks(request: web.Request) -> web.Response:
-    """GET /v1/hooks — List hooks."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _hooks_list_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/agents GET — List agent configs ---
@@ -9639,18 +9606,6 @@ def _agents_list_sync() -> dict:
     return list_agents(AGENTS_DIR)
 
 
-async def handle_v1_agents(request: web.Request) -> web.Response:
-    """GET /v1/agents — List agent configs."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _agents_list_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/subagents GET — List subagents ---
@@ -9659,18 +9614,6 @@ def _subagents_list_sync() -> dict:
     return list_subagents(SUBAGENTS_DIR)
 
 
-async def handle_v1_subagents(request: web.Request) -> web.Response:
-    """GET /v1/subagents — List subagents."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _subagents_list_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/subagents/spawn POST — Spawn subagent ---
@@ -9730,26 +9673,27 @@ def _mission_show_sync(name: str) -> dict:
     return show_mission(MISSIONS_DIR, name)
 
 
-async def handle_v1_mission_show(request: web.Request) -> web.Response:
-    """GET /v1/mission/show?name=mission_name — Show mission details."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    name = qs.get("name", [""])[0]
-    if not name:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing name parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _mission_show_sync, name)
-        if not result.get("ok"):
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response(result, status=404)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_resource_handler_ctx = ResourceHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    list_missions_sync=_list_missions_sync,
+    list_reports_sync=_list_reports_sync,
+    hooks_list_sync=_hooks_list_sync,
+    agents_list_sync=_agents_list_sync,
+    subagents_list_sync=_subagents_list_sync,
+    mission_show_sync=_mission_show_sync,
+)
+_resource_handlers = make_resource_handlers(_resource_handler_ctx)
+handle_v1_missions = _resource_handlers.missions
+handle_v1_reports = _resource_handlers.reports
+handle_v1_hooks = _resource_handlers.hooks
+handle_v1_agents = _resource_handlers.agents
+handle_v1_subagents = _resource_handlers.subagents
+handle_v1_mission_show = _resource_handlers.mission_show
+
+
 
 
 # --- /v1/browser/browse POST — Unified browser endpoint with auto CDP/BrowserAct switching ---

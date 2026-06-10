@@ -104,3 +104,19 @@ class BrowserFetchHandlerContext:
     browser_dump_sync: Callable[[str], dict[str, Any]]
     browser_fetch_sync: Callable[[str], dict[str, Any]]
     browser_head_sync: Callable[[str], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ResourceHandlerContext:
+    """Dependencies for resource listing handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    list_missions_sync: Callable[[], list[dict[str, Any]]]
+    list_reports_sync: Callable[[], list[dict[str, Any]]]
+    hooks_list_sync: Callable[[], dict[str, Any]]
+    agents_list_sync: Callable[[], dict[str, Any]]
+    subagents_list_sync: Callable[[], dict[str, Any]]
+    mission_show_sync: Callable[[str], dict[str, Any]]
