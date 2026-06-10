@@ -199,6 +199,8 @@ from arena.service_runtime import (  # noqa: E402,F401
     _windows_scheduled_task_info,
 )
 
+from arena.capabilities import build_capabilities  # noqa: E402,F401
+
 
 def _ensure_session_env() -> None:
     """Ensure session environment variables are set in os.environ.
@@ -6130,103 +6132,15 @@ async def handle_v1_sys_svc(request: web.Request) -> web.Response:
 
 
 def _capabilities_sync() -> dict:
-    """Machine-readable capability map for agents.
-
-    The contract is stable across OSes: features are always present, but their
-    `available` flag/backend/reason vary by platform and installed tools.
-    """
-    caps: dict[str, Any] = {
-        "ok": True,
-        "version": VERSION,
-        "platform": {
-            "system": platform.system().lower(),
-            "platform": platform.platform(),
-            "machine": platform.machine(),
-            "python": platform.python_version(),
-            "host": socket.gethostname(),
-        },
-        "api": {
-            "rest": True,
-            "mcp_http": True,
-            "mcp_sse": True,
-            "websocket": True,
-            "dashboard": True,
-        },
-        "system": {
-            "exec": True,
-            "tasks": True,
-            "skills": True,
-            "hardware": True,
-            "memory": True,
-            "audit": True,
-        },
-        "browser": {
-            "fetch_read": True,
-            "cdp_module": _get_cdp_module() is not None,
-            "cdp_connected": bool(_cdp_state.get("connected")),
-            "cdp_aliases": True,
-        },
-        "desktop": {
-            "available": False,
-            "session": os.environ.get("XDG_SESSION_TYPE") or ("windows" if sys.platform == "win32" else ""),
-            "desktop": os.environ.get("XDG_CURRENT_DESKTOP") or ("Windows" if sys.platform == "win32" else ""),
-            "windows": {"available": False, "backend": "none"},
-            "active_window": {"available": False, "backend": "none"},
-            "screenshot": {"available": False, "backend": "none"},
-            "input": {"available": False, "backend": "none"},
-        },
-        "service": {},
-        "network": {},
-        "warnings": [],
-    }
-
-    if sys.platform == "win32":
-        caps["service"] = _service_info_sync()
-        caps["desktop"].update({
-            "available": False,
-            "windows": {"available": False, "backend": "pending-win32", "reason": "Windows desktop backend is not implemented yet"},
-            "active_window": {"available": False, "backend": "pending-win32", "reason": "Windows desktop backend is not implemented yet"},
-            "screenshot": {"available": False, "backend": "pending-win32", "reason": "Windows screenshot backend is not implemented yet"},
-            "input": {"available": False, "backend": "pending-win32", "reason": "Windows SendInput backend is not implemented yet"},
-        })
-        caps["warnings"].append("Windows core is supported; desktop automation backend is pending")
-    elif sys.platform == "linux":
-        env = _detect_desktop_env()
-        is_kde = "kde" in (os.environ.get("XDG_CURRENT_DESKTOP", "").lower())
-        wayland = bool(env.get("wayland"))
-        windows_backend = "kwin_journal" if (is_kde and wayland and (shutil.which("qdbus6") or shutil.which("qdbus")) and shutil.which("journalctl")) else ("wmctrl" if shutil.which("wmctrl") else ("xdotool" if env.get("has_xdotool") else "none"))
-        screenshot_backend = "spectacle" if env.get("has_spectacle") else ("grim" if env.get("has_grim") else ("scrot" if env.get("has_scrot") else "none"))
-        input_backend = "ydotool" if env.get("has_ydotool") else ("wtype" if env.get("has_wtype") else ("xdotool" if env.get("has_xdotool") else "none"))
-        caps["desktop"].update({
-            "available": windows_backend != "none" or screenshot_backend != "none" or input_backend != "none",
-            "wayland": wayland,
-            "x11": bool(env.get("x11")),
-            "windows": {"available": windows_backend != "none", "backend": windows_backend},
-            "active_window": {"available": windows_backend != "none", "backend": windows_backend},
-            "screenshot": {"available": screenshot_backend != "none", "backend": screenshot_backend},
-            "input": {"available": input_backend != "none", "backend": input_backend},
-        })
-        caps["service"] = _service_info_sync()
-    elif sys.platform == "darwin":
-        caps["service"] = _service_info_sync()
-        caps["desktop"].update({
-            "available": False,
-            "windows": {"available": False, "backend": "pending-macos"},
-            "screenshot": {"available": shutil.which("screencapture") is not None, "backend": "screencapture" if shutil.which("screencapture") else "none"},
-            "input": {"available": False, "backend": "pending-macos"},
-        })
-
-    try:
-        svc = _sys_svc_sync()
-        ts = svc.get("tailscale") or {}
-        caps["network"] = {
-            "tailscale_installed": bool(ts.get("installed")),
-            "tailscale_connected": bool(ts.get("connected")),
-            "funnel_hint": "Use /v1/sys/funnel for current public URL/status",
-        }
-    except Exception:
-        pass
-    return caps
+    """Machine-readable capability map for agents."""
+    return build_capabilities(
+        version=VERSION,
+        cdp_module_available=_get_cdp_module() is not None,
+        cdp_connected=bool(_cdp_state.get("connected")),
+        desktop_env=_detect_desktop_env(),
+        service_info_fn=_service_info_sync,
+        sys_svc_fn=_sys_svc_sync,
+    )
 
 
 async def handle_v1_capabilities(request: web.Request) -> web.Response:
