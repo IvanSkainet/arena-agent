@@ -209,6 +209,11 @@ from arena.inventory_runner import (  # noqa: E402,F401
     find_inventory_script,
     run_inventory,
 )
+from arena.http import (  # noqa: E402,F401
+    CORS_HEADERS,
+    _cors_json_response,
+    cors_json_response,
+)
 
 
 def _ensure_session_env() -> None:
@@ -3285,16 +3290,6 @@ def _record_request(duration: float = 0.0, is_exec: bool = False, is_error: bool
                 BRIDGE_METRICS["request_durations"] = BRIDGE_METRICS["request_durations"][-1000:]
 
 
-def _cors_json_response(data: Any, status: int = 200, extra_headers: dict | None = None, **kwargs: Any) -> web.Response:
-    """Return a JSON response with CORS headers. extra_headers merged with CORS."""
-    hdrs = {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id",
-    }
-    if extra_headers:
-        hdrs.update(extra_headers)
-    return web.json_response(data, status=status, headers=hdrs, **kwargs)
 
 
 # ============================================================================
