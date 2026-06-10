@@ -39,3 +39,17 @@ class ServiceHandlerContext:
     capabilities_sync: Callable[[], dict[str, Any]]
     spawn_respawn_helper: Callable[[int], tuple[bool, str]]
     audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class TaskHandlerContext:
+    """Dependencies for task queue API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    tasks_list_sync: Callable[..., dict[str, Any]]
+    task_submit_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    tasks_clean_sync: Callable[[], dict[str, Any]]
+    audit: Callable[[dict[str, Any]], None]

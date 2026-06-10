@@ -219,9 +219,10 @@ from arena.http import (  # noqa: E402,F401
     _cors_json_response,
     cors_json_response,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
+from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
@@ -10844,21 +10845,6 @@ def _tasks_list_sync(status: str, limit: int) -> dict:
     return list_tasks(inbox=INBOX, running=RUNNING, done=DONE, failed=FAILED, status=status, limit=limit)
 
 
-async def handle_v1_tasks_get(request: web.Request) -> web.Response:
-    """GET /v1/tasks?status=inbox|running|done|failed&limit=20 — list tasks."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    status = qs.get("status", [""])[0]
-    limit = int(qs.get("limit", ["20"])[0])
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _tasks_list_sync, status, limit)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/tasks POST — Submit task ---
@@ -10868,30 +10854,6 @@ def _task_submit_sync(data: dict) -> dict:
     return submit_task(data, inbox=INBOX, default_cwd=str(Path.home()), now_fn=utc_now)
 
 
-async def handle_v1_tasks_post(request: web.Request) -> web.Response:
-    """POST /v1/tasks — Submit task. Body: {cmd, title?, description?, priority?, cwd?, timeout?, env?}
-    Accepts either 'cmd' (command to run) or 'title' (descriptive task without command)."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    cmd = data.get("cmd", "")
-    title = data.get("title", "")
-    if not cmd and not title:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing cmd or title"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _task_submit_sync, data)
-        audit({"type": "task_submit", "task_id": result.get("task_id"), "cmd": cmd or title})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
 
 # --- /v1/tasks/clean POST — Clean completed tasks ---
@@ -10901,19 +10863,22 @@ def _tasks_clean_sync() -> dict:
     return clean_tasks(done=DONE, failed=FAILED, older_than_seconds=86400)
 
 
-async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
-    """POST /v1/tasks/clean — Clean completed tasks older than 24h."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _tasks_clean_sync)
-        audit({"type": "tasks_clean", "removed": result.get("removed", 0)})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_task_handler_ctx = TaskHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    tasks_list_sync=_tasks_list_sync,
+    task_submit_sync=_task_submit_sync,
+    tasks_clean_sync=_tasks_clean_sync,
+    audit=audit,
+)
+_task_handlers = make_task_handlers(_task_handler_ctx)
+handle_v1_tasks_get = _task_handlers.tasks_get
+handle_v1_tasks_post = _task_handlers.tasks_post
+handle_v1_tasks_clean = _task_handlers.tasks_clean
+
+
 
 
 # --- /v1/skills GET — List skills ---
