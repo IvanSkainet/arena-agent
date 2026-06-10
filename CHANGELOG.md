@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.11.3 — 2026-06-10
+
+### Added
+- Added `/v1/capabilities`, a stable agent-facing map of available OS/service/browser/desktop/hardware capabilities and selected backends.
+
+### Improved
+- Windows installer version detection now uses `_arena_helper.py` / `arena/constants.py`, fixing `Bridge vunknown` after the version constant moved out of `unified_bridge.py`.
+- Windows install health verification now prints the actual `/health.version`.
+- Windows CIM/PowerShell inventory probes force UTF-8 output and normalize common CIM date formats.
+- Windows service/status endpoints distinguish stale stopped services from active Scheduled Tasks and include command lines for bridge-related Python processes.
+
+### Tests
+- Added regression coverage for installer helper version detection and `/v1/capabilities` route registration.
+
 ## v2.11.2 — 2026-06-10
 
 ### Fixed

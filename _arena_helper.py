@@ -10,23 +10,32 @@ import sys
 import secrets
 from pathlib import Path
 
-BRIDGE_FILE = Path(__file__).resolve().parent / "unified_bridge.py"
+ROOT_DIR = Path(__file__).resolve().parent
+BRIDGE_FILE = ROOT_DIR / "unified_bridge.py"
+CONSTANTS_FILE = ROOT_DIR / "arena" / "constants.py"
+
+
+def _extract_version_from(path: Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            line = line.strip()
+            if line.startswith("VERSION") and "=" in line:
+                val = line.split("=", 1)[1].strip().strip("'\"")
+                if val:
+                    return val
+    except Exception:
+        return None
+    return None
 
 
 def get_version() -> str:
-    """Extract VERSION from unified_bridge.py without importing it."""
-    try:
-        text = BRIDGE_FILE.read_text(encoding="utf-8")
-        idx = text.find('VERSION = ')
-        if idx < 0:
-            return "unknown"
-        q1 = text.find('"', idx) + 1
-        q2 = text.find('"', q1)
-        if q1 > 0 and q2 > 0:
-            return text[q1:q2]
-    except Exception:
-        pass
-    return "unknown"
+    """Extract VERSION without importing bridge modules.
+
+    Since v2.10.x the canonical version lives in arena/constants.py; older
+    releases kept it in unified_bridge.py, so keep that as fallback.
+    """
+    return _extract_version_from(CONSTANTS_FILE) or _extract_version_from(BRIDGE_FILE) or "unknown"
 
 
 def generate_token(nbytes: int = 32) -> str:

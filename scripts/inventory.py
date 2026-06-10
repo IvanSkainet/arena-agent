@@ -93,6 +93,44 @@ def _ver(cmd_name: str, version_arg: str = "--version", timeout: float = 3.0) ->
     return path
 
 
+def _powershell_utf8_command(script: str) -> list[str]:
+    """Build a PowerShell command that reliably emits UTF-8 JSON/text.
+
+    Windows PowerShell 5 on localized systems otherwise often writes OEM/ANSI
+    bytes, which become mojibake when captured as UTF-8 by Python.
+    """
+    prefix = (
+        "$OutputEncoding = [Console]::OutputEncoding = "
+        "[System.Text.UTF8Encoding]::new($false); "
+        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+    )
+    return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", prefix + script]
+
+
+def _cim_dt(value: Any) -> str:
+    """Normalize CIM/PowerShell date values into readable ISO-ish strings."""
+    if value in (None, ""):
+        return ""
+    if isinstance(value, dict):
+        for k in ("DateTime", "value", "Value"):
+            if value.get(k):
+                return _cim_dt(value[k])
+    text = str(value).strip()
+    # PowerShell JSON for DateTime may be /Date(1712345678000)/
+    m = re.search(r"/Date\((\d+)(?:[+-]\d+)?\)/", text)
+    if m:
+        try:
+            return datetime.fromtimestamp(int(m.group(1)) / 1000, tz=timezone.utc).isoformat()
+        except Exception:
+            return text
+    # DMTF CIM datetime: 20260610123456.000000+300
+    m = re.match(r"^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})", text)
+    if m:
+        y, mo, d, h, mi, sec = m.groups()
+        return f"{y}-{mo}-{d} {h}:{mi}:{sec}"
+    return text
+
+
 def _get_cim_json(class_name: str, properties: str) -> list[dict]:
     """Parse Get-CimInstance output as JSON (Windows, locale-independent)."""
     try:
@@ -100,7 +138,7 @@ def _get_cim_json(class_name: str, properties: str) -> list[dict]:
             f"Get-CimInstance {class_name} -ErrorAction SilentlyContinue | "
             f"Select-Object {properties} | ConvertTo-Json -Compress -Depth 4"
         )
-        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=12)
+        out = _run(_powershell_utf8_command(ps), timeout=12)
         if not out or not out.strip():
             return []
         data = json.loads(out.strip())
@@ -187,11 +225,7 @@ def get_os() -> dict:
             info["build_number"] = str(d.get("BuildNumber", ""))
             info["architecture"] = str(d.get("OSArchitecture", ""))
             for key, src in [("install_date", "InstallDate"), ("last_boot", "LastBootUpTime")]:
-                v = str(d.get(src, ""))
-                if isinstance(d.get(src), dict) and "DateTime" in d[src]:
-                    v = str(d[src]["DateTime"])
-                if len(v) >= 14:
-                    info[key] = f"{v[0:4]}-{v[4:6]}-{v[6:8]} {v[8:10]}:{v[10:12]}:{v[12:14]}"
+                info[key] = _cim_dt(d.get(src, ""))
     return info
 
 
@@ -457,9 +491,7 @@ def get_motherboard() -> dict:
         bblocks = _get_cim_json("Win32_BIOS", "SMBIOSBIOSVersion,Manufacturer,ReleaseDate")
         if bblocks:
             d = bblocks[0]
-            rd = d.get("ReleaseDate", "")
-            if len(rd) >= 8:
-                rd = f"{rd[0:4]}-{rd[4:6]}-{rd[6:8]}"
+            rd = _cim_dt(d.get("ReleaseDate", ""))
             info["bios"] = {
                 "manufacturer": d.get("Manufacturer", "").strip(),
                 "version": d.get("SMBIOSBIOSVersion", "").strip(),
@@ -687,7 +719,7 @@ def get_pci_devices() -> list[dict]:
             f"Where-Object {{$_.PNPClass -in @({ps_class_filter})}} | "
             "Select-Object Name,PNPClass,Manufacturer,DeviceID,Status | ConvertTo-Json -Compress -Depth 4"
         )
-        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=15)
+        out = _run(_powershell_utf8_command(ps), timeout=15)
         try:
             data = json.loads(out) if out else []
             if isinstance(data, dict):
@@ -721,7 +753,7 @@ def get_usb_devices() -> list[dict]:
             "Where-Object {$_.PNPClass -eq 'USB'} | "
             "Select-Object Name,Manufacturer,DeviceID,Status | ConvertTo-Json -Compress -Depth 4"
         )
-        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=15)
+        out = _run(_powershell_utf8_command(ps), timeout=15)
         try:
             data = json.loads(out) if out else []
             if isinstance(data, dict):
@@ -771,7 +803,7 @@ def get_thermal() -> dict:
             "Get-CimInstance MSAcpi_ThermalZoneTemperature -Namespace root/wmi -ErrorAction SilentlyContinue | "
             "Select-Object InstanceName,CurrentTemperature | ConvertTo-Json -Compress"
         )
-        out = _run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=10)
+        out = _run(_powershell_utf8_command(ps), timeout=10)
         try:
             data = json.loads(out) if out else []
             if isinstance(data, dict):
@@ -824,13 +856,12 @@ def get_network() -> dict:
                     info["interfaces"].append({"name": cur, "ipv4": mi.group(1)})
     elif sys_name == "Windows":
         # PowerShell Get-NetIPAddress is locale-independent and structured
-        out = _run([
-            "powershell", "-NoProfile", "-Command",
+        out = _run(_powershell_utf8_command(
             "Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | "
             "Where-Object {$_.IPAddress -ne '127.0.0.1'} | "
             "Select-Object InterfaceAlias, IPAddress, PrefixLength | "
-            "ConvertTo-Json -Compress"
-        ], timeout=10)
+            "ConvertTo-Json -Compress -Depth 4"
+        ), timeout=10)
         try:
             j = json.loads(out) if out else []
             if isinstance(j, dict):
@@ -983,10 +1014,9 @@ def get_browsers() -> dict:
             if os.path.isfile(p):
                 # Try to get version via PowerShell file properties
                 name = Path(p).stem
-                vers = _run([
-                    "powershell", "-NoProfile", "-Command",
+                vers = _run(_powershell_utf8_command(
                     f"(Get-Item '{p}').VersionInfo.ProductVersion"
-                ], timeout=5).strip()
+                ), timeout=5).strip()
                 found[name + " (exe)"] = f"{p} {('v' + vers) if vers else ''}".strip()
     elif sys_name == "Darwin":
         for app in MACOS_BROWSER_APPS:

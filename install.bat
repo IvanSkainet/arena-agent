@@ -45,15 +45,11 @@ if not defined PYTHON (
 )
 for /f "delims=" %%v in ('%PYTHON% --version 2^>^&1') do echo       %%v found
 
-REM --- Read version: write a tiny .py helper to avoid all CMD escaping issues ---
-echo t=open(r'%BRIDGE_DIR%\unified_bridge.py',encoding='utf-8').read()>"%TEMP%\arena_ver.py"
-echo i=t.find('VERSION = ')>>"%TEMP%\arena_ver.py"
-echo q1=t.find(chr(34),i)+1>>"%TEMP%\arena_ver.py"
-echo q2=t.find(chr(34),q1)>>"%TEMP%\arena_ver.py"
-echo print(t[q1:q2]if q1^>0 and q2^>0 else'unknown')>>"%TEMP%\arena_ver.py"
-%PYTHON% "%TEMP%\arena_ver.py" >"%TEMP%\arena_ver.txt" 2>nul
-set /p "VERSION=" <"%TEMP%\arena_ver.txt"
-del "%TEMP%\arena_ver.py" "%TEMP%\arena_ver.txt" >nul 2>&1
+REM --- Read version via helper (canonical source: arena\constants.py) ---
+set "VERSION=unknown"
+if exist "%BRIDGE_DIR%\_arena_helper.py" (
+    for /f "delims=" %%v in ('%PYTHON% "%BRIDGE_DIR%\_arena_helper.py" version 2^>nul') do set "VERSION=%%v"
+)
 echo       Bridge v!VERSION!
 
 echo.
@@ -305,10 +301,13 @@ echo [5/6] Waiting for bridge to start...
 set "HEALTHY=0"
 for /L %%i in (1,1,30) do (
     if "!HEALTHY!"=="0" (
-        curl --max-time 3 -fsS "http://127.0.0.1:%PORT%/health" >nul 2>&1
+        curl --max-time 3 -fsS "http://127.0.0.1:%PORT%/health" >"%TEMP%\arena_health.json" 2>nul
         if not errorlevel 1 (
             set "HEALTHY=1"
-            echo       Bridge is healthy! v!VERSION!
+            set "HEALTH_VERSION=!VERSION!"
+            for /f "delims=" %%v in ('%PYTHON% -c "import json,sys; print(json.load(open(r'%TEMP%\arena_health.json')).get('version',''))" 2^>nul') do set "HEALTH_VERSION=%%v"
+            del "%TEMP%\arena_health.json" >nul 2>&1
+            echo       Bridge is healthy! v!HEALTH_VERSION!
         ) else (
             echo       Waiting... %%i/30
             ping -n 3 127.0.0.1 >nul

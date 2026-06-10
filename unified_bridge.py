@@ -4007,6 +4007,7 @@ def make_app(cfg: dict) -> web.Application:
     app.router.add_get("/v1/info", handle_v1_info)
     app.router.add_get("/v1/status", handle_v1_status)
     app.router.add_get("/v1/sysinfo", handle_v1_sysinfo)
+    app.router.add_get("/v1/capabilities", handle_v1_capabilities)
     app.router.add_get("/v1/hardware", handle_v1_hardware)
     app.router.add_get("/v1/hwinfo", handle_v1_hwinfo)  # compatibility alias
     app.router.add_get("/v1/inventory", handle_v1_inventory)
@@ -4418,7 +4419,7 @@ async def handle_index(request: web.Request) -> web.Response:
             "version": VERSION,
             "endpoints": [
                 "/health", "/v1/version", "/v1/info", "/v1/status", "/v1/sysinfo",
-                "/v1/hardware", "/v1/hwinfo", "/v1/inventory?section=&format=text|json",
+                "/v1/capabilities", "/v1/hardware", "/v1/hwinfo", "/v1/inventory?section=&format=text|json",
                 "/v1/ps", "/v1/audit?lines=100", "/v1/audit/stats",
                 "POST /v1/exec", "POST /v1/kill",
                 "POST /v1/upload?path=", "GET /v1/download?path=",
@@ -6075,35 +6076,95 @@ async def handle_v1_browser_read(request: web.Request) -> web.Response:
 
 # --- /v1/service/info GET — What manages this bridge process? ---
 
+def _ps_utf8_command(script: str) -> list[str]:
+    prefix = (
+        "$OutputEncoding = [Console]::OutputEncoding = "
+        "[System.Text.UTF8Encoding]::new($false); "
+        "[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false); "
+    )
+    return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", prefix + script]
+
+
+def _windows_scheduled_task_info(task_name: str) -> dict:
+    info = {"exists": False, "running": False, "raw": ""}
+    try:
+        r = subprocess.run(
+            ["schtasks", "/Query", "/TN", task_name, "/FO", "LIST", "/V"],
+            capture_output=True, text=True, timeout=8, **_subprocess_kwargs(),
+        )
+        raw = (r.stdout or "") + (r.stderr or "")
+        info["raw"] = raw[:1200]
+        info["exists"] = (r.returncode == 0)
+        low = raw.lower()
+        # `schtasks` localizes labels and values, so combine English/Russian
+        # words with the fact that /Run returned successfully elsewhere.
+        info["running"] = ("running" in low) or ("выполня" in low)
+    except Exception as e:
+        info["error"] = str(e)[:200]
+    return info
+
+
+def _windows_bridge_processes() -> list[dict]:
+    """Return matching Python bridge/helper processes with command lines."""
+    if sys.platform != "win32":
+        return []
+    ps = (
+        "Get-CimInstance Win32_Process -Filter \"Name like 'python%'\" | "
+        "Where-Object { $_.CommandLine -match 'arena|bridge|unified_bridge|local_bridge|mcp_ws|web_gateway|agentctl' } | "
+        "Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress -Depth 4"
+    )
+    try:
+        r = subprocess.run(_ps_utf8_command(ps), capture_output=True, text=True, timeout=10, **_subprocess_kwargs())
+        out = (r.stdout or "").strip()
+        if not out:
+            return []
+        data = json.loads(out)
+        if isinstance(data, dict):
+            data = [data]
+        procs = []
+        for item in data:
+            cmd = str(item.get("CommandLine") or "")
+            role = "helper"
+            if "unified_bridge.py" in cmd and " serve" in cmd:
+                role = "main-bridge"
+            elif "unified_bridge" in cmd:
+                role = "bridge-related"
+            procs.append({
+                "pid": item.get("ProcessId"),
+                "ppid": item.get("ParentProcessId"),
+                "name": item.get("Name"),
+                "role": role,
+                "command_line": cmd[:1000],
+            })
+        return procs
+    except Exception:
+        return []
+
+
 def _service_info_sync() -> dict:
     """Detect under what service manager (NSSM/Scheduled Task/systemd/launchd/none) we run."""
     result: dict[str, Any] = {"ok": True, "running_as": "unknown"}
     if sys.platform == "win32":
         svc_name = os.environ.get("ARENA_SERVICE_NAME", "").strip() or "ArenaUnifiedBridge"
+        task_name = os.environ.get("ARENA_TASK_NAME", "").strip() or svc_name
         result["candidate_service"] = svc_name
-        # 1. NSSM/SCM (locale-agnostic)
+        result["candidate_task"] = task_name
         exists, raw, running = _sc_query_running(svc_name)
-        if exists:
-            result["nssm_service"] = {
-                "exists": True,
-                "running": running,
-                "raw": raw[:800],
-            }
-            if running:
-                result["running_as"] = "nssm-service"
-            else:
-                result["running_as"] = "nssm-service-stopped"
-        # 2. Scheduled Task
-        try:
-            r = subprocess.run(["schtasks", "/Query", "/TN", svc_name],
-                               capture_output=True, text=True, timeout=5,
-                               **_subprocess_kwargs())
-            if r.returncode == 0:
-                result["scheduled_task"] = {"exists": True, "raw": (r.stdout or "")[:400]}
-                if result.get("running_as") == "unknown":
-                    result["running_as"] = "scheduled-task"
-        except Exception:
-            pass
+        result["nssm_service"] = {"exists": exists, "running": running, "raw": raw[:800]}
+        task = _windows_scheduled_task_info(task_name)
+        result["scheduled_task"] = task
+        procs = _windows_bridge_processes()
+        result["bridge_processes"] = procs
+        main_alive = any(p.get("role") == "main-bridge" and os.getpid() == p.get("pid") for p in procs) or bool(procs)
+        if running:
+            result["running_as"] = "nssm-service"
+        elif task.get("exists") and main_alive:
+            result["running_as"] = "scheduled-task"
+        elif exists:
+            result["running_as"] = "nssm-service-stopped"
+            result["warning"] = "Windows service exists but is stopped; bridge may be running from Scheduled Task or manual start"
+        elif task.get("exists"):
+            result["running_as"] = "scheduled-task"
     elif sys.platform == "linux":
         try:
             r = subprocess.run(["systemctl", "--user", "is-active", "arena-bridge.service"],
@@ -6201,30 +6262,22 @@ def _sys_svc_sync() -> dict:
         result["windows_service"] = {"running": nssm_running, "detail": nssm_detail}
 
         # 2) Scheduled Task detection
-        scheduled_task = False
-        scheduled_detail = ""
-        task_names = [os.environ.get("ARENA_TASK_NAME", "").strip()] if os.environ.get("ARENA_TASK_NAME") else []
-        task_names += ["ArenaUnifiedBridge", "ArenaBridge", "ArenaLocalBridge"]
-        seen = set()
-        for tname in [n for n in task_names if n and not (n in seen or seen.add(n))]:
-            try:
-                out = subprocess.check_output(
-                    ['schtasks', '/query', '/tn', tname, '/fo', 'LIST'],
-                    stderr=subprocess.DEVNULL, **_subprocess_kwargs())
-                if tname.encode() in out:
-                    scheduled_task = True
-                    scheduled_detail = f'Scheduled Task: "{tname}" (registered)'
-                    break
-            except Exception:
-                continue
-        if not scheduled_task:
-            scheduled_detail = "No matching Windows scheduled task (tried: " + ", ".join(task_names) + ")"
-
-        # If NSSM/Windows service is running, reflect that as the primary scheduled mechanism
-        if result.get("windows_service", {}).get("running"):
-            scheduled_task = True
-            scheduled_detail = result["windows_service"]["detail"]
-        result["scheduled_task"] = {"running": scheduled_task, "detail": scheduled_detail}
+        task_name = os.environ.get("ARENA_TASK_NAME", "").strip() or svc_name
+        task_info = _windows_scheduled_task_info(task_name)
+        result["scheduled_task"] = {
+            "registered": task_info.get("exists", False),
+            "running": task_info.get("running", False),
+            "detail": f'Scheduled Task: "{task_name}"' if task_info.get("exists") else f'Scheduled Task "{task_name}" not registered',
+            "raw": task_info.get("raw", "")[:500],
+        }
+        if nssm_running:
+            result["manager"] = "windows-service"
+        elif task_info.get("exists"):
+            result["manager"] = "scheduled-task"
+        else:
+            result["manager"] = "manual-or-unknown"
+        if exists and not running and task_info.get("exists"):
+            result.setdefault("warnings", []).append("stale Windows service exists but Scheduled Task is the active install method")
 
     elif sys.platform == "darwin":
         # macOS launchd
@@ -6268,20 +6321,7 @@ def _sys_svc_sync() -> dict:
     bridge_procs = []
     try:
         if sys.platform == "win32":
-            # Use CIM to get process IDs
-            out = subprocess.check_output(
-                'powershell -NoProfile -NonInteractive -Command "Get-CimInstance Win32_Process -Filter \\"CommandLine LIKE \'%unified_bridge%\'\\" | Select-Object ProcessId | ConvertTo-Json -Compress"',
-                shell=True, stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
-            if out.strip():
-                try:
-                    data = json.loads(out.strip())
-                    if isinstance(data, dict):
-                        bridge_procs.append(f"PID {data.get('ProcessId')}")
-                    elif isinstance(data, list):
-                        for item in data:
-                            bridge_procs.append(f"PID {item.get('ProcessId')}")
-                except json.JSONDecodeError:
-                    pass
+            bridge_procs = _windows_bridge_processes()
         else:
             out = subprocess.check_output(
                 ["ps", "aux"], stderr=subprocess.DEVNULL, text=True, **_subprocess_kwargs())
@@ -6317,6 +6357,120 @@ async def handle_v1_sys_svc(request: web.Request) -> web.Response:
     try:
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(_EXECUTOR, _sys_svc_sync)
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
+def _capabilities_sync() -> dict:
+    """Machine-readable capability map for agents.
+
+    The contract is stable across OSes: features are always present, but their
+    `available` flag/backend/reason vary by platform and installed tools.
+    """
+    caps: dict[str, Any] = {
+        "ok": True,
+        "version": VERSION,
+        "platform": {
+            "system": platform.system().lower(),
+            "platform": platform.platform(),
+            "machine": platform.machine(),
+            "python": platform.python_version(),
+            "host": socket.gethostname(),
+        },
+        "api": {
+            "rest": True,
+            "mcp_http": True,
+            "mcp_sse": True,
+            "websocket": True,
+            "dashboard": True,
+        },
+        "system": {
+            "exec": True,
+            "tasks": True,
+            "skills": True,
+            "hardware": True,
+            "memory": True,
+            "audit": True,
+        },
+        "browser": {
+            "fetch_read": True,
+            "cdp_module": _get_cdp_module() is not None,
+            "cdp_connected": bool(_cdp_state.get("connected")),
+            "cdp_aliases": True,
+        },
+        "desktop": {
+            "available": False,
+            "session": os.environ.get("XDG_SESSION_TYPE") or ("windows" if sys.platform == "win32" else ""),
+            "desktop": os.environ.get("XDG_CURRENT_DESKTOP") or ("Windows" if sys.platform == "win32" else ""),
+            "windows": {"available": False, "backend": "none"},
+            "active_window": {"available": False, "backend": "none"},
+            "screenshot": {"available": False, "backend": "none"},
+            "input": {"available": False, "backend": "none"},
+        },
+        "service": {},
+        "network": {},
+        "warnings": [],
+    }
+
+    if sys.platform == "win32":
+        caps["service"] = _service_info_sync()
+        caps["desktop"].update({
+            "available": False,
+            "windows": {"available": False, "backend": "pending-win32", "reason": "Windows desktop backend is not implemented yet"},
+            "active_window": {"available": False, "backend": "pending-win32", "reason": "Windows desktop backend is not implemented yet"},
+            "screenshot": {"available": False, "backend": "pending-win32", "reason": "Windows screenshot backend is not implemented yet"},
+            "input": {"available": False, "backend": "pending-win32", "reason": "Windows SendInput backend is not implemented yet"},
+        })
+        caps["warnings"].append("Windows core is supported; desktop automation backend is pending")
+    elif sys.platform == "linux":
+        env = _detect_desktop_env()
+        is_kde = "kde" in (os.environ.get("XDG_CURRENT_DESKTOP", "").lower())
+        wayland = bool(env.get("wayland"))
+        windows_backend = "kwin_journal" if (is_kde and wayland and (shutil.which("qdbus6") or shutil.which("qdbus")) and shutil.which("journalctl")) else ("wmctrl" if shutil.which("wmctrl") else ("xdotool" if env.get("has_xdotool") else "none"))
+        screenshot_backend = "spectacle" if env.get("has_spectacle") else ("grim" if env.get("has_grim") else ("scrot" if env.get("has_scrot") else "none"))
+        input_backend = "ydotool" if env.get("has_ydotool") else ("wtype" if env.get("has_wtype") else ("xdotool" if env.get("has_xdotool") else "none"))
+        caps["desktop"].update({
+            "available": windows_backend != "none" or screenshot_backend != "none" or input_backend != "none",
+            "wayland": wayland,
+            "x11": bool(env.get("x11")),
+            "windows": {"available": windows_backend != "none", "backend": windows_backend},
+            "active_window": {"available": windows_backend != "none", "backend": windows_backend},
+            "screenshot": {"available": screenshot_backend != "none", "backend": screenshot_backend},
+            "input": {"available": input_backend != "none", "backend": input_backend},
+        })
+        caps["service"] = _service_info_sync()
+    elif sys.platform == "darwin":
+        caps["service"] = _service_info_sync()
+        caps["desktop"].update({
+            "available": False,
+            "windows": {"available": False, "backend": "pending-macos"},
+            "screenshot": {"available": shutil.which("screencapture") is not None, "backend": "screencapture" if shutil.which("screencapture") else "none"},
+            "input": {"available": False, "backend": "pending-macos"},
+        })
+
+    try:
+        svc = _sys_svc_sync()
+        ts = svc.get("tailscale") or {}
+        caps["network"] = {
+            "tailscale_installed": bool(ts.get("installed")),
+            "tailscale_connected": bool(ts.get("connected")),
+            "funnel_hint": "Use /v1/sys/funnel for current public URL/status",
+        }
+    except Exception:
+        pass
+    return caps
+
+
+async def handle_v1_capabilities(request: web.Request) -> web.Response:
+    """GET /v1/capabilities — Agent-facing capability map."""
+    r = require_auth(request)
+    if r: return r
+    _record_request()
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_EXECUTOR, _capabilities_sync)
         return _cors_json_response(result)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
@@ -12482,6 +12636,7 @@ async def handle_api_docs(request: web.Request) -> web.Response:
             "/v1/status": {"get": {"summary": "Bridge status", "tags": ["Bridge"], "responses": {"200": {"description": "Status info"}}}},
             "/v1/info": {"get": {"summary": "Bridge info", "tags": ["Bridge"], "responses": {"200": {"description": "Detailed info"}}}},
             "/v1/metrics": {"get": {"summary": "Bridge metrics (JSON)", "tags": ["Bridge"], "responses": {"200": {"description": "Metrics JSON"}}}},
+            "/v1/capabilities": {"get": {"summary": "Agent-facing capability map", "tags": ["System"], "responses": {"200": {"description": "Capabilities by subsystem/backend"}}}},
             "/v1/hardware": {"get": {"summary": "Canonical rich hardware/system inventory", "tags": ["System"], "responses": {"200": {"description": "Normalized hardware inventory"}}}},
             "/v1/hwinfo": {"get": {"summary": "Compatibility alias for /v1/hardware", "tags": ["System"], "responses": {"200": {"description": "Hardware inventory"}}}},
             "/metrics": {"get": {"summary": "Prometheus metrics (text)", "tags": ["Bridge"], "responses": {"200": {"description": "Prometheus text format"}}}},

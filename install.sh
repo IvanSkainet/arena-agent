@@ -105,7 +105,11 @@ if [ ! -f "$BRIDGE_PY" ]; then
     err "unified_bridge.py not found in $INSTALL_DIR"
     exit 1
 fi
-VERSION="$(grep -m1 '^VERSION = ' "$BRIDGE_PY" | cut -d'"' -f2)"
+if [ -f "$INSTALL_DIR/_arena_helper.py" ]; then
+    VERSION="$($PYTHON "$INSTALL_DIR/_arena_helper.py" version 2>/dev/null || true)"
+else
+    VERSION=""
+fi
 if [ -z "$VERSION" ]; then
     VERSION="unknown"
 fi

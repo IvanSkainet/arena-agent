@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.11.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.11.3-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,10 +44,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.11.2
+### 🆕 What's new in v2.11.3
 
-- **Third-party skill uninstall polish:** `/v1/skills/uninstall` now accepts every safe third-party basename that `/v1/skills` can list, including names beginning with `_`, while still rejecting core/category skills and path traversal.
-- **Keeps v2.11.1 improvements:** expanded `/v1/hardware` device/thermal sections, fixed KDE Wayland window discovery through KWin journal output, and removed the broken test `weather` skill.
+- **Windows installer polish:** version detection now reads `arena/constants.py`, fixing `Bridge vunknown`; install health verification prints the actual `/health.version`.
+- **Windows inventory polish:** PowerShell/CIM probes force UTF-8 output and normalize CIM dates, reducing mojibake on localized Windows installs.
+- **Better Windows service diagnostics:** `/v1/service/info` and `/v1/sys/svc` distinguish stale stopped services from active Scheduled Tasks and include bridge process command lines.
+- **Agent capability map:** new `/v1/capabilities` returns a stable cross-platform map of available backends/features so agents can adapt instead of guessing.
 
 ---
 
@@ -720,6 +722,13 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.11.3 — Windows stabilization and capabilities map
+- **Fixed:** `install.bat`/`install.sh` now read the canonical version from `_arena_helper.py` / `arena/constants.py`, avoiding `Bridge vunknown` after the version constant moved out of `unified_bridge.py`.
+- **Improved:** Windows installer health verification prints the actual `/health.version`.
+- **Improved:** Windows CIM/PowerShell inventory probes force UTF-8 and normalize common CIM date formats.
+- **Improved:** Windows service/status endpoints distinguish stale stopped services from active Scheduled Tasks and include process command lines for bridge-related Python processes.
+- **Added:** `/v1/capabilities` returns an agent-facing map of available OS/service/browser/desktop/hardware capabilities and selected backends.
 
 ### v2.11.2 — Third-party uninstall safe-name polish
 - **Fixed:** `/v1/skills/uninstall` now accepts safe third-party skill names beginning with `_`, matching names that `/v1/skills` can list, while retaining traversal/core-skill protections.

@@ -85,3 +85,9 @@ def test_normalize_third_party_skill_name_rejects_core_and_traversal():
     assert ub._normalize_third_party_skill_name("core/cleanup")[1]
     assert ub._normalize_third_party_skill_name("../weather")[1]
     assert ub._normalize_third_party_skill_name("third_party/../weather")[1]
+
+
+def test_make_app_registers_capabilities_route():
+    app = ub.make_app({"token": "test"})
+    paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
+    assert ("GET", "/v1/capabilities") in paths
