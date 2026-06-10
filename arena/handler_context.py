@@ -89,3 +89,18 @@ class DesktopHandlerContext:
     capture_screenshot: Callable[..., Any]
     focus_window: Callable[..., Any]
     audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class BrowserFetchHandlerContext:
+    """Dependencies for non-CDP browser/fetch handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    browser_search_sync: Callable[[str, int], dict[str, Any]]
+    browser_read_sync: Callable[[str], dict[str, Any]]
+    browser_dump_sync: Callable[[str], dict[str, Any]]
+    browser_fetch_sync: Callable[[str], dict[str, Any]]
+    browser_head_sync: Callable[[str], dict[str, Any]]

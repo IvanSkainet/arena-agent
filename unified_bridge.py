@@ -235,6 +235,14 @@ from arena.desktop.runtime import (  # noqa: E402,F401
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
 from arena.desktop.focus import focus_window  # noqa: E402,F401
 from arena.desktop.handlers import make_desktop_handlers  # noqa: E402,F401
+from arena.browser.fetch import (  # noqa: E402,F401
+    browser_dump,
+    browser_fetch,
+    browser_head,
+    browser_read,
+    browser_search,
+)
+from arena.browser.handlers import make_browser_fetch_handlers  # noqa: E402,F401
 from arena.desktop.input import (  # noqa: E402,F401
     build_click_command,
     build_key_command,
@@ -246,7 +254,7 @@ from arena.http import (  # noqa: E402,F401
     _cors_json_response,
     cors_json_response,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -5816,108 +5824,18 @@ async def handle_v1_reports(request: web.Request) -> web.Response:
 
 
 def _browser_search_sync(query: str, n: int) -> dict:
-    """Synchronous DuckDuckGo search — returns dict result."""
-    import urllib.parse as _up
-    import urllib.request
-    import html as _html
-    import re as _re
-    url = f"https://html.duckduckgo.com/html/?q={_up.quote_plus(query)}"
-    req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
-    with urllib.request.urlopen(req_obj, timeout=15) as resp:
-        content = resp.read().decode("utf-8", errors="replace")
-    results = []
-    link_pat = _re.compile(r'<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', _re.DOTALL)
-    snippet_pat = _re.compile(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', _re.DOTALL)
-    links = link_pat.findall(content)
-    snippets = snippet_pat.findall(content)
-    for i, (href, title) in enumerate(links[:n]):
-        title_clean = _re.sub(r'<[^>]+>', '', title).strip()
-        uddg = _re.search(r'uddg=([^&]+)', href)
-        real_url = _up.unquote(uddg.group(1)) if uddg else href
-        snippet = _re.sub(r'<[^>]+>', '', snippets[i]).strip() if i < len(snippets) else ""
-        results.append({"title": title_clean, "url": real_url, "snippet": snippet})
-    return {"ok": True, "query": query, "count": len(results), "results": results}
+    return browser_search(query, n, version=VERSION)
 
 
-async def handle_v1_browser_search(request: web.Request) -> web.Response:
-    """GET /v1/browser/search?q=query&n=5 — search DuckDuckGo."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    query = qs.get("q", [""])[0]
-    n = int(qs.get("n", ["5"])[0])
-    if not query:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _browser_search_sync, query, n)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # _validate_url now lives in arena/security.py (re-exported above).
 
 
 def _browser_read_sync(url: str) -> dict:
-    """Synchronous URL read with readability extraction — returns dict result."""
-    err = _validate_url(url)
-    if err:
-        return {"ok": False, "error": err}
-    import urllib.request
-    import re as _re
-    import html as _html
-    req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
-    with urllib.request.urlopen(req_obj, timeout=15) as resp:
-        content = resp.read().decode("utf-8", errors="replace")
-    # Extract title
-    title = ""
-    m = _re.search(r'<title[^>]*>(.*?)</title>', content, _re.IGNORECASE | _re.DOTALL)
-    if m:
-        title = _re.sub(r'<[^>]+>', '', m.group(1)).strip()
-    # Remove script/style/nav/footer
-    for tag in ["script", "style", "nav", "footer", "header", "aside", "noscript"]:
-        content = _re.sub(f'<{tag}[^>]*>.*?</{tag}>', '', content, flags=_re.DOTALL | _re.IGNORECASE)
-    # Try to find main content
-    main = ""
-    for sel in [r'<article[^>]*>(.*?)</article>', r'<main[^>]*>(.*?)</main>']:
-        match = _re.search(sel, content, _re.DOTALL | _re.IGNORECASE)
-        if match:
-            main = match.group(1)
-            break
-    if not main:
-        main = content
-    text = _re.sub(r'<[^>]+>', ' ', main)
-    text = _html.unescape(text)
-    text = _re.sub(r'\s+', ' ', text).strip()
-    # Limit output
-    if len(text) > 20000:
-        text = text[:20000] + "\n...[truncated]"
-    return {"ok": True, "title": title, "url": url, "text": text, "length": len(text)}
+    return browser_read(url, version=VERSION, validate_url=_validate_url)
 
 
-async def handle_v1_browser_read(request: web.Request) -> web.Response:
-    """GET /v1/browser/read?url=URL — readability-extract text from URL."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    url = qs.get("url", [""])[0]
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _browser_read_sync, url)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # ============================================================================
@@ -6351,159 +6269,44 @@ async def handle_v1_config(request: web.Request) -> web.Response:
 # --- /v1/browser/dump GET — Full page dump with links ---
 
 def _browser_dump_sync(url: str) -> dict:
-    """Fetch URL, extract text + all <a href> links."""
-    err = _validate_url(url)
-    if err:
-        return {"ok": False, "error": err}
-    import urllib.request
-    import re as _re
-    import html as _html
-
-    req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
-    with urllib.request.urlopen(req_obj, timeout=20) as resp:
-        content = resp.read().decode("utf-8", errors="replace")
-
-    # Extract title
-    title = ""
-    m = _re.search(r'<title[^>]*>(.*?)</title>', content, _re.IGNORECASE | _re.DOTALL)
-    if m:
-        title = _re.sub(r'<[^>]+>', '', m.group(1)).strip()
-
-    # Extract all links
-    links = []
-    link_pat = _re.compile(r'<a[^>]+href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', _re.DOTALL | _re.IGNORECASE)
-    for href, link_text in link_pat.findall(content):
-        link_text_clean = _re.sub(r'<[^>]+>', '', link_text).strip()[:200]
-        # Skip empty, javascript, and anchor links
-        if href and not href.startswith(("javascript:", "#", "mailto:")):
-            links.append({"text": link_text_clean, "url": href[:500]})
-        if len(links) >= 500:
-            break
-
-    # Remove script/style
-    for tag in ["script", "style", "noscript"]:
-        content = _re.sub(f'<{tag}[^>]*>.*?</{tag}>', '', content, flags=_re.DOTALL | _re.IGNORECASE)
-
-    # Extract text
-    text = _re.sub(r'<[^>]+>', ' ', content)
-    text = _html.unescape(text)
-    text = _re.sub(r'\s+', ' ', text).strip()
-
-    if len(text) > 50000:
-        text = text[:50000] + "\n...[truncated]"
-
-    return {"ok": True, "title": title, "url": url, "text": text,
-            "links": links[:200], "length": len(text), "link_count": len(links)}
+    return browser_dump(url, version=VERSION, validate_url=_validate_url)
 
 
-async def handle_v1_browser_dump(request: web.Request) -> web.Response:
-    """GET /v1/browser/dump?url=URL — Full page dump with links."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    url = qs.get("url", [""])[0]
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _browser_dump_sync, url)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/browser/fetch GET — Raw content fetch ---
 
 def _browser_fetch_sync(url: str) -> dict:
-    """Fetch URL, return raw content."""
-    err = _validate_url(url)
-    if err:
-        return {"ok": False, "error": err}
-    import urllib.request
-
-    req_obj = urllib.request.Request(url)
-    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
-    with urllib.request.urlopen(req_obj, timeout=20) as resp:
-        raw = resp.read()
-        content_type = resp.headers.get("Content-Type", "application/octet-stream")
-
-    # Try to decode as text
-    text: str | None = None
-    for enc in ["utf-8", "latin-1", "cp1252"]:
-        try:
-            text = raw.decode(enc)
-            break
-        except UnicodeDecodeError:
-            continue
-    if text is None:
-        text = raw.decode("utf-8", "replace")
-
-    # Limit output
-    truncated = len(text) > 50000
-    text = text[:50000]
-
-    return {"ok": True, "url": url, "content_type": content_type,
-            "length": len(raw), "text": text, "truncated": truncated}
+    return browser_fetch(url, version=VERSION, validate_url=_validate_url)
 
 
-async def handle_v1_browser_fetch(request: web.Request) -> web.Response:
-    """GET /v1/browser/fetch?url=URL — Raw content fetch."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    url = qs.get("url", [""])[0]
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _browser_fetch_sync, url)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/browser/head GET — HTTP HEAD ---
 
 def _browser_head_sync(url: str) -> dict:
-    """Do HTTP HEAD request, return headers."""
-    err = _validate_url(url)
-    if err:
-        return {"ok": False, "error": err}
-    import urllib.request
-
-    req_obj = urllib.request.Request(url, method="HEAD")
-    req_obj.add_header("User-Agent", f"ArenaBridge/{VERSION}")
-    with urllib.request.urlopen(req_obj, timeout=15) as resp:
-        headers = dict(resp.headers)
-        status_code = resp.status
-
-    return {"ok": True, "url": url, "status_code": status_code, "headers": headers}
+    return browser_head(url, version=VERSION, validate_url=_validate_url)
 
 
-async def handle_v1_browser_head(request: web.Request) -> web.Response:
-    """GET /v1/browser/head?url=URL — HTTP HEAD request."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    url = qs.get("url", [""])[0]
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing url parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _browser_head_sync, url)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_browser_fetch_handler_ctx = BrowserFetchHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    browser_search_sync=_browser_search_sync,
+    browser_read_sync=_browser_read_sync,
+    browser_dump_sync=_browser_dump_sync,
+    browser_fetch_sync=_browser_fetch_sync,
+    browser_head_sync=_browser_head_sync,
+)
+_browser_fetch_handlers = make_browser_fetch_handlers(_browser_fetch_handler_ctx)
+handle_v1_browser_search = _browser_fetch_handlers.search
+handle_v1_browser_read = _browser_fetch_handlers.read
+handle_v1_browser_dump = _browser_fetch_handlers.dump
+handle_v1_browser_fetch = _browser_fetch_handlers.fetch
+handle_v1_browser_head = _browser_fetch_handlers.head
+
+
 
 
 
