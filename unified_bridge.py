@@ -254,6 +254,12 @@ from arena.http import (  # noqa: E402,F401
     _cors_json_response,
     cors_json_response,
 )
+from arena.observability.metrics import (  # noqa: E402,F401
+    BRIDGE_METRICS,
+    _metrics_lock,
+    _record_request,
+    record_request,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -859,14 +865,8 @@ def _stop_cdp_watcher():
 # ============================================================================
 # BRIDGE METRICS (request counter tracking)
 # ============================================================================
-BRIDGE_METRICS: dict[str, Any] = {
-    "total_requests": 0,
-    "total_exec": 0,
-    "total_errors": 0,
-    "start_time": time.time(),
-    "request_durations": [],
-}
-_metrics_lock = threading.Lock()
+# BRIDGE_METRICS, _metrics_lock and _record_request now live in
+# arena/observability/metrics.py and are imported near the top of this file.
 
 # Global reference to the aiohttp Application (set in make_app)
 _app_ref: Any = None
@@ -3260,24 +3260,6 @@ BIN = str(BRIDGE_DIR / "bin")
 
 
 
-def _record_request(duration: float = 0.0, is_exec: bool = False, is_error: bool = False, count_request: bool = True) -> None:
-    """Record a request in the bridge metrics.
-    
-    count_request=False: Skip incrementing total_requests (used when
-    _record_request was already called for this request in the success path).
-    """
-    with _metrics_lock:
-        if count_request:
-            BRIDGE_METRICS["total_requests"] += 1
-        if is_exec:
-            BRIDGE_METRICS["total_exec"] += 1
-        if is_error:
-            BRIDGE_METRICS["total_errors"] += 1
-        if duration > 0:
-            BRIDGE_METRICS["request_durations"].append(duration)
-            # Keep only last 1000 durations
-            if len(BRIDGE_METRICS["request_durations"]) > 1000:
-                BRIDGE_METRICS["request_durations"] = BRIDGE_METRICS["request_durations"][-1000:]
 
 
 
