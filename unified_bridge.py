@@ -233,6 +233,7 @@ from arena.desktop.runtime import (  # noqa: E402,F401
     _kwin_windows_via_script,
 )
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
+from arena.desktop.focus import focus_window  # noqa: E402,F401
 from arena.desktop.input import (  # noqa: E402,F401
     build_click_command,
     build_key_command,
@@ -8624,20 +8625,10 @@ async def handle_v1_desktop_active_window(request):
 
 
 async def handle_v1_desktop_focus(request):
-    """POST /v1/desktop/focus — Focus (activate) a window by id or title.
-
-    Body JSON:
-        id: string (optional) — Window ID to focus
-        title: string (optional) — Focus window whose title contains this string
-        verify: bool (default: true) — Verify the window is active after focus
-        timeout_ms: int (default: 1500) — Time to wait for verification
-
-    v2.9.0: New endpoint.
-    """
+    """POST /v1/desktop/focus — Focus (activate) a window by id or title."""
     r = require_auth(request)
     if r: return r
 
-    # v2.9.0: Check if agent control is allowed
     ctrl_err = _control_check()
     if ctrl_err:
         return _cors_json_response(ctrl_err, status=403)
@@ -8652,162 +8643,26 @@ async def handle_v1_desktop_focus(request):
 
     window_id = body.get("id")
     title_contains = body.get("title")
-    do_verify = body.get("verify", True)
-    verify_timeout_ms = body.get("timeout_ms", 1500)
-
     if not window_id and not title_contains:
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({
-            "ok": False, "error": "missing 'id' or 'title' parameter",
-        }, status=400)
+        return _cors_json_response({"ok": False, "error": "missing 'id' or 'title' parameter"}, status=400)
 
-    # Record active window before focus attempt
-    active_before = await _get_active_window()
-
-    env = _detect_desktop_env()
-    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-
-    # Resolve target window ID
-    target_id = window_id
-    target_title = ""
-
-    if not target_id and title_contains:
-        # Search by title
-        if shutil.which("wmctrl"):
-            result = await _desktop_exec(
-                f'{display_env} wmctrl -l -p 2>/dev/null', timeout=5)
-            if result["ok"]:
-                for line in result["stdout"].strip().split("\n"):
-                    parts = line.split(None, 5)
-                    if len(parts) >= 5:
-                        t = parts[4] if len(parts) == 5 else " ".join(parts[4:])
-                        if title_contains.lower() in t.lower():
-                            target_id = parts[0]
-                            target_title = t
-                            break
-        if not target_id and env["has_xdotool"]:
-            result = await _desktop_exec(
-                f'{display_env} xdotool search --name {shlex.quote(title_contains)} 2>/dev/null',
-                timeout=5)
-            if result["ok"] and result["stdout"].strip():
-                target_id = result["stdout"].strip().split("\n")[0]
-
-    if not target_id:
+    result = await focus_window(
+        window_id=window_id,
+        title_contains=title_contains,
+        verify=body.get("verify", True),
+        verify_timeout_ms=body.get("timeout_ms", 1500),
+        desktop_exec=_desktop_exec,
+        detect_env=_detect_desktop_env,
+        get_active_window=_get_active_window,
+    )
+    if not result.get("ok") and result.get("status"):
         _record_request(is_error=True, count_request=False)
-        return _cors_json_response({
-            "ok": False,
-            "error": "window_not_found",
-            "message": f"Could not find window matching: {title_contains or window_id}",
-            "active_before": active_before,
-        }, status=404)
-
-    # Attempt to focus the window
-    focus_ok = False
-    focus_tool = "none"
-
-    # Strategy A: KWin DBus (KDE Plasma Wayland — native, most reliable)
-    # Tries to activate window via KWin scripting / DBus interface
-    if not focus_ok:
-        try:
-            wid_int = int(target_id, 0)  # Parse hex or decimal window ID
-            result = await _desktop_exec(
-                f'dbus-send --session --dest=org.kde.KWin --type=method_call '
-                f'/KWin org.kde.KWin.setActiveWindow int32:{wid_int} 2>/dev/null',
-                timeout=5)
-            if result["ok"] and result["exit_code"] == 0:
-                focus_ok = True
-                focus_tool = "kwin_dbus"
-        except (ValueError, Exception):
-            pass
-
-    # Try wmctrl -ia first (most reliable on XWayland/X11)
-    if not focus_ok and shutil.which("wmctrl"):
-        result = await _desktop_exec(
-            f'{display_env} wmctrl -i -a {target_id} 2>/dev/null', timeout=5)
-        if result["ok"] and result["exit_code"] == 0:
-            focus_ok = True
-            focus_tool = "wmctrl"
-
-    # Try xdotool windowactivate
-    if not focus_ok and env["has_xdotool"]:
-        result = await _desktop_exec(
-            f'{display_env} xdotool windowactivate --sync {target_id} 2>/dev/null',
-            timeout=5)
-        if result["ok"] and result["exit_code"] == 0:
-            focus_ok = True
-            focus_tool = "xdotool"
-
-    # Try kdotool for KDE Wayland
-    if not focus_ok and shutil.which("kdotool"):
-        result = await _desktop_exec(
-            f'kdotool activate {target_id} 2>/dev/null', timeout=5)
-        if result["ok"] and result["exit_code"] == 0:
-            focus_ok = True
-            focus_tool = "kdotool"
-
-    # Strategy F: KDE KWin scripting via qdbus (last resort)
-    if not focus_ok:
-        qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
-        if qdbus:
-            try:
-                wid_int = int(target_id, 0)
-                # Use KWin scripting to activate window
-                script = f'const area = workspace.clientArea(0, 0, 0); '
-                script += f'var clients = workspace.windowList(); '
-                script += f'for (var i = 0; i < clients.length; i++) {{ '
-                script += f'  if (clients[i].internalId === {wid_int} || clients[i].frameId === {wid_int}) {{ '
-                script += f'    workspace.activeClient = clients[i]; break; '
-                script += f'  }} '
-                script += f'}}; '
-                result = await _desktop_exec(
-                    f'{qdbus} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript '
-                    f'eval 2>/dev/null',
-                    timeout=5)
-                # Simpler: try kdotool with window class search
-            except (ValueError, Exception):
-                pass
-
-    if not focus_ok:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({
-            "ok": False,
-            "error": "focus_failed",
-            "message": "All focus methods failed",
-            "target_id": target_id,
-            "active_before": active_before,
-            "backend": env.get("session_type", "unknown"),
-        }, status=500)
-
-    # Verification: wait and check if window is now active
-    active_after = None
-    verify_ok = False
-    if do_verify:
-        await asyncio.sleep(verify_timeout_ms / 1000.0)
-        active_after = await _get_active_window()
-        if active_after:
-            # Check if active window matches our target
-            if (active_after.get("id") == target_id or
-                    (target_title and target_title.lower() in
-                     active_after.get("title", "").lower()) or
-                    (title_contains and title_contains.lower() in
-                     active_after.get("title", "").lower())):
-                verify_ok = True
-    else:
-        verify_ok = True  # skip verification
+        status = int(result.pop("status"))
+        return _cors_json_response(result, status=status)
 
     _control_record_agent_action()
-
-    return _cors_json_response({
-        "ok": verify_ok,
-        "focused": focus_ok,
-        "verified": verify_ok if do_verify else None,
-        "target_id": target_id,
-        "target_title": target_title,
-        "active_before": active_before,
-        "active_after": active_after,
-        "tool": focus_tool,
-        "backend": env.get("session_type", "unknown"),
-    })
+    return _cors_json_response(result)
 
 
 # ---- Control Lease Endpoints (v2.9.0) ----
