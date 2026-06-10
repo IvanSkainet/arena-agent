@@ -189,7 +189,7 @@ from arena.util import (  # noqa: E402,F401
 )
 
 # Service/process/restart helpers extracted during v3 modularization.
-from arena.service_runtime import (  # noqa: E402,F401
+from arena.service.runtime import (  # noqa: E402,F401
     _ps_utf8_command,
     _sc_query_running,
     _service_info_sync,
@@ -200,12 +200,12 @@ from arena.service_runtime import (  # noqa: E402,F401
 )
 
 from arena.capabilities import build_capabilities  # noqa: E402,F401
-from arena.hardware import (  # noqa: E402,F401
+from arena.inventory.hardware import (  # noqa: E402,F401
     hardware_from_inventory_result,
     merge_nvidia_gpu_facts,
     normalize_inventory_hardware,
 )
-from arena.inventory_runner import (  # noqa: E402,F401
+from arena.inventory.runner import (  # noqa: E402,F401
     find_inventory_script,
     run_inventory,
 )
