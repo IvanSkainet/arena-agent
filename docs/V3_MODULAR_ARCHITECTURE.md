@@ -10,6 +10,7 @@ turning `unified_bridge.py` into a thin entrypoint/router/wiring layer.
 3. **Prefer pure modules first.** Subprocess/OS-specific logic belongs in runtime modules; HTTP handlers should be thin.
 4. **Use explicit context injection for handlers.** Handler modules must not import `unified_bridge.py`.
 5. **Keep compatibility shims during migration.** Old internal import paths may re-export from new package paths until v3 stabilizes.
+6. **Domain packages own their handlers.** Prefer `arena/<domain>/handlers.py` over a large central handlers package; `arena/handlers/*` exists only as a migration shim.
 
 ## Current package layout
 
@@ -25,22 +26,26 @@ arena/
 
   service/
     runtime.py
+    handlers.py
 
   inventory/
     runner.py
     hardware.py
+    handlers.py
 
-  handlers/
-    hardware.py
-    service.py
+  handlers/        # temporary compatibility shims during migration
+    hardware.py    # -> arena.inventory.handlers
+    service.py     # -> arena.service.handlers
 ```
 
 Compatibility shims currently exist for:
 
 ```text
-arena/service_runtime.py -> arena.service.runtime
-arena/hardware.py        -> arena.inventory.hardware
+arena/service_runtime.py  -> arena.service.runtime
+arena/hardware.py         -> arena.inventory.hardware
 arena/inventory_runner.py -> arena.inventory.runner
+arena/handlers/service.py -> arena.service.handlers
+arena/handlers/hardware.py -> arena.inventory.handlers
 ```
 
 ## Extraction order
@@ -52,8 +57,9 @@ Done:
 3. `arena/inventory/hardware.py` — `/v1/hardware` normalization.
 4. `arena/inventory/runner.py` — `scripts/inventory.py` subprocess runner.
 5. `arena/http.py` — CORS JSON response helpers.
-6. `arena/handlers/hardware.py` — `/v1/inventory`, `/v1/hardware`, `/v1/hwinfo` handlers.
-7. `arena/handlers/service.py` — `/v1/service/info`, `/v1/sys/svc`, `/v1/capabilities`, `/v1/restart` handlers.
+6. `arena/inventory/handlers.py` — `/v1/inventory`, `/v1/hardware`, `/v1/hwinfo` handlers.
+7. `arena/service/handlers.py` — `/v1/service/info`, `/v1/sys/svc`, `/v1/capabilities`, `/v1/restart` handlers.
+8. Re-homed handler implementations into their domain packages; `arena/handlers/*` remains as compatibility shims.
 
 Next candidates:
 

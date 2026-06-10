@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
 from arena.handler_context import HandlerContext  # noqa: E402
-from arena.handlers.hardware import make_hardware_handlers  # noqa: E402
+from arena.inventory.handlers import make_hardware_handlers  # noqa: E402
 
 
 def test_hardware_handlers_are_factory_outputs():

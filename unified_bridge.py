@@ -215,8 +215,8 @@ from arena.http import (  # noqa: E402,F401
     cors_json_response,
 )
 from arena.handler_context import HandlerContext, ServiceHandlerContext  # noqa: E402,F401
-from arena.handlers.hardware import make_hardware_handlers  # noqa: E402,F401
-from arena.handlers.service import make_service_handlers  # noqa: E402,F401
+from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
+from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
