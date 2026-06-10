@@ -233,6 +233,12 @@ from arena.desktop.runtime import (  # noqa: E402,F401
     _kwin_windows_via_script,
 )
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
+from arena.desktop.input import (  # noqa: E402,F401
+    build_click_command,
+    build_key_command,
+    build_mouse_command,
+    build_type_command,
+)
 from arena.http import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
@@ -8275,62 +8281,19 @@ async def handle_v1_desktop_click(request):
 
     _control_record_agent_action()
 
-    # ydotool button codes: left=0x110, middle=0x112, right=0x111
-    btn_map = {"left": "0x110", "middle": "0x112", "right": "0x111"}
-    btn_code = btn_map.get(button, "0x110")
-
     env = _detect_desktop_env()
-    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-
-    # v2.5.1: Build command sequence — optionally activate window before clicking.
-    # On Wayland, ydotool clicks go to whatever is under the cursor, but the
-    # compositor may not focus the window. On X11 without EWMH WM, xdotool
-    # windowactivate fails. The workaround: move the mouse first, then use
-    # xdotool search --name or kdotool to activate the window at that position.
-    cmd_parts = []
-
-    if env["has_ydotool"]:
-        # Move mouse to target position first
-        cmd_parts.append(f'ydotool mousemove --absolute {int(x)} {int(y)}')
-
-        # v2.5.1: On Wayland/KDE, try kdotool to activate window at position
-        if do_activate and shutil.which("kdotool"):
-            # kdotool can activate windows by position on KDE Plasma Wayland
-            cmd_parts.append(
-                f'kdotool search --position {int(x)} {int(y)} 2>/dev/null && '
-                f'kdotool activate $(kdotool search --position {int(x)} {int(y)} 2>/dev/null | head -1) 2>/dev/null || true'
-            )
-
-        # Click at the position
-        cmd_parts.append(f'ydotool click {btn_code}')
-        if double:
-            cmd_parts.append(f'sleep 0.05 && ydotool click {btn_code}')
-    elif env["has_xdotool"]:
-        # v2.5.1: Try to find and activate the window at (x,y) before clicking.
-        # This works even without a full EWMH window manager.
-        if do_activate:
-            # Get window at (x,y) using xdotool, then activate it
-            cmd_parts.append(
-                f'{display_env} xdotool mousemove {int(x)} {int(y)} && '
-                f'{display_env} xdotool getmouselocation --shell 2>/dev/null | grep WINDOW | cut -d= -f2 | '
-                f'xargs -I{{}} {display_env} xdotool windowactivate {{}} 2>/dev/null || true'
-            )
-        else:
-            cmd_parts.append(f'{display_env} xdotool mousemove {int(x)} {int(y)}')
-
-        click_type = "1" if button == "left" else ("2" if button == "middle" else "3")
-        click_opt = "--repeat 2" if double else ""
-        cmd_parts.append(f'{display_env} xdotool click {click_opt} {click_type}')
-    else:
-        return _cors_json_response(
-            {"ok": False, "error": "No click tool available (need ydotool or xdotool)"},
-            status=500
-        )
-
-    cmd = " && ".join(cmd_parts)
+    cmd, tool, err = build_click_command(
+        env=env,
+        x=int(x),
+        y=int(y),
+        button=button,
+        double=double,
+        activate=do_activate,
+        has_kdotool=shutil.which("kdotool") is not None,
+    )
+    if err:
+        return _cors_json_response({"ok": False, "error": err}, status=500)
     result = await _desktop_exec(cmd, timeout=10)
-
-    tool = "ydotool" if env["has_ydotool"] else "xdotool"
     if not result["ok"]:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response(
@@ -8407,7 +8370,6 @@ async def handle_v1_desktop_type(request):
     ensure_latin = body.get("ensure_latin", True)
 
     env = _detect_desktop_env()
-    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
     # v2.10.0: Make typing layout-independent. ydotool emits raw keycodes, so
     # a non-Latin active layout (e.g. RU) corrupts text. Best-effort switch to
@@ -8424,32 +8386,11 @@ async def handle_v1_desktop_type(request):
         except Exception:
             layout_switched = False
 
-    # Escape text for shell
-    escaped_text = shlex.quote(text)
-
-    if env["has_ydotool"]:
-        cmd = f'ydotool type --key-delay {delay} {escaped_text}'
-    elif env["has_wtype"]:
-        cmd = f'wtype {escaped_text}'
-    elif env["has_xdotool"]:
-        cmd = f'{display_env} xdotool type --delay {delay} {escaped_text}'
-    else:
-        return _cors_json_response(
-            {"ok": False, "error": "No type tool available (need ydotool, wtype, or xdotool)"},
-            status=500
-        )
-
-    if clear:
-        clear_cmd = ""
-        if env["has_ydotool"]:
-            clear_cmd = "ydotool key 29:1 30:1 30:0 29:0 && sleep 0.1 && "  # Ctrl+A
-        elif env["has_xdotool"]:
-            clear_cmd = f"{display_env} xdotool key ctrl+a && sleep 0.1 && "
-        cmd = clear_cmd + cmd
+    cmd, tool, err = build_type_command(env=env, text=text, delay=delay, clear=clear)
+    if err:
+        return _cors_json_response({"ok": False, "error": err}, status=500)
 
     result = await _desktop_exec(cmd, timeout=15)
-
-    tool = "ydotool" if env["has_ydotool"] else ("wtype" if env["has_wtype"] else "xdotool")
     if not result["ok"]:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response(
@@ -8516,72 +8457,11 @@ async def handle_v1_desktop_key(request):
         return _cors_json_response({"ok": False, "error": "missing 'key' or 'keys' parameter"}, status=400)
 
     env = _detect_desktop_env()
-    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-
-    # ydotool key codes mapping for common keys
-    ydotool_key_map = {
-        "Return": "28", "Enter": "28", "Escape": "1", "Tab": "15",
-        "BackSpace": "14", "Delete": "111", "Space": "57",
-        "Up": "103", "Down": "108", "Left": "105", "Right": "106",
-        "ctrl": "29", "shift": "42", "alt": "56", "super": "125",
-    }
-
-    if env["has_ydotool"]:
-        if key:
-            # Single key or combo like "ctrl+a"
-            if "+" in key:
-                parts = key.split("+")
-                ydotool_keys = []
-                for p in parts:
-                    code = ydotool_key_map.get(p, None)
-                    if code is None:
-                        # Try as a character
-                        if len(p) == 1:
-                            code = str(ord(p.upper()) - 36)  # approximate
-                        else:
-                            code = ydotool_key_map.get(p.lower(), None)
-                    if code:
-                        ydotool_keys.append(code)
-
-                # Build key combo: press modifiers, press key, release key, release modifiers
-                cmd_parts = []
-                # Press all
-                for k in ydotool_keys:
-                    cmd_parts.append(f"{k}:1")
-                # Release all in reverse
-                for k in reversed(ydotool_keys):
-                    cmd_parts.append(f"{k}:0")
-                cmd = f'ydotool key {" ".join(cmd_parts)}'
-            else:
-                # Single key
-                code = ydotool_key_map.get(key)
-                if code:
-                    cmd = f'ydotool key {code}:1 {code}:0'
-                else:
-                    cmd = f'ydotool key {key}'
-        elif keys:
-            cmd_parts = []
-            for k in keys:
-                code = ydotool_key_map.get(k)
-                if code:
-                    cmd_parts.append(f"{code}:1")
-            for k in reversed(keys):
-                code = ydotool_key_map.get(k)
-                if code:
-                    cmd_parts.append(f"{code}:0")
-            cmd = f'ydotool key {" ".join(cmd_parts)}'
-    elif env["has_xdotool"]:
-        key_str = key or "+".join(keys)
-        cmd = f'{display_env} xdotool key {shlex.quote(key_str)}'
-    else:
-        return _cors_json_response(
-            {"ok": False, "error": "No key tool available (need ydotool or xdotool)"},
-            status=500
-        )
+    cmd, tool, err, key_label = build_key_command(env=env, key=key, keys=keys)
+    if err:
+        return _cors_json_response({"ok": False, "error": err}, status=500)
 
     result = await _desktop_exec(cmd, timeout=10)
-
-    tool = "ydotool" if env["has_ydotool"] else "xdotool"
     if not result["ok"]:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response(
@@ -8591,7 +8471,7 @@ async def handle_v1_desktop_key(request):
 
     return _cors_json_response({
         "ok": True,
-        "key": key or "+".join(keys) if keys else key,
+        "key": key_label,
         "tool": tool,
     })
 
@@ -8633,21 +8513,11 @@ async def handle_v1_desktop_mouse(request):
     absolute = body.get("absolute", True)
 
     env = _detect_desktop_env()
-    display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-
-    if env["has_ydotool"]:
-        abs_flag = "--absolute" if absolute else ""
-        cmd = f'ydotool mousemove {abs_flag} {int(x)} {int(y)}'
-    elif env["has_xdotool"]:
-        cmd = f'{display_env} xdotool mousemove {int(x)} {int(y)}'
-    else:
-        return _cors_json_response(
-            {"ok": False, "error": "No mouse tool available (need ydotool or xdotool)"},
-            status=500
-        )
+    cmd, tool, err = build_mouse_command(env=env, x=int(x), y=int(y), absolute=absolute)
+    if err:
+        return _cors_json_response({"ok": False, "error": err}, status=500)
 
     result = await _desktop_exec(cmd, timeout=10)
-    tool = "ydotool" if env["has_ydotool"] else "xdotool"
 
     return _cors_json_response({
         "ok": result["ok"],
