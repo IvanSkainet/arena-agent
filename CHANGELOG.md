@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.12.0 — 2026-06-10
+
+### Milestone
+- Stable monolith baseline before the planned v3 modularization work.
+- Windows and CachyOS/KDE have both passed the capability-aware v4 stress suite, including restart lifecycle checks.
+
+### Changed
+- `dev/stress-test-v4.py` is now non-persistent by default: it lists tasks but does not submit queue tasks unless `--task-roundtrip` is explicitly requested.
+- Task roundtrip now uses `echo stress-test-v4 noop`, which is valid on Windows cmd and POSIX shells.
+
+### Added
+- Added `docs/STRESS_TEST_V4.md` with local/remote, restart, and task-roundtrip usage.
+
 ## v2.11.6 — 2026-06-10
 
 ### Fixed

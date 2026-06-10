@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.11.6-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.12.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,11 +44,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.11.6
+### 🆕 What's new in v2.12.0
 
-- **Linux restart fixed:** `/v1/restart` on systemd Linux now uses a transient `systemd-run --user` unit, so the restart helper survives `arena-bridge.service` cgroup cleanup.
-- **Fallback preserved:** non-systemd Linux still uses the detached shell helper fallback.
-- **Keeps v2.11.5 installer fix:** `install.sh` no longer fails on unset `$PYTHON` and re-executes under bash when invoked via `sh`.
+- **Stable monolith baseline:** Windows and CachyOS/KDE have both passed the capability-aware v4 stress suite, including restart lifecycle checks.
+- **Stress-test v4 documented:** `dev/stress-test-v4.py` is now the recommended release gate; default mode is non-persistent, while `--restart` and `--task-roundtrip` are explicit mutating checks.
+- **Queue-safe stress defaults:** stress-test no longer submits queue tasks by default; task roundtrip uses a benign cross-shell `echo` command when explicitly enabled.
+- **Ready for v3 modularization:** v2.12.0 is intended as a stable monolith checkpoint before extracting service, inventory, desktop, skills, and API modules.
 
 ---
 
@@ -721,6 +722,13 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.12.0 — Stable monolith baseline and stress-test gate
+- **Changed:** `dev/stress-test-v4.py` is non-persistent by default and no longer submits queue tasks unless `--task-roundtrip` is explicitly requested.
+- **Improved:** Task roundtrip now uses `echo stress-test-v4 noop`, which is valid on both Windows cmd and POSIX shells.
+- **Added:** `docs/STRESS_TEST_V4.md` documents local/remote, restart, and task-roundtrip stress modes.
+- **Validated:** Windows and CachyOS/KDE have both passed v4 stress checks with restart lifecycle coverage.
+- **Milestone:** This release is the stable monolith checkpoint before the planned v3 modularization work.
 
 ### v2.11.6 — Linux systemd restart fix
 - **Fixed:** Linux `/v1/restart` now prefers a transient `systemd-run --user` unit, avoiding cgroup cleanup killing the restart helper together with `arena-bridge.service`.

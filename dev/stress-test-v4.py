@@ -2,11 +2,14 @@
 """Arena Unified Bridge stress/smoke test v4.
 
 Capability-aware cross-platform smoke suite. It deliberately treats unsupported
-features as SKIP when /v1/capabilities says the backend is unavailable.
+features as SKIP when /v1/capabilities says the backend is unavailable. The
+default run is non-persistent; use --task-roundtrip and/or --restart for
+mutating/disruptive checks.
 
 Usage:
     python dev/stress-test-v4.py --url http://127.0.0.1:8765 --token TOKEN
     python dev/stress-test-v4.py --url https://pc.tail.ts.net --token TOKEN --restart
+    python dev/stress-test-v4.py --url http://127.0.0.1:8765 --token TOKEN --task-roundtrip
 """
 from __future__ import annotations
 
@@ -73,7 +76,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--url", required=True)
     ap.add_argument("--token", required=True)
-    ap.add_argument("--restart", action="store_true", help="also test POST /v1/restart")
+    ap.add_argument("--restart", action="store_true", help="also test POST /v1/restart (mutating/disruptive)")
+    ap.add_argument("--task-roundtrip", action="store_true", help="submit a tiny echo task (mutating; leaves queue history)")
     ap.add_argument("--timeout", type=float, default=30.0)
     args = ap.parse_args()
 
@@ -146,16 +150,22 @@ def main() -> int:
     else:
         results.append(Result("/v1/desktop/screenshot", "SKIP", desktop.get("screenshot", {}).get("reason", "not available")))
 
-    # Minimal task queue roundtrip.
-    def task_roundtrip():
-        code, data, _ = c.request("POST", "/v1/tasks", {"title": "stress-test-v4 noop"})
-        if code != 200 or not isinstance(data, dict) or not data.get("ok"):
-            return "FAIL", f"submit failed HTTP {code}: {data}"
-        code, data, _ = c.request("GET", "/v1/tasks?limit=5")
-        if code != 200 or not isinstance(data, dict) or not data.get("ok"):
-            return "FAIL", f"list failed HTTP {code}: {data}"
-        return "PASS", ""
-    results.append(run_check("tasks roundtrip", task_roundtrip))
+    # Non-mutating task queue check by default. Submitting tasks is useful but
+    # leaves queue history, so require --task-roundtrip for that.
+    results.append(run_check("/v1/tasks", lambda: json_ok("/v1/tasks?limit=5")))
+
+    if args.task_roundtrip:
+        def task_roundtrip():
+            # Use a cross-shell benign command instead of a title-only task.
+            # Title-only tasks used to become `# title` and fail on Windows cmd.
+            code, data, _ = c.request("POST", "/v1/tasks", {"cmd": "echo stress-test-v4 noop", "title": "stress-test-v4 noop"})
+            if code != 200 or not isinstance(data, dict) or not data.get("ok"):
+                return "FAIL", f"submit failed HTTP {code}: {data}"
+            code, data, _ = c.request("GET", "/v1/tasks?limit=5")
+            if code != 200 or not isinstance(data, dict) or not data.get("ok"):
+                return "FAIL", f"list failed HTTP {code}: {data}"
+            return "PASS", ""
+        results.append(run_check("tasks roundtrip", task_roundtrip))
 
     if args.restart:
         def restart_check():
