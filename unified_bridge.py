@@ -200,6 +200,11 @@ from arena.service_runtime import (  # noqa: E402,F401
 )
 
 from arena.capabilities import build_capabilities  # noqa: E402,F401
+from arena.hardware import (  # noqa: E402,F401
+    hardware_from_inventory_result,
+    merge_nvidia_gpu_facts,
+    normalize_inventory_hardware,
+)
 
 
 def _ensure_session_env() -> None:
@@ -4843,86 +4848,9 @@ def _hwinfo_sync():
 
 
 def _hardware_from_inventory_sync(timeout: int = 45) -> dict:
-    """Return one normalized hardware/system inventory payload.
-
-    This is the canonical hardware API used by both /v1/hardware and the
-    backwards-compatible /v1/hwinfo endpoint. It reuses scripts/inventory.py so
-    GUI, agents, and reports see the same data instead of two divergent
-    collectors.
-    """
+    """Return one normalized hardware/system inventory payload."""
     inv_result = _inventory_sync(None, "json", timeout)
-    if not inv_result.get("ok"):
-        legacy = _hwinfo_sync()
-        return {
-            "ok": True,
-            "source": "legacy_hwinfo_fallback",
-            "hardware": legacy,
-            "hwinfo": legacy,
-            "inventory_error": inv_result,
-        }
-
-    inv = inv_result.get("inventory") or {}
-    mb = inv.get("motherboard") or {}
-    memory = inv.get("memory") or {}
-    gpu = inv.get("gpu") or {}
-    gpus = list(gpu.get("gpus") or [])
-
-    nvidia_cards = gpu.get("nvidia") or []
-    for idx, card in enumerate(nvidia_cards):
-        if idx < len(gpus):
-            gpus[idx].update({k: v for k, v in card.items() if v not in (None, "")})
-            if "vram_total_mb" in card and not gpus[idx].get("vram_mb"):
-                gpus[idx]["vram_mb"] = card.get("vram_total_mb")
-        else:
-            gpus.append(dict(card))
-
-    cpu = inv.get("cpu") or {}
-    hardware = {
-        "generated_at": inv.get("generated_at"),
-        "os": inv.get("os") or {},
-        "cpu": {
-            "name": cpu.get("name") or cpu.get("processor"),
-            "manufacturer": cpu.get("manufacturer"),
-            "cores": cpu.get("cores_physical"),
-            "threads": cpu.get("cores_logical"),
-            "current_ghz": cpu.get("current_ghz"),
-            "max_ghz": cpu.get("max_ghz"),
-            "load_avg": cpu.get("load_avg"),
-            "raw": cpu,
-        },
-        "memory": memory,
-        "motherboard": mb.get("motherboard"),
-        "bios": mb.get("bios"),
-        "gpu": gpus[0] if gpus else None,
-        "gpus": gpus,
-        "disks": inv.get("disks") or [],
-        "devices": {
-            "storage": inv.get("storage_devices") or [],
-            "pci": inv.get("pci_devices") or [],
-            "usb": inv.get("usb_devices") or [],
-        },
-        "thermal": inv.get("thermal") or {},
-        "network": inv.get("network") or {},
-        "displays": inv.get("displays") or {},
-        "runtimes": inv.get("runtimes") or {},
-        "package_managers": inv.get("package_managers") or {},
-        "browsers": inv.get("browsers") or {},
-    }
-
-    hardware["ram_total_gb"] = memory.get("total_gb")
-    hardware["ram_used_gb"] = memory.get("used_gb")
-    hardware["ram_avail_gb"] = memory.get("available_gb")
-    hardware["ram_modules"] = memory.get("modules") or []
-
-    return {
-        "ok": True,
-        "source": "inventory.py",
-        "hardware": hardware,
-        "hwinfo": hardware,
-        "inventory": inv,
-        "exit_code": inv_result.get("exit_code"),
-        "stderr": inv_result.get("stderr", ""),
-    }
+    return hardware_from_inventory_result(inv_result, legacy_hwinfo_fn=_hwinfo_sync)
 
 
 # --- /v1/inventory GET — Full system inventory via scripts/inventory.py ---
