@@ -214,6 +214,8 @@ from arena.http import (  # noqa: E402,F401
     _cors_json_response,
     cors_json_response,
 )
+from arena.handler_context import HandlerContext  # noqa: E402,F401
+from arena.handlers.hardware import make_hardware_handlers  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
@@ -4866,59 +4868,25 @@ def _inventory_sync(section: str | None = None, fmt: str = "text", timeout: int 
     )
 
 
-async def handle_v1_inventory(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    section = request.query.get("section")
-    fmt = (request.query.get("format") or "text").lower()
-    if fmt not in ("text", "json"):
-        return _cors_json_response({"ok": False, "error": "format must be 'text' or 'json'"}, status=400)
-    try:
-        timeout = int(request.query.get("timeout", "30"))
-        timeout = min(max(5, timeout), 120)
-    except Exception:
-        timeout = 30
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _inventory_sync, section, fmt, timeout)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_hardware_handler_ctx = HandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    slow_executor=_SLOW_EXECUTOR,
+    inventory_sync=_inventory_sync,
+    hardware_sync=_hardware_from_inventory_sync,
+)
+_hardware_handlers = make_hardware_handlers(_hardware_handler_ctx)
+handle_v1_inventory = _hardware_handlers.inventory
+handle_v1_hardware = _hardware_handlers.hardware
+handle_v1_hwinfo = _hardware_handlers.hwinfo
 
 
-async def handle_v1_hardware(request: web.Request) -> web.Response:
-    """GET /v1/hardware — Canonical rich hardware/system inventory."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        timeout = int(request.query.get("timeout", "45"))
-        timeout = min(max(10, timeout), 120)
-    except Exception:
-        timeout = 45
-    include_inventory = (request.query.get("include_inventory", "1").lower() not in ("0", "false", "no"))
-    try:
-        loop = asyncio.get_event_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(_SLOW_EXECUTOR, _hardware_from_inventory_sync, timeout),
-            timeout=float(timeout) + 5.0,
-        )
-        if not include_inventory:
-            result.pop("inventory", None)
-        return _cors_json_response(result)
-    except asyncio.TimeoutError:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"hardware collection timed out ({timeout}s)"}, status=504)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-async def handle_v1_hwinfo(request: web.Request) -> web.Response:
-    """GET /v1/hwinfo — Backwards-compatible alias for /v1/hardware."""
-    return await handle_v1_hardware(request)
+
+
 
 
 
