@@ -209,6 +209,11 @@ from arena.inventory.runner import (  # noqa: E402,F401
     find_inventory_script,
     run_inventory,
 )
+from arena.tasks.queue import (  # noqa: E402,F401
+    clean_tasks,
+    list_tasks,
+    submit_task,
+)
 from arena.http import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
@@ -10836,34 +10841,7 @@ async def handle_v1_audit_stats(request: web.Request) -> web.Response:
 
 def _tasks_list_sync(status: str, limit: int) -> dict:
     """List JSON files in queue directories."""
-    tasks: list[dict] = []
-
-    # Determine which directories to scan based on status filter
-    if status and status in ("inbox", "running", "done", "failed"):
-        dirs = {"inbox": INBOX, "running": RUNNING, "done": DONE, "failed": FAILED}
-        scan_dirs = [(status, dirs[status])]
-    else:
-        scan_dirs = [("inbox", INBOX), ("running", RUNNING), ("done", DONE), ("failed", FAILED)]
-
-    for state_name, scan_dir in scan_dirs:
-        if not scan_dir.exists():
-            continue
-        for p in sorted(scan_dir.glob("*.json"))[:limit]:
-            try:
-                task = json.loads(p.read_text(encoding="utf-8"))
-                task["id"] = task.get("id", p.stem)
-                task["state"] = state_name
-                task["file"] = str(p)
-                # Remove potentially large output fields
-                task.pop("stdout", None)
-                task.pop("stderr", None)
-                tasks.append(task)
-            except Exception:
-                tasks.append({"id": p.stem, "state": state_name, "file": str(p), "error": "unreadable"})
-            if len(tasks) >= limit:
-                break
-
-    return {"ok": True, "count": len(tasks), "tasks": tasks}
+    return list_tasks(inbox=INBOX, running=RUNNING, done=DONE, failed=FAILED, status=status, limit=limit)
 
 
 async def handle_v1_tasks_get(request: web.Request) -> web.Response:
@@ -10887,28 +10865,7 @@ async def handle_v1_tasks_get(request: web.Request) -> web.Response:
 
 def _task_submit_sync(data: dict) -> dict:
     """Create JSON file in INBOX. Supports both cmd-based and title-based tasks."""
-    task_id = str(uuid.uuid4())[:8]
-    cmd = data.get("cmd", "")
-    title = data.get("title", "")
-    # If title provided without cmd, create a descriptive task (not a command)
-    if title and not cmd:
-        cmd = f"# {title}"
-    task = {
-        "id": task_id,
-        "cmd": cmd,
-        "title": title or cmd,
-        "description": data.get("description", ""),
-        "priority": data.get("priority", "normal"),
-        "cwd": data.get("cwd", str(Path.home())),
-        "timeout": data.get("timeout", 3600),
-        "env": data.get("env", {}),
-        "state": "inbox",
-        "created_at": utc_now(),
-    }
-    INBOX.mkdir(parents=True, exist_ok=True)
-    task_path = INBOX / f"{task_id}.json"
-    task_path.write_text(json.dumps(task, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    return {"ok": True, "task_id": task_id, "task": task}
+    return submit_task(data, inbox=INBOX, default_cwd=str(Path.home()), now_fn=utc_now)
 
 
 async def handle_v1_tasks_post(request: web.Request) -> web.Response:
@@ -10941,21 +10898,7 @@ async def handle_v1_tasks_post(request: web.Request) -> web.Response:
 
 def _tasks_clean_sync() -> dict:
     """Remove done/failed task files older than 24h."""
-    removed = 0
-    cutoff = time.time() - 86400  # 24 hours ago
-
-    for scan_dir in [DONE, FAILED]:
-        if not scan_dir.exists():
-            continue
-        for p in scan_dir.glob("*.json"):
-            try:
-                if p.stat().st_mtime < cutoff:
-                    p.unlink()
-                    removed += 1
-            except Exception:
-                pass
-
-    return {"ok": True, "removed": removed}
+    return clean_tasks(done=DONE, failed=FAILED, older_than_seconds=86400)
 
 
 async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
