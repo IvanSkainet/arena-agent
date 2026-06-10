@@ -6,7 +6,7 @@
 One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.11.4-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v2.11.5-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,11 +44,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.11.4
+### 🆕 What's new in v2.11.5
 
-- **Windows restart fixed:** `/v1/restart` no longer mistakes a stale stopped Windows service for an active NSSM install, and the Scheduled Task helper now kills the old bridge PID before relaunching to avoid orphaned `python.exe` processes.
-- **Capability-aware stress test:** new `dev/stress-test-v4.py` exercises core API, hardware, service, skills, tasks, CDP, desktop endpoints when available, and optional restart without failing unsupported backends.
-- **Keeps v2.11.3 stabilization:** installer version detection, Windows UTF-8/CIM date fixes, service diagnostics, and `/v1/capabilities` remain the baseline.
+- **Linux/macOS installer fix:** `install.sh` no longer references an unset `$PYTHON` variable while reading the bridge version, fixing install failures under `set -u`.
+- **Safer shell invocation:** running `sh install.sh` now re-executes the installer under `bash`, matching the script's intended shell.
+- **Keeps v2.11.4 baseline:** Windows restart lifecycle fixes and the capability-aware `dev/stress-test-v4.py` remain included.
 
 ---
 
@@ -721,6 +721,10 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ---
 
 ## 📋 Changelog
+
+### v2.11.5 — Linux/macOS installer version-read fix
+- **Fixed:** `install.sh` no longer references unset `$PYTHON` before Python discovery while reading the bridge version; it now uses a local `VERSION_PY` probe.
+- **Improved:** `install.sh` re-executes itself under `bash` when invoked as `sh install.sh`, avoiding shell-mismatch failures.
 
 ### v2.11.4 — Windows restart lifecycle and stress-test baseline
 - **Fixed:** Windows `/v1/restart` now uses the SCM/NSSM branch only when the service is actually running; stale stopped services no longer prevent Scheduled Task relaunch.

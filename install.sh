@@ -5,6 +5,11 @@
 #  in one directory. No scattered files across home.
 #  Run:  curl -fsSL https://raw.githubusercontent.com/IvanSkainet/arena-agent/master/install.sh | bash
 # ============================================================
+# If invoked as `sh install.sh`, re-exec under bash. The installer intentionally
+# uses bash features (`[[ ... ]]`, arrays/pipefail-compatible semantics).
+if [ -z "${BASH_VERSION:-}" ]; then
+    exec bash "$0" "$@"
+fi
 set -euo pipefail
 
 REPO="IvanSkainet/arena-agent"
@@ -105,10 +110,13 @@ if [ ! -f "$BRIDGE_PY" ]; then
     err "unified_bridge.py not found in $INSTALL_DIR"
     exit 1
 fi
-if [ -f "$INSTALL_DIR/_arena_helper.py" ]; then
-    VERSION="$($PYTHON "$INSTALL_DIR/_arena_helper.py" version 2>/dev/null || true)"
-else
-    VERSION=""
+VERSION=""
+VERSION_PY=""
+for cand in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
+    if command -v "$cand" >/dev/null 2>&1; then VERSION_PY="$(command -v "$cand")"; break; fi
+done
+if [ -n "$VERSION_PY" ] && [ -f "$INSTALL_DIR/_arena_helper.py" ]; then
+    VERSION="$($VERSION_PY "$INSTALL_DIR/_arena_helper.py" version 2>/dev/null || true)"
 fi
 if [ -z "$VERSION" ]; then
     VERSION="unknown"

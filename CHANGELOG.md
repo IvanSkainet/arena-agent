@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.11.5 — 2026-06-10
+
+### Fixed
+- `install.sh` no longer references an unset `$PYTHON` variable before Python discovery while reading the bridge version; it now uses a local `VERSION_PY` probe.
+
+### Improved
+- `install.sh` re-executes itself under `bash` when invoked as `sh install.sh`, matching the script's intended shell and avoiding shell-mismatch failures.
+
 ## v2.11.4 — 2026-06-10
 
 ### Fixed
