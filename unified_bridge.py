@@ -252,6 +252,15 @@ from arena.resources.listing import (  # noqa: E402,F401
     show_mission,
 )
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
+from arena.memory.store import (  # noqa: E402,F401
+    delete_fact as memory_delete_fact,
+    init_memory_db as memory_init_db,
+    load_facts as memory_load_facts,
+    recall as memory_recall,
+    recall_digest as memory_recall_digest,
+    search_facts_paged as memory_search_facts_paged,
+    write_fact as memory_write_fact,
+)
 from arena.desktop.input import (  # noqa: E402,F401
     build_click_command,
     build_key_command,
@@ -5283,168 +5292,22 @@ async def handle_gui(request: web.Request) -> web.Response:
 # ============================================================================
 
 def init_memory_db():
-    MEMORY_DB.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(MEMORY_DB) as conn:
-        conn.execute('''
-        CREATE TABLE IF NOT EXISTS memory_facts (
-            key TEXT PRIMARY KEY,
-            value TEXT,
-            tags TEXT,
-            timestamp TEXT
-        );
-        ''')
-        conn.execute('''
-        CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-            key, value, tags, content=memory_facts, content_rowid=rowid, tokenize="trigram"
-        );
-        ''')
-        conn.executescript('''
-        CREATE TRIGGER IF NOT EXISTS memory_facts_ai AFTER INSERT ON memory_facts BEGIN
-            INSERT INTO memory_fts(rowid, key, value, tags) VALUES (new.rowid, new.key, new.value, new.tags);
-        END;
-        CREATE TRIGGER IF NOT EXISTS memory_facts_ad AFTER DELETE ON memory_facts BEGIN
-            INSERT INTO memory_fts(memory_fts, rowid, key, value, tags) VALUES ('delete', old.rowid, old.key, old.value, old.tags);
-        END;
-        CREATE TRIGGER IF NOT EXISTS memory_facts_au AFTER UPDATE ON memory_facts BEGIN
-            INSERT INTO memory_fts(memory_fts, rowid, key, value, tags) VALUES ('delete', old.rowid, old.key, old.value, old.tags);
-            INSERT INTO memory_fts(rowid, key, value, tags) VALUES (new.rowid, new.key, new.value, new.tags);
-        END;
-        ''')
-        
-    if MEMORY_FILE.exists():
-        migrated_path = MEMORY_FILE.with_suffix(".jsonl.migrated")
-        if not migrated_path.exists():
-            with sqlite3.connect(MEMORY_DB) as conn:
-                try:
-                    with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            line = line.strip()
-                            if line:
-                                try:
-                                    item = json.loads(line)
-                                    key = item.get("key", "")
-                                    value = item.get("value", "")
-                                    tags = json.dumps(item.get("tags", []))
-                                    timestamp = item.get("timestamp", "")
-                                    
-                                    conn.execute("""
-                                    INSERT INTO memory_facts (key, value, tags, timestamp)
-                                    VALUES (?, ?, ?, ?)
-                                    ON CONFLICT(key) DO UPDATE SET
-                                        value=excluded.value,
-                                        tags=excluded.tags,
-                                        timestamp=excluded.timestamp
-                                    """, (key, value, tags, timestamp))
-                                except json.JSONDecodeError:
-                                    pass
-                    conn.commit()
-                except Exception as e:
-                    log.error("[Memory] Failed to migrate facts: %s", e)
-            try:
-                MEMORY_FILE.rename(migrated_path)
-            except OSError:
-                pass
+    return memory_init_db(db_path=MEMORY_DB, jsonl_path=MEMORY_FILE, log_error=log.error)
 
 
 def _load_facts() -> list[dict]:
-    """Load all memory facts from SQLite FTS5 database."""
-    with sqlite3.connect(MEMORY_DB) as conn:
-        conn.row_factory = sqlite3.Row
-        query = """
-        SELECT key, value, tags, timestamp 
-        FROM memory_facts 
-        ORDER BY timestamp ASC
-        """
-        cursor = conn.execute(query)
-        rows = cursor.fetchall()
-        facts = []
-        for r in rows:
-            try:
-                tags = json.loads(r['tags']) if r['tags'] else []
-            except Exception:
-                tags = []
-            facts.append({
-                "key": r['key'],
-                "value": r['value'],
-                "tags": tags,
-                "timestamp": r['timestamp']
-            })
-        return facts
+    return memory_load_facts(MEMORY_DB)
 
 def _search_facts_paged(q: str = "", offset: int = 0, limit: int = 100) -> tuple[int, list[dict]]:
-    """Load memory facts from SQLite FTS5 database with pagination and search."""
-    with sqlite3.connect(MEMORY_DB) as conn:
-        conn.row_factory = sqlite3.Row
-        
-        if q:
-            safe_q = '"' + q.replace('"', '""') + '"'
-            count_query = "SELECT COUNT(*) FROM memory_fts WHERE memory_fts MATCH ?"
-            try:
-                total = conn.execute(count_query, (safe_q,)).fetchone()[0]
-                query = """
-                SELECT m.key, m.value, m.tags, m.timestamp 
-                FROM memory_facts m
-                JOIN memory_fts f ON m.rowid = f.rowid
-                WHERE memory_fts MATCH ?
-                ORDER BY m.timestamp ASC
-                LIMIT ? OFFSET ?
-                """
-                cursor = conn.execute(query, (safe_q, limit, offset))
-            except sqlite3.OperationalError as e:
-                log.error(f"[Memory] SQLite FTS query error: {e}")
-                return 0, []
-        else:
-            total = conn.execute("SELECT COUNT(*) FROM memory_facts").fetchone()[0]
-            query = """
-            SELECT key, value, tags, timestamp 
-            FROM memory_facts 
-            ORDER BY timestamp ASC
-            LIMIT ? OFFSET ?
-            """
-            cursor = conn.execute(query, (limit, offset))
-            
-        rows = cursor.fetchall()
-        
-        facts = []
-        for r in rows:
-            try:
-                tags = json.loads(r['tags']) if r['tags'] else []
-            except Exception:
-                tags = []
-            facts.append({
-                "key": r['key'],
-                "value": r['value'],
-                "tags": tags,
-                "timestamp": r['timestamp']
-            })
-            
-        return total, facts
+    return memory_search_facts_paged(MEMORY_DB, q=q, offset=offset, limit=limit, log_error=log.error)
 
 
 def _write_fact(entry: dict) -> None:
-    """Write a fact entry, overwriting any existing entry with the same key."""
-    with sqlite3.connect(MEMORY_DB) as conn:
-        key = entry.get("key", "")
-        value = entry.get("value", "")
-        tags = json.dumps(entry.get("tags", []))
-        timestamp = entry.get("timestamp", "")
-        conn.execute("""
-        INSERT INTO memory_facts (key, value, tags, timestamp)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(key) DO UPDATE SET
-            value=excluded.value,
-            tags=excluded.tags,
-            timestamp=excluded.timestamp
-        """, (key, value, tags, timestamp))
-        conn.commit()
+    return memory_write_fact(MEMORY_DB, entry)
 
 
 def _delete_fact(key: str) -> bool:
-    """Delete a fact by key. Returns True if found and deleted, False if not found."""
-    with sqlite3.connect(MEMORY_DB) as conn:
-        cur = conn.execute("DELETE FROM memory_facts WHERE key = ?", (key,))
-        conn.commit()
-        return cur.rowcount > 0
+    return memory_delete_fact(MEMORY_DB, key)
 
 
 async def handle_v1_memory(request: web.Request) -> web.Response:
@@ -9303,46 +9166,7 @@ async def handle_v1_cdp_health(request):
 
 
 def _recall_sync(query: str, top: int) -> dict:
-    """Recall relevant facts using term frequency scoring."""
-    facts = _load_facts()
-    if not facts:
-        return {"ok": True, "query": query, "count": 0, "facts": []}
-
-    # Tokenize query
-    query_terms = set(re.findall(r'\w+', query.lower()))
-    if not query_terms:
-        # Return most recent if no meaningful terms
-        return {"ok": True, "query": query, "count": min(top, len(facts)),
-                "facts": [{"fact": f, "score": 0.0} for f in facts[-top:]]}
-
-    scored = []
-    for fact in facts:
-        fact_text = json.dumps(fact, ensure_ascii=False).lower()
-        fact_terms = re.findall(r'\w+', fact_text)
-        if not fact_terms:
-            scored.append({"fact": fact, "score": 0.0})
-            continue
-
-        # TF scoring: count how many query terms appear in the fact
-        term_counts = collections.Counter(fact_terms)
-        score = 0.0
-        for qt in query_terms:
-            if qt in term_counts:
-                # TF score: frequency of matching term / total terms
-                score += term_counts[qt] / len(fact_terms)
-        scored.append({"fact": fact, "score": round(score, 6)})
-
-    # Sort by score descending, then by recency (position in list)
-    scored.sort(key=lambda x: x["score"], reverse=True)
-
-    # Filter out zero-score if we have enough scored results
-    non_zero = [s for s in scored if s["score"] > 0]
-    if non_zero:
-        result_facts = non_zero[:top]
-    else:
-        result_facts = scored[:top]
-
-    return {"ok": True, "query": query, "count": len(result_facts), "facts": result_facts}
+    return memory_recall(query, facts=_load_facts(), top=top)
 
 
 async def handle_v1_recall(request: web.Request) -> web.Response:
@@ -9368,49 +9192,7 @@ async def handle_v1_recall(request: web.Request) -> web.Response:
 # --- /v1/recall/digest GET — Memory digest ---
 
 def _recall_digest_sync() -> dict:
-    """Compact markdown digest of recent memory (facts + recent audit events)."""
-    lines: list[str] = []
-    lines.append("# Memory Digest")
-    lines.append(f"Generated: {utc_now()}\n")
-
-    # Load recent facts (last 50)
-    facts = _load_facts()
-    recent_facts = facts[-50:]
-    lines.append(f"## Recent Facts ({len(recent_facts)} of {len(facts)})\n")
-    for f in recent_facts:
-        key = f.get("key", "unknown")
-        value = str(f.get("value", ""))[:200]
-        ts = f.get("timestamp", "")
-        tags = f.get("tags", [])
-        tag_str = f" [{', '.join(tags)}]" if tags else ""
-        lines.append(f"- **{key}**{tag_str}: {value} _({ts})_")
-    lines.append("")
-
-    # Load recent audit events (last 20)
-    audit_lines = read_tail(AUDIT, 20)
-    events = []
-    for line in audit_lines:
-        try:
-            events.append(json.loads(line))
-        except Exception:
-            pass
-
-    lines.append(f"## Recent Audit Events ({len(events)})\n")
-    for ev in events:
-        ev_type = ev.get("type", "unknown")
-        ts = ev.get("ts", "")
-        detail = ""
-        if "cmd" in ev:
-            detail = f": `{ev['cmd'][:100]}`"
-        elif "path" in ev:
-            detail = f": {ev['path']}"
-        elif "error" in ev:
-            detail = f": {str(ev['error'])[:100]}"
-        lines.append(f"- [{ev_type}] _{ts}_{detail}")
-    lines.append("")
-
-    digest = "\n".join(lines)
-    return {"ok": True, "digest": digest, "fact_count": len(recent_facts), "event_count": len(events)}
+    return memory_recall_digest(facts=_load_facts(), audit_lines=read_tail(AUDIT, 20), utc_now_fn=utc_now)
 
 
 async def handle_v1_recall_digest(request: web.Request) -> web.Response:
