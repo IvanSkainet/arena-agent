@@ -243,6 +243,14 @@ from arena.browser.fetch import (  # noqa: E402,F401
     browser_search,
 )
 from arena.browser.handlers import make_browser_fetch_handlers  # noqa: E402,F401
+from arena.resources.listing import (  # noqa: E402,F401
+    list_agents,
+    list_hooks,
+    list_missions,
+    list_reports,
+    list_subagents,
+    show_mission,
+)
 from arena.desktop.input import (  # noqa: E402,F401
     build_click_command,
     build_key_command,
@@ -5513,22 +5521,7 @@ async def handle_v1_memory_delete(request: web.Request) -> web.Response:
 
 
 def _list_missions_sync() -> list[dict]:
-    """Synchronous helper to list missions with stat() calls."""
-    missions = []
-    if MISSIONS_DIR.exists():
-        for m in sorted(MISSIONS_DIR.iterdir()):
-            if m.is_file() and m.suffix in (".json", ".yaml", ".yml", ".md", ".txt"):
-                missions.append({
-                    "name": m.stem, "ext": m.suffix, "size": m.stat().st_size,
-                    "modified": datetime.fromtimestamp(m.stat().st_mtime, tz=timezone.utc).isoformat(),
-                })
-            elif m.is_dir():
-                missions.append({
-                    "name": m.name, "ext": "[dir]",
-                    "size": len(list(m.iterdir())),
-                    "modified": datetime.fromtimestamp(m.stat().st_mtime, tz=timezone.utc).isoformat(),
-                })
-    return missions
+    return list_missions(MISSIONS_DIR)
 
 
 async def handle_v1_missions(request: web.Request) -> web.Response:
@@ -5771,25 +5764,7 @@ async def handle_v1_doctor(request: web.Request) -> web.Response:
 
 
 def _list_reports_sync() -> list[dict]:
-    """Synchronous helper to list reports with stat() calls."""
-    reports = []
-    if REPORTS_DIR.exists():
-        for r_file in sorted(REPORTS_DIR.iterdir()):
-            if r_file.is_file():
-                reports.append({
-                    "name": r_file.name, "size": r_file.stat().st_size,
-                    "modified": datetime.fromtimestamp(r_file.stat().st_mtime, tz=timezone.utc).isoformat(),
-                })
-    # Also check shots subdirectory
-    shots_dir = REPORTS_DIR / "shots"
-    if shots_dir.exists():
-        for s in sorted(shots_dir.iterdir()):
-            if s.is_file():
-                reports.append({
-                    "name": f"shots/{s.name}", "size": s.stat().st_size,
-                    "modified": datetime.fromtimestamp(s.stat().st_mtime, tz=timezone.utc).isoformat(),
-                })
-    return reports
+    return list_reports(REPORTS_DIR)
 
 
 async def handle_v1_reports(request: web.Request) -> web.Response:
@@ -9641,29 +9616,7 @@ handle_v1_skills_reload = _skill_handlers.reload
 # --- /v1/hooks GET — List hooks ---
 
 def _hooks_list_sync() -> dict:
-    """Read hooks from arena-bridge/hooks/."""
-    hooks: list[dict] = []
-    if not HOOKS_DIR.exists():
-        return {"ok": True, "count": 0, "hooks": []}
-
-    for p in sorted(HOOKS_DIR.iterdir()):
-        if p.is_file() and p.suffix in (".json", ".yaml", ".yml", ".toml"):
-            hook_info: dict[str, Any] = {
-                "name": p.stem,
-                "file": p.name,
-                "ext": p.suffix,
-                "size": p.stat().st_size,
-            }
-            if p.suffix == ".json":
-                try:
-                    data = json.loads(p.read_text(encoding="utf-8"))
-                    hook_info["event"] = data.get("event", "")
-                    hook_info["description"] = data.get("description", "")
-                except Exception:
-                    pass
-            hooks.append(hook_info)
-
-    return {"ok": True, "count": len(hooks), "hooks": hooks}
+    return list_hooks(HOOKS_DIR)
 
 
 async def handle_v1_hooks(request: web.Request) -> web.Response:
@@ -9683,32 +9636,7 @@ async def handle_v1_hooks(request: web.Request) -> web.Response:
 # --- /v1/agents GET — List agent configs ---
 
 def _agents_list_sync() -> dict:
-    """Scan arena-bridge/agents/ for agent config files."""
-    agents: list[dict] = []
-    if not AGENTS_DIR.exists():
-        return {"ok": True, "count": 0, "agents": []}
-
-    for p in sorted(AGENTS_DIR.iterdir()):
-        if p.is_file() and p.suffix in (".json", ".yaml", ".yml", ".toml", ".md"):
-            agent_info: dict[str, Any] = {
-                "name": p.stem,
-                "file": p.name,
-                "ext": p.suffix,
-                "size": p.stat().st_size,
-            }
-            if p.suffix == ".json":
-                try:
-                    data = json.loads(p.read_text(encoding="utf-8"))
-                    agent_info["description"] = data.get("description", "")
-                    agent_info["model"] = data.get("model", "")
-                except Exception:
-                    pass
-            agents.append(agent_info)
-        elif p.is_dir():
-            agents.append({"name": p.name, "file": f"{p.name}/", "ext": "[dir]",
-                           "size": len(list(p.iterdir()))})
-
-    return {"ok": True, "count": len(agents), "agents": agents}
+    return list_agents(AGENTS_DIR)
 
 
 async def handle_v1_agents(request: web.Request) -> web.Response:
@@ -9728,30 +9656,7 @@ async def handle_v1_agents(request: web.Request) -> web.Response:
 # --- /v1/subagents GET — List subagents ---
 
 def _subagents_list_sync() -> dict:
-    """Read from arena-bridge/subagents/."""
-    subagents: list[dict] = []
-    if not SUBAGENTS_DIR.exists():
-        return {"ok": True, "count": 0, "subagents": []}
-
-    for p in sorted(SUBAGENTS_DIR.iterdir()):
-        if p.is_file():
-            sa_info: dict[str, Any] = {
-                "name": p.stem,
-                "file": p.name,
-                "ext": p.suffix,
-                "size": p.stat().st_size,
-                "modified": datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat(),
-            }
-            if p.suffix == ".json":
-                try:
-                    data = json.loads(p.read_text(encoding="utf-8"))
-                    sa_info["status"] = data.get("status", "")
-                    sa_info["cmd"] = data.get("cmd", "")[:200]
-                except Exception:
-                    pass
-            subagents.append(sa_info)
-
-    return {"ok": True, "count": len(subagents), "subagents": subagents}
+    return list_subagents(SUBAGENTS_DIR)
 
 
 async def handle_v1_subagents(request: web.Request) -> web.Response:
@@ -9822,27 +9727,7 @@ async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
 # --- /v1/mission/show GET — Show mission details ---
 
 def _mission_show_sync(name: str) -> dict:
-    """Read and return mission file content."""
-    if ".." in name or "/" in name or "\\" in name or name.startswith("."):
-        return {"ok": False, "error": "invalid mission name"}
-    # Try various extensions
-    for ext in ("", ".json", ".yaml", ".yml", ".md", ".txt"):
-        p = MISSIONS_DIR / f"{name}{ext}"
-        if p.exists() and p.is_file():
-            content = p.read_text(encoding="utf-8", errors="replace")
-            return {"ok": True, "name": name, "file": str(p), "ext": p.suffix or ext,
-                    "content": content, "size": p.stat().st_size}
-
-    # Check if it's a directory
-    d = MISSIONS_DIR / name
-    if d.exists() and d.is_dir():
-        files = []
-        for f in sorted(d.iterdir()):
-            files.append({"name": f.name, "size": f.stat().st_size if f.is_file() else 0,
-                          "is_dir": f.is_dir()})
-        return {"ok": True, "name": name, "is_dir": True, "files": files}
-
-    return {"ok": False, "error": f"mission '{name}' not found"}
+    return show_mission(MISSIONS_DIR, name)
 
 
 async def handle_v1_mission_show(request: web.Request) -> web.Response:
