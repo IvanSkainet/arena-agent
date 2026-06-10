@@ -6924,6 +6924,44 @@ if defined PYW (
             return False, f"spawn failed: {e}"
 
     elif sys_name == "Linux":
+        # Prefer a transient systemd user unit. A plain child process can be
+        # killed together with arena-bridge.service's cgroup when the bridge
+        # exits, which made /v1/restart unreliable on systemd desktops.
+        SYSTEMD_RUN_TEMPLATE = r"""
+sleep 2
+systemctl --user restart arena-bridge.service >/dev/null 2>&1 || true
+for i in $(seq 1 20); do
+    if curl -fsS http://127.0.0.1:__PORT__/health >/dev/null 2>&1; then
+        exit 0
+    fi
+    sleep 1
+done
+TOK=""
+if [ -f "__TOKEN_FILE__" ]; then
+    TOK="$(cat '__TOKEN_FILE__' | tr -d '\n ' )"
+fi
+nohup python3 -u "__BRIDGE__" serve --root "$HOME" --profile owner-shell ${TOK:+--token "$TOK"} --port __PORT__ >/dev/null 2>&1 &
+"""
+        systemd_script = (SYSTEMD_RUN_TEMPLATE
+                          .replace("__PORT__", str(port))
+                          .replace("__BRIDGE__", bridge_py)
+                          .replace("__TOKEN_FILE__", token_file))
+        try:
+            if shutil.which("systemd-run") and shutil.which("systemctl"):
+                unit = f"arena-bridge-restart-{os.getpid()}"
+                r = _sp.run(
+                    ["systemd-run", "--user", "--unit", unit, "--collect", "bash", "-lc", systemd_script],
+                    capture_output=True, text=True, timeout=5,
+                    **_subprocess_kwargs(),
+                )
+                if r.returncode == 0:
+                    return True, f"systemd-run transient unit ({unit})"
+        except Exception:
+            pass
+
+        # Fallback for non-systemd Linux: detached shell script. This may be
+        # killed by systemd cgroup cleanup when running under systemd, hence it
+        # is intentionally second choice.
         SH_TEMPLATE = r"""#!/usr/bin/env bash
 sleep 2
 if command -v systemctl >/dev/null 2>&1 && systemctl --user list-unit-files arena-bridge.service >/dev/null 2>&1; then
@@ -6936,8 +6974,7 @@ for i in $(seq 1 12); do
     sleep 1
 done
 TOK=""
-[[ -f "__TOKEN_FILE__" ]] && TOK="$(cat '__TOKEN_FILE__' | tr -d '
- ')"
+[[ -f "__TOKEN_FILE__" ]] && TOK="$(cat '__TOKEN_FILE__' | tr -d '\n ')"
 nohup python3 -u "__BRIDGE__" serve --root "$HOME" --profile owner-shell ${TOK:+--token "$TOK"} --port __PORT__ >/dev/null 2>&1 &
 disown
 rm -f "$0"
@@ -6953,7 +6990,7 @@ rm -f "$0"
             _sp.Popen(["bash", str(sh_path)], start_new_session=True,
                       stdin=_sp.DEVNULL, stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
                       close_fds=True)
-            return True, f"detached .sh (file={sh_path.name})"
+            return True, f"detached .sh fallback (file={sh_path.name})"
         except Exception as e:
             return False, f"spawn failed: {e}"
 

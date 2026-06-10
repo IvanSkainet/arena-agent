@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.11.6 — 2026-06-10
+
+### Fixed
+- Linux `/v1/restart` now prefers a transient `systemd-run --user` unit, so the restart helper survives `arena-bridge.service` cgroup cleanup and can reliably restart the bridge.
+
+### Notes
+- The previous detached shell helper remains as fallback for non-systemd Linux environments.
+
 ## v2.11.5 — 2026-06-10
 
 ### Fixed
