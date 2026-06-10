@@ -53,3 +53,21 @@ class TaskHandlerContext:
     task_submit_sync: Callable[[dict[str, Any]], dict[str, Any]]
     tasks_clean_sync: Callable[[], dict[str, Any]]
     audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class SkillHandlerContext:
+    """Dependencies for skills API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    skills_list_with_cache: Callable[[], dict[str, Any]]
+    skills_cache_reset: Callable[[], None]
+    skill_install_sync: Callable[[str, str], dict[str, Any]]
+    skill_uninstall_sync: Callable[[str], dict[str, Any]]
+    skills_run_sync: Callable[[str, list[str], dict[str, Any] | None], dict[str, Any]]
+    skill_path_is_safe: Callable[[str], bool]
+    audit: Callable[[dict[str, Any]], None]
+    log_info: Callable[..., None]

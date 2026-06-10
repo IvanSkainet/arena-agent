@@ -218,18 +218,20 @@ from arena.skills.registry import (  # noqa: E402,F401
     parse_skill_folder,
     scan_skills,
 )
+from arena.skills.cache import SkillsCache  # noqa: E402,F401
 from arena.skills.install import (  # noqa: E402,F401
     install_skill,
     normalize_third_party_skill_name,
     uninstall_skill,
 )
 from arena.skills.runner import run_skill  # noqa: E402,F401
+from arena.skills.handlers import make_skill_handlers  # noqa: E402,F401
 from arena.http import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
     cors_json_response,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -950,80 +952,26 @@ async def handle_v1_events(request: web.Request) -> web.WebSocketResponse:
 # ============================================================================
 # PHASE 3: Plugin/Hot-Reload System for Skills
 # ============================================================================
-_skills_cache: dict[str, Any] = {"last_scan": 0.0, "skills": [], "mtimes": {}}
-_skills_cache_lock = threading.Lock()
-_SKILLS_CACHE_TTL = 5.0  # seconds before re-scan on access
+_skills_cache_obj: SkillsCache | None = None
 
-# Hot-reload: if True, skills are re-scanned on every /v1/skills request
-_hot_reload_skills: bool = True
+
+def _get_skills_cache() -> SkillsCache:
+    global _skills_cache_obj
+    if _skills_cache_obj is None:
+        _skills_cache_obj = SkillsCache(skills_dir=SKILLS_DIR, scan_fn=_skills_list_sync, ttl=5.0, hot_reload=True)
+    return _skills_cache_obj
 
 
 def _skills_list_sync_with_cache() -> dict:
-    """Scan skills with caching and hot-reload support.
-
-    If hot-reload is enabled, checks mtimes of skill directories
-    and only re-scans if something changed.
-    """
-    global _skills_cache
-
-    with _skills_cache_lock:
-        now = time.time()
-        # Return cached if fresh and no hot-reload
-        if not _hot_reload_skills and (now - _skills_cache["last_scan"]) < _SKILLS_CACHE_TTL:
-            return {"ok": True, "count": len(_skills_cache["skills"]),
-                    "skills": _skills_cache["skills"], "cached": True}
-
-        # Hot-reload: check mtimes
-        changed = False
-        if _skills_cache["last_scan"] > 0 and SKILLS_DIR.exists():
-            current_mtimes = {}
-            for p in sorted(SKILLS_DIR.rglob("*")):
-                if p.is_file() and p.suffix in (".json", ".yaml", ".yml", ".md", ".toml",
-                                                  ".sh", ".py"):
-                    try:
-                        current_mtimes[str(p)] = p.stat().st_mtime
-                    except OSError:
-                        pass
-            if current_mtimes != _skills_cache["mtimes"]:
-                changed = True
-                _skills_cache["mtimes"] = current_mtimes
-        else:
-            changed = True
-
-        # If nothing changed and cache is fresh, return cached
-        if not changed and (now - _skills_cache["last_scan"]) < _SKILLS_CACHE_TTL:
-            return {"ok": True, "count": len(_skills_cache["skills"]),
-                    "skills": _skills_cache["skills"], "cached": True}
-
-    # Re-scan (outside lock for performance)
-    result = _skills_list_sync()
-
-    with _skills_cache_lock:
-        _skills_cache["skills"] = result.get("skills", [])
-        _skills_cache["last_scan"] = time.time()
-        result["cached"] = False
-        result["hot_reload"] = _hot_reload_skills
-
-    return result
+    """Scan skills with caching and hot-reload support."""
+    return _get_skills_cache().list()
 
 
-async def handle_v1_skills_reload(request: web.Request) -> web.Response:
-    """POST /v1/skills/reload — Force reload skills cache."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    global _skills_cache
-    with _skills_cache_lock:
-        _skills_cache = {"last_scan": 0.0, "skills": [], "mtimes": {}}
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync_with_cache)
-        log.info("[Skills] Hot-reload: %d skills scanned", result.get("count", 0))
-        return _cors_json_response({"ok": True, "reloaded": True,
-                                    "count": result.get("count", 0),
-                                    "skills": result.get("skills", [])})
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+def _skills_cache_reset() -> None:
+    """Reset cached skills so the next list call rescans the filesystem."""
+    _get_skills_cache().reset()
+
+
 
 
 # ============================================================================
@@ -10902,18 +10850,6 @@ def _parse_skill_folder(d: Path, skills: list, is_third_party: bool = False, cat
     skills.append(parse_skill_folder(SKILLS_DIR, d, is_third_party=is_third_party, category=category))
 
 
-async def handle_v1_skills(request: web.Request) -> web.Response:
-    """GET /v1/skills — List skills."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skills_list_sync_with_cache)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 def _skill_install_sync(name: str, url: str) -> dict:
@@ -10927,42 +10863,7 @@ def _skill_uninstall_sync(name: str) -> dict:
     return uninstall_skill(name, skills_dir=SKILLS_DIR)
 
 
-async def handle_v1_skills_install(request: web.Request) -> web.Response:
-    """POST /v1/skills/install — Install a third-party skill from git or zip."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-        name = str(data.get("name", "")).strip()
-        url = str(data.get("url", "")).strip()
-        
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skill_install_sync, name, url)
-        if result.get("ok"):
-            audit({"type": "skill_installed", "name": name, "url": url})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
-async def handle_v1_skills_uninstall(request: web.Request) -> web.Response:
-    """POST /v1/skills/uninstall — Uninstall a third-party skill."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-        name = str(data.get("name", "")).strip()
-        
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skill_uninstall_sync, name)
-        if result.get("ok"):
-            audit({"type": "skill_uninstalled", "name": name})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/skills/run POST — Run a skill ---
@@ -10979,70 +10880,36 @@ def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) 
     )
 
 
-async def handle_v1_skills_run(request: web.Request) -> web.Response:
-    """POST /v1/skills/run — Run a skill. Body: {name, args?: [], input?: {}}.
-
-    - `name`: skill name (e.g. "browseract", "core/health", "web/research")
-    - `args`: positional args passed to run.sh/run.py (e.g. ["open", "https://example.com"])
-    - `input`: JSON object passed as SKILL_INPUT env var for skills that accept structured input
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
+def _skill_path_is_safe(name: str) -> bool:
     try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    name = data.get("name", "")
-    if not name:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing name"}, status=400)
-    # Prevent path traversal in skill names
-    # Allow "/" for namespaced skills (e.g. "core/health", "superpowers/skills/brainstorming")
-    # but block ".." and "\" and verify resolved path stays within SKILLS_DIR
-    if ".." in name or "\\" in name:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "invalid skill name"}, status=400)
-    if "/" in name:
         resolved = (SKILLS_DIR / name).resolve()
-        if not str(resolved).startswith(str(SKILLS_DIR.resolve())):
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "invalid skill name"}, status=400)
-    skill_args = data.get("args") or []
-    skill_input = data.get("input") or {}
+        return str(resolved).startswith(str(SKILLS_DIR.resolve()))
+    except Exception:
+        return False
 
-    # If input is provided but args are not, derive args from input
-    if skill_input and not skill_args:
-        # Common patterns: extract url, query, action as positional args
-        if "action" in skill_input and "url" in skill_input:
-            # BrowserAct-style: {action: "open", url: "..."}
-            skill_args = [skill_input["action"], skill_input["url"]]
-        elif "url" in skill_input and "task" in skill_input:
-            # BrowserAct extract: {url: "...", task: "..."}
-            skill_args = ["extract", skill_input["url"], "--task", skill_input["task"]]
-        elif "url" in skill_input:
-            # Simple URL: {url: "..."}
-            skill_args = ["open", skill_input["url"]]
-        elif "query" in skill_input:
-            # Search/research: {query: "...", n?: 3}
-            skill_args = [skill_input["query"]]
-            if "n" in skill_input:
-                skill_args.append(str(skill_input["n"]))
 
-    # Build env extras from input
-    env_extra = {}
-    if skill_input:
-        env_extra["SKILL_INPUT"] = json.dumps(skill_input)
+_skill_handler_ctx = SkillHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    skills_list_with_cache=_skills_list_sync_with_cache,
+    skills_cache_reset=_skills_cache_reset,
+    skill_install_sync=_skill_install_sync,
+    skill_uninstall_sync=_skill_uninstall_sync,
+    skills_run_sync=_skills_run_sync,
+    skill_path_is_safe=_skill_path_is_safe,
+    audit=audit,
+    log_info=log.info,
+)
+_skill_handlers = make_skill_handlers(_skill_handler_ctx)
+handle_v1_skills = _skill_handlers.skills
+handle_v1_skills_install = _skill_handlers.install
+handle_v1_skills_uninstall = _skill_handlers.uninstall
+handle_v1_skills_run = _skill_handlers.run
+handle_v1_skills_reload = _skill_handlers.reload
 
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _skills_run_sync, name, skill_args, env_extra)
-        audit({"type": "skill_run", "name": name, "args": skill_args, "ok": result.get("ok", False)})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
 
 
 # --- /v1/hooks GET — List hooks ---
