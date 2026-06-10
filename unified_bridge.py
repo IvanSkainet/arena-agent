@@ -214,8 +214,9 @@ from arena.http import (  # noqa: E402,F401
     _cors_json_response,
     cors_json_response,
 )
-from arena.handler_context import HandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext  # noqa: E402,F401
 from arena.handlers.hardware import make_hardware_handlers  # noqa: E402,F401
+from arena.handlers.service import make_service_handlers  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
@@ -5954,17 +5955,6 @@ async def handle_v1_browser_read(request: web.Request) -> web.Response:
 
 
 
-async def handle_v1_service_info(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(_EXECUTOR, _service_info_sync)
-        return _cors_json_response(info)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 
@@ -5974,18 +5964,6 @@ async def handle_v1_service_info(request: web.Request) -> web.Response:
 
 
 
-async def handle_v1_sys_svc(request: web.Request) -> web.Response:
-    """GET /v1/sys/svc — Service status."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _sys_svc_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 def _capabilities_sync() -> dict:
@@ -6000,18 +5978,24 @@ def _capabilities_sync() -> dict:
     )
 
 
-async def handle_v1_capabilities(request: web.Request) -> web.Response:
-    """GET /v1/capabilities — Agent-facing capability map."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _capabilities_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_service_handler_ctx = ServiceHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    service_info_sync=_service_info_sync,
+    sys_svc_sync=_sys_svc_sync,
+    capabilities_sync=_capabilities_sync,
+    spawn_respawn_helper=_spawn_respawn_helper,
+    audit=audit,
+)
+_service_handlers = make_service_handlers(_service_handler_ctx)
+handle_v1_service_info = _service_handlers.service_info
+handle_v1_sys_svc = _service_handlers.sys_svc
+handle_v1_capabilities = _service_handlers.capabilities
+handle_v1_restart = _service_handlers.restart
+
+
 
 
 # --- /v1/sys/funnel GET — Tailscale Funnel status ---
@@ -6325,36 +6309,6 @@ async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
 
 
 
-async def handle_v1_restart(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    cfg = request.app["cfg"]
-    port = int(cfg.get("port", 8765))
-    audit({"type": "restart_requested"})
-
-    # Spawn the respawn helper BEFORE we die
-    spawned, method = _spawn_respawn_helper(port)
-
-    # Schedule shutdown after the response is sent
-    async def _exit_soon():
-        await asyncio.sleep(1.5)
-        os._exit(0)
-    asyncio.create_task(_exit_soon())
-
-    return _cors_json_response({
-        "ok": True,
-        "respawn_scheduled": spawned,
-        "method": method,
-        "shutdown_in_seconds": 1.5,
-        "note": ("Bridge shuts down in 1.5s. A detached helper will re-launch it ~3-5s later."
-                 if spawned else "WARNING: respawn helper failed to spawn — manual restart required."),
-        "manual_restart_hint": (
-            "Windows: schtasks /Run /tn ArenaUnifiedBridge | "
-            "Linux: systemctl --user restart arena-bridge | "
-            "macOS: launchctl kickstart -k gui/$UID/com.arena.bridge"
-        ),
-    })
 
 
 # --- /v1/config GET — Token-free configuration dump ---

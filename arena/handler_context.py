@@ -24,3 +24,18 @@ class HandlerContext:
     slow_executor: Executor
     inventory_sync: Callable[..., dict[str, Any]]
     hardware_sync: Callable[..., dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ServiceHandlerContext:
+    """Dependencies for service/capabilities/restart handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    service_info_sync: Callable[[], dict[str, Any]]
+    sys_svc_sync: Callable[[], dict[str, Any]]
+    capabilities_sync: Callable[[], dict[str, Any]]
+    spawn_respawn_helper: Callable[[int], tuple[bool, str]]
+    audit: Callable[[dict[str, Any]], None]
