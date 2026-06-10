@@ -218,6 +218,12 @@ from arena.skills.registry import (  # noqa: E402,F401
     parse_skill_folder,
     scan_skills,
 )
+from arena.skills.install import (  # noqa: E402,F401
+    install_skill,
+    normalize_third_party_skill_name,
+    uninstall_skill,
+)
+from arena.skills.runner import run_skill  # noqa: E402,F401
 from arena.http import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
@@ -10911,103 +10917,14 @@ async def handle_v1_skills(request: web.Request) -> web.Response:
 
 
 def _skill_install_sync(name: str, url: str) -> dict:
-    if not name or not url:
-        return {"ok": False, "error": "name and url are required"}
-    if ".." in name or "/" in name or "\\" in name:
-        return {"ok": False, "error": "invalid skill name"}
-        
-    target_dir = SKILLS_DIR / "third_party" / name
-    if target_dir.exists():
-        return {"ok": False, "error": "skill already installed"}
-        
-    target_dir.parent.mkdir(parents=True, exist_ok=True)
-    
-    try:
-        if url.endswith(".zip"):
-            import tempfile, zipfile, urllib.request, shutil
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
-                if os.path.exists(url):
-                    shutil.copy(url, tmp.name)
-                elif url.startswith("file://"):
-                    local_p = url[7:]
-                    if os.path.exists(local_p):
-                        shutil.copy(local_p, tmp.name)
-                else:
-                    urllib.request.urlretrieve(url, tmp.name)
-                with zipfile.ZipFile(tmp.name, 'r') as zip_ref:
-                    # Filter out junk directories/files like __MACOSX, .DS_Store, desktop.ini, etc.
-                    non_junk_names = [p for p in zip_ref.namelist() if p and not any(part.startswith('.') or part in ('__MACOSX', 'desktop.ini', 'Thumbs.db') for part in p.split('/'))]
-                    root_names = set(p.split("/")[0] for p in non_junk_names if p)
-                    if len(root_names) == 1:
-                        root = list(root_names)[0]
-                        temp_ext = target_dir.parent / (name + "_temp")
-                        zip_ref.extractall(temp_ext)
-                        if (temp_ext / root).exists():
-                            os.rename(temp_ext / root, target_dir)
-                        else:
-                            zip_ref.extractall(target_dir)
-                        import shutil
-                        shutil.rmtree(temp_ext, ignore_errors=True)
-                    else:
-                        zip_ref.extractall(target_dir)
-                os.unlink(tmp.name)
-        else:
-            import subprocess
-            subprocess.run(["git", "clone", "--depth", "1", "--", url, str(target_dir)], check=True, capture_output=True)
-            # Remove .git folder so it's not a submodule/repo anymore
-            import shutil
-            shutil.rmtree(target_dir / ".git", ignore_errors=True)
-        return {"ok": True, "path": str(target_dir), "name": name}
-    except Exception as e:
-        import shutil
-        shutil.rmtree(target_dir, ignore_errors=True)
-        return {"ok": False, "error": str(e)}
+    return install_skill(name, url, skills_dir=SKILLS_DIR)
 
 def _normalize_third_party_skill_name(name: str) -> tuple[str | None, str | None]:
-    """Return safe third-party skill basename or an error string.
-
-    `/v1/skills` reports third-party skills as `third_party/<name>`, while the
-    original uninstall endpoint only accepted a bare basename and rejected `/`.
-    Accept both forms, but still reject category/core paths and traversal.
-    """
-    raw = (name or "").strip().strip("/")
-    if not raw:
-        return None, "missing skill name"
-    if raw.startswith("skills/third_party/"):
-        raw = raw[len("skills/third_party/"):]
-    elif raw.startswith("third_party/"):
-        raw = raw[len("third_party/"):]
-    elif "/" in raw or "\\" in raw:
-        return None, "only third-party skills can be uninstalled by this endpoint"
-    if not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9._-]{0,127}", raw):
-        return None, "invalid skill name"
-    if raw in (".", ".."):  # defense in depth
-        return None, "invalid skill name"
-    return raw, None
+    return normalize_third_party_skill_name(name)
 
 
 def _skill_uninstall_sync(name: str) -> dict:
-    safe_name, err = _normalize_third_party_skill_name(name)
-    if err:
-        return {"ok": False, "error": err}
-
-    target_dir = (SKILLS_DIR / "third_party" / safe_name).resolve()
-    allowed_root = (SKILLS_DIR / "third_party").resolve()
-    try:
-        target_dir.relative_to(allowed_root)
-    except ValueError:
-        return {"ok": False, "error": "invalid skill path"}
-    if not target_dir.exists():
-        return {"ok": False, "error": f"third-party skill '{safe_name}' not found"}
-    if not target_dir.is_dir():
-        return {"ok": False, "error": f"third-party skill '{safe_name}' is not a directory"}
-
-    try:
-        import shutil
-        shutil.rmtree(target_dir)
-        return {"ok": True, "removed": safe_name, "name": f"third_party/{safe_name}", "path": str(target_dir)}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    return uninstall_skill(name, skills_dir=SKILLS_DIR)
 
 
 async def handle_v1_skills_install(request: web.Request) -> web.Response:
@@ -11051,133 +10968,15 @@ async def handle_v1_skills_uninstall(request: web.Request) -> web.Response:
 # --- /v1/skills/run POST — Run a skill ---
 
 def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) -> dict:
-    """Execute a skill via agentctl or directly.
-
-    Supports three skill types:
-    1. Executable skills: have run.sh or run.py — executed as subprocess
-    2. Prompt-only skills: have SKILL.md but no runner — return SKILL.md content
-    3. Fallback: try agentctl skill run
-    """
-    # Try direct skill runner first (faster, supports JSON input via env)
-    skill_dir = SKILLS_DIR / name
-    if not skill_dir.exists() and SKILLS_DIR.exists():
-        # Try flat name under skills/ (e.g. "browseract" -> skills/browseract/)
-        for d in SKILLS_DIR.iterdir():
-            if d.is_dir() and d.name == name:
-                skill_dir = d
-                break
-        else:
-            # Recursive search: "health" could be at skills/core/health/
-            # Also find prompt-only skills (SKILL.md without runner)
-            for d in SKILLS_DIR.rglob(name):
-                if d.is_dir():
-                    # Check for any valid runner
-                    valid = False
-                    for cand in ["run.sh", "run.py", "SKILL.md", f"{d.name}.py", f"{d.name}.sh", "main.py", "app.py", "start.sh", "index.js", f"{d.name}"]:
-                        if (d / cand).exists():
-                            valid = True
-                            break
-                    if valid:
-                        skill_dir = d
-                        break
-
-    runner_sh = skill_dir / "run.sh"
-    runner_py = skill_dir / "run.py"
-    skill_md = skill_dir / "SKILL.md"
-    
-    # Fallback to common generic entrypoints for third_party skills
-    if not runner_sh.exists() and not runner_py.exists() and skill_dir.exists():
-        for candidate in [f"{skill_dir.name}.py", f"{skill_dir.name}.sh", "main.py", "app.py", "start.sh", "index.js", f"{skill_dir.name}"]:
-            cp = skill_dir / candidate
-            if cp.exists() and cp.is_file():
-                if candidate.endswith(".py"): runner_py = cp
-                elif candidate.endswith(".js"): runner_sh = cp # Will handle JS in exec
-                else: runner_sh = cp
-                break
-
-    # --- Executable skills (run.sh / run.py) ---
-    if skill_dir.exists() and (runner_sh.exists() or runner_py.exists()):
-        # Direct execution — faster, passes input via env vars
-        env = os.environ.copy()
-        env["ARENA_AGENT_HOME"] = str(ROOT_AGENT)
-        env["SKILL_NAME"] = name
-        env["SKILL_DIR"] = str(skill_dir)
-        env["SKILL_ARGS"] = json.dumps(args)
-        # Filter dangerous env vars from user-supplied extras
-        if env_extra:
-            _SKILL_BLOCKED_ENV = {"ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
-                                   "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH",
-                                   "PYTHONSTARTUP"}
-            for k, v in env_extra.items():
-                if not any(b in k.upper() for b in _SKILL_BLOCKED_ENV):
-                    env[k] = str(v) if not isinstance(v, str) else v
-
-        # On Windows, prefer run.py over run.sh (bash may not be available)
-        if sys.platform == "win32" and runner_py.exists():
-            py = sys.executable or "python3"
-            cmd = [py, str(runner_py)] + list(args)
-        elif runner_sh.exists():
-            if runner_sh.suffix == ".js":
-                cmd = ["node", str(runner_sh)] + list(args)
-            elif runner_sh.suffix == ".py":
-                cmd = ["python3", str(runner_sh)] + list(args)
-            elif runner_sh.name == skill_dir.name and not "." in runner_sh.name:
-                with open(runner_sh, 'rb') as f:
-                    shebang = f.read(50)
-                    if b"python" in shebang:
-                        cmd = ["python3", str(runner_sh)] + list(args)
-                    else:
-                        bash_path = shutil.which("bash") or "bash"
-                        cmd = [bash_path, str(runner_sh)] + list(args)
-            else:
-                # Use bash to execute .sh files (git may not preserve +x bit)
-                bash_path = shutil.which("bash")
-                if not bash_path:
-                    return {"ok": False, "exit_code": -2, "stdout": "",
-                            "stderr": "bash not available — .sh skills require WSL or Git Bash on Windows"}
-                cmd = [bash_path, str(runner_sh)] + list(args)
-        else:
-            py = sys.executable or "python3"
-            cmd = [py, str(runner_py)] + list(args)
-
-        try:
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
-                               env=env, **_subprocess_kwargs())
-            return {"ok": p.returncode == 0, "exit_code": p.returncode,
-                    "stdout": p.stdout[-15000:], "stderr": p.stderr[-3000:]}
-        except subprocess.TimeoutExpired:
-            return {"ok": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-        except Exception as e:
-            return {"ok": False, "exit_code": -2, "stdout": "", "stderr": str(e)}
-
-    # --- Prompt-only skills (SKILL.md without runner) ---
-    # These are instruction/prompt skills (e.g., SuperPowers) — return SKILL.md content
-    if skill_dir.exists() and skill_md.exists() and not runner_sh.exists() and not runner_py.exists():
-        try:
-            content = skill_md.read_text(encoding="utf-8")
-            return {
-                "ok": True,
-                "exit_code": 0,
-                "output": content,
-                "skill_type": "prompt",
-                "skill_name": name,
-                "skill_dir": str(skill_dir),
-                "stdout": content[:500] + ("..." if len(content) > 500 else ""),
-                "stderr": "",
-            }
-        except Exception as e:
-            return {"ok": False, "exit_code": -2, "stdout": "", "stderr": f"Failed to read SKILL.md: {e}"}
-
-    # Fallback: agentctl skill run
-    cmd_args = [os.path.join(BIN, "agentctl"), "skill", "run", name] + list(args)
-    try:
-        p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=300, **_subprocess_kwargs())
-        return {"ok": p.returncode == 0, "exit_code": p.returncode,
-                "stdout": p.stdout[-15000:], "stderr": p.stderr[-3000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-    except Exception as e:
-        return {"ok": False, "exit_code": -2, "stdout": "", "stderr": str(e)}
+    return run_skill(
+        name,
+        args,
+        skills_dir=SKILLS_DIR,
+        root_agent=ROOT_AGENT,
+        bin_dir=BIN,
+        subprocess_kwargs_fn=_subprocess_kwargs,
+        env_extra=env_extra,
+    )
 
 
 async def handle_v1_skills_run(request: web.Request) -> web.Response:
