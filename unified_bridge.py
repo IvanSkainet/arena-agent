@@ -214,6 +214,10 @@ from arena.tasks.queue import (  # noqa: E402,F401
     list_tasks,
     submit_task,
 )
+from arena.skills.registry import (  # noqa: E402,F401
+    parse_skill_folder,
+    scan_skills,
+)
 from arena.http import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
@@ -10885,63 +10889,11 @@ handle_v1_tasks_clean = _task_handlers.tasks_clean
 
 def _skills_list_sync() -> dict:
     """Scan arena-bridge/skills/ directory for skill definitions."""
-    skills: list[dict] = []
-    if not SKILLS_DIR.exists():
-        return {"ok": True, "count": 0, "skills": []}
-
-    for p in sorted(SKILLS_DIR.iterdir()):
-        if p.is_dir() and not p.name.startswith("."):
-            # Handle third-party differently
-            if p.name == "third_party":
-                for tp in sorted(p.iterdir()):
-                    if tp.is_dir() and not tp.name.startswith("."):
-                        _parse_skill_folder(tp, skills, is_third_party=True)
-            else:
-                # Top level skill or category? 
-                # If it has manifest.json or SKILL.md or run.sh/run.py directly, it's a skill
-                if any((p/f).exists() for f in ["manifest.json", "SKILL.md", "run.sh", "run.py", f"{p.name}.py", f"{p.name}.sh"]):
-                    _parse_skill_folder(p, skills, is_third_party=False)
-                else:
-                    # Category folder (like "core", "web")
-                    for sub in sorted(p.iterdir()):
-                        if sub.is_dir() and not sub.name.startswith("."):
-                            _parse_skill_folder(sub, skills, is_third_party=False, category=p.name)
-
-    return {"ok": True, "count": len(skills), "skills": skills}
+    return scan_skills(SKILLS_DIR)
 
 def _parse_skill_folder(d: Path, skills: list, is_third_party: bool = False, category: str = ""):
-    prefix = ("third_party/" if is_third_party else (f"{category}/" if category else ""))
-    name = f"{prefix}{d.name}"
-    
-    skill_info = {
-        "name": name,
-        "file": str(d.relative_to(SKILLS_DIR)),
-        "is_third_party": is_third_party,
-        "description": "",
-        "version": ""
-    }
-    
-    manifest = d / "manifest.json"
-    if manifest.exists():
-        try:
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-            skill_info["description"] = data.get("description", "")
-            skill_info["version"] = data.get("version", "")
-        except Exception:
-            pass
-            
-    if not skill_info["description"]:
-        skill_md = d / "SKILL.md"
-        if skill_md.exists():
-            try:
-                lines = skill_md.read_text(encoding="utf-8").splitlines()
-                desc_lines = [l.strip() for l in lines if l.strip() and not l.startswith("#")][:2]
-                if desc_lines:
-                    skill_info["description"] = " ".join(desc_lines)[:100]
-            except Exception:
-                pass
-                
-    skills.append(skill_info)
+    """Compatibility wrapper for old internal parser API."""
+    skills.append(parse_skill_folder(SKILLS_DIR, d, is_third_party=is_third_party, category=category))
 
 
 async def handle_v1_skills(request: web.Request) -> web.Response:
