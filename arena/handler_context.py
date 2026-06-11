@@ -374,3 +374,24 @@ class GrpcHandlerContext:
     start_server: Callable[[dict[str, Any]], Any]
     stop_server: Callable[[], Any]
 
+@dataclass(frozen=True)
+class EventHandlerContext:
+    """Dependencies for realtime event WebSocket handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    version: str
+    utc_now: Callable[[], str]
+    log_info: Callable[..., None]
+
+
+@dataclass(frozen=True)
+class WatchdogHandlerContext:
+    """Dependencies for watchdog status/config handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    metrics: dict[str, Any]
+    now: Callable[[], float]
+    log_info: Callable[..., None]
+

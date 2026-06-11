@@ -198,6 +198,15 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.events.runtime import EVENT_SUBSCRIBERS as _event_subscribers, emit_event as _events_emit_event  # noqa: E402,F401
+from arena.events.handlers import make_event_handlers  # noqa: E402,F401
+from arena.watchdog.runtime import (  # noqa: E402,F401
+    WATCHDOG_STATE as _watchdog_state,
+    start_watchdog as _watchdog_start,
+    stop_watchdog as _watchdog_stop,
+    watchdog_loop as _watchdog_loop,
+)
+from arena.watchdog.handlers import make_watchdog_handlers  # noqa: E402,F401
 from arena.grpc.runtime import (  # noqa: E402,F401
     GRPC_CONFIG as _grpc_config,
     grpc_handler as _grpc_handler,
@@ -386,7 +395,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1000,96 +1009,12 @@ _app_ref: Any = None
 # ============================================================================
 # PHASE 3: WebSocket Real-Time Events
 # ============================================================================
-_event_subscribers: list[asyncio.Queue] = []
+# Realtime event stream runtime/handler now live in arena/events/. The wrapper
+# below preserves the historical `emit_event(event_type, data)` helper.
+
 
 async def emit_event(event_type: str, data: dict | None = None) -> None:
-    """Broadcast an event to all connected WebSocket subscribers."""
-    payload = {"type": event_type, "ts": utc_now(), "data": data or {}}
-    dead = []
-    for i, q in enumerate(list(_event_subscribers)):  # Iterate over copy to avoid race
-        try:
-            q.put_nowait(payload)
-        except asyncio.QueueFull:
-            dead.append(q)
-    # Remove full/dead queues
-    for q in dead:
-        try:
-            _event_subscribers.remove(q)
-        except ValueError:
-            pass
-
-
-async def handle_v1_events(request: web.Request) -> web.WebSocketResponse:
-    """WebSocket /v1/events — Real-time event stream.
-
-    Clients connect via WebSocket and receive events as JSON messages.
-    Events include: cdp_connect, cdp_disconnect, task_start, task_done,
-    error, skill_run, exec, memory_update, browser_browse, alert.
-    """
-    r = require_auth(request)
-    if r:
-        ws = web.WebSocketResponse()
-        await ws.prepare(request)
-        await ws.send_json({"ok": False, "error": "unauthorized"})
-        await ws.close()
-        return ws
-
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
-    # Send welcome message
-    await ws.send_json({"type": "connected", "ts": utc_now(),
-                        "data": {"version": VERSION, "message": "Arena Bridge event stream"}})
-
-    # Subscribe
-    q: asyncio.Queue = asyncio.Queue(maxsize=500)
-    _event_subscribers.append(q)
-    log.info("[Events] Subscriber connected (total=%d)", len(_event_subscribers))
-
-    try:
-        # Two-task pattern: read from ws AND forward events from queue
-        async def _forward_events():
-            while not ws.closed:
-                try:
-                    payload = await asyncio.wait_for(q.get(), timeout=30)
-                    if not ws.closed:
-                        await ws.send_json(payload)
-                except asyncio.TimeoutError:
-                    # Send keepalive ping
-                    if not ws.closed:
-                        try:
-                            await ws.send_json({"type": "ping", "ts": utc_now()})
-                        except Exception:
-                            break
-                except Exception:
-                    break
-
-        forward_task = asyncio.create_task(_forward_events())
-
-        # Also read incoming messages (for future commands)
-        async for msg in ws:
-            if msg.type == aiohttp.WSMsgType.TEXT:
-                try:
-                    data = json.loads(msg.data)
-                    # Support subscribe/unsubscribe by event type
-                    if data.get("command") == "ping":
-                        await ws.send_json({"type": "pong", "ts": utc_now()})
-                except Exception:
-                    pass
-            elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSE):
-                break
-
-        forward_task.cancel()
-        try:
-            await forward_task
-        except asyncio.CancelledError:
-            pass
-    finally:
-        if q in _event_subscribers:
-            _event_subscribers.remove(q)
-        log.info("[Events] Subscriber disconnected (total=%d)", len(_event_subscribers))
-
-    return ws
+    return await _events_emit_event(event_type, data, utc_now_fn=utc_now)
 
 
 # ============================================================================
@@ -1150,141 +1075,22 @@ def _log_request_response(method: str, path: str, status: int, duration: float,
 # ============================================================================
 # PHASE 3: Health Watchdog (auto-restart, memory/CPU monitoring, alerts)
 # ============================================================================
-_watchdog_state: dict[str, Any] = {
-    "last_check": 0.0,
-    "memory_mb": 0.0,
-    "cpu_percent": 0.0,
-    "alerts": [],
-    "restart_count": 0,
-    "auto_restart": True,
-    "memory_limit_mb": 512,
-    "cpu_limit_percent": 90.0,
-    "check_interval_s": 30,
-}
-_watchdog_task: asyncio.Task | None = None
-
-
-async def _watchdog_loop() -> None:
-    """Background watchdog that monitors bridge health and emits alerts."""
-    while True:
-        try:
-            await asyncio.sleep(_watchdog_state["check_interval_s"])
-
-            # Memory and CPU monitoring
-            mem_mb = 0.0
-            cpu_pct = 0.0
-            try:
-                import psutil
-                proc = psutil.Process()
-                mem_info = proc.memory_info()
-                mem_mb = mem_info.rss / (1024 * 1024)
-                cpu_pct = proc.cpu_percent(interval=1.0)
-            except ImportError:
-                # Fallback: read from /proc/self/status on Linux
-                try:
-                    if sys.platform != "win32":
-                        with open("/proc/self/status") as f:
-                            for line in f:
-                                if line.startswith("VmRSS:"):
-                                    mem_mb = int(line.split()[1]) / 1024  # kB to MB
-                                    break
-                except Exception:
-                    pass
-            except Exception:
-                pass
-
-            _watchdog_state["memory_mb"] = round(mem_mb, 1)
-            _watchdog_state["cpu_percent"] = round(cpu_pct, 1)
-            _watchdog_state["last_check"] = time.time()
-
-            # Check thresholds and emit alerts
-            alerts_now = []
-            if mem_mb > _watchdog_state["memory_limit_mb"]:
-                alert = {"type": "memory_high", "value_mb": round(mem_mb, 1),
-                         "limit_mb": _watchdog_state["memory_limit_mb"],
-                         "ts": utc_now()}
-                alerts_now.append(alert)
-                log.warning("[Watchdog] Memory alert: %.1f MB > %.0f MB limit",
-                            mem_mb, _watchdog_state["memory_limit_mb"])
-                await emit_event("alert", alert)
-
-            if cpu_pct > _watchdog_state["cpu_limit_percent"]:
-                alert = {"type": "cpu_high", "value_pct": round(cpu_pct, 1),
-                         "limit_pct": _watchdog_state["cpu_limit_percent"],
-                         "ts": utc_now()}
-                alerts_now.append(alert)
-                log.warning("[Watchdog] CPU alert: %.1f%% > %.1f%% limit",
-                            cpu_pct, _watchdog_state["cpu_limit_percent"])
-                await emit_event("alert", alert)
-
-            # Keep last 50 alerts
-            _watchdog_state["alerts"].extend(alerts_now)
-            _watchdog_state["alerts"] = _watchdog_state["alerts"][-50:]
-
-        except asyncio.CancelledError:
-            log.info("[Watchdog] Cancelled — shutting down")
-            break
-        except Exception as e:
-            log.error("[Watchdog] Unexpected error: %s", e)
-            await asyncio.sleep(10)
+# Watchdog runtime and handler now live in arena/watchdog/. Wrappers preserve
+# historical helper names used by startup/cleanup code.
 
 
 def _start_watchdog() -> None:
-    """Start the health watchdog if not already running."""
-    global _watchdog_task
-    if _watchdog_task and not _watchdog_task.done():
-        return
-    _watchdog_task = asyncio.create_task(_watchdog_loop())
-    log.info("[Watchdog] Started (interval=%ds, mem_limit=%dMB, cpu_limit=%.0f%%)",
-             _watchdog_state["check_interval_s"],
-             _watchdog_state["memory_limit_mb"],
-             _watchdog_state["cpu_limit_percent"])
+    _watchdog_start(
+        utc_now_fn=utc_now,
+        emit_event_fn=emit_event,
+        log_info=log.info,
+        log_warning=log.warning,
+        log_error=log.error,
+    )
 
 
 def _stop_watchdog() -> None:
-    """Stop the health watchdog."""
-    global _watchdog_task
-    if _watchdog_task and not _watchdog_task.done():
-        _watchdog_task.cancel()
-        _watchdog_task = None
-        log.info("[Watchdog] Stopped")
-
-
-async def handle_v1_watchdog(request: web.Request) -> web.Response:
-    """GET /v1/watchdog — Watchdog status and configuration.
-    POST /v1/watchdog — Update watchdog settings."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            if "memory_limit_mb" in data:
-                _watchdog_state["memory_limit_mb"] = int(data["memory_limit_mb"])
-            if "cpu_limit_percent" in data:
-                _watchdog_state["cpu_limit_percent"] = float(data["cpu_limit_percent"])
-            if "check_interval_s" in data:
-                _watchdog_state["check_interval_s"] = max(10, int(data["check_interval_s"]))
-            if "auto_restart" in data:
-                _watchdog_state["auto_restart"] = bool(data["auto_restart"])
-            log.info("[Watchdog] Config updated: %s", data)
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-
-    return _cors_json_response({
-        "ok": True,
-        "memory_mb": _watchdog_state["memory_mb"],
-        "cpu_percent": _watchdog_state["cpu_percent"],
-        "memory_limit_mb": _watchdog_state["memory_limit_mb"],
-        "cpu_limit_percent": _watchdog_state["cpu_limit_percent"],
-        "check_interval_s": _watchdog_state["check_interval_s"],
-        "auto_restart": _watchdog_state["auto_restart"],
-        "last_check": _watchdog_state["last_check"],
-        "restart_count": _watchdog_state["restart_count"],
-        "recent_alerts": _watchdog_state["alerts"][-10:],
-        "uptime_seconds": round(time.time() - BRIDGE_METRICS["start_time"], 1),
-    })
+    _watchdog_stop(log_info=log.info)
 
 
 # ============================================================================
@@ -2873,6 +2679,28 @@ _grpc_handler_ctx = GrpcHandlerContext(
 )
 _grpc_handlers = make_grpc_handlers(_grpc_handler_ctx)
 handle_v1_grpc = _grpc_handlers.grpc
+
+
+_event_handler_ctx = EventHandlerContext(
+    require_auth=require_auth,
+    version=VERSION,
+    utc_now=utc_now,
+    log_info=log.info,
+)
+_event_handlers = make_event_handlers(_event_handler_ctx)
+handle_v1_events = _event_handlers.events
+
+
+_watchdog_handler_ctx = WatchdogHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    metrics=BRIDGE_METRICS,
+    now=time.time,
+    log_info=log.info,
+)
+_watchdog_handlers = make_watchdog_handlers(_watchdog_handler_ctx)
+handle_v1_watchdog = _watchdog_handlers.watchdog
 
 
 _tracing_handler_ctx = TracingHandlerContext(
