@@ -20,6 +20,7 @@ def test_system_handlers_factory_outputs():
         clean_platform_name=ub.get_clean_platform_name,
         doctor_sync=lambda token: {"ok": True, "passed": 1, "total": 1, "checks": []},
         sysinfo_sync=lambda root: {"ok": True, "root": str(root)},
+        play_beep_sync=lambda beep_type, freq, dur: {"ok": True, "type": beep_type, "frequency": freq, "duration": dur},
     )
     handlers = make_system_handlers(ctx)
     assert callable(handlers.version)
@@ -33,3 +34,4 @@ def test_unified_routes_use_extracted_system_handlers():
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     for path in ["/v1/version", "/v1/info", "/v1/status", "/v1/config", "/v1/doctor", "/v1/sysinfo"]:
         assert ("GET", path) in paths
+    assert ("POST", "/v1/beep") in paths

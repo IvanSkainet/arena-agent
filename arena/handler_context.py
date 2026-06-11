@@ -173,3 +173,4 @@ class SystemHandlerContext:
     clean_platform_name: Callable[[], str]
     doctor_sync: Callable[[str], dict[str, Any]]
     sysinfo_sync: Callable[[Any], dict[str, Any]]
+    play_beep_sync: Callable[[str, int, int], dict[str, Any]]

@@ -20,6 +20,7 @@ class SystemHandlers:
     config: object
     doctor: object
     sysinfo: object
+    beep: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -108,6 +109,27 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         except Exception as e:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_v1_beep(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        beep_type = data.get("type", "success")
+        presets = {"success": (800, 300), "warning": (600, 500), "error": (400, 700), "attention": (1000, 200)}
+        freq, dur = presets.get(beep_type, (800, 300))
+        try:
+            freq = int(data.get("frequency", freq))
+            dur = int(data.get("duration", dur))
+        except Exception:
+            freq, dur = presets.get(beep_type, (800, 300))
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.play_beep_sync, beep_type, freq, dur)
+        return ctx.cors_json_response(result)
     return SystemHandlers(
         version=handle_v1_version,
         info=handle_v1_info,
@@ -115,4 +137,5 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         config=handle_v1_config,
         doctor=handle_v1_doctor,
         sysinfo=handle_v1_sysinfo,
+        beep=handle_v1_beep,
     )

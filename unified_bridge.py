@@ -308,6 +308,12 @@ from arena.system.doctor import (  # noqa: E402,F401
     check_internet,
     run_doctor,
 )
+from arena.system.sound import (  # noqa: E402,F401
+    generate_wav_bytes,
+    linux_play_beep,
+    play_beep,
+    winsound_melody,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -4278,6 +4284,10 @@ def _doctor_sync(token: str) -> dict:
         internet_check_fn=_check_internet_sync,
         home_dir=Path.home(),
     )
+
+
+def _play_beep_sync(beep_type: str, freq: int, dur: int) -> dict:
+    return play_beep(beep_type, freq, dur, subprocess_kwargs_fn=_subprocess_kwargs)
 def _sysinfo_cim_sync() -> tuple[int, int]:
     return sysinfo_cim_cpu_counts(subprocess_kwargs_fn=_subprocess_kwargs)
 
@@ -4315,6 +4325,7 @@ _system_handler_ctx = SystemHandlerContext(
     clean_platform_name=get_clean_platform_name,
     doctor_sync=_doctor_sync,
     sysinfo_sync=_sysinfo_sync,
+    play_beep_sync=_play_beep_sync,
 )
 _system_handlers = make_system_handlers(_system_handler_ctx)
 handle_v1_version = _system_handlers.version
@@ -4323,6 +4334,7 @@ handle_v1_status = _system_handlers.status
 handle_v1_config = _system_handlers.config
 handle_v1_doctor = _system_handlers.doctor
 handle_v1_sysinfo = _system_handlers.sysinfo
+handle_v1_beep = _system_handlers.beep
 
 
 # ============================================================================
@@ -5076,169 +5088,12 @@ def _list_missions_sync() -> list[dict]:
 
 
 
-def _winsound_melody() -> None:
-    """Play a melody using winsound (blocking, runs in executor)."""
-    import winsound
-    for f, d in [(523, 150), (659, 150), (784, 150), (1047, 300)]:
-        winsound.Beep(f, d)
 
 
-def _generate_wav_bytes(freq: int, duration_ms: int, volume: float = 0.5) -> bytes:
-    """Generate a simple WAV file in memory with a sine wave tone."""
-    import struct, math
-    sample_rate = 22050
-    num_samples = int(sample_rate * duration_ms / 1000)
-    # Simple sine wave with fade-in/fade-out (20ms) to avoid clicks
-    fade_samples = min(int(sample_rate * 0.02), num_samples // 4)
-    samples = []
-    for i in range(num_samples):
-        t = i / sample_rate
-        val = math.sin(2 * math.pi * freq * t) * volume * 32767
-        # Fade in/out
-        if i < fade_samples:
-            val *= i / fade_samples
-        elif i > num_samples - fade_samples:
-            val *= (num_samples - i) / fade_samples
-        samples.append(int(val))
-    # WAV header + data
-    data_size = num_samples * 2  # 16-bit samples
-    header = struct.pack('<4sI4s4sIHHIIHH4sI',
-        b'RIFF', 36 + data_size, b'WAVE', b'fmt ', 16,
-        1,  # PCM
-        1,  # mono
-        sample_rate,
-        sample_rate * 2,  # byte rate
-        2,  # block align
-        16, # bits per sample
-        b'data', data_size
-    )
-    data = header + b''.join(struct.pack('<h', max(-32768, min(32767, s))) for s in samples)
-    return data
 
 
-def _linux_play_beep(beep_type: str, freq: int, dur: int) -> dict:
-    """Synchronous Linux sound playback — tries multiple methods."""
-    import shutil, tempfile, os as _os
-
-    # Define melodies per type (sequence of freq, duration_ms pairs)
-    melodies = {
-        "success": [(523, 120), (659, 120), (784, 200)],      # C-E-G ascending (bright, happy)
-        "warning": [(440, 200), (380, 300)],                    # A4 drop to near-G#4 (alerting)
-        "error":   [(330, 200), (262, 400)],                    # E4 drop to C4 (serious, low)
-        "attention": [(880, 80), (880, 80), (880, 200)],       # A5 triple (urgent, sharp)
-        "melody": [(523, 150), (659, 150), (784, 150), (1047, 300)],  # C5-E5-G5-C6
-    }
-
-    notes = melodies.get(beep_type, [(freq, dur)])
-
-    # Method 1: paplay (PulseAudio/PipeWire — most common on modern Linux)
-    if shutil.which("paplay"):
-        try:
-            # Generate combined WAV for the melody
-            wav_parts = []
-            for f, d in notes:
-                wav_parts.append(_generate_wav_bytes(f, d))
-            # Add 50ms silence between notes
-            silence = _generate_wav_bytes(1, 50, volume=0.0)
-            combined = wav_parts[0]
-            for part in wav_parts[1:]:
-                combined = combined[:-44]  # strip WAV header from subsequent
-                combined += silence[44:]   # add silence without header
-                combined += part[44:]      # add next note without header
-            # Fix total data size in header
-            import struct as _struct
-            total_data_size = len(combined) - 8
-            combined = combined[:4] + _struct.pack('<I', total_data_size) + combined[8:]
-            # Fix data chunk size
-            data_chunk_size = len(combined) - 44
-            combined = combined[:40] + _struct.pack('<I', data_chunk_size) + combined[44:]
-
-            # Write to temp file and play
-            tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            tmp.write(combined)
-            tmp.close()
-            try:
-                subprocess.run(["paplay", tmp.name], timeout=3, **_subprocess_kwargs())
-                return {"ok": True, "type": beep_type, "method": "paplay"}
-            finally:
-                try: _os.unlink(tmp.name)
-                except Exception: pass
-        except Exception:
-            pass
-
-    # Method 2: aplay (ALSA — common fallback)
-    if shutil.which("aplay"):
-        try:
-            wav_parts = []
-            for f, d in notes:
-                wav_parts.append(_generate_wav_bytes(f, d))
-            silence = _generate_wav_bytes(1, 50, volume=0.0)
-            combined = wav_parts[0]
-            for part in wav_parts[1:]:
-                combined = combined[:-44]
-                combined += silence[44:]
-                combined += part[44:]
-            import struct as _struct
-            total_data_size = len(combined) - 8
-            combined = combined[:4] + _struct.pack('<I', total_data_size) + combined[8:]
-            data_chunk_size = len(combined) - 44
-            combined = combined[:40] + _struct.pack('<I', data_chunk_size) + combined[44:]
-
-            tmp = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
-            tmp.write(combined)
-            tmp.close()
-            try:
-                subprocess.run(["aplay", "-q", tmp.name], timeout=3, **_subprocess_kwargs())
-                return {"ok": True, "type": beep_type, "method": "aplay"}
-            finally:
-                try: _os.unlink(tmp.name)
-                except Exception: pass
-        except Exception:
-            pass
-
-    # Method 3: beep command (requires pcspkr module)
-    if shutil.which("beep"):
-        try:
-            for f, d in notes:
-                subprocess.run(["beep", "-f", str(f), "-l", str(d)], timeout=3)
-            return {"ok": True, "type": beep_type, "method": "beep"}
-        except Exception:
-            pass
-
-    return {"ok": True, "type": beep_type, "note": "no sound device, simulated"}
 
 
-async def handle_v1_beep(request: web.Request) -> web.Response:
-    """POST /v1/beep — play a sound notification. Body: {type?, frequency?, duration?}."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception:
-        data = {}
-    beep_type = data.get("type", "success")
-    presets = {"success": (800, 300), "warning": (600, 500), "error": (400, 700), "attention": (1000, 200)}
-    freq, dur = presets.get(beep_type, (800, 300))
-    freq = int(data.get("frequency", freq))
-    dur = int(data.get("duration", dur))
-
-    if sys.platform == "win32":
-        try:
-            import winsound
-            loop = asyncio.get_event_loop()
-            if beep_type == "melody":
-                await loop.run_in_executor(_EXECUTOR, _winsound_melody)
-            else:
-                await loop.run_in_executor(_EXECUTOR, winsound.Beep, freq, dur)
-            return _cors_json_response({"ok": True, "type": beep_type, "frequency": freq, "duration": dur})
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)})
-    else:
-        # Linux: try multiple sound methods with distinguishable melodies
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _linux_play_beep, beep_type, freq, dur)
-        return _cors_json_response(result)
 
 
 
