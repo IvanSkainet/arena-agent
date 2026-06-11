@@ -252,6 +252,7 @@ from arena.resources.listing import (  # noqa: E402,F401
     show_mission,
 )
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
+from arena.memory.handlers import make_memory_handlers  # noqa: E402,F401
 from arena.memory.store import (  # noqa: E402,F401
     delete_fact as memory_delete_fact,
     init_memory_db as memory_init_db,
@@ -278,7 +279,7 @@ from arena.observability.metrics import (  # noqa: E402,F401
     _record_request,
     record_request,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -5310,78 +5311,10 @@ def _delete_fact(key: str) -> bool:
     return memory_delete_fact(MEMORY_DB, key)
 
 
-async def handle_v1_memory(request: web.Request) -> web.Response:
-    """GET /v1/memory — list memory facts. Optional ?q=filter, ?offset=N, ?limit=N."""
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        
-        qs = parse_qs(request.query_string)
-        q = qs.get("q", [""])[0]
-        try:
-            offset = max(0, int(qs.get("offset", ["0"])[0]))
-            limit = min(500, max(1, int(qs.get("limit", ["100"])[0])))
-        except (ValueError, TypeError):
-            offset = 0
-            limit = 100
-            
-        loop = asyncio.get_event_loop()
-        total, facts = await loop.run_in_executor(_EXECUTOR, _search_facts_paged, q, offset, limit)
-        
-        result = {"ok": True, "total": total, "count": len(facts), "facts": facts}
-        if offset + limit < total:
-            result["next_offset"] = offset + limit
-        return _cors_json_response(result)
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-async def handle_v1_memory_set(request: web.Request) -> web.Response:
-    """POST /v1/memory — set a memory fact. Body: {key, value, tags?}."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    key = str(data.get("key", "")).strip()
-    value = str(data.get("value", "")).strip()
-    if not key:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing key"}, status=400)
-    tags = data.get("tags") or []
-    entry = {
-        "key": key, "value": value, "tags": tags,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(_EXECUTOR, _write_fact, entry)
-    return _cors_json_response({"ok": True, "fact": entry})
 
 
-async def handle_v1_memory_delete(request: web.Request) -> web.Response:
-    """DELETE /v1/memory — delete a memory fact by key. Body: {key: "name"}."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    key = str(data.get("key", "")).strip()
-    if not key:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing key"}, status=400)
-    loop = asyncio.get_event_loop()
-    deleted = await loop.run_in_executor(_EXECUTOR, _delete_fact, key)
-    if deleted:
-        audit({"event": "memory_delete", "key": key})
-        return _cors_json_response({"ok": True, "deleted": key})
-    return _cors_json_response({"ok": False, "error": "key not found"}, status=404)
 
 
 def _list_missions_sync() -> list[dict]:
@@ -9169,24 +9102,6 @@ def _recall_sync(query: str, top: int) -> dict:
     return memory_recall(query, facts=_load_facts(), top=top)
 
 
-async def handle_v1_recall(request: web.Request) -> web.Response:
-    """GET /v1/recall?q=query&top=5 — Smart memory recall with TF scoring."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    query = qs.get("q", [""])[0]
-    top = int(qs.get("top", ["5"])[0])
-    if not query:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _recall_sync, query, top)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/recall/digest GET — Memory digest ---
@@ -9195,18 +9110,27 @@ def _recall_digest_sync() -> dict:
     return memory_recall_digest(facts=_load_facts(), audit_lines=read_tail(AUDIT, 20), utc_now_fn=utc_now)
 
 
-async def handle_v1_recall_digest(request: web.Request) -> web.Response:
-    """GET /v1/recall/digest — Memory digest."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _recall_digest_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_memory_handler_ctx = MemoryHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    search_facts_paged=_search_facts_paged,
+    write_fact=_write_fact,
+    delete_fact=_delete_fact,
+    recall_sync=_recall_sync,
+    recall_digest_sync=_recall_digest_sync,
+    audit=audit,
+    utc_now=utc_now,
+)
+_memory_handlers = make_memory_handlers(_memory_handler_ctx)
+handle_v1_memory = _memory_handlers.memory_get
+handle_v1_memory_set = _memory_handlers.memory_set
+handle_v1_memory_delete = _memory_handlers.memory_delete
+handle_v1_recall = _memory_handlers.recall
+handle_v1_recall_digest = _memory_handlers.recall_digest
+
+
 
 
 # --- /v1/audit/stats GET — Audit statistics ---

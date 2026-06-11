@@ -120,3 +120,20 @@ class ResourceHandlerContext:
     agents_list_sync: Callable[[], dict[str, Any]]
     subagents_list_sync: Callable[[], dict[str, Any]]
     mission_show_sync: Callable[[str], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class MemoryHandlerContext:
+    """Dependencies for memory/recall API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    search_facts_paged: Callable[..., tuple[int, list[dict[str, Any]]]]
+    write_fact: Callable[[dict[str, Any]], None]
+    delete_fact: Callable[[str], bool]
+    recall_sync: Callable[[str, int], dict[str, Any]]
+    recall_digest_sync: Callable[[], dict[str, Any]]
+    audit: Callable[[dict[str, Any]], None]
+    utc_now: Callable[[], str]
