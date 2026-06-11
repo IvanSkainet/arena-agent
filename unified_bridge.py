@@ -196,6 +196,8 @@ from arena.exec.runner import (  # noqa: E402,F401
     run_shell_command,
 )
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
+from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
+from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -336,7 +338,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3433,24 +3435,8 @@ def now_ms() -> int:
 # ============================================================================
 # WEB GATEWAY WHITELIST
 # ============================================================================
-
-GW_WHITELIST = (
-    "agentctl skill ", "agentctl mem ", "agentctl recall ",
-    "agentctl sub list", "agentctl sub show", "agentctl sub spawn",
-    "agentctl browser py-", "agentctl agents ", "agentctl mission list",
-    "agentctl sys status", "agentctl hooks list", "agentctl report ",
-)
-
-
-def gw_allowed(cmd: str) -> bool:
-    """Check if a gateway command is allowed. Blocks shell metacharacters."""
-    if not any(cmd.startswith(p) for p in GW_WHITELIST):
-        return False
-    for ch in [";", "&", "|", "`", "$", "(", ")", "{", "}", "\n", ">", ">>", "<"]:
-        if ch in cmd:
-            return False
-    return True
-
+# Web Gateway whitelist/runtime helpers now live in arena/gateway/runtime.py;
+# imported above and re-exported here for compatibility.
 
 # ============================================================================
 # TASK RUNNER (integrated asyncio background)
@@ -3997,6 +3983,21 @@ def require_auth(request: web.Request) -> web.Response | None:
             )
         _rate_limit_store[key].append(now)
     return _cors_json_response({"ok": False, "error": "unauthorized"}, status=401)
+
+
+_gateway_handler_ctx = GatewayHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    handle_rpc=handle_rpc,
+    subprocess_kwargs=_subprocess_kwargs,
+)
+_gateway_handlers = make_gateway_handlers(_gateway_handler_ctx)
+handle_gateway_index = _gateway_handlers.index
+handle_gateway_tools = _gateway_handlers.tools
+handle_gateway_run = _gateway_handlers.run
+handle_gateway_tool = _gateway_handlers.tool
 
 
 _user_handler_ctx = UserHandlerContext(
@@ -8904,89 +8905,8 @@ async def handle_ws(request: web.Request) -> web.WebSocketResponse:
 # ============================================================================
 # HANDLERS — Web Gateway
 # ============================================================================
-
-async def handle_gateway_index(request: web.Request) -> web.Response:
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        return _cors_json_response({
-            "ok": True, "service": "arena-web-gateway", "version": "1.0.0",
-            "endpoints": ["/gateway", "/gateway/tools", "/run (POST)", "/tool (POST)"],
-            "mcp_proxy": "/mcp",
-            "auth_required": True,
-        })
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_gateway_tools(request: web.Request) -> web.Response:
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        mcp_tools = handle_rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-        return _cors_json_response({
-            "ok": True,
-            "whitelist_prefixes": list(GW_WHITELIST),
-            "mcp_tools": mcp_tools.get("result", {}).get("tools", []) if mcp_tools else [],
-        })
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-def _gw_run_sync(cmd: str, timeout: int) -> dict:
-    """Synchronous gateway command runner — returns dict result."""
-    try:
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout, **_subprocess_kwargs())
-        return {"ok": p.returncode == 0, "exit": p.returncode,
-                "stdout": p.stdout[-20000:], "stderr": p.stderr[-3000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "exit": -1, "stdout": "", "stderr": "timeout"}
-    except Exception as e:
-        return {"ok": False, "exit": -2, "stdout": "", "stderr": str(e)}
-
-
-async def handle_gateway_run(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "bad json"}, status=400)
-    cmd = (data.get("command") or data.get("cmd") or "").strip()
-    if not cmd:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing command"}, status=400)
-    if not gw_allowed(cmd):
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "command not in whitelist",
-                                   "allowed": list(GW_WHITELIST)}, status=403)
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(_EXECUTOR, _gw_run_sync, cmd, int(data.get("timeout", 60)))
-    return _cors_json_response(result)
-
-
-async def handle_gateway_tool(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "bad json"}, status=400)
-    name = data.get("name")
-    # Support both "arguments" (MCP spec) and "input" (common alternative)
-    args = data.get("arguments") or data.get("input") or {}
-    if not name:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing tool name"}, status=400)
-    resp = handle_rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                        "params": {"name": name, "arguments": args}})
-    return _cors_json_response({"ok": "error" not in (resp or {}), "response": resp})
+# Gateway handlers now live in arena/gateway/handlers.py. Bound above via
+# make_gateway_handlers(...) to preserve public route globals.
 
 
 # ============================================================================

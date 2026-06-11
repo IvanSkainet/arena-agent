@@ -223,3 +223,15 @@ class ExecHandlerContext:
     active_processes_snapshot: Callable[..., list[dict[str, Any]]]
     cautious_allow: set[str]
     default_max_output: int
+
+@dataclass(frozen=True)
+class GatewayHandlerContext:
+    """Dependencies for Web Gateway handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
+    subprocess_kwargs: Callable[[], dict[str, Any]]
+
