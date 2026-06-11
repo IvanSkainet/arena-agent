@@ -291,6 +291,12 @@ from arena.observability.request_log import (  # noqa: E402,F401
     read_request_log,
     request_log_lock,
 )
+from arena.observability.webhooks import (  # noqa: E402,F401
+    fire_webhooks,
+    load_webhooks,
+    normalize_webhooks_config,
+    save_webhooks,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -3260,46 +3266,13 @@ def sanitize_audit_event(event: dict[str, Any]) -> dict[str, Any]:
 _WEBHOOKS_CACHE = None
 
 def _load_webhooks() -> dict:
-    global _WEBHOOKS_CACHE
-    if _WEBHOOKS_CACHE is not None:
-        return _WEBHOOKS_CACHE
-    if WEBHOOKS_FILE.exists():
-        try:
-            data = json.loads(WEBHOOKS_FILE.read_text(encoding="utf-8"))
-            _WEBHOOKS_CACHE = data
-            return data
-        except Exception:
-            pass
-    _WEBHOOKS_CACHE = {"urls": [], "events": ["*"]}
-    return _WEBHOOKS_CACHE
+    return load_webhooks(WEBHOOKS_FILE)
 
 def _save_webhooks(data: dict) -> None:
-    global _WEBHOOKS_CACHE
-    _WEBHOOKS_CACHE = data
-    WEBHOOKS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    WEBHOOKS_FILE.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    return save_webhooks(WEBHOOKS_FILE, data)
 
 def _fire_webhooks(event: dict) -> None:
-    try:
-        wh = _load_webhooks()
-        if not wh.get("urls"):
-            return
-            
-        etype = event.get("type", event.get("event", "unknown"))
-        filters = set(wh.get("events", ["*"]))
-        if "*" not in filters and etype not in filters:
-            return
-            
-        payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
-        for url in wh["urls"]:
-            try:
-                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=5):
-                    pass
-            except Exception as e:
-                log.debug("[Webhooks] Failed to send to %s: %s", url, e)
-    except Exception as e:
-        log.debug("[Webhooks] Internal error: %s", e)
+    return fire_webhooks(event, load_fn=_load_webhooks, log_debug=log.debug)
 
 
 def audit(event: dict[str, Any]) -> None:
@@ -5874,12 +5847,10 @@ async def handle_v1_webhooks_set(request: web.Request) -> web.Response:
     except Exception:
         return _cors_json_response({"ok": False, "error": "invalid json"}, status=400)
     
-    urls = data.get("urls", [])
-    events = data.get("events", ["*"])
-    if not isinstance(urls, list) or not isinstance(events, list):
-        return _cors_json_response({"ok": False, "error": "urls and events must be lists"}, status=400)
-    
-    cfg = {"urls": [str(u) for u in urls if str(u).startswith("http")], "events": [str(e) for e in events]}
+    cfg, err = normalize_webhooks_config(data)
+    if err:
+        return _cors_json_response({"ok": False, "error": err}, status=400)
+
     loop = asyncio.get_event_loop()
     await loop.run_in_executor(_EXECUTOR, _save_webhooks, cfg)
     audit({"type": "webhooks_updated", "urls_count": len(cfg["urls"])})
