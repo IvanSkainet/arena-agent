@@ -187,6 +187,8 @@ from arena.rate_limit import (  # noqa: E402,F401
     rate_limit_stats,
     update_rate_limit_config,
 )
+from arena.auth.users import UserStore  # noqa: E402,F401
+from arena.auth.handlers import make_user_handlers  # noqa: E402,F401
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -327,7 +329,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1233,180 +1235,16 @@ async def handle_v1_watchdog(request: web.Request) -> web.Response:
 # PHASE 3: Multi-User Auth with Roles
 # ============================================================================
 _USERS_FILE = APP_DIR / "users.json"
-_users_cache: dict[str, Any] = {"last_load": 0.0, "users": {}}
-_users_lock = threading.Lock()
-
+_user_store = UserStore(_USERS_FILE, log_warning=log.warning, log_debug=log.debug)
 
 def _load_users() -> dict[str, dict]:
-    """Load user definitions from users.json.
-
-    Format: {"users": [{"token": "...", "role": "admin|user|readonly", "name": "..."}]}
-    Falls back to single-token auth if no users.json exists.
-    """
-    global _users_cache
-    now = time.time()
-
-    # Cache for 5 seconds
-    if (now - _users_cache["last_load"]) < 5.0 and _users_cache["users"]:
-        return _users_cache["users"]
-
-    users = {}
-    if _USERS_FILE.exists():
-        try:
-            data = json.loads(_USERS_FILE.read_text(encoding="utf-8"))
-            for u in data.get("users", []):
-                token = u.get("token", "")
-                if token:
-                    users[token] = {
-                        "role": u.get("role", "user"),
-                        "name": u.get("name", "unknown"),
-                    }
-            with _users_lock:
-                _users_cache["users"] = users
-                _users_cache["last_load"] = now
-            log.debug("[Auth] Loaded %d users from %s", len(users), _USERS_FILE)
-        except Exception as e:
-            log.warning("[Auth] Failed to load users.json: %s", e)
-
-    return users
+    return _user_store.load_users()
 
 
 def check_auth_with_role(request: web.Request, required_role: str | None = None) -> tuple[bool, str]:
-    """Check auth and return (is_authenticated, role).
-
-    If multi-user auth is configured, validates against users.json.
-    Otherwise, falls back to single-token auth.
-    Role hierarchy: admin > user > readonly
-    """
-    # Try multi-user auth first
-    users = _load_users()
-    auth_header = request.headers.get("Authorization", "")
-    xt_header = request.headers.get("X-Arena-Token", "")
-    token = ""
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:]
-    elif xt_header:
-        token = xt_header
-
-    if users:
-        # Constant-time comparison for each stored token to prevent timing attacks
-        for stored_token, user_info in users.items():
-            if hmac.compare_digest(token, stored_token):
-                user_role = user_info.get("role", "user")
-                if required_role:
-                    role_level = {"admin": 3, "user": 2, "readonly": 1}
-                    if role_level.get(user_role, 0) < role_level.get(required_role, 0):
-                        return False, user_role
-                return True, user_role
-
-    # Fall back to single-token auth
-    cfg = request.app["cfg"]
-    cfg_token = cfg["token"]
-    if token and hmac.compare_digest(token, cfg_token):
-        return True, "admin"  # Single token = admin
-
-    return False, ""
+    return _user_store.check_auth_with_role(request, required_role=required_role)
 
 
-async def handle_v1_users(request: web.Request) -> web.Response:
-    """GET /v1/users — List users (admin only).
-    POST /v1/users — Add/update user (admin only).
-    DELETE /v1/users — Remove user (admin only)."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    # Only admin can manage users
-    is_auth, role = check_auth_with_role(request)
-    if not is_auth or role != "admin":
-        return _cors_json_response({"ok": False, "error": "admin role required"}, status=403)
-
-    if request.method == "GET":
-        users = _load_users()
-        user_list = []
-        for token, info in users.items():
-            user_list.append({"name": info.get("name", "unknown"),
-                              "role": info.get("role", "user"),
-                              "token_length": len(token)})
-        # Also show the primary admin token
-        cfg = request.app["cfg"]
-        user_list.insert(0, {"name": "primary_admin", "role": "admin",
-                             "token_length": len(cfg["token"])})
-        return _cors_json_response({"ok": True, "users": user_list, "count": len(user_list)})
-
-    elif request.method == "POST":
-        try:
-            data = await request.json()
-            name = data.get("name", "")
-            new_token = data.get("token", "") or b64_token(24)
-            new_role = data.get("role", "user")
-            if new_role not in ("admin", "user", "readonly"):
-                return _cors_json_response({"ok": False, "error": "role must be admin, user, or readonly"}, status=400)
-            if not name:
-                return _cors_json_response({"ok": False, "error": "name is required"}, status=400)
-
-            # Load, update, save
-            users_data = {"users": []}
-            if _USERS_FILE.exists():
-                try:
-                    users_data = json.loads(_USERS_FILE.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-
-            # Add or update
-            updated = False
-            for u in users_data["users"]:
-                if u.get("name") == name:
-                    u["role"] = new_role
-                    u["token"] = new_token
-                    updated = True
-                    break
-            if not updated:
-                users_data["users"].append({"token": new_token, "role": new_role, "name": name})
-
-            _USERS_FILE.write_text(json.dumps(users_data, indent=2, ensure_ascii=False))
-            # Invalidate cache
-            global _users_cache
-            _users_cache = {"last_load": 0.0, "users": {}}
-
-            audit({"type": "user_add", "name": name, "role": new_role})
-            log.info("[Auth] User %s added/updated with role %s", name, new_role)
-            return _cors_json_response({"ok": True, "name": name, "role": new_role,
-                                        "token": new_token,
-                                        "note": "Save this token — it won't be shown again"})
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-
-    elif request.method == "DELETE":
-        try:
-            data = await request.json()
-            name = data.get("name", "")
-            if not name:
-                return _cors_json_response({"ok": False, "error": "name is required"}, status=400)
-
-            users_data = {"users": []}
-            if _USERS_FILE.exists():
-                try:
-                    users_data = json.loads(_USERS_FILE.read_text(encoding="utf-8"))
-                except Exception:
-                    pass
-
-            original_count = len(users_data["users"])
-            users_data["users"] = [u for u in users_data["users"] if u.get("name") != name]
-
-            if len(users_data["users"]) == original_count:
-                return _cors_json_response({"ok": False, "error": f"user {name} not found"}, status=404)
-
-            _USERS_FILE.write_text(json.dumps(users_data, indent=2, ensure_ascii=False))
-            _users_cache = {"last_load": 0.0, "users": {}}
-
-            audit({"type": "user_remove", "name": name})
-            log.info("[Auth] User %s removed", name)
-            return _cors_json_response({"ok": True, "removed": name})
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-
-    return _cors_json_response({"ok": False, "error": "method not supported"}, status=405)
 
 
 # ============================================================================
@@ -4153,6 +3991,22 @@ def require_auth(request: web.Request) -> web.Response | None:
             )
         _rate_limit_store[key].append(now)
     return _cors_json_response({"ok": False, "error": "unauthorized"}, status=401)
+
+
+_user_handler_ctx = UserHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    check_auth_with_role=check_auth_with_role,
+    list_users=_user_store.list_users_for_response,
+    add_or_update_user=_user_store.add_or_update_user,
+    remove_user=_user_store.remove_user,
+    token_generator=b64_token,
+    audit=audit,
+    log_info=log.info,
+)
+_user_handlers = make_user_handlers(_user_handler_ctx)
+handle_v1_users = _user_handlers.users
 
 def _check_internet_sync() -> bool:
     return check_internet()

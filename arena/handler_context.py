@@ -174,3 +174,19 @@ class SystemHandlerContext:
     doctor_sync: Callable[[str], dict[str, Any]]
     sysinfo_sync: Callable[[Any], dict[str, Any]]
     play_beep_sync: Callable[[str, int, int], dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class UserHandlerContext:
+    """Dependencies for user-management handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    check_auth_with_role: Callable[[web.Request], tuple[bool, str]]
+    list_users: Callable[[str], list[dict[str, Any]]]
+    add_or_update_user: Callable[..., None]
+    remove_user: Callable[[str], bool]
+    token_generator: Callable[[int], str]
+    audit: Callable[[dict[str, Any]], None]
+    log_info: Callable[..., None]
