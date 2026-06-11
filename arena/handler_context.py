@@ -235,3 +235,13 @@ class GatewayHandlerContext:
     handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
     subprocess_kwargs: Callable[[], dict[str, Any]]
 
+@dataclass(frozen=True)
+class TracingHandlerContext:
+    """Dependencies for OpenTelemetry tracing handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    version: str
+    log_info: Callable[..., None]
+
