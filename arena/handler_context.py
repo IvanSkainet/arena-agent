@@ -202,3 +202,24 @@ class FileHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     home: Any
     bridge_py: Any
+
+
+@dataclass(frozen=True)
+class ExecHandlerContext:
+    """Dependencies for exec/process API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    audit: Callable[[dict[str, Any]], None]
+    blocked_reason: Callable[[str], str | None]
+    control_check: Callable[[], dict | None]
+    is_input_injection_cmd: Callable[[str], str | None]
+    first_word: Callable[[str], str]
+    under_root: Callable[[Any, Any], bool]
+    decode_output: Callable[[bytes], str]
+    run_shell_command: Callable[..., Any]
+    active_processes: dict[str, dict[str, Any]]
+    active_processes_snapshot: Callable[..., list[dict[str, Any]]]
+    cautious_allow: set[str]
+    default_max_output: int

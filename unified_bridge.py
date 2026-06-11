@@ -195,6 +195,7 @@ from arena.exec.runner import (  # noqa: E402,F401
     active_processes_snapshot,
     run_shell_command,
 )
+from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -335,7 +336,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -4411,6 +4412,27 @@ handle_v1_hardware = _hardware_handlers.hardware
 handle_v1_hwinfo = _hardware_handlers.hwinfo
 
 
+_exec_handler_ctx = ExecHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    audit=audit,
+    blocked_reason=blocked_reason,
+    control_check=_control_check,
+    is_input_injection_cmd=_is_input_injection_cmd,
+    first_word=first_word,
+    under_root=under_root,
+    decode_output=decode_output,
+    run_shell_command=run_shell_command,
+    active_processes=ACTIVE_PROCESSES,
+    active_processes_snapshot=active_processes_snapshot,
+    cautious_allow=CAUTIOUS_ALLOW,
+    default_max_output=DEFAULT_MAX_OUTPUT,
+)
+_exec_handlers = make_exec_handlers(_exec_handler_ctx)
+handle_v1_ps = _exec_handlers.ps
+handle_v1_exec = _exec_handlers.exec
+handle_v1_kill = _exec_handlers.kill
 
 
 
@@ -4419,165 +4441,14 @@ handle_v1_hwinfo = _hardware_handlers.hwinfo
 
 
 
-async def handle_v1_ps(request: web.Request) -> web.Response:
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        ps_list = active_processes_snapshot(max_cmd_len=200)
-        return _cors_json_response({"ok": True, "processes": ps_list, "count": len(ps_list)})
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 
 
-async def handle_v1_exec(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    cfg = request.app["cfg"]
-
-    try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-
-    if not isinstance(data, dict):
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "JSON must be object"}, status=400)
-
-    request_id = str(data.get("request_id") or uuid.uuid4())
-    cmd = str(data.get("cmd", "")).strip()
-    if not cmd:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing cmd", "request_id": request_id}, status=400)
-
-    # Safety checks
-    reason = blocked_reason(cmd)
-    if reason:
-        audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd, "reason": reason,
-                "client": request.remote or "127.0.0.1"})
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": reason, "request_id": request_id}, status=403)
-
-    # v2.10.0: Honor the control lease for exec commands that would inject
-    # desktop input. General shell stays available while paused (so the agent
-    # can still diagnose/recover), but keyboard/mouse injection is blocked —
-    # closing the pause-bypass hole where exec could drive ydotool/xdotool.
-    ctrl_err = _control_check()
-    if ctrl_err:
-        inj = _is_input_injection_cmd(cmd)
-        if inj:
-            audit({"type": "exec_blocked_control", "request_id": request_id, "cmd": cmd,
-                   "reason": ctrl_err.get("error"), "matched": inj,
-                   "client": request.remote or "127.0.0.1"})
-            _record_request(is_error=True, count_request=False)
-            err = dict(ctrl_err)
-            err["request_id"] = request_id
-            err["message"] = (
-                "Desktop input injection blocked while control is "
-                f"{ctrl_err.get('status')}. Resume control to inject input."
-            )
-            return _cors_json_response(err, status=403)
-
-    profile = cfg["profile"]
-    fw = first_word(cmd)
-    if profile == "cautious" and fw not in CAUTIOUS_ALLOW:
-        reason = f"command '{fw}' not in cautious allowlist; use --profile owner-shell"
-        audit({"type": "exec_blocked", "request_id": request_id, "cmd": cmd, "reason": reason,
-                "client": request.remote or "127.0.0.1"})
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": reason, "request_id": request_id}, status=403)
-
-    root: Path = cfg["root"]
-    cwd_raw = str(data.get("cwd") or root)
-    cwd = Path(cwd_raw).expanduser()
-    if not cwd.is_absolute():
-        cwd = root / cwd
-    if not cfg["allow_any_cwd"] and not under_root(cwd, root):
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"cwd must be under root {root}", "request_id": request_id}, status=403)
-    if not cwd.exists() or not cwd.is_dir():
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": f"cwd does not exist: {cwd}", "request_id": request_id}, status=400)
-
-    timeout = min(int(data.get("timeout", cfg["timeout"])), cfg["max_timeout"])
-    max_output = min(int(data.get("max_output", DEFAULT_MAX_OUTPUT)), cfg["max_output"])
-    env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
-    env = os.environ.copy()
-    # Block dangerous environment variables that could escalate privileges
-    _BLOCKED_ENV_PATTERNS = ["ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
-                              "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONSTARTUP"]
-    for k in list(env_extra.keys()):
-        for blocked in _BLOCKED_ENV_PATTERNS:
-            if blocked in k.upper():
-                del env_extra[k]
-                break
-    env.update({str(k): str(v) for k, v in env_extra.items()})
-
-    sem: asyncio.Semaphore = cfg["semaphore"]
-    if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response(
-            {"ok": False, "error": "too many concurrent exec requests", "request_id": request_id}, status=429)
-
-    await sem.acquire()
-    cfg["active_exec"] += 1
-
-    audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
-            "timeout": timeout, "client": request.remote or "127.0.0.1"})
-
-    try:
-        result = await run_shell_command(
-            request_id=request_id,
-            cmd=cmd,
-            cwd=cwd,
-            env=env,
-            timeout=timeout,
-            max_output=max_output,
-            decode_output_fn=decode_output,
-        )
-        event_type = "exec_timeout" if result.get("timed_out") else "exec_done"
-        audit({"type": event_type, "request_id": request_id, "cmd": cmd, "exit_code": result.get("exit_code"),
-                "duration": result.get("duration_sec"), "truncated": result.get("truncated"),
-                "stdout_bytes": result.get("stdout_bytes"), "stderr_bytes": result.get("stderr_bytes")})
-        _record_request(duration=result.get("duration_sec", 0.0), is_exec=True, is_error=not result.get("ok"))
-        response = dict(result)
-        response.pop("timed_out", None)
-        return _cors_json_response(response, status=408 if result.get("timed_out") else 200)
-    except Exception as e:
-        duration = 0.0
-        audit({"type": "exec_error", "request_id": request_id, "cmd": cmd, "duration": duration, "error": repr(e)})
-        _record_request(duration=duration, is_exec=True, is_error=True)
-        return _cors_json_response({"ok": False, "request_id": request_id, "error": "Internal error", "duration_sec": duration}, status=500)
-    finally:
-        cfg["active_exec"] -= 1
-        sem.release()
 
 
-async def handle_v1_kill(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    try:
-        data = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "invalid json"}, status=400)
-    target_id = data.get("request_id")
-    if not target_id or target_id not in ACTIVE_PROCESSES:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "process not found"}, status=404)
-    info = ACTIVE_PROCESSES[target_id]
-    try:
-        os.kill(info["pid"], signal.SIGTERM if os.name != "nt" else signal.CTRL_BREAK_EVENT)
-    except Exception:
-        pass
-    audit({"type": "process_killed", "target_request_id": target_id, "client": request.remote or "127.0.0.1"})
-    _record_request()
-    return _cors_json_response({"ok": True, "killed": target_id})
+
+
 
 
 
