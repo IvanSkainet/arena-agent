@@ -303,6 +303,10 @@ from arena.system.sysinfo import (  # noqa: E402,F401
     collect_sysinfo,
     sysinfo_cim_cpu_counts,
 )
+from arena.system.doctor import (  # noqa: E402,F401
+    check_internet,
+    run_doctor,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -5230,13 +5234,7 @@ async def handle_v1_beep(request: web.Request) -> web.Response:
 
 
 def _check_internet_sync() -> bool:
-    """Synchronous internet check — returns True if reachable."""
-    import urllib.request
-    try:
-        urllib.request.urlopen("https://www.google.com", timeout=3)
-        return True
-    except Exception:
-        return False
+    return check_internet()
 
 
 async def handle_v1_doctor(request: web.Request) -> web.Response:
@@ -5244,50 +5242,25 @@ async def handle_v1_doctor(request: web.Request) -> web.Response:
     r = require_auth(request)
     if r: return r
     _record_request()
-    checks = []
-    # Bridge
-    checks.append({"name": "Bridge running", "ok": True, "detail": f"v{VERSION}"})
-    # Token
-    token = request.app["cfg"]["token"]
-    checks.append({"name": "Token", "ok": bool(token), "detail": f"{len(token)} chars" if token else "missing"})
-    # Python
-    checks.append({"name": "Python", "ok": True, "detail": sys.version.split()[0]})
-    # Directories
-    for name, path in [("Bridge dir", BRIDGE_DIR),
-                        ("Memory dir", MEMORY_FILE.parent), ("Missions dir", MISSIONS_DIR)]:
-        checks.append({"name": name, "ok": path.exists(), "detail": str(path)})
-    # Memory — non-critical on fresh install (no facts yet is normal)
-    loop = asyncio.get_event_loop()
-    facts = await loop.run_in_executor(_EXECUTOR, _load_facts)
-    checks.append({"name": "Memory facts", "ok": True, "detail": f"{len(facts)} entries",
-                    "status": "ok" if facts else "empty", "critical": False})
-    # Internet
-    internet_ok = await loop.run_in_executor(_EXECUTOR, _check_internet_sync)
-    checks.append({"name": "Internet", "ok": internet_ok, "detail": "available" if internet_ok else "not reachable"})
-    # Sound — non-critical on servers/headless environments
-    if sys.platform == "win32":
-        try:
-            import winsound
-            checks.append({"name": "Sound", "ok": True, "detail": "winsound available", "critical": False})
-        except ImportError:
-            checks.append({"name": "Sound", "ok": False, "detail": "winsound not available", "critical": False})
-    else:
-        import shutil
-        sound_ok = bool(shutil.which("beep") or shutil.which("paplay"))
-        checks.append({"name": "Sound", "ok": sound_ok, "detail": "beep/paplay available" if sound_ok else "no sound device", "critical": False})
-    # Disk — use 80% usage threshold (consistent with disk monitoring)
     try:
-        import shutil as _shutil
-        disk = _shutil.disk_usage(str(Path.home()))
-        usage_pct = round(disk.used / disk.total * 100, 1) if disk.total > 0 else 0
-        disk_ok = usage_pct < 80
-        checks.append({"name": "Disk free", "ok": disk_ok, "detail": f"{disk.free // (1024**3)} GB free ({usage_pct}% used)"})
-    except Exception:
-        pass
-
-    # passed = checks that are OK, or non-critical failures (those are warnings, not failures)
-    passed = sum(1 for c in checks if c["ok"] or not c.get("critical", True))
-    return _cors_json_response({"ok": True, "passed": passed, "total": len(checks), "checks": checks})
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            _EXECUTOR,
+            lambda: run_doctor(
+                version=VERSION,
+                token=request.app["cfg"]["token"],
+                bridge_dir=BRIDGE_DIR,
+                memory_dir=MEMORY_FILE.parent,
+                missions_dir=MISSIONS_DIR,
+                facts_count_fn=lambda: len(_load_facts()),
+                internet_check_fn=_check_internet_sync,
+                home_dir=Path.home(),
+            ),
+        )
+        return _cors_json_response(result)
+    except Exception as e:
+        _record_request(is_error=True, count_request=False)
+        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 def _list_reports_sync() -> list[dict]:
