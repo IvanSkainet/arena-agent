@@ -174,6 +174,19 @@ from arena.security import (  # noqa: E402,F401
     _validate_url,
     blocked_reason,
 )
+from arena.rate_limit import (  # noqa: E402,F401
+    _rate_limit_lock,
+    _rate_limit_max,
+    _rate_limit_store,
+    _rate_limit_window,
+    _rl_v2_config,
+    _rl_v2_lock,
+    _rl_v2_store,
+    check_rate_limit as rl_check_rate_limit,
+    check_rate_limit_v2 as rl_check_rate_limit_v2,
+    rate_limit_stats,
+    update_rate_limit_config,
+)
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -924,11 +937,7 @@ def _stop_cdp_watcher():
 # Global reference to the aiohttp Application (set in make_app)
 _app_ref: Any = None
 
-# Rate limiter — sliding window per IP
-_rate_limit_window: float = 60.0  # 60-second window
-_rate_limit_max: int = 300  # max requests per window per IP
-_rate_limit_store: dict[str, list[float]] = {}
-_rate_limit_lock = threading.Lock()
+# Rate limit state/checks now live in arena/rate_limit.py.
 
 # ============================================================================
 # PHASE 3: WebSocket Real-Time Events
@@ -2394,89 +2403,15 @@ async def handle_gui_v2(request: web.Request) -> web.Response:
 # ============================================================================
 # PHASE 4: Rate Limiting v2 (per-user, per-endpoint with X-RateLimit-* headers)
 # ============================================================================
-_rl_v2_config: dict[str, Any] = {
-    "enabled": True,
-    "default_limit": 300,       # requests per minute (global default)
-    "per_user_limits": {},      # {role: limit} e.g. {"admin": 1000, "user": 200, "readonly": 100}
-    "per_endpoint_limits": {},  # {path_prefix: limit} e.g. {"/v1/exec": 60}
-    "window_seconds": 60,
-}
-_rl_v2_store: dict[str, dict[str, list[float]]] = {}  # {user_id: {endpoint: [timestamps]}}
-_rl_v2_lock = threading.Lock()
+# Enhanced rate limit state lives in arena/rate_limit.py.
 
 
 def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
-    """Enhanced rate limiting with per-user, per-endpoint, and X-RateLimit-* headers.
-    
-    Returns None if request is allowed, or a 429 Response with rate limit headers.
-    """
-    if not _rl_v2_config["enabled"]:
-        return None
-    
-    # Determine user identity
-    is_auth, role = check_auth_with_role(request)
-    peer = request.remote or "anonymous"
-    user_id = f"{peer}:{role}" if is_auth else f"{peer}:anonymous"
-    
-    # Find applicable limit
-    path = request.path
-    limit = _rl_v2_config["default_limit"]
-    
-    # Check per-user limit by role
-    if is_auth and role in _rl_v2_config["per_user_limits"]:
-        limit = _rl_v2_config["per_user_limits"][role]
-    
-    # Check per-endpoint limit (most specific match)
-    for prefix, ep_limit in sorted(_rl_v2_config["per_endpoint_limits"].items(),
-                                    key=lambda x: -len(x[0])):
-        if path.startswith(prefix):
-            limit = min(limit, ep_limit)
-            break
-    
-    window = _rl_v2_config["window_seconds"]
-    now = time.time()
-    
-    with _rl_v2_lock:
-        if user_id not in _rl_v2_store:
-            _rl_v2_store[user_id] = {}
-        
-        ep_store = _rl_v2_store[user_id].setdefault(path, [])
-        # Clean old entries
-        ep_store[:] = [t for t in ep_store if now - t < window]
-        
-        remaining = limit - len(ep_store)
-        reset_at = now + window if ep_store else now + window
-        
-        if remaining <= 0:
-            # Rate limited
-            ep_store.append(now)
-            retry_after = round(window - (now - ep_store[0]), 1)
-            
-            resp = _cors_json_response(
-                {"ok": False, "error": "rate limit exceeded",
-                 "retry_after_s": retry_after, "limit": limit, "window_s": window},
-                status=429
-            )
-            resp.headers["X-RateLimit-Limit"] = str(limit)
-            resp.headers["X-RateLimit-Remaining"] = "0"
-            resp.headers["X-RateLimit-Reset"] = str(int(reset_at))
-            resp.headers["Retry-After"] = str(retry_after)
-            return resp
-        
-        ep_store.append(now)
-    
-    # Prune empty endpoint and user entries to prevent memory leak
-    _rl_v2_store[user_id] = {k: v for k, v in _rl_v2_store[user_id].items() if v}
-    if not _rl_v2_store[user_id]:
-        del _rl_v2_store[user_id]
-    
-    # Not rate limited — store headers for later addition
-    request["_rl_headers"] = {
-        "X-RateLimit-Limit": str(limit),
-        "X-RateLimit-Remaining": str(remaining - 1),
-        "X-RateLimit-Reset": str(int(reset_at)),
-    }
-    return None
+    return rl_check_rate_limit_v2(
+        request,
+        check_auth_with_role_fn=check_auth_with_role,
+        cors_json_response_fn=_cors_json_response,
+    )
 
 
 async def handle_v1_ratelimit(request: web.Request) -> web.Response:
@@ -2485,41 +2420,14 @@ async def handle_v1_ratelimit(request: web.Request) -> web.Response:
     r = require_auth(request)
     if r: return r
     _record_request()
-    
     if request.method == "POST":
         try:
             data = await request.json()
-            if "enabled" in data:
-                _rl_v2_config["enabled"] = bool(data["enabled"])
-            if "default_limit" in data:
-                _rl_v2_config["default_limit"] = int(data["default_limit"])
-            if "per_user_limits" in data:
-                _rl_v2_config["per_user_limits"] = data["per_user_limits"]
-            if "per_endpoint_limits" in data:
-                _rl_v2_config["per_endpoint_limits"] = data["per_endpoint_limits"]
-            if "window_seconds" in data:
-                _rl_v2_config["window_seconds"] = max(5, int(data["window_seconds"]))
+            update_rate_limit_config(data)
             log.info("[RateLimitv2] Configuration updated")
         except Exception as e:
             return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    
-    # Stats
-    active_users = 0
-    total_tracked = 0
-    with _rl_v2_lock:
-        for user_id, endpoints in _rl_v2_store.items():
-            for ep, timestamps in endpoints.items():
-                total_tracked += len(timestamps)
-            active_users += 1
-    
-    return _cors_json_response({
-        "ok": True,
-        "config": _rl_v2_config,
-        "stats": {
-            "active_users": active_users,
-            "total_tracked_requests": total_tracked,
-        }
-    })
+    return _cors_json_response(rate_limit_stats())
 
 
 # ============================================================================
@@ -3187,31 +3095,7 @@ async def handle_v1_traces_export(request: web.Request) -> web.Response:
 
 
 def _check_rate_limit(request: web.Request) -> web.Response | None:
-    """Check rate limit for the requesting IP. Returns 429 response or None."""
-    peer = request.remote or "anonymous"
-    now = time.time()
-    
-    with _rate_limit_lock:
-        timestamps = _rate_limit_store.get(peer, [])
-        # Remove entries older than window
-        timestamps = [t for t in timestamps if now - t < _rate_limit_window]
-        
-        # Prune empty IP entries to prevent memory leak
-        if not timestamps and peer in _rate_limit_store:
-            del _rate_limit_store[peer]
-            return None
-        
-        if len(timestamps) >= _rate_limit_max:
-            _rate_limit_store[peer] = timestamps
-            return _cors_json_response(
-                {"ok": False, "error": "rate limit exceeded", "retry_after_s": round(_rate_limit_window - (now - timestamps[0]), 1)},
-                status=429
-            )
-        
-        timestamps.append(now)
-        _rate_limit_store[peer] = timestamps
-    
-    return None
+    return rl_check_rate_limit(request, cors_json_response_fn=_cors_json_response)
 
 CAUTIOUS_ALLOW = {
     "echo", "pwd", "ls", "dir", "tree", "find", "fd", "rg", "grep", "cat", "type",
