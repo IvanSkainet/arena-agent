@@ -363,3 +363,14 @@ class ProfileHandlerContext:
     emit_event: Callable[[str, dict | None], Any]
     log_warning: Callable[..., None]
 
+@dataclass(frozen=True)
+class GrpcHandlerContext:
+    """Dependencies for gRPC-style secondary interface handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    server_task: Callable[[], Any]
+    start_server: Callable[[dict[str, Any]], Any]
+    stop_server: Callable[[], Any]
+

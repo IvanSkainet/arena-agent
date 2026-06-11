@@ -198,6 +198,15 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.grpc.runtime import (  # noqa: E402,F401
+    GRPC_CONFIG as _grpc_config,
+    grpc_handler as _grpc_handler,
+    grpc_server_loop as _grpc_server_loop,
+    grpc_server_task as _grpc_server_task,
+    start_grpc_server,
+    stop_grpc_server,
+)
+from arena.grpc.handlers import make_grpc_handlers  # noqa: E402,F401
 from arena.profiles.handlers import (  # noqa: E402,F401
     PROFILES_DIR as _PROFILES_DIR,
     ensure_profiles_dir as _profiles_ensure_profiles_dir,
@@ -377,7 +386,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1337,165 +1346,8 @@ def _get_tailscale_cert() -> tuple[str, str]:
 # ============================================================================
 # PHASE 4: gRPC-style Secondary Interface
 # ============================================================================
-_grpc_config: dict[str, Any] = {
-    "enabled": False,
-    "port": 50051,
-    "running": False,
-}
-_grpc_server_task: asyncio.Task | None = None
-
-
-async def _grpc_handler(request: web.Request) -> web.Response:
-    """Handle gRPC-style JSON requests on the secondary interface.
-    
-    Accepts JSON payloads in the format:
-    {"service": "Bridge", "method": "Status", "params": {}}
-    Returns JSON responses in the format:
-    {"ok": true, "result": {...}}
-    """
-    try:
-        data = await request.json()
-    except Exception:
-        return web.json_response({"ok": False, "error": "invalid JSON"}, status=400)
-    
-    service = data.get("service", "Bridge")
-    method = data.get("method", "")
-    params = data.get("params", {})
-    
-    # Route to internal handlers
-    method_map = {
-        "Bridge/Status": ("/v1/status", "GET"),
-        "Bridge/Health": ("/health", "GET"),
-        "Bridge/Info": ("/v1/info", "GET"),
-        "Bridge/Version": ("/v1/version", "GET"),
-        "Bridge/Exec": ("/v1/exec", "POST"),
-        "Bridge/Skills": ("/v1/skills", "GET"),
-        "Bridge/SkillsRun": ("/v1/skills/run", "POST"),
-        "Bridge/Memory": ("/v1/memory", "GET"),
-        "Bridge/MemorySet": ("/v1/memory", "POST"),
-        "Bridge/Tasks": ("/v1/tasks", "GET"),
-        "Bridge/Audit": ("/v1/audit", "GET"),
-        "Bridge/Recall": ("/v1/recall", "GET"),
-        "Bridge/Watchdog": ("/v1/watchdog", "GET"),
-        "Bridge/Alerts": ("/v1/alerts", "GET"),
-        "Bridge/Users": ("/v1/users", "GET"),
-        "Bridge/Batch": ("/v1/batch", "POST"),
-        "CDP/Status": ("/v1/browser/cdp/status", "GET"),
-        "CDP/Connect": ("/v1/browser/cdp/connect", "POST"),
-        "CDP/Disconnect": ("/v1/browser/cdp/disconnect", "POST"),
-        "CDP/Navigate": ("/v1/browser/cdp/navigate", "POST"),
-        "CDP/Screenshot": ("/v1/browser/cdp/screenshot", "GET"),
-        "CDP/Eval": ("/v1/browser/cdp/eval", "POST"),
-        "CDP/Tabs": ("/v1/browser/cdp/tabs", "GET"),
-    }
-    
-    key = f"{service}/{method}" if method else ""
-    route = method_map.get(key)
-    if not route:
-        return web.json_response({
-            "ok": False, "error": f"unknown method: {key}",
-            "available": list(method_map.keys())
-        }, status=404)
-    
-    path, http_method = route
-    cfg = request.app.get("_bridge_cfg", {})
-    port = cfg.get("port", 8765)
-    token = cfg.get("token", "")
-    url = f"http://127.0.0.1:{port}{path}"
-    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
-    
-    try:
-        async with aiohttp.ClientSession() as session:
-            if http_method == "GET":
-                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                    result = await resp.json()
-                    return web.json_response({"ok": resp.status < 400, "result": result, "status": resp.status})
-            else:
-                async with session.post(url, headers=headers, json=params,
-                                        timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                    result = await resp.json()
-                    return web.json_response({"ok": resp.status < 400, "result": result, "status": resp.status})
-    except Exception as e:
-        return web.json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def _grpc_server_loop(cfg: dict) -> None:
-    """Run the gRPC-style secondary interface server."""
-    port = _grpc_config["port"]
-    app = web.Application(client_max_size=10 * 1024 * 1024)
-    app["_bridge_cfg"] = cfg
-    app.router.add_post("/call", _grpc_handler)
-    app.router.add_get("/health", lambda r: web.json_response({"ok": True, "service": "arena-bridge-grpc"}))
-    
-    try:
-        runner = web.AppRunner(app)
-        await runner.setup()
-        site = web.TCPSite(runner, "127.0.0.1", port)
-        await site.start()
-        _grpc_config["running"] = True
-        log.info("[gRPC] Secondary interface running on http://127.0.0.1:%d/call", port)
-        
-        # Keep running until cancelled
-        while True:
-            await asyncio.sleep(3600)
-    except asyncio.CancelledError:
-        log.info("[gRPC] Secondary interface stopped")
-    except Exception as e:
-        log.error("[gRPC] Secondary interface error: %s", e)
-    finally:
-        _grpc_config["running"] = False
-        try:
-            await runner.cleanup()
-        except Exception:
-            pass
-
-
-async def handle_v1_grpc(request: web.Request) -> web.Response:
-    """GET /v1/grpc — gRPC-style interface status.
-    POST /v1/grpc — Configure/start/stop the gRPC interface."""
-    global _grpc_server_task
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            action = data.get("action", "")
-            
-            if action == "start":
-                if _grpc_server_task and not _grpc_server_task.done():
-                    return _cors_json_response({"ok": False, "error": "already running"}, status=409)
-                _grpc_config["enabled"] = True
-                if "port" in data:
-                    _grpc_config["port"] = int(data["port"])
-                cfg = request.app["cfg"]
-                _grpc_server_task = asyncio.create_task(_grpc_server_loop(cfg))
-                return _cors_json_response({"ok": True, "message": "gRPC interface starting",
-                                            "port": _grpc_config["port"]})
-            
-            elif action == "stop":
-                if _grpc_server_task and not _grpc_server_task.done():
-                    _grpc_server_task.cancel()
-                    _grpc_config["enabled"] = False
-                    return _cors_json_response({"ok": True, "message": "gRPC interface stopping"})
-                return _cors_json_response({"ok": False, "error": "not running"}, status=404)
-            
-            else:
-                return _cors_json_response({"ok": False, "error": "action must be 'start' or 'stop'"},
-                                           status=400)
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    
-    return _cors_json_response({
-        "ok": True,
-        "grpc": {
-            "enabled": _grpc_config["enabled"],
-            "port": _grpc_config["port"],
-            "running": _grpc_config["running"],
-            "endpoint": f"http://127.0.0.1:{_grpc_config['port']}/call",
-        }
-    })
+# gRPC-style secondary interface runtime and management handler now live in
+# arena/grpc/. Imported above and re-exported here for compatibility.
 
 
 # ============================================================================
@@ -2771,7 +2623,6 @@ async def on_startup(app: web.Application):
 
 async def on_cleanup(app: web.Application):
     """Stop background task runner and clean up resources."""
-    global _grpc_server_task
     tr = app.get("task_runner")
     if tr:
         tr.cancel()
@@ -2808,12 +2659,7 @@ async def on_cleanup(app: web.Application):
         pass
     
     # Stop gRPC server task
-    if _grpc_server_task and not _grpc_server_task.done():
-        _grpc_server_task.cancel()
-        try:
-            await _grpc_server_task
-        except asyncio.CancelledError:
-            pass
+    await stop_grpc_server()
     
     # Stop cluster heartbeat task
     await stop_cluster_heartbeat()
@@ -3015,6 +2861,18 @@ _profile_handler_ctx = ProfileHandlerContext(
 _profile_handlers = make_profile_handlers(_profile_handler_ctx)
 handle_v1_profiles = _profile_handlers.profiles
 handle_v1_profiles_load = _profile_handlers.load
+
+
+_grpc_handler_ctx = GrpcHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    server_task=_grpc_server_task,
+    start_server=lambda cfg: start_grpc_server(cfg, log_info=log.info, log_error=log.error),
+    stop_server=stop_grpc_server,
+)
+_grpc_handlers = make_grpc_handlers(_grpc_handler_ctx)
+handle_v1_grpc = _grpc_handlers.grpc
 
 
 _tracing_handler_ctx = TracingHandlerContext(
