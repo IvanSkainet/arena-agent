@@ -279,6 +279,13 @@ from arena.observability.metrics import (  # noqa: E402,F401
     _record_request,
     record_request,
 )
+from arena.observability.audit import (  # noqa: E402,F401
+    audit_lock,
+    audit_stats,
+    read_tail as audit_read_tail,
+    sanitize_audit_event as audit_sanitize_event,
+    write_audit_event,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -379,7 +386,6 @@ def _get_bridge_port() -> int:
 # Version, paths and limits now live in arena/constants.py (re-exported near the
 # top of this file). Runtime state stays here.
 ACTIVE_PROCESSES: dict[str, dict] = {}
-audit_lock = threading.Lock()
 
 # ============================================================================
 # STRUCTURED LOGGING
@@ -3288,28 +3294,7 @@ BIN = str(BRIDGE_DIR / "bin")
 # ============================================================================
 
 def sanitize_audit_event(event: dict[str, Any]) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    for k, v in event.items():
-        lk = k.lower()
-        if "token" in lk or "authorization" in lk or "password" in lk or "secret" in lk:
-            out[k] = "<redacted>"
-            continue
-        if k == "cmd" and isinstance(v, str):
-            out["cmd_len"] = len(v)
-            out["cmd_sha256"] = hashlib.sha256(v.encode("utf-8", "replace")).hexdigest()
-            if len(v) > AUDIT_CMD_LIMIT:
-                out[k] = v[:AUDIT_CMD_LIMIT] + f"\n...[truncated {len(v) - AUDIT_CMD_LIMIT} chars; sha256={out['cmd_sha256']}]"
-                out["cmd_truncated"] = True
-            else:
-                out[k] = v
-                out["cmd_truncated"] = False
-            continue
-        if isinstance(v, str) and len(v) > 12000:
-            out[k] = v[:12000] + f"\n...[truncated {len(v) - 12000} chars]"
-            out[k + "_truncated"] = True
-        else:
-            out[k] = v
-    return out
+    return audit_sanitize_event(event)
 
 
 _WEBHOOKS_CACHE = None
@@ -3358,45 +3343,15 @@ def _fire_webhooks(event: dict) -> None:
 
 
 def audit(event: dict[str, Any]) -> None:
-    APP_DIR.mkdir(parents=True, exist_ok=True)
-    event = {"ts": utc_now(), **sanitize_audit_event(event)}
-    line = json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n"
-    with audit_lock:
-        with AUDIT.open("a", encoding="utf-8") as f:
-            f.write(line)
-        try:
-            os.chmod(AUDIT, 0o600)
-        except Exception:
-            pass
-        # Auto-rotate audit log if over 50MB (keep up to 5 rotated copies)
-        try:
-            if AUDIT.exists() and AUDIT.stat().st_size > 50 * 1024 * 1024:
-                for i in range(5, 0, -1):
-                    old = APP_DIR / f"audit.jsonl.{i}"
-                    if old.exists():
-                        if i == 5:
-                            old.unlink()
-                        else:
-                            old.rename(APP_DIR / f"audit.jsonl.{i + 1}")
-                AUDIT.rename(APP_DIR / "audit.jsonl.1")
-        except Exception:
-            pass
+    written = write_audit_event(event, audit_path=AUDIT, app_dir=APP_DIR, utc_now_fn=utc_now, lock=audit_lock)
     try:
-        _SLOW_EXECUTOR.submit(_fire_webhooks, event)
+        _SLOW_EXECUTOR.submit(_fire_webhooks, written)
     except Exception:
         pass
 
 
 def read_tail(path: Path, lines: int = 100) -> list[str]:
-    """Read last N lines efficiently using deque (avoids loading entire file)."""
-    if not path.exists():
-        return []
-    lines = max(1, min(lines, 1000))
-    try:
-        with path.open("r", encoding="utf-8", errors="replace") as f:
-            return list(collections.deque(f, maxlen=lines))
-    except Exception:
-        return []
+    return audit_read_tail(path, lines)
 
 
 # ============================================================================
@@ -9136,36 +9091,7 @@ handle_v1_recall_digest = _memory_handlers.recall_digest
 # --- /v1/audit/stats GET — Audit statistics ---
 
 def _audit_stats_sync() -> dict:
-    """Count events by type, show totals, time range."""
-    if not AUDIT.exists():
-        return {"ok": True, "total": 0, "by_type": {}, "first_ts": None, "last_ts": None}
-
-    by_type: dict[str, int] = collections.Counter()
-    total = 0
-    first_ts: str | None = None
-    last_ts: str | None = None
-
-    with open(AUDIT, "r", encoding="utf-8", errors="replace") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                ev = json.loads(line)
-                total += 1
-                ev_type = ev.get("type", "unknown")
-                by_type[ev_type] += 1
-                ts = ev.get("ts", "")
-                if ts:
-                    if first_ts is None:
-                        first_ts = ts
-                    last_ts = ts
-            except json.JSONDecodeError:
-                total += 1
-                by_type["parse_error"] += 1
-
-    return {"ok": True, "total": total, "by_type": dict(by_type),
-            "first_ts": first_ts, "last_ts": last_ts}
+    return audit_stats(AUDIT)
 
 
 async def handle_v1_audit_stats(request: web.Request) -> web.Response:
