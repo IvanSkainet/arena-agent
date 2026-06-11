@@ -19,6 +19,7 @@ def test_system_handlers_factory_outputs():
         version=ub.VERSION,
         clean_platform_name=ub.get_clean_platform_name,
         doctor_sync=lambda token: {"ok": True, "passed": 1, "total": 1, "checks": []},
+        sysinfo_sync=lambda root: {"ok": True, "root": str(root)},
     )
     handlers = make_system_handlers(ctx)
     assert callable(handlers.version)
@@ -30,5 +31,5 @@ def test_system_handlers_factory_outputs():
 def test_unified_routes_use_extracted_system_handlers():
     app = ub.make_app({"token": "test", "profile": "owner-shell", "root": "/tmp", "active_exec": 0, "max_concurrent": 3, "audit": "audit"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
-    for path in ["/v1/version", "/v1/info", "/v1/status", "/v1/config", "/v1/doctor"]:
+    for path in ["/v1/version", "/v1/info", "/v1/status", "/v1/config", "/v1/doctor", "/v1/sysinfo"]:
         assert ("GET", path) in paths

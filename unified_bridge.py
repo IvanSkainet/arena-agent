@@ -4277,6 +4277,15 @@ def _doctor_sync(token: str) -> dict:
         internet_check_fn=_check_internet_sync,
         home_dir=Path.home(),
     )
+def _sysinfo_cim_sync() -> tuple[int, int]:
+    return sysinfo_cim_cpu_counts(subprocess_kwargs_fn=_subprocess_kwargs)
+
+def _sysinfo_sync(root) -> dict:
+    return collect_sysinfo(
+        root=root,
+        clean_platform_name_fn=get_clean_platform_name,
+        subprocess_kwargs_fn=_subprocess_kwargs,
+    )
 
 def common_status(cfg: dict) -> dict:
     return {
@@ -4304,6 +4313,7 @@ _system_handler_ctx = SystemHandlerContext(
     version=VERSION,
     clean_platform_name=get_clean_platform_name,
     doctor_sync=_doctor_sync,
+    sysinfo_sync=_sysinfo_sync,
 )
 _system_handlers = make_system_handlers(_system_handler_ctx)
 handle_v1_version = _system_handlers.version
@@ -4311,6 +4321,7 @@ handle_v1_info = _system_handlers.info
 handle_v1_status = _system_handlers.status
 handle_v1_config = _system_handlers.config
 handle_v1_doctor = _system_handlers.doctor
+handle_v1_sysinfo = _system_handlers.sysinfo
 
 
 # ============================================================================
@@ -4392,31 +4403,10 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 
-def _sysinfo_cim_sync() -> tuple[int, int]:
-    return sysinfo_cim_cpu_counts(subprocess_kwargs_fn=_subprocess_kwargs)
 
 
-async def handle_v1_sysinfo(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    cfg = request.app["cfg"]
-    try:
-        loop = asyncio.get_event_loop()
-        import functools
-        result = await loop.run_in_executor(
-            _EXECUTOR,
-            functools.partial(
-                collect_sysinfo,
-                root=cfg["root"],
-                clean_platform_name_fn=get_clean_platform_name,
-                subprocess_kwargs_fn=_subprocess_kwargs,
-            ),
-        )
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 
 
 def _hwinfo_sync():

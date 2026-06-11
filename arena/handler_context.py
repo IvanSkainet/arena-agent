@@ -170,3 +170,4 @@ class SystemHandlerContext:
     version: str
     clean_platform_name: Callable[[], str]
     doctor_sync: Callable[[str], dict[str, Any]]
+    sysinfo_sync: Callable[[Any], dict[str, Any]]

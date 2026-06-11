@@ -19,6 +19,7 @@ class SystemHandlers:
     status: object
     config: object
     doctor: object
+    sysinfo: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -94,10 +95,24 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         except Exception as e:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_v1_sysinfo(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(ctx.executor, ctx.sysinfo_sync, request.app["cfg"]["root"])
+            return ctx.cors_json_response(result)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
     return SystemHandlers(
         version=handle_v1_version,
         info=handle_v1_info,
         status=handle_v1_status,
         config=handle_v1_config,
         doctor=handle_v1_doctor,
+        sysinfo=handle_v1_sysinfo,
     )
