@@ -395,3 +395,11 @@ class WatchdogHandlerContext:
     now: Callable[[], float]
     log_info: Callable[..., None]
 
+@dataclass(frozen=True)
+class GuiHandlerContext:
+    """Dependencies for dashboard GUI handlers."""
+
+    cors_json_response: Callable[..., web.Response]
+    bridge_dir: Any
+    version: str
+
