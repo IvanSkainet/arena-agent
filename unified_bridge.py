@@ -190,6 +190,11 @@ from arena.rate_limit import (  # noqa: E402,F401
 from arena.auth.users import UserStore  # noqa: E402,F401
 from arena.auth.handlers import make_user_handlers  # noqa: E402,F401
 from arena.files.handlers import make_file_handlers  # noqa: E402,F401
+from arena.exec.runner import (  # noqa: E402,F401
+    ACTIVE_PROCESSES,
+    active_processes_snapshot,
+    run_shell_command,
+)
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -429,7 +434,6 @@ def _get_bridge_port() -> int:
 
 # Version, paths and limits now live in arena/constants.py (re-exported near the
 # top of this file). Runtime state stays here.
-ACTIVE_PROCESSES: dict[str, dict] = {}
 
 # ============================================================================
 # STRUCTURED LOGGING
@@ -4420,14 +4424,7 @@ async def handle_v1_ps(request: web.Request) -> web.Response:
         r = require_auth(request)
         if r: return r
         _record_request()
-        ps_list = []
-        for req_id, info in ACTIVE_PROCESSES.items():
-            ps_list.append({
-                "request_id": req_id,
-                "pid": info["pid"],
-                "cmd": info["cmd"][:200],
-                "uptime_sec": round(time.time() - info["start"], 1),
-            })
+        ps_list = active_processes_snapshot(max_cmd_len=200)
         return _cors_json_response({"ok": True, "processes": ps_list, "count": len(ps_list)})
     except Exception as e:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -4533,77 +4530,30 @@ async def handle_v1_exec(request: web.Request) -> web.Response:
     audit({"type": "exec_start", "request_id": request_id, "cmd": cmd, "cwd": str(cwd),
             "timeout": timeout, "client": request.remote or "127.0.0.1"})
 
-    t0 = time.time()
-    timed_out = False
-    proc = None
-
     try:
-        # Use async subprocess
-        proc = await asyncio.create_subprocess_shell(
-            cmd, cwd=str(cwd), env=env,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-
-        ACTIVE_PROCESSES[request_id] = {"cmd": cmd, "pid": proc.pid, "start": time.time()}
-
-        try:
-            stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            exit_code = proc.returncode
-        except asyncio.TimeoutError:
-            timed_out = True
-            proc.kill()
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=5)
-            except asyncio.TimeoutError:
-                stdout_bytes, stderr_bytes = b"", b""
-            exit_code = proc.returncode if proc.returncode is not None else -1
-
-        duration = round(time.time() - t0, 3)
-
-        # Decode output
-        stdout = decode_output(stdout_bytes) if stdout_bytes else ""
-        stderr = decode_output(stderr_bytes) if stderr_bytes else ""
-
-        # Truncate if needed
-        truncated = False
-        if len(stdout.encode("utf-8", "replace")) > max_output:
-            stdout = stdout.encode("utf-8", "replace")[:max_output].decode("utf-8", "replace")
-            truncated = True
-        if len(stderr.encode("utf-8", "replace")) > max_output:
-            stderr = stderr.encode("utf-8", "replace")[:max_output].decode("utf-8", "replace")
-            truncated = True
-
-        stdout_bytes_len = len(stdout_bytes) if stdout_bytes else 0
-        stderr_bytes_len = len(stderr_bytes) if stderr_bytes else 0
-
-        ok = (not timed_out) and exit_code == 0
-        event_type = "exec_timeout" if timed_out else "exec_done"
-        audit({"type": event_type, "request_id": request_id, "cmd": cmd, "exit_code": exit_code,
-                "duration": duration, "truncated": truncated,
-                "stdout_bytes": stdout_bytes_len, "stderr_bytes": stderr_bytes_len})
-
-        _record_request(duration=duration, is_exec=True, is_error=not ok)
-        return _cors_json_response({
-            "ok": ok,
-            "request_id": request_id,
-            "exit_code": exit_code,
-            "duration_sec": duration,
-            "cwd": str(cwd),
-            "stdout": stdout,
-            "stderr": stderr,
-            "truncated": truncated,
-            "stdout_bytes": stdout_bytes_len,
-            "stderr_bytes": stderr_bytes_len,
-            "error": f"timeout after {timeout}s" if timed_out else None,
-        }, status=408 if timed_out else 200)
-
+        result = await run_shell_command(
+            request_id=request_id,
+            cmd=cmd,
+            cwd=cwd,
+            env=env,
+            timeout=timeout,
+            max_output=max_output,
+            decode_output_fn=decode_output,
+        )
+        event_type = "exec_timeout" if result.get("timed_out") else "exec_done"
+        audit({"type": event_type, "request_id": request_id, "cmd": cmd, "exit_code": result.get("exit_code"),
+                "duration": result.get("duration_sec"), "truncated": result.get("truncated"),
+                "stdout_bytes": result.get("stdout_bytes"), "stderr_bytes": result.get("stderr_bytes")})
+        _record_request(duration=result.get("duration_sec", 0.0), is_exec=True, is_error=not result.get("ok"))
+        response = dict(result)
+        response.pop("timed_out", None)
+        return _cors_json_response(response, status=408 if result.get("timed_out") else 200)
     except Exception as e:
-        duration = round(time.time() - t0, 3)
+        duration = 0.0
         audit({"type": "exec_error", "request_id": request_id, "cmd": cmd, "duration": duration, "error": repr(e)})
         _record_request(duration=duration, is_exec=True, is_error=True)
         return _cors_json_response({"ok": False, "request_id": request_id, "error": "Internal error", "duration_sec": duration}, status=500)
-
     finally:
-        ACTIVE_PROCESSES.pop(request_id, None)
         cfg["active_exec"] -= 1
         sem.release()
 
