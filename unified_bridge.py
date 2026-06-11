@@ -198,6 +198,11 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.api_v2.handlers import (  # noqa: E402,F401
+    DEPRECATED_ENDPOINTS as _DEPRECATED_ENDPOINTS,
+    cfg_get_max_timeout,
+    make_v2_handlers,
+)
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -347,7 +352,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -2584,207 +2589,9 @@ async def handle_v1_cluster(request: web.Request) -> web.Response:
 # ============================================================================
 # PHASE 4: API Versioning (/v2/ endpoints with deprecation headers)
 # ============================================================================
-_DEPRECATED_ENDPOINTS: dict[str, dict[str, str]] = {
-    "/v1/service/info": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.3.0"},
-    "/v1/sys/svc": {"deprecated_since": "1.9.27", "replacement": "/v1/status", "removal_version": "2.3.0"},
-    "/v1/sys/funnel": {"deprecated_since": "1.9.27", "replacement": "/v1/tailscale/funnel/status", "removal_version": "2.3.0"},
-}
-
-
-async def handle_v2_index(request: web.Request) -> web.Response:
-    """GET /v2/ — API v2 index with versioning info and deprecation notices."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    return _cors_json_response({
-        "ok": True,
-        "api_version": "2",
-        "bridge_version": VERSION,
-        "deprecations": _DEPRECATED_ENDPOINTS,
-        "v2_endpoints": {
-            "GET /v2/": "API v2 index",
-            "GET /v2/status": "Bridge status (replaces /v1/status)",
-            "GET /v2/health": "Detailed health check",
-            "GET /v2/browser/status": "CDP + browser status combined",
-            "POST /v2/exec": "Exec with sandbox by default",
-            "GET /v2/deprecations": "List deprecated v1 endpoints",
-        }
-    })
-
-
-async def handle_v2_status(request: web.Request) -> web.Response:
-    """GET /v2/status — Enhanced status with versioning info."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    cfg = request.app["cfg"]
-    uptime = time.time() - BRIDGE_METRICS["start_time"]
-    
-    return _cors_json_response({
-        "ok": True,
-        "version": VERSION,
-        "api_version": "2",
-        "uptime_seconds": round(uptime, 1),
-        "total_requests": BRIDGE_METRICS["total_requests"],
-        "total_errors": BRIDGE_METRICS["total_errors"],
-        "cdp": {"connected": _cdp_state["connected"],
-                "reconnects": _cdp_state.get("reconnect_count", 0)},
-        "watchdog": {"memory_mb": _watchdog_state["memory_mb"],
-                     "cpu_percent": _watchdog_state["cpu_percent"]},
-        "cluster": {"role": _cluster_state["role"],
-                    "enabled": _cluster_config["enabled"]},
-        "tls": {"enabled": _tls_config["enabled"],
-                "ready": _tls_config["enabled"] and
-                         Path(_tls_config["cert_path"]).exists() if _tls_config["cert_path"] else False},
-    })
-
-
-async def handle_v2_health(request: web.Request) -> web.Response:
-    """GET /v2/health — Detailed health check with all subsystem status."""
-    _record_request()
-    
-    checks = {
-        "bridge": True,
-        "cdp": _cdp_state["connected"],
-        "watchdog": _watchdog_state["last_check"] > 0,
-        "tls": _tls_config["enabled"] and Path(_tls_config["cert_path"]).exists() if _tls_config["cert_path"] else False,
-        "cluster": _cluster_config["enabled"],
-    }
-    
-    all_healthy = True  # Bridge is always healthy if responding
-    
-    return _cors_json_response({
-        "ok": all_healthy,
-        "status": "healthy" if all_healthy else "degraded",
-        "version": VERSION,
-        "api_version": "2",
-        "checks": checks,
-        "uptime_seconds": round(time.time() - BRIDGE_METRICS["start_time"], 1),
-    })
-
-
-async def handle_v2_browser_status(request: web.Request) -> web.Response:
-    """GET /v2/browser/status — Combined CDP + browser status."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    return _cors_json_response({
-        "ok": True,
-        "api_version": "2",
-        "cdp": {
-            "connected": _cdp_state["connected"],
-            "headless": _cdp_state["headless"],
-            "port": _cdp_state["port"],
-            "reconnect_count": _cdp_state.get("reconnect_count", 0),
-        },
-        "browseract": {
-            "available": bool(shutil.which("browser-act")),
-        },
-        "profiles": {
-            "count": len(list(_PROFILES_DIR.glob("*.json"))) if _PROFILES_DIR.exists() else 0,
-        }
-    })
-
-
-async def handle_v2_exec(request: web.Request) -> web.Response:
-    """POST /v2/exec — Execute command in sandbox by default.
-    
-    Same as /v1/exec but with sandbox enabled by default.
-    Accepts all /v1/exec params plus:
-      - sandbox: bool (default: True)
-      - max_cpu_seconds: int (default: from sandbox config)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    try:
-        data = await request.json()
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    
-    cmd = data.get("cmd", "")
-    if not cmd:
-        return _cors_json_response({"ok": False, "error": "missing 'cmd'"}, status=400)
-    
-    block = blocked_reason(cmd)
-    if block:
-        return _cors_json_response({"ok": False, "error": block}, status=403)
-    
-    use_sandbox = data.get("sandbox", True)
-    
-    if use_sandbox and _sandbox_config["enabled"]:
-        # Apply same command allowlist as /v1/sandbox
-        first_cmd = first_word(cmd)
-        allowed = _sandbox_config["allowed_commands"]
-        if allowed and first_cmd not in allowed:
-            return _cors_json_response({
-                "ok": False, "error": f"command '{first_cmd}' not in allowed list (sandbox mode)",
-                "allowed": allowed, "api_version": "2"
-            }, status=403)
-        timeout = min(int(data.get("timeout", 30)), _sandbox_config["max_cpu_seconds"])
-        result = await _run_sandboxed(cmd, timeout=timeout)
-        result["sandbox"] = True
-        result["api_version"] = "2"
-    else:
-        # Fall back to normal exec
-        timeout = min(int(data.get("timeout", 60)), cfg_get_max_timeout(request))
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            result = {
-                "ok": proc.returncode == 0,
-                "exit_code": proc.returncode,
-                "stdout": decode_output(stdout)[-50000:],
-                "stderr": decode_output(stderr)[-10000:],
-                "sandbox": False,
-                "api_version": "2",
-            }
-        except asyncio.TimeoutError:
-            result = {"ok": False, "error": f"timeout after {timeout}s", "sandbox": False, "api_version": "2"}
-        except Exception as e:
-            result = {"ok": False, "error": str(e), "sandbox": False, "api_version": "2"}
-    
-    audit({"type": "exec_v2", "cmd_len": len(cmd), "sandbox": use_sandbox,
-           "exit_code": result.get("exit_code")})
-    await emit_event("exec", {"cmd": cmd[:50], "ok": result["ok"], "sandbox": use_sandbox})
-    _record_request(is_exec=True)
-    
-    return _cors_json_response(result)
-
-
-def cfg_get_max_timeout(request: web.Request) -> int:
-    """Get max timeout from bridge config."""
-    try:
-        return request.app["cfg"].get("max_timeout", 600)
-    except Exception:
-        return 600
-
-
-async def handle_v2_deprecations(request: web.Request) -> web.Response:
-    """GET /v2/deprecations — List all deprecated v1 endpoints."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    return _cors_json_response({
-        "ok": True,
-        "api_version": "2",
-        "deprecations": _DEPRECATED_ENDPOINTS,
-        "count": len(_DEPRECATED_ENDPOINTS),
-        "migration_guide": {
-            "/v1/service/info → /v1/status": "Use /v1/status for all service information",
-            "/v1/sys/svc → /v1/status": "Service status is now part of /v1/status",
-            "/v1/sys/funnel → /v1/tailscale/funnel/status": "Funnel status moved to tailscale namespace",
-        }
-    })
+# v2 compatibility API handlers and deprecation metadata now live in
+# arena/api_v2/handlers.py; imported above and re-exported here for middleware
+# and route compatibility.
 
 
 # ============================================================================
@@ -3854,6 +3661,37 @@ handle_gateway_index = _gateway_handlers.index
 handle_gateway_tools = _gateway_handlers.tools
 handle_gateway_run = _gateway_handlers.run
 handle_gateway_tool = _gateway_handlers.tool
+
+
+_api_v2_handler_ctx = ApiV2HandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    version=VERSION,
+    metrics=BRIDGE_METRICS,
+    cdp_state=_cdp_state,
+    watchdog_state=_watchdog_state,
+    cluster_state=_cluster_state,
+    cluster_config=_cluster_config,
+    tls_config=_tls_config,
+    profiles_dir=_PROFILES_DIR,
+    sandbox_config=_sandbox_config,
+    blocked_reason=blocked_reason,
+    first_word=first_word,
+    decode_output=decode_output,
+    run_sandboxed=_run_sandboxed,
+    cfg_get_max_timeout=cfg_get_max_timeout,
+    audit=audit,
+    emit_event=emit_event,
+    now=time.time,
+)
+_api_v2_handlers = make_v2_handlers(_api_v2_handler_ctx)
+handle_v2_index = _api_v2_handlers.index
+handle_v2_status = _api_v2_handlers.status
+handle_v2_health = _api_v2_handlers.health
+handle_v2_browser_status = _api_v2_handlers.browser_status
+handle_v2_exec = _api_v2_handlers.exec
+handle_v2_deprecations = _api_v2_handlers.deprecations
 
 
 _tracing_handler_ctx = TracingHandlerContext(

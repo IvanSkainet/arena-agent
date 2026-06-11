@@ -245,3 +245,28 @@ class TracingHandlerContext:
     version: str
     log_info: Callable[..., None]
 
+@dataclass(frozen=True)
+class ApiV2HandlerContext:
+    """Dependencies for v2 compatibility API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    version: str
+    metrics: dict[str, Any]
+    cdp_state: dict[str, Any]
+    watchdog_state: dict[str, Any]
+    cluster_state: dict[str, Any]
+    cluster_config: dict[str, Any]
+    tls_config: dict[str, Any]
+    profiles_dir: Any
+    sandbox_config: dict[str, Any]
+    blocked_reason: Callable[[str], str | None]
+    first_word: Callable[[str], str]
+    decode_output: Callable[[bytes], str]
+    run_sandboxed: Callable[..., Any]
+    cfg_get_max_timeout: Callable[[web.Request], int]
+    audit: Callable[[dict[str, Any]], None]
+    emit_event: Callable[[str, dict | None], Any]
+    now: Callable[[], float]
+
