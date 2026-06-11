@@ -198,6 +198,12 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.tls.handlers import (  # noqa: E402,F401
+    TLS_CONFIG as _tls_config,
+    generate_self_signed_cert as _tls_generate_self_signed_cert,
+    get_tailscale_cert as _tls_get_tailscale_cert,
+    make_tls_handlers,
+)
 from arena.batch.handlers import make_batch_handlers  # noqa: E402,F401
 from arena.api_v2.handlers import (  # noqa: E402,F401
     DEPRECATED_ENDPOINTS as _DEPRECATED_ENDPOINTS,
@@ -355,7 +361,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1495,158 +1501,16 @@ async def handle_v1_profiles_load(request: web.Request) -> web.Response:
 # ============================================================================
 # PHASE 4: Built-in TLS/HTTPS Support
 # ============================================================================
-_tls_config: dict[str, Any] = {
-    "enabled": False,
-    "cert_path": "",
-    "key_path": "",
-    "auto_cert": False,       # Auto-generate self-signed cert
-    "tailscale_cert": False,  # Use Tailscale cert
-}
+# TLS config/runtime helpers and handler now live in arena/tls/handlers.py;
+# imported above and re-exported here for compatibility.
 
 
 def _generate_self_signed_cert() -> tuple[str, str]:
-    """Generate a self-signed TLS certificate for local development.
-    
-    Returns (cert_path, key_path).
-    Uses openssl if available, otherwise creates a simple cert via Python's ssl module.
-    """
-    cert_dir = APP_DIR / "tls"
-    cert_dir.mkdir(parents=True, exist_ok=True)
-    cert_path = str(cert_dir / "bridge.crt")
-    key_path = str(cert_dir / "bridge.key")
-    
-    # Try openssl first (most reliable)
-    if shutil.which("openssl"):
-        try:
-            subprocess.run([
-                "openssl", "req", "-x509", "-newkey", "rsa:2048",
-                "-keyout", key_path, "-out", cert_path,
-                "-days", "365", "-nodes",
-                "-subj", f"/CN=arena-bridge/O=Arena/C=US"
-            ], capture_output=True, timeout=30, check=True)
-            log.info("[TLS] Generated self-signed certificate via openssl")
-            return cert_path, key_path
-        except Exception as e:
-            log.warning("[TLS] openssl cert generation failed: %s", e)
-    
-    # Fallback: use Python's ssl + cryptography (if available) or write a simple cert
-    try:
-        from cryptography import x509
-        from cryptography.x509.oid import NameOID
-        from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import rsa
-        
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-        subject = issuer = x509.Name([
-            x509.NameAttribute(NameOID.COMMON_NAME, "arena-bridge"),
-            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "Arena"),
-        ])
-        cert = (x509.CertificateBuilder()
-                .subject_name(subject)
-                .issuer_name(issuer)
-                .public_key(key.public_key())
-                .serial_number(x509.random_serial_number())
-                .not_valid_before(datetime.now(timezone.utc))
-                .not_valid_after(datetime.now(timezone.utc) + __import__("datetime").timedelta(days=365))
-                .sign(key, hashes.SHA256()))
-        
-        with open(key_path, "wb") as f:
-            f.write(key.private_bytes(serialization.Encoding.PEM,
-                                      serialization.PrivateFormat.TraditionalOpenSSL,
-                                      serialization.NoEncryption()))
-        with open(cert_path, "wb") as f:
-            f.write(cert.public_bytes(serialization.Encoding.PEM))
-        
-        log.info("[TLS] Generated self-signed certificate via Python cryptography")
-        return cert_path, key_path
-    except ImportError:
-        pass
-    except Exception as e:
-        log.warning("[TLS] Python cert generation failed: %s", e)
-    
-    return "", ""
+    return _tls_generate_self_signed_cert(log_info=log.info, log_warning=log.warning)
 
 
 def _get_tailscale_cert() -> tuple[str, str]:
-    """Try to get Tailscale certificate for the current machine.
-    
-    Tailscale stores certs in /var/lib/tailscale/certs/ or ~/.ts/certs/
-    """
-    hostname = socket.gethostname()
-    cert_dirs = [
-        Path(f"/var/lib/tailscale/certs"),
-        Path.home() / ".ts" / "certs",
-    ]
-    
-    for cert_dir in cert_dirs:
-        cert_path = cert_dir / f"{hostname}.crt"
-        key_path = cert_dir / f"{hostname}.key"
-        if cert_path.exists() and key_path.exists():
-            log.info("[TLS] Found Tailscale certificate at %s", cert_dir)
-            return str(cert_path), str(key_path)
-    
-    return "", ""
-
-
-async def handle_v1_tls(request: web.Request) -> web.Response:
-    """GET /v1/tls — TLS configuration status.
-    POST /v1/tls — Configure TLS (enable/disable, set cert paths, auto-cert)."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            if "enabled" in data:
-                _tls_config["enabled"] = bool(data["enabled"])
-            if "cert_path" in data:
-                _tls_config["cert_path"] = str(data["cert_path"])
-            if "key_path" in data:
-                _tls_config["key_path"] = str(data["key_path"])
-            if "auto_cert" in data:
-                _tls_config["auto_cert"] = bool(data["auto_cert"])
-            if "tailscale_cert" in data:
-                _tls_config["tailscale_cert"] = bool(data["tailscale_cert"])
-            
-            # Auto-generate cert if requested
-            if _tls_config["auto_cert"] and not _tls_config["cert_path"]:
-                cert, key = _generate_self_signed_cert()
-                if cert and key:
-                    _tls_config["cert_path"] = cert
-                    _tls_config["key_path"] = key
-                    _tls_config["enabled"] = True
-            
-            # Try Tailscale cert if requested
-            if _tls_config["tailscale_cert"] and not _tls_config["cert_path"]:
-                cert, key = _get_tailscale_cert()
-                if cert and key:
-                    _tls_config["cert_path"] = cert
-                    _tls_config["key_path"] = key
-                    _tls_config["enabled"] = True
-            
-            log.info("[TLS] Configuration updated: enabled=%s, cert=%s",
-                     _tls_config["enabled"], _tls_config["cert_path"])
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    
-    # Verify cert files exist
-    cert_exists = Path(_tls_config["cert_path"]).exists() if _tls_config["cert_path"] else False
-    key_exists = Path(_tls_config["key_path"]).exists() if _tls_config["key_path"] else False
-    
-    return _cors_json_response({
-        "ok": True,
-        "tls": {
-            "enabled": _tls_config["enabled"],
-            "cert_path": _tls_config["cert_path"],
-            "key_path": _tls_config["key_path"],
-            "auto_cert": _tls_config["auto_cert"],
-            "tailscale_cert": _tls_config["tailscale_cert"],
-            "cert_exists": cert_exists,
-            "key_exists": key_exists,
-            "ready": _tls_config["enabled"] and cert_exists and key_exists,
-        }
-    })
+    return _tls_get_tailscale_cert(log_info=log.info)
 
 
 # ============================================================================
@@ -3539,6 +3403,18 @@ _rate_limit_handler_ctx = RateLimitHandlerContext(
 )
 _rate_limit_handlers = make_rate_limit_handlers(_rate_limit_handler_ctx)
 handle_v1_ratelimit = _rate_limit_handlers.ratelimit
+
+
+_tls_handler_ctx = TlsHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    generate_self_signed_cert=_generate_self_signed_cert,
+    get_tailscale_cert=_get_tailscale_cert,
+    log_info=log.info,
+)
+_tls_handlers = make_tls_handlers(_tls_handler_ctx)
+handle_v1_tls = _tls_handlers.tls
 
 
 _tracing_handler_ctx = TracingHandlerContext(

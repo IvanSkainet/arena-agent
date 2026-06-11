@@ -309,3 +309,14 @@ class RateLimitHandlerContext:
     rate_limit_stats: Callable[[], dict[str, Any]]
     log_info: Callable[..., None]
 
+@dataclass(frozen=True)
+class TlsHandlerContext:
+    """Dependencies for TLS configuration handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    generate_self_signed_cert: Callable[[], tuple[str, str]]
+    get_tailscale_cert: Callable[[], tuple[str, str]]
+    log_info: Callable[..., None]
+
