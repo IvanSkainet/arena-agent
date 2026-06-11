@@ -333,3 +333,16 @@ class SandboxHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     emit_event: Callable[[str, dict | None], Any]
 
+@dataclass(frozen=True)
+class ClusterHandlerContext:
+    """Dependencies for cluster/high-availability handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    get_node_id: Callable[[], str]
+    start_heartbeat: Callable[[], Any]
+    stop_heartbeat: Callable[[], Any]
+    audit: Callable[[dict[str, Any]], None]
+    log_info: Callable[..., None]
+

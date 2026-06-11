@@ -198,6 +198,15 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.cluster.runtime import (  # noqa: E402,F401
+    CLUSTER_CONFIG as _cluster_config,
+    CLUSTER_STATE as _cluster_state,
+    cluster_heartbeat_loop as _cluster_runtime_heartbeat_loop,
+    get_node_id as _cluster_get_node_id,
+    start_cluster_heartbeat,
+    stop_cluster_heartbeat,
+)
+from arena.cluster.handlers import make_cluster_handlers  # noqa: E402,F401
 from arena.sandbox.runtime import SANDBOX_CONFIG as _sandbox_config, run_sandboxed as _sandbox_run_sandboxed  # noqa: E402,F401
 from arena.sandbox.handlers import make_sandbox_handlers  # noqa: E402,F401
 from arena.tls.handlers import (  # noqa: E402,F401
@@ -363,7 +372,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1983,148 +1992,16 @@ async def _run_sandboxed(cmd: str, timeout: int = 30, memory_mb: int = 256) -> d
 # ============================================================================
 # PHASE 4: Clustering / High Availability
 # ============================================================================
-_cluster_config: dict[str, Any] = {
-    "enabled": False,
-    "node_id": "",
-    "nodes": [],       # [{"id": "...", "url": "http://...", "role": "leader|follower"}]
-    "leader_id": "",
-    "heartbeat_interval_s": 10,
-    "failover_timeout_s": 30,
-}
-_cluster_state: dict[str, Any] = {
-    "last_heartbeat": 0.0,
-    "role": "standalone",  # standalone | leader | follower
-    "peers_healthy": {},
-}
-_cluster_task: asyncio.Task | None = None
+# Cluster runtime state/helpers and route handler now live in arena/cluster/.
+# Wrappers below preserve historical helper names for compatibility.
 
 
 def _get_node_id() -> str:
-    """Generate a unique node ID based on hostname and port."""
-    return f"{socket.gethostname()}-{os.getpid()}"
+    return _cluster_get_node_id()
 
 
 async def _cluster_heartbeat_loop() -> None:
-    """Periodically send heartbeats to peer nodes."""
-    while True:
-        try:
-            await asyncio.sleep(_cluster_config["heartbeat_interval_s"])
-            _cluster_state["last_heartbeat"] = time.time()
-            
-            # Check peer health
-            for node in _cluster_config["nodes"]:
-                node_url = node.get("url", "")
-                if not node_url:
-                    continue
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.get(
-                            f"{node_url}/health",
-                            timeout=aiohttp.ClientTimeout(total=5)
-                        ) as resp:
-                            healthy = resp.status == 200
-                            _cluster_state["peers_healthy"][node.get("id", node_url)] = {
-                                "healthy": healthy,
-                                "last_check": time.time(),
-                            }
-                except Exception:
-                    _cluster_state["peers_healthy"][node.get("id", node_url)] = {
-                        "healthy": False,
-                        "last_check": time.time(),
-                    }
-            
-            # Prune stale peer entries (nodes no longer in config)
-            known_ids = {n.get("id", n.get("url", "")) for n in _cluster_config["nodes"]}
-            _cluster_state["peers_healthy"] = {
-                k: v for k, v in _cluster_state["peers_healthy"].items() if k in known_ids
-            }
-            
-            # Simple leader election: node with lowest ID is leader
-            if _cluster_config["nodes"]:
-                all_ids = sorted([_cluster_config["node_id"]] +
-                                 [n.get("id", "") for n in _cluster_config["nodes"]])
-                _cluster_config["leader_id"] = all_ids[0]
-                _cluster_state["role"] = "leader" if _cluster_config["leader_id"] == _cluster_config["node_id"] else "follower"
-        
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            log.error("[Cluster] Heartbeat error: %s", e)
-            await asyncio.sleep(5)
-
-
-async def handle_v1_cluster(request: web.Request) -> web.Response:
-    """GET /v1/cluster — Cluster configuration and status.
-    POST /v1/cluster — Configure clustering (add/remove nodes, enable/disable)."""
-    global _cluster_task
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            action = data.get("action", "")
-            
-            if action == "enable":
-                _cluster_config["enabled"] = True
-                _cluster_config["node_id"] = _cluster_config["node_id"] or _get_node_id()
-                if "nodes" in data:
-                    _cluster_config["nodes"] = data["nodes"]
-                if "heartbeat_interval_s" in data:
-                    _cluster_config["heartbeat_interval_s"] = max(5, int(data["heartbeat_interval_s"]))
-                # Start heartbeat loop
-                if _cluster_task and not _cluster_task.done():
-                    _cluster_task.cancel()
-                _cluster_task = asyncio.create_task(_cluster_heartbeat_loop())
-                _cluster_state["role"] = "leader" if not _cluster_config["nodes"] else "follower"
-                log.info("[Cluster] Enabled: node_id=%s, peers=%d",
-                         _cluster_config["node_id"], len(_cluster_config["nodes"]))
-            
-            elif action == "disable":
-                _cluster_config["enabled"] = False
-                if _cluster_task and not _cluster_task.done():
-                    _cluster_task.cancel()
-                    _cluster_task = None
-                _cluster_state["role"] = "standalone"
-                log.info("[Cluster] Disabled")
-            
-            elif action == "add_node":
-                node_url = data.get("url", "")
-                node_id = data.get("id", node_url)
-                if not node_url:
-                    return _cors_json_response({"ok": False, "error": "url is required"}, status=400)
-                # Avoid duplicates
-                if not any(n.get("id") == node_id for n in _cluster_config["nodes"]):
-                    _cluster_config["nodes"].append({"id": node_id, "url": node_url, "role": "follower"})
-                log.info("[Cluster] Added node: %s", node_id)
-            
-            elif action == "remove_node":
-                node_id = data.get("id", "")
-                _cluster_config["nodes"] = [n for n in _cluster_config["nodes"] if n.get("id") != node_id]
-                log.info("[Cluster] Removed node: %s", node_id)
-            
-            else:
-                return _cors_json_response({"ok": False, "error": "action must be enable/disable/add_node/remove_node"},
-                                           status=400)
-            
-            audit({"type": "cluster_update", "action": action})
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    
-    return _cors_json_response({
-        "ok": True,
-        "cluster": {
-            "enabled": _cluster_config["enabled"],
-            "node_id": _cluster_config["node_id"],
-            "nodes": _cluster_config["nodes"],
-            "leader_id": _cluster_config["leader_id"],
-            "role": _cluster_state["role"],
-            "last_heartbeat": _cluster_state["last_heartbeat"],
-            "peers_healthy": _cluster_state["peers_healthy"],
-            "heartbeat_interval_s": _cluster_config["heartbeat_interval_s"],
-        }
-    })
+    await _cluster_runtime_heartbeat_loop(log_error=log.error)
 
 
 # ============================================================================
@@ -3084,7 +2961,7 @@ async def on_startup(app: web.Application):
 
 async def on_cleanup(app: web.Application):
     """Stop background task runner and clean up resources."""
-    global _grpc_server_task, _cluster_task
+    global _grpc_server_task
     tr = app.get("task_runner")
     if tr:
         tr.cancel()
@@ -3129,12 +3006,7 @@ async def on_cleanup(app: web.Application):
             pass
     
     # Stop cluster heartbeat task
-    if _cluster_task and not _cluster_task.done():
-        _cluster_task.cancel()
-        try:
-            await _cluster_task
-        except asyncio.CancelledError:
-            pass
+    await stop_cluster_heartbeat()
 
     # Shutdown thread pool executors
     _EXECUTOR.shutdown(wait=False)
@@ -3300,6 +3172,20 @@ _sandbox_handler_ctx = SandboxHandlerContext(
 )
 _sandbox_handlers = make_sandbox_handlers(_sandbox_handler_ctx)
 handle_v1_sandbox = _sandbox_handlers.sandbox
+
+
+_cluster_handler_ctx = ClusterHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    get_node_id=_get_node_id,
+    start_heartbeat=lambda: start_cluster_heartbeat(log_error=log.error),
+    stop_heartbeat=stop_cluster_heartbeat,
+    audit=audit,
+    log_info=log.info,
+)
+_cluster_handlers = make_cluster_handlers(_cluster_handler_ctx)
+handle_v1_cluster = _cluster_handlers.cluster
 
 
 _tracing_handler_ctx = TracingHandlerContext(
