@@ -297,7 +297,8 @@ from arena.observability.webhooks import (  # noqa: E402,F401
     normalize_webhooks_config,
     save_webhooks,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext  # noqa: E402,F401
+from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1061,37 +1062,6 @@ def _log_request_response(method: str, path: str, status: int, duration: float,
     )
 
 
-async def handle_v1_audit_log(request: web.Request) -> web.Response:
-    """GET /v1/audit/log — Request/response log with filters."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        lines_count = min(int(request.query.get("lines", "100")), 1000)
-        method_filter = request.query.get("method", "").upper()
-        path_filter = request.query.get("path", "")
-        status_filter = request.query.get("status", "")
-    except (ValueError, TypeError):
-        lines_count = 100
-        method_filter = ""
-        path_filter = ""
-        status_filter = ""
-
-    entries = read_request_log(
-        _REQ_LOG_FILE,
-        lines_count=lines_count,
-        method_filter=method_filter,
-        path_filter=path_filter,
-        status_filter=status_filter,
-    )
-    return _cors_json_response({
-        "ok": True,
-        "log_file": str(_REQ_LOG_FILE),
-        "filters": {"method": method_filter, "path": path_filter,
-                    "status": status_filter, "lines": lines_count},
-        "count": len(entries),
-        "entries": entries,
-    })
 
 
 # ============================================================================
@@ -4786,24 +4756,6 @@ async def handle_v1_ps(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-async def handle_v1_audit(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    qs = parse_qs(request.query_string)
-    try:
-        n = int(qs.get("lines", ["100"])[0])
-    except ValueError:
-        n = 100
-    loop = asyncio.get_event_loop()
-    lines = await loop.run_in_executor(_EXECUTOR, read_tail, AUDIT, n)
-    rows = []
-    for line in lines:
-        try:
-            rows.append(json.loads(line))
-        except Exception:
-            rows.append({"raw": line})
-    return _cors_json_response({"ok": True, "lines": len(rows), "audit": str(AUDIT), "events": rows})
 
 
 async def handle_v1_exec(request: web.Request) -> web.Response:
@@ -5830,31 +5782,7 @@ async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
 
 # --- /v1/config GET — Token-free configuration dump ---
 
-async def handle_v1_webhooks_get(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    loop = asyncio.get_event_loop()
-    data = await loop.run_in_executor(_EXECUTOR, _load_webhooks)
-    return _cors_json_response({"ok": True, "webhooks": data})
 
-async def handle_v1_webhooks_set(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception:
-        return _cors_json_response({"ok": False, "error": "invalid json"}, status=400)
-    
-    cfg, err = normalize_webhooks_config(data)
-    if err:
-        return _cors_json_response({"ok": False, "error": err}, status=400)
-
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(_EXECUTOR, _save_webhooks, cfg)
-    audit({"type": "webhooks_updated", "urls_count": len(cfg["urls"])})
-    return _cors_json_response({"ok": True, "webhooks": cfg})
 
 async def handle_v1_config(request: web.Request) -> web.Response:
     r = require_auth(request)
@@ -9025,18 +8953,29 @@ def _audit_stats_sync() -> dict:
     return audit_stats(AUDIT)
 
 
-async def handle_v1_audit_stats(request: web.Request) -> web.Response:
-    """GET /v1/audit/stats — Audit statistics."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _audit_stats_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_observability_handler_ctx = ObservabilityHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    audit_path=AUDIT,
+    request_log_file=_REQ_LOG_FILE,
+    read_tail=read_tail,
+    read_request_log=read_request_log,
+    audit_stats_sync=_audit_stats_sync,
+    load_webhooks=_load_webhooks,
+    save_webhooks=_save_webhooks,
+    normalize_webhooks_config=normalize_webhooks_config,
+    audit=audit,
+)
+_observability_handlers = make_observability_handlers(_observability_handler_ctx)
+handle_v1_audit = _observability_handlers.audit
+handle_v1_audit_stats = _observability_handlers.audit_stats
+handle_v1_audit_log = _observability_handlers.audit_log
+handle_v1_webhooks_get = _observability_handlers.webhooks_get
+handle_v1_webhooks_set = _observability_handlers.webhooks_set
+
+
 
 
 # --- /v1/tasks GET — Task queue management ---

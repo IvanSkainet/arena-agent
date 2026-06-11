@@ -137,3 +137,22 @@ class MemoryHandlerContext:
     recall_digest_sync: Callable[[], dict[str, Any]]
     audit: Callable[[dict[str, Any]], None]
     utc_now: Callable[[], str]
+
+
+@dataclass(frozen=True)
+class ObservabilityHandlerContext:
+    """Dependencies for audit/request-log/webhook handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    audit_path: Any
+    request_log_file: Any
+    read_tail: Callable[..., list[str]]
+    read_request_log: Callable[..., list[dict[str, Any]]]
+    audit_stats_sync: Callable[[], dict[str, Any]]
+    load_webhooks: Callable[[], dict[str, Any]]
+    save_webhooks: Callable[[dict[str, Any]], None]
+    normalize_webhooks_config: Callable[[dict[str, Any]], tuple[dict[str, Any] | None, str | None]]
+    audit: Callable[[dict[str, Any]], None]
