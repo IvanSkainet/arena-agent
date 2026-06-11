@@ -21,6 +21,8 @@ def test_resource_handlers_factory_outputs():
         agents_list_sync=ub._agents_list_sync,
         subagents_list_sync=ub._subagents_list_sync,
         mission_show_sync=ub._mission_show_sync,
+        subagent_spawn_sync=ub._subagents_spawn_sync,
+        audit=ub.audit,
     )
     handlers = make_resource_handlers(ctx)
     assert callable(handlers.missions)
@@ -29,6 +31,7 @@ def test_resource_handlers_factory_outputs():
     assert callable(handlers.agents)
     assert callable(handlers.subagents)
     assert callable(handlers.mission_show)
+    assert callable(handlers.subagents_spawn)
 
 
 def test_unified_routes_use_extracted_resource_handlers():
@@ -36,3 +39,4 @@ def test_unified_routes_use_extracted_resource_handlers():
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     for path in ["/v1/missions", "/v1/reports", "/v1/hooks", "/v1/agents", "/v1/subagents", "/v1/mission/show"]:
         assert ("GET", path) in paths
+    assert ("POST", "/v1/subagents/spawn") in paths

@@ -252,6 +252,7 @@ from arena.resources.listing import (  # noqa: E402,F401
     show_mission,
 )
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
+from arena.resources.subagents import spawn_subagent  # noqa: E402,F401
 from arena.memory.handlers import make_memory_handlers  # noqa: E402,F401
 from arena.memory.store import (  # noqa: E402,F401
     delete_fact as memory_delete_fact,
@@ -8954,52 +8955,9 @@ def _subagents_list_sync() -> dict:
 # --- /v1/subagents/spawn POST — Spawn subagent ---
 
 def _subagents_spawn_sync(data: dict) -> dict:
-    """Spawn a subagent."""
-    cmd = data.get("cmd", "")
-    name = data.get("name", "")
-    wait = data.get("wait", True)
-    timeout = data.get("timeout", 300)
-
-    cmd_args = [sys.executable, os.path.join(BIN, "subagent.py"), "spawn", cmd]
-    if name:
-        cmd_args += ["--name", name]
-    if wait:
-        cmd_args += ["--wait"]
-    cmd_args += ["--timeout", str(timeout)]
-
-    try:
-        p = subprocess.run(cmd_args, capture_output=True, text=True, timeout=timeout + 30, **_subprocess_kwargs())
-        return {"ok": p.returncode == 0, "exit_code": p.returncode,
-                "stdout": p.stdout[-10000:], "stderr": p.stderr[-3000:]}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "exit_code": -1, "stdout": "", "stderr": "timeout"}
-    except Exception as e:
-        return {"ok": False, "exit_code": -2, "stdout": "", "stderr": str(e)}
+    return spawn_subagent(data, bin_dir=BIN, subprocess_kwargs_fn=_subprocess_kwargs)
 
 
-async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
-    """POST /v1/subagents/spawn — Spawn subagent. Body: {cmd, name?, wait?, timeout?}."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-    cmd = data.get("cmd", "")
-    if not cmd:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing cmd"}, status=400)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _subagents_spawn_sync, data)
-        audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""),
-               "ok": result.get("ok", False)})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # --- /v1/mission/show GET — Show mission details ---
@@ -9019,6 +8977,8 @@ _resource_handler_ctx = ResourceHandlerContext(
     agents_list_sync=_agents_list_sync,
     subagents_list_sync=_subagents_list_sync,
     mission_show_sync=_mission_show_sync,
+    subagent_spawn_sync=_subagents_spawn_sync,
+    audit=audit,
 )
 _resource_handlers = make_resource_handlers(_resource_handler_ctx)
 handle_v1_missions = _resource_handlers.missions
@@ -9026,6 +8986,7 @@ handle_v1_reports = _resource_handlers.reports
 handle_v1_hooks = _resource_handlers.hooks
 handle_v1_agents = _resource_handlers.agents
 handle_v1_subagents = _resource_handlers.subagents
+handle_v1_subagents_spawn = _resource_handlers.subagents_spawn
 handle_v1_mission_show = _resource_handlers.mission_show
 
 

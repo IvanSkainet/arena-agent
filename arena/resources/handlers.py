@@ -18,6 +18,7 @@ class ResourceHandlers:
     agents: object
     subagents: object
     mission_show: object
+    subagents_spawn: object
 
 
 def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
@@ -81,6 +82,29 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+
+    async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            data = await request.json()
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+        cmd = data.get("cmd", "")
+        if not cmd:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": "missing cmd"}, status=400)
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(ctx.executor, ctx.subagent_spawn_sync, data)
+            ctx.audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""), "ok": result.get("ok", False)})
+            return ctx.cors_json_response(result)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
     return ResourceHandlers(
         missions=handle_v1_missions,
         reports=handle_v1_reports,
@@ -88,4 +112,5 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         agents=make_simple_handler(ctx.agents_list_sync, "agents"),
         subagents=make_simple_handler(ctx.subagents_list_sync, "subagents"),
         mission_show=handle_v1_mission_show,
+        subagents_spawn=handle_v1_subagents_spawn,
     )
