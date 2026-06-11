@@ -4263,6 +4263,20 @@ def require_auth(request: web.Request) -> web.Response | None:
         _rate_limit_store[key].append(now)
     return _cors_json_response({"ok": False, "error": "unauthorized"}, status=401)
 
+def _check_internet_sync() -> bool:
+    return check_internet()
+
+def _doctor_sync(token: str) -> dict:
+    return run_doctor(
+        version=VERSION,
+        token=token,
+        bridge_dir=BRIDGE_DIR,
+        memory_dir=MEMORY_FILE.parent,
+        missions_dir=MISSIONS_DIR,
+        facts_count_fn=lambda: len(_load_facts()),
+        internet_check_fn=_check_internet_sync,
+        home_dir=Path.home(),
+    )
 
 def common_status(cfg: dict) -> dict:
     return {
@@ -4285,15 +4299,18 @@ _system_handler_ctx = SystemHandlerContext(
     require_auth=require_auth,
     record_request=_record_request,
     cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
     common_status=common_status,
     version=VERSION,
     clean_platform_name=get_clean_platform_name,
+    doctor_sync=_doctor_sync,
 )
 _system_handlers = make_system_handlers(_system_handler_ctx)
 handle_v1_version = _system_handlers.version
 handle_v1_info = _system_handlers.info
 handle_v1_status = _system_handlers.status
 handle_v1_config = _system_handlers.config
+handle_v1_doctor = _system_handlers.doctor
 
 
 # ============================================================================
@@ -5233,34 +5250,10 @@ async def handle_v1_beep(request: web.Request) -> web.Response:
         return _cors_json_response(result)
 
 
-def _check_internet_sync() -> bool:
-    return check_internet()
 
 
-async def handle_v1_doctor(request: web.Request) -> web.Response:
-    """GET /v1/doctor — run diagnostics."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(
-            _EXECUTOR,
-            lambda: run_doctor(
-                version=VERSION,
-                token=request.app["cfg"]["token"],
-                bridge_dir=BRIDGE_DIR,
-                memory_dir=MEMORY_FILE.parent,
-                missions_dir=MISSIONS_DIR,
-                facts_count_fn=lambda: len(_load_facts()),
-                internet_check_fn=_check_internet_sync,
-                home_dir=Path.home(),
-            ),
-        )
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+
 
 
 def _list_reports_sync() -> list[dict]:

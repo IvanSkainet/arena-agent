@@ -160,11 +160,13 @@ class ObservabilityHandlerContext:
 
 @dataclass(frozen=True)
 class SystemHandlerContext:
-    """Dependencies for simple system/version/status/config handlers."""
+    """Dependencies for simple system/version/status/config/doctor handlers."""
 
     require_auth: Callable[[web.Request], web.Response | None]
     record_request: Callable[..., None]
     cors_json_response: Callable[..., web.Response]
+    executor: Executor
     common_status: Callable[[dict[str, Any]], dict[str, Any]]
     version: str
     clean_platform_name: Callable[[], str]
+    doctor_sync: Callable[[str], dict[str, Any]]

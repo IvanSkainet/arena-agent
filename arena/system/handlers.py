@@ -1,6 +1,7 @@
 """Simple system/version/status/config handlers."""
 from __future__ import annotations
 
+import asyncio
 import platform
 import socket
 import sys
@@ -17,6 +18,7 @@ class SystemHandlers:
     info: object
     status: object
     config: object
+    doctor: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -79,4 +81,23 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             "endpoints_total": len([r for r in request.app.router.routes()]),
         })
 
-    return SystemHandlers(version=handle_v1_version, info=handle_v1_info, status=handle_v1_status, config=handle_v1_config)
+
+    async def handle_v1_doctor(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(ctx.executor, ctx.doctor_sync, request.app["cfg"]["token"])
+            return ctx.cors_json_response(result)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+    return SystemHandlers(
+        version=handle_v1_version,
+        info=handle_v1_info,
+        status=handle_v1_status,
+        config=handle_v1_config,
+        doctor=handle_v1_doctor,
+    )
