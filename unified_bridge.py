@@ -298,7 +298,8 @@ from arena.observability.webhooks import (  # noqa: E402,F401
     save_webhooks,
 )
 from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext  # noqa: E402,F401
+from arena.system.handlers import make_system_handlers  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -4272,6 +4273,21 @@ def common_status(cfg: dict) -> dict:
     }
 
 
+_system_handler_ctx = SystemHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    common_status=common_status,
+    version=VERSION,
+    clean_platform_name=get_clean_platform_name,
+)
+_system_handlers = make_system_handlers(_system_handler_ctx)
+handle_v1_version = _system_handlers.version
+handle_v1_info = _system_handlers.info
+handle_v1_status = _system_handlers.status
+handle_v1_config = _system_handlers.config
+
+
 # ============================================================================
 # HANDLERS — Public
 # ============================================================================
@@ -4346,43 +4362,9 @@ async def handle_health(request: web.Request) -> web.Response:
         return _cors_json_response({"ok": False, "service": "arena-unified-bridge"}, status=500)
 
 
-async def handle_v1_version(request: web.Request) -> web.Response:
-    """GET /v1/version — version info."""
-    try:
-        _record_request()
-        return _cors_json_response({
-            "ok": True,
-            "version": VERSION,
-            "service": "arena-unified-bridge",
-            "python": sys.version.split()[0],
-            "platform": get_clean_platform_name(),
-        })
 
 
-    # ============================================================================
-    # HANDLERS — v1 API
-    # ============================================================================
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
-async def handle_v1_info(request: web.Request) -> web.Response:
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        return _cors_json_response(common_status(request.app["cfg"]))
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_status(request: web.Request) -> web.Response:
-    try:
-        r = require_auth(request)
-        if r: return r
-        _record_request()
-        return _cors_json_response(common_status(request.app["cfg"]))
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 def _sysinfo_cim_sync() -> tuple[int, int]:
@@ -5784,30 +5766,6 @@ async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
 
 
 
-async def handle_v1_config(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    cfg = request.app["cfg"]
-    return _cors_json_response({
-        "ok": True,
-        "service": "arena-unified-bridge",
-        "version": VERSION,
-        "host": socket.gethostname(),
-        "platform": platform.platform(),
-        "python": platform.python_version(),
-        "config": {
-            "root": str(cfg.get("root", "")),
-            "port": cfg.get("port", 8765),
-            "profile": cfg.get("profile", "owner-shell"),
-            "audit_log": str(cfg.get("audit", "")),
-            "max_concurrent": cfg.get("max_concurrent", 3),
-            "token_length": len(cfg.get("token", "")) if cfg.get("token") else 0,
-            "token_preview": (cfg.get("token", "")[:4] + "..." + cfg.get("token", "")[-4:])
-                              if cfg.get("token") and len(cfg["token"]) > 8 else "***",
-        },
-        "endpoints_total": len([r for r in request.app.router.routes()]),
-    })
 
 
 

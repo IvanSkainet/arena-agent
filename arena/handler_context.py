@@ -156,3 +156,15 @@ class ObservabilityHandlerContext:
     save_webhooks: Callable[[dict[str, Any]], None]
     normalize_webhooks_config: Callable[[dict[str, Any]], tuple[dict[str, Any] | None, str | None]]
     audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class SystemHandlerContext:
+    """Dependencies for simple system/version/status/config handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    common_status: Callable[[dict[str, Any]], dict[str, Any]]
+    version: str
+    clean_platform_name: Callable[[], str]
