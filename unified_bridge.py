@@ -189,6 +189,7 @@ from arena.rate_limit import (  # noqa: E402,F401
 )
 from arena.auth.users import UserStore  # noqa: E402,F401
 from arena.auth.handlers import make_user_handlers  # noqa: E402,F401
+from arena.files.handlers import make_file_handlers  # noqa: E402,F401
 
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.
@@ -329,7 +330,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -4008,6 +4009,19 @@ _user_handler_ctx = UserHandlerContext(
 _user_handlers = make_user_handlers(_user_handler_ctx)
 handle_v1_users = _user_handlers.users
 
+
+_file_handler_ctx = FileHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    audit=audit,
+    home=Path.home(),
+    bridge_py=Path(__file__).resolve(),
+)
+_file_handlers = make_file_handlers(_file_handler_ctx)
+handle_v1_upload = _file_handlers.upload
+handle_v1_download = _file_handlers.download
+
 def _check_internet_sync() -> bool:
     return check_internet()
 
@@ -4616,81 +4630,8 @@ async def handle_v1_kill(request: web.Request) -> web.Response:
     return _cors_json_response({"ok": True, "killed": target_id})
 
 
-async def handle_v1_upload(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    qs = parse_qs(request.query_string)
-    target = qs.get("path", [""])[0]
-    if not target:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
-    # Path traversal protection
-    if ".." in Path(target).parts:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
-    target_path = Path(target).expanduser()
-    if not target_path.is_absolute():
-        target_path = request.app["cfg"]["root"] / target_path
-    # Prevent overwriting bridge itself or writing outside user home
-    try:
-        target_path.resolve().relative_to(Path.home())
-    except ValueError:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "upload path must be inside user home"}, status=403)
-    bridge_py = Path(__file__).resolve()
-    if target_path.resolve() == bridge_py.resolve():
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "cannot overwrite the bridge itself"}, status=403)
-    # Reject multipart form-data uploads (they corrupt file content)
-    ct = request.headers.get("Content-Type", "")
-    if "multipart" in ct.lower():
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "multipart/form-data not supported; use --data-binary"}, status=400)
-    try:
-        body = await request.read()
-        target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_bytes(body)
-        audit({"type": "file_upload", "path": str(target_path), "bytes": len(body)})
-        _record_request()
-        return _cors_json_response({"ok": True, "path": str(target_path), "bytes": len(body)})
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
 
-async def handle_v1_download(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    qs = parse_qs(request.query_string)
-    target = qs.get("path", [""])[0]
-    if not target:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing path"}, status=400)
-    if ".." in Path(target).parts:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "path traversal not allowed"}, status=400)
-    target_path = Path(target).expanduser()
-    if not target_path.is_absolute():
-        target_path = request.app["cfg"]["root"] / target_path
-    # Security: restrict downloads to home directory
-    try:
-        target_path.resolve().relative_to(Path.home().resolve())
-    except ValueError:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "path outside home directory"}, status=403)
-    if not target_path.exists() or not target_path.is_file():
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "file not found"}, status=404)
-    try:
-        audit({"type": "file_download", "path": str(target_path), "bytes": target_path.stat().st_size})
-        _record_request()
-        return web.FileResponse(target_path, headers={
-            "Content-Disposition": f'attachment; filename="{target_path.name}"',
-            "Access-Control-Allow-Origin": "*",
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
 
 # ============================================================================

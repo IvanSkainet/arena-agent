@@ -190,3 +190,15 @@ class UserHandlerContext:
     token_generator: Callable[[int], str]
     audit: Callable[[dict[str, Any]], None]
     log_info: Callable[..., None]
+
+
+@dataclass(frozen=True)
+class FileHandlerContext:
+    """Dependencies for file upload/download handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    audit: Callable[[dict[str, Any]], None]
+    home: Any
+    bridge_py: Any
