@@ -346,3 +346,20 @@ class ClusterHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     log_info: Callable[..., None]
 
+@dataclass(frozen=True)
+class ProfileHandlerContext:
+    """Dependencies for browser session profile handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    profiles_dir: Any
+    ensure_profiles_dir: Callable[[], Any]
+    cdp_state: dict[str, Any]
+    cdp_active_tab: Callable[..., Any]
+    version: str
+    utc_now: Callable[[], str]
+    audit: Callable[[dict[str, Any]], None]
+    emit_event: Callable[[str, dict | None], Any]
+    log_warning: Callable[..., None]
+
