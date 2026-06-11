@@ -299,6 +299,10 @@ from arena.observability.webhooks import (  # noqa: E402,F401
 )
 from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
 from arena.system.handlers import make_system_handlers  # noqa: E402,F401
+from arena.system.sysinfo import (  # noqa: E402,F401
+    collect_sysinfo,
+    sysinfo_cim_cpu_counts,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -4368,37 +4372,7 @@ async def handle_health(request: web.Request) -> web.Response:
 
 
 def _sysinfo_cim_sync() -> tuple[int, int]:
-    """Synchronous helper to run CIM cmdlets for CPU info (Windows only)."""
-    cpu_physical = multiprocessing.cpu_count()
-    cpu_logical = multiprocessing.cpu_count()
-    try:
-        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", 
-               "Get-CimInstance Win32_Processor | Select-Object NumberOfCores,NumberOfLogicalProcessors | ConvertTo-Json -Compress"]
-        out_bytes = subprocess.check_output(cmd, **_subprocess_kwargs())
-        
-        out = ""
-        for enc in ["utf-8", "utf-16", "cp866"]:
-            try:
-                out = out_bytes.decode(enc, errors="ignore").strip()
-                if out:
-                    break
-            except Exception:
-                continue
-                
-        if out:
-            data = json.loads(out)
-            if isinstance(data, list):
-                cpu_physical = sum(int(item.get("NumberOfCores", 0) or 0) for item in data)
-                cpu_logical = sum(int(item.get("NumberOfLogicalProcessors", 0) or 0) for item in data)
-            elif isinstance(data, dict):
-                cpu_physical = int(data.get("NumberOfCores", 0) or 0)
-                cpu_logical = int(data.get("NumberOfLogicalProcessors", 0) or 0)
-                
-            if cpu_physical == 0: cpu_physical = multiprocessing.cpu_count()
-            if cpu_logical == 0: cpu_logical = multiprocessing.cpu_count()
-    except Exception as e:
-        log.debug("[SysInfo] Failed to get CPU via CIM: %s", e)
-    return cpu_physical, cpu_logical
+    return sysinfo_cim_cpu_counts(subprocess_kwargs_fn=_subprocess_kwargs)
 
 
 async def handle_v1_sysinfo(request: web.Request) -> web.Response:
@@ -4407,73 +4381,18 @@ async def handle_v1_sysinfo(request: web.Request) -> web.Response:
     _record_request()
     cfg = request.app["cfg"]
     try:
-        import shutil
-        disk = shutil.disk_usage(cfg["root"])
-        mem_total, mem_avail = 0, 0
-
-        if sys.platform == "win32":
-            try:
-                import ctypes
-                class MEMORYSTATUSEX(ctypes.Structure):
-                    _fields_ = [
-                        ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
-                        ("ullTotalPhys", ctypes.c_uint64), ("ullAvailPhys", ctypes.c_uint64),
-                        ("ullTotalPageFile", ctypes.c_uint64), ("ullAvailPageFile", ctypes.c_uint64),
-                        ("ullTotalVirtual", ctypes.c_uint64), ("ullAvailVirtual", ctypes.c_uint64),
-                        ("ullAvailExtendedVirtual", ctypes.c_uint64),
-                    ]
-                stat = MEMORYSTATUSEX()
-                stat.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
-                ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
-                mem_total = stat.ullTotalPhys
-                mem_avail = stat.ullAvailPhys
-            except Exception:
-                pass
-        elif os.path.exists("/proc/meminfo"):
-            with open("/proc/meminfo") as f:
-                m = f.read()
-            mt = re.search(r"MemTotal:\s+(\d+)", m)
-            ma = re.search(r"MemAvailable:\s+(\d+)", m)
-            if mt: mem_total = int(mt.group(1)) * 1024
-            if ma: mem_avail = int(ma.group(1)) * 1024
-
-        cpu_physical = multiprocessing.cpu_count()
-        cpu_logical = multiprocessing.cpu_count()
-        if sys.platform == "win32":
-            loop = asyncio.get_event_loop()
-            cpu_physical, cpu_logical = await loop.run_in_executor(_EXECUTOR, _sysinfo_cim_sync)
-
-        # CPU load: cross-platform (Windows has no os.getloadavg)
-        cpu_percent = 0.0
-        load_avg = [0.0, 0.0, 0.0]
-        if sys.platform == "win32":
-            try:
-                import subprocess as _sp2
-                r = _sp2.run(["powershell", "-Command",
-                    "(Get-WmiObject Win32_Processor | Measure-Object -Property LoadPercentage -Average).Average"],
-                    capture_output=True, text=True, timeout=5, **_subprocess_kwargs())
-                cpu_percent = float(r.stdout.strip()) if r.stdout.strip() else 0.0
-            except Exception:
-                pass
-        else:
-            load_avg = list(getattr(os, "getloadavg", lambda: (0.0, 0.0, 0.0))())
-            cpu_percent = load_avg[0] * 100 / max(cpu_logical, 1) if load_avg[0] > 0 else 0.0
-        return _cors_json_response({
-            "ok": True,
-            "hostname": socket.gethostname(),
-            "python_version": platform.python_version(),
-            "os_build": get_clean_platform_name(),
-            "platform": platform.machine(),
-            "cpu_cores": cpu_physical,
-            "cpu_threads": cpu_logical,
-            "cpu_percent": round(cpu_percent, 1),
-            "load_avg": load_avg,
-            "mem_total_mb": mem_total // (1024 * 1024),
-            "mem_avail_mb": mem_avail // (1024 * 1024),
-            "disk_total_gb": disk.total // (1024 ** 3),
-            "disk_free_gb": disk.free // (1024 ** 3),
-            "disk_usage_percent": round(disk.used / disk.total * 100, 1) if disk.total > 0 else 0,
-        })
+        loop = asyncio.get_event_loop()
+        import functools
+        result = await loop.run_in_executor(
+            _EXECUTOR,
+            functools.partial(
+                collect_sysinfo,
+                root=cfg["root"],
+                clean_platform_name_fn=get_clean_platform_name,
+                subprocess_kwargs_fn=_subprocess_kwargs,
+            ),
+        )
+        return _cors_json_response(result)
     except Exception as e:
         _record_request(is_error=True, count_request=False)
         return _cors_json_response({"ok": False, "error": str(e)}, status=500)
