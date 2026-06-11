@@ -320,3 +320,16 @@ class TlsHandlerContext:
     get_tailscale_cert: Callable[[], tuple[str, str]]
     log_info: Callable[..., None]
 
+@dataclass(frozen=True)
+class SandboxHandlerContext:
+    """Dependencies for sandbox execution/configuration handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    blocked_reason: Callable[[str], str | None]
+    first_word: Callable[[str], str]
+    run_sandboxed: Callable[..., Any]
+    audit: Callable[[dict[str, Any]], None]
+    emit_event: Callable[[str, dict | None], Any]
+

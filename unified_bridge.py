@@ -198,6 +198,8 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.sandbox.runtime import SANDBOX_CONFIG as _sandbox_config, run_sandboxed as _sandbox_run_sandboxed  # noqa: E402,F401
+from arena.sandbox.handlers import make_sandbox_handlers  # noqa: E402,F401
 from arena.tls.handlers import (  # noqa: E402,F401
     TLS_CONFIG as _tls_config,
     generate_self_signed_cert as _tls_generate_self_signed_cert,
@@ -361,7 +363,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1963,150 +1965,19 @@ def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
 # ============================================================================
 # PHASE 4: Skill Sandboxing (isolated execution with resource limits)
 # ============================================================================
-_sandbox_config: dict[str, Any] = {
-    "enabled": True,
-    "max_cpu_seconds": 30,
-    "max_memory_mb": 256,
-    "max_output_bytes": 100 * 1024,
-    "allowed_commands": ["python3", "python", "bash", "sh", "node", "echo", "cat", "ls", "grep", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "date", "whoami", "id", "env", "printenv", "which", "pwd"],
-    "blocked_env_vars": ["ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY"],
-}
+# Sandbox runtime/config and handler now live in arena/sandbox/. The wrapper
+# below preserves the historical `_run_sandboxed(...)` helper signature used by
+# v2 compatibility code and tests.
 
 
 async def _run_sandboxed(cmd: str, timeout: int = 30, memory_mb: int = 256) -> dict:
-    """Run a command in a sandboxed environment with resource limits.
-    
-    Uses subprocess with restricted environment, timeout, and output limits.
-    On Linux, also sets ulimit for memory if possible.
-    """
-    result = {"ok": False, "timed_out": False, "memory_exceeded": False}
-    
-    # Sanitize environment
-    clean_env = dict(os.environ)
-    for key in list(clean_env.keys()):
-        for blocked in _sandbox_config["blocked_env_vars"]:
-            if blocked in key.upper():
-                clean_env.pop(key, None)
-    
-    # Add sandbox indicator
-    clean_env["ARENA_SANDBOX"] = "1"
-    
-    if sys.platform == "win32":
-        ac_runner = ROOT_AGENT / "scripts" / "appcontainer_run.ps1"
-        if ac_runner.exists():
-            cmd = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ac_runner}" "{cmd}"'
-
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=clean_env,
-        )
-        
-        try:
-            stdout, stderr = await asyncio.wait_for(
-                proc.communicate(),
-                timeout=min(timeout, _sandbox_config["max_cpu_seconds"])
-            )
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            result["timed_out"] = True
-            result["error"] = f"timeout after {timeout}s"
-            return result
-        
-        out = decode_output(stdout)
-        err = decode_output(stderr)
-        max_out = _sandbox_config["max_output_bytes"]
-        
-        if len(out) > max_out:
-            out = out[:max_out] + f"\n...[truncated, {len(out) - max_out} bytes omitted]"
-        if len(err) > max_out // 2:
-            err = err[:max_out // 2] + "\n...[truncated]"
-        
-        result["ok"] = proc.returncode == 0
-        result["exit_code"] = proc.returncode
-        result["stdout"] = out
-        result["stderr"] = err
-        
-    except Exception as e:
-        result["error"] = str(e)
-    
-    return result
-
-
-async def handle_v1_sandbox(request: web.Request) -> web.Response:
-    """GET /v1/sandbox — Sandbox configuration.
-    POST /v1/sandbox — Run a command in sandbox OR update sandbox config.
-    
-    To run: {"action": "run", "cmd": "...", "timeout": 30}
-    To configure: {"action": "config", "max_cpu_seconds": 60, ...}
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if request.method == "GET":
-        return _cors_json_response({"ok": True, "config": _sandbox_config})
-    
-    try:
-        data = await request.json()
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    
-    action = data.get("action", "run")
-    
-    if action == "config":
-        # Update configuration
-        for key in ("max_cpu_seconds", "max_memory_mb", "max_output_bytes"):
-            if key in data:
-                _sandbox_config[key] = int(data[key])
-        if "allowed_commands" in data:
-            _sandbox_config["allowed_commands"] = list(data["allowed_commands"])
-        if "blocked_env_vars" in data:
-            _sandbox_config["blocked_env_vars"] = list(data["blocked_env_vars"])
-        if "enabled" in data:
-            _sandbox_config["enabled"] = bool(data["enabled"])
-        
-        audit({"type": "sandbox_config", "changes": {k: v for k, v in data.items() if k != "action"}})
-        return _cors_json_response({"ok": True, "config": _sandbox_config})
-    
-    elif action == "run":
-        if not _sandbox_config["enabled"]:
-            return _cors_json_response({"ok": False, "error": "sandbox is disabled"}, status=403)
-        
-        cmd = data.get("cmd", "")
-        if not cmd:
-            return _cors_json_response({"ok": False, "error": "cmd is required"}, status=400)
-        
-        # Check if the command is allowed
-        first_cmd = first_word(cmd)
-        allowed = _sandbox_config["allowed_commands"]
-        if allowed and first_cmd not in allowed:
-            return _cors_json_response({
-                "ok": False, "error": f"command '{first_cmd}' not in allowed list",
-                "allowed": allowed
-            }, status=403)
-        
-        # Check for destructive patterns
-        block_reason = blocked_reason(cmd)
-        if block_reason:
-            return _cors_json_response({"ok": False, "error": block_reason}, status=403)
-        
-        timeout = min(int(data.get("timeout", 30)), _sandbox_config["max_cpu_seconds"])
-        result = await _run_sandboxed(cmd, timeout=timeout)
-        
-        audit({"type": "sandbox_run", "cmd_len": len(cmd),
-               "exit_code": result.get("exit_code"), "timed_out": result.get("timed_out", False)})
-        await emit_event("sandbox_run", {"cmd": cmd[:50], "ok": result["ok"],
-                                          "exit_code": result.get("exit_code")})
-        
-        return _cors_json_response(result)
-    
-    else:
-        return _cors_json_response({"ok": False, "error": "action must be 'run' or 'config'"},
-                                   status=400)
+    return await _sandbox_run_sandboxed(
+        cmd,
+        timeout=timeout,
+        memory_mb=memory_mb,
+        root_agent=ROOT_AGENT,
+        decode_output_fn=decode_output,
+    )
 
 
 # ============================================================================
@@ -3415,6 +3286,20 @@ _tls_handler_ctx = TlsHandlerContext(
 )
 _tls_handlers = make_tls_handlers(_tls_handler_ctx)
 handle_v1_tls = _tls_handlers.tls
+
+
+_sandbox_handler_ctx = SandboxHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    blocked_reason=blocked_reason,
+    first_word=first_word,
+    run_sandboxed=_run_sandboxed,
+    audit=audit,
+    emit_event=emit_event,
+)
+_sandbox_handlers = make_sandbox_handlers(_sandbox_handler_ctx)
+handle_v1_sandbox = _sandbox_handlers.sandbox
 
 
 _tracing_handler_ctx = TracingHandlerContext(
