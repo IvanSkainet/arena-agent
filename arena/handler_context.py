@@ -280,3 +280,32 @@ class BatchHandlerContext:
     emit_event: Callable[[str, dict | None], Any]
     now: Callable[[], float]
 
+@dataclass(frozen=True)
+class AlertsHandlerContext:
+    """Dependencies for alert configuration/status handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    metrics: dict[str, Any]
+    watchdog_state: dict[str, Any]
+    cdp_state: dict[str, Any]
+    rate_limit_lock: Any
+    rate_limit_store: dict[str, list[float]]
+    rate_limit_window: float
+    rate_limit_max: int
+    now: Callable[[], float]
+    log_info: Callable[..., None]
+
+
+@dataclass(frozen=True)
+class RateLimitHandlerContext:
+    """Dependencies for rate-limit config/stat handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    update_rate_limit_config: Callable[[dict[str, Any]], None]
+    rate_limit_stats: Callable[[], dict[str, Any]]
+    log_info: Callable[..., None]
+

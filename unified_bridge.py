@@ -329,6 +329,8 @@ from arena.observability.webhooks import (  # noqa: E402,F401
     save_webhooks,
 )
 from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
+from arena.observability.alerts import ALERTS_CONFIG as _ALERTS_CONFIG, make_alert_handlers  # noqa: E402,F401
+from arena.observability.ratelimit_handlers import make_rate_limit_handlers  # noqa: E402,F401
 from arena.observability.tracing import (  # noqa: E402,F401
     _otel_config,
     _otel_lock,
@@ -353,7 +355,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1486,99 +1488,8 @@ async def handle_v1_profiles_load(request: web.Request) -> web.Response:
 # ============================================================================
 # PHASE 3: Prometheus Alerts Configuration
 # ============================================================================
-
-_ALERTS_CONFIG = {
-    "bridge_down": {"enabled": True, "threshold_seconds": 30, "description": "Bridge unresponsive for >30s"},
-    "high_latency": {"enabled": True, "threshold_seconds": 5.0, "description": "Request latency >5s"},
-    "memory_leak": {"enabled": True, "threshold_mb": 512, "description": "Memory usage >512MB"},
-    "cdp_disconnect": {"enabled": True, "threshold_reconnects": 5, "description": "More than 5 CDP reconnects"},
-    "error_rate": {"enabled": True, "threshold_percent": 10.0, "description": "Error rate >10%"},
-    "rate_limit": {"enabled": True, "threshold_percent": 80.0, "description": "Rate limit >80% utilized"},
-}
-
-
-async def handle_v1_alerts(request: web.Request) -> web.Response:
-    """GET /v1/alerts — List alert configurations and current status.
-    POST /v1/alerts — Update alert configuration."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            for alert_name, config in data.items():
-                if alert_name in _ALERTS_CONFIG and isinstance(config, dict):
-                    for k, v in config.items():
-                        if k in _ALERTS_CONFIG[alert_name]:
-                            _ALERTS_CONFIG[alert_name][k] = v
-            log.info("[Alerts] Configuration updated")
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-
-    # Compute current alert states
-    alert_states = {}
-    uptime = time.time() - BRIDGE_METRICS["start_time"]
-    total_reqs = BRIDGE_METRICS["total_requests"]
-    total_errors = BRIDGE_METRICS["total_errors"]
-
-    alert_states["bridge_down"] = {"status": "OK", "uptime_s": round(uptime, 1)}
-
-    # High latency check
-    durations = BRIDGE_METRICS.get("request_durations", [])
-    avg_dur = sum(durations[-100:]) / len(durations[-100:]) if durations else 0
-    alert_states["high_latency"] = {
-        "status": "FIRING" if avg_dur > _ALERTS_CONFIG["high_latency"]["threshold_seconds"] else "OK",
-        "avg_duration_s": round(avg_dur, 3),
-        "threshold_s": _ALERTS_CONFIG["high_latency"]["threshold_seconds"],
-    }
-
-    # Memory check
-    alert_states["memory_leak"] = {
-        "status": "FIRING" if _watchdog_state["memory_mb"] > _ALERTS_CONFIG["memory_leak"]["threshold_mb"] else "OK",
-        "current_mb": _watchdog_state["memory_mb"],
-        "threshold_mb": _ALERTS_CONFIG["memory_leak"]["threshold_mb"],
-    }
-
-    # CDP disconnect check
-    reconnects = _cdp_state.get("reconnect_count", 0)
-    alert_states["cdp_disconnect"] = {
-        "status": "FIRING" if reconnects > _ALERTS_CONFIG["cdp_disconnect"]["threshold_reconnects"] else "OK",
-        "reconnects": reconnects,
-        "threshold": _ALERTS_CONFIG["cdp_disconnect"]["threshold_reconnects"],
-    }
-
-    # Error rate check
-    error_rate = (total_errors / total_reqs * 100) if total_reqs > 0 else 0
-    alert_states["error_rate"] = {
-        "status": "FIRING" if error_rate > _ALERTS_CONFIG["error_rate"]["threshold_percent"] else "OK",
-        "error_rate_pct": round(error_rate, 2),
-        "threshold_pct": _ALERTS_CONFIG["error_rate"]["threshold_percent"],
-    }
-
-    # Rate limit utilization
-    rl_usage = 0.0
-    with _rate_limit_lock:
-        for timestamps in _rate_limit_store.values():
-            now = time.time()
-            recent = [t for t in timestamps if now - t < _rate_limit_window]
-            if recent:
-                rl_usage = max(rl_usage, len(recent) / _rate_limit_max * 100)
-    alert_states["rate_limit"] = {
-        "status": "FIRING" if rl_usage > _ALERTS_CONFIG["rate_limit"]["threshold_percent"] else "OK",
-        "usage_pct": round(rl_usage, 1),
-        "threshold_pct": _ALERTS_CONFIG["rate_limit"]["threshold_percent"],
-    }
-
-    firing = sum(1 for s in alert_states.values() if s.get("status") == "FIRING")
-
-    return _cors_json_response({
-        "ok": True,
-        "alerts": _ALERTS_CONFIG,
-        "states": alert_states,
-        "firing": firing,
-        "healthy": firing == 0,
-    })
+# Alert configuration/status handler now lives in arena/observability/alerts.py;
+# imported above and re-exported here for compatibility.
 
 
 # ============================================================================
@@ -2180,20 +2091,9 @@ def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
     )
 
 
-async def handle_v1_ratelimit(request: web.Request) -> web.Response:
-    """GET /v1/ratelimit — Rate limit configuration and stats.
-    POST /v1/ratelimit — Update rate limit configuration."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            update_rate_limit_config(data)
-            log.info("[RateLimitv2] Configuration updated")
-        except Exception as e:
-            return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    return _cors_json_response(rate_limit_stats())
+# Rate-limit configuration/stat handler now lives in
+# arena/observability/ratelimit_handlers.py; bound below via
+# make_rate_limit_handlers(...) to preserve the public route global.
 
 
 # ============================================================================
@@ -3609,6 +3509,36 @@ _batch_handler_ctx = BatchHandlerContext(
 )
 _batch_handlers = make_batch_handlers(_batch_handler_ctx)
 handle_v1_batch = _batch_handlers.batch
+
+
+_alert_handler_ctx = AlertsHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    metrics=BRIDGE_METRICS,
+    watchdog_state=_watchdog_state,
+    cdp_state=_cdp_state,
+    rate_limit_lock=_rate_limit_lock,
+    rate_limit_store=_rate_limit_store,
+    rate_limit_window=_rate_limit_window,
+    rate_limit_max=_rate_limit_max,
+    now=time.time,
+    log_info=log.info,
+)
+_alert_handlers = make_alert_handlers(_alert_handler_ctx)
+handle_v1_alerts = _alert_handlers.alerts
+
+
+_rate_limit_handler_ctx = RateLimitHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    update_rate_limit_config=update_rate_limit_config,
+    rate_limit_stats=rate_limit_stats,
+    log_info=log.info,
+)
+_rate_limit_handlers = make_rate_limit_handlers(_rate_limit_handler_ctx)
+handle_v1_ratelimit = _rate_limit_handlers.ratelimit
 
 
 _tracing_handler_ctx = TracingHandlerContext(
