@@ -198,6 +198,7 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.batch.handlers import make_batch_handlers  # noqa: E402,F401
 from arena.api_v2.handlers import (  # noqa: E402,F401
     DEPRECATED_ENDPOINTS as _DEPRECATED_ENDPOINTS,
     cfg_get_max_timeout,
@@ -352,7 +353,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1272,103 +1273,8 @@ def check_auth_with_role(request: web.Request, required_role: str | None = None)
 # ============================================================================
 # PHASE 3: Batch Operations API
 # ============================================================================
-
-async def handle_v1_batch(request: web.Request) -> web.Response:
-    """POST /v1/batch — Execute multiple operations in parallel.
-
-    Body: {"operations": [{"method": "GET", "path": "/v1/status"}, ...]}
-    Optional: "max_concurrent": 5, "fail_fast": false
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        data = await request.json()
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
-
-    operations = data.get("operations", [])
-    if not operations:
-        return _cors_json_response({"ok": False, "error": "operations array is required"}, status=400)
-    if len(operations) > 20:
-        return _cors_json_response({"ok": False, "error": "maximum 20 operations per batch"}, status=400)
-
-    max_concurrent = min(data.get("max_concurrent", 5), 10)
-    fail_fast = data.get("fail_fast", False)
-    sem = asyncio.Semaphore(max_concurrent)
-
-    async def _execute_op(idx: int, op: dict) -> dict:
-        method = op.get("method", "GET").upper()
-        path = op.get("path", "")
-        body = op.get("body", {})
-        op_id = op.get("id", f"op_{idx}")
-
-        if not path:
-            return {"id": op_id, "ok": False, "error": "missing path", "status": 400}
-
-        async with sem:
-            t0 = time.time()
-            try:
-                # Build a sub-request to the internal handler
-                # For safety, we only allow internal API paths
-                if not path.startswith("/v1/") and path not in ("/health", "/metrics"):
-                    return {"id": op_id, "ok": False, "error": "only /v1/* and /health paths allowed",
-                            "status": 403}
-
-                # Use aiohttp client to call ourselves (cleanest approach)
-                cfg = request.app["cfg"]
-                port = cfg.get("port", 8765)
-                url = f"http://127.0.0.1:{port}{path}"
-                headers = {"Authorization": f"Bearer {cfg['token']}",
-                           "Content-Type": "application/json"}
-
-                async with aiohttp.ClientSession() as session:
-                    if method == "GET":
-                        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                            result = await resp.json()
-                            return {"id": op_id, "ok": resp.status < 400, "status": resp.status,
-                                    "data": result, "duration_ms": round((time.time() - t0) * 1000, 2)}
-                    elif method == "POST":
-                        async with session.post(url, headers=headers, json=body,
-                                                timeout=aiohttp.ClientTimeout(total=60)) as resp:
-                            result = await resp.json()
-                            return {"id": op_id, "ok": resp.status < 400, "status": resp.status,
-                                    "data": result, "duration_ms": round((time.time() - t0) * 1000, 2)}
-                    else:
-                        return {"id": op_id, "ok": False, "error": f"unsupported method: {method}",
-                                "status": 405}
-            except asyncio.TimeoutError:
-                return {"id": op_id, "ok": False, "error": "timeout", "status": 408,
-                        "duration_ms": round((time.time() - t0) * 1000, 2)}
-            except Exception as e:
-                return {"id": op_id, "ok": False, "error": str(e), "status": 500,
-                        "duration_ms": round((time.time() - t0) * 1000, 2)}
-
-    # Execute all operations in parallel
-    tasks = [_execute_op(i, op) for i, op in enumerate(operations)]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    # Process results
-    batch_results = []
-    errors = 0
-    for r in results:
-        if isinstance(r, Exception):
-            batch_results.append({"ok": False, "error": str(r), "status": 500})
-            errors += 1
-        else:
-            batch_results.append(r)
-            if not r.get("ok", True):
-                errors += 1
-
-    await emit_event("batch_complete", {"total": len(operations), "errors": errors})
-
-    return _cors_json_response({
-        "ok": errors == 0,
-        "total": len(operations),
-        "success": len(operations) - errors,
-        "errors": errors,
-        "results": batch_results,
-    })
+# Batch operation handler now lives in arena/batch/handlers.py; bound below via
+# make_batch_handlers(...) to preserve the public route global.
 
 
 # ============================================================================
@@ -3692,6 +3598,17 @@ handle_v2_health = _api_v2_handlers.health
 handle_v2_browser_status = _api_v2_handlers.browser_status
 handle_v2_exec = _api_v2_handlers.exec
 handle_v2_deprecations = _api_v2_handlers.deprecations
+
+
+_batch_handler_ctx = BatchHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    emit_event=emit_event,
+    now=time.time,
+)
+_batch_handlers = make_batch_handlers(_batch_handler_ctx)
+handle_v1_batch = _batch_handlers.batch
 
 
 _tracing_handler_ctx = TracingHandlerContext(

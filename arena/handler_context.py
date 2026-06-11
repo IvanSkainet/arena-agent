@@ -270,3 +270,13 @@ class ApiV2HandlerContext:
     emit_event: Callable[[str, dict | None], Any]
     now: Callable[[], float]
 
+@dataclass(frozen=True)
+class BatchHandlerContext:
+    """Dependencies for batch operation handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    emit_event: Callable[[str, dict | None], Any]
+    now: Callable[[], float]
+
