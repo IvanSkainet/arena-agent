@@ -286,6 +286,11 @@ from arena.observability.audit import (  # noqa: E402,F401
     sanitize_audit_event as audit_sanitize_event,
     write_audit_event,
 )
+from arena.observability.request_log import (  # noqa: E402,F401
+    log_request_response as request_log_response,
+    read_request_log,
+    request_log_lock,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -1026,7 +1031,6 @@ def _skills_cache_reset() -> None:
 # PHASE 3: Request/Response Logging
 # ============================================================================
 _REQ_LOG_FILE = APP_DIR / "requests.jsonl"
-_req_log_lock = threading.Lock()
 _REQ_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB before rotation
 _REQ_LOG_BACKUP_COUNT = 3
 
@@ -1034,51 +1038,25 @@ _REQ_LOG_BACKUP_COUNT = 3
 def _log_request_response(method: str, path: str, status: int, duration: float,
                            req_id: str, peer: str = "", error: str = "") -> None:
     """Log request/response to requests.jsonl for observability."""
-    entry = {
-        "ts": utc_now(),
-        "req_id": req_id,
-        "method": method,
-        "path": path,
-        "status": status,
-        "duration_ms": round(duration * 1000, 2),
-        "peer": peer,
-    }
-    if error:
-        entry["error"] = error[:500]
-
-    try:
-        APP_DIR.mkdir(parents=True, exist_ok=True)
-
-        # Simple rotation: check size and rotate if needed
-        if _REQ_LOG_FILE.exists() and _REQ_LOG_FILE.stat().st_size > _REQ_LOG_MAX_BYTES:
-            for i in range(_REQ_LOG_BACKUP_COUNT, 0, -1):
-                old = APP_DIR / f"requests.jsonl.{i}"
-                older = APP_DIR / f"requests.jsonl.{i + 1}"
-                if old.exists():
-                    if i == _REQ_LOG_BACKUP_COUNT:
-                        old.unlink()
-                    else:
-                        try:
-                            old.rename(older)
-                        except OSError:
-                            pass
-            try:
-                _REQ_LOG_FILE.rename(APP_DIR / "requests.jsonl.1")
-            except OSError:
-                pass
-
-        with _req_log_lock:
-            with _REQ_LOG_FILE.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except Exception:
-        pass  # Don't let logging failure break requests
+    return request_log_response(
+        log_file=_REQ_LOG_FILE,
+        app_dir=APP_DIR,
+        utc_now_fn=utc_now,
+        method=method,
+        path=path,
+        status=status,
+        duration=duration,
+        req_id=req_id,
+        peer=peer,
+        error=error,
+        lock=request_log_lock,
+        max_bytes=_REQ_LOG_MAX_BYTES,
+        backup_count=_REQ_LOG_BACKUP_COUNT,
+    )
 
 
 async def handle_v1_audit_log(request: web.Request) -> web.Response:
-    """GET /v1/audit/log — Request/response log with filters.
-
-    Query params: lines=100, method=GET, path=/v1, status=200, from=2025-01-01
-    """
+    """GET /v1/audit/log — Request/response log with filters."""
     r = require_auth(request)
     if r: return r
     _record_request()
@@ -1093,31 +1071,13 @@ async def handle_v1_audit_log(request: web.Request) -> web.Response:
         path_filter = ""
         status_filter = ""
 
-    entries = []
-    try:
-        if _REQ_LOG_FILE.exists():
-            all_lines = _REQ_LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-            for line in reversed(all_lines):  # Most recent first
-                try:
-                    entry = json.loads(line)
-                    if method_filter and entry.get("method", "").upper() != method_filter:
-                        continue
-                    if path_filter and path_filter not in entry.get("path", ""):
-                        continue
-                    if status_filter:
-                        try:
-                            if entry.get("status", 0) != int(status_filter):
-                                continue
-                        except ValueError:
-                            pass
-                    entries.append(entry)
-                    if len(entries) >= lines_count:
-                        break
-                except json.JSONDecodeError:
-                    continue
-    except Exception as e:
-        log.error("Failed to read request log: %s", e)
-
+    entries = read_request_log(
+        _REQ_LOG_FILE,
+        lines_count=lines_count,
+        method_filter=method_filter,
+        path_filter=path_filter,
+        status_filter=status_filter,
+    )
     return _cors_json_response({
         "ok": True,
         "log_file": str(_REQ_LOG_FILE),
