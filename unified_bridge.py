@@ -198,6 +198,14 @@ from arena.exec.runner import (  # noqa: E402,F401
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
+from arena.mcp.runtime import (  # noqa: E402,F401
+    MCP_SESSIONS,
+    MCP_SESSION_MAX_AGE_MS,
+    cleanup_mcp_sessions as _mcp_cleanup_sessions,
+    now_ms,
+    sid,
+)
+from arena.mcp.handlers import make_mcp_handlers  # noqa: E402,F401
 from arena.events.runtime import EVENT_SUBSCRIBERS as _event_subscribers, emit_event as _events_emit_event  # noqa: E402,F401
 from arena.events.handlers import make_event_handlers  # noqa: E402,F401
 from arena.watchdog.runtime import (  # noqa: E402,F401
@@ -400,7 +408,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -1705,27 +1713,11 @@ def handle_rpc(msg: dict) -> dict | None:
 # ============================================================================
 # MCP SSE SESSIONS
 # ============================================================================
-
-MCP_SESSIONS: dict[str, dict] = {}  # session_id -> {created, queue}
-MCP_SESSION_MAX_AGE_MS = 3600_000  # 1 hour — stale sessions auto-cleaned
+# MCP session state/helpers now live in arena/mcp/runtime.py.
 
 
 def _cleanup_mcp_sessions() -> int:
-    """Remove MCP sessions older than MCP_SESSION_MAX_AGE_MS. Returns count removed."""
-    now = now_ms()
-    stale = [sid for sid, sess in MCP_SESSIONS.items()
-             if now - sess.get("created", 0) > MCP_SESSION_MAX_AGE_MS]
-    for sid in stale:
-        MCP_SESSIONS.pop(sid, None)
-    return len(stale)
-
-
-def sid() -> str:
-    return secrets.token_urlsafe(18)
-
-
-def now_ms() -> int:
-    return int(time.time() * 1000)
+    return _mcp_cleanup_sessions(MCP_SESSIONS)
 
 
 # ============================================================================
@@ -2283,6 +2275,21 @@ handle_gateway_index = _gateway_handlers.index
 handle_gateway_tools = _gateway_handlers.tools
 handle_gateway_run = _gateway_handlers.run
 handle_gateway_tool = _gateway_handlers.tool
+
+
+_mcp_handler_ctx = McpHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    handle_rpc=handle_rpc,
+    log_error=log.error,
+)
+_mcp_handlers = make_mcp_handlers(_mcp_handler_ctx)
+handle_mcp_post = _mcp_handlers.mcp_post
+handle_mcp_delete = _mcp_handlers.mcp_delete
+handle_sse = _mcp_handlers.sse
+handle_sse_messages = _mcp_handlers.sse_messages
+handle_ws = _mcp_handlers.ws
 
 
 _api_v2_handler_ctx = ApiV2HandlerContext(
@@ -7134,152 +7141,10 @@ async def handle_api_docs(request: web.Request) -> web.Response:
 
 
 # ============================================================================
-# HANDLERS — MCP Streamable HTTP
+# HANDLERS — MCP Streamable HTTP / SSE / WebSocket
 # ============================================================================
-
-async def handle_mcp_post(request: web.Request) -> web.Response:
-    """MCP Streamable HTTP — main endpoint."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        msg = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status=400)
-
-    # New session on initialize
-    session_hdr = request.headers.get("Mcp-Session-Id", "")
-    if msg.get("method") == "initialize":
-        session = sid()
-        request.app["mcp_sessions"][session] = {"created": now_ms()}
-        resp = handle_rpc(msg)
-        return web.json_response(resp, headers={
-            "Mcp-Session-Id": session,
-            "Access-Control-Allow-Origin": "*",
-        })
-
-    resp = handle_rpc(msg)
-    if resp is None:
-        return web.Response(status=204, headers={"Access-Control-Allow-Origin": "*"})
-    return web.json_response(resp, headers={"Access-Control-Allow-Origin": "*"})
-
-
-async def handle_mcp_delete(request: web.Request) -> web.Response:
-    """Close MCP session."""
-    r = require_auth(request)
-    if r: return r
-    try:
-        sess = request.headers.get("Mcp-Session-Id", "")
-        request.app["mcp_sessions"].pop(sess, None)
-        return web.Response(status=204, headers={"Access-Control-Allow-Origin": "*"})
-
-
-    # ============================================================================
-    # HANDLERS — MCP SSE Legacy
-    # ============================================================================
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-async def handle_sse(request: web.Request) -> web.Response:
-    """SSE legacy transport — open event stream."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    session = sid()
-    request.app["mcp_sessions"][session] = {"created": now_ms()}
-
-    resp = web.StreamResponse(
-        status=200,
-        headers={
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": request.headers.get("Origin", "*"),
-            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Mcp-Session-Id, Last-Event-ID, Authorization",
-            "Access-Control-Expose-Headers": "Mcp-Session-Id",
-        }
-    )
-    await resp.prepare(request)
-    await resp.write(f"event: endpoint\ndata: /messages?session_id={session}\n\n".encode())
-
-    # Keep alive with periodic pings
-    try:
-        while True:
-            await asyncio.sleep(15)
-            await resp.write(b": keepalive\n\n")
-    except (ConnectionResetError, asyncio.CancelledError):
-        pass
-    finally:
-        request.app["mcp_sessions"].pop(session, None)
-
-    return resp
-
-
-async def handle_sse_messages(request: web.Request) -> web.Response:
-    """SSE legacy peer message endpoint."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        msg = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status=400)
-
-    # Process the RPC message
-    handle_rpc(msg)
-    return web.Response(status=202, headers={"Access-Control-Allow-Origin": "*"})
-
-
-# ============================================================================
-# HANDLER — MCP WebSocket
-# ============================================================================
-
-async def handle_ws(request: web.Request) -> web.WebSocketResponse:
-    """WebSocket MCP transport — full-duplex JSON-RPC."""
-    r = require_auth(request)
-    if r:
-        ws = web.WebSocketResponse()
-        await ws.prepare(request)
-        await ws.send_json({"jsonrpc": "2.0", "error": {"code": -32001, "message": "unauthorized"}})
-        await ws.close()
-        return ws
-    _record_request()
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
-    async for msg in ws:
-        if msg.type == aiohttp.WSMsgType.TEXT:
-            try:
-                data = json.loads(msg.data)
-                method = data.get("method", "")
-
-                # Subscribe/unsubscribe extension
-                if method == "subscribe":
-                    # Just acknowledge for now
-                    await ws.send_json({"jsonrpc": "2.0", "id": data.get("id"),
-                                        "result": {"subscribed": (data.get("params") or {}).get("topic", "default")}})
-                    continue
-                if method == "unsubscribe":
-                    await ws.send_json({"jsonrpc": "2.0", "id": data.get("id"),
-                                        "result": {"unsubscribed": True}})
-                    continue
-
-                resp = handle_rpc(data)
-                if resp is not None:
-                    await ws.send_json(resp)
-            except Exception as e:
-                await ws.send_json({"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}})
-
-        elif msg.type == aiohttp.WSMsgType.ERROR:
-            log.error("[WS] Connection error: %s", ws.exception())
-            break
-        elif msg.type == aiohttp.WSMsgType.CLOSE:
-            break
-
-    return ws
+# MCP transport handlers now live in arena/mcp/handlers.py and are bound below
+# via make_mcp_handlers(...) to preserve public route globals.
 
 
 # ============================================================================

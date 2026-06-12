@@ -403,3 +403,13 @@ class GuiHandlerContext:
     bridge_dir: Any
     version: str
 
+@dataclass(frozen=True)
+class McpHandlerContext:
+    """Dependencies for MCP HTTP/SSE/WebSocket transport handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
+    log_error: Callable[..., None]
+
