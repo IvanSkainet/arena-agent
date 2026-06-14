@@ -332,6 +332,7 @@ from arena.skills.install import (  # noqa: E402,F401
     uninstall_skill,
 )
 from arena.skills.runner import run_skill  # noqa: E402,F401
+from arena.skills.runtime import SkillRuntimeContext, make_skill_runtime  # noqa: E402,F401
 from arena.skills.handlers import make_skill_handlers  # noqa: E402,F401
 from arena.desktop.runtime import (  # noqa: E402,F401
     _desktop_exec,
@@ -2614,53 +2615,22 @@ handle_v1_tasks_clean = _task_handlers.tasks_clean
 
 
 
-# --- /v1/skills GET — List skills ---
+# --- /v1/skills runtime compatibility wrappers ---
 
-def _skills_list_sync() -> dict:
-    """Scan arena-bridge/skills/ directory for skill definitions."""
-    return scan_skills(SKILLS_DIR)
-
-def _parse_skill_folder(d: Path, skills: list, is_third_party: bool = False, category: str = ""):
-    """Compatibility wrapper for old internal parser API."""
-    skills.append(parse_skill_folder(SKILLS_DIR, d, is_third_party=is_third_party, category=category))
-
-
-
-
-def _skill_install_sync(name: str, url: str) -> dict:
-    return install_skill(name, url, skills_dir=SKILLS_DIR)
-
-def _normalize_third_party_skill_name(name: str) -> tuple[str | None, str | None]:
-    return normalize_third_party_skill_name(name)
-
-
-def _skill_uninstall_sync(name: str) -> dict:
-    return uninstall_skill(name, skills_dir=SKILLS_DIR)
-
-
-
-
-
-# --- /v1/skills/run POST — Run a skill ---
-
-def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) -> dict:
-    return run_skill(
-        name,
-        args,
-        skills_dir=SKILLS_DIR,
-        root_agent=ROOT_AGENT,
-        bin_dir=BIN,
-        subprocess_kwargs_fn=_subprocess_kwargs,
-        env_extra=env_extra,
-    )
-
-
-def _skill_path_is_safe(name: str) -> bool:
-    try:
-        resolved = (SKILLS_DIR / name).resolve()
-        return str(resolved).startswith(str(SKILLS_DIR.resolve()))
-    except Exception:
-        return False
+_skill_runtime_ctx = SkillRuntimeContext(
+    skills_dir=SKILLS_DIR,
+    root_agent=ROOT_AGENT,
+    bin_dir=BIN,
+    subprocess_kwargs=_subprocess_kwargs,
+)
+_skill_runtime = make_skill_runtime(_skill_runtime_ctx)
+_skills_list_sync = _skill_runtime.skills_list_sync
+_parse_skill_folder = _skill_runtime.parse_skill_folder_compat
+_skill_install_sync = _skill_runtime.skill_install_sync
+_normalize_third_party_skill_name = _skill_runtime.normalize_third_party_skill_name
+_skill_uninstall_sync = _skill_runtime.skill_uninstall_sync
+_skills_run_sync = _skill_runtime.skills_run_sync
+_skill_path_is_safe = _skill_runtime.skill_path_is_safe
 
 
 _skill_handler_ctx = SkillHandlerContext(
