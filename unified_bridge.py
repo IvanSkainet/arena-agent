@@ -353,6 +353,7 @@ from arena.browser.cdp.runtime import (  # noqa: E402,F401
     _stop_cdp_watcher,
     cdp_watcher_active as _cdp_watcher_active,
 )
+from arena.browser.cdp.active_tab import cdp_active_tab as _cdp_active_tab_impl  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -2944,58 +2945,14 @@ handle_v1_cdp_disconnect = _cdp_session_handlers.disconnect
 # ============================================================================
 
 async def _cdp_active_tab(tab_id: Optional[str] = None):
-    """Get a CDPTab instance for the given tab_id or the active tab.
-    
-    Returns (CDPTab, error_response) tuple. If error_response is not None,
-    the handler should return it immediately.
-    """
-    cdp = _get_cdp_module()
-    if not cdp:
-        return None, _cors_json_response(
-            {"ok": False, "error": "cdp_browser module not found. Install to scripts/ directory."},
-            status=500
-        )
-    
-    mgr = _cdp_state.get("manager")
-    if not mgr or not _cdp_state["connected"]:
-        return None, _cors_json_response(
-            {"ok": False, "error": "CDP not connected. POST /v1/browser/cdp/connect first."},
-            status=400
-        )
-    
-    if tab_id:
-        tab = mgr.get_tab(tab_id)
-        if not tab:
-            return None, _cors_json_response(
-                {"ok": False, "error": f"Tab {tab_id} not found"},
-                status=404
-            )
-        if not tab.connected:
-            return None, _cors_json_response(
-                {"ok": False, "error": f"Tab {tab_id} is not connected"},
-                status=400
-            )
-        return tab, None
-    
-    # Use active tab
-    tab = mgr.active_tab
-    if not tab:
-        return None, _cors_json_response(
-            {"ok": False, "error": "No active tab. Open a tab first."},
-            status=400
-        )
-    if not tab.connected:
-        # Try auto-reconnecting the active tab
-        try:
-            await tab.connect()
-        except Exception as e:
-            log.warning("[CDP] Auto-reconnect failed for tab %s: %s", tab.target_id, e)
-        if not tab.connected:
-            return None, _cors_json_response(
-                {"ok": False, "error": "Active tab is not connected and auto-reconnect failed. Try POST /v1/browser/cdp/connect again."},
-                status=400
-            )
-    return tab, None
+    """Compatibility wrapper for CDP tab resolution during v3 migration."""
+    return await _cdp_active_tab_impl(
+        tab_id,
+        cdp_state=_cdp_state,
+        get_cdp_module=_get_cdp_module,
+        cors_json_response=_cors_json_response,
+        log_warning=log.warning,
+    )
 
 
 # ---- CDP Session Management ----
