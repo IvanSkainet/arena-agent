@@ -200,6 +200,7 @@ from arena.rate_limit import (  # noqa: E402,F401
     update_rate_limit_config,
 )
 from arena.auth.users import UserStore  # noqa: E402,F401
+from arena.auth.runtime import AuthRuntimeContext, make_auth_runtime  # noqa: E402,F401
 from arena.auth.handlers import make_user_handlers  # noqa: E402,F401
 from arena.files.handlers import make_file_handlers  # noqa: E402,F401
 from arena.exec.runner import (  # noqa: E402,F401
@@ -610,17 +611,21 @@ def _stop_watchdog() -> None:
 # ============================================================================
 # PHASE 3: Multi-User Auth with Roles
 # ============================================================================
+# User store lives in arena/auth/users.py; auth runtime helpers live in
+# arena/auth/runtime.py. Bind compatibility globals here.
 _USERS_FILE = APP_DIR / "users.json"
 _user_store = UserStore(_USERS_FILE, log_warning=log.warning, log_debug=log.debug)
-
-def _load_users() -> dict[str, dict]:
-    return _user_store.load_users()
-
-
-def check_auth_with_role(request: web.Request, required_role: str | None = None) -> tuple[bool, str]:
-    return _user_store.check_auth_with_role(request, required_role=required_role)
-
-
+_auth_runtime_ctx = AuthRuntimeContext(
+    user_store=_user_store,
+    rate_limit_lock=_rate_limit_lock,
+    rate_limit_store=_rate_limit_store,
+    cors_json_response=_cors_json_response,
+    log_warning=log.warning,
+    now=time.time,
+)
+_auth_runtime = make_auth_runtime(_auth_runtime_ctx)
+_load_users = _auth_runtime.load_users
+check_auth_with_role = _auth_runtime.check_auth_with_role
 
 
 # ============================================================================
@@ -1296,49 +1301,9 @@ async def on_cleanup(app: web.Application):
 # ============================================================================
 # AUTH HELPER
 # ============================================================================
-
-def check_auth(request: web.Request) -> bool:
-    cfg = request.app["cfg"]
-    token = cfg["token"]
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):
-        return True
-    # Also check X-Arena-Token for gateway compat
-    xt = request.headers.get("X-Arena-Token", "")
-    if xt and hmac.compare_digest(xt, token):
-        return True
-    # v2.1.1: Also check multi-user tokens from users.json
-    is_authed, _ = check_auth_with_role(request)
-    if is_authed:
-        return True
-    return False
-
-
-def require_auth(request: web.Request) -> web.Response | None:
-    """Returns None if auth OK, or a 401 Response if not.
-    
-    Includes auth-specific rate limiting: 10 failed attempts per minute per IP.
-    """
-    if check_auth(request):
-        return None
-    # Auth-specific rate limiting (v2.1.1)
-    peer = request.remote or "unknown"
-    now = time.time()
-    with _rate_limit_lock:
-        key = f"auth_fail:{peer}"
-        if key not in _rate_limit_store:
-            _rate_limit_store[key] = []
-        # Remove entries older than 60 seconds
-        _rate_limit_store[key] = [t for t in _rate_limit_store[key] if now - t < 60]
-        if len(_rate_limit_store[key]) >= 10:
-            log.warning("[Auth-RateLimit] IP %s has %d failed auth attempts in 60s", peer, len(_rate_limit_store[key]))
-            return _cors_json_response(
-                {"ok": False, "error": "too many failed auth attempts, try again later"},
-                status=429,
-                extra_headers={"Retry-After": "60"}
-            )
-        _rate_limit_store[key].append(now)
-    return _cors_json_response({"ok": False, "error": "unauthorized"}, status=401)
+# check_auth/require_auth implementations live in arena/auth/runtime.py.
+check_auth = _auth_runtime.check_auth
+require_auth = _auth_runtime.require_auth
 
 
 _gateway_handler_ctx = GatewayHandlerContext(
