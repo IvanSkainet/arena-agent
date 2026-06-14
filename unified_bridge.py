@@ -413,6 +413,7 @@ from arena.observability.webhooks import (  # noqa: E402,F401
 )
 from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
 from arena.observability.runtime_handlers import make_runtime_observability_handlers  # noqa: E402,F401
+from arena.observability.log_cleanup import LogCleanupContext, make_log_cleanup_runtime  # noqa: E402,F401
 from arena.observability.alerts import ALERTS_CONFIG as _ALERTS_CONFIG, make_alert_handlers  # noqa: E402,F401
 from arena.observability.ratelimit_handlers import make_rate_limit_handlers  # noqa: E402,F401
 from arena.observability.tracing import (  # noqa: E402,F401
@@ -1056,109 +1057,30 @@ def read_tail(path: Path, lines: int = 100) -> list[str]:
 # ============================================================================
 # LOG ROTATION & DISK SAFETY (v2.1.0 — prevents disk fill)
 # ============================================================================
+# Runtime implementation lives in arena/observability/log_cleanup.py.
 
-_MAX_LOG_SIZE = 10 * 1024 * 1024  # 10MB — max size before forced rotation
-_MAX_LOG_BACKUPS = 3               # keep up to .1, .2, .3 rotated copies
-
-# All log files that the bridge creates and should be rotated
+_MAX_LOG_SIZE = 10 * 1024 * 1024
+_MAX_LOG_BACKUPS = 3
 _LOG_FILES_TO_ROTATE = [
     APP_DIR / "bridge.log",
     APP_DIR / "requests.jsonl",
     APP_DIR / "audit.jsonl",
 ]
-
-
-def _rotate_file_if_oversized(path: Path, max_bytes: int = _MAX_LOG_SIZE,
-                               backups: int = _MAX_LOG_BACKUPS) -> bool:
-    """Rotate a log file if it exceeds max_bytes. Returns True if rotated."""
-    try:
-        if not path.exists() or path.stat().st_size <= max_bytes:
-            return False
-        # Shift existing backups: .N → delete, .1 → .2, etc.
-        for i in range(backups, 0, -1):
-            old = Path(f"{path}.{i}")
-            if old.exists():
-                if i == backups:
-                    old.unlink()
-                else:
-                    try:
-                        old.rename(Path(f"{path}.{i + 1}"))
-                    except OSError:
-                        pass
-        # Current → .1
-        try:
-            path.rename(Path(f"{path}.1"))
-        except OSError:
-            pass
-        return True
-    except Exception:
-        return False
-
-
-def _rotate_all_logs_on_startup() -> None:
-    """Rotate any oversized log files at bridge startup."""
-    rotated = []
-    for lf in _LOG_FILES_TO_ROTATE:
-        if _rotate_file_if_oversized(lf):
-            rotated.append(lf.name)
-    # Also rotate the Windows Tee-Object log if it exists
-    for name in ("ArenaUnifiedBridge.log", "bridge_err.log"):
-        for parent in (Path.home() / "arena-agent" / "logs",
-                       Path.home() / "arena-bridge" / "logs",
-                       APP_DIR / "logs"):
-            lf = parent / name
-            if _rotate_file_if_oversized(lf, max_bytes=_MAX_LOG_SIZE, backups=2):
-                rotated.append(f"{parent.name}/{name}")
-    if rotated:
-        log.warning("[LogRotation] Rotated oversized log files at startup: %s", ", ".join(rotated))
-
-
-def _check_disk_space() -> float:
-    """Return disk usage percentage for the partition containing APP_DIR."""
-    try:
-        if sys.platform == "win32":
-            import ctypes
-            free_bytes = ctypes.c_ulonglong(0)
-            total_bytes = ctypes.c_ulonglong(0)
-            ctypes.windll.kernel32.GetDiskFreeSpaceExW(
-                str(APP_DIR.drive), None, ctypes.pointer(total_bytes),
-                ctypes.pointer(free_bytes))
-            if total_bytes.value > 0:
-                return round((1 - free_bytes.value / total_bytes.value) * 100, 1)
-        else:
-            stat = os.statvfs(str(APP_DIR.parent))
-            total = stat.f_blocks * stat.f_frsize
-            free = stat.f_bavail * stat.f_frsize
-            if total > 0:
-                return round((1 - free / total) * 100, 1)
-    except Exception:
-        pass
-    return -1  # unknown
-
-
-async def _log_cleanup_loop(app: web.Application) -> None:
-    """Periodic background task: rotate oversized logs and warn on disk space."""
-    _rotate_all_logs_on_startup()
-    while True:
-        try:
-            await asyncio.sleep(1800)  # every 30 minutes
-            # Rotate logs
-            rotated = []
-            for lf in _LOG_FILES_TO_ROTATE:
-                if _rotate_file_if_oversized(lf):
-                    rotated.append(lf.name)
-            if rotated:
-                log.info("[LogCleanup] Rotated: %s", ", ".join(rotated))
-            # Check disk space
-            pct = _check_disk_space()
-            if pct >= 0 and pct > 90:
-                log.critical("[DiskSpace] Disk usage at %.1f%%! Consider cleaning up files.", pct)
-            elif pct >= 0 and pct > 80:
-                log.warning("[DiskSpace] Disk usage at %.1f%%", pct)
-        except asyncio.CancelledError:
-            break
-        except Exception as e:
-            log.error("[LogCleanup] Error: %s", e)
+_log_cleanup_ctx = LogCleanupContext(
+    app_dir=APP_DIR,
+    log_files=_LOG_FILES_TO_ROTATE,
+    max_log_size=_MAX_LOG_SIZE,
+    max_log_backups=_MAX_LOG_BACKUPS,
+    log_info=log.info,
+    log_warning=log.warning,
+    log_critical=log.critical,
+    log_error=log.error,
+)
+_log_cleanup_runtime = make_log_cleanup_runtime(_log_cleanup_ctx)
+_rotate_file_if_oversized = _log_cleanup_runtime.rotate_file_if_oversized
+_rotate_all_logs_on_startup = _log_cleanup_runtime.rotate_all_logs_on_startup
+_check_disk_space = _log_cleanup_runtime.check_disk_space
+_log_cleanup_loop = _log_cleanup_runtime.log_cleanup_loop
 
 
 # ============================================================================
