@@ -436,3 +436,15 @@ class RuntimeObservabilityHandlerContext:
     now: Callable[[], float]
     log_error: Callable[..., None]
 
+@dataclass(frozen=True)
+class PublicHandlerContext:
+    """Dependencies for public index/health/OpenAPI handlers."""
+
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    metrics: dict[str, Any]
+    version: str
+    now: Callable[[], float]
+    hostname: Callable[[], str]
+    bridge_port: Callable[[], int]
+
