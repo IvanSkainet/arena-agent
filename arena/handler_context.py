@@ -246,6 +246,19 @@ class CdpInterceptHandlerContext:
 
 
 @dataclass(frozen=True)
+class CdpAdvancedHandlerContext:
+    """Dependencies for CDP session health, health dashboard, and stealth helpers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    cdp_state: dict[str, Any]
+    ensure_cookie_manager: Callable[[], Any]
+    watcher_active: Callable[[], bool]
+    bridge_start_time: float
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 

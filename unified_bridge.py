@@ -344,6 +344,7 @@ from arena.browser.cdp.tabs import make_cdp_tabs_handlers  # noqa: E402,F401
 from arena.browser.cdp.cookies import ensure_cookie_manager as _cdp_ensure_cookie_manager, make_cdp_cookies_handlers  # noqa: E402,F401
 from arena.browser.cdp.network import make_cdp_network_handlers  # noqa: E402,F401
 from arena.browser.cdp.intercept import make_cdp_intercept_handlers  # noqa: E402,F401
+from arena.browser.cdp.advanced import get_active_browser as _cdp_get_active_browser_from_context, make_cdp_advanced_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -427,7 +428,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, CdpInterceptHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, CdpInterceptHandlerContext, CdpAdvancedHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3507,349 +3508,34 @@ handle_v1_cdp_intercept_rule = _cdp_intercept_handlers.rule
 # CDP network interception endpoint implementations moved to arena/browser/cdp/intercept.py.
 
 
-
-# ---- CDP Session Health Check ----
-
-async def handle_v1_cdp_session_check(request):
-    """GET /v1/browser/cdp/session/check — Check session health.
-    
-    Query params:
-        domain: string (required)
-        auth_cookie_names: string (comma-separated, optional)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        return _cors_json_response({
-            "ok": False,
-            "connected": False,
-            "error": "CDP not connected",
-            "detail": "Start or connect a CDP browser session with POST /v1/browser/cdp/connect before checking cookies/session state.",
-            "status_endpoint": "/v1/browser/cdp/status",
-            "connect_endpoint": "/v1/browser/cdp/connect",
-        })
-    
-    qs = parse_qs(request.query_string)
-    domain = qs.get("domain", [None])[0]
-    if not domain:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'domain' parameter"}, status=400)
-    
-    auth_names_str = qs.get("auth_cookie_names", [None])[0]
-    auth_cookie_names = auth_names_str.split(",") if auth_names_str else None
-    
-    try:
-        cookie_mgr = await _ensure_cookie_manager()
-        if not cookie_mgr:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
-        result = await cookie_mgr.check_session(domain, auth_cookie_names)
-        return _cors_json_response({"ok": True, **result})
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+_cdp_advanced_handler_ctx = CdpAdvancedHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    cdp_state=_cdp_state,
+    ensure_cookie_manager=_ensure_cookie_manager,
+    watcher_active=_cdp_watcher_active,
+    bridge_start_time=BRIDGE_METRICS["start_time"],
+)
+_cdp_advanced_handlers = make_cdp_advanced_handlers(_cdp_advanced_handler_ctx)
+handle_v1_cdp_session_check = _cdp_advanced_handlers.session_check
+handle_v1_cdp_stealth_extract = _cdp_advanced_handlers.stealth_extract
+handle_v1_cdp_stealth_shot = _cdp_advanced_handlers.stealth_shot
+handle_v1_cdp_health = _cdp_advanced_handlers.health
 
 
-# ---- CDP Stealth Extract/Shot (BrowserAct + CDP integration) ----
+
+# ---- CDP Session Health Check / Stealth / Health ----
+# Implementations moved to arena/browser/cdp/advanced.py and are bound above via
+# make_cdp_advanced_handlers(...).
 
 async def _cdp_get_active_browser():
-    """Get the active tab's CDPBrowser instance, or None."""
-    mgr = _cdp_state.get("manager")
-    if not mgr or not _cdp_state["connected"]:
-        return None
-    tab = mgr.active_tab
-    if not tab or not tab.connected:
-        return None
-    return tab._browser
+    """Compatibility wrapper for remaining code during CDP migration."""
+    return await _cdp_get_active_browser_from_context(_cdp_advanced_handler_ctx)
 
 
-async def handle_v1_cdp_stealth_extract(request):
-    """POST /v1/browser/cdp/stealth/extract — Navigate to URL via CDP and extract page content.
+# CDP session-check, stealth extract/shot, and health handlers moved to arena/browser/cdp/advanced.py.
 
-    Uses the existing CDP connection for stealth-aware content extraction,
-    similar to browser-act extract but without launching a separate browser.
-
-    Body JSON:
-        url: string (required)
-        wait_for: string (optional CSS selector to wait for)
-        timeout: float (default: 15s)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-
-    url = body.get("url")
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
-
-    wait_for = body.get("wait_for")
-    timeout = body.get("timeout", 15)
-
-    browser = await _cdp_get_active_browser()
-    if not browser:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "No active tab connected"}, status=400)
-
-    try:
-        # Navigate to the URL
-        await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
-
-        # Wait for specific element if requested
-        if wait_for:
-            safe_selector = json.dumps(wait_for)
-            expr = f"new Promise((resolve, reject) => {{ const check = () => {{ if (document.querySelector({safe_selector})) resolve(true); else setTimeout(check, 200); }}; setTimeout(() => reject('timeout'), {(timeout-2)*1000}); check(); }})"
-            await asyncio.wait_for(
-                browser.eval_js(expr),
-                timeout=timeout
-            )
-
-        # Extract content
-        html = await asyncio.wait_for(browser.dump_dom(), timeout=10)
-        title = await asyncio.wait_for(browser.eval_js("document.title"), timeout=5)
-        current_url = await asyncio.wait_for(browser.eval_js("window.location.href"), timeout=5)
-
-        # Extract text content using Readability-like approach
-        text_content = await asyncio.wait_for(
-            browser.eval_js(
-                "document.body ? document.body.innerText.substring(0, 50000) : ''"
-            ),
-            timeout=10
-        )
-
-        # Extract metadata
-        meta = await asyncio.wait_for(
-            browser.eval_js("""
-                (function() {
-                    var meta = {};
-                    var desc = document.querySelector('meta[name="description"]');
-                    if (desc) meta.description = desc.content;
-                    var ogTitle = document.querySelector('meta[property="og:title"]');
-                    if (ogTitle) meta.og_title = ogTitle.content;
-                    var ogDesc = document.querySelector('meta[property="og:description"]');
-                    if (ogDesc) meta.og_description = ogDesc.content;
-                    return JSON.stringify(meta);
-                })()
-            """),
-            timeout=5
-        )
-
-        result = {
-            "ok": True,
-            "url": current_url,
-            "title": title,
-            "html_len": len(html) if html else 0,
-            "text_len": len(text_content) if text_content else 0,
-            "text": (text_content or "")[:20000],
-            "metadata": json.loads(meta) if meta else {},
-        }
-
-        return _cors_json_response(result)
-
-    except asyncio.TimeoutError:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"Extraction timed out ({timeout}s)"}, status=408)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_stealth_shot(request):
-    """POST /v1/browser/cdp/stealth/shot — Navigate to URL via CDP and take a screenshot.
-
-    Uses the existing CDP connection for stealth-aware screenshots,
-    similar to browser-act shot but without launching a separate browser.
-
-    Body JSON:
-        url: string (required)
-        width: int (default: 1280)
-        height: int (default: 720)
-        full_page: bool (default: false)
-        format: string ("png" or "jpeg", default: "png")
-        timeout: float (default: 15s)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-
-    url = body.get("url")
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
-
-    full_page = body.get("full_page", False)
-    img_format = body.get("format", "png")
-    timeout = body.get("timeout", 15)
-    width = body.get("width", 1280)
-    height = body.get("height", 720)
-
-    browser = await _cdp_get_active_browser()
-    if not browser:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "No active tab connected"}, status=400)
-
-    try:
-        # Set viewport size
-        await asyncio.wait_for(
-            browser.send("Emulation.setDeviceMetricsOverride", {
-                "width": width, "height": height,
-                "deviceScaleFactor": 1, "mobile": False,
-            }),
-            timeout=5
-        )
-
-        # Navigate
-        await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
-
-        # Take screenshot
-        params = {"format": img_format}
-        if full_page:
-            params["captureBeyondViewport"] = True
-        res = await asyncio.wait_for(browser.send("Page.captureScreenshot", params), timeout=15)
-
-        if res and "result" in res and "data" in res["result"]:
-            return _cors_json_response({
-                "ok": True,
-                "url": url,
-                "format": img_format,
-                "data": res["result"]["data"],
-                "width": width,
-                "height": height,
-                "full_page": full_page,
-            })
-        else:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
-
-    except asyncio.TimeoutError:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": f"Screenshot timed out ({timeout}s)"}, status=408)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_health(request):
-    """GET /v1/browser/cdp/health — CDP connection health dashboard.
-
-    Returns comprehensive health info including:
-    - Connection status and uptime
-    - Browser process status
-    - WebSocket health
-    - Reconnect history
-    - Active tab info
-    - Memory/resource usage
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    mgr = _cdp_state.get("manager")
-    connected = _cdp_state["connected"]
-
-    health = {
-        "ok": True,
-        "connected": connected,
-        "port": _cdp_state["port"],
-        "headless": _cdp_state["headless"],
-        "watcher_active": _cdp_watcher_task is not None and not _cdp_watcher_task.done(),
-        "reconnect_count": _cdp_state.get("reconnect_count", 0),
-        "last_connect_time": _cdp_state.get("last_connect_time"),
-        "last_disconnect_reason": _cdp_state.get("last_disconnect_reason"),
-        "bridge_uptime_s": round(time.time() - BRIDGE_METRICS["start_time"]),
-    }
-
-    if connected and mgr:
-        # Browser process info
-        if mgr._browser_proc:
-            proc = mgr._browser_proc
-            health["browser"] = {
-                "pid": proc.pid,
-                "alive": proc.poll() is None,
-                "returncode": proc.returncode,
-            }
-        else:
-            health["browser"] = {"alive": False, "note": "External browser (not launched by bridge)"}
-
-        # Tab info
-        tabs = mgr.list_tabs()
-        health["tabs"] = {
-            "count": len(tabs),
-            "active_id": mgr.active_tab_id,
-            "details": [t.to_dict() for t in tabs[:10]],
-        }
-
-        # Active tab health probe
-        if mgr.active_tab and mgr.active_tab.connected:
-            health["active_tab"] = {
-                "connected": True,
-                "target_id": mgr.active_tab.target_id,
-                "url": mgr.active_tab.url,
-                "title": mgr.active_tab.title,
-            }
-            # Quick health check — can we evaluate JS?
-            try:
-                result = await asyncio.wait_for(mgr.active_tab.eval_js("1+1"), timeout=3)
-                health["active_tab"]["health_probe"] = "ok" if result == 2 else f"unexpected result: {result}"
-            except asyncio.TimeoutError:
-                health["active_tab"]["health_probe"] = "timeout"
-            except ConnectionError:
-                health["active_tab"]["health_probe"] = "disconnected"
-            except Exception as e:
-                health["active_tab"]["health_probe"] = f"error: {type(e).__name__}"
-        else:
-            health["active_tab"] = {"connected": False}
-
-        # Connection uptime
-        if _cdp_state.get("last_connect_time"):
-            try:
-                last = datetime.fromisoformat(_cdp_state["last_connect_time"])
-                uptime = (datetime.now(timezone.utc) - last).total_seconds()
-                health["connection_uptime_s"] = round(uptime)
-            except Exception:
-                pass
-
-    else:
-        health["browser"] = {"alive": False}
-        health["tabs"] = {"count": 0}
-        health["active_tab"] = {"connected": False}
-
-    # System resource usage
-    try:
-        import resource as _resource
-        usage = _resource.getrusage(_resource.RUSAGE_SELF)
-        health["resources"] = {
-            "max_rss_mb": round(usage.ru_maxrss / 1024, 1),
-            "user_cpu_s": round(usage.ru_utime, 1),
-            "sys_cpu_s": round(usage.ru_stime, 1),
-        }
-    except Exception:
-        pass
-
-    return _cors_json_response(health)
 
 
 def _recall_sync(query: str, top: int) -> dict:
