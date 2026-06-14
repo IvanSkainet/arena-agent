@@ -382,6 +382,7 @@ from arena.observability.webhooks import (  # noqa: E402,F401
     save_webhooks,
 )
 from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
+from arena.observability.runtime_handlers import make_runtime_observability_handlers  # noqa: E402,F401
 from arena.observability.alerts import ALERTS_CONFIG as _ALERTS_CONFIG, make_alert_handlers  # noqa: E402,F401
 from arena.observability.ratelimit_handlers import make_rate_limit_handlers  # noqa: E402,F401
 from arena.observability.tracing import (  # noqa: E402,F401
@@ -408,7 +409,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -2465,6 +2466,32 @@ _gui_handler_ctx = GuiHandlerContext(
 _gui_handlers = make_gui_handlers(_gui_handler_ctx)
 handle_gui = _gui_handlers.gui
 handle_gui_v2 = _gui_handlers.gui_v2
+
+
+_runtime_observability_handler_ctx = RuntimeObservabilityHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    metrics=BRIDGE_METRICS,
+    metrics_lock=_metrics_lock,
+    active_processes=ACTIVE_PROCESSES,
+    cdp_state=_cdp_state,
+    watchdog_state=_watchdog_state,
+    event_subscribers=_event_subscribers,
+    tls_config=_tls_config,
+    grpc_config=_grpc_config,
+    cluster_state=_cluster_state,
+    sandbox_config=_sandbox_config,
+    otel_config=_otel_config,
+    log_file=LOG_FILE,
+    version=VERSION,
+    now=time.time,
+    log_error=log.error,
+)
+_runtime_observability_handlers = make_runtime_observability_handlers(_runtime_observability_handler_ctx)
+handle_v1_metrics = _runtime_observability_handlers.metrics
+handle_prometheus_metrics = _runtime_observability_handlers.prometheus_metrics
+handle_v1_logs = _runtime_observability_handlers.logs
 
 
 _tracing_handler_ctx = TracingHandlerContext(
@@ -6896,140 +6923,10 @@ async def handle_v1_browser_browse(request):
             return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
-# --- /v1/metrics GET — Bridge performance metrics ---
-
-async def handle_v1_metrics(request: web.Request) -> web.Response:
-    """GET /v1/metrics — Bridge performance metrics."""
-    try:
-        _record_request()
-        with _metrics_lock:
-            durations = BRIDGE_METRICS["request_durations"]
-            avg_duration = round(sum(durations) / len(durations), 6) if durations else 0.0
-            uptime = round(time.time() - BRIDGE_METRICS["start_time"], 1)
-            error_rate = 0.0
-            if BRIDGE_METRICS["total_requests"] > 0:
-                error_rate = round(BRIDGE_METRICS["total_errors"] / BRIDGE_METRICS["total_requests"] * 100, 2)
-
-            result = {
-                "ok": True,
-                "uptime_seconds": uptime,
-                "total_requests": BRIDGE_METRICS["total_requests"],
-                "total_exec": BRIDGE_METRICS["total_exec"],
-                "total_errors": BRIDGE_METRICS["total_errors"],
-                "average_duration_sec": avg_duration,
-                "error_rate_percent": error_rate,
-                "start_time": datetime.fromtimestamp(BRIDGE_METRICS["start_time"], tz=timezone.utc).isoformat(),
-                "version": VERSION,
-                "active_processes": len(ACTIVE_PROCESSES),
-            }
-        return _cors_json_response(result)
-    except Exception as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-# --- /metrics GET — Prometheus-compatible metrics endpoint ---
-
-async def handle_prometheus_metrics(request: web.Request) -> web.Response:
-    """GET /metrics — Prometheus-compatible metrics endpoint.
-    
-    Returns metrics in Prometheus text exposition format.
-    No auth required — this is standard for /metrics endpoints (scraped by Prometheus).
-    """
-    try:
-        with _metrics_lock:
-            uptime = round(time.time() - BRIDGE_METRICS["start_time"], 1)
-            durations = list(BRIDGE_METRICS["request_durations"])
-            avg_duration = round(sum(durations) / len(durations), 6) if durations else 0.0
-        
-        # Calculate quantiles outside the lock to avoid holding it too long
-        if durations:
-            sd = sorted(durations)
-            p50 = sd[len(sd)//2]
-            p95 = sd[int(len(sd)*0.95)] if len(sd) >= 20 else sd[-1]
-            p99 = sd[int(len(sd)*0.99)] if len(sd) >= 100 else sd[-1]
-        else:
-            p50 = p95 = p99 = 0.0
-
-        lines = [
-            "# HELP arena_bridge_uptime_seconds Bridge uptime in seconds",
-            "# TYPE arena_bridge_uptime_seconds gauge",
-            f"arena_bridge_uptime_seconds {uptime}",
-            "",
-            "# HELP arena_bridge_requests_total Total number of requests",
-            "# TYPE arena_bridge_requests_total counter",
-            f"arena_bridge_requests_total {BRIDGE_METRICS['total_requests']}",
-            "",
-            "# HELP arena_bridge_exec_total Total number of exec operations",
-            "# TYPE arena_bridge_exec_total counter",
-            f"arena_bridge_exec_total {BRIDGE_METRICS['total_exec']}",
-            "",
-            "# HELP arena_bridge_errors_total Total number of errors",
-            "# TYPE arena_bridge_errors_total counter",
-            f"arena_bridge_errors_total {BRIDGE_METRICS['total_errors']}",
-            "",
-            "# HELP arena_bridge_request_duration_avg_seconds Average request duration",
-            "# TYPE arena_bridge_request_duration_avg_seconds gauge",
-            f"arena_bridge_request_duration_avg_seconds {avg_duration}",
-            "",
-            "# HELP arena_bridge_request_duration_seconds Request duration quantiles",
-            "# TYPE arena_bridge_request_duration_seconds summary",
-            f'arena_bridge_request_duration_seconds{{quantile="0.5"}} {p50}',
-            f'arena_bridge_request_duration_seconds{{quantile="0.95"}} {p95}',
-            f'arena_bridge_request_duration_seconds{{quantile="0.99"}} {p99}',
-            "",
-            "# HELP arena_bridge_active_processes Number of active subprocesses",
-            "# TYPE arena_bridge_active_processes gauge",
-            f"arena_bridge_active_processes {len(ACTIVE_PROCESSES)}",
-            "",
-            "# HELP arena_bridge_cdp_connected CDP connection status (1=connected, 0=disconnected)",
-            "# TYPE arena_bridge_cdp_connected gauge",
-            f"arena_bridge_cdp_connected {1 if _cdp_state['connected'] else 0}",
-            "",
-            "# HELP arena_bridge_cdp_reconnect_count Total number of CDP auto-reconnects",
-            "# TYPE arena_bridge_cdp_reconnect_count counter",
-            f"arena_bridge_cdp_reconnect_count {_cdp_state.get('reconnect_count', 0)}",
-            "",
-            "# HELP arena_bridge_info Bridge version info",
-            "# TYPE arena_bridge_info gauge",
-            f'arena_bridge_info{{version="{VERSION}"}} 1',
-            "",
-            "# HELP arena_bridge_memory_mb Bridge memory usage in MB",
-            "# TYPE arena_bridge_memory_mb gauge",
-            f"arena_bridge_memory_mb {_watchdog_state['memory_mb']}",
-            "",
-            "# HELP arena_bridge_cpu_percent Bridge CPU usage percent",
-            "# TYPE arena_bridge_cpu_percent gauge",
-            f"arena_bridge_cpu_percent {_watchdog_state['cpu_percent']}",
-            "",
-            "# HELP arena_bridge_event_subscribers Number of event stream subscribers",
-            "# TYPE arena_bridge_event_subscribers gauge",
-            f"arena_bridge_event_subscribers {len(_event_subscribers)}",
-            "",
-            "# HELP arena_bridge_tls_enabled TLS/HTTPS enabled status",
-            "# TYPE arena_bridge_tls_enabled gauge",
-            f"arena_bridge_tls_enabled {1 if _tls_config['enabled'] else 0}",
-            "",
-            "# HELP arena_bridge_grpc_enabled gRPC secondary interface enabled",
-            "# TYPE arena_bridge_grpc_enabled gauge",
-            f"arena_bridge_grpc_enabled {1 if _grpc_config['enabled'] else 0}",
-            "",
-            "# HELP arena_bridge_cluster_role Cluster role (0=standalone, 1=follower, 2=leader)",
-            "# TYPE arena_bridge_cluster_role gauge",
-            f"arena_bridge_cluster_role {{'role': '{_cluster_state['role']}'}} {0 if _cluster_state['role'] == 'standalone' else 1 if _cluster_state['role'] == 'follower' else 2}",
-            "",
-            "# HELP arena_bridge_sandbox_enabled Skill sandbox enabled",
-            "# TYPE arena_bridge_sandbox_enabled gauge",
-            f"arena_bridge_sandbox_enabled {1 if _sandbox_config['enabled'] else 0}",
-            "",
-            "# HELP arena_bridge_otel_enabled OpenTelemetry tracing enabled",
-            "# TYPE arena_bridge_otel_enabled gauge",
-            f"arena_bridge_otel_enabled {1 if _otel_config['enabled'] else 0}",
-            "",
-        ]
-        
-        return web.Response(text="\n".join(lines), content_type="text/plain; version=0.0.4", charset="utf-8")
-    except Exception:
-        return web.Response(text="# ERROR: internal error\n", status=500, content_type="text/plain", charset="utf-8")
+# --- /v1/metrics and /metrics — Runtime metrics ---
+# Runtime metrics and Prometheus handlers now live in
+# arena/observability/runtime_handlers.py. Bound below via
+# make_runtime_observability_handlers(...) to preserve route globals.
 
 
 # --- /api-docs GET — OpenAPI 3.0 specification ---
@@ -7281,43 +7178,9 @@ def _daemonize() -> None:
 
 
 
-async def handle_v1_logs(request: web.Request) -> web.Response:
-    """Return recent bridge log entries with optional level filter."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        level = request.query.get("level", "INFO").upper()
-        lines_count = min(int(request.query.get("lines", "100")), 1000)
-    except (ValueError, TypeError):
-        level = "INFO"
-        lines_count = 100
+# /v1/logs handler now lives in arena/observability/runtime_handlers.py.
 
-    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    if level not in valid_levels:
-        level = "INFO"
 
-    log_entries = []
-    try:
-        if LOG_FILE.exists():
-            text = LOG_FILE.read_text(encoding="utf-8", errors="replace")
-            all_lines = text.splitlines()
-            min_idx = valid_levels.index(level) if level in valid_levels else 1
-            filter_levels = valid_levels[min_idx:]
-            for line in all_lines:
-                if any(f" {lv} " in line for lv in filter_levels):
-                    log_entries.append(line)
-            log_entries = log_entries[-lines_count:]
-    except Exception as e:
-        log.error("Failed to read log file: %s", e)
-
-    return _cors_json_response({
-        "ok": True,
-        "log_file": str(LOG_FILE),
-        "level_filter": level,
-        "lines": len(log_entries),
-        "entries": log_entries,
-    })
 
 
 def serve(args: argparse.Namespace) -> None:

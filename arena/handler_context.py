@@ -413,3 +413,26 @@ class McpHandlerContext:
     handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
     log_error: Callable[..., None]
 
+@dataclass(frozen=True)
+class RuntimeObservabilityHandlerContext:
+    """Dependencies for runtime metrics, Prometheus and bridge log handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    metrics: dict[str, Any]
+    metrics_lock: Any
+    active_processes: dict[str, dict[str, Any]]
+    cdp_state: dict[str, Any]
+    watchdog_state: dict[str, Any]
+    event_subscribers: list[Any]
+    tls_config: dict[str, Any]
+    grpc_config: dict[str, Any]
+    cluster_state: dict[str, Any]
+    sandbox_config: dict[str, Any]
+    otel_config: dict[str, Any]
+    log_file: Any
+    version: str
+    now: Callable[[], float]
+    log_error: Callable[..., None]
+
