@@ -157,6 +157,17 @@ from arena.constants import (  # noqa: E402,F401
 # The control-lease state and helpers now live in arena/control.py; re-exported
 # here so existing references (`unified_bridge._control_state`, etc.) keep working.
 from arena.bootstrap import ensure_session_env as _ensure_session_env_runtime, get_bridge_port as _get_bridge_port_runtime, load_config_file as _load_config_file_runtime, setup_logging as _setup_logging_runtime  # noqa: E402,F401
+from arena.errors import (  # noqa: E402,F401
+    AuthError,
+    BridgeError,
+    BridgeTimeoutError,
+    ErrorMiddlewareContext,
+    ForbiddenError,
+    NotFoundError,
+    ResourceError,
+    ValidationError,
+    make_error_middleware,
+)
 from arena.control import (  # noqa: E402,F401
     _control_check,
     _control_lock,
@@ -481,156 +492,9 @@ log = _setup_logging()
 
 
 # ============================================================================
-# CUSTOM EXCEPTIONS (structured error codes for API responses)
+# ERROR MIDDLEWARE / STRUCTURED EXCEPTIONS
 # ============================================================================
-
-class BridgeError(Exception):
-    """Base exception for all bridge errors. Carries an error_code and HTTP status."""
-    error_code: str = "BRIDGE_ERROR"
-    http_status: int = 500
-
-    def __init__(self, message: str = "", error_code: str = "", http_status: int = 0):
-        super().__init__(message)
-        if error_code:
-            self.error_code = error_code
-        if http_status:
-            self.http_status = http_status
-
-    def to_dict(self) -> dict:
-        return {
-            "ok": False,
-            "error": str(self),
-            "error_code": self.error_code,
-        }
-
-
-class ValidationError(BridgeError):
-    """Input validation failure (400)."""
-    error_code = "VALIDATION_ERROR"
-    http_status = 400
-
-
-class AuthError(BridgeError):
-    """Authentication failure (401)."""
-    error_code = "AUTH_ERROR"
-    http_status = 401
-
-
-class ForbiddenError(BridgeError):
-    """Action not allowed (403)."""
-    error_code = "FORBIDDEN"
-    http_status = 403
-
-
-class NotFoundError(BridgeError):
-    """Resource not found (404)."""
-    error_code = "NOT_FOUND"
-    http_status = 404
-
-
-class BridgeTimeoutError(BridgeError):
-    """Operation timed out (408)."""
-    error_code = "TIMEOUT"
-    http_status = 408
-
-
-class ResourceError(BridgeError):
-    """Resource limit exceeded or unavailable (429/503)."""
-    error_code = "RESOURCE_ERROR"
-    http_status = 503
-
-
-# ============================================================================
-# ERROR MIDDLEWARE (global exception handler)
-# ============================================================================
-
-@web.middleware
-async def error_middleware(request: web.Request, handler):
-    """Catch all unhandled exceptions, return structured JSON, log stack traces."""
-    # Rate limiting (skip for lightweight/public endpoints)
-    if request.path not in ("/health", "/metrics", "/gui", "/", "/favicon.ico", "/api-docs"):
-        rl = _check_rate_limit_v2(request) or _check_rate_limit(request)
-        if rl:
-            return rl
-
-    # Generate request ID for tracing
-    # Generate or accept request ID (limit client-provided to 64 chars)
-    req_id = (request.headers.get("X-Request-Id") or str(uuid.uuid4())[:8])[:64]
-    request["req_id"] = req_id
-
-    t0 = time.time()
-    try:
-        resp = await handler(request)
-        duration = time.time() - t0
-        log.debug("[%s] %s %s -> %d (%.3fs)", req_id, request.method,
-                  request.path, resp.status, duration)
-        # Log request/response for observability (Phase 3)
-        _log_request_response(request.method, request.path, resp.status,
-                              duration, req_id, request.remote or "")
-        # Add request ID to response headers
-        resp.headers["X-Request-Id"] = req_id
-        # Phase 4: Add deprecation headers for deprecated endpoints
-        deprecation = _DEPRECATED_ENDPOINTS.get(request.path)
-        if deprecation:
-            resp.headers["Deprecation"] = "true"
-            resp.headers["Sunset"] = deprecation.get("removal_version", "2.0.0")
-            resp.headers["Link"] = f'<{deprecation.get("replacement", "")}>; rel="successor-version"'
-        # Phase 4: Add rate limit headers if available
-        rl_headers = request.get("_rl_headers")
-        if rl_headers:
-            for k, v in rl_headers.items():
-                resp.headers[k] = v
-        # Phase 4: OpenTelemetry span recording
-        if _otel_should_sample():
-            trace_id = request.headers.get("traceparent", "").split("-")[1] if "-" in request.headers.get("traceparent", "") else _otel_trace_id()
-            _otel_record_span(trace_id, req_id[:16], f"{request.method} {request.path}",
-                              duration * 1000, {"http.method": request.method, "http.path": request.path,
-                                                 "http.status_code": resp.status, "req_id": req_id},
-                              status="OK" if resp.status < 400 else "ERROR")
-        return resp
-    except web.HTTPException as exc:
-        duration = time.time() - t0
-        log.debug("[%s] %s %s -> HTTPException %d (%.3fs)", req_id, request.method,
-                  request.path, exc.status, duration)
-        _log_request_response(request.method, request.path, exc.status,
-                              duration, req_id, request.remote or "")
-        # Add CORS and request ID headers to HTTP exceptions
-        exc.headers["Access-Control-Allow-Origin"] = "*"
-        exc.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
-        exc.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id"
-        exc.headers["X-Request-Id"] = req_id
-        raise
-    except BridgeError as e:
-        duration = time.time() - t0
-        _record_request(duration=duration, is_error=True)
-        _log_request_response(request.method, request.path, e.http_status,
-                              duration, req_id, request.remote or "", error=str(e))
-        log.warning("[%s] %s %s -> %s %s: %s (%.3fs)", req_id, request.method,
-                    request.path, e.error_code, e.http_status, e, duration)
-        return _cors_json_response(e.to_dict(), status=e.http_status,
-                                   extra_headers={"X-Request-Id": req_id})
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:
-        duration = time.time() - t0
-        _record_request(duration=duration, is_error=True)
-        _log_request_response(request.method, request.path, 500,
-                              duration, req_id, request.remote or "", error=str(e))
-        # Log full stack trace for debugging
-        tb = _traceback.format_exc()
-        log.error("[%s] %s %s UNHANDLED: %s\n%s", req_id, request.method,
-                  request.path, e, tb)
-        try:
-            audit({"event": "unhandled_error", "req_id": req_id, "path": request.path,
-                   "method": request.method, "error": repr(e), "tb_snippet": tb[:2000]})
-        except Exception:
-            pass  # Don't let audit failure crash the error handler
-        return _cors_json_response({
-            "ok": False,
-            "error": "Internal server error",
-            "error_code": "INTERNAL_ERROR",
-            "req_id": req_id,
-        }, status=500, extra_headers={"X-Request-Id": req_id})
+# Structured bridge exceptions and middleware factory now live in arena/errors.py.
 
 
 # Thread pool executor for running blocking I/O in async handlers
@@ -942,6 +806,20 @@ def audit(event: dict[str, Any]) -> None:
 
 def read_tail(path: Path, lines: int = 100) -> list[str]:
     return audit_read_tail(path, lines)
+
+
+_error_middleware_ctx = ErrorMiddlewareContext(
+    check_rate_limit_v2=_check_rate_limit_v2,
+    check_rate_limit=_check_rate_limit,
+    record_request=_record_request,
+    log_request_response=_log_request_response,
+    cors_json_response=_cors_json_response,
+    audit=audit,
+    log_debug=log.debug,
+    log_warning=log.warning,
+    log_error=log.error,
+)
+error_middleware = make_error_middleware(_error_middleware_ctx)
 
 
 # ============================================================================
