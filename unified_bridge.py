@@ -156,7 +156,7 @@ from arena.constants import (  # noqa: E402,F401
 # ============================================================================
 # The control-lease state and helpers now live in arena/control.py; re-exported
 # here so existing references (`unified_bridge._control_state`, etc.) keep working.
-from arena.bootstrap import ensure_session_env as _ensure_session_env_runtime, get_bridge_port as _get_bridge_port_runtime, load_config_file as _load_config_file_runtime, setup_logging as _setup_logging_runtime  # noqa: E402,F401
+from arena.bootstrap import daemonize as _daemonize_runtime, ensure_session_env as _ensure_session_env_runtime, get_bridge_port as _get_bridge_port_runtime, load_config_file as _load_config_file_runtime, resolve_token as _resolve_token_runtime, setup_logging as _setup_logging_runtime  # noqa: E402,F401
 from arena.errors import (  # noqa: E402,F401
     AuthError,
     BridgeError,
@@ -2829,80 +2829,16 @@ def _signal_handler(sig: int, frame: Any) -> None:
 # ============================================================================
 
 def resolve_token(cli_token: str | None) -> tuple[str, Path]:
-    """Resolve auth token: CLI arg > env var > token.txt > auto-generate.
-    Returns (token, file_path_that_is_the_canonical_source_for_THIS_instance).
-    file_path is the location where regen should write back."""
-    # Resolve the actual file location first (env > default)
-    env_file = os.environ.get("ARENA_TOKEN_FILE")
-    token_file = Path(env_file).expanduser() if env_file else TOKEN_FILE
-
-    # 1. CLI --token argument
-    if cli_token:
-        return cli_token, token_file
-    # 2. Environment variable for token value
-    env_tok = os.environ.get("ARENA_LOCAL_BRIDGE_TOKEN")
-    if env_tok:
-        return env_tok, token_file
-    # 3. Read from token.txt
-    try:
-        existing = token_file.read_text(encoding="utf-8").strip()
-        if existing and len(existing) >= 16:
-            return existing, token_file
-    except FileNotFoundError:
-        pass
-    except Exception:
-        pass
-    # 4. Auto-generate a new token and save it (to the resolved path)
-    new_tok = b64_token()
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(new_tok + "\n", encoding="utf-8")
-    try:
-        os.chmod(token_file, 0o600)
-    except Exception:
-        pass
-    log.info("[ArenaBridge] New token generated and saved to %s", token_file)
-    return new_tok, token_file
+    return _resolve_token_runtime(
+        cli_token,
+        default_token_file=TOKEN_FILE,
+        token_generator=b64_token,
+        log_info=log.info,
+    )
 
 
 def _daemonize() -> None:
-    """Double-fork to daemonize on Linux."""
-    if os.name != "nt":
-        # First fork
-        try:
-            pid = os.fork()
-            if pid > 0:
-                os._exit(0)
-        except OSError as e:
-            log.error("[ArenaBridge] First fork failed: %s", e)
-            return
-
-        # Decouple from parent
-        os.setsid()
-        os.umask(0)
-
-        # Second fork
-        try:
-            pid = os.fork()
-            if pid > 0:
-                os._exit(0)
-        except OSError as e:
-            log.error("[ArenaBridge] Second fork failed: %s", e)
-            return
-
-        # Redirect standard file descriptors
-        # stdout/stderr go to /dev/null — the Python logging module's
-        # RotatingFileHandler already writes to bridge.log with proper
-        # rotation. Previously, dup2 to bridge.log caused unbounded growth
-        # because aiohttp access logs bypassed the RotatingFileHandler.
-        sys.stdout.flush()
-        sys.stderr.flush()
-        devnull_r = open(os.devnull, "r")
-        os.dup2(devnull_r.fileno(), sys.stdin.fileno())
-        devnull_r.close()
-        devnull_w = open(os.devnull, "w")
-        os.dup2(devnull_w.fileno(), sys.stdout.fileno())
-        os.dup2(devnull_w.fileno(), sys.stderr.fileno())
-        devnull_w.close()
+    return _daemonize_runtime(log_error=log.error)
 
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.bootstrap import get_bridge_port, load_config_file, setup_logging  # noqa: E402
+from arena.bootstrap import get_bridge_port, load_config_file, resolve_token, setup_logging  # noqa: E402
 
 
 def test_unified_bootstrap_wrappers_bound_to_bootstrap_module():
@@ -38,3 +38,22 @@ def test_setup_logging_returns_arena_bridge_logger(tmp_path):
     logger = setup_logging(app_dir=tmp_path, log_file=tmp_path / "bridge.log")
     assert logger.name == "arena-bridge"
     assert logger.level == logging.DEBUG
+
+
+def test_resolve_token_priority_and_generation(tmp_path, monkeypatch):
+    monkeypatch.delenv("ARENA_TOKEN_FILE", raising=False)
+    token_file = tmp_path / "token.txt"
+    assert resolve_token("cli-token", default_token_file=token_file, token_generator=lambda: "generated") == ("cli-token", token_file)
+
+    monkeypatch.setenv("ARENA_LOCAL_BRIDGE_TOKEN", "env-token")
+    assert resolve_token(None, default_token_file=token_file, token_generator=lambda: "generated") == ("env-token", token_file)
+    monkeypatch.delenv("ARENA_LOCAL_BRIDGE_TOKEN")
+
+    token_file.write_text("file-token-123456789\n", encoding="utf-8")
+    assert resolve_token(None, default_token_file=token_file, token_generator=lambda: "generated") == ("file-token-123456789", token_file)
+
+    token_file.unlink()
+    tok, path = resolve_token(None, default_token_file=token_file, token_generator=lambda: "generated-token-123456", log_info=lambda *args: None)
+    assert tok == "generated-token-123456"
+    assert path == token_file
+    assert token_file.read_text(encoding="utf-8").strip() == tok
