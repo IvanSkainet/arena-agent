@@ -215,6 +215,7 @@ from arena.mcp.runtime import (  # noqa: E402,F401
     sid,
 )
 from arena.mcp.handlers import make_mcp_handlers  # noqa: E402,F401
+from arena.mcp.tools import McpToolContext, make_mcp_tool_runtime  # noqa: E402,F401
 from arena.events.runtime import EVENT_SUBSCRIBERS as _event_subscribers, emit_event as _events_emit_event  # noqa: E402,F401
 from arena.events.handlers import make_event_handlers  # noqa: E402,F401
 from arena.watchdog.runtime import (  # noqa: E402,F401
@@ -1160,301 +1161,6 @@ async def _log_cleanup_loop(app: web.Application) -> None:
 
 
 # ============================================================================
-# MCP TOOLS REGISTRY (from mcp_stream_server.py)
-# ============================================================================
-
-MCP_TOOLS = [
-    {"name": "ping", "description": "Return pong (liveness)",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "echo", "description": "Echo arguments back",
-     "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
-    {"name": "exec", "description": "Run shell command outside bridge cgroup (via sd-exec)",
-     "inputSchema": {"type": "object", "properties": {
-         "cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 60}},
-         "required": ["cmd"]}},
-    {"name": "fs.read", "description": "Read file contents (utf-8)",
-     "inputSchema": {"type": "object", "properties": {
-         "path": {"type": "string"}, "max_bytes": {"type": "integer", "default": 200000}},
-         "required": ["path"]}},
-    {"name": "fs.write", "description": "Write file (utf-8). Creates directories.",
-     "inputSchema": {"type": "object", "properties": {
-         "path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-    {"name": "fs.list", "description": "List directory entries",
-     "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
-    {"name": "browser.search", "description": "DuckDuckGo search via pure-Python (no chromium)",
-     "inputSchema": {"type": "object", "properties": {
-         "query": {"type": "string"}, "n": {"type": "integer", "default": 5}},
-         "required": ["query"]}},
-    {"name": "browser.read", "description": "Readability-extract clean text from URL",
-     "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-    {"name": "browser.shot", "description": "Take headless chromium screenshot via sd-exec",
-     "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-    {"name": "mem.set", "description": "Remember a fact",
-     "inputSchema": {"type": "object", "properties": {
-         "key": {"type": "string"}, "value": {"type": "string"},
-         "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["key", "value"]}},
-    {"name": "mem.get", "description": "Recall facts matching query substring",
-     "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "sys.status", "description": "Bridge/services/funnel status",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "skill.list", "description": "List available agent skills",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "skill.run", "description": "Run an agent skill: namespace/name with optional args",
-     "inputSchema": {"type": "object", "properties": {
-         "name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}, "default": []}},
-         "required": ["name"]}},
-    {"name": "hooks.list", "description": "List configured hooks per event",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "snapshot", "description": "Run system snapshot skill and return JSON path",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "subagent.spawn", "description": "Spawn isolated subagent for delegated work; returns summary",
-     "inputSchema": {"type": "object", "properties": {
-         "cmd": {"type": "string"}, "name": {"type": "string"},
-         "wait": {"type": "boolean", "default": True}, "timeout": {"type": "integer", "default": 300}},
-         "required": ["cmd"]}},
-    {"name": "subagent.list", "description": "List recent subagents",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "memory.recall", "description": "Find relevant facts/snapshots/sessions by query (TF score)",
-     "inputSchema": {"type": "object", "properties": {
-         "query": {"type": "string"}, "top": {"type": "integer", "default": 5}},
-         "required": ["query"]}},
-    {"name": "memory.digest", "description": "Compact markdown digest of recent memory (facts/snapshots/subagents)",
-     "inputSchema": {"type": "object", "properties": {}}},
-]
-
-
-def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
-    """Run a command directly (no GUI/sandbox needed)."""
-    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **_subprocess_kwargs())
-    return p.returncode, p.stdout, p.stderr
-
-
-def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
-    """Run command via sd-exec (Linux) or directly (Windows)."""
-    if platform.system() == "Windows":
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **_subprocess_kwargs())
-        return p.returncode, p.stdout, p.stderr
-    else:
-        sd = os.path.join(BIN, "sd-exec")
-        p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                           capture_output=True, text=True, timeout=timeout + 10, **_subprocess_kwargs())
-        return p.returncode, p.stdout, p.stderr
-
-
-def text_content(s: str) -> dict:
-    return {"content": [{"type": "text", "text": s}]}
-
-
-def call_tool(name: str, args: dict) -> dict:
-    """MCP tool dispatcher."""
-    try:
-        if name == "ping":
-            return text_content("pong")
-        if name == "echo":
-            return text_content(str(args.get("text", "")))
-        if name == "exec":
-            cmd = args.get("cmd", "")
-            if not cmd:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'cmd' argument"}]}
-            # Security: check blocked patterns (same as /v1/exec)
-            block = blocked_reason(cmd)
-            if block:
-                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: {block}"}]}
-            # Security: check profile allowlist (only for cautious profile)
-            profile = os.environ.get("ARENA_PROFILE", "owner-shell")
-            if profile == "cautious":
-                fw = first_word(cmd)
-                if CAUTIOUS_ALLOW and fw not in CAUTIOUS_ALLOW and fw.rstrip(".exe") not in CAUTIOUS_ALLOW:
-                    return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: command '{fw}' not in allowlist"}]}
-            if platform.system() == "Windows":
-                rc, out, err = run_sd(["cmd", "/c", cmd], timeout=args.get("timeout", 60))
-            else:
-                rc, out, err = run_sd(["bash", "-lc", cmd], timeout=args.get("timeout", 60))
-            return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
-        # Sensitive files that must never be read via MCP
-        _MCP_BLOCKED_FILES = {"token.txt", "users.json", ".env", "id_rsa", "id_ed25519",
-                               "id_ecdsa", "id_dsa", ".netrc", ".ssh_config"}
-
-        if name == "fs.read":
-            p = os.path.expanduser(args.get("path", ""))
-            if not p:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-            # Security: block reading sensitive files
-            if Path(p).name in _MCP_BLOCKED_FILES:
-                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: reading {Path(p).name} is not allowed"}]}
-            # Security: restrict to home directory
-            resolved = Path(p).resolve()
-            home = Path.home().resolve()
-            if not under_root(resolved, home):
-                return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
-            try:
-                with open(p, "rb") as f:
-                    data = f.read(args.get("max_bytes", 200000))
-                return text_content(data.decode("utf-8", "replace"))
-            except PermissionError:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
-            except FileNotFoundError:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: file not found"}]}
-        if name == "fs.write":
-            p = os.path.expanduser(args.get("path", ""))
-            content = args.get("content", "")
-            if not p:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-            # Security: block writing sensitive files
-            if Path(p).name in _MCP_BLOCKED_FILES:
-                return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: writing {Path(p).name} is not allowed"}]}
-            # Security: restrict to home directory
-            resolved = Path(p).resolve()
-            home = Path.home().resolve()
-            if not under_root(resolved, home):
-                return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
-            try:
-                os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-                with open(p, "w", encoding="utf-8") as f:
-                    f.write(content)
-                return text_content(f"wrote {len(content)} bytes to {p}")
-            except PermissionError:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
-        if name == "fs.list":
-            p = os.path.expanduser(args.get("path", ""))
-            if not p:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'path' argument"}]}
-            # Security: restrict to home directory
-            resolved = Path(p).resolve()
-            home = Path.home().resolve()
-            if not under_root(resolved, home):
-                return {"isError": True, "content": [{"type": "text", "text": "BLOCKED: path outside home directory"}]}
-            try:
-                return text_content(json.dumps(sorted(os.listdir(p))))
-            except PermissionError:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
-            except FileNotFoundError:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: directory not found"}]}
-        if name == "browser.search":
-            rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
-                                       "search", args.get("query", ""), "--n", str(args.get("n", 5))], timeout=30)
-            return text_content(out or err)
-        if name == "browser.read":
-            rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
-                                       "read", args.get("url", "")], timeout=30)
-            return text_content(out or err)
-        if name == "browser.shot":
-            import shutil as _shutil
-            shots = str(REPORTS_DIR / "shots")
-            os.makedirs(shots, exist_ok=True)
-            png = os.path.join(shots, f"mcp-{int(time.time())}.png")
-            ud = os.path.join(tempfile.gettempdir(), f"cr-mcp-{os.getpid()}")
-            chrome_candidates = [
-                r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-                "msedge.exe", "chrome.exe",
-                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-                r"C:\Program Files\LibreWolf\librewolf.exe",
-            ] if platform.system() == "Windows" else [
-                "chromium", "chrome", "google-chrome", "google-chrome-stable",
-                "librewolf", "brave", "firefox", "vivaldi",
-            ]
-            chrome_exe = next(
-                ((_shutil.which(c) or (c if os.path.exists(c) else None))
-                for c in chrome_candidates if _shutil.which(c) or os.path.exists(c)),
-                None) or "chrome.exe"
-            rc, out, err = run_sd([chrome_exe, "--headless=new", "--no-sandbox", "--disable-gpu",
-                                    f"--user-data-dir={ud}", "--window-size=1366,768",
-                                    f"--screenshot={png}", args.get("url", "")], timeout=45)
-            return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args.get("url", "")}))
-        if name == "mem.set":
-            key = args.get("key", "")
-            value = args.get("value", "")
-            if not key:
-                return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'key' argument"}]}
-            tags = args.get("tags") or []
-            entry = {"key": key, "value": value, "tags": tags,
-                     "timestamp": datetime.now(timezone.utc).isoformat()}
-            _write_fact(entry)
-            audit({"type": "memory_set", "key": key, "via": "mcp"})
-            return text_content(json.dumps({"ok": True, "fact": entry}, ensure_ascii=False))
-        if name == "mem.get":
-            q = args.get("query", args.get("q", ""))
-            facts = _load_facts()
-            if q:
-                import fnmatch as _fn
-                q_low = q.lower()
-                scored = []
-                for f in facts:
-                    if q_low in json.dumps(f, ensure_ascii=False).lower():
-                        scored.append(f)
-                facts = scored
-            return text_content(json.dumps({"ok": True, "count": len(facts), "facts": facts[-50:]}, ensure_ascii=False))
-        if name == "sys.status":
-            cfg = _app_ref.get("cfg", {}) if _app_ref else {}
-            return text_content(json.dumps(common_status(cfg), ensure_ascii=False))
-        if name == "skill.list":
-            result = _skills_list_sync_with_cache()
-            skills = result.get("skills", [])
-            return text_content(json.dumps({"ok": True, "count": len(skills), "skills": skills}, ensure_ascii=False))
-        if name == "skill.run":
-            sk = args.get("name", "")
-            extra = args.get("args") or []
-            result = _skills_run_sync(sk, list(extra))
-            return text_content(json.dumps(result, ensure_ascii=False))
-        if name == "hooks.list":
-            hooks_dir = BRIDGE_DIR / "hooks"
-            pre_dir = hooks_dir / "pre_skill.d"
-            post_dir = hooks_dir / "post_skill.d"
-            hooks = []
-            for d, phase in [(pre_dir, "pre"), (post_dir, "post")]:
-                if d.exists():
-                    for f in sorted(d.iterdir()):
-                        if f.is_file():
-                            hooks.append({"phase": phase, "name": f.name, "path": str(f)})
-            return text_content(json.dumps({"ok": True, "count": len(hooks), "hooks": hooks}, ensure_ascii=False))
-        if name == "snapshot":
-            result = _skills_run_sync("system/sys-snapshot", [])
-            return text_content(json.dumps(result, ensure_ascii=False))
-        if name == "subagent.spawn":
-            cmd_args = [sys.executable, os.path.join(BIN, "subagent.py"), "spawn", args.get("cmd", "")]
-            if args.get("name"):
-                cmd_args += ["--name", args["name"]]
-            if args.get("wait", True):
-                cmd_args += ["--wait"]
-            cmd_args += ["--timeout", str(args.get("timeout", 300))]
-            rc, out, err = run_local(cmd_args, timeout=args.get("timeout", 300) + 30)
-            return text_content(out or err)
-        if name == "subagent.list":
-            rc, out, err = run_local([sys.executable, os.path.join(BIN, "subagent.py"), "list"], timeout=10)
-            return text_content(out or err)
-        if name == "memory.recall":
-            cmd_args = [sys.executable, os.path.join(BIN, "memory_recall.py"), "recall",
-                        args.get("query", ""), "--top", str(args.get("top", 5))]
-            rc, out, err = run_local(cmd_args, timeout=15)
-            return text_content(out or err)
-        if name == "memory.digest":
-            rc, out, err = run_local([sys.executable, os.path.join(BIN, "memory_recall.py"), "digest"], timeout=15)
-            return text_content(out or err)
-    except Exception as e:
-        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {type(e).__name__}: {e}"}]}
-    return {"isError": True, "content": [{"type": "text", "text": f"Unknown tool: {name}"}]}
-
-
-def handle_rpc(msg: dict) -> dict | None:
-    """JSON-RPC 2.0 handler for MCP."""
-    m = msg.get("method", "")
-    rid = msg.get("id")
-    if m == "initialize":
-        return {"jsonrpc": "2.0", "id": rid, "result": {
-            "protocolVersion": "2025-03-26",
-            "serverInfo": {"name": "arena-unified-bridge", "version": VERSION},
-            "capabilities": {"tools": {"listChanged": False}}}}
-    if m == "tools/list":
-        return {"jsonrpc": "2.0", "id": rid, "result": {"tools": MCP_TOOLS}}
-    if m == "tools/call":
-        params = msg.get("params") or {}
-        return {"jsonrpc": "2.0", "id": rid, "result": call_tool(params.get("name", ""), params.get("arguments") or {})}
-    if m == "notifications/initialized":
-        return None
-    return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32601, "message": f"Method not found: {m}"}}
-
-
-# ============================================================================
 # MCP SSE SESSIONS
 # ============================================================================
 # MCP session state/helpers now live in arena/mcp/runtime.py.
@@ -1492,6 +1198,45 @@ MISSIONS_DIR = ROOT_AGENT / "missions"
 REPORTS_DIR = ROOT_AGENT / "reports"
 WEBHOOKS_FILE = ROOT_AGENT / "webhooks.json"
 # BACKUPS_DIR removed in v2.5.2 — backup feature deleted
+
+
+# ============================================================================
+# MCP TOOLS REGISTRY / JSON-RPC dispatcher
+# ============================================================================
+# MCP tool registry and JSON-RPC dispatch now live in arena/mcp/tools.py.
+
+
+def _mcp_app_config() -> dict:
+    return _app_ref.get("cfg", {}) if _app_ref else {}
+
+
+_mcp_tool_ctx = McpToolContext(
+    version=VERSION,
+    bin_dir=BIN,
+    bridge_dir=BRIDGE_DIR,
+    reports_dir=REPORTS_DIR,
+    subprocess_kwargs=_subprocess_kwargs,
+    blocked_reason=blocked_reason,
+    first_word=first_word,
+    cautious_allow=CAUTIOUS_ALLOW,
+    under_root=under_root,
+    write_fact=lambda entry: _write_fact(entry),
+    load_facts=lambda: _load_facts(),
+    audit=audit,
+    app_config=_mcp_app_config,
+    common_status=lambda cfg: common_status(cfg),
+    skills_list_sync_with_cache=_skills_list_sync_with_cache,
+    skills_run_sync=lambda *args, **kwargs: _skills_run_sync(*args, **kwargs),
+)
+_mcp_tool_runtime = make_mcp_tool_runtime(_mcp_tool_ctx)
+MCP_TOOLS = _mcp_tool_runtime.tools
+run_local = _mcp_tool_runtime.run_local
+run_sd = _mcp_tool_runtime.run_sd
+text_content = _mcp_tool_runtime.text_content
+call_tool = _mcp_tool_runtime.call_tool
+handle_rpc = _mcp_tool_runtime.handle_rpc
+
+
 
 
 def move_atomic(src: Path, dst: Path) -> None:
@@ -2327,7 +2072,7 @@ _system_handler_ctx = SystemHandlerContext(
     record_request=_record_request,
     cors_json_response=_cors_json_response,
     executor=_EXECUTOR,
-    common_status=common_status,
+    common_status=lambda cfg: common_status(cfg),
     version=VERSION,
     clean_platform_name=get_clean_platform_name,
     doctor_sync=_doctor_sync,
@@ -3381,7 +3126,7 @@ _skill_handler_ctx = SkillHandlerContext(
     skills_cache_reset=_skills_cache_reset,
     skill_install_sync=_skill_install_sync,
     skill_uninstall_sync=_skill_uninstall_sync,
-    skills_run_sync=_skills_run_sync,
+    skills_run_sync=lambda *args, **kwargs: _skills_run_sync(*args, **kwargs),
     skill_path_is_safe=_skill_path_is_safe,
     audit=audit,
     log_info=log.info,
