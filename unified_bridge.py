@@ -426,6 +426,7 @@ from arena.observability.webhooks import (  # noqa: E402,F401
 )
 from arena.observability.handlers import make_observability_handlers  # noqa: E402,F401
 from arena.observability.runtime_handlers import make_runtime_observability_handlers  # noqa: E402,F401
+from arena.observability.audit_runtime import AuditRuntimeContext, make_audit_runtime  # noqa: E402,F401
 from arena.observability.log_cleanup import LogCleanupContext, make_log_cleanup_runtime  # noqa: E402,F401
 from arena.observability.alerts import ALERTS_CONFIG as _ALERTS_CONFIG, make_alert_handlers  # noqa: E402,F401
 from arena.observability.ratelimit_handlers import make_rate_limit_handlers  # noqa: E402,F401
@@ -784,33 +785,23 @@ BIN = str(BRIDGE_DIR / "bin")
 # ============================================================================
 # AUDIT
 # ============================================================================
+# Audit/webhook runtime wrappers live in arena/observability/audit_runtime.py.
 
-def sanitize_audit_event(event: dict[str, Any]) -> dict[str, Any]:
-    return audit_sanitize_event(event)
-
-
-_WEBHOOKS_CACHE = None
-
-def _load_webhooks() -> dict:
-    return load_webhooks(WEBHOOKS_FILE)
-
-def _save_webhooks(data: dict) -> None:
-    return save_webhooks(WEBHOOKS_FILE, data)
-
-def _fire_webhooks(event: dict) -> None:
-    return fire_webhooks(event, load_fn=_load_webhooks, log_debug=log.debug)
-
-
-def audit(event: dict[str, Any]) -> None:
-    written = write_audit_event(event, audit_path=AUDIT, app_dir=APP_DIR, utc_now_fn=utc_now, lock=audit_lock)
-    try:
-        _SLOW_EXECUTOR.submit(_fire_webhooks, written)
-    except Exception:
-        pass
-
-
-def read_tail(path: Path, lines: int = 100) -> list[str]:
-    return audit_read_tail(path, lines)
+_audit_runtime_ctx = AuditRuntimeContext(
+    audit_path=AUDIT,
+    app_dir=APP_DIR,
+    webhooks_file=Path(os.environ.get("ARENA_AGENT_HOME", str(BRIDGE_DIR))).expanduser() / "webhooks.json",
+    utc_now=utc_now,
+    slow_executor=_SLOW_EXECUTOR,
+    log_debug=log.debug,
+)
+_audit_runtime = make_audit_runtime(_audit_runtime_ctx)
+sanitize_audit_event = _audit_runtime.sanitize_audit_event
+_load_webhooks = _audit_runtime.load_webhooks
+_save_webhooks = _audit_runtime.save_webhooks
+_fire_webhooks = _audit_runtime.fire_webhooks
+audit = _audit_runtime.audit
+read_tail = _audit_runtime.read_tail
 
 
 _error_middleware_ctx = ErrorMiddlewareContext(
