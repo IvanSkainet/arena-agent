@@ -340,6 +340,7 @@ from arena.browser.cdp.handlers import make_cdp_basic_handlers  # noqa: E402,F40
 from arena.browser.cdp.diagnostics import make_cdp_diagnostic_handlers  # noqa: E402,F401
 from arena.browser.cdp.session import make_cdp_session_handlers  # noqa: E402,F401
 from arena.browser.cdp.page import make_cdp_page_handlers  # noqa: E402,F401
+from arena.browser.cdp.tabs import make_cdp_tabs_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -423,7 +424,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3408,150 +3409,26 @@ handle_v1_control_revoke = _control_lease_handlers.revoke
 
 
 
+_cdp_tabs_handler_ctx = CdpTabsHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    cdp_state=_cdp_state,
+    log_debug=log.debug,
+)
+_cdp_tabs_handlers = make_cdp_tabs_handlers(_cdp_tabs_handler_ctx)
+handle_v1_cdp_tabs = _cdp_tabs_handlers.tabs
+handle_v1_cdp_tabs_new = _cdp_tabs_handlers.new
+handle_v1_cdp_tabs_close = _cdp_tabs_handlers.close
+handle_v1_cdp_tabs_activate = _cdp_tabs_handlers.activate
+
+
 # ---- CDP Tab Management ----
+# Implementations moved to arena/browser/cdp/tabs.py and are bound above via
+# make_cdp_tabs_handlers(...).
 
-async def handle_v1_cdp_tabs(request):
-    """GET /v1/browser/cdp/tabs — List all tracked tabs.
-    
-    Auto-connects any disconnected tabs that have ws_url before listing.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        return _cors_json_response({"ok": True, "tabs": [], "tab_count": 0})
-    
-    mgr = _cdp_state["manager"]
-    tabs = mgr.list_tabs()
-    
-    # Auto-connect disconnected tabs that have ws_url (lazy connect)
-    for tab in tabs:
-        if not tab.connected and tab.ws_url:
-            try:
-                await asyncio.wait_for(tab.connect(), timeout=15)
-                log.debug("[CDP-Tabs] Auto-connected tab %s", tab.target_id)
-            except Exception as e:
-                log.debug("[CDP-Tabs] Auto-connect failed for %s: %s", tab.target_id, e)
-    
-    return _cors_json_response({
-        "ok": True,
-        "tabs": [tab.to_dict() for tab in tabs],
-        "tab_count": len(tabs),
-        "active_tab_id": mgr.active_tab_id,
-    })
+# CDP tab management endpoint implementations moved to arena/browser/cdp/tabs.py.
 
-
-async def handle_v1_cdp_tabs_new(request):
-    """POST /v1/browser/cdp/tabs/new — Open new tab.
-    
-    Body JSON:
-        url: string (default: "about:blank")
-        activate: bool (default: true)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    url = "about:blank"
-    activate = True
-    try:
-        body = await request.json()
-        url = body.get("url", "about:blank")
-        activate = body.get("activate", True)
-    except Exception:
-        pass
-    
-    mgr = _cdp_state["manager"]
-    
-    try:
-        tab = await mgr.new_tab(url, activate=activate)
-        return _cors_json_response({
-            "ok": True,
-            "tab": tab.to_dict(),
-            "tab_id": tab.target_id,
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_tabs_close(request):
-    """POST /v1/browser/cdp/tabs/close — Close a tab.
-    
-    Body JSON:
-        tab_id: string (required)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    tab_id = body.get("tab_id")
-    if not tab_id:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
-    
-    mgr = _cdp_state["manager"]
-    
-    try:
-        success = await mgr.close_tab(tab_id)
-        return _cors_json_response({
-            "ok": success,
-            "tab_id": tab_id,
-            "remaining_tabs": mgr.tab_count,
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_tabs_activate(request):
-    """POST /v1/browser/cdp/tabs/activate — Activate a tab.
-    
-    Body JSON:
-        tab_id: string (required)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"] or not _cdp_state["manager"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    tab_id = body.get("tab_id")
-    if not tab_id:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
-    
-    mgr = _cdp_state["manager"]
-    
-    success = mgr.activate(tab_id)
-    return _cors_json_response({
-        "ok": success,
-        "tab_id": tab_id,
-        "active_tab_id": mgr.active_tab_id,
-    })
 
 
 # ---- CDP Cookie Management ----

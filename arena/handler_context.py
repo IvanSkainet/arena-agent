@@ -196,6 +196,17 @@ class CdpPageHandlerContext:
 
 
 @dataclass(frozen=True)
+class CdpTabsHandlerContext:
+    """Dependencies for CDP tab management handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    cdp_state: dict[str, Any]
+    log_debug: Callable[..., None]
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 
