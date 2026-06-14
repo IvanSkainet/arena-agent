@@ -107,6 +107,23 @@ class BrowserFetchHandlerContext:
 
 
 @dataclass(frozen=True)
+class BrowserBrowseHandlerContext:
+    """Dependencies for /v1/browser/browse.
+
+    The endpoint is intentionally kept outside the CDP package for now: it is a
+    high-level router that auto-selects BrowserAct or the existing CDP runtime.
+    """
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    app_dir: Any
+    cdp_state: dict[str, Any]
+    get_cdp_module: Callable[[], Any]
+    start_cdp_watcher: Callable[[], Any]
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 

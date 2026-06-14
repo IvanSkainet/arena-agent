@@ -334,7 +334,7 @@ from arena.browser.fetch import (  # noqa: E402,F401
     browser_read,
     browser_search,
 )
-from arena.browser.handlers import make_browser_fetch_handlers  # noqa: E402,F401
+from arena.browser.handlers import make_browser_browse_handlers, make_browser_fetch_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -418,7 +418,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3141,6 +3141,19 @@ handle_v1_browser_read = _browser_fetch_handlers.read
 handle_v1_browser_dump = _browser_fetch_handlers.dump
 handle_v1_browser_fetch = _browser_fetch_handlers.fetch
 handle_v1_browser_head = _browser_fetch_handlers.head
+
+
+_browser_browse_handler_ctx = BrowserBrowseHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    app_dir=APP_DIR,
+    cdp_state=_cdp_state,
+    get_cdp_module=_get_cdp_module,
+    start_cdp_watcher=_start_cdp_watcher,
+)
+_browser_browse_handlers = make_browser_browse_handlers(_browser_browse_handler_ctx)
+handle_v1_browser_browse = _browser_browse_handlers.browse
 
 
 
@@ -6449,164 +6462,8 @@ handle_v1_mission_show = _resource_handlers.mission_show
 
 
 # --- /v1/browser/browse POST — Unified browser endpoint with auto CDP/BrowserAct switching ---
-
-async def handle_v1_browser_browse(request):
-    """POST /v1/browser/browse — Unified browser endpoint with auto CDP/BrowserAct switching.
-    
-    Automatically selects the best browser backend:
-    - If stealth=true or captcha=true: Use BrowserAct (Camoufox-based, anti-detection)
-    - Otherwise: Use CDP (headless Chromium, faster)
-    
-    Body JSON:
-        url: string (required)
-        action: string ("extract" | "shot" | "click" | "type", default: "extract")
-        stealth: bool (default: false) — use stealth browser (BrowserAct)
-        captcha: bool (default: false) — expect CAPTCHA on page
-        wait_for: string (optional CSS selector)
-        timeout: float (default: 15)
-        width: int (default: 1280, for screenshots)
-        height: int (default: 720, for screenshots)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    url = body.get("url")
-    if not url:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'url'"}, status=400)
-    
-    action = body.get("action", "extract")
-    stealth = body.get("stealth", False)
-    captcha = body.get("captcha", False)
-    wait_for = body.get("wait_for")
-    timeout = body.get("timeout", 15)
-    width = body.get("width", 1280)
-    height = body.get("height", 720)
-    
-    # Auto-switch logic: BrowserAct for stealth/captcha, CDP for everything else
-    use_browseract = stealth or captcha
-    
-    if use_browseract:
-        # Use BrowserAct (Camoufox-based stealth browser)
-        try:
-            ba_skill = Path(APP_DIR) / "skills" / "browseract" / "run.sh"
-            if not ba_skill.exists():
-                _record_request(is_error=True, count_request=False)
-                return _cors_json_response({"ok": False, "error": "BrowserAct skill not installed"}, status=503)
-            
-            cmd = [shutil.which("bash") or "bash", str(ba_skill), action, url]
-            if wait_for:
-                cmd.extend(["--wait-for", wait_for])
-            if action == "shot":
-                cmd.extend(["--width", str(width), "--height", str(height)])
-            
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout + 30)
-            
-            if proc.returncode == 0 and stdout:
-                try:
-                    result = json.loads(stdout.decode("utf-8", errors="replace"))
-                    result["backend"] = "browseract"
-                    result["stealth"] = True
-                    return _cors_json_response(result)
-                except json.JSONDecodeError:
-                    text = stdout.decode("utf-8", errors="replace")
-                    return _cors_json_response({"ok": True, "backend": "browseract", "stealth": True, "output": text[:50000]})
-            else:
-                err = stderr.decode("utf-8", errors="replace")[:2000] if stderr else "unknown error"
-                _record_request(is_error=True, count_request=False)
-                return _cors_json_response({"ok": False, "error": f"BrowserAct failed (rc={proc.returncode}): {err}"}, status=500)
-        except asyncio.TimeoutError:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": f"BrowserAct timed out ({timeout}s)"}, status=408)
-        except Exception as e:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-    
-    else:
-        # Use CDP (headless Chromium — faster)
-        if not _cdp_state["connected"]:
-            # Try to auto-connect
-            try:
-                cdp = _get_cdp_module()
-                if cdp:
-                    mgr = cdp.CDPTabManager(port=_cdp_state["port"], headless=_cdp_state["headless"], auto_launch=True)
-                    await asyncio.wait_for(mgr.connect(), timeout=60)
-                    _cdp_state["manager"] = mgr
-                    _cdp_state["connected"] = True
-                    _cdp_state["last_connect_time"] = datetime.now(timezone.utc).isoformat()
-                    _start_cdp_watcher()
-                else:
-                    _record_request(is_error=True, count_request=False)
-                    return _cors_json_response({"ok": False, "error": "CDP module not available"}, status=503)
-            except Exception as e:
-                _record_request(is_error=True, count_request=False)
-                return _cors_json_response({"ok": False, "error": f"CDP auto-connect failed: {e}"}, status=503)
-        
-        mgr = _cdp_state.get("manager")
-        if not mgr or not mgr.active_tab or not mgr.active_tab.connected:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "No active CDP tab"}, status=503)
-        
-        try:
-            if action == "extract":
-                browser = mgr.active_tab._browser
-                await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
-                if wait_for:
-                    safe_selector = json.dumps(wait_for)
-                    expr = f"new Promise((resolve, reject) => {{ const check = () => {{ if (document.querySelector({safe_selector})) resolve(true); else setTimeout(check, 200); }}; setTimeout(() => reject('timeout'), {(timeout-2)*1000}); check(); }})"
-                    await asyncio.wait_for(browser.eval_js(expr), timeout=timeout)
-                text_content = await asyncio.wait_for(browser.eval_js("document.body ? document.body.innerText.substring(0, 50000) : ''"), timeout=10)
-                title = await asyncio.wait_for(browser.eval_js("document.title"), timeout=5)
-                return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "url": url, "title": title, "text": (text_content or "")[:20000], "text_len": len(text_content or "")})
-            
-            elif action == "shot":
-                browser = mgr.active_tab._browser
-                await asyncio.wait_for(browser.send("Emulation.setDeviceMetricsOverride", {"width": width, "height": height, "deviceScaleFactor": 1, "mobile": False}), timeout=5)
-                await asyncio.wait_for(browser.navigate(url, wait=True), timeout=timeout)
-                res = await asyncio.wait_for(browser.send("Page.captureScreenshot", {"format": "png"}), timeout=15)
-                if res and "result" in res and "data" in res["result"]:
-                    return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "format": "png", "data": res["result"]["data"], "width": width, "height": height})
-                else:
-                    _record_request(is_error=True, count_request=False)
-                    return _cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
-            
-            elif action == "click":
-                selector = body.get("selector")
-                if not selector:
-                    return _cors_json_response({"ok": False, "error": "missing 'selector' for click action"}, status=400)
-                await asyncio.wait_for(mgr.active_tab.click(selector), timeout=timeout)
-                return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "action": "click", "selector": selector})
-            
-            elif action == "type":
-                selector = body.get("selector")
-                text = body.get("text")
-                if not selector or not text:
-                    return _cors_json_response({"ok": False, "error": "missing 'selector' and 'text' for type action"}, status=400)
-                await asyncio.wait_for(mgr.active_tab.type_text(selector, text), timeout=timeout)
-                return _cors_json_response({"ok": True, "backend": "cdp", "stealth": False, "action": "type", "selector": selector})
-            
-            else:
-                _record_request(is_error=True, count_request=False)
-                return _cors_json_response({"ok": False, "error": f"Unknown action: {action}. Supported: extract, shot, click, type"}, status=400)
-        
-        except asyncio.TimeoutError:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": f"CDP {action} timed out ({timeout}s)"}, status=408)
-        except Exception as e:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+# Handler now lives in arena/browser/handlers.py and is bound above via
+# make_browser_browse_handlers(...) to preserve the public route global.
 
 
 # --- /v1/metrics and /metrics — Runtime metrics ---
