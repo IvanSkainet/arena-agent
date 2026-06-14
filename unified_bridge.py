@@ -156,6 +156,7 @@ from arena.constants import (  # noqa: E402,F401
 # ============================================================================
 # The control-lease state and helpers now live in arena/control.py; re-exported
 # here so existing references (`unified_bridge._control_state`, etc.) keep working.
+from arena.bootstrap import ensure_session_env as _ensure_session_env_runtime, get_bridge_port as _get_bridge_port_runtime, load_config_file as _load_config_file_runtime, setup_logging as _setup_logging_runtime  # noqa: E402,F401
 from arena.control import (  # noqa: E402,F401
     _control_check,
     _control_lock,
@@ -447,94 +448,19 @@ from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
-    """Ensure session environment variables are set in os.environ.
-    
-    When running inside a systemd user service, the environment may be minimal
-    even if Environment= is set in the unit file (race conditions, older systemd).
-    This function ensures critical variables are set so the bridge itself
-    (not just child processes) has access to them.
-    """
-    if os.name == "nt":
-        return  # Not applicable on Windows
-    
-    uid = os.getuid()
-    
-    if not os.environ.get("XDG_RUNTIME_DIR"):
-        xdg = f"/run/user/{uid}"
-        if os.path.isdir(xdg):
-            os.environ["XDG_RUNTIME_DIR"] = xdg
-    
-    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
-        dbus_path = f"/run/user/{uid}/bus"
-        if os.path.exists(dbus_path):
-            os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
-    
-    if not os.environ.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):
-        try:
-            for xfile in os.listdir("/tmp/.X11-unix"):
-                if xfile.startswith("X"):
-                    os.environ["DISPLAY"] = f":{xfile[1:]}"
-                    break
-        except Exception:
-            pass
-    
-    if not os.environ.get("WAYLAND_DISPLAY") and os.environ.get("XDG_RUNTIME_DIR"):
-        wayland_sock = os.path.join(os.environ["XDG_RUNTIME_DIR"], "wayland-0")
-        if os.path.exists(wayland_sock):
-            os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+    return _ensure_session_env_runtime()
 
 
 def _load_config_file() -> dict:
-    """Load optional bridge.yml configuration file.
-    
-    Looks for bridge.yml in:
-    1. $ARENA_AGENT_HOME/bridge.yml
-    2. $HOME/arena-bridge/bridge.yml
-    3. ./bridge.yml
-    
-    Returns empty dict if no config file found.
-    """
-    search_paths = []
-    env_home = os.environ.get("ARENA_AGENT_HOME")
-    if env_home:
-        search_paths.append(Path(env_home) / "bridge.yml")
-    search_paths.append(Path.home() / "arena-bridge" / "bridge.yml")
-    search_paths.append(Path("bridge.yml"))
-    
-    for path in search_paths:
-        if path.exists():
-            try:
-                import yaml
-                with open(path) as f:
-                    cfg = yaml.safe_load(f) or {}
-                log.info("[Config] Loaded configuration from %s", path)
-                return cfg
-            except ImportError:
-                # No PyYAML — try JSON fallback
-                json_path = path.with_suffix('.json')
-                if json_path.exists():
-                    try:
-                        import json as _json
-                        with open(json_path) as f:
-                            cfg = _json.load(f) or {}
-                        log.info("[Config] Loaded JSON configuration from %s", json_path)
-                        return cfg
-                    except Exception:
-                        pass
-                log.debug("[Config] bridge.yml found at %s but PyYAML not installed, skipping", path)
-                return {}
-            except Exception as e:
-                log.warning("[Config] Failed to load %s: %s", path, e)
-                return {}
-    return {}
+    return _load_config_file_runtime(
+        log_info=log.info,
+        log_debug=log.debug,
+        log_warning=log.warning,
+    )
 
 
 def _get_bridge_port() -> int:
-    """Get the port the bridge is running on (from config or default 8765)."""
-    try:
-        return int(os.environ.get("ARENA_PORT", "8765"))
-    except (ValueError, TypeError):
-        return 8765
+    return _get_bridge_port_runtime()
 
 
 # Version, paths and limits now live in arena/constants.py (re-exported near the
@@ -548,43 +474,7 @@ LOG_FILE = APP_DIR / "bridge.log"
 
 
 def _setup_logging() -> logging.Logger:
-    """Configure structured logging with file rotation and console output."""
-    logger = logging.getLogger("arena-bridge")
-    logger.setLevel(logging.DEBUG)
-
-    # Prevent duplicate handlers on reload
-    if logger.handlers:
-        return logger
-
-    # Structured format: timestamp LEVEL [component] message
-    fmt = logging.Formatter(
-        "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S"
-    )
-
-    # Console handler (INFO level)
-    ch = logging.StreamHandler(sys.stderr)
-    ch.setLevel(logging.INFO)
-    ch.setFormatter(fmt)
-    logger.addHandler(ch)
-
-    # File handler with rotation (DEBUG level, 5MB x 5 files)
-    try:
-        APP_DIR.mkdir(parents=True, exist_ok=True)
-        fh = logging.handlers.RotatingFileHandler(
-            str(LOG_FILE),
-            maxBytes=5 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8"
-        )
-        fh.setLevel(logging.DEBUG)
-        fh.setFormatter(fmt)
-        logger.addHandler(fh)
-    except Exception:
-        # If file logging fails, continue with console only
-        pass
-
-    return logger
+    return _setup_logging_runtime(app_dir=APP_DIR, log_file=LOG_FILE)
 
 
 log = _setup_logging()
