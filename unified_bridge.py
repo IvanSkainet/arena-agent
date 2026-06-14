@@ -342,6 +342,7 @@ from arena.browser.cdp.session import make_cdp_session_handlers  # noqa: E402,F4
 from arena.browser.cdp.page import make_cdp_page_handlers  # noqa: E402,F401
 from arena.browser.cdp.tabs import make_cdp_tabs_handlers  # noqa: E402,F401
 from arena.browser.cdp.cookies import ensure_cookie_manager as _cdp_ensure_cookie_manager, make_cdp_cookies_handlers  # noqa: E402,F401
+from arena.browser.cdp.network import make_cdp_network_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -425,7 +426,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3462,131 +3463,27 @@ async def _ensure_cookie_manager():
 # CDP cookie/profile endpoint implementations moved to arena/browser/cdp/cookies.py.
 
 
+_cdp_network_handler_ctx = CdpNetworkHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    cdp_state=_cdp_state,
+    cdp_active_tab=_cdp_active_tab,
+    get_cdp_module=_get_cdp_module,
+)
+_cdp_network_handlers = make_cdp_network_handlers(_cdp_network_handler_ctx)
+handle_v1_cdp_network_start = _cdp_network_handlers.start
+handle_v1_cdp_network_stop = _cdp_network_handlers.stop
+handle_v1_cdp_network_requests = _cdp_network_handlers.requests
+handle_v1_cdp_network_har = _cdp_network_handlers.har
+
 
 # ---- CDP Network Monitoring ----
+# Implementations moved to arena/browser/cdp/network.py and are bound above via
+# make_cdp_network_handlers(...).
 
-async def handle_v1_cdp_network_start(request):
-    """POST /v1/browser/cdp/network/start — Start network monitoring."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    cdp = _get_cdp_module()
-    if not cdp:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
-    
-    try:
-        # Get browser from active tab
-        tab, _ = await _cdp_active_tab()
-        if not tab or not tab._browser:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "No active tab with CDP connection"}, status=400)
-        
-        if _cdp_state.get("monitor") and _cdp_state["monitor"].active:
-            return _cors_json_response({"ok": True, "message": "Network monitoring already active"})
-        
-        max_entries = 1000
-        try:
-            body = await request.json()
-            max_entries = body.get("max_entries", 1000)
-        except Exception:
-            pass
-        
-        monitor = cdp.CDPNetworkMonitor(tab._browser, max_entries=max_entries)
-        await monitor.start()
-        _cdp_state["monitor"] = monitor
-        
-        return _cors_json_response({
-            "ok": True,
-            "message": "Network monitoring started",
-            "max_entries": max_entries,
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+# CDP network monitoring endpoint implementations moved to arena/browser/cdp/network.py.
 
-
-async def handle_v1_cdp_network_stop(request):
-    """POST /v1/browser/cdp/network/stop — Stop network monitoring."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    monitor = _cdp_state.get("monitor")
-    if not monitor or not monitor.active:
-        return _cors_json_response({"ok": True, "message": "Network monitoring not active"})
-    
-    try:
-        await monitor.stop()
-        return _cors_json_response({"ok": True, "message": "Network monitoring stopped"})
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_network_requests(request):
-    """GET /v1/browser/cdp/network/requests — Get captured network requests.
-    
-    Query params:
-        url_filter: string (optional)
-        resource_type: string (optional)
-        include_active: bool (default: true)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    monitor = _cdp_state.get("monitor")
-    if not monitor:
-        return _cors_json_response({"ok": True, "requests": [], "count": 0, "active_count": 0})
-    
-    qs = parse_qs(request.query_string)
-    url_filter = qs.get("url_filter", [None])[0]
-    resource_type = qs.get("resource_type", [None])[0]
-    include_active = qs.get("include_active", ["true"])[0].lower() == "true"
-    
-    try:
-        finished = monitor.get_requests(url_filter=url_filter, resource_type=resource_type)
-        requests_list = [req.to_dict() for req in finished]
-        
-        result = {
-            "ok": True,
-            "requests": requests_list,
-            "total_finished": monitor.total_requests,
-            "active_count": monitor.active_count,
-        }
-        
-        if include_active:
-            active = monitor.get_active_requests()
-            result["active"] = [req.to_dict() for req in active]
-        
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_network_har(request):
-    """GET /v1/browser/cdp/network/har — Export captured requests as HAR."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    monitor = _cdp_state.get("monitor")
-    if not monitor:
-        return _cors_json_response({"log": {"version": "1.2", "creator": {"name": "arena-cdp", "version": "1.0"}, "entries": []}})
-    
-    try:
-        har = monitor.export_har()
-        return _cors_json_response(har)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # ---- CDP Network Interception ----
