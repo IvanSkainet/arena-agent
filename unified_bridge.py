@@ -343,6 +343,7 @@ from arena.browser.cdp.page import make_cdp_page_handlers  # noqa: E402,F401
 from arena.browser.cdp.tabs import make_cdp_tabs_handlers  # noqa: E402,F401
 from arena.browser.cdp.cookies import ensure_cookie_manager as _cdp_ensure_cookie_manager, make_cdp_cookies_handlers  # noqa: E402,F401
 from arena.browser.cdp.network import make_cdp_network_handlers  # noqa: E402,F401
+from arena.browser.cdp.intercept import make_cdp_intercept_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -426,7 +427,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, CdpInterceptHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3485,171 +3486,26 @@ handle_v1_cdp_network_har = _cdp_network_handlers.har
 # CDP network monitoring endpoint implementations moved to arena/browser/cdp/network.py.
 
 
+_cdp_intercept_handler_ctx = CdpInterceptHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    cdp_state=_cdp_state,
+    cdp_active_tab=_cdp_active_tab,
+    get_cdp_module=_get_cdp_module,
+)
+_cdp_intercept_handlers = make_cdp_intercept_handlers(_cdp_intercept_handler_ctx)
+handle_v1_cdp_intercept_start = _cdp_intercept_handlers.start
+handle_v1_cdp_intercept_stop = _cdp_intercept_handlers.stop
+handle_v1_cdp_intercept_rule = _cdp_intercept_handlers.rule
+
 
 # ---- CDP Network Interception ----
+# Implementations moved to arena/browser/cdp/intercept.py and are bound above via
+# make_cdp_intercept_handlers(...).
 
-async def handle_v1_cdp_intercept_start(request):
-    """POST /v1/browser/cdp/intercept/start — Start network interception.
-    
-    Body JSON (optional):
-        patterns: list of Fetch pattern dicts (default: intercept all)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    cdp = _get_cdp_module()
-    if not cdp:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
-    
-    try:
-        tab, _ = await _cdp_active_tab()
-        if not tab or not tab._browser:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "No active tab"}, status=400)
-        
-        if _cdp_state.get("interceptor") and _cdp_state["interceptor"].active:
-            return _cors_json_response({"ok": True, "message": "Interception already active"})
-        
-        patterns = None
-        try:
-            body = await request.json()
-            patterns = body.get("patterns")
-        except Exception:
-            pass
-        
-        interceptor = cdp.CDPNetworkInterceptor(tab._browser)
-        await interceptor.start(patterns=patterns)
-        _cdp_state["interceptor"] = interceptor
-        
-        return _cors_json_response({
-            "ok": True,
-            "message": "Network interception started",
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+# CDP network interception endpoint implementations moved to arena/browser/cdp/intercept.py.
 
-
-async def handle_v1_cdp_intercept_stop(request):
-    """POST /v1/browser/cdp/intercept/stop — Stop network interception."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    interceptor = _cdp_state.get("interceptor")
-    if not interceptor or not interceptor.active:
-        return _cors_json_response({"ok": True, "message": "Interception not active"})
-    
-    try:
-        await interceptor.stop()
-        return _cors_json_response({"ok": True, "message": "Interception stopped"})
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_intercept_rule(request):
-    """POST /v1/browser/cdp/intercept/rule — Add interception rule.
-    DELETE /v1/browser/cdp/intercept/rule — Remove interception rule.
-    GET /v1/browser/cdp/intercept/rules — List interception rules.
-    
-    POST Body JSON:
-        name: string (required)
-        url_pattern: string (optional)
-        resource_type: string (optional)
-        action: "block" | "redirect" | "modify_headers" | "mock" (required)
-        redirect_url: string (for action="redirect")
-        mock_status: int (for action="mock", default: 200)
-        mock_body: string (for action="mock")
-        mock_content_type: string (for action="mock", default: "text/plain")
-    
-    DELETE Body JSON:
-        name: string (required)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    cdp = _get_cdp_module()
-    if not cdp:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
-    
-    interceptor = _cdp_state.get("interceptor")
-    
-    if request.method == "GET":
-        if not interceptor:
-            return _cors_json_response({"ok": True, "rules": [], "count": 0})
-        rules = interceptor.get_rules()
-        return _cors_json_response({
-            "ok": True,
-            "rules": [rule.to_dict() for rule in rules],
-            "count": len(rules),
-        })
-    
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    if request.method == "DELETE":
-        name = body.get("name")
-        if not name:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
-        
-        if not interceptor:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "No active interceptor"}, status=400)
-        
-        removed = interceptor.remove_rule(name)
-        return _cors_json_response({
-            "ok": removed,
-            "name": name,
-        })
-    
-    # POST — add rule
-    if not interceptor or not interceptor.active:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Interception not active. Start first."}, status=400)
-    
-    name = body.get("name", "")
-    action = body.get("action")
-    if not action:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'action'"}, status=400)
-    
-    try:
-        rule = cdp.InterceptRule(
-            name=name,
-            url_pattern=body.get("url_pattern"),
-            resource_type=body.get("resource_type"),
-            action=action,
-            redirect_url=body.get("redirect_url"),
-            mock_status=body.get("mock_status", 200),
-            mock_body=body.get("mock_body"),
-            mock_content_type=body.get("mock_content_type", "text/plain"),
-            modify_request_headers=body.get("modify_request_headers"),
-            remove_request_headers=body.get("remove_request_headers"),
-        )
-        interceptor.add_rule(rule)
-        
-        return _cors_json_response({
-            "ok": True,
-            "rule": rule.to_dict(),
-        })
-    except ValueError as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=400)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # ---- CDP Session Health Check ----

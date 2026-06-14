@@ -234,6 +234,18 @@ class CdpNetworkHandlerContext:
 
 
 @dataclass(frozen=True)
+class CdpInterceptHandlerContext:
+    """Dependencies for CDP network interception handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    cdp_state: dict[str, Any]
+    cdp_active_tab: Callable[..., Any]
+    get_cdp_module: Callable[[], Any]
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 
