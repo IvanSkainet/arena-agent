@@ -136,6 +136,20 @@ class CdpBasicHandlerContext:
 
 
 @dataclass(frozen=True)
+class CdpDiagnosticHandlerContext:
+    """Dependencies for CDP launch/WebSocket diagnostic handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    get_cdp_module: Callable[[], Any]
+    log_info: Callable[..., None]
+    log_warning: Callable[..., None]
+    log_error: Callable[..., None]
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 
