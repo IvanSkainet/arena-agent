@@ -327,6 +327,7 @@ from arena.desktop.runtime import (  # noqa: E402,F401
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
 from arena.desktop.focus import focus_window  # noqa: E402,F401
 from arena.desktop.handlers import make_desktop_handlers  # noqa: E402,F401
+from arena.control_handlers import make_control_lease_handlers  # noqa: E402,F401
 from arena.browser.fetch import (  # noqa: E402,F401
     browser_dump,
     browser_fetch,
@@ -421,7 +422,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3772,136 +3773,29 @@ handle_v1_desktop_windows = _desktop_handlers.windows
 handle_v1_desktop_active_window = _desktop_handlers.active_window
 handle_v1_desktop_focus = _desktop_handlers.focus
 
+
+_control_lease_handler_ctx = ControlLeaseHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    control_state=_control_state,
+    control_lock=_control_lock,
+    utc_now=utc_now,
+    log_info=log.info,
+    log_warning=log.warning,
+)
+_control_lease_handlers = make_control_lease_handlers(_control_lease_handler_ctx)
+handle_v1_control_status = _control_lease_handlers.status
+handle_v1_control_pause = _control_lease_handlers.pause
+handle_v1_control_resume = _control_lease_handlers.resume
+handle_v1_control_revoke = _control_lease_handlers.revoke
+
 # ---- Control Lease Endpoints (v2.9.0) ----
+# Implementations moved to arena/control_handlers.py and are bound above via
+# make_control_lease_handlers(...).
 
-async def handle_v1_control_status(request):
-    """GET /v1/control/status — Check if agent desktop control is active/paused/revoked.
+# Control lease endpoint implementations moved to arena/control_handlers.py.
 
-    v2.9.0: New endpoint.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    with _control_lock:
-        return _cors_json_response({
-            "ok": True,
-            "control": _control_state["status"],
-            "reason": _control_state["reason"],
-            "paused_at": _control_state["paused_at"],
-            "revoked_at": _control_state["revoked_at"],
-            "last_agent_input_at": _control_state["last_agent_input_at"],
-            "last_user_input_at": _control_state["last_user_input_at"],
-            "session_id": _control_state["session_id"],
-        })
-
-
-async def handle_v1_control_pause(request):
-    """POST /v1/control/pause — Pause agent desktop control.
-
-    Body JSON (optional):
-        reason: string — Reason for pausing
-        session_id: string — Optional session to target
-
-    While paused, all desktop input endpoints (click, type, key, mouse, focus)
-    return 403 control_paused.
-
-    v2.9.0: New endpoint.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    reason = None
-    try:
-        body = await request.json()
-        reason = body.get("reason")
-    except Exception:
-        pass
-
-    with _control_lock:
-        if _control_state["status"] == "revoked":
-            return _cors_json_response({
-                "ok": False, "error": "control_revoked",
-                "message": "Control is revoked. Use /v1/control/resume to re-activate.",
-            }, status=409)
-
-        _control_state["status"] = "paused"
-        _control_state["reason"] = reason
-        _control_state["paused_at"] = utc_now()
-
-    log.info("[Control] Agent desktop control PAUSED (reason: %s)", reason)
-    return _cors_json_response({
-        "ok": True,
-        "control": "paused",
-        "reason": reason,
-        "paused_at": _control_state["paused_at"],
-    })
-
-
-async def handle_v1_control_resume(request):
-    """POST /v1/control/resume — Resume agent desktop control after pause/revoke.
-
-    Body JSON (optional):
-        session_id: string — Optional session to resume
-
-    v2.9.0: New endpoint.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    with _control_lock:
-        prev = _control_state["status"]
-        _control_state["status"] = "active"
-        _control_state["reason"] = None
-        _control_state["paused_at"] = None
-        _control_state["revoked_at"] = None
-        resumed_at = utc_now()
-
-    log.info("[Control] Agent desktop control RESUMED (was: %s)", prev)
-    return _cors_json_response({
-        "ok": True,
-        "control": "active",
-        "previous_status": prev,
-        "resumed_at": resumed_at,
-    })
-
-
-async def handle_v1_control_revoke(request):
-    """POST /v1/control/revoke — Hard revoke agent desktop control.
-
-    Body JSON (optional):
-        reason: string — Reason for revocation
-
-    After revocation, all desktop input endpoints return 403 control_revoked.
-    Only /v1/control/resume can re-enable control.
-
-    v2.9.0: New endpoint.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    reason = None
-    try:
-        body = await request.json()
-        reason = body.get("reason")
-    except Exception:
-        pass
-
-    with _control_lock:
-        _control_state["status"] = "revoked"
-        _control_state["reason"] = reason or "User revoked control"
-        _control_state["revoked_at"] = utc_now()
-
-    log.warning("[Control] Agent desktop control REVOKED (reason: %s)", reason)
-    return _cors_json_response({
-        "ok": True,
-        "control": "revoked",
-        "reason": _control_state["reason"],
-        "revoked_at": _control_state["revoked_at"],
-    })
 
 
 # ---- CDP Tab Management ----

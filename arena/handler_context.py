@@ -92,6 +92,20 @@ class DesktopHandlerContext:
 
 
 @dataclass(frozen=True)
+class ControlLeaseHandlerContext:
+    """Dependencies for desktop control lease handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    control_state: dict[str, Any]
+    control_lock: Any
+    utc_now: Callable[[], str]
+    log_info: Callable[..., None]
+    log_warning: Callable[..., None]
+
+
+@dataclass(frozen=True)
 class BrowserFetchHandlerContext:
     """Dependencies for non-CDP browser/fetch handlers."""
 
