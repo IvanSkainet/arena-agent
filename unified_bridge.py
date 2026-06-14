@@ -381,6 +381,7 @@ from arena.resources.listing import (  # noqa: E402,F401
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
 from arena.resources.subagents import spawn_subagent  # noqa: E402,F401
 from arena.memory.handlers import make_memory_handlers  # noqa: E402,F401
+from arena.memory.runtime import MemoryRuntimeContext, make_memory_runtime  # noqa: E402,F401
 from arena.memory.store import (  # noqa: E402,F401
     delete_fact as memory_delete_fact,
     init_memory_db as memory_init_db,
@@ -1961,23 +1962,22 @@ handle_v1_kill = _exec_handlers.kill
 # HANDLERS — Dashboard API endpoints
 # ============================================================================
 
-def init_memory_db():
-    return memory_init_db(db_path=MEMORY_DB, jsonl_path=MEMORY_FILE, log_error=log.error)
-
-
-def _load_facts() -> list[dict]:
-    return memory_load_facts(MEMORY_DB)
-
-def _search_facts_paged(q: str = "", offset: int = 0, limit: int = 100) -> tuple[int, list[dict]]:
-    return memory_search_facts_paged(MEMORY_DB, q=q, offset=offset, limit=limit, log_error=log.error)
-
-
-def _write_fact(entry: dict) -> None:
-    return memory_write_fact(MEMORY_DB, entry)
-
-
-def _delete_fact(key: str) -> bool:
-    return memory_delete_fact(MEMORY_DB, key)
+_memory_runtime_ctx = MemoryRuntimeContext(
+    db_path=MEMORY_DB,
+    jsonl_path=MEMORY_FILE,
+    audit_path=AUDIT,
+    read_tail=read_tail,
+    utc_now=utc_now,
+    log_error=log.error,
+)
+_memory_runtime = make_memory_runtime(_memory_runtime_ctx)
+init_memory_db = _memory_runtime.init_memory_db
+_load_facts = _memory_runtime.load_facts
+_search_facts_paged = _memory_runtime.search_facts_paged
+_write_fact = _memory_runtime.write_fact
+_delete_fact = _memory_runtime.delete_fact
+_recall_sync = _memory_runtime.recall_sync
+_recall_digest_sync = _memory_runtime.recall_digest_sync
 
 
 
@@ -2506,16 +2506,7 @@ async def _cdp_get_active_browser():
 
 
 
-def _recall_sync(query: str, top: int) -> dict:
-    return memory_recall(query, facts=_load_facts(), top=top)
-
-
-
-
-# --- /v1/recall/digest GET — Memory digest ---
-
-def _recall_digest_sync() -> dict:
-    return memory_recall_digest(facts=_load_facts(), audit_lines=read_tail(AUDIT, 20), utc_now_fn=utc_now)
+# Memory recall helpers moved to arena/memory/runtime.py and bound above.
 
 
 _memory_handler_ctx = MemoryHandlerContext(
