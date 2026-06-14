@@ -196,6 +196,14 @@ from arena.exec.runner import (  # noqa: E402,F401
     run_shell_command,
 )
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
+from arena.admin.runtime import (  # noqa: E402,F401
+    CLOUDFLARED_STATE as _CLOUDFLARED_STATE,
+    cloudflared_funnel_action as _cloudflared_funnel_action_runtime,
+    sys_funnel_status as _sys_funnel_status_runtime,
+    tailscale_funnel_action as _tailscale_funnel_action_runtime,
+    token_regenerate as _token_regenerate_runtime,
+)
+from arena.admin.handlers import make_admin_handlers  # noqa: E402,F401
 from arena.public.handlers import make_public_handlers  # noqa: E402,F401
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync as _gw_run_sync  # noqa: E402,F401
 from arena.gateway.handlers import make_gateway_handlers  # noqa: E402,F401
@@ -410,7 +418,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -2602,6 +2610,23 @@ handle_v1_sysinfo = _system_handlers.sysinfo
 handle_v1_beep = _system_handlers.beep
 
 
+_admin_handler_ctx = AdminHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    executor=_EXECUTOR,
+    audit=audit,
+    default_token_file=TOKEN_FILE,
+    root_agent=ROOT_AGENT,
+    subprocess_kwargs=_subprocess_kwargs,
+)
+_admin_handlers = make_admin_handlers(_admin_handler_ctx)
+handle_v1_sys_funnel = _admin_handlers.sys_funnel
+handle_v1_token_regenerate = _admin_handlers.token_regenerate
+handle_v1_tailscale_funnel = _admin_handlers.tailscale_funnel
+handle_v1_cloudflared_tunnel = _admin_handlers.cloudflared_tunnel
+
+
 _public_handler_ctx = PublicHandlerContext(
     record_request=_record_request,
     cors_json_response=_cors_json_response,
@@ -3033,312 +3058,35 @@ handle_v1_restart = _service_handlers.restart
 
 
 
-# --- /v1/sys/funnel GET — Tailscale Funnel status ---
+# --- /v1/sys/funnel, token regeneration, Tailscale/Cloudflared tunnels ---
+# Admin/network runtime helpers and handlers now live in arena/admin/. Wrappers
+# preserve historical helper names for compatibility.
+
 
 def _sys_funnel_sync() -> dict:
-    """Synchronous helper to check Tailscale funnel status."""
-    result: dict[str, Any] = {"ok": True, "tailscale": {}, "funnel": {}}
+    return _sys_funnel_status_runtime(subprocess_kwargs=_subprocess_kwargs)
 
-    # Run tailscale status
-    try:
-        out = subprocess.check_output(["tailscale", "status"], stderr=subprocess.STDOUT, text=True, **_subprocess_kwargs())
-        result["tailscale"]["status"] = out.strip()[:2000]
-        result["tailscale"]["connected"] = bool(out.strip())
-    except FileNotFoundError:
-        result["tailscale"]["error"] = "tailscale not found"
-    except Exception as e:
-        result["tailscale"]["error"] = str(e)[:500]
-
-    # Run tailscale funnel status
-    try:
-        out = subprocess.check_output(["tailscale", "funnel", "status"], stderr=subprocess.STDOUT, text=True, **_subprocess_kwargs())
-        result["funnel"]["status"] = out.strip()[:2000]
-        _lw = out.lower()
-        result["funnel"]["active"] = (
-            "funnel on" in _lw
-            or "proxy http" in _lw
-            or "serving" in _lw
-            or "listening" in _lw
-        )
-        # extract public URL if present (https://*.ts.net)
-        m = re.search(r"https://[\w.-]+\.ts\.net[^\s]*", out)
-        if m:
-            result["funnel"]["url"] = m.group(0)
-    except FileNotFoundError:
-        result["funnel"]["error"] = "tailscale not found"
-    except Exception as e:
-        result["funnel"]["error"] = str(e)[:500]
-
-    return result
-
-
-async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
-    """GET /v1/sys/funnel — Tailscale Funnel status."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _sys_funnel_sync)
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-# --- /v1/token/regenerate POST — Generate new auth token ---
 
 def _token_path() -> Path:
-    """Resolve token file location used by start-bridge / install.bat."""
-    return Path(os.environ.get("ARENA_TOKEN_FILE",
-                str(TOKEN_FILE))).expanduser()
+    return Path(os.environ.get("ARENA_TOKEN_FILE", str(TOKEN_FILE))).expanduser()
 
 
 def _token_regen_sync(target_path: str = "") -> dict:
-    """Generate a new token and write it to ONLY the bridge's own token.txt.
-    Path resolution priority:
-      1. explicit target_path arg (from cfg["token_file"] or env)
-      2. ARENA_TOKEN_FILE env var
-      3. <BRIDGE_DIR from sys.argv 'serve --root'>/token.txt — best effort
-      4. ~/arena-bridge/token.txt  (default)
-    NEVER writes to multiple locations — that risks clobbering another instance's token.
-    """
-    new_tok = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode().rstrip("=")
+    return _token_regenerate_runtime(target_path, default_token_file=TOKEN_FILE)
 
-    target: Path
-    if target_path:
-        target = Path(target_path).expanduser()
-    else:
-        env = os.environ.get("ARENA_TOKEN_FILE")
-        if env:
-            target = Path(env).expanduser()
-        else:
-            # Default to the canonical bridge-dir token file
-            target = TOKEN_FILE
-
-    try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(new_tok, encoding="utf-8")
-        try:
-            os.chmod(target, 0o600)
-        except Exception:
-            pass
-        return {
-            "ok": True,
-            "token": new_tok,
-            "written_to": [str(target)],
-            "note": ("Existing connections still use the OLD token until the bridge restarts. "
-                     "Use POST /v1/restart, or click Restart Bridge."),
-        }
-    except Exception as e:
-        return {"ok": False, "error": f"Failed to write {target}: {e}"}
-
-
-async def handle_v1_token_regenerate(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    cfg = request.app["cfg"]
-    # Prefer the exact token_file that this bridge instance reads on startup
-    target = str(cfg.get("token_file") or "")
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _token_regen_sync, target)
-        # Hot-update in-memory token so new requests accept it immediately
-        if result.get("ok") and result.get("token"):
-            cfg["token"] = result["token"]
-        audit({"type": "token_regenerated", "files": result.get("written_to", [])})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-# --- /v1/tailscale/funnel/{action} POST — start | stop | status ---
 
 def _tailscale_funnel_action_sync(action: str, port: int) -> dict:
-    import subprocess as _sp
-    import shutil as _shutil_local
-    action = (action or "").lower()
-    if action not in ("start", "stop", "status"):
-        return {"ok": False, "error": "action must be start|stop|status"}
-    # locate tailscale
-    ts = _shutil_local.which("tailscale")
-    if not ts and platform.system() == "Windows":
-        candidates = [
-            r"C:\Program Files\Tailscale\tailscale.exe",
-            r"C:\Program Files (x86)\Tailscale\tailscale.exe",
-        ]
-        for c in candidates:
-            if os.path.isfile(c):
-                ts = c; break
-    if not ts:
-        return {"ok": False, "error": "tailscale binary not found"}
+    return _tailscale_funnel_action_runtime(action, port)
 
-    if action == "start":
-        # `tailscale funnel --bg 8765`
-        try:
-            r = _sp.run([ts, "funnel", "--bg", str(port)],
-                        capture_output=True, text=True, timeout=15)
-            return {"ok": r.returncode == 0, "action": "start", "port": port,
-                    "stdout": r.stdout, "stderr": r.stderr,
-                    "exit_code": r.returncode}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-    if action == "stop":
-        # `tailscale funnel --https=443 off`
-        try:
-            r = _sp.run([ts, "funnel", "--https=443", "off"],
-                        capture_output=True, text=True, timeout=15)
-            return {"ok": r.returncode == 0, "action": "stop",
-                    "stdout": r.stdout, "stderr": r.stderr,
-                    "exit_code": r.returncode}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-    # status
-    try:
-        r = _sp.run([ts, "funnel", "status"],
-                    capture_output=True, text=True, timeout=10)
-        out = r.stdout or ""
-        return {"ok": True, "action": "status", "output": out,
-                "active": ("funnel on" in out.lower() or "proxy http" in out.lower())}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    action = request.match_info.get("action", "status")
-    cfg = request.app["cfg"]
-    port = cfg.get("port", 8765)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _tailscale_funnel_action_sync, action, port)
-        audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-_CLOUDFLARED_STATE = {"proc": None, "url": "", "log": []}
-
-def _cloudflared_monitor_thread(proc, port: int):
-    import re
-    while True:
-        line = proc.stdout.readline()
-        if not line:
-            break
-        line_str = line.strip()
-        _CLOUDFLARED_STATE["log"].append(line_str)
-        if len(_CLOUDFLARED_STATE["log"]) > 100:
-            _CLOUDFLARED_STATE["log"].pop(0)
-        match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_str)
-        if match:
-            _CLOUDFLARED_STATE["url"] = match.group(0)
 
 def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
-    import subprocess as _sp
-    import shutil as _shutil_local
-    action = (action or "").lower()
-    if action not in ("start", "stop", "status"):
-        return {"ok": False, "error": "action must be start|stop|status"}
-    cf = _shutil_local.which("cloudflared")
-    if not cf and platform.system() == "Windows":
-        candidates = [
-            r"C:\Program Files\cloudflared\cloudflared.exe",
-            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
-        ]
-        for c in candidates:
-            if os.path.isfile(c):
-                cf = c; break
-    if not cf:
-        # allow local binary in agent folder
-        local_cf = ROOT_AGENT / ("cloudflared.exe" if platform.system() == "Windows" else "cloudflared")
-        if local_cf.exists():
-            cf = str(local_cf)
+    return _cloudflared_funnel_action_runtime(
+        action,
+        port,
+        root_agent=ROOT_AGENT,
+        subprocess_kwargs=_subprocess_kwargs,
+    )
 
-    if action == "start":
-        if not cf:
-            return {"ok": False, "error": "cloudflared binary not found"}
-        if _CLOUDFLARED_STATE["proc"] and _CLOUDFLARED_STATE["proc"].poll() is None:
-            return {"ok": True, "action": "start", "already_running": True, "url": _CLOUDFLARED_STATE["url"]}
-        _CLOUDFLARED_STATE["url"] = ""
-        _CLOUDFLARED_STATE["log"].clear()
-        try:
-            _CLOUDFLARED_STATE["proc"] = _sp.Popen(
-                [cf, "tunnel", "--url", f"http://127.0.0.1:{port}"],
-                stdout=_sp.PIPE, stderr=_sp.STDOUT, text=True,
-                **_subprocess_kwargs()
-            )
-            t = threading.Thread(target=_cloudflared_monitor_thread, args=(_CLOUDFLARED_STATE["proc"], port), daemon=True)
-            t.start()
-            
-            # Wait up to 10 seconds for URL
-            for _ in range(20):
-                if _CLOUDFLARED_STATE["url"] or _CLOUDFLARED_STATE["proc"].poll() is not None:
-                    break
-                time.sleep(0.5)
-                
-            active = bool(_CLOUDFLARED_STATE["url"])
-            if not active:
-                proc = _CLOUDFLARED_STATE["proc"]
-                if proc and proc.poll() is None:
-                    try:
-                        proc.terminate()
-                        proc.wait(timeout=2)
-                    except Exception:
-                        try: proc.kill()
-                        except Exception: pass
-                _CLOUDFLARED_STATE["proc"] = None
-                return {"ok": False, "action": "start", "error": "cloudflared timed out generating a tunnel URL", "log": list(_CLOUDFLARED_STATE["log"])}
-            return {"ok": True, "action": "start", "port": port, "url": _CLOUDFLARED_STATE["url"], "log": _CLOUDFLARED_STATE["log"]}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
-            
-    if action == "stop":
-        proc = _CLOUDFLARED_STATE["proc"]
-        if proc and proc.poll() is None:
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-            except Exception:
-                try: proc.kill()
-                except Exception: pass
-        _CLOUDFLARED_STATE["proc"] = None
-        _CLOUDFLARED_STATE["url"] = ""
-        return {"ok": True, "action": "stop"}
-        
-    # status
-    proc = _CLOUDFLARED_STATE["proc"]
-    running = proc is not None and proc.poll() is None
-    installed = cf is not None
-    return {
-        "ok": True, 
-        "action": "status", 
-        "installed": installed,
-        "active": running, 
-        "url": _CLOUDFLARED_STATE["url"],
-        "log": _CLOUDFLARED_STATE["log"] if running else []
-    }
-
-async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    action = request.match_info.get("action", "status")
-    cfg = request.app["cfg"]
-    port = cfg.get("port", 8765)
-    try:
-        loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_EXECUTOR, _cloudflared_funnel_action_sync, action, port)
-        audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
-        return _cors_json_response(result)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 # --- /v1/restart POST — Graceful shutdown (scheduled task / systemd / launchd will respawn) ---
 

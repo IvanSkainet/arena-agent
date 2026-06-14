@@ -448,3 +448,16 @@ class PublicHandlerContext:
     hostname: Callable[[], str]
     bridge_port: Callable[[], int]
 
+@dataclass(frozen=True)
+class AdminHandlerContext:
+    """Dependencies for token/tunnel/funnel admin handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    audit: Callable[[dict[str, Any]], None]
+    default_token_file: Any
+    root_agent: Any
+    subprocess_kwargs: Callable[[], dict[str, Any]]
+
