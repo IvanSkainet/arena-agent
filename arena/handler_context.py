@@ -150,6 +150,23 @@ class CdpDiagnosticHandlerContext:
 
 
 @dataclass(frozen=True)
+class CdpSessionHandlerContext:
+    """Dependencies for CDP connect/disconnect session lifecycle handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    cdp_state: dict[str, Any]
+    cdp_connect_lock: Any
+    get_cdp_module: Callable[[], Any]
+    start_cdp_watcher: Callable[[], Any]
+    stop_cdp_watcher: Callable[[], Any]
+    emit_event: Callable[[str, dict | None], Any]
+    log_info: Callable[..., None]
+    log_warning: Callable[..., None]
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 
