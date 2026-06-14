@@ -341,6 +341,7 @@ from arena.browser.cdp.diagnostics import make_cdp_diagnostic_handlers  # noqa: 
 from arena.browser.cdp.session import make_cdp_session_handlers  # noqa: E402,F401
 from arena.browser.cdp.page import make_cdp_page_handlers  # noqa: E402,F401
 from arena.browser.cdp.tabs import make_cdp_tabs_handlers  # noqa: E402,F401
+from arena.browser.cdp.cookies import ensure_cookie_manager as _cdp_ensure_cookie_manager, make_cdp_cookies_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -424,7 +425,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3430,443 +3431,36 @@ handle_v1_cdp_tabs_activate = _cdp_tabs_handlers.activate
 # CDP tab management endpoint implementations moved to arena/browser/cdp/tabs.py.
 
 
+_cdp_cookies_handler_ctx = CdpCookiesHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    cdp_state=_cdp_state,
+    cdp_active_tab=_cdp_active_tab,
+    get_cdp_module=_get_cdp_module,
+    log_info=log.info,
+    log_warning=log.warning,
+    log_error=log.error,
+)
+_cdp_cookies_handlers = make_cdp_cookies_handlers(_cdp_cookies_handler_ctx)
+handle_v1_cdp_cookies_get = _cdp_cookies_handlers.get
+handle_v1_cdp_cookies_set = _cdp_cookies_handlers.set
+handle_v1_cdp_cookies_delete = _cdp_cookies_handlers.delete
+handle_v1_cdp_cookies_clear = _cdp_cookies_handlers.clear
+handle_v1_cdp_cookies_profiles = _cdp_cookies_handlers.profiles
+
 
 # ---- CDP Cookie Management ----
+# Implementations moved to arena/browser/cdp/cookies.py and are bound above via
+# make_cdp_cookies_handlers(...).
 
 async def _ensure_cookie_manager():
-    """Lazily create and start a CDPCookieManager.
-    
-    Tries the active tab first, then falls back to any connected tab.
-    If no tab is connected, attempts to connect the first available tab.
-    Includes proper error logging instead of silent None returns.
-    
-    v2.5.0 fix: Falls back to direct CDP commands via tab if CDPCookieManager fails.
-    """
-    if _cdp_state.get("cookie_mgr") and _cdp_state["cookie_mgr"].active:
-        return _cdp_state["cookie_mgr"]
-    
-    cdp = _get_cdp_module()
-    if not cdp:
-        log.warning("[Cookie] cdp_browser module not available")
-        return None
-    
-    # Get the active tab
-    tab, _ = await _cdp_active_tab()
-    
-    # If active tab is not connected, try to find any connected tab
-    if not tab or not getattr(tab, 'connected', False):
-        mgr = _cdp_state.get("manager")
-        if mgr:
-            for t in mgr.list_tabs():
-                if t.connected:
-                    tab = t
-                    log.info("[Cookie] Using non-active connected tab: %s", t.target_id)
-                    break
-            
-            # If still no connected tab, try connecting the first available one
-            if not tab:
-                for t in mgr.list_tabs():
-                    if t.ws_url:
-                        try:
-                            await asyncio.wait_for(t.connect(), timeout=15)
-                            tab = t
-                            log.info("[Cookie] Connected tab %s for cookie manager", t.target_id)
-                            break
-                        except Exception as e:
-                            log.warning("[Cookie] Failed to connect tab %s: %s", t.target_id, e)
-                            continue
-    
-    if not tab:
-        log.error("[Cookie] No tab available for cookie manager — CDP may be disconnected")
-        return None
-    
-    if not getattr(tab, 'connected', False):
-        log.error("[Cookie] Tab %s is not connected — cannot start cookie manager",
-                  getattr(tab, 'target_id', 'unknown'))
-        return None
-    
-    # Try using CDPCookieManager with tab._browser
-    browser = getattr(tab, '_browser', None)
-    if browser:
-        try:
-            mgr = cdp.CDPCookieManager(browser)
-            await asyncio.wait_for(mgr.start(), timeout=10)
-            _cdp_state["cookie_mgr"] = mgr
-            log.info("[Cookie] Cookie manager started successfully for tab %s via _browser",
-                     getattr(tab, 'target_id', 'unknown'))
-            return mgr
-        except asyncio.TimeoutError:
-            log.warning("[Cookie] CDPCookieManager start timed out — falling back to tab.send()")
-        except ConnectionError as e:
-            log.warning("[Cookie] CDPCookieManager ConnectionError: %s — falling back to tab.send()", e)
-        except Exception as e:
-            log.warning("[Cookie] CDPCookieManager failed: %s: %s — falling back to tab.send()", type(e).__name__, e)
-    
-    # Fallback: create a lightweight cookie manager using tab.send() directly
-    # This avoids the browser-level WS issue where Network.* commands hang
-    try:
-        # Enable Network domain on the tab
-        await asyncio.wait_for(tab.send("Network.enable"), timeout=10)
-        
-        # Create a thin wrapper that uses tab.send() instead of browser.send()
-        class TabCookieManager:
-            """Lightweight cookie manager that uses tab-level CDP commands.
-            
-            v2.5.1: Fixed interface to match CDPCookieManager — set_cookie now
-            accepts the same keyword arguments as CDPCookieManager.set_cookie,
-            so the handler code doesn't need to know which implementation it's using.
-            """
-            def __init__(self, tab):
-                self._tab = tab
-                self.active = True
-            
-            async def get_all_cookies(self):
-                res = await self._tab.send("Network.getAllCookies", timeout=15)
-                if res and "result" in res:
-                    return res["result"].get("cookies", [])
-                return []
-            
-            async def get_cookies_for_url(self, url):
-                res = await self._tab.send("Network.getCookies", {"urls": [url]}, timeout=15)
-                if res and "result" in res:
-                    return res["result"].get("cookies", [])
-                return []
-            
-            # v2.5.1: Match CDPCookieManager.set_cookie signature
-            async def set_cookie(self, name: str, value: str, domain: str = "",
-                                 path: str = "/", secure: bool = False,
-                                 http_only: bool = False, same_site: str = "",
-                                 expires=None, priority: str = "Medium",
-                                 same_party: bool = False,
-                                 source_scheme: str = "NonSecure") -> bool:
-                params = {
-                    "name": name,
-                    "value": value,
-                    "path": path,
-                    "secure": secure,
-                    "httpOnly": http_only,
-                }
-                if domain:
-                    params["domain"] = domain
-                if same_site and same_site in ("Strict", "Lax", "None"):
-                    params["sameSite"] = same_site
-                if expires is not None:
-                    params["expires"] = expires
-                try:
-                    res = await self._tab.send("Network.setCookie", params, timeout=10)
-                    if res and "result" in res:
-                        return res["result"].get("success", False)
-                    return True  # CDP didn't report failure
-                except Exception as e:
-                    log.warning("[Cookie] TabCookieManager.set_cookie failed: %s", e)
-                    return False
-            
-            async def delete_cookie(self, name, domain=""):
-                params = {"name": name}
-                if domain:
-                    params["domain"] = domain
-                return await self._tab.send("Network.deleteCookies", params, timeout=10)
-            
-            async def clear_cookies(self):
-                return await self._tab.send("Network.clearBrowserCookies", timeout=10)
-            
-            def list_profiles(self):
-                return []
-            
-            def get_profile_info(self, name):
-                return None
-            
-            async def save_profile(self, name, domain_filter=None):
-                cookies = await self.get_all_cookies()
-                return len(cookies)
-            
-            async def restore_profile(self, name, clear_first=True):
-                return 0
-            
-            def delete_profile(self, name):
-                return False
-            
-            async def check_session(self, domain, auth_cookie_names=None):
-                cookies = await self.get_all_cookies()
-                domain_cookies = [c for c in cookies if domain in c.get("domain", "")]
-                return {"active": len(domain_cookies) > 0, "cookie_count": len(domain_cookies)}
-            
-            async def stop(self):
-                self.active = False
-        
-        mgr = TabCookieManager(tab)
-        _cdp_state["cookie_mgr"] = mgr
-        log.info("[Cookie] Tab-level cookie manager started for tab %s",
-                 getattr(tab, 'target_id', 'unknown'))
-        return mgr
-    except asyncio.TimeoutError:
-        log.error("[Cookie] Tab Network.enable timed out (10s) — browser may be unresponsive")
-        return None
-    except ConnectionError as e:
-        log.error("[Cookie] Tab ConnectionError: %s", e)
-        return None
-    except Exception as e:
-        log.error("[Cookie] Tab-level cookie manager failed: %s: %s", type(e).__name__, e)
-        return None
+    """Compatibility wrapper for remaining CDP handlers during migration."""
+    return await _cdp_ensure_cookie_manager(_cdp_cookies_handler_ctx)
 
 
-async def handle_v1_cdp_cookies_get(request):
-    """GET /v1/browser/cdp/cookies — Get cookies.
-    
-    Query params:
-        url: string (optional, filter by URL)
-        domain: string (optional, filter by domain)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    try:
-        cookie_mgr = await _ensure_cookie_manager()
-        if not cookie_mgr:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
-        qs = parse_qs(request.query_string)
-        url = qs.get("url", [None])[0]
-        domain = qs.get("domain", [None])[0]
-        
-        if url:
-            cookies = await cookie_mgr.get_cookies_for_url(url)
-        elif domain:
-            all_cookies = await cookie_mgr.get_all_cookies()
-            cookies = [c for c in all_cookies if domain in c.get("domain", "")]
-        else:
-            cookies = await cookie_mgr.get_all_cookies()
-        
-        return _cors_json_response({
-            "ok": True,
-            "cookies": cookies,
-            "count": len(cookies),
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
+# CDP cookie/profile endpoint implementations moved to arena/browser/cdp/cookies.py.
 
-
-async def handle_v1_cdp_cookies_set(request):
-    """POST /v1/browser/cdp/cookies — Set a cookie.
-    
-    Body JSON:
-        name: string (required)
-        value: string (required)
-        domain: string (optional)
-        path: string (default: "/")
-        secure: bool (default: false)
-        http_only: bool (default: false)
-        same_site: string (optional: "Strict"|"Lax"|"None")
-        expires: float (optional, UTC timestamp)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    name = body.get("name")
-    value = body.get("value")
-    if not name or value is None:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'name' or 'value'"}, status=400)
-    
-    try:
-        cookie_mgr = await _ensure_cookie_manager()
-        if not cookie_mgr:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
-        success = await cookie_mgr.set_cookie(
-            name=name,
-            value=value,
-            domain=body.get("domain", ""),
-            path=body.get("path", "/"),
-            secure=body.get("secure", False),
-            http_only=body.get("http_only", False),
-            same_site=body.get("same_site", ""),
-            expires=body.get("expires"),
-        )
-        
-        return _cors_json_response({
-            "ok": success,
-            "name": name,
-            "domain": body.get("domain", ""),
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_cookies_delete(request):
-    """DELETE /v1/browser/cdp/cookies — Delete a cookie.
-    
-    Body JSON:
-        name: string (required)
-        domain: string (optional)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    name = body.get("name")
-    if not name:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
-    
-    try:
-        cookie_mgr = await _ensure_cookie_manager()
-        if not cookie_mgr:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
-        await cookie_mgr.delete_cookie(name, domain=body.get("domain", ""))
-        
-        return _cors_json_response({
-            "ok": True,
-            "deleted": name,
-        })
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_cookies_clear(request):
-    """POST /v1/browser/cdp/cookies/clear — Clear all cookies."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    try:
-        cookie_mgr = await _ensure_cookie_manager()
-        if not cookie_mgr:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
-        await cookie_mgr.clear_cookies()
-        
-        return _cors_json_response({"ok": True, "message": "All cookies cleared"})
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
-
-
-async def handle_v1_cdp_cookies_profiles(request):
-    """GET /v1/browser/cdp/cookies/profiles — List cookie profiles.
-    POST /v1/browser/cdp/cookies/profiles — Save/restore/delete profile.
-    
-    POST Body JSON:
-        action: "save" | "restore" | "delete" (required)
-        name: string (required)
-        domain: string (optional, for save filter)
-        clear_first: bool (default: true, for restore)
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    if not _cdp_state["connected"]:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
-    if request.method == "GET":
-        cookie_mgr = _cdp_state.get("cookie_mgr")
-        profiles = cookie_mgr.list_profiles() if cookie_mgr else []
-        profile_info = []
-        for name in profiles:
-            info = cookie_mgr.get_profile_info(name) if cookie_mgr else None
-            profile_info.append(info or {"name": name})
-        
-        return _cors_json_response({
-            "ok": True,
-            "profiles": profile_info,
-            "count": len(profile_info),
-        })
-    
-    # POST — save/restore/delete
-    try:
-        body = await request.json()
-    except Exception:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
-    action = body.get("action")
-    name = body.get("name")
-    if not action or not name:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": "missing 'action' or 'name'"}, status=400)
-    
-    try:
-        cookie_mgr = await _ensure_cookie_manager()
-        if not cookie_mgr:
-            _record_request(is_error=True, count_request=False)
-            return _cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
-        if action == "save":
-            count = await cookie_mgr.save_profile(name, domain_filter=body.get("domain"))
-            return _cors_json_response({
-                "ok": True,
-                "action": "save",
-                "profile": name,
-                "cookie_count": count,
-            })
-        elif action == "restore":
-            count = await cookie_mgr.restore_profile(
-                name, 
-                clear_first=body.get("clear_first", True)
-            )
-            return _cors_json_response({
-                "ok": True,
-                "action": "restore",
-                "profile": name,
-                "restored_count": count,
-            })
-        elif action == "delete":
-            deleted = cookie_mgr.delete_profile(name)
-            return _cors_json_response({
-                "ok": deleted,
-                "action": "delete",
-                "profile": name,
-            })
-        else:
-            return _cors_json_response(
-                {"ok": False, "error": f"Unknown action '{action}'. Use save, restore, or delete."},
-                status=400
-            )
-    except KeyError as e:
-        return _cors_json_response({"ok": False, "error": str(e)}, status=404)
-    except Exception as e:
-        _record_request(is_error=True, count_request=False)
-        return _cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
 # ---- CDP Network Monitoring ----
