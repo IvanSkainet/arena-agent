@@ -379,6 +379,7 @@ from arena.resources.listing import (  # noqa: E402,F401
     show_mission,
 )
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
+from arena.resources.runtime import ResourceRuntimeContext, make_resource_runtime  # noqa: E402,F401
 from arena.resources.subagents import spawn_subagent  # noqa: E402,F401
 from arena.memory.handlers import make_memory_handlers  # noqa: E402,F401
 from arena.memory.runtime import MemoryRuntimeContext, make_memory_runtime  # noqa: E402,F401
@@ -1986,30 +1987,18 @@ _recall_digest_sync = _memory_runtime.recall_digest_sync
 
 
 
-def _list_missions_sync() -> list[dict]:
-    return list_missions(MISSIONS_DIR)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _list_reports_sync() -> list[dict]:
-    return list_reports(REPORTS_DIR)
-
-
+_resource_runtime_ctx = ResourceRuntimeContext(
+    missions_dir=MISSIONS_DIR,
+    reports_dir=REPORTS_DIR,
+    hooks_dir=HOOKS_DIR,
+    agents_dir=AGENTS_DIR,
+    subagents_dir=SUBAGENTS_DIR,
+    bin_dir=BIN,
+    subprocess_kwargs=_subprocess_kwargs,
+)
+_resource_runtime = make_resource_runtime(_resource_runtime_ctx)
+_list_missions_sync = _resource_runtime.list_missions_sync
+_list_reports_sync = _resource_runtime.list_reports_sync
 
 
 def _browser_search_sync(query: str, n: int) -> dict:
@@ -2648,42 +2637,12 @@ handle_v1_skills_reload = _skill_handlers.reload
 
 
 
-# --- /v1/hooks GET — List hooks ---
-
-def _hooks_list_sync() -> dict:
-    return list_hooks(HOOKS_DIR)
-
-
-
-
-# --- /v1/agents GET — List agent configs ---
-
-def _agents_list_sync() -> dict:
-    return list_agents(AGENTS_DIR)
-
-
-
-
-# --- /v1/subagents GET — List subagents ---
-
-def _subagents_list_sync() -> dict:
-    return list_subagents(SUBAGENTS_DIR)
-
-
-
-
-# --- /v1/subagents/spawn POST — Spawn subagent ---
-
-def _subagents_spawn_sync(data: dict) -> dict:
-    return spawn_subagent(data, bin_dir=BIN, subprocess_kwargs_fn=_subprocess_kwargs)
-
-
-
-
-# --- /v1/mission/show GET — Show mission details ---
-
-def _mission_show_sync(name: str) -> dict:
-    return show_mission(MISSIONS_DIR, name)
+# Resource listing/spawn/show runtime wrappers live in arena/resources/runtime.py.
+_hooks_list_sync = _resource_runtime.hooks_list_sync
+_agents_list_sync = _resource_runtime.agents_list_sync
+_subagents_list_sync = _resource_runtime.subagents_list_sync
+_subagents_spawn_sync = _resource_runtime.subagents_spawn_sync
+_mission_show_sync = _resource_runtime.mission_show_sync
 
 
 _resource_handler_ctx = ResourceHandlerContext(

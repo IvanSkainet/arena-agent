@@ -1,0 +1,57 @@
+"""Resource runtime wrapper extraction tests."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+import unified_bridge as ub  # noqa: E402
+from arena.resources.runtime import ResourceRuntimeContext, make_resource_runtime  # noqa: E402
+
+
+def _runtime(tmp_path: Path):
+    return make_resource_runtime(ResourceRuntimeContext(
+        missions_dir=tmp_path / "missions",
+        reports_dir=tmp_path / "reports",
+        hooks_dir=tmp_path / "hooks",
+        agents_dir=tmp_path / "agents",
+        subagents_dir=tmp_path / "subagents",
+        bin_dir=tmp_path / "bin",
+        subprocess_kwargs=lambda: {},
+    ))
+
+
+def test_resource_runtime_factory_outputs(tmp_path):
+    runtime = _runtime(tmp_path)
+    assert callable(runtime.list_missions_sync)
+    assert callable(runtime.list_reports_sync)
+    assert callable(runtime.hooks_list_sync)
+    assert callable(runtime.agents_list_sync)
+    assert callable(runtime.subagents_list_sync)
+    assert callable(runtime.subagents_spawn_sync)
+    assert callable(runtime.mission_show_sync)
+
+
+def test_unified_resource_runtime_bindings():
+    assert ub._list_missions_sync.__module__ == "arena.resources.runtime"
+    assert ub._list_reports_sync.__module__ == "arena.resources.runtime"
+    assert ub._hooks_list_sync.__module__ == "arena.resources.runtime"
+    assert ub._agents_list_sync.__module__ == "arena.resources.runtime"
+    assert ub._subagents_list_sync.__module__ == "arena.resources.runtime"
+    assert ub._subagents_spawn_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_show_sync.__module__ == "arena.resources.runtime"
+
+
+def test_resource_runtime_lists_and_shows(tmp_path):
+    runtime = _runtime(tmp_path)
+    (tmp_path / "missions").mkdir()
+    (tmp_path / "missions" / "demo.md").write_text("mission", encoding="utf-8")
+    (tmp_path / "reports").mkdir()
+    (tmp_path / "reports" / "report.txt").write_text("report", encoding="utf-8")
+
+    missions = runtime.list_missions_sync()
+    assert missions[0]["name"] == "demo"
+    assert runtime.mission_show_sync("demo")["ok"] is True
+    assert runtime.list_reports_sync()[0]["name"] == "report.txt"
+    assert runtime.hooks_list_sync() == {"ok": True, "count": 0, "hooks": []}
+    assert runtime.agents_list_sync() == {"ok": True, "count": 0, "agents": []}
+    assert runtime.subagents_list_sync() == {"ok": True, "count": 0, "subagents": []}
