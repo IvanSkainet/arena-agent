@@ -124,6 +124,18 @@ class BrowserBrowseHandlerContext:
 
 
 @dataclass(frozen=True)
+class CdpBasicHandlerContext:
+    """Dependencies for lightweight CDP status/diagnostic handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    cdp_state: dict[str, Any]
+    get_cdp_module: Callable[[], Any]
+    watcher_active: Callable[[], bool]
+
+
+@dataclass(frozen=True)
 class ResourceHandlerContext:
     """Dependencies for resource listing handlers."""
 

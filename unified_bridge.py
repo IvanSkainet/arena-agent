@@ -335,6 +335,7 @@ from arena.browser.fetch import (  # noqa: E402,F401
     browser_search,
 )
 from arena.browser.handlers import make_browser_browse_handlers, make_browser_fetch_handlers  # noqa: E402,F401
+from arena.browser.cdp.handlers import make_cdp_basic_handlers  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,
@@ -418,7 +419,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
+from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
@@ -3156,6 +3157,23 @@ _browser_browse_handlers = make_browser_browse_handlers(_browser_browse_handler_
 handle_v1_browser_browse = _browser_browse_handlers.browse
 
 
+def _cdp_watcher_active() -> bool:
+    return _cdp_watcher_task is not None and not _cdp_watcher_task.done()
+
+
+_cdp_basic_handler_ctx = CdpBasicHandlerContext(
+    require_auth=require_auth,
+    record_request=_record_request,
+    cors_json_response=_cors_json_response,
+    cdp_state=_cdp_state,
+    get_cdp_module=_get_cdp_module,
+    watcher_active=_cdp_watcher_active,
+)
+_cdp_basic_handlers = make_cdp_basic_handlers(_cdp_basic_handler_ctx)
+handle_v1_cdp_status = _cdp_basic_handlers.status
+handle_v1_cdp_diag = _cdp_basic_handlers.diag
+
+
 
 
 
@@ -3220,150 +3238,9 @@ async def _cdp_active_tab(tab_id: Optional[str] = None):
 
 # ---- CDP Session Management ----
 
-async def handle_v1_cdp_status(request):
-    """GET /v1/browser/cdp/status — CDP session status."""
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-    
-    cdp = _get_cdp_module()
-    mgr = _cdp_state.get("manager")
-    
-    status = {
-        "ok": True,
-        "connected": _cdp_state["connected"],
-        "port": _cdp_state["port"],
-        "headless": _cdp_state["headless"],
-        "module_available": cdp is not None,
-        "tab_count": mgr.tab_count if mgr else 0,
-        "active_tab_id": mgr.active_tab_id if mgr else None,
-        "network_monitoring": _cdp_state.get("monitor") is not None and _cdp_state["monitor"].active if _cdp_state.get("monitor") else False,
-        "interception_active": _cdp_state.get("interceptor") is not None and _cdp_state["interceptor"].active if _cdp_state.get("interceptor") else False,
-        "cookie_manager_active": _cdp_state.get("cookie_mgr") is not None and _cdp_state["cookie_mgr"].active if _cdp_state.get("cookie_mgr") else False,
-        "reconnect_count": _cdp_state.get("reconnect_count", 0),
-        "last_connect_time": _cdp_state.get("last_connect_time"),
-        "last_disconnect_reason": _cdp_state.get("last_disconnect_reason"),
-        "watcher_active": _cdp_watcher_task is not None and not _cdp_watcher_task.done(),
-    }
-    
-    if mgr:
-        tabs_info = [tab.to_dict() for tab in mgr.list_tabs()]
-        status["tabs"] = tabs_info
-    
-    return _cors_json_response(status)
-
-
-async def handle_v1_cdp_diag(request):
-    """GET /v1/browser/cdp/diag — Quick CDP diagnostics (no browser launch).
-
-    Returns environment info, browser availability, and systemd detection
-    without attempting to connect or launch anything.
-    """
-    r = require_auth(request)
-    if r: return r
-    _record_request()
-
-    import shutil as _shutil
-    uid = os.getuid() if hasattr(os, 'getuid') else -1
-    in_systemd = bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))
-
-    diag = {
-        "ok": True,
-        "connected": _cdp_state["connected"],
-        "bridge_env": {
-            "INVOCATION_ID": bool(os.environ.get("INVOCATION_ID")),
-            "JOURNAL_STREAM": bool(os.environ.get("JOURNAL_STREAM")),
-            "DBUS_SESSION_BUS_ADDRESS": os.environ.get("DBUS_SESSION_BUS_ADDRESS", ""),
-            "XDG_RUNTIME_DIR": os.environ.get("XDG_RUNTIME_DIR", ""),
-            "DISPLAY": os.environ.get("DISPLAY", ""),
-            "WAYLAND_DISPLAY": os.environ.get("WAYLAND_DISPLAY", ""),
-        },
-        "bridge_env_ok": {
-            "DBUS_SESSION_BUS_ADDRESS": bool(os.environ.get("DBUS_SESSION_BUS_ADDRESS")),
-            "XDG_RUNTIME_DIR": bool(os.environ.get("XDG_RUNTIME_DIR")),
-            "DISPLAY": bool(os.environ.get("DISPLAY")),
-            "WAYLAND_DISPLAY": bool(os.environ.get("WAYLAND_DISPLAY")),
-        },
-        "systemd_run_available": bool(_shutil.which("systemd-run")),
-        "in_systemd": in_systemd,
-    }
-
-    # Check browser binary
-    cdp = _get_cdp_module()
-    if cdp:
-        try:
-            exe = cdp._resolve_browser_binary()
-            diag["browser_binary"] = exe
-            diag["browser_is_wrapper"] = False
-            try:
-                with open(exe, "rb") as f:
-                    first = f.read(4)
-                if first.startswith(b"#!"):
-                    diag["browser_is_wrapper"] = True
-                elif first == b"\x7fELF":
-                    diag["browser_is_elf"] = True
-            except Exception:
-                pass
-            # Check if chromium supports --ozone-platform=headless
-            try:
-                help_out = subprocess.run(
-                    [exe, "--help"], capture_output=True, text=True, timeout=5,
-                    env={**os.environ, "LD_LIBRARY_PATH": os.environ.get("LD_LIBRARY_PATH", "")}
-                )
-                diag["ozone_support"] = "ozone" in (help_out.stdout + help_out.stderr).lower()
-            except Exception:
-                diag["ozone_support"] = "unknown"
-        except Exception as e:
-            diag["browser_error"] = str(e)
-
-        # Check session env that _build_session_env would produce
-        try:
-            session_env = cdp._build_session_env()
-            diag["session_env"] = {
-                "DBUS_SESSION_BUS_ADDRESS": session_env.get("DBUS_SESSION_BUS_ADDRESS", ""),
-                "XDG_RUNTIME_DIR": session_env.get("XDG_RUNTIME_DIR", ""),
-                "DISPLAY": session_env.get("DISPLAY", ""),
-                "WAYLAND_DISPLAY": session_env.get("WAYLAND_DISPLAY", ""),
-            }
-        except Exception as e:
-            diag["session_env_error"] = str(e)
-
-        # Show the Chromium command that would be used
-        try:
-            test_cmd = cdp._build_chromium_cmd(exe, 9222, True, os.path.join(tempfile.gettempdir(), "cdp-browser-test"))
-            diag["headless_cmd"] = " ".join(test_cmd)
-        except Exception:
-            pass
-
-    # Check D-Bus socket
-    dbus_path = f"/run/user/{uid}/bus"
-    diag["dbus_socket_exists"] = os.path.exists(dbus_path)
-    diag["dbus_socket_path"] = dbus_path
-
-    # Quick test: can we reach the D-Bus user bus?
-    try:
-        import socket as _socket
-        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect(dbus_path)
-        s.close()
-        diag["dbus_socket_connectable"] = True
-    except Exception as e:
-        diag["dbus_socket_connectable"] = False
-        diag["dbus_socket_error"] = str(e)
-
-    # Check if port 9222 is already in use
-    try:
-        import socket as _socket
-        s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
-        s.settimeout(1)
-        result = s.connect_ex(("127.0.0.1", 9222))
-        s.close()
-        diag["port_9222_in_use"] = (result == 0)
-    except Exception:
-        diag["port_9222_in_use"] = "unknown"
-
-    return _cors_json_response(diag)
+# Lightweight CDP status/diag handlers now live in
+# arena/browser/cdp/handlers.py and are bound above via
+# make_cdp_basic_handlers(...).
 
 
 async def handle_v1_cdp_raw_info(request):
