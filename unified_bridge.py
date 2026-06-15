@@ -463,6 +463,7 @@ from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
+from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
@@ -2430,125 +2431,43 @@ def _daemonize() -> None:
     return _daemonize_runtime(log_error=log.error)
 
 
+def _set_rate_limit_config_from_file(rl: dict[str, Any]) -> None:
+    global _rate_limit_max, _rate_limit_window
+    if rl.get("max_requests"):
+        _rate_limit_max = int(rl["max_requests"])
+    if rl.get("window_seconds"):
+        _rate_limit_window = float(rl["window_seconds"])
 
 
-# /v1/logs handler now lives in arena/observability/runtime_handlers.py.
-
-
+_cli_ctx = CliContext(
+    version=VERSION,
+    audit_path=AUDIT,
+    default_max_output=DEFAULT_MAX_OUTPUT,
+    default_max_concurrent=DEFAULT_MAX_CONCURRENT,
+    cdp_state=_cdp_state,
+    make_app=make_app,
+    resolve_token=resolve_token,
+    token_generator=b64_token,
+    daemonize=_daemonize,
+    ensure_session_env=_ensure_session_env,
+    load_config_file=_load_config_file,
+    rotate_all_logs_on_startup=_rotate_all_logs_on_startup,
+    signal_handler=_signal_handler,
+    set_rate_limit_config=_set_rate_limit_config_from_file,
+    log_info=log.info,
+)
 
 
 def serve(args: argparse.Namespace) -> None:
-    # Handle --background daemonization (Linux only)
-    if getattr(args, "background", False) and os.name != "nt":
-        _daemonize()
-
-    # Ensure session environment variables are set (critical for systemd)
-    _ensure_session_env()
-
-    # Load optional config file
-    file_cfg = _load_config_file()
-    if file_cfg.get("port"):
-        args.port = int(file_cfg["port"])
-    if file_cfg.get("profile"):
-        args.profile = file_cfg["profile"]
-    if file_cfg.get("timeout"):
-        args.timeout = int(file_cfg["timeout"])
-    if file_cfg.get("max_concurrent"):
-        args.max_concurrent = int(file_cfg["max_concurrent"])
-    if file_cfg.get("bind"):
-        args.bind = file_cfg["bind"]
-    cdp_cfg = file_cfg.get("cdp", {})
-    if cdp_cfg.get("port"):
-        _cdp_state["port"] = int(cdp_cfg["port"])
-    if cdp_cfg.get("headless") is not None:
-        _cdp_state["headless"] = bool(cdp_cfg["headless"])
-    if file_cfg.get("rate_limit"):
-        global _rate_limit_max, _rate_limit_window
-        rl = file_cfg["rate_limit"]
-        if rl.get("max_requests"):
-            _rate_limit_max = int(rl["max_requests"])
-        if rl.get("window_seconds"):
-            _rate_limit_window = float(rl["window_seconds"])
-
-    # If --token-file was provided, set env var so resolve_token() finds it
-    tf = getattr(args, "token_file", "") or ""
-    if tf:
-        os.environ["ARENA_TOKEN_FILE"] = tf
-
-    token, token_file_used = resolve_token(args.token)
-
-    root = Path(args.root).expanduser().resolve()
-    root.mkdir(parents=True, exist_ok=True)
-
-    cfg = {
-        "token": token,
-        "token_file": str(token_file_used),  # exact file THIS instance reads
-        "profile": args.profile,
-        "root": root,
-        "port": args.port,
-        "allow_any_cwd": args.allow_any_cwd,
-        "timeout": args.timeout,
-        "max_timeout": args.max_timeout,
-        "max_output": args.max_output,
-        "max_concurrent": args.max_concurrent,
-        "semaphore": None,  # Created in on_startup after event loop is running
-        "active_exec": 0,
-    }
-
-    app = make_app(cfg)
-
-    # v2.1.0: Rotate oversized logs before starting the server
-    _rotate_all_logs_on_startup()
-
-    # Set up graceful shutdown signal handlers
-    global _shutdown_event
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        try:
-            signal.signal(sig, _signal_handler)
-        except (OSError, ValueError):
-            pass  # Can't set signal handler in non-main thread
-
-    log.info("Arena Unified Bridge v%s on http://%s:%s", VERSION, args.bind, args.port)
-    log.info("profile=%s root=%s audit=%s max_concurrent=%s", args.profile, root, AUDIT, args.max_concurrent)
-    log.info("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner")
-    log.info("Stop with Ctrl+C.")
-
-    # access_log=None disables aiohttp's default AccessLogger which writes
-    # every HTTP request to stderr — this was the #1 cause of disk fill bugs.
-    web.run_app(app, host=args.bind, port=args.port, print=None, access_log=None)
+    return _cli_serve(args, _cli_ctx)
 
 
-def token_cmd(_: argparse.Namespace) -> None:
-    log.info("New token: %s", b64_token())
+def token_cmd(args: argparse.Namespace) -> None:
+    return _cli_token_cmd(args, _cli_ctx)
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Arena Unified Bridge")
-    sub = p.add_subparsers(dest="cmd", required=True)
-
-    sp = sub.add_parser("token", help="Generate a strong random token")
-    sp.set_defaults(func=token_cmd)
-
-    sp = sub.add_parser("serve", help="Run unified bridge")
-    sp.add_argument("--bind", default="127.0.0.1",
-                     help="Bind address (default: 127.0.0.1, use 0.0.0.0 for remote access)")
-    sp.add_argument("--port", type=int, default=8765)
-    sp.add_argument("--token")
-    sp.add_argument("--token-file", dest="token_file", default="",
-                     help="Path to token file (default: ~/arena-bridge/token.txt)")
-    sp.add_argument("--root", default=str(Path.home()))
-    sp.add_argument("--allow-any-cwd", action="store_true")
-    sp.add_argument("--profile", choices=["cautious", "owner-shell"], default="cautious")
-    sp.add_argument("--timeout", type=int, default=60)
-    sp.add_argument("--max-timeout", type=int, default=600)
-    sp.add_argument("--max-output", type=int, default=DEFAULT_MAX_OUTPUT)
-    sp.add_argument("--max-concurrent", type=int, default=DEFAULT_MAX_CONCURRENT)
-    sp.add_argument("--background", action="store_true",
-                     help="Daemonize on Linux (fork + detach)")
-    sp.set_defaults(func=serve)
-
-    args = p.parse_args()
-    args.func(args)
+    return _cli_main(_cli_ctx)
 
 
 if __name__ == "__main__":
