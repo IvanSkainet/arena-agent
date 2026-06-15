@@ -353,6 +353,7 @@ from arena.browser.fetch import (  # noqa: E402,F401
     browser_search,
 )
 from arena.browser.handlers import make_browser_browse_handlers, make_browser_fetch_handlers  # noqa: E402,F401
+from arena.browser.runtime import BrowserRuntimeContext, make_browser_runtime  # noqa: E402,F401
 from arena.browser.cdp.handlers import make_cdp_basic_handlers  # noqa: E402,F401
 from arena.browser.cdp.diagnostics import make_cdp_diagnostic_handlers  # noqa: E402,F401
 from arena.browser.cdp.session import make_cdp_session_handlers  # noqa: E402,F401
@@ -1709,19 +1710,13 @@ _list_missions_sync = _resource_runtime.list_missions_sync
 _list_reports_sync = _resource_runtime.list_reports_sync
 
 
-def _browser_search_sync(query: str, n: int) -> dict:
-    return browser_search(query, n, version=VERSION)
-
-
-
-
-# _validate_url now lives in arena/security.py (re-exported above).
-
-
-def _browser_read_sync(url: str) -> dict:
-    return browser_read(url, version=VERSION, validate_url=_validate_url)
-
-
+_browser_runtime_ctx = BrowserRuntimeContext(
+    version=VERSION,
+    validate_url=_validate_url,
+)
+_browser_runtime = make_browser_runtime(_browser_runtime_ctx)
+_browser_search_sync = _browser_runtime.browser_search_sync
+_browser_read_sync = _browser_runtime.browser_read_sync
 
 
 # ============================================================================
@@ -1825,26 +1820,10 @@ def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
 
 
 
-# --- /v1/browser/dump GET — Full page dump with links ---
-
-def _browser_dump_sync(url: str) -> dict:
-    return browser_dump(url, version=VERSION, validate_url=_validate_url)
-
-
-
-
-# --- /v1/browser/fetch GET — Raw content fetch ---
-
-def _browser_fetch_sync(url: str) -> dict:
-    return browser_fetch(url, version=VERSION, validate_url=_validate_url)
-
-
-
-
-# --- /v1/browser/head GET — HTTP HEAD ---
-
-def _browser_head_sync(url: str) -> dict:
-    return browser_head(url, version=VERSION, validate_url=_validate_url)
+# Browser fetch/search runtime wrappers live in arena/browser/runtime.py.
+_browser_dump_sync = _browser_runtime.browser_dump_sync
+_browser_fetch_sync = _browser_runtime.browser_fetch_sync
+_browser_head_sync = _browser_runtime.browser_head_sync
 
 
 _browser_fetch_handler_ctx = BrowserFetchHandlerContext(
