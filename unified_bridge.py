@@ -465,7 +465,7 @@ from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
-from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_context_handlers, build_public_handlers, build_service_handlers, build_system_handlers  # noqa: E402,F401
+from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_context_handlers, build_public_handlers, build_service_handlers, build_system_handlers, export_handler_attrs  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1691,9 +1691,7 @@ _hardware_handler_ctx = HandlerContext(
     hardware_sync=_hardware_from_inventory_sync,
 )
 _hardware_handlers = make_hardware_handlers(_hardware_handler_ctx)
-handle_v1_inventory = _hardware_handlers.inventory
-handle_v1_hardware = _hardware_handlers.hardware
-handle_v1_hwinfo = _hardware_handlers.hwinfo
+export_handler_attrs(globals(), _hardware_handlers, {"handle_v1_inventory": "inventory", "handle_v1_hardware": "hardware", "handle_v1_hwinfo": "hwinfo"})
 
 
 _exec_handler_ctx = ExecHandlerContext(
@@ -1714,9 +1712,7 @@ _exec_handler_ctx = ExecHandlerContext(
     default_max_output=DEFAULT_MAX_OUTPUT,
 )
 _exec_handlers = make_exec_handlers(_exec_handler_ctx)
-handle_v1_ps = _exec_handlers.ps
-handle_v1_exec = _exec_handlers.exec
-handle_v1_kill = _exec_handlers.kill
+export_handler_attrs(globals(), _exec_handlers, {"handle_v1_ps": "ps", "handle_v1_exec": "exec", "handle_v1_kill": "kill"})
 
 
 
@@ -1911,11 +1907,7 @@ _browser_fetch_handler_ctx = BrowserFetchHandlerContext(
     browser_head_sync=_browser_head_sync,
 )
 _browser_fetch_handlers = make_browser_fetch_handlers(_browser_fetch_handler_ctx)
-handle_v1_browser_search = _browser_fetch_handlers.search
-handle_v1_browser_read = _browser_fetch_handlers.read
-handle_v1_browser_dump = _browser_fetch_handlers.dump
-handle_v1_browser_fetch = _browser_fetch_handlers.fetch
-handle_v1_browser_head = _browser_fetch_handlers.head
+export_handler_attrs(globals(), _browser_fetch_handlers, {"handle_v1_browser_search": "search", "handle_v1_browser_read": "read", "handle_v1_browser_dump": "dump", "handle_v1_browser_fetch": "fetch", "handle_v1_browser_head": "head"})
 
 
 _browser_browse_handler_ctx = BrowserBrowseHandlerContext(
@@ -1928,7 +1920,7 @@ _browser_browse_handler_ctx = BrowserBrowseHandlerContext(
     start_cdp_watcher=_start_cdp_watcher,
 )
 _browser_browse_handlers = make_browser_browse_handlers(_browser_browse_handler_ctx)
-handle_v1_browser_browse = _browser_browse_handlers.browse
+export_handler_attrs(globals(), _browser_browse_handlers, {"handle_v1_browser_browse": "browse"})
 
 
 _cdp_basic_handler_ctx = CdpBasicHandlerContext(
@@ -1940,8 +1932,7 @@ _cdp_basic_handler_ctx = CdpBasicHandlerContext(
     watcher_active=_cdp_watcher_active,
 )
 _cdp_basic_handlers = make_cdp_basic_handlers(_cdp_basic_handler_ctx)
-handle_v1_cdp_status = _cdp_basic_handlers.status
-handle_v1_cdp_diag = _cdp_basic_handlers.diag
+export_handler_attrs(globals(), _cdp_basic_handlers, {"handle_v1_cdp_status": "status", "handle_v1_cdp_diag": "diag"})
 
 
 _cdp_diagnostic_handler_ctx = CdpDiagnosticHandlerContext(
@@ -1955,9 +1946,7 @@ _cdp_diagnostic_handler_ctx = CdpDiagnosticHandlerContext(
     log_error=log.error,
 )
 _cdp_diagnostic_handlers = make_cdp_diagnostic_handlers(_cdp_diagnostic_handler_ctx)
-handle_v1_cdp_raw_info = _cdp_diagnostic_handlers.raw_info
-handle_v1_cdp_test_launch = _cdp_diagnostic_handlers.test_launch
-handle_v1_cdp_test_ws = _cdp_diagnostic_handlers.test_ws
+export_handler_attrs(globals(), _cdp_diagnostic_handlers, {"handle_v1_cdp_raw_info": "raw_info", "handle_v1_cdp_test_launch": "test_launch", "handle_v1_cdp_test_ws": "test_ws"})
 
 
 _cdp_session_handler_ctx = CdpSessionHandlerContext(
@@ -1974,8 +1963,7 @@ _cdp_session_handler_ctx = CdpSessionHandlerContext(
     log_warning=log.warning,
 )
 _cdp_session_handlers = make_cdp_session_handlers(_cdp_session_handler_ctx)
-handle_v1_cdp_connect = _cdp_session_handlers.connect
-handle_v1_cdp_disconnect = _cdp_session_handlers.disconnect
+export_handler_attrs(globals(), _cdp_session_handlers, {"handle_v1_cdp_connect": "connect", "handle_v1_cdp_disconnect": "disconnect"})
 
 
 
@@ -2025,12 +2013,7 @@ _cdp_page_handler_ctx = CdpPageHandlerContext(
     log_error=log.error,
 )
 _cdp_page_handlers = make_cdp_page_handlers(_cdp_page_handler_ctx)
-handle_v1_cdp_navigate = _cdp_page_handlers.navigate
-handle_v1_cdp_screenshot = _cdp_page_handlers.screenshot
-handle_v1_cdp_dom = _cdp_page_handlers.dom
-handle_v1_cdp_eval = _cdp_page_handlers.eval
-handle_v1_cdp_click = _cdp_page_handlers.click
-handle_v1_cdp_type = _cdp_page_handlers.type
+export_handler_attrs(globals(), _cdp_page_handlers, {"handle_v1_cdp_navigate": "navigate", "handle_v1_cdp_screenshot": "screenshot", "handle_v1_cdp_dom": "dom", "handle_v1_cdp_eval": "eval", "handle_v1_cdp_click": "click", "handle_v1_cdp_type": "type"})
 
 
 # ---- CDP Page Operations ----
@@ -2096,14 +2079,7 @@ _desktop_handler_ctx = DesktopHandlerContext(
     audit=audit,
 )
 _desktop_handlers = make_desktop_handlers(_desktop_handler_ctx)
-handle_v1_desktop_screenshot = _desktop_handlers.screenshot
-handle_v1_desktop_click = _desktop_handlers.click
-handle_v1_desktop_type = _desktop_handlers.type
-handle_v1_desktop_key = _desktop_handlers.key
-handle_v1_desktop_mouse = _desktop_handlers.mouse
-handle_v1_desktop_windows = _desktop_handlers.windows
-handle_v1_desktop_active_window = _desktop_handlers.active_window
-handle_v1_desktop_focus = _desktop_handlers.focus
+export_handler_attrs(globals(), _desktop_handlers, {"handle_v1_desktop_screenshot": "screenshot", "handle_v1_desktop_click": "click", "handle_v1_desktop_type": "type", "handle_v1_desktop_key": "key", "handle_v1_desktop_mouse": "mouse", "handle_v1_desktop_windows": "windows", "handle_v1_desktop_active_window": "active_window", "handle_v1_desktop_focus": "focus"})
 
 
 _control_lease_handler_ctx = ControlLeaseHandlerContext(
@@ -2117,10 +2093,7 @@ _control_lease_handler_ctx = ControlLeaseHandlerContext(
     log_warning=log.warning,
 )
 _control_lease_handlers = make_control_lease_handlers(_control_lease_handler_ctx)
-handle_v1_control_status = _control_lease_handlers.status
-handle_v1_control_pause = _control_lease_handlers.pause
-handle_v1_control_resume = _control_lease_handlers.resume
-handle_v1_control_revoke = _control_lease_handlers.revoke
+export_handler_attrs(globals(), _control_lease_handlers, {"handle_v1_control_status": "status", "handle_v1_control_pause": "pause", "handle_v1_control_resume": "resume", "handle_v1_control_revoke": "revoke"})
 
 # ---- Control Lease Endpoints (v2.9.0) ----
 # Implementations moved to arena/control_handlers.py and are bound above via
@@ -2138,10 +2111,7 @@ _cdp_tabs_handler_ctx = CdpTabsHandlerContext(
     log_debug=log.debug,
 )
 _cdp_tabs_handlers = make_cdp_tabs_handlers(_cdp_tabs_handler_ctx)
-handle_v1_cdp_tabs = _cdp_tabs_handlers.tabs
-handle_v1_cdp_tabs_new = _cdp_tabs_handlers.new
-handle_v1_cdp_tabs_close = _cdp_tabs_handlers.close
-handle_v1_cdp_tabs_activate = _cdp_tabs_handlers.activate
+export_handler_attrs(globals(), _cdp_tabs_handlers, {"handle_v1_cdp_tabs": "tabs", "handle_v1_cdp_tabs_new": "new", "handle_v1_cdp_tabs_close": "close", "handle_v1_cdp_tabs_activate": "activate"})
 
 
 # ---- CDP Tab Management ----
@@ -2163,11 +2133,7 @@ _cdp_cookies_handler_ctx = CdpCookiesHandlerContext(
     log_error=log.error,
 )
 _cdp_cookies_handlers = make_cdp_cookies_handlers(_cdp_cookies_handler_ctx)
-handle_v1_cdp_cookies_get = _cdp_cookies_handlers.get
-handle_v1_cdp_cookies_set = _cdp_cookies_handlers.set
-handle_v1_cdp_cookies_delete = _cdp_cookies_handlers.delete
-handle_v1_cdp_cookies_clear = _cdp_cookies_handlers.clear
-handle_v1_cdp_cookies_profiles = _cdp_cookies_handlers.profiles
+export_handler_attrs(globals(), _cdp_cookies_handlers, {"handle_v1_cdp_cookies_get": "get", "handle_v1_cdp_cookies_set": "set", "handle_v1_cdp_cookies_delete": "delete", "handle_v1_cdp_cookies_clear": "clear", "handle_v1_cdp_cookies_profiles": "profiles"})
 
 
 # ---- CDP Cookie Management ----
@@ -2191,10 +2157,7 @@ _cdp_network_handler_ctx = CdpNetworkHandlerContext(
     get_cdp_module=_get_cdp_module,
 )
 _cdp_network_handlers = make_cdp_network_handlers(_cdp_network_handler_ctx)
-handle_v1_cdp_network_start = _cdp_network_handlers.start
-handle_v1_cdp_network_stop = _cdp_network_handlers.stop
-handle_v1_cdp_network_requests = _cdp_network_handlers.requests
-handle_v1_cdp_network_har = _cdp_network_handlers.har
+export_handler_attrs(globals(), _cdp_network_handlers, {"handle_v1_cdp_network_start": "start", "handle_v1_cdp_network_stop": "stop", "handle_v1_cdp_network_requests": "requests", "handle_v1_cdp_network_har": "har"})
 
 
 # ---- CDP Network Monitoring ----
@@ -2213,9 +2176,7 @@ _cdp_intercept_handler_ctx = CdpInterceptHandlerContext(
     get_cdp_module=_get_cdp_module,
 )
 _cdp_intercept_handlers = make_cdp_intercept_handlers(_cdp_intercept_handler_ctx)
-handle_v1_cdp_intercept_start = _cdp_intercept_handlers.start
-handle_v1_cdp_intercept_stop = _cdp_intercept_handlers.stop
-handle_v1_cdp_intercept_rule = _cdp_intercept_handlers.rule
+export_handler_attrs(globals(), _cdp_intercept_handlers, {"handle_v1_cdp_intercept_start": "start", "handle_v1_cdp_intercept_stop": "stop", "handle_v1_cdp_intercept_rule": "rule"})
 
 
 # ---- CDP Network Interception ----
@@ -2235,10 +2196,7 @@ _cdp_advanced_handler_ctx = CdpAdvancedHandlerContext(
     bridge_start_time=BRIDGE_METRICS["start_time"],
 )
 _cdp_advanced_handlers = make_cdp_advanced_handlers(_cdp_advanced_handler_ctx)
-handle_v1_cdp_session_check = _cdp_advanced_handlers.session_check
-handle_v1_cdp_stealth_extract = _cdp_advanced_handlers.stealth_extract
-handle_v1_cdp_stealth_shot = _cdp_advanced_handlers.stealth_shot
-handle_v1_cdp_health = _cdp_advanced_handlers.health
+export_handler_attrs(globals(), _cdp_advanced_handlers, {"handle_v1_cdp_session_check": "session_check", "handle_v1_cdp_stealth_extract": "stealth_extract", "handle_v1_cdp_stealth_shot": "stealth_shot", "handle_v1_cdp_health": "health"})
 
 
 
@@ -2272,11 +2230,7 @@ _memory_handler_ctx = MemoryHandlerContext(
     utc_now=utc_now,
 )
 _memory_handlers = make_memory_handlers(_memory_handler_ctx)
-handle_v1_memory = _memory_handlers.memory_get
-handle_v1_memory_set = _memory_handlers.memory_set
-handle_v1_memory_delete = _memory_handlers.memory_delete
-handle_v1_recall = _memory_handlers.recall
-handle_v1_recall_digest = _memory_handlers.recall_digest
+export_handler_attrs(globals(), _memory_handlers, {"handle_v1_memory": "memory_get", "handle_v1_memory_set": "memory_set", "handle_v1_memory_delete": "memory_delete", "handle_v1_recall": "recall", "handle_v1_recall_digest": "recall_digest"})
 
 
 
@@ -2303,11 +2257,7 @@ _observability_handler_ctx = ObservabilityHandlerContext(
     audit=audit,
 )
 _observability_handlers = make_observability_handlers(_observability_handler_ctx)
-handle_v1_audit = _observability_handlers.audit
-handle_v1_audit_stats = _observability_handlers.audit_stats
-handle_v1_audit_log = _observability_handlers.audit_log
-handle_v1_webhooks_get = _observability_handlers.webhooks_get
-handle_v1_webhooks_set = _observability_handlers.webhooks_set
+export_handler_attrs(globals(), _observability_handlers, {"handle_v1_audit": "audit", "handle_v1_audit_stats": "audit_stats", "handle_v1_audit_log": "audit_log", "handle_v1_webhooks_get": "webhooks_get", "handle_v1_webhooks_set": "webhooks_set"})
 
 
 
@@ -2339,9 +2289,7 @@ _task_handler_ctx = TaskHandlerContext(
     audit=audit,
 )
 _task_handlers = make_task_handlers(_task_handler_ctx)
-handle_v1_tasks_get = _task_handlers.tasks_get
-handle_v1_tasks_post = _task_handlers.tasks_post
-handle_v1_tasks_clean = _task_handlers.tasks_clean
+export_handler_attrs(globals(), _task_handlers, {"handle_v1_tasks_get": "tasks_get", "handle_v1_tasks_post": "tasks_post", "handle_v1_tasks_clean": "tasks_clean"})
 
 
 
@@ -2379,11 +2327,7 @@ _skill_handler_ctx = SkillHandlerContext(
     log_info=log.info,
 )
 _skill_handlers = make_skill_handlers(_skill_handler_ctx)
-handle_v1_skills = _skill_handlers.skills
-handle_v1_skills_install = _skill_handlers.install
-handle_v1_skills_uninstall = _skill_handlers.uninstall
-handle_v1_skills_run = _skill_handlers.run
-handle_v1_skills_reload = _skill_handlers.reload
+export_handler_attrs(globals(), _skill_handlers, {"handle_v1_skills": "skills", "handle_v1_skills_install": "install", "handle_v1_skills_uninstall": "uninstall", "handle_v1_skills_run": "run", "handle_v1_skills_reload": "reload"})
 
 
 
@@ -2411,13 +2355,7 @@ _resource_handler_ctx = ResourceHandlerContext(
     audit=audit,
 )
 _resource_handlers = make_resource_handlers(_resource_handler_ctx)
-handle_v1_missions = _resource_handlers.missions
-handle_v1_reports = _resource_handlers.reports
-handle_v1_hooks = _resource_handlers.hooks
-handle_v1_agents = _resource_handlers.agents
-handle_v1_subagents = _resource_handlers.subagents
-handle_v1_subagents_spawn = _resource_handlers.subagents_spawn
-handle_v1_mission_show = _resource_handlers.mission_show
+export_handler_attrs(globals(), _resource_handlers, {"handle_v1_missions": "missions", "handle_v1_reports": "reports", "handle_v1_hooks": "hooks", "handle_v1_agents": "agents", "handle_v1_subagents": "subagents", "handle_v1_subagents_spawn": "subagents_spawn", "handle_v1_mission_show": "mission_show"})
 
 
 

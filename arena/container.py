@@ -223,3 +223,9 @@ def build_context_handlers(
     ctx = context_type(**dict(context_kwargs))
     built = factory(ctx)
     return {route_name: getattr(built, attr_name) for route_name, attr_name in attr_map.items()}
+
+
+def export_handler_attrs(target: dict[str, Any], built: Any, attr_map: Mapping[str, str]) -> None:
+    """Export selected handler attributes into a legacy globals mapping."""
+    for route_name, attr_name in attr_map.items():
+        target[route_name] = getattr(built, attr_name)
