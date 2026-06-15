@@ -1029,10 +1029,7 @@ _gateway_handler_registry = build_context_handlers(
         "handle_gateway_tool": "tool",
     },
 )
-handle_gateway_index = _gateway_handler_registry["handle_gateway_index"]
-handle_gateway_tools = _gateway_handler_registry["handle_gateway_tools"]
-handle_gateway_run = _gateway_handler_registry["handle_gateway_run"]
-handle_gateway_tool = _gateway_handler_registry["handle_gateway_tool"]
+globals().update(_gateway_handler_registry)
 
 
 _mcp_handler_registry = build_context_handlers(
@@ -1053,11 +1050,7 @@ _mcp_handler_registry = build_context_handlers(
         "handle_ws": "ws",
     },
 )
-handle_mcp_post = _mcp_handler_registry["handle_mcp_post"]
-handle_mcp_delete = _mcp_handler_registry["handle_mcp_delete"]
-handle_sse = _mcp_handler_registry["handle_sse"]
-handle_sse_messages = _mcp_handler_registry["handle_sse_messages"]
-handle_ws = _mcp_handler_registry["handle_ws"]
+globals().update(_mcp_handler_registry)
 
 
 _api_v2_handler_registry = build_context_handlers(
@@ -1094,12 +1087,7 @@ _api_v2_handler_registry = build_context_handlers(
         "handle_v2_deprecations": "deprecations",
     },
 )
-handle_v2_index = _api_v2_handler_registry["handle_v2_index"]
-handle_v2_status = _api_v2_handler_registry["handle_v2_status"]
-handle_v2_health = _api_v2_handler_registry["handle_v2_health"]
-handle_v2_browser_status = _api_v2_handler_registry["handle_v2_browser_status"]
-handle_v2_exec = _api_v2_handler_registry["handle_v2_exec"]
-handle_v2_deprecations = _api_v2_handler_registry["handle_v2_deprecations"]
+globals().update(_api_v2_handler_registry)
 
 
 _batch_handler_registry = build_context_handlers(
@@ -1114,7 +1102,7 @@ _batch_handler_registry = build_context_handlers(
     },
     {"handle_v1_batch": "batch"},
 )
-handle_v1_batch = _batch_handler_registry["handle_v1_batch"]
+globals().update(_batch_handler_registry)
 
 
 _alert_handler_registry = build_context_handlers(
@@ -1136,7 +1124,7 @@ _alert_handler_registry = build_context_handlers(
     },
     {"handle_v1_alerts": "alerts"},
 )
-handle_v1_alerts = _alert_handler_registry["handle_v1_alerts"]
+globals().update(_alert_handler_registry)
 
 
 _rate_limit_handler_registry = build_context_handlers(
@@ -1152,7 +1140,7 @@ _rate_limit_handler_registry = build_context_handlers(
     },
     {"handle_v1_ratelimit": "ratelimit"},
 )
-handle_v1_ratelimit = _rate_limit_handler_registry["handle_v1_ratelimit"]
+globals().update(_rate_limit_handler_registry)
 
 
 _tls_handler_registry = build_context_handlers(
@@ -1168,7 +1156,7 @@ _tls_handler_registry = build_context_handlers(
     },
     {"handle_v1_tls": "tls"},
 )
-handle_v1_tls = _tls_handler_registry["handle_v1_tls"]
+globals().update(_tls_handler_registry)
 
 
 _sandbox_handler_registry = build_context_handlers(
@@ -1186,7 +1174,7 @@ _sandbox_handler_registry = build_context_handlers(
     },
     {"handle_v1_sandbox": "sandbox"},
 )
-handle_v1_sandbox = _sandbox_handler_registry["handle_v1_sandbox"]
+globals().update(_sandbox_handler_registry)
 
 
 _cluster_handler_registry = build_context_handlers(
@@ -1204,7 +1192,7 @@ _cluster_handler_registry = build_context_handlers(
     },
     {"handle_v1_cluster": "cluster"},
 )
-handle_v1_cluster = _cluster_handler_registry["handle_v1_cluster"]
+globals().update(_cluster_handler_registry)
 
 
 _profile_handler_registry = build_context_handlers(
@@ -1229,8 +1217,7 @@ _profile_handler_registry = build_context_handlers(
         "handle_v1_profiles_load": "load",
     },
 )
-handle_v1_profiles = _profile_handler_registry["handle_v1_profiles"]
-handle_v1_profiles_load = _profile_handler_registry["handle_v1_profiles_load"]
+globals().update(_profile_handler_registry)
 
 
 _grpc_handler_registry = build_context_handlers(
@@ -1246,7 +1233,7 @@ _grpc_handler_registry = build_context_handlers(
     },
     {"handle_v1_grpc": "grpc"},
 )
-handle_v1_grpc = _grpc_handler_registry["handle_v1_grpc"]
+globals().update(_grpc_handler_registry)
 
 
 _event_handler_registry = build_context_handlers(
@@ -1260,7 +1247,7 @@ _event_handler_registry = build_context_handlers(
     },
     {"handle_v1_events": "events"},
 )
-handle_v1_events = _event_handler_registry["handle_v1_events"]
+globals().update(_event_handler_registry)
 
 
 _watchdog_handler_registry = build_context_handlers(
@@ -1276,7 +1263,7 @@ _watchdog_handler_registry = build_context_handlers(
     },
     {"handle_v1_watchdog": "watchdog"},
 )
-handle_v1_watchdog = _watchdog_handler_registry["handle_v1_watchdog"]
+globals().update(_watchdog_handler_registry)
 
 
 _gui_handler_registry = build_context_handlers(
@@ -1292,8 +1279,7 @@ _gui_handler_registry = build_context_handlers(
         "handle_gui_v2": "gui_v2",
     },
 )
-handle_gui = _gui_handler_registry["handle_gui"]
-handle_gui_v2 = _gui_handler_registry["handle_gui_v2"]
+globals().update(_gui_handler_registry)
 
 
 _runtime_observability_handler_registry = build_context_handlers(
@@ -1325,9 +1311,7 @@ _runtime_observability_handler_registry = build_context_handlers(
         "handle_v1_logs": "logs",
     },
 )
-handle_v1_metrics = _runtime_observability_handler_registry["handle_v1_metrics"]
-handle_prometheus_metrics = _runtime_observability_handler_registry["handle_prometheus_metrics"]
-handle_v1_logs = _runtime_observability_handler_registry["handle_v1_logs"]
+globals().update(_runtime_observability_handler_registry)
 
 
 _tracing_handler_registry = build_context_handlers(
@@ -1345,8 +1329,7 @@ _tracing_handler_registry = build_context_handlers(
         "handle_v1_traces_export": "traces_export",
     },
 )
-handle_v1_tracing = _tracing_handler_registry["handle_v1_tracing"]
-handle_v1_traces_export = _tracing_handler_registry["handle_v1_traces_export"]
+globals().update(_tracing_handler_registry)
 
 
 _user_handler_registry = build_context_handlers(
@@ -1366,7 +1349,7 @@ _user_handler_registry = build_context_handlers(
     },
     {"handle_v1_users": "users"},
 )
-handle_v1_users = _user_handler_registry["handle_v1_users"]
+globals().update(_user_handler_registry)
 
 
 _file_handler_registry = build_context_handlers(
@@ -1385,8 +1368,7 @@ _file_handler_registry = build_context_handlers(
         "handle_v1_download": "download",
     },
 )
-handle_v1_upload = _file_handler_registry["handle_v1_upload"]
-handle_v1_download = _file_handler_registry["handle_v1_download"]
+globals().update(_file_handler_registry)
 
 
 def _check_internet_sync() -> bool:
@@ -1446,13 +1428,7 @@ _system_handler_registry = build_system_handlers(SystemWiringContext(
     sysinfo_sync=_sysinfo_sync,
     play_beep_sync=_play_beep_sync,
 ))
-handle_v1_version = _system_handler_registry["handle_v1_version"]
-handle_v1_info = _system_handler_registry["handle_v1_info"]
-handle_v1_status = _system_handler_registry["handle_v1_status"]
-handle_v1_config = _system_handler_registry["handle_v1_config"]
-handle_v1_doctor = _system_handler_registry["handle_v1_doctor"]
-handle_v1_sysinfo = _system_handler_registry["handle_v1_sysinfo"]
-handle_v1_beep = _system_handler_registry["handle_v1_beep"]
+globals().update(_system_handler_registry)
 
 
 _admin_handler_registry = build_admin_handlers(AdminWiringContext(
@@ -1465,10 +1441,7 @@ _admin_handler_registry = build_admin_handlers(AdminWiringContext(
     root_agent=ROOT_AGENT,
     subprocess_kwargs=_subprocess_kwargs,
 ))
-handle_v1_sys_funnel = _admin_handler_registry["handle_v1_sys_funnel"]
-handle_v1_token_regenerate = _admin_handler_registry["handle_v1_token_regenerate"]
-handle_v1_tailscale_funnel = _admin_handler_registry["handle_v1_tailscale_funnel"]
-handle_v1_cloudflared_tunnel = _admin_handler_registry["handle_v1_cloudflared_tunnel"]
+globals().update(_admin_handler_registry)
 
 
 _public_handler_registry = build_public_handlers(PublicWiringContext(
@@ -1480,9 +1453,7 @@ _public_handler_registry = build_public_handlers(PublicWiringContext(
     hostname=socket.gethostname,
     bridge_port=_get_bridge_port,
 ))
-handle_index = _public_handler_registry["handle_index"]
-handle_health = _public_handler_registry["handle_health"]
-handle_api_docs = _public_handler_registry["handle_api_docs"]
+globals().update(_public_handler_registry)
 
 
 # ============================================================================
@@ -1873,10 +1844,7 @@ _service_handler_registry = build_service_handlers(ServiceWiringContext(
     spawn_respawn_helper=_spawn_respawn_helper,
     audit=audit,
 ))
-handle_v1_service_info = _service_handler_registry["handle_v1_service_info"]
-handle_v1_sys_svc = _service_handler_registry["handle_v1_sys_svc"]
-handle_v1_capabilities = _service_handler_registry["handle_v1_capabilities"]
-handle_v1_restart = _service_handler_registry["handle_v1_restart"]
+globals().update(_service_handler_registry)
 
 
 
