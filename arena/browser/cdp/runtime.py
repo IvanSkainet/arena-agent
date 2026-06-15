@@ -3,85 +3,21 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import time
 from datetime import datetime, timezone
-from typing import Any, Optional
 
-from arena.constants import BRIDGE_DIR
+from arena.browser.cdp.loader import _get_cdp_module
+from arena.browser.cdp.state import (
+    CDP_LOOP_BLOCK_THRESHOLD,
+    CDP_LOOP_CHECK_INTERVAL,
+    _cdp_connect_lock,
+    _cdp_loop_check_task,
+    _cdp_loop_healthy_ts,
+    _cdp_state,
+    _cdp_watcher_task,
+)
 
 log = logging.getLogger("arena-bridge")
-
-# ============================================================================
-# CDP (Chrome DevTools Protocol) — Lazy import & session state
-# ============================================================================
-_cdp_module = None
-
-def _get_cdp_module():
-    """Lazily import cdp_browser from scripts/ directory."""
-    global _cdp_module
-    if _cdp_module is not None:
-        return _cdp_module
-
-    # Try multiple locations for cdp_browser.py
-    search_paths = [
-        BRIDGE_DIR / "scripts",
-    ]
-
-    for scripts_dir in search_paths:
-        cdp_path = scripts_dir / "cdp_browser.py"
-        if cdp_path.exists():
-            sys.path.insert(0, str(scripts_dir))
-            break
-
-    try:
-        import cdp_browser
-        _cdp_module = cdp_browser
-
-        # Configure the cdp_browser logger to use the same handlers as the bridge logger.
-        # Without this, cdp_browser's logger.info/error calls are silently dropped
-        # because the "cdp_browser" logger has no handlers configured.
-        bridge_logger = logging.getLogger("arena-bridge")
-        cdp_logger = logging.getLogger("cdp_browser")
-        cdp_logger.setLevel(logging.DEBUG)
-        # Clear any existing handlers and copy bridge's handlers
-        cdp_logger.handlers.clear()
-        for handler in bridge_logger.handlers:
-            cdp_logger.addHandler(handler)
-        # Don't propagate to root logger (bridge handles it)
-        cdp_logger.propagate = False
-        log.info("[CDP] Configured cdp_browser logger with %d handler(s)", len(bridge_logger.handlers))
-
-        return _cdp_module
-    except ImportError as e:
-        return None
-
-
-# --- CDP Session State ---
-_cdp_state: dict[str, Any] = {
-    "manager": None,           # CDPTabManager instance
-    "monitor": None,           # CDPNetworkMonitor instance
-    "interceptor": None,       # CDPNetworkInterceptor instance
-    "cookie_mgr": None,        # CDPCookieManager instance
-    "connected": False,
-    "port": 9222,
-    "headless": True,
-    "reconnect_count": 0,      # Number of auto-reconnects performed
-    "last_connect_time": None, # Timestamp of last successful connect
-    "last_disconnect_reason": None,  # Reason for last disconnect
-    "last_navigation_time": None,    # Timestamp of last navigate call (skip probes during nav)
-    "_consecutive_probe_timeouts": 0, # Tolerate N slow probes before reconnecting
-    "_consecutive_none_probes": 0,    # Tolerate N None probes before reconnecting
-}
-
-_cdp_connect_lock = asyncio.Lock()  # Prevent concurrent connect/disconnect
-_cdp_watcher_task: Optional[asyncio.Task] = None  # Background watcher for auto-reconnect
-
-# --- CDP Event-Loop Blockage Detector (v2.3.0) ---
-_cdp_loop_healthy_ts: float = time.time()  # Last time the event loop was responsive
-_cdp_loop_check_task: Optional[asyncio.Task] = None
-CDP_LOOP_CHECK_INTERVAL = 5.0   # seconds between checks
-CDP_LOOP_BLOCK_THRESHOLD = 30.0  # seconds before declaring blocked
 
 
 # --- CDP Auto-Reconnect Watcher ---
