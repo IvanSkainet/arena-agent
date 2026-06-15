@@ -465,7 +465,7 @@ from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
-from arena.container import build_container  # noqa: E402,F401
+from arena.container import PublicWiringContext, build_container, build_public_handlers  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1366,7 +1366,7 @@ handle_v1_tailscale_funnel = _admin_handlers.tailscale_funnel
 handle_v1_cloudflared_tunnel = _admin_handlers.cloudflared_tunnel
 
 
-_public_handler_ctx = PublicHandlerContext(
+_public_handler_registry = build_public_handlers(PublicWiringContext(
     record_request=_record_request,
     cors_json_response=_cors_json_response,
     metrics=BRIDGE_METRICS,
@@ -1374,11 +1374,10 @@ _public_handler_ctx = PublicHandlerContext(
     now=time.time,
     hostname=socket.gethostname,
     bridge_port=_get_bridge_port,
-)
-_public_handlers = make_public_handlers(_public_handler_ctx)
-handle_index = _public_handlers.index
-handle_health = _public_handlers.health
-handle_api_docs = _public_handlers.api_docs
+))
+handle_index = _public_handler_registry["handle_index"]
+handle_health = _public_handler_registry["handle_health"]
+handle_api_docs = _public_handler_registry["handle_api_docs"]
 
 
 # ============================================================================

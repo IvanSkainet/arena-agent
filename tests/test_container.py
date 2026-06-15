@@ -55,3 +55,20 @@ def test_unified_make_app_uses_container_and_routes():
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     assert ("GET", "/health") in paths
     assert ("POST", "/mcp") in paths
+
+
+
+def test_build_public_handlers_from_container():
+    from arena.container import PublicWiringContext, build_public_handlers
+
+    registry = build_public_handlers(PublicWiringContext(
+        record_request=lambda *args, **kwargs: None,
+        cors_json_response=ub._cors_json_response,
+        metrics=ub.BRIDGE_METRICS,
+        version=ub.VERSION,
+        now=lambda: ub.BRIDGE_METRICS["start_time"] + 1,
+        hostname=lambda: "unit-host",
+        bridge_port=lambda: 8765,
+    ))
+    assert set(registry) == {"handle_index", "handle_health", "handle_api_docs"}
+    assert registry["handle_health"].__module__ == "arena.public.handlers"
