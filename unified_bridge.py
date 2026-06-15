@@ -462,6 +462,7 @@ from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
+from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
 
@@ -873,23 +874,24 @@ def _cleanup_mcp_sessions() -> int:
 # TASK RUNNER (integrated asyncio background)
 # ============================================================================
 
-ROOT_AGENT = Path(os.environ.get("ARENA_AGENT_HOME", str(BRIDGE_DIR))).expanduser()
-QUEUE = ROOT_AGENT / "queue"
-INBOX = QUEUE / "inbox"
-RUNNING = QUEUE / "running"
-DONE = QUEUE / "done"
-FAILED = QUEUE / "failed"
+PATHS = ArenaPaths.from_env(BRIDGE_DIR)
+ROOT_AGENT = PATHS.root_agent
+QUEUE = PATHS.queue
+INBOX = PATHS.inbox
+RUNNING = PATHS.running
+DONE = PATHS.done
+FAILED = PATHS.failed
 
 # Additional directory constants for new endpoints
-SKILLS_DIR = ROOT_AGENT / "skills"
-HOOKS_DIR = ROOT_AGENT / "hooks"
-AGENTS_DIR = ROOT_AGENT / "agents"
-SUBAGENTS_DIR = ROOT_AGENT / "subagents"
-MEMORY_FILE = ROOT_AGENT / "memory" / "facts.jsonl"
-MEMORY_DB = ROOT_AGENT / "memory" / "facts.db"
-MISSIONS_DIR = ROOT_AGENT / "missions"
-REPORTS_DIR = ROOT_AGENT / "reports"
-WEBHOOKS_FILE = ROOT_AGENT / "webhooks.json"
+SKILLS_DIR = PATHS.skills_dir
+HOOKS_DIR = PATHS.hooks_dir
+AGENTS_DIR = PATHS.agents_dir
+SUBAGENTS_DIR = PATHS.subagents_dir
+MEMORY_FILE = PATHS.memory_file
+MEMORY_DB = PATHS.memory_db
+MISSIONS_DIR = PATHS.missions_dir
+REPORTS_DIR = PATHS.reports_dir
+WEBHOOKS_FILE = PATHS.webhooks_file
 # BACKUPS_DIR removed in v2.5.2 — backup feature deleted
 
 
