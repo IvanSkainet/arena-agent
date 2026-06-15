@@ -465,7 +465,7 @@ from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
-from arena.container import PublicWiringContext, build_container, build_public_handlers  # noqa: E402,F401
+from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_public_handlers, build_service_handlers, build_system_handlers  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1327,7 +1327,7 @@ def common_status(cfg: dict) -> dict:
     }
 
 
-_system_handler_ctx = SystemHandlerContext(
+_system_handler_registry = build_system_handlers(SystemWiringContext(
     require_auth=require_auth,
     record_request=_record_request,
     cors_json_response=_cors_json_response,
@@ -1338,18 +1338,17 @@ _system_handler_ctx = SystemHandlerContext(
     doctor_sync=_doctor_sync,
     sysinfo_sync=_sysinfo_sync,
     play_beep_sync=_play_beep_sync,
-)
-_system_handlers = make_system_handlers(_system_handler_ctx)
-handle_v1_version = _system_handlers.version
-handle_v1_info = _system_handlers.info
-handle_v1_status = _system_handlers.status
-handle_v1_config = _system_handlers.config
-handle_v1_doctor = _system_handlers.doctor
-handle_v1_sysinfo = _system_handlers.sysinfo
-handle_v1_beep = _system_handlers.beep
+))
+handle_v1_version = _system_handler_registry["handle_v1_version"]
+handle_v1_info = _system_handler_registry["handle_v1_info"]
+handle_v1_status = _system_handler_registry["handle_v1_status"]
+handle_v1_config = _system_handler_registry["handle_v1_config"]
+handle_v1_doctor = _system_handler_registry["handle_v1_doctor"]
+handle_v1_sysinfo = _system_handler_registry["handle_v1_sysinfo"]
+handle_v1_beep = _system_handler_registry["handle_v1_beep"]
 
 
-_admin_handler_ctx = AdminHandlerContext(
+_admin_handler_registry = build_admin_handlers(AdminWiringContext(
     require_auth=require_auth,
     record_request=_record_request,
     cors_json_response=_cors_json_response,
@@ -1358,12 +1357,11 @@ _admin_handler_ctx = AdminHandlerContext(
     default_token_file=TOKEN_FILE,
     root_agent=ROOT_AGENT,
     subprocess_kwargs=_subprocess_kwargs,
-)
-_admin_handlers = make_admin_handlers(_admin_handler_ctx)
-handle_v1_sys_funnel = _admin_handlers.sys_funnel
-handle_v1_token_regenerate = _admin_handlers.token_regenerate
-handle_v1_tailscale_funnel = _admin_handlers.tailscale_funnel
-handle_v1_cloudflared_tunnel = _admin_handlers.cloudflared_tunnel
+))
+handle_v1_sys_funnel = _admin_handler_registry["handle_v1_sys_funnel"]
+handle_v1_token_regenerate = _admin_handler_registry["handle_v1_token_regenerate"]
+handle_v1_tailscale_funnel = _admin_handler_registry["handle_v1_tailscale_funnel"]
+handle_v1_cloudflared_tunnel = _admin_handler_registry["handle_v1_cloudflared_tunnel"]
 
 
 _public_handler_registry = build_public_handlers(PublicWiringContext(
@@ -1757,7 +1755,7 @@ def _capabilities_sync() -> dict:
     )
 
 
-_service_handler_ctx = ServiceHandlerContext(
+_service_handler_registry = build_service_handlers(ServiceWiringContext(
     require_auth=require_auth,
     record_request=_record_request,
     cors_json_response=_cors_json_response,
@@ -1767,12 +1765,11 @@ _service_handler_ctx = ServiceHandlerContext(
     capabilities_sync=_capabilities_sync,
     spawn_respawn_helper=_spawn_respawn_helper,
     audit=audit,
-)
-_service_handlers = make_service_handlers(_service_handler_ctx)
-handle_v1_service_info = _service_handlers.service_info
-handle_v1_sys_svc = _service_handlers.sys_svc
-handle_v1_capabilities = _service_handlers.capabilities
-handle_v1_restart = _service_handlers.restart
+))
+handle_v1_service_info = _service_handler_registry["handle_v1_service_info"]
+handle_v1_sys_svc = _service_handler_registry["handle_v1_sys_svc"]
+handle_v1_capabilities = _service_handler_registry["handle_v1_capabilities"]
+handle_v1_restart = _service_handler_registry["handle_v1_restart"]
 
 
 

@@ -72,3 +72,56 @@ def test_build_public_handlers_from_container():
     ))
     assert set(registry) == {"handle_index", "handle_health", "handle_api_docs"}
     assert registry["handle_health"].__module__ == "arena.public.handlers"
+
+
+def test_build_system_service_admin_handlers_from_container(tmp_path):
+    from arena.container import (
+        AdminWiringContext,
+        ServiceWiringContext,
+        SystemWiringContext,
+        build_admin_handlers,
+        build_service_handlers,
+        build_system_handlers,
+    )
+
+    system = build_system_handlers(SystemWiringContext(
+        require_auth=lambda request: None,
+        record_request=lambda *args, **kwargs: None,
+        cors_json_response=ub._cors_json_response,
+        executor=ub._EXECUTOR,
+        common_status=lambda cfg: {"ok": True},
+        version="test",
+        clean_platform_name=lambda: "platform",
+        doctor_sync=lambda token: {"ok": True},
+        sysinfo_sync=lambda root: {"ok": True},
+        play_beep_sync=lambda beep_type, freq, dur: {"ok": True},
+    ))
+    assert "handle_v1_status" in system
+    assert system["handle_v1_status"].__module__ == "arena.system.handlers"
+
+    service = build_service_handlers(ServiceWiringContext(
+        require_auth=lambda request: None,
+        record_request=lambda *args, **kwargs: None,
+        cors_json_response=ub._cors_json_response,
+        executor=ub._EXECUTOR,
+        service_info_sync=lambda: {"ok": True},
+        sys_svc_sync=lambda: {"ok": True},
+        capabilities_sync=lambda: {"ok": True},
+        spawn_respawn_helper=lambda delay: (True, "ok"),
+        audit=lambda event: None,
+    ))
+    assert "handle_v1_capabilities" in service
+    assert service["handle_v1_restart"].__module__ == "arena.service.handlers"
+
+    admin = build_admin_handlers(AdminWiringContext(
+        require_auth=lambda request: None,
+        record_request=lambda *args, **kwargs: None,
+        cors_json_response=ub._cors_json_response,
+        executor=ub._EXECUTOR,
+        audit=lambda event: None,
+        default_token_file=tmp_path / "token.txt",
+        root_agent=tmp_path,
+        subprocess_kwargs=lambda: {},
+    ))
+    assert "handle_v1_sys_funnel" in admin
+    assert admin["handle_v1_token_regenerate"].__module__ == "arena.admin.handlers"
