@@ -46,3 +46,13 @@ def test_unified_routes_use_extracted_desktop_handlers():
     assert ("GET", "/v1/desktop/windows") in paths
     assert ("GET", "/v1/desktop/active_window") in paths
     assert ("POST", "/v1/desktop/focus") in paths
+
+
+def test_desktop_handlers_facade_uses_split_modules():
+    from arena.desktop.input_handlers import make_desktop_input_handlers
+    from arena.desktop.screenshot_handler import make_desktop_screenshot_handler
+    from arena.desktop.window_handlers import make_desktop_window_handlers
+
+    assert callable(make_desktop_screenshot_handler)
+    assert callable(make_desktop_input_handlers)
+    assert callable(make_desktop_window_handlers)
