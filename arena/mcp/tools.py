@@ -4,7 +4,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-import subprocess
 import sys
 import tempfile
 import time
@@ -14,67 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
-MCP_TOOLS = [
-    {"name": "ping", "description": "Return pong (liveness)",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "echo", "description": "Echo arguments back",
-     "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}},
-    {"name": "exec", "description": "Run shell command outside bridge cgroup (via sd-exec)",
-     "inputSchema": {"type": "object", "properties": {
-         "cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 60}},
-         "required": ["cmd"]}},
-    {"name": "fs.read", "description": "Read file contents (utf-8)",
-     "inputSchema": {"type": "object", "properties": {
-         "path": {"type": "string"}, "max_bytes": {"type": "integer", "default": 200000}},
-         "required": ["path"]}},
-    {"name": "fs.write", "description": "Write file (utf-8). Creates directories.",
-     "inputSchema": {"type": "object", "properties": {
-         "path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
-    {"name": "fs.list", "description": "List directory entries",
-     "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
-    {"name": "browser.search", "description": "DuckDuckGo search via pure-Python (no chromium)",
-     "inputSchema": {"type": "object", "properties": {
-         "query": {"type": "string"}, "n": {"type": "integer", "default": 5}},
-         "required": ["query"]}},
-    {"name": "browser.read", "description": "Readability-extract clean text from URL",
-     "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-    {"name": "browser.shot", "description": "Take headless chromium screenshot via sd-exec",
-     "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
-    {"name": "mem.set", "description": "Remember a fact",
-     "inputSchema": {"type": "object", "properties": {
-         "key": {"type": "string"}, "value": {"type": "string"},
-         "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["key", "value"]}},
-    {"name": "mem.get", "description": "Recall facts matching query substring",
-     "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}},
-    {"name": "sys.status", "description": "Bridge/services/funnel status",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "skill.list", "description": "List available agent skills",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "skill.run", "description": "Run an agent skill: namespace/name with optional args",
-     "inputSchema": {"type": "object", "properties": {
-         "name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}, "default": []}},
-         "required": ["name"]}},
-    {"name": "hooks.list", "description": "List configured hooks per event",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "snapshot", "description": "Run system snapshot skill and return JSON path",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "subagent.spawn", "description": "Spawn isolated subagent for delegated work; returns summary",
-     "inputSchema": {"type": "object", "properties": {
-         "cmd": {"type": "string"}, "name": {"type": "string"},
-         "wait": {"type": "boolean", "default": True}, "timeout": {"type": "integer", "default": 300}},
-         "required": ["cmd"]}},
-    {"name": "subagent.list", "description": "List recent subagents",
-     "inputSchema": {"type": "object", "properties": {}}},
-    {"name": "memory.recall", "description": "Find relevant facts/snapshots/sessions by query (TF score)",
-     "inputSchema": {"type": "object", "properties": {
-         "query": {"type": "string"}, "top": {"type": "integer", "default": 5}},
-         "required": ["query"]}},
-    {"name": "memory.digest", "description": "Compact markdown digest of recent memory (facts/snapshots/subagents)",
-     "inputSchema": {"type": "object", "properties": {}}},
-]
-
-
+from arena.mcp.tool_registry import MCP_TOOLS
+from arena.mcp.tool_utils import make_run_local, make_run_sd, text_content
 
 
 
@@ -109,26 +49,15 @@ class McpToolRuntime:
 
 
 def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
-    def run_local(argv: list[str], timeout: int = 30) -> tuple[int, str, str]:
-        """Run a command directly (no GUI/sandbox needed)."""
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, **ctx.subprocess_kwargs())
-        return p.returncode, p.stdout, p.stderr
-
-
-    def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
-        """Run command via sd-exec (Linux) or directly (Windows)."""
-        if platform.system() == "Windows":
-            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **ctx.subprocess_kwargs())
-            return p.returncode, p.stdout, p.stderr
-        else:
-            sd = os.path.join(ctx.bin_dir, "sd-exec")
-            p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,
-                               capture_output=True, text=True, timeout=timeout + 10, **ctx.subprocess_kwargs())
-            return p.returncode, p.stdout, p.stderr
-
-
-    def text_content(s: str) -> dict:
-        return {"content": [{"type": "text", "text": s}]}
+    run_local = make_run_local(ctx.subprocess_kwargs)
+    run_sd = make_run_sd(bin_dir=ctx.bin_dir, subprocess_kwargs=ctx.subprocess_kwargs)
+    # Preserve historical module names for compatibility diagnostics/tests.
+    try:
+        run_local.__module__ = __name__
+        run_sd.__module__ = __name__
+        text_content.__module__ = __name__
+    except Exception:
+        pass
 
 
     def call_tool(name: str, args: dict) -> dict:
