@@ -13,9 +13,9 @@ from arena.skills.runner import run_skill
 
 @dataclass(frozen=True)
 class SkillRuntimeContext:
-    skills_dir: Path
-    root_agent: Path
-    bin_dir: Path
+    skills_dir: Path | Callable[[], Path]
+    root_agent: Path | Callable[[], Path]
+    bin_dir: Path | str | Callable[[], Path | str]
     subprocess_kwargs: Callable[[], dict[str, Any]]
 
 
@@ -31,36 +31,45 @@ class SkillRuntime:
 
 
 def make_skill_runtime(ctx: SkillRuntimeContext) -> SkillRuntime:
+    def _skills_dir() -> Path:
+        return ctx.skills_dir() if callable(ctx.skills_dir) else ctx.skills_dir
+
+    def _root_agent() -> Path:
+        return ctx.root_agent() if callable(ctx.root_agent) else ctx.root_agent
+
+    def _bin_dir() -> Path | str:
+        return ctx.bin_dir() if callable(ctx.bin_dir) else ctx.bin_dir
+
     def _skills_list_sync() -> dict[str, Any]:
-        return scan_skills(ctx.skills_dir)
+        return scan_skills(_skills_dir())
 
     def _parse_skill_folder(d: Path, skills: list, is_third_party: bool = False, category: str = "") -> None:
-        skills.append(parse_skill_folder(ctx.skills_dir, d, is_third_party=is_third_party, category=category))
+        skills.append(parse_skill_folder(_skills_dir(), d, is_third_party=is_third_party, category=category))
 
     def _skill_install_sync(name: str, url: str) -> dict[str, Any]:
-        return install_skill(name, url, skills_dir=ctx.skills_dir)
+        return install_skill(name, url, skills_dir=_skills_dir())
 
     def _normalize_third_party_skill_name(name: str) -> tuple[str | None, str | None]:
         return normalize_third_party_skill_name(name)
 
     def _skill_uninstall_sync(name: str) -> dict[str, Any]:
-        return uninstall_skill(name, skills_dir=ctx.skills_dir)
+        return uninstall_skill(name, skills_dir=_skills_dir())
 
     def _skills_run_sync(name: str, args: list[str], env_extra: dict | None = None) -> dict[str, Any]:
         return run_skill(
             name,
             args,
-            skills_dir=ctx.skills_dir,
-            root_agent=ctx.root_agent,
-            bin_dir=ctx.bin_dir,
+            skills_dir=_skills_dir(),
+            root_agent=_root_agent(),
+            bin_dir=_bin_dir(),
             subprocess_kwargs_fn=ctx.subprocess_kwargs,
             env_extra=env_extra,
         )
 
     def _skill_path_is_safe(name: str) -> bool:
         try:
-            resolved = (ctx.skills_dir / name).resolve()
-            return str(resolved).startswith(str(ctx.skills_dir.resolve()))
+            resolved = (_skills_dir() / name).resolve()
+            return str(resolved).startswith(str(_skills_dir().resolve()))
         except Exception:
             return False
 
