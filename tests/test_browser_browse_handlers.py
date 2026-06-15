@@ -61,7 +61,7 @@ def test_browser_browse_route_registered():
 
 
 def test_unified_browser_browse_handler_bound_to_browser_module():
-    assert ub.handle_v1_browser_browse.__module__ == "arena.browser.handlers"
+    assert ub.handle_v1_browser_browse.__module__ == "arena.browser.browse_handlers"
 
 
 def test_browser_browse_rejects_invalid_json(tmp_path):
