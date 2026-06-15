@@ -125,12 +125,12 @@ def test_cdp_cookies_routes_registered():
         assert ("POST", f"{prefix}/cookies/profiles") in paths
 
 
-def test_unified_cdp_cookies_handlers_bound_to_cdp_module():
-    assert ub.handle_v1_cdp_cookies_get.__module__ == "arena.browser.cdp.cookies"
-    assert ub.handle_v1_cdp_cookies_set.__module__ == "arena.browser.cdp.cookies"
-    assert ub.handle_v1_cdp_cookies_delete.__module__ == "arena.browser.cdp.cookies"
-    assert ub.handle_v1_cdp_cookies_clear.__module__ == "arena.browser.cdp.cookies"
-    assert ub.handle_v1_cdp_cookies_profiles.__module__ == "arena.browser.cdp.cookies"
+def test_unified_cdp_cookies_handlers_bound_to_cdp_modules():
+    assert ub.handle_v1_cdp_cookies_get.__module__ == "arena.browser.cdp.cookie_crud"
+    assert ub.handle_v1_cdp_cookies_set.__module__ == "arena.browser.cdp.cookie_crud"
+    assert ub.handle_v1_cdp_cookies_delete.__module__ == "arena.browser.cdp.cookie_crud"
+    assert ub.handle_v1_cdp_cookies_clear.__module__ == "arena.browser.cdp.cookie_crud"
+    assert ub.handle_v1_cdp_cookies_profiles.__module__ == "arena.browser.cdp.cookie_profiles"
 
 
 def test_cdp_cookies_disconnected_returns_400():
