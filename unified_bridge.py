@@ -462,6 +462,7 @@ from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
+from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 
 
 def _ensure_session_env() -> None:
@@ -970,78 +971,30 @@ def make_app(cfg: dict) -> web.Application:
     return app
 
 
-async def on_startup(app: web.Application):
-    """Start background task runner and initialize async primitives."""
-    # Initialize Memory DB (non-blocking)
-    await asyncio.get_event_loop().run_in_executor(_EXECUTOR, init_memory_db)
-    
-    cfg = app["cfg"]
-    cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
-    app["task_runner"] = asyncio.ensure_future(task_runner_loop(app))
-    # v2.1.0: Start log cleanup + disk monitor
-    app["log_cleanup"] = asyncio.ensure_future(_log_cleanup_loop(app))
-    # Phase 3: Start health watchdog
-    _start_watchdog()
-    # v2.4.0: Auto-start ydotoold for Wayland desktop automation
-    if shutil.which("ydotoold") and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid()):
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "ydotoold",
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            log.info("[Desktop] ydotoold started (PID %d) for Wayland automation", proc.pid)
-        except Exception as e:
-            log.debug("[Desktop] Could not start ydotoold (non-fatal): %s", e)
-    log.info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", VERSION)
+def _get_shutdown_event() -> asyncio.Event | None:
+    return _shutdown_event
 
 
-async def on_cleanup(app: web.Application):
-    """Stop background task runner and clean up resources."""
-    tr = app.get("task_runner")
-    if tr:
-        tr.cancel()
-        try:
-            await tr
-        except asyncio.CancelledError:
-            pass
-    # v2.1.0: Stop log cleanup
-    lc = app.get("log_cleanup")
-    if lc:
-        lc.cancel()
-        try:
-            await lc
-        except asyncio.CancelledError:
-            pass
-
-    # Phase 3: Stop health watchdog
-    try:
-        _stop_watchdog()
-    except Exception:
-        pass
-    
-    # Stop CDP watcher
-    try:
-        _stop_cdp_watcher()
-    except Exception:
-        pass
-    
-    # Close CDP connection
-    try:
-        if _cdp_state.get("manager"):
-            await asyncio.wait_for(_cdp_state["manager"].close(), timeout=10)
-    except Exception:
-        pass
-    
-    # Stop gRPC server task
-    await stop_grpc_server()
-    
-    # Stop cluster heartbeat task
-    await stop_cluster_heartbeat()
-
-    # Shutdown thread pool executors
-    _EXECUTOR.shutdown(wait=False)
-    _SLOW_EXECUTOR.shutdown(wait=False)
+_lifecycle_ctx = LifecycleContext(
+    executor=_EXECUTOR,
+    slow_executor=_SLOW_EXECUTOR,
+    init_memory_db=lambda: init_memory_db(),
+    task_runner_loop=task_runner_loop,
+    log_cleanup_loop=_log_cleanup_loop,
+    start_watchdog=_start_watchdog,
+    stop_watchdog=_stop_watchdog,
+    stop_cdp_watcher=_stop_cdp_watcher,
+    cdp_state=_cdp_state,
+    stop_grpc_server=stop_grpc_server,
+    stop_cluster_heartbeat=stop_cluster_heartbeat,
+    get_shutdown_event=_get_shutdown_event,
+    version=VERSION,
+    log_info=log.info,
+    log_debug=log.debug,
+)
+_lifecycle_runtime = make_lifecycle(_lifecycle_ctx)
+on_startup = _lifecycle_runtime.on_startup
+on_cleanup = _lifecycle_runtime.on_cleanup
 
 
 # ============================================================================
@@ -2457,43 +2410,7 @@ handle_v1_mission_show = _resource_handlers.mission_show
 # ============================================================================
 
 _shutdown_event: asyncio.Event | None = None
-
-
-def _signal_handler(sig: int, frame: Any) -> None:
-    """Signal handler for graceful shutdown."""
-    sig_name = signal.Signals(sig).name if hasattr(signal, "Signals") else str(sig)
-    log.info("[UnifiedBridge] Received %s, shutting down gracefully...", sig_name)
-    
-    # Stop watchdog (Phase 3)
-    try:
-        _stop_watchdog()
-    except Exception:
-        pass
-
-    # Stop CDP watcher
-    try:
-        _stop_cdp_watcher()
-    except Exception:
-        pass
-    
-    # Close CDP connection synchronously (we're in a signal handler, can't await)
-    try:
-        if _cdp_state.get("manager"):
-            mgr = _cdp_state["manager"]
-            # Try to kill browser process if we launched it
-            if mgr._browser_proc and mgr._browser_proc.poll() is None:
-                mgr._browser_proc.terminate()
-                try:
-                    mgr._browser_proc.wait(timeout=3)
-                except Exception:
-                    mgr._browser_proc.kill()
-    except Exception:
-        pass
-    
-    if _shutdown_event is not None:
-        _shutdown_event.set()
-    # Force exit after a short delay if event loop doesn't stop
-    threading.Timer(5.0, lambda: os._exit(0)).start()
+_signal_handler = _lifecycle_runtime.signal_handler
 
 
 # ============================================================================
