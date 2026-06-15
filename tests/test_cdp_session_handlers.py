@@ -139,8 +139,8 @@ def test_cdp_session_routes_registered():
 
 
 def test_unified_cdp_session_handlers_bound_to_cdp_module():
-    assert ub.handle_v1_cdp_connect.__module__ == "arena.browser.cdp.session"
-    assert ub.handle_v1_cdp_disconnect.__module__ == "arena.browser.cdp.session"
+    assert ub.handle_v1_cdp_connect.__module__ == "arena.browser.cdp.session_connect"
+    assert ub.handle_v1_cdp_disconnect.__module__ == "arena.browser.cdp.session_disconnect"
 
 
 def test_cdp_connect_missing_module():
