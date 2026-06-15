@@ -465,7 +465,7 @@ from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
-from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_public_handlers, build_service_handlers, build_system_handlers  # noqa: E402,F401
+from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_context_handlers, build_public_handlers, build_service_handlers, build_system_handlers  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1011,276 +1011,383 @@ check_auth = _auth_runtime.check_auth
 require_auth = _auth_runtime.require_auth
 
 
-_gateway_handler_ctx = GatewayHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    handle_rpc=handle_rpc,
-    subprocess_kwargs=_subprocess_kwargs,
+_gateway_handler_registry = build_context_handlers(
+    GatewayHandlerContext,
+    make_gateway_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "executor": _EXECUTOR,
+        "handle_rpc": handle_rpc,
+        "subprocess_kwargs": _subprocess_kwargs,
+    },
+    {
+        "handle_gateway_index": "index",
+        "handle_gateway_tools": "tools",
+        "handle_gateway_run": "run",
+        "handle_gateway_tool": "tool",
+    },
 )
-_gateway_handlers = make_gateway_handlers(_gateway_handler_ctx)
-handle_gateway_index = _gateway_handlers.index
-handle_gateway_tools = _gateway_handlers.tools
-handle_gateway_run = _gateway_handlers.run
-handle_gateway_tool = _gateway_handlers.tool
+handle_gateway_index = _gateway_handler_registry["handle_gateway_index"]
+handle_gateway_tools = _gateway_handler_registry["handle_gateway_tools"]
+handle_gateway_run = _gateway_handler_registry["handle_gateway_run"]
+handle_gateway_tool = _gateway_handler_registry["handle_gateway_tool"]
 
 
-_mcp_handler_ctx = McpHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    handle_rpc=handle_rpc,
-    log_error=log.error,
+_mcp_handler_registry = build_context_handlers(
+    McpHandlerContext,
+    make_mcp_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "handle_rpc": handle_rpc,
+        "log_error": log.error,
+    },
+    {
+        "handle_mcp_post": "mcp_post",
+        "handle_mcp_delete": "mcp_delete",
+        "handle_sse": "sse",
+        "handle_sse_messages": "sse_messages",
+        "handle_ws": "ws",
+    },
 )
-_mcp_handlers = make_mcp_handlers(_mcp_handler_ctx)
-handle_mcp_post = _mcp_handlers.mcp_post
-handle_mcp_delete = _mcp_handlers.mcp_delete
-handle_sse = _mcp_handlers.sse
-handle_sse_messages = _mcp_handlers.sse_messages
-handle_ws = _mcp_handlers.ws
+handle_mcp_post = _mcp_handler_registry["handle_mcp_post"]
+handle_mcp_delete = _mcp_handler_registry["handle_mcp_delete"]
+handle_sse = _mcp_handler_registry["handle_sse"]
+handle_sse_messages = _mcp_handler_registry["handle_sse_messages"]
+handle_ws = _mcp_handler_registry["handle_ws"]
 
 
-_api_v2_handler_ctx = ApiV2HandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    version=VERSION,
-    metrics=BRIDGE_METRICS,
-    cdp_state=_cdp_state,
-    watchdog_state=_watchdog_state,
-    cluster_state=_cluster_state,
-    cluster_config=_cluster_config,
-    tls_config=_tls_config,
-    profiles_dir=_PROFILES_DIR,
-    sandbox_config=_sandbox_config,
-    blocked_reason=blocked_reason,
-    first_word=first_word,
-    decode_output=decode_output,
-    run_sandboxed=_run_sandboxed,
-    cfg_get_max_timeout=cfg_get_max_timeout,
-    audit=audit,
-    emit_event=emit_event,
-    now=time.time,
+_api_v2_handler_registry = build_context_handlers(
+    ApiV2HandlerContext,
+    make_v2_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "version": VERSION,
+        "metrics": BRIDGE_METRICS,
+        "cdp_state": _cdp_state,
+        "watchdog_state": _watchdog_state,
+        "cluster_state": _cluster_state,
+        "cluster_config": _cluster_config,
+        "tls_config": _tls_config,
+        "profiles_dir": _PROFILES_DIR,
+        "sandbox_config": _sandbox_config,
+        "blocked_reason": blocked_reason,
+        "first_word": first_word,
+        "decode_output": decode_output,
+        "run_sandboxed": _run_sandboxed,
+        "cfg_get_max_timeout": cfg_get_max_timeout,
+        "audit": audit,
+        "emit_event": emit_event,
+        "now": time.time,
+    },
+    {
+        "handle_v2_index": "index",
+        "handle_v2_status": "status",
+        "handle_v2_health": "health",
+        "handle_v2_browser_status": "browser_status",
+        "handle_v2_exec": "exec",
+        "handle_v2_deprecations": "deprecations",
+    },
 )
-_api_v2_handlers = make_v2_handlers(_api_v2_handler_ctx)
-handle_v2_index = _api_v2_handlers.index
-handle_v2_status = _api_v2_handlers.status
-handle_v2_health = _api_v2_handlers.health
-handle_v2_browser_status = _api_v2_handlers.browser_status
-handle_v2_exec = _api_v2_handlers.exec
-handle_v2_deprecations = _api_v2_handlers.deprecations
+handle_v2_index = _api_v2_handler_registry["handle_v2_index"]
+handle_v2_status = _api_v2_handler_registry["handle_v2_status"]
+handle_v2_health = _api_v2_handler_registry["handle_v2_health"]
+handle_v2_browser_status = _api_v2_handler_registry["handle_v2_browser_status"]
+handle_v2_exec = _api_v2_handler_registry["handle_v2_exec"]
+handle_v2_deprecations = _api_v2_handler_registry["handle_v2_deprecations"]
 
 
-_batch_handler_ctx = BatchHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    emit_event=emit_event,
-    now=time.time,
+_batch_handler_registry = build_context_handlers(
+    BatchHandlerContext,
+    make_batch_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "emit_event": emit_event,
+        "now": time.time,
+    },
+    {"handle_v1_batch": "batch"},
 )
-_batch_handlers = make_batch_handlers(_batch_handler_ctx)
-handle_v1_batch = _batch_handlers.batch
+handle_v1_batch = _batch_handler_registry["handle_v1_batch"]
 
 
-_alert_handler_ctx = AlertsHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    metrics=BRIDGE_METRICS,
-    watchdog_state=_watchdog_state,
-    cdp_state=_cdp_state,
-    rate_limit_lock=_rate_limit_lock,
-    rate_limit_store=_rate_limit_store,
-    rate_limit_window=_rate_limit_window,
-    rate_limit_max=_rate_limit_max,
-    now=time.time,
-    log_info=log.info,
+_alert_handler_registry = build_context_handlers(
+    AlertsHandlerContext,
+    make_alert_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "metrics": BRIDGE_METRICS,
+        "watchdog_state": _watchdog_state,
+        "cdp_state": _cdp_state,
+        "rate_limit_lock": _rate_limit_lock,
+        "rate_limit_store": _rate_limit_store,
+        "rate_limit_window": _rate_limit_window,
+        "rate_limit_max": _rate_limit_max,
+        "now": time.time,
+        "log_info": log.info,
+    },
+    {"handle_v1_alerts": "alerts"},
 )
-_alert_handlers = make_alert_handlers(_alert_handler_ctx)
-handle_v1_alerts = _alert_handlers.alerts
+handle_v1_alerts = _alert_handler_registry["handle_v1_alerts"]
 
 
-_rate_limit_handler_ctx = RateLimitHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    update_rate_limit_config=update_rate_limit_config,
-    rate_limit_stats=rate_limit_stats,
-    log_info=log.info,
+_rate_limit_handler_registry = build_context_handlers(
+    RateLimitHandlerContext,
+    make_rate_limit_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "update_rate_limit_config": update_rate_limit_config,
+        "rate_limit_stats": rate_limit_stats,
+        "log_info": log.info,
+    },
+    {"handle_v1_ratelimit": "ratelimit"},
 )
-_rate_limit_handlers = make_rate_limit_handlers(_rate_limit_handler_ctx)
-handle_v1_ratelimit = _rate_limit_handlers.ratelimit
+handle_v1_ratelimit = _rate_limit_handler_registry["handle_v1_ratelimit"]
 
 
-_tls_handler_ctx = TlsHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    generate_self_signed_cert=_generate_self_signed_cert,
-    get_tailscale_cert=_get_tailscale_cert,
-    log_info=log.info,
+_tls_handler_registry = build_context_handlers(
+    TlsHandlerContext,
+    make_tls_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "generate_self_signed_cert": _generate_self_signed_cert,
+        "get_tailscale_cert": _get_tailscale_cert,
+        "log_info": log.info,
+    },
+    {"handle_v1_tls": "tls"},
 )
-_tls_handlers = make_tls_handlers(_tls_handler_ctx)
-handle_v1_tls = _tls_handlers.tls
+handle_v1_tls = _tls_handler_registry["handle_v1_tls"]
 
 
-_sandbox_handler_ctx = SandboxHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    blocked_reason=blocked_reason,
-    first_word=first_word,
-    run_sandboxed=_run_sandboxed,
-    audit=audit,
-    emit_event=emit_event,
+_sandbox_handler_registry = build_context_handlers(
+    SandboxHandlerContext,
+    make_sandbox_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "blocked_reason": blocked_reason,
+        "first_word": first_word,
+        "run_sandboxed": _run_sandboxed,
+        "audit": audit,
+        "emit_event": emit_event,
+    },
+    {"handle_v1_sandbox": "sandbox"},
 )
-_sandbox_handlers = make_sandbox_handlers(_sandbox_handler_ctx)
-handle_v1_sandbox = _sandbox_handlers.sandbox
+handle_v1_sandbox = _sandbox_handler_registry["handle_v1_sandbox"]
 
 
-_cluster_handler_ctx = ClusterHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    get_node_id=_get_node_id,
-    start_heartbeat=lambda: start_cluster_heartbeat(log_error=log.error),
-    stop_heartbeat=stop_cluster_heartbeat,
-    audit=audit,
-    log_info=log.info,
+_cluster_handler_registry = build_context_handlers(
+    ClusterHandlerContext,
+    make_cluster_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "get_node_id": _get_node_id,
+        "start_heartbeat": lambda: start_cluster_heartbeat(log_error=log.error),
+        "stop_heartbeat": stop_cluster_heartbeat,
+        "audit": audit,
+        "log_info": log.info,
+    },
+    {"handle_v1_cluster": "cluster"},
 )
-_cluster_handlers = make_cluster_handlers(_cluster_handler_ctx)
-handle_v1_cluster = _cluster_handlers.cluster
+handle_v1_cluster = _cluster_handler_registry["handle_v1_cluster"]
 
 
-_profile_handler_ctx = ProfileHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    profiles_dir=_PROFILES_DIR,
-    ensure_profiles_dir=_ensure_profiles_dir,
-    cdp_state=_cdp_state,
-    cdp_active_tab=lambda *args, **kwargs: _cdp_active_tab(*args, **kwargs),
-    version=VERSION,
-    utc_now=utc_now,
-    audit=audit,
-    emit_event=emit_event,
-    log_warning=log.warning,
+_profile_handler_registry = build_context_handlers(
+    ProfileHandlerContext,
+    make_profile_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "profiles_dir": _PROFILES_DIR,
+        "ensure_profiles_dir": _ensure_profiles_dir,
+        "cdp_state": _cdp_state,
+        "cdp_active_tab": lambda *args, **kwargs: _cdp_active_tab(*args, **kwargs),
+        "version": VERSION,
+        "utc_now": utc_now,
+        "audit": audit,
+        "emit_event": emit_event,
+        "log_warning": log.warning,
+    },
+    {
+        "handle_v1_profiles": "profiles",
+        "handle_v1_profiles_load": "load",
+    },
 )
-_profile_handlers = make_profile_handlers(_profile_handler_ctx)
-handle_v1_profiles = _profile_handlers.profiles
-handle_v1_profiles_load = _profile_handlers.load
+handle_v1_profiles = _profile_handler_registry["handle_v1_profiles"]
+handle_v1_profiles_load = _profile_handler_registry["handle_v1_profiles_load"]
 
 
-_grpc_handler_ctx = GrpcHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    server_task=_grpc_server_task,
-    start_server=lambda cfg: start_grpc_server(cfg, log_info=log.info, log_error=log.error),
-    stop_server=stop_grpc_server,
+_grpc_handler_registry = build_context_handlers(
+    GrpcHandlerContext,
+    make_grpc_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "server_task": _grpc_server_task,
+        "start_server": lambda cfg: start_grpc_server(cfg, log_info=log.info, log_error=log.error),
+        "stop_server": stop_grpc_server,
+    },
+    {"handle_v1_grpc": "grpc"},
 )
-_grpc_handlers = make_grpc_handlers(_grpc_handler_ctx)
-handle_v1_grpc = _grpc_handlers.grpc
+handle_v1_grpc = _grpc_handler_registry["handle_v1_grpc"]
 
 
-_event_handler_ctx = EventHandlerContext(
-    require_auth=require_auth,
-    version=VERSION,
-    utc_now=utc_now,
-    log_info=log.info,
+_event_handler_registry = build_context_handlers(
+    EventHandlerContext,
+    make_event_handlers,
+    {
+        "require_auth": require_auth,
+        "version": VERSION,
+        "utc_now": utc_now,
+        "log_info": log.info,
+    },
+    {"handle_v1_events": "events"},
 )
-_event_handlers = make_event_handlers(_event_handler_ctx)
-handle_v1_events = _event_handlers.events
+handle_v1_events = _event_handler_registry["handle_v1_events"]
 
 
-_watchdog_handler_ctx = WatchdogHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    metrics=BRIDGE_METRICS,
-    now=time.time,
-    log_info=log.info,
+_watchdog_handler_registry = build_context_handlers(
+    WatchdogHandlerContext,
+    make_watchdog_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "metrics": BRIDGE_METRICS,
+        "now": time.time,
+        "log_info": log.info,
+    },
+    {"handle_v1_watchdog": "watchdog"},
 )
-_watchdog_handlers = make_watchdog_handlers(_watchdog_handler_ctx)
-handle_v1_watchdog = _watchdog_handlers.watchdog
+handle_v1_watchdog = _watchdog_handler_registry["handle_v1_watchdog"]
 
 
-_gui_handler_ctx = GuiHandlerContext(
-    cors_json_response=_cors_json_response,
-    bridge_dir=BRIDGE_DIR,
-    version=VERSION,
+_gui_handler_registry = build_context_handlers(
+    GuiHandlerContext,
+    make_gui_handlers,
+    {
+        "cors_json_response": _cors_json_response,
+        "bridge_dir": BRIDGE_DIR,
+        "version": VERSION,
+    },
+    {
+        "handle_gui": "gui",
+        "handle_gui_v2": "gui_v2",
+    },
 )
-_gui_handlers = make_gui_handlers(_gui_handler_ctx)
-handle_gui = _gui_handlers.gui
-handle_gui_v2 = _gui_handlers.gui_v2
+handle_gui = _gui_handler_registry["handle_gui"]
+handle_gui_v2 = _gui_handler_registry["handle_gui_v2"]
 
 
-_runtime_observability_handler_ctx = RuntimeObservabilityHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    metrics=BRIDGE_METRICS,
-    metrics_lock=_metrics_lock,
-    active_processes=ACTIVE_PROCESSES,
-    cdp_state=_cdp_state,
-    watchdog_state=_watchdog_state,
-    event_subscribers=_event_subscribers,
-    tls_config=_tls_config,
-    grpc_config=_grpc_config,
-    cluster_state=_cluster_state,
-    sandbox_config=_sandbox_config,
-    otel_config=_otel_config,
-    log_file=LOG_FILE,
-    version=VERSION,
-    now=time.time,
-    log_error=log.error,
+_runtime_observability_handler_registry = build_context_handlers(
+    RuntimeObservabilityHandlerContext,
+    make_runtime_observability_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "metrics": BRIDGE_METRICS,
+        "metrics_lock": _metrics_lock,
+        "active_processes": ACTIVE_PROCESSES,
+        "cdp_state": _cdp_state,
+        "watchdog_state": _watchdog_state,
+        "event_subscribers": _event_subscribers,
+        "tls_config": _tls_config,
+        "grpc_config": _grpc_config,
+        "cluster_state": _cluster_state,
+        "sandbox_config": _sandbox_config,
+        "otel_config": _otel_config,
+        "log_file": LOG_FILE,
+        "version": VERSION,
+        "now": time.time,
+        "log_error": log.error,
+    },
+    {
+        "handle_v1_metrics": "metrics",
+        "handle_prometheus_metrics": "prometheus_metrics",
+        "handle_v1_logs": "logs",
+    },
 )
-_runtime_observability_handlers = make_runtime_observability_handlers(_runtime_observability_handler_ctx)
-handle_v1_metrics = _runtime_observability_handlers.metrics
-handle_prometheus_metrics = _runtime_observability_handlers.prometheus_metrics
-handle_v1_logs = _runtime_observability_handlers.logs
+handle_v1_metrics = _runtime_observability_handler_registry["handle_v1_metrics"]
+handle_prometheus_metrics = _runtime_observability_handler_registry["handle_prometheus_metrics"]
+handle_v1_logs = _runtime_observability_handler_registry["handle_v1_logs"]
 
 
-_tracing_handler_ctx = TracingHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    version=VERSION,
-    log_info=log.info,
+_tracing_handler_registry = build_context_handlers(
+    TracingHandlerContext,
+    make_tracing_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "version": VERSION,
+        "log_info": log.info,
+    },
+    {
+        "handle_v1_tracing": "tracing",
+        "handle_v1_traces_export": "traces_export",
+    },
 )
-_tracing_handlers = make_tracing_handlers(_tracing_handler_ctx)
-handle_v1_tracing = _tracing_handlers.tracing
-handle_v1_traces_export = _tracing_handlers.traces_export
+handle_v1_tracing = _tracing_handler_registry["handle_v1_tracing"]
+handle_v1_traces_export = _tracing_handler_registry["handle_v1_traces_export"]
 
 
-_user_handler_ctx = UserHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    check_auth_with_role=check_auth_with_role,
-    list_users=_user_store.list_users_for_response,
-    add_or_update_user=_user_store.add_or_update_user,
-    remove_user=_user_store.remove_user,
-    token_generator=b64_token,
-    audit=audit,
-    log_info=log.info,
+_user_handler_registry = build_context_handlers(
+    UserHandlerContext,
+    make_user_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "check_auth_with_role": check_auth_with_role,
+        "list_users": _user_store.list_users_for_response,
+        "add_or_update_user": _user_store.add_or_update_user,
+        "remove_user": _user_store.remove_user,
+        "token_generator": b64_token,
+        "audit": audit,
+        "log_info": log.info,
+    },
+    {"handle_v1_users": "users"},
 )
-_user_handlers = make_user_handlers(_user_handler_ctx)
-handle_v1_users = _user_handlers.users
+handle_v1_users = _user_handler_registry["handle_v1_users"]
 
 
-_file_handler_ctx = FileHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    audit=audit,
-    home=Path.home(),
-    bridge_py=Path(__file__).resolve(),
+_file_handler_registry = build_context_handlers(
+    FileHandlerContext,
+    make_file_handlers,
+    {
+        "require_auth": require_auth,
+        "record_request": _record_request,
+        "cors_json_response": _cors_json_response,
+        "audit": audit,
+        "home": Path.home(),
+        "bridge_py": Path(__file__).resolve(),
+    },
+    {
+        "handle_v1_upload": "upload",
+        "handle_v1_download": "download",
+    },
 )
-_file_handlers = make_file_handlers(_file_handler_ctx)
-handle_v1_upload = _file_handlers.upload
-handle_v1_download = _file_handlers.download
+handle_v1_upload = _file_handler_registry["handle_v1_upload"]
+handle_v1_download = _file_handler_registry["handle_v1_download"]
+
 
 def _check_internet_sync() -> bool:
     return check_internet()

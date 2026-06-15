@@ -206,3 +206,20 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_tailscale_funnel": handlers.tailscale_funnel,
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
     }
+
+
+def build_context_handlers(
+    context_type: Callable[..., Any],
+    factory: Callable[[Any], Any],
+    context_kwargs: Mapping[str, Any],
+    attr_map: Mapping[str, str],
+) -> dict[str, Callable[..., Any]]:
+    """Generic builder for already-extracted handler factories.
+
+    This is an incremental container migration helper: unified_bridge.py still
+    provides dependency values, while arena.container owns context construction
+    and handler attribute mapping.
+    """
+    ctx = context_type(**dict(context_kwargs))
+    built = factory(ctx)
+    return {route_name: getattr(built, attr_name) for route_name, attr_name in attr_map.items()}
