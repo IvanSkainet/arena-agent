@@ -462,6 +462,7 @@ from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
+from arena.app import make_app as _make_arena_app  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -956,22 +957,20 @@ task_runner_loop = _task_runner_runtime.runner_loop
 # APP CONFIG
 # ============================================================================
 
-def make_app(cfg: dict) -> web.Application:
-    app = web.Application(client_max_size=50 * 1024 * 1024, middlewares=[error_middleware])
-    app["cfg"] = cfg
-    app["mcp_sessions"] = {}
-
-    # Store app reference for MCP tool calls that need access to config
+def _set_app_ref(app: web.Application) -> None:
     global _app_ref
     _app_ref = app
 
-    register_routes(app, globals())
 
-    # ---- Background tasks ----
-    app.on_startup.append(on_startup)
-    app.on_cleanup.append(on_cleanup)
-
-    return app
+def make_app(cfg: dict) -> web.Application:
+    return _make_arena_app(
+        cfg,
+        handlers=globals(),
+        error_middleware=error_middleware,
+        on_startup=on_startup,
+        on_cleanup=on_cleanup,
+        set_app_ref=_set_app_ref,
+    )
 
 
 def _get_shutdown_event() -> asyncio.Event | None:
