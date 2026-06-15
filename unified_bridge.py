@@ -321,6 +321,7 @@ from arena.tasks.queue import (  # noqa: E402,F401
     submit_task,
 )
 from arena.tasks.runner import TaskRunnerContext, make_task_runner_runtime  # noqa: E402,F401
+from arena.tasks.runtime import TaskQueueRuntimeContext, make_task_queue_runtime  # noqa: E402,F401
 from arena.skills.registry import (  # noqa: E402,F401
     parse_skill_folder,
     scan_skills,
@@ -2259,29 +2260,20 @@ handle_v1_webhooks_set = _observability_handlers.webhooks_set
 
 
 
-# --- /v1/tasks GET — Task queue management ---
+# --- /v1/tasks runtime compatibility wrappers ---
 
-def _tasks_list_sync(status: str, limit: int) -> dict:
-    """List JSON files in queue directories."""
-    return list_tasks(inbox=INBOX, running=RUNNING, done=DONE, failed=FAILED, status=status, limit=limit)
-
-
-
-
-# --- /v1/tasks POST — Submit task ---
-
-def _task_submit_sync(data: dict) -> dict:
-    """Create JSON file in INBOX. Supports both cmd-based and title-based tasks."""
-    return submit_task(data, inbox=INBOX, default_cwd=str(Path.home()), now_fn=utc_now)
-
-
-
-
-# --- /v1/tasks/clean POST — Clean completed tasks ---
-
-def _tasks_clean_sync() -> dict:
-    """Remove done/failed task files older than 24h."""
-    return clean_tasks(done=DONE, failed=FAILED, older_than_seconds=86400)
+_task_queue_runtime_ctx = TaskQueueRuntimeContext(
+    inbox=INBOX,
+    running=RUNNING,
+    done=DONE,
+    failed=FAILED,
+    default_cwd=str(Path.home()),
+    now=utc_now,
+)
+_task_queue_runtime = make_task_queue_runtime(_task_queue_runtime_ctx)
+_tasks_list_sync = _task_queue_runtime.tasks_list_sync
+_task_submit_sync = _task_queue_runtime.task_submit_sync
+_tasks_clean_sync = _task_queue_runtime.tasks_clean_sync
 
 
 _task_handler_ctx = TaskHandlerContext(
