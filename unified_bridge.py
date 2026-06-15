@@ -465,6 +465,7 @@ from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
+from arena.container import build_container  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -965,9 +966,10 @@ def _set_app_ref(app: web.Application) -> None:
 
 
 def make_app(cfg: dict) -> web.Application:
+    container = build_container(globals())
     return _make_arena_app(
         cfg,
-        handlers=globals(),
+        handlers=container.handlers,
         error_middleware=error_middleware,
         on_startup=on_startup,
         on_cleanup=on_cleanup,
