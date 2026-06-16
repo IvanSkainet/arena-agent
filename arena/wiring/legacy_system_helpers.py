@@ -1,4 +1,3 @@
-# ruff: noqa: F821
 """Legacy system helper wiring for unified_bridge."""
 from __future__ import annotations
 

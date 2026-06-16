@@ -1,25 +1,26 @@
-# ruff: noqa: F821
 """Legacy core handler registry wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping
 from typing import Any, Callable
 
+from arena.wiring.env import RuntimeEnv
+
 
 def build_legacy_core_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
-    globals().update(g)
+    env = RuntimeEnv(g)
     registry: dict[str, Callable] = {}
 
-    _gateway_handler_registry = build_context_handlers(
-        GatewayHandlerContext,
-        make_gateway_handlers,
+    _gateway_handler_registry = env.build_context_handlers(
+        env.GatewayHandlerContext,
+        env.make_gateway_handlers,
         {
-            "require_auth": require_auth,
-            "record_request": _record_request,
-            "cors_json_response": _cors_json_response,
-            "executor": _EXECUTOR,
-            "handle_rpc": handle_rpc,
-            "subprocess_kwargs": _subprocess_kwargs,
+            "require_auth": env.require_auth,
+            "record_request": env._record_request,
+            "cors_json_response": env._cors_json_response,
+            "executor": env._EXECUTOR,
+            "handle_rpc": env.handle_rpc,
+            "subprocess_kwargs": env._subprocess_kwargs,
         },
         {
             "handle_gateway_index": "index",
@@ -31,15 +32,15 @@ def build_legacy_core_registries(g: MutableMapping[str, Any]) -> dict[str, Calla
     registry.update(_gateway_handler_registry)
 
 
-    _mcp_handler_registry = build_context_handlers(
-        McpHandlerContext,
-        make_mcp_handlers,
+    _mcp_handler_registry = env.build_context_handlers(
+        env.McpHandlerContext,
+        env.make_mcp_handlers,
         {
-            "require_auth": require_auth,
-            "record_request": _record_request,
-            "cors_json_response": _cors_json_response,
-            "handle_rpc": handle_rpc,
-            "log_error": log.error,
+            "require_auth": env.require_auth,
+            "record_request": env._record_request,
+            "cors_json_response": env._cors_json_response,
+            "handle_rpc": env.handle_rpc,
+            "log_error": env.log.error,
         },
         {
             "handle_mcp_post": "mcp_post",
@@ -52,30 +53,30 @@ def build_legacy_core_registries(g: MutableMapping[str, Any]) -> dict[str, Calla
     registry.update(_mcp_handler_registry)
 
 
-    _api_v2_handler_registry = build_context_handlers(
-        ApiV2HandlerContext,
-        make_v2_handlers,
+    _api_v2_handler_registry = env.build_context_handlers(
+        env.ApiV2HandlerContext,
+        env.make_v2_handlers,
         {
-            "require_auth": require_auth,
-            "record_request": _record_request,
-            "cors_json_response": _cors_json_response,
-            "version": VERSION,
-            "metrics": BRIDGE_METRICS,
-            "cdp_state": _cdp_state,
-            "watchdog_state": _watchdog_state,
-            "cluster_state": _cluster_state,
-            "cluster_config": _cluster_config,
-            "tls_config": _tls_config,
-            "profiles_dir": _PROFILES_DIR,
-            "sandbox_config": _sandbox_config,
-            "blocked_reason": blocked_reason,
-            "first_word": first_word,
-            "decode_output": decode_output,
-            "run_sandboxed": _run_sandboxed,
-            "cfg_get_max_timeout": cfg_get_max_timeout,
-            "audit": audit,
-            "emit_event": emit_event,
-            "now": time.time,
+            "require_auth": env.require_auth,
+            "record_request": env._record_request,
+            "cors_json_response": env._cors_json_response,
+            "version": env.VERSION,
+            "metrics": env.BRIDGE_METRICS,
+            "cdp_state": env._cdp_state,
+            "watchdog_state": env._watchdog_state,
+            "cluster_state": env._cluster_state,
+            "cluster_config": env._cluster_config,
+            "tls_config": env._tls_config,
+            "profiles_dir": env._PROFILES_DIR,
+            "sandbox_config": env._sandbox_config,
+            "blocked_reason": env.blocked_reason,
+            "first_word": env.first_word,
+            "decode_output": env.decode_output,
+            "run_sandboxed": env._run_sandboxed,
+            "cfg_get_max_timeout": env.cfg_get_max_timeout,
+            "audit": env.audit,
+            "emit_event": env.emit_event,
+            "now": env.time.time,
         },
         {
             "handle_v2_index": "index",
@@ -89,15 +90,15 @@ def build_legacy_core_registries(g: MutableMapping[str, Any]) -> dict[str, Calla
     registry.update(_api_v2_handler_registry)
 
 
-    _batch_handler_registry = build_context_handlers(
-        BatchHandlerContext,
-        make_batch_handlers,
+    _batch_handler_registry = env.build_context_handlers(
+        env.BatchHandlerContext,
+        env.make_batch_handlers,
         {
-            "require_auth": require_auth,
-            "record_request": _record_request,
-            "cors_json_response": _cors_json_response,
-            "emit_event": emit_event,
-            "now": time.time,
+            "require_auth": env.require_auth,
+            "record_request": env._record_request,
+            "cors_json_response": env._cors_json_response,
+            "emit_event": env.emit_event,
+            "now": env.time.time,
         },
         {"handle_v1_batch": "batch"},
     )

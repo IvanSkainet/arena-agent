@@ -1,50 +1,51 @@
-# ruff: noqa: F821
 """Legacy system/admin/public handler wiring extracted from unified_bridge.py."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping
 from typing import Any, Callable
 
+from arena.wiring.env import RuntimeEnv
+
 
 def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
     """Build system, admin and public handler registries from compatibility globals."""
-    globals().update(g)
+    env = RuntimeEnv(g)
     registry: dict[str, Callable] = {}
 
-    _system_handler_registry = build_system_handlers(SystemWiringContext(
-        require_auth=require_auth,
-        record_request=_record_request,
-        cors_json_response=_cors_json_response,
-        executor=_EXECUTOR,
-        common_status=lambda cfg: common_status(cfg),
-        version=VERSION,
-        clean_platform_name=get_clean_platform_name,
-        doctor_sync=_doctor_sync,
-        sysinfo_sync=_sysinfo_sync,
-        play_beep_sync=_play_beep_sync,
+    _system_handler_registry = env.build_system_handlers(env.SystemWiringContext(
+        require_auth=env.require_auth,
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        executor=env._EXECUTOR,
+        common_status=lambda cfg: env.common_status(cfg),
+        version=env.VERSION,
+        clean_platform_name=env.get_clean_platform_name,
+        doctor_sync=env._doctor_sync,
+        sysinfo_sync=env._sysinfo_sync,
+        play_beep_sync=env._play_beep_sync,
     ))
     registry.update(_system_handler_registry)
 
-    _admin_handler_registry = build_admin_handlers(AdminWiringContext(
-        require_auth=require_auth,
-        record_request=_record_request,
-        cors_json_response=_cors_json_response,
-        executor=_EXECUTOR,
-        audit=audit,
-        default_token_file=TOKEN_FILE,
-        root_agent=ROOT_AGENT,
-        subprocess_kwargs=_subprocess_kwargs,
+    _admin_handler_registry = env.build_admin_handlers(env.AdminWiringContext(
+        require_auth=env.require_auth,
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        executor=env._EXECUTOR,
+        audit=env.audit,
+        default_token_file=env.TOKEN_FILE,
+        root_agent=env.ROOT_AGENT,
+        subprocess_kwargs=env._subprocess_kwargs,
     ))
     registry.update(_admin_handler_registry)
 
-    _public_handler_registry = build_public_handlers(PublicWiringContext(
-        record_request=_record_request,
-        cors_json_response=_cors_json_response,
-        metrics=BRIDGE_METRICS,
-        version=VERSION,
-        now=time.time,
-        hostname=socket.gethostname,
-        bridge_port=_get_bridge_port,
+    _public_handler_registry = env.build_public_handlers(env.PublicWiringContext(
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        metrics=env.BRIDGE_METRICS,
+        version=env.VERSION,
+        now=env.time.time,
+        hostname=env.socket.gethostname,
+        bridge_port=env._get_bridge_port,
     ))
     registry.update(_public_handler_registry)
     return registry

@@ -1,4 +1,3 @@
-# ruff: noqa: F821
 """Legacy handler registry wiring facade extracted from unified_bridge.py."""
 from __future__ import annotations
 

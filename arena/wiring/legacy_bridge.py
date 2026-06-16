@@ -1,4 +1,3 @@
-# ruff: noqa: F821
 """Top-level legacy bridge runtime/wiring orchestration.
 
 Transitional composition layer used while ``unified_bridge.py`` remains a thin

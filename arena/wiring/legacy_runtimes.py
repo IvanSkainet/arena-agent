@@ -1,25 +1,26 @@
-# ruff: noqa: F821
 """Legacy runtime object wiring extracted from unified_bridge.py."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping
 from typing import Any
 
+from arena.wiring.env import RuntimeEnv
+
 
 def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
     """Build memory/resource/browser runtimes and their compatibility globals."""
-    globals().update(g)
+    env = RuntimeEnv(g)
     registry: dict[str, Any] = {}
 
-    memory_runtime_ctx = MemoryRuntimeContext(
-        db_path=MEMORY_DB,
-        jsonl_path=MEMORY_FILE,
-        audit_path=AUDIT,
-        read_tail=read_tail,
-        utc_now=utc_now,
-        log_error=log.error,
+    memory_runtime_ctx = env.MemoryRuntimeContext(
+        db_path=env.MEMORY_DB,
+        jsonl_path=env.MEMORY_FILE,
+        audit_path=env.AUDIT,
+        read_tail=env.read_tail,
+        utc_now=env.utc_now,
+        log_error=env.log.error,
     )
-    memory_runtime = make_memory_runtime(memory_runtime_ctx)
+    memory_runtime = env.make_memory_runtime(memory_runtime_ctx)
     registry.update({
         "_memory_runtime_ctx": memory_runtime_ctx,
         "_memory_runtime": memory_runtime,
@@ -32,16 +33,16 @@ def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[
         "_recall_digest_sync": memory_runtime.recall_digest_sync,
     })
 
-    resource_runtime_ctx = ResourceRuntimeContext(
-        missions_dir=MISSIONS_DIR,
-        reports_dir=REPORTS_DIR,
-        hooks_dir=HOOKS_DIR,
-        agents_dir=AGENTS_DIR,
-        subagents_dir=SUBAGENTS_DIR,
-        bin_dir=BIN,
-        subprocess_kwargs=_subprocess_kwargs,
+    resource_runtime_ctx = env.ResourceRuntimeContext(
+        missions_dir=env.MISSIONS_DIR,
+        reports_dir=env.REPORTS_DIR,
+        hooks_dir=env.HOOKS_DIR,
+        agents_dir=env.AGENTS_DIR,
+        subagents_dir=env.SUBAGENTS_DIR,
+        bin_dir=env.BIN,
+        subprocess_kwargs=env._subprocess_kwargs,
     )
-    resource_runtime = make_resource_runtime(resource_runtime_ctx)
+    resource_runtime = env.make_resource_runtime(resource_runtime_ctx)
     registry.update({
         "_resource_runtime_ctx": resource_runtime_ctx,
         "_resource_runtime": resource_runtime,
@@ -49,11 +50,11 @@ def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[
         "_list_reports_sync": resource_runtime.list_reports_sync,
     })
 
-    browser_runtime_ctx = BrowserRuntimeContext(
-        version=VERSION,
-        validate_url=_validate_url,
+    browser_runtime_ctx = env.BrowserRuntimeContext(
+        version=env.VERSION,
+        validate_url=env._validate_url,
     )
-    browser_runtime = make_browser_runtime(browser_runtime_ctx)
+    browser_runtime = env.make_browser_runtime(browser_runtime_ctx)
     registry.update({
         "_browser_runtime_ctx": browser_runtime_ctx,
         "_browser_runtime": browser_runtime,
