@@ -112,3 +112,11 @@ def test_runtime_dependency_namespace_is_facade_only():
     unified = (ROOT / "unified_bridge.py").read_text(encoding="utf-8")
     assert "arena.runtime_deps" in unified
     assert offenders == []
+
+
+def test_unified_bridge_uses_isolated_runtime_namespace():
+    text = (ROOT / "unified_bridge.py").read_text(encoding="utf-8")
+    assert "build_bridge_runtime(globals())" not in text
+    assert "from arena.runtime_deps import *" not in text
+    assert "build_runtime_namespace(_runtime_deps)" in text
+    assert "apply_compat_exports(globals(), _runtime_namespace, _bridge_runtime)" in text
