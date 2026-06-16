@@ -71,7 +71,7 @@ protect against regressions:
 
 - `unified_bridge.py` must stay thin.
 - `arena/*` must not import `unified_bridge.py`.
-- product files must stay below the line-count limit, excluding deployment
+- product files must stay below the 200-line line-count limit, excluding deployment
   installers that are validated by fresh install tests.
 - wrapper entrypoints must stay thin.
 
