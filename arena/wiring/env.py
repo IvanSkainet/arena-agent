@@ -8,7 +8,7 @@ from typing import Any
 class RuntimeEnv:
     """Attribute access for runtime composition values.
 
-    This replaces the old ``globals().update(g)`` pattern in transitional wiring
+    This replaces the old ``module-global mutation`` pattern in transitional wiring
     modules.  Missing names fail loudly with a useful AttributeError while the
     call sites become explicit: ``env.require_auth`` instead of a hidden global.
     """

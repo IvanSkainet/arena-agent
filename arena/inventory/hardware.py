@@ -83,12 +83,12 @@ def hardware_from_inventory_result(
     the historical fallback behavior while keeping this module subprocess-free.
     """
     if not inv_result.get("ok"):
-        = hwinfo_fn()
+        fallback = hwinfo_fn()
         return {
             "ok": True,
             "source": "hwinfo_fallback",
-            "hardware": legacy,
-            "hwinfo": legacy,
+            "hardware": fallback,
+            "hwinfo": fallback,
             "inventory_error": inv_result,
         }
 
