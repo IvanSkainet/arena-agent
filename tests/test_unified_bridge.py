@@ -5,6 +5,7 @@ import sqlite3
 import tempfile
 import zipfile
 import shutil
+import gc
 from pathlib import Path
 import pytest
 
@@ -22,6 +23,7 @@ def temp_arena_home():
         old_env = os.environ.get("ARENA_AGENT_HOME")
         os.environ["ARENA_AGENT_HOME"] = tmpdir
         yield Path(tmpdir)
+        gc.collect()
         if old_env is not None:
             os.environ["ARENA_AGENT_HOME"] = old_env
         else:

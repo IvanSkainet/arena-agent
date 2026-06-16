@@ -25,16 +25,24 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
 
     try:
         if url.endswith(".zip"):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+            # On Windows, NamedTemporaryFile keeps an exclusive handle while the
+            # context is open, so copying/downloading into tmp.name can fail with
+            # WinError 32. Allocate the name, close the handle, then populate it.
+            tmp_path = ""
+            try:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+                    tmp_path = tmp.name
                 if os.path.exists(url):
-                    shutil.copy(url, tmp.name)
+                    shutil.copy(url, tmp_path)
                 elif url.startswith("file://"):
                     local_p = url[7:]
                     if os.path.exists(local_p):
-                        shutil.copy(local_p, tmp.name)
+                        shutil.copy(local_p, tmp_path)
+                    else:
+                        return {"ok": False, "error": f"zip file not found: {local_p}"}
                 else:
-                    urllib.request.urlretrieve(url, tmp.name)
-                with zipfile.ZipFile(tmp.name, "r") as zip_ref:
+                    urllib.request.urlretrieve(url, tmp_path)
+                with zipfile.ZipFile(tmp_path, "r") as zip_ref:
                     non_junk_names = [
                         p for p in zip_ref.namelist()
                         if p and not any(part.startswith(".") or part in ("__MACOSX", "desktop.ini", "Thumbs.db") for part in p.split("/"))
@@ -51,7 +59,12 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                         shutil.rmtree(temp_ext, ignore_errors=True)
                     else:
                         zip_ref.extractall(target_dir)
-                os.unlink(tmp.name)
+            finally:
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
         else:
             subprocess.run(["git", "clone", "--depth", "1", "--", url, str(target_dir)], check=True, capture_output=True)
             shutil.rmtree(target_dir / ".git", ignore_errors=True)

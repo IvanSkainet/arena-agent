@@ -12,7 +12,8 @@ import unified_bridge as ub  # noqa: E402
 def test_inventory_run_accepts_shell_kwarg():
     # Windows CIM used to call _run(..., shell=True) while _run did not accept
     # that parameter, silently breaking all CIM-backed inventory sections.
-    out = inv._run("printf arena", shell=True)
+    cmd = f'"{sys.executable}" -c "print(\'arena\', end=\'\')"'
+    out = inv._run(cmd, shell=True)
     assert out == "arena"
 
 

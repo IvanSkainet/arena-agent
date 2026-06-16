@@ -2,6 +2,7 @@
 import asyncio
 import json
 import sys
+import shlex
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -53,9 +54,10 @@ def test_task_runner_run_one_success(tmp_path):
     runtime = make_task_runner_runtime(_ctx(tmp_path))
     runtime.ensure_dirs()
     task_path = tmp_path / "inbox" / "t1.json"
+    py_cmd = f'"{sys.executable}" -c "print(123)"' if sys.platform == "win32" else f"{shlex.quote(sys.executable)} -c 'print(123)'"
     task_path.write_text(json.dumps({
         "id": "t1",
-        "cmd": "python -c 'print(123)'",
+        "cmd": py_cmd,
         "cwd": str(tmp_path),
         "timeout": 10,
     }), encoding="utf-8")

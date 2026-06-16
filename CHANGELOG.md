@@ -11,6 +11,11 @@
 - README now describes the RC stabilization state and the current 98-line `unified_bridge.py` compatibility entrypoint.
 - Added a mobile/Android support roadmap for post-`v3.0.0` planning without making mobile work a stable-release blocker.
 
+### Fixed
+- Windows ZIP skill installation no longer trips over `NamedTemporaryFile` handle locking.
+- Windows test coverage now uses shell-portable Python commands instead of POSIX-only quoting/tools.
+- Memory tests now force garbage collection before temporary directory cleanup to avoid lingering SQLite handles on Windows.
+
 ### Validation target
 - Local `pytest -q` must pass before tagging.
 - Fresh release-zip install checks are required on CachyOS/Linux and Windows before promoting this RC to stable.
