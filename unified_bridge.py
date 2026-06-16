@@ -495,6 +495,8 @@ from arena.wiring.legacy_runtimes import build_memory_resource_browser_runtimes 
 from arena.wiring.legacy_service_browser import build_service_browser_registries  # noqa: E402,F401
 from arena.wiring.legacy_cdp import build_cdp_registries  # noqa: E402,F401
 from arena.wiring.legacy_desktop import build_desktop_registries  # noqa: E402,F401
+from arena.wiring.legacy_memory_observability import build_memory_observability_registries  # noqa: E402,F401
+from arena.wiring.legacy_tasks_skills_resources import build_tasks_skills_resources_registries  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1200,148 +1202,10 @@ globals().update(_desktop_registry)
 # Memory recall helpers moved to arena/memory/runtime.py and bound above.
 
 
-_memory_handler_ctx = MemoryHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    search_facts_paged=_search_facts_paged,
-    write_fact=_write_fact,
-    delete_fact=_delete_fact,
-    recall_sync=_recall_sync,
-    recall_digest_sync=_recall_digest_sync,
-    audit=audit,
-    utc_now=utc_now,
-)
-_memory_handlers = make_memory_handlers(_memory_handler_ctx)
-export_handler_attrs(globals(), _memory_handlers, {"handle_v1_memory": "memory_get", "handle_v1_memory_set": "memory_set", "handle_v1_memory_delete": "memory_delete", "handle_v1_recall": "recall", "handle_v1_recall_digest": "recall_digest"})
-
-
-
-
-# --- /v1/audit/stats GET — Audit statistics ---
-
-def _audit_stats_sync() -> dict:
-    return audit_stats(AUDIT)
-
-
-_observability_handler_ctx = ObservabilityHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    audit_path=AUDIT,
-    request_log_file=_REQ_LOG_FILE,
-    read_tail=read_tail,
-    read_request_log=read_request_log,
-    audit_stats_sync=_audit_stats_sync,
-    load_webhooks=_load_webhooks,
-    save_webhooks=_save_webhooks,
-    normalize_webhooks_config=normalize_webhooks_config,
-    audit=audit,
-)
-_observability_handlers = make_observability_handlers(_observability_handler_ctx)
-export_handler_attrs(globals(), _observability_handlers, {"handle_v1_audit": "audit", "handle_v1_audit_stats": "audit_stats", "handle_v1_audit_log": "audit_log", "handle_v1_webhooks_get": "webhooks_get", "handle_v1_webhooks_set": "webhooks_set"})
-
-
-
-
-# --- /v1/tasks runtime compatibility wrappers ---
-
-_task_queue_runtime_ctx = TaskQueueRuntimeContext(
-    inbox=INBOX,
-    running=RUNNING,
-    done=DONE,
-    failed=FAILED,
-    default_cwd=str(Path.home()),
-    now=utc_now,
-)
-_task_queue_runtime = make_task_queue_runtime(_task_queue_runtime_ctx)
-_tasks_list_sync = _task_queue_runtime.tasks_list_sync
-_task_submit_sync = _task_queue_runtime.task_submit_sync
-_tasks_clean_sync = _task_queue_runtime.tasks_clean_sync
-
-
-_task_handler_ctx = TaskHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    tasks_list_sync=_tasks_list_sync,
-    task_submit_sync=_task_submit_sync,
-    tasks_clean_sync=_tasks_clean_sync,
-    audit=audit,
-)
-_task_handlers = make_task_handlers(_task_handler_ctx)
-export_handler_attrs(globals(), _task_handlers, {"handle_v1_tasks_get": "tasks_get", "handle_v1_tasks_post": "tasks_post", "handle_v1_tasks_clean": "tasks_clean"})
-
-
-
-
-# --- /v1/skills runtime compatibility wrappers ---
-
-_skill_runtime_ctx = SkillRuntimeContext(
-    skills_dir=lambda: SKILLS_DIR,
-    root_agent=lambda: ROOT_AGENT,
-    bin_dir=lambda: BIN,
-    subprocess_kwargs=_subprocess_kwargs,
-)
-_skill_runtime = make_skill_runtime(_skill_runtime_ctx)
-_skills_list_sync = _skill_runtime.skills_list_sync
-_parse_skill_folder = _skill_runtime.parse_skill_folder_compat
-_skill_install_sync = _skill_runtime.skill_install_sync
-_normalize_third_party_skill_name = _skill_runtime.normalize_third_party_skill_name
-_skill_uninstall_sync = _skill_runtime.skill_uninstall_sync
-_skills_run_sync = _skill_runtime.skills_run_sync
-_skill_path_is_safe = _skill_runtime.skill_path_is_safe
-
-
-_skill_handler_ctx = SkillHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    skills_list_with_cache=_skills_list_sync_with_cache,
-    skills_cache_reset=_skills_cache_reset,
-    skill_install_sync=_skill_install_sync,
-    skill_uninstall_sync=_skill_uninstall_sync,
-    skills_run_sync=lambda *args, **kwargs: _skills_run_sync(*args, **kwargs),
-    skill_path_is_safe=_skill_path_is_safe,
-    audit=audit,
-    log_info=log.info,
-)
-_skill_handlers = make_skill_handlers(_skill_handler_ctx)
-export_handler_attrs(globals(), _skill_handlers, {"handle_v1_skills": "skills", "handle_v1_skills_install": "install", "handle_v1_skills_uninstall": "uninstall", "handle_v1_skills_run": "run", "handle_v1_skills_reload": "reload"})
-
-
-
-
-# Resource listing/spawn/show runtime wrappers live in arena/resources/runtime.py.
-_hooks_list_sync = _resource_runtime.hooks_list_sync
-_agents_list_sync = _resource_runtime.agents_list_sync
-_subagents_list_sync = _resource_runtime.subagents_list_sync
-_subagents_spawn_sync = _resource_runtime.subagents_spawn_sync
-_mission_show_sync = _resource_runtime.mission_show_sync
-
-
-_resource_handler_ctx = ResourceHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    list_missions_sync=_list_missions_sync,
-    list_reports_sync=_list_reports_sync,
-    hooks_list_sync=_hooks_list_sync,
-    agents_list_sync=_agents_list_sync,
-    subagents_list_sync=_subagents_list_sync,
-    mission_show_sync=_mission_show_sync,
-    subagent_spawn_sync=_subagents_spawn_sync,
-    audit=audit,
-)
-_resource_handlers = make_resource_handlers(_resource_handler_ctx)
-export_handler_attrs(globals(), _resource_handlers, {"handle_v1_missions": "missions", "handle_v1_reports": "reports", "handle_v1_hooks": "hooks", "handle_v1_agents": "agents", "handle_v1_subagents": "subagents", "handle_v1_subagents_spawn": "subagents_spawn", "handle_v1_mission_show": "mission_show"})
-
-
+_memory_observability_registry = build_memory_observability_registries(globals())
+globals().update(_memory_observability_registry)
+_tasks_skills_resources_registry = build_tasks_skills_resources_registries(globals())
+globals().update(_tasks_skills_resources_registry)
 
 
 # --- /v1/browser/browse POST — Unified browser endpoint with auto CDP/BrowserAct switching ---
