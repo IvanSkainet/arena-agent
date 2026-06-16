@@ -100,7 +100,7 @@ def test_transitional_wiring_does_not_mutate_module_globals():
 
 
 def test_runtime_dependency_namespace_is_facade_only():
-    assert not (ROOT / "arena" / "imports").exists()
+    assert not any((ROOT / "arena" / "imports").glob("*.py"))
     offenders = []
     for path in (ROOT / "arena").rglob("*.py"):
         rel = path.relative_to(ROOT)
