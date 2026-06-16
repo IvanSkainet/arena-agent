@@ -146,19 +146,26 @@ echo [OK] Tailscale connected: %TS_URL%
 
 REM --- cloudflared (optional Cloudflare Quick Tunnel) ---
 REM Not bundled in the repo (~40 MB binary); fetched on demand here.
+set "CLOUDFLARED_BIN="
 where cloudflared >nul 2>&1
 if not errorlevel 1 (
-    echo [OK] cloudflared found on PATH
-    goto :cloudflared_done
+    for /f "delims=" %%p in ('where cloudflared 2^>nul') do if not defined CLOUDFLARED_BIN set "CLOUDFLARED_BIN=%%p"
 )
-if exist "%BRIDGE_DIR%\cloudflared.exe" (
-    echo [OK] cloudflared present in install directory
+if not defined CLOUDFLARED_BIN if exist "%BRIDGE_DIR%\cloudflared.exe" set "CLOUDFLARED_BIN=%BRIDGE_DIR%\cloudflared.exe"
+if defined CLOUDFLARED_BIN (
+    for /f "delims=" %%v in ('"%CLOUDFLARED_BIN%" --version 2^>nul') do if not defined CLOUDFLARED_VERSION set "CLOUDFLARED_VERSION=%%v"
+    echo [OK] cloudflared present: !CLOUDFLARED_VERSION!
+    echo [INFO] Checking cloudflared latest download availability...
+    curl --max-time 20 -fsI "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" >nul 2>&1
+    if errorlevel 1 echo [WARN] Could not verify cloudflared latest release ^(network/GitHub unavailable^).
     goto :cloudflared_done
 )
 echo [INFO] Downloading cloudflared.exe for Cloudflare Quick Tunnels ^(optional^)...
 curl --max-time 120 -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%BRIDGE_DIR%\cloudflared.exe" 2>nul
 if exist "%BRIDGE_DIR%\cloudflared.exe" (
-    echo [OK] cloudflared installed at %BRIDGE_DIR%\cloudflared.exe
+    set "CLOUDFLARED_BIN=%BRIDGE_DIR%\cloudflared.exe"
+    for /f "delims=" %%v in ('"%BRIDGE_DIR%\cloudflared.exe" --version 2^>nul') do if not defined CLOUDFLARED_VERSION set "CLOUDFLARED_VERSION=%%v"
+    echo [OK] cloudflared installed at %BRIDGE_DIR%\cloudflared.exe ^(!CLOUDFLARED_VERSION!^)
 ) else (
     echo [WARN] cloudflared download skipped/failed. Get it later: https://github.com/cloudflare/cloudflared/releases/latest
 )
@@ -177,12 +184,26 @@ if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
 goto :sp_done
 :sp_exists
 for /f %%c in ('dir /b "%BRIDGE_DIR%\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
+if exist "%BRIDGE_DIR%\skills\superpowers\.git" (
+    for /f "delims=" %%r in ('git -C "%BRIDGE_DIR%\skills\superpowers" rev-parse --short HEAD 2^>nul') do echo [INFO] SuperPowers revision: %%r
+    echo [INFO] Checking SuperPowers updates...
+    git -C "%BRIDGE_DIR%\skills\superpowers" pull --ff-only --quiet >nul 2>&1
+    if errorlevel 1 (echo [WARN] SuperPowers update check failed/skipped.) else (echo [OK] SuperPowers is up to date or fast-forwarded.)
+)
 :sp_done
 
 REM --- BrowserAct ---
 where browser-act >nul 2>&1
 if not errorlevel 1 (
-    echo [OK] BrowserAct already installed
+    set "BA_VERSION="
+    for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
+    echo [OK] BrowserAct already installed: !BA_VERSION!
+    where uv >nul 2>&1
+    if not errorlevel 1 (
+        echo [INFO] Checking BrowserAct updates via uv...
+        uv tool upgrade browser-act-cli >nul 2>&1
+        if errorlevel 1 (echo [WARN] BrowserAct update check failed/skipped.) else (echo [OK] BrowserAct is up to date or upgraded.)
+    )
     goto :ba_done
 )
 where uv >nul 2>&1
@@ -197,7 +218,8 @@ if errorlevel 1 (
     echo [WARN] BrowserAct install may have failed. Try: uv tool install browser-act-cli --python 3.12
     goto :ba_done
 )
-echo [OK] BrowserAct installed
+for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
+echo [OK] BrowserAct installed: !BA_VERSION!
 if not exist "%BRIDGE_DIR%\skills\browseract" mkdir "%BRIDGE_DIR%\skills\browseract"
 if not exist "%BRIDGE_DIR%\skills\browseract\SKILL.md" curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browseract\SKILL.md" 2>nul
 :ba_done
@@ -206,13 +228,18 @@ REM --- Camoufox ---
 where browser-act >nul 2>&1
 if errorlevel 1 goto :camoufox_done
 echo [INFO] Checking Camoufox stealth browser...
-%PYTHON% -c "import camoufox;print('ok')" >nul 2>&1
+%PYTHON% -c "import camoufox;print(getattr(camoufox,'__version__','installed'))" >"%TEMP%\arena_camoufox_version.txt" 2>nul
 if not errorlevel 1 (
-    echo [OK] Camoufox stealth browser ready
+    set /p CAMOUFOX_VERSION=<"%TEMP%\arena_camoufox_version.txt"
+    del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
+    echo [OK] Camoufox package present: !CAMOUFOX_VERSION!
+    echo [INFO] Ensuring Camoufox browser files are present/current...
+    %PYTHON% -m camoufox fetch >nul 2>&1
+    if errorlevel 1 (echo [WARN] Camoufox fetch/update failed or skipped.) else (echo [OK] Camoufox stealth browser ready.)
     goto :camoufox_done
 )
 %PYTHON% -m camoufox fetch >nul 2>&1
-echo       Done.
+if errorlevel 1 (echo [WARN] Camoufox fetch failed. BrowserAct may fetch it later.) else (echo [OK] Camoufox stealth browser ready.)
 :camoufox_done
 
 echo.
@@ -307,7 +334,7 @@ for /L %%i in (1,1,30) do (
             set "HEALTH_VERSION=!VERSION!"
             for /f "delims=" %%v in ('%PYTHON% -c "import json,sys; print(json.load(open(r'%TEMP%\arena_health.json')).get('version',''))" 2^>nul') do set "HEALTH_VERSION=%%v"
             del "%TEMP%\arena_health.json" >nul 2>&1
-            echo       Bridge is healthy! v!HEALTH_VERSION!
+            echo       Bridge is healthy. v!HEALTH_VERSION!
         ) else (
             echo       Waiting... %%i/30
             ping -n 3 127.0.0.1 >nul
@@ -354,6 +381,18 @@ echo   Your secure Tailscale URL:
 if not defined TS_URL echo   not configured - install Tailscale: https://tailscale.com
 if defined TS_URL echo   https://%TS_URL%
 echo.
+if defined TS_URL (
+    tailscale funnel status >"%TEMP%\arena_funnel_status.txt" 2>nul
+    findstr /i /c:"Funnel on" /c:"proxy http" "%TEMP%\arena_funnel_status.txt" >nul 2>&1
+    if errorlevel 1 (
+        echo   [INFO] Tailscale Funnel does not appear to be enabled yet.
+        echo          To publish the bridge: tailscale funnel --bg %PORT%
+    ) else (
+        echo   [OK] Tailscale Funnel appears active for this machine.
+    )
+    del "%TEMP%\arena_funnel_status.txt" >nul 2>&1
+    echo.
+)
 
 echo   Background service/task:
 echo     Name: ArenaUnifiedBridge
@@ -388,4 +427,6 @@ echo.
 
 :end
 echo.
+if /I "%ARENA_ACCEPT_BACKGROUND%"=="1" exit /b
+if /I "%ARENA_ASSUME_YES%"=="1" exit /b
 pause
