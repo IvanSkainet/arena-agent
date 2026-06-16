@@ -6,7 +6,7 @@
 One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v3.0.0--beta.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v3.0.0--beta.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,7 +44,7 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.0.0-beta.1
+### 🆕 What's new in v3.0.0-beta.2
 
 - **First modular release:** the former one-file bridge has been split into focused `arena/*` domain packages while preserving the public REST/MCP/WebSocket API.
 - **Thin compatibility entrypoint:** `unified_bridge.py` is now a ~165-line compatibility/CLI layer instead of a giant server implementation.

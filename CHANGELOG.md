@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.0.0-beta.2 — 2026-06-16
+
+### Fixed
+- Windows installer removes stale `ArenaUnifiedBridge` SCM/NSSM services when falling back to Scheduled Task mode.
+- Windows uninstaller removes stale SCM service entries even when NSSM is not installed.
+- Windows installer Funnel summary now falls back to checking the public `/health` endpoint when `tailscale funnel status` output is unavailable to the installer context.
+
+### Validation
+- Windows 10 fresh install/reinstall smoke: PASS.
+- Windows 10 stress v4 with restart: PASS=15 SKIP=3 (`pending-win32` desktop backend skips are expected).
+- Linux/CachyOS fresh install from beta zip: PASS.
+- Linux/CachyOS stress v4 with restart: PASS=18.
+
 ## v3.0.0-beta.1 — 2026-06-16
 
 ### Milestone
