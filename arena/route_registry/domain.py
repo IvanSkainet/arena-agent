@@ -1,0 +1,57 @@
+"""Domain feature route registration beyond core/CDP/desktop."""
+from __future__ import annotations
+
+from collections.abc import Callable, Mapping
+
+from aiohttp import web
+
+
+def register_domain_routes(app: web.Application, h: Mapping[str, Callable]) -> None:
+    app.router.add_get("/v1/recall", h["handle_v1_recall"])
+    app.router.add_get("/v1/recall/digest", h["handle_v1_recall_digest"])
+    app.router.add_get("/v1/audit/stats", h["handle_v1_audit_stats"])
+    app.router.add_get("/v1/tasks", h["handle_v1_tasks_get"])
+    app.router.add_post("/v1/tasks", h["handle_v1_tasks_post"])
+    app.router.add_post("/v1/tasks/clean", h["handle_v1_tasks_clean"])
+    app.router.add_get("/v1/skills", h["handle_v1_skills"])
+    app.router.add_post("/v1/skills/install", h["handle_v1_skills_install"])
+    app.router.add_post("/v1/skills/uninstall", h["handle_v1_skills_uninstall"])
+    app.router.add_post("/v1/skills/run", h["handle_v1_skills_run"])
+    app.router.add_get("/v1/hooks", h["handle_v1_hooks"])
+    app.router.add_get("/v1/agents", h["handle_v1_agents"])
+    app.router.add_get("/v1/subagents", h["handle_v1_subagents"])
+    app.router.add_post("/v1/subagents/spawn", h["handle_v1_subagents_spawn"])
+    app.router.add_get("/v1/mission/show", h["handle_v1_mission_show"])
+    app.router.add_get("/v1/metrics", h["handle_v1_metrics"])
+    app.router.add_get("/v1/logs", h["handle_v1_logs"])
+
+    app.router.add_get("/metrics", h["handle_prometheus_metrics"])
+    app.router.add_get("/api-docs", h["handle_api_docs"])
+    app.router.add_get("/openapi.json", h["handle_api_docs"])
+
+    app.router.add_post("/v1/browser/browse", h["handle_v1_browser_browse"])
+    app.router.add_get("/v1/events", h["handle_v1_events"])
+    app.router.add_post("/v1/skills/reload", h["handle_v1_skills_reload"])
+    app.router.add_get("/v1/audit/log", h["handle_v1_audit_log"])
+    app.router.add_get("/v1/watchdog", h["handle_v1_watchdog"])
+    app.router.add_post("/v1/watchdog", h["handle_v1_watchdog"])
+    app.router.add_get("/v1/users", h["handle_v1_users"])
+    app.router.add_post("/v1/users", h["handle_v1_users"])
+    app.router.add_delete("/v1/users", h["handle_v1_users"])
+    app.router.add_post("/v1/batch", h["handle_v1_batch"])
+    app.router.add_get("/v1/profiles", h["handle_v1_profiles"])
+    app.router.add_post("/v1/profiles", h["handle_v1_profiles"])
+    app.router.add_post("/v1/profiles/{name}/load", h["handle_v1_profiles_load"])
+    app.router.add_get("/v1/alerts", h["handle_v1_alerts"])
+    app.router.add_post("/v1/alerts", h["handle_v1_alerts"])
+    app.router.add_get("/v1/tls", h["handle_v1_tls"])
+    app.router.add_post("/v1/tls", h["handle_v1_tls"])
+    app.router.add_get("/v1/grpc", h["handle_v1_grpc"])
+    app.router.add_post("/v1/grpc", h["handle_v1_grpc"])
+    app.router.add_get("/gui/v2", h["handle_gui_v2"])
+    app.router.add_get("/v1/ratelimit", h["handle_v1_ratelimit"])
+    app.router.add_post("/v1/ratelimit", h["handle_v1_ratelimit"])
+    app.router.add_get("/v1/sandbox", h["handle_v1_sandbox"])
+    app.router.add_post("/v1/sandbox", h["handle_v1_sandbox"])
+    app.router.add_get("/v1/cluster", h["handle_v1_cluster"])
+    app.router.add_post("/v1/cluster", h["handle_v1_cluster"])
