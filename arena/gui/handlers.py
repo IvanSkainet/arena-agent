@@ -50,7 +50,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
             ".svg": "image/svg+xml",
             ".png": "image/png",
         }.get(suffix, "application/octet-stream")
-        return web.FileResponse(asset_path, headers={"Access-Control-Allow-Origin": "*"})
+        return web.FileResponse(asset_path, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
 
     async def handle_gui(request: web.Request) -> web.Response:
         """GET /gui — Dashboard. Shows login page if no valid URL token, then serves dashboard."""

@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Arena Bridge v{{VERSION}}</title>
-<link rel="stylesheet" href="/gui/assets/dashboard.css">
+<link rel="stylesheet" href="/gui/assets/dashboard.css?v={{VERSION}}">
 </head>
 <body>
 <div id="arena-dashboard-root"></div>
@@ -66,12 +66,13 @@ window.ARENA_DASHBOARD_SCRIPTS = [
     '/gui/assets/body-14-control.html',
     '/gui/assets/body-15-settings.html'
   ];
-  const bodyHtml = await Promise.all(bodyParts.map(async p => (await fetch(p)).text()));
+  const cacheBust = "?v=" + encodeURIComponent(window.ARENA_VERSION || "dev");
+  const bodyHtml = await Promise.all(bodyParts.map(async p => (await fetch(p + cacheBust, {cache: "no-store"})).text()));
   root.innerHTML = bodyHtml.join("");
   for (const src of window.ARENA_DASHBOARD_SCRIPTS) {
     await new Promise((resolve, reject) => {
       const s = document.createElement("script");
-      s.src = src;
+      s.src = src + cacheBust;
       s.onload = resolve;
       s.onerror = () => reject(new Error("Failed to load " + src));
       document.body.appendChild(s);

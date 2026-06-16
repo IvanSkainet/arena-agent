@@ -1,5 +1,15 @@
 # Changelog
 
+## v3.1.1 — 2026-06-16
+
+### Fixed
+- Dashboard modular assets now use versioned cache-busting query strings and `Cache-Control: no-store` for `/gui/assets/*`, preventing stale cached JS/HTML fragments after upgrading from earlier modular builds.
+
+### Validation
+- BrowserAct live dashboard smoke on CachyOS: `/gui` booted, Overview rendered real data, Memory tab switch worked, `/gui/assets/*` served correctly.
+- Local/CachyOS `pytest -q`: PASS, 404 tests.
+- Local/CachyOS critical ruff and py_compile: PASS.
+
 ## v3.1.0 — 2026-06-16
 
 ### Milestone
