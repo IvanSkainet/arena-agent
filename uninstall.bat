@@ -32,13 +32,14 @@ if /i not "!CONFIRM!"=="y" (
 echo.
 echo [1/4] Stopping bridge processes...
 
-REM --- Stop NSSM service if exists ---
-where nssm >nul 2>&1
+REM --- Stop/remove Windows service if exists (NSSM or stale SCM service) ---
+sc query ArenaUnifiedBridge >nul 2>&1
 if not errorlevel 1 (
-    nssm stop ArenaUnifiedBridge >nul 2>&1
-    echo [OK] NSSM service stopped.
-    nssm remove ArenaUnifiedBridge confirm >nul 2>&1
-    echo [OK] NSSM service removed.
+    sc stop ArenaUnifiedBridge >nul 2>&1
+    where nssm >nul 2>&1
+    if not errorlevel 1 nssm remove ArenaUnifiedBridge confirm >nul 2>&1
+    sc delete ArenaUnifiedBridge >nul 2>&1
+    echo [OK] Windows service removed.
 )
 
 REM --- Stop Scheduled Task if exists ---

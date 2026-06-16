@@ -252,7 +252,18 @@ echo [4/6] Installing as system service...
 REM Stop any existing bridge service/task BEFORE killing processes
 schtasks /end /tn "ArenaUnifiedBridge" >nul 2>&1
 where nssm >nul 2>&1
-if not errorlevel 1 nssm stop ArenaUnifiedBridge >nul 2>&1
+if not errorlevel 1 (
+    nssm stop ArenaUnifiedBridge >nul 2>&1
+) else (
+    REM If NSSM is not installed but a stale SCM service exists, remove it so
+    REM diagnostics don't report an obsolete stopped service alongside the task.
+    sc query ArenaUnifiedBridge >nul 2>&1
+    if not errorlevel 1 (
+        sc stop ArenaUnifiedBridge >nul 2>&1
+        sc delete ArenaUnifiedBridge >nul 2>&1
+        echo       Removed stale Windows service ArenaUnifiedBridge.
+    )
+)
 ping -n 2 127.0.0.1 >nul
 
 REM Kill any remaining bridge processes on our port
@@ -385,8 +396,13 @@ if defined TS_URL (
     tailscale funnel status >"%TEMP%\arena_funnel_status.txt" 2>nul
     findstr /i /c:"Funnel on" /c:"proxy http" "%TEMP%\arena_funnel_status.txt" >nul 2>&1
     if errorlevel 1 (
-        echo   [INFO] Tailscale Funnel does not appear to be enabled yet.
-        echo          To publish the bridge: tailscale funnel --bg %PORT%
+        curl --max-time 8 -fsS "https://%TS_URL%/health" >nul 2>&1
+        if errorlevel 1 (
+            echo   [INFO] Tailscale Funnel does not appear to be enabled yet.
+            echo          To publish the bridge: tailscale funnel --bg %PORT%
+        ) else (
+            echo   [OK] Tailscale Funnel public health endpoint is reachable.
+        )
     ) else (
         echo   [OK] Tailscale Funnel appears active for this machine.
     )
