@@ -498,6 +498,8 @@ from arena.wiring.legacy_desktop import build_desktop_registries  # noqa: E402,F
 from arena.wiring.legacy_memory_observability import build_memory_observability_registries  # noqa: E402,F401
 from arena.wiring.legacy_tasks_skills_resources import build_tasks_skills_resources_registries  # noqa: E402,F401
 from arena.wiring.legacy_mcp_task import build_mcp_task_runtimes  # noqa: E402,F401
+from arena.wiring.legacy_observability_runtime import build_observability_runtimes  # noqa: E402,F401
+from arena.wiring.legacy_lifecycle import build_app_lifecycle  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -830,64 +832,8 @@ BIN = str(BRIDGE_DIR / "bin")
 # ============================================================================
 # Audit/webhook runtime wrappers live in arena/observability/audit_runtime.py.
 
-_audit_runtime_ctx = AuditRuntimeContext(
-    audit_path=AUDIT,
-    app_dir=APP_DIR,
-    webhooks_file=Path(os.environ.get("ARENA_AGENT_HOME", str(BRIDGE_DIR))).expanduser() / "webhooks.json",
-    utc_now=utc_now,
-    slow_executor=_SLOW_EXECUTOR,
-    log_debug=log.debug,
-)
-_audit_runtime = make_audit_runtime(_audit_runtime_ctx)
-sanitize_audit_event = _audit_runtime.sanitize_audit_event
-_load_webhooks = _audit_runtime.load_webhooks
-_save_webhooks = _audit_runtime.save_webhooks
-_fire_webhooks = _audit_runtime.fire_webhooks
-audit = _audit_runtime.audit
-read_tail = _audit_runtime.read_tail
-
-
-_error_middleware_ctx = ErrorMiddlewareContext(
-    check_rate_limit_v2=_check_rate_limit_v2,
-    check_rate_limit=_check_rate_limit,
-    record_request=_record_request,
-    log_request_response=_log_request_response,
-    cors_json_response=_cors_json_response,
-    audit=audit,
-    log_debug=log.debug,
-    log_warning=log.warning,
-    log_error=log.error,
-)
-error_middleware = make_error_middleware(_error_middleware_ctx)
-
-
-# ============================================================================
-# LOG ROTATION & DISK SAFETY (v2.1.0 — prevents disk fill)
-# ============================================================================
-# Runtime implementation lives in arena/observability/log_cleanup.py.
-
-_MAX_LOG_SIZE = 10 * 1024 * 1024
-_MAX_LOG_BACKUPS = 3
-_LOG_FILES_TO_ROTATE = [
-    APP_DIR / "bridge.log",
-    APP_DIR / "requests.jsonl",
-    APP_DIR / "audit.jsonl",
-]
-_log_cleanup_ctx = LogCleanupContext(
-    app_dir=APP_DIR,
-    log_files=_LOG_FILES_TO_ROTATE,
-    max_log_size=_MAX_LOG_SIZE,
-    max_log_backups=_MAX_LOG_BACKUPS,
-    log_info=log.info,
-    log_warning=log.warning,
-    log_critical=log.critical,
-    log_error=log.error,
-)
-_log_cleanup_runtime = make_log_cleanup_runtime(_log_cleanup_ctx)
-_rotate_file_if_oversized = _log_cleanup_runtime.rotate_file_if_oversized
-_rotate_all_logs_on_startup = _log_cleanup_runtime.rotate_all_logs_on_startup
-_check_disk_space = _log_cleanup_runtime.check_disk_space
-_log_cleanup_loop = _log_cleanup_runtime.log_cleanup_loop
+_observability_runtime_registry = build_observability_runtimes(globals())
+globals().update(_observability_runtime_registry)
 
 
 # ============================================================================
@@ -924,47 +870,9 @@ globals().update(_mcp_task_runtime_registry)
 # APP CONFIG
 # ============================================================================
 
-def _set_app_ref(app: web.Application) -> None:
-    global _app_ref
-    _app_ref = app
-
-
-def make_app(cfg: dict) -> web.Application:
-    container = build_container(globals())
-    return _make_arena_app(
-        cfg,
-        handlers=container.handlers,
-        error_middleware=error_middleware,
-        on_startup=on_startup,
-        on_cleanup=on_cleanup,
-        set_app_ref=_set_app_ref,
-    )
-
-
-def _get_shutdown_event() -> asyncio.Event | None:
-    return _shutdown_event
-
-
-_lifecycle_ctx = LifecycleContext(
-    executor=_EXECUTOR,
-    slow_executor=_SLOW_EXECUTOR,
-    init_memory_db=lambda: init_memory_db(),
-    task_runner_loop=task_runner_loop,
-    log_cleanup_loop=_log_cleanup_loop,
-    start_watchdog=_start_watchdog,
-    stop_watchdog=_stop_watchdog,
-    stop_cdp_watcher=_stop_cdp_watcher,
-    cdp_state=_cdp_state,
-    stop_grpc_server=stop_grpc_server,
-    stop_cluster_heartbeat=stop_cluster_heartbeat,
-    get_shutdown_event=_get_shutdown_event,
-    version=VERSION,
-    log_info=log.info,
-    log_debug=log.debug,
-)
-_lifecycle_runtime = make_lifecycle(_lifecycle_ctx)
-on_startup = _lifecycle_runtime.on_startup
-on_cleanup = _lifecycle_runtime.on_cleanup
+_shutdown_event: asyncio.Event | None = None
+_app_lifecycle_registry = build_app_lifecycle(globals())
+globals().update(_app_lifecycle_registry)
 
 
 # ============================================================================
@@ -1168,14 +1076,6 @@ globals().update(_tasks_skills_resources_registry)
 # ============================================================================
 # Gateway handlers now live in arena/gateway/handlers.py. Bound above via
 # make_gateway_handlers(...) to preserve public route globals.
-
-
-# ============================================================================
-# GRACEFUL SHUTDOWN
-# ============================================================================
-
-_shutdown_event: asyncio.Event | None = None
-_signal_handler = _lifecycle_runtime.signal_handler
 
 
 # ============================================================================
