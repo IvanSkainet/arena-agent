@@ -1,4 +1,4 @@
-"""Legacy unified_bridge import surface: stdlib imports."""
+"""unified_bridge import surface: stdlib imports."""
 from __future__ import annotations
 
 import argparse

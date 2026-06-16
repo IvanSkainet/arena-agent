@@ -59,7 +59,7 @@ Do not rebuild a giant inline `dashboard/index.html`.
 
 ## Compatibility layer status
 
-`arena/wiring/legacy_*` and `arena/legacy_imports/*` are transitional. They keep
+`arena/wiring/*` and `arena/imports/*` are transitional. They keep
 old imports and route wiring stable while the modular runtime is being completed.
 New features should not be added there unless the change is purely an adapter
 for an already-modular implementation.

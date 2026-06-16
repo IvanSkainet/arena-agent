@@ -1,4 +1,4 @@
-"""Top-level legacy bridge runtime/wiring orchestration.
+"""Top-level bridge runtime/wiring orchestration.
 
 Transitional composition layer used while ``unified_bridge.py`` remains a thin
 compatibility entrypoint.
@@ -7,30 +7,30 @@ from __future__ import annotations
 
 from typing import Any, MutableMapping
 
-from arena.wiring.legacy_auth_runtime import build_legacy_auth_runtime
-from arena.wiring.legacy_base import build_legacy_base_runtime
-from arena.wiring.legacy_paths import build_legacy_paths
-from arena.wiring.legacy_system_helpers import build_legacy_system_helpers
+from arena.wiring.auth_runtime import build_auth_runtime
+from arena.wiring.base_runtime import build_base_runtime
+from arena.wiring.paths_runtime import build_paths_runtime
+from arena.wiring.system_helpers import build_system_helpers
 
 
-def build_legacy_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
-    """Build legacy runtime state, wrappers, handlers and lifecycle globals."""
+def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
+    """Build runtime state, wrappers, handlers and lifecycle globals."""
     registry: dict[str, Any] = {}
 
     def update(values: dict[str, Any]) -> None:
         registry.update(values)
         g.update(values)
 
-    update(build_legacy_base_runtime(g))
+    update(build_base_runtime(g))
     update(g["build_runtime_wrappers"](g))
     update(g["build_observability_runtimes"](g))
-    update(build_legacy_paths(g))
+    update(build_paths_runtime(g))
     update(g["build_mcp_task_runtimes"](g))
     update({"_shutdown_event": None})
     update(g["build_app_lifecycle"](g))
-    update(build_legacy_auth_runtime(g))
+    update(build_auth_runtime(g))
     update(g["build_early_handler_registries"](g))
-    update(build_legacy_system_helpers(g))
+    update(build_system_helpers(g))
     update(g["build_system_public_admin_registries"](g))
     update(g["build_hardware_exec_registries"](g))
     update(g["build_memory_resource_browser_runtimes"](g))
@@ -70,4 +70,4 @@ def build_legacy_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     return registry
 
 
-__all__ = ["build_legacy_bridge_runtime"]
+__all__ = ["build_bridge_runtime"]

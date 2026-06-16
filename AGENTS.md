@@ -26,7 +26,7 @@ compatibility entrypoints or large catch-all files.
 - MCP transports/tools: `arena/mcp/`
 - Dashboard handlers/templates: `arena/gui/`, `dashboard/assets/`
 - CLI wrappers/implementations: `bin/*` wrappers and `arena/*_cli/` packages
-- Transitional compatibility wiring: `arena/wiring/legacy_*`, `arena/legacy_imports/`
+- Transitional compatibility wiring: `arena/wiring/*`, `arena/imports/`
 
 ## Validation before pushing meaningful changes
 

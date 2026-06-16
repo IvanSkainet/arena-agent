@@ -1,4 +1,4 @@
-"""Legacy app factory and lifecycle wiring."""
+"""app factory and lifecycle wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

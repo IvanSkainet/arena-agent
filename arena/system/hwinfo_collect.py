@@ -1,4 +1,4 @@
-"""Legacy hwinfo collect/normalize helpers."""
+"""hwinfo collect/normalize helpers."""
 from __future__ import annotations
 
 from arena.system.hwinfo_cim import *  # noqa: F401,F403

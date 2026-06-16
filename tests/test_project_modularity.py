@@ -92,7 +92,7 @@ def test_compatibility_entrypoints_are_thin_wrappers():
 
 def test_transitional_wiring_does_not_mutate_module_globals():
     offenders = []
-    for path in (ROOT / "arena" / "wiring").glob("legacy_*.py"):
+    for path in (ROOT / "arena" / "wiring").glob("*.py"):
         text = path.read_text(encoding="utf-8")
         if "globals().update(" in text or "ruff: noqa: F821" in text:
             offenders.append(str(path.relative_to(ROOT)))

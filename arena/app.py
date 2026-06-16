@@ -21,7 +21,7 @@ def make_app(
 ) -> web.Application:
     """Create and wire the aiohttp application.
 
-    The handler mapping is intentionally the legacy global-handler mapping during
+    The handler mapping is intentionally the global-handler mapping during
     the v3 migration. Once the container is fully typed, this can accept a
     HandlerRegistry instead without changing route registration.
     """

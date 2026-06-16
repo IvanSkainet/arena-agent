@@ -31,9 +31,9 @@ def test_normalize_inventory_hardware_merges_nvidia_and_devices():
 
 
 def test_hardware_from_inventory_result_fallback():
-    res = hardware_from_inventory_result({"ok": False, "error": "boom"}, legacy_hwinfo_fn=lambda: {"legacy": True})
+    res = hardware_from_inventory_result({"ok": False, "error": "boom"}, hwinfo_fn=lambda: {"legacy": True})
     assert res["ok"] is True
-    assert res["source"] == "legacy_hwinfo_fallback"
+    assert res["source"] == "hwinfo_fallback"
     assert res["hardware"] == {"legacy": True}
 
 

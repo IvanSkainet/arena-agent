@@ -1,4 +1,4 @@
-"""Legacy Windows-style hwinfo collector implementation."""
+"""Windows-style hwinfo collector implementation."""
 from __future__ import annotations
 
 import datetime

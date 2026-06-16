@@ -1,4 +1,4 @@
-"""Legacy unified_bridge import surface: domains imports."""
+"""unified_bridge import surface: domains imports."""
 from __future__ import annotations
 
 # Pure helper utilities now live in arena/util.py; re-exported for compatibility.

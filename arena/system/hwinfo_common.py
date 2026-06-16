@@ -1,4 +1,4 @@
-"""Common helpers for legacy hardware info collection."""
+"""Common helpers for hardware info collection."""
 from __future__ import annotations
 
 import platform

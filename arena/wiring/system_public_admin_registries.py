@@ -1,4 +1,4 @@
-"""Legacy system/admin/public handler wiring extracted from unified_bridge.py."""
+"""system/admin/public handler wiring extracted from unified_bridge.py."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

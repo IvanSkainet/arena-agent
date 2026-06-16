@@ -1,4 +1,4 @@
-"""Legacy memory and observability handler wiring."""
+"""memory and observability handler wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

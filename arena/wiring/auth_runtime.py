@@ -1,11 +1,11 @@
-"""Legacy auth runtime wiring."""
+"""auth runtime wiring."""
 from __future__ import annotations
 
 import time
 from typing import Any, MutableMapping
 
 
-def build_legacy_auth_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
+def build_auth_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     users_file = g["APP_DIR"] / "users.json"
     user_store = g["UserStore"](users_file, log_warning=g["log"].warning, log_debug=g["log"].debug)
     auth_runtime_ctx = g["AuthRuntimeContext"](
@@ -29,4 +29,4 @@ def build_legacy_auth_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["build_legacy_auth_runtime"]
+__all__ = ["build_auth_runtime"]

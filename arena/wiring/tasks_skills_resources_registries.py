@@ -1,4 +1,4 @@
-"""Legacy task, skill and resource handler/runtime wiring."""
+"""task, skill and resource handler/runtime wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

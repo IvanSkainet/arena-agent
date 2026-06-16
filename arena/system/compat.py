@@ -1,4 +1,4 @@
-"""Compatibility factories for legacy system helper functions."""
+"""Compatibility factories for system helper functions."""
 from __future__ import annotations
 
 import socket

@@ -1,4 +1,4 @@
-"""Legacy system helper wiring for unified_bridge."""
+"""system helper wiring for unified_bridge."""
 from __future__ import annotations
 
 import os
@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, MutableMapping
 
 
-def build_legacy_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
+def build_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     helpers = {
         "_check_internet_sync": g["make_check_internet_sync"](g["check_internet"]),
         "_play_beep_sync": g["make_play_beep_sync"](
@@ -41,7 +41,7 @@ def build_legacy_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     )
     helpers.update({
         "_hwinfo_sync": g["make_hwinfo_sync"](
-            collect_legacy_hwinfo_fn=g["collect_legacy_hwinfo"],
+            collect_hwinfo_fn=g["collect_hwinfo"],
             subprocess_kwargs_fn=g["_subprocess_kwargs"],
         ),
         "_inventory_sync": g["make_inventory_sync"](
@@ -59,4 +59,4 @@ def build_legacy_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     return helpers
 
 
-__all__ = ["build_legacy_system_helpers"]
+__all__ = ["build_system_helpers"]

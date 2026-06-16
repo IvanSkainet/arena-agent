@@ -1,4 +1,4 @@
-"""Legacy desktop and control lease handler wiring."""
+"""desktop and control lease handler wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

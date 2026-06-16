@@ -15,7 +15,7 @@ from arena.route_registry.domain import register_domain_routes
 def register_routes(app: web.Application, h: Mapping[str, Callable]) -> None:
     """Register all public API routes without changing route names/paths.
 
-    ``h`` is intentionally a mapping of legacy handler globals at this migration
+    ``h`` is intentionally a mapping of handler globals at this migration
     stage. A typed HandlerRegistry can replace it once the composition root is
     fully split out of unified_bridge.py.
     """

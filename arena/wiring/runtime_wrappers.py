@@ -1,4 +1,4 @@
-"""Legacy runtime wrapper functions extracted from unified_bridge.py."""
+"""runtime wrapper functions extracted from unified_bridge.py."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

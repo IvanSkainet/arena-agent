@@ -1,10 +1,10 @@
-"""Legacy path constants wiring for unified_bridge."""
+"""path constants wiring for unified_bridge."""
 from __future__ import annotations
 
 from typing import Any, MutableMapping
 
 
-def build_legacy_paths(g: MutableMapping[str, Any]) -> dict[str, Any]:
+def build_paths_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     paths = g["ArenaPaths"].from_env(g["BRIDGE_DIR"])
     return {
         "PATHS": paths,
@@ -26,4 +26,4 @@ def build_legacy_paths(g: MutableMapping[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["build_legacy_paths"]
+__all__ = ["build_paths_runtime"]

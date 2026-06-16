@@ -1,4 +1,4 @@
-"""Legacy service and browser handler wiring."""
+"""service and browser handler wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

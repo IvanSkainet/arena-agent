@@ -1,4 +1,4 @@
-"""Legacy MCP tool runtime and task-runner wiring."""
+"""MCP tool runtime and task-runner wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

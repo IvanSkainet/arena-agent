@@ -40,7 +40,7 @@ def build_handler_registry(source: Mapping[str, Any]) -> dict[str, Callable[...,
 
 
 def build_container(source: Mapping[str, Any]) -> BridgeContainer:
-    """Build the bridge composition container from a legacy globals mapping."""
+    """Build the bridge composition container from a globals mapping."""
     return BridgeContainer(handlers=build_handler_registry(source))
 
 
@@ -57,6 +57,6 @@ def build_context_handlers(
 
 
 def export_handler_attrs(target: dict[str, Any], built: Any, attr_map: Mapping[str, str]) -> None:
-    """Export selected handler attributes into a legacy globals mapping."""
+    """Export selected handler attributes into a globals mapping."""
     for route_name, attr_name in attr_map.items():
         target[route_name] = getattr(built, attr_name)

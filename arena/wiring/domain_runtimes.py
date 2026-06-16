@@ -1,4 +1,4 @@
-"""Legacy runtime object wiring extracted from unified_bridge.py."""
+"""runtime object wiring extracted from unified_bridge.py."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

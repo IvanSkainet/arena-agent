@@ -1,4 +1,4 @@
-"""Legacy unified_bridge import surface: observability system wiring imports."""
+"""unified_bridge import surface: observability system wiring imports."""
 from __future__ import annotations
 
 from arena.http import (  # noqa: E402,F401
@@ -60,7 +60,7 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.system.hwinfo_legacy import collect_legacy_hwinfo  # noqa: E402,F401
+from arena.system.hwinfo_legacy import collect_hwinfo  # noqa: E402,F401
 from arena.system.inventory_compat import (  # noqa: E402,F401
     make_hardware_from_inventory_sync,
     make_hwinfo_sync,
@@ -82,20 +82,20 @@ from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
 from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_context_handlers, build_public_handlers, build_service_handlers, build_system_handlers, export_handler_attrs  # noqa: E402,F401
-from arena.wiring.legacy_registries import build_early_handler_registries  # noqa: E402,F401
-from arena.wiring.legacy_system import build_system_public_admin_registries  # noqa: E402,F401
-from arena.wiring.legacy_hardware_exec import build_hardware_exec_registries  # noqa: E402,F401
-from arena.wiring.legacy_runtimes import build_memory_resource_browser_runtimes  # noqa: E402,F401
-from arena.wiring.legacy_service_browser import build_service_browser_registries  # noqa: E402,F401
-from arena.wiring.legacy_cdp import build_cdp_registries  # noqa: E402,F401
-from arena.wiring.legacy_desktop import build_desktop_registries  # noqa: E402,F401
-from arena.wiring.legacy_memory_observability import build_memory_observability_registries  # noqa: E402,F401
-from arena.wiring.legacy_tasks_skills_resources import build_tasks_skills_resources_registries  # noqa: E402,F401
-from arena.wiring.legacy_mcp_task import build_mcp_task_runtimes  # noqa: E402,F401
-from arena.wiring.legacy_observability_runtime import build_observability_runtimes  # noqa: E402,F401
-from arena.wiring.legacy_lifecycle import build_app_lifecycle  # noqa: E402,F401
-from arena.wiring.legacy_runtime_wrappers import build_runtime_wrappers  # noqa: E402,F401
-from arena.wiring.legacy_bridge import build_legacy_bridge_runtime  # noqa: E402,F401
+from arena.wiring.early_registries import build_early_handler_registries  # noqa: E402,F401
+from arena.wiring.system_public_admin_registries import build_system_public_admin_registries  # noqa: E402,F401
+from arena.wiring.hardware_exec_registries import build_hardware_exec_registries  # noqa: E402,F401
+from arena.wiring.domain_runtimes import build_memory_resource_browser_runtimes  # noqa: E402,F401
+from arena.wiring.service_browser_registries import build_service_browser_registries  # noqa: E402,F401
+from arena.wiring.cdp_registries import build_cdp_registries  # noqa: E402,F401
+from arena.wiring.desktop_registries import build_desktop_registries  # noqa: E402,F401
+from arena.wiring.memory_observability_registries import build_memory_observability_registries  # noqa: E402,F401
+from arena.wiring.tasks_skills_resources_registries import build_tasks_skills_resources_registries  # noqa: E402,F401
+from arena.wiring.mcp_task_runtime import build_mcp_task_runtimes  # noqa: E402,F401
+from arena.wiring.observability_runtime import build_observability_runtimes  # noqa: E402,F401
+from arena.wiring.app_lifecycle import build_app_lifecycle  # noqa: E402,F401
+from arena.wiring.runtime_wrappers import build_runtime_wrappers  # noqa: E402,F401
+from arena.wiring.bridge_runtime import build_bridge_runtime  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401

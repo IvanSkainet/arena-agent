@@ -1,4 +1,4 @@
-"""Legacy unified_bridge import surface: core imports."""
+"""unified_bridge import surface: core imports."""
 from __future__ import annotations
 
 # ============================================================================

@@ -1,4 +1,4 @@
-"""Legacy platform handler registry wiring."""
+"""platform handler registry wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping
@@ -7,7 +7,7 @@ from typing import Any, Callable
 from arena.wiring.env import RuntimeEnv
 
 
-def build_legacy_platform_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
+def build_platform_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
     env = RuntimeEnv(g)
     registry: dict[str, Callable] = {}
 

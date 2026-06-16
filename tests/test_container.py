@@ -9,7 +9,7 @@ import unified_bridge as ub  # noqa: E402
 from arena.container import BridgeContainer, build_container, build_handler_registry  # noqa: E402
 
 
-def test_build_handler_registry_filters_legacy_handler_globals():
+def test_build_handler_registry_filters_handler_globals():
     def handle_v1_test():
         pass
 

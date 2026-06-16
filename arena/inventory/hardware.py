@@ -64,7 +64,7 @@ def normalize_inventory_hardware(inv: dict[str, Any]) -> dict[str, Any]:
         "browsers": inv.get("browsers") or {},
     }
 
-    # Legacy aliases expected by older dashboard/cards.
+    # aliases expected by older dashboard/cards.
     hardware["ram_total_gb"] = memory.get("total_gb")
     hardware["ram_used_gb"] = memory.get("used_gb")
     hardware["ram_avail_gb"] = memory.get("available_gb")
@@ -75,18 +75,18 @@ def normalize_inventory_hardware(inv: dict[str, Any]) -> dict[str, Any]:
 def hardware_from_inventory_result(
     inv_result: dict[str, Any],
     *,
-    legacy_hwinfo_fn: Callable[[], dict[str, Any]],
+    hwinfo_fn: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
     """Return `/v1/hardware` response from an inventory runner result.
 
-    `legacy_hwinfo_fn` is only called when inventory collection fails, preserving
+    `hwinfo_fn` is only called when inventory collection fails, preserving
     the historical fallback behavior while keeping this module subprocess-free.
     """
     if not inv_result.get("ok"):
-        legacy = legacy_hwinfo_fn()
+        = hwinfo_fn()
         return {
             "ok": True,
-            "source": "legacy_hwinfo_fallback",
+            "source": "hwinfo_fallback",
             "hardware": legacy,
             "hwinfo": legacy,
             "inventory_error": inv_result,

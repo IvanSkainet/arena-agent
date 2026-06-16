@@ -1,4 +1,4 @@
-"""Handlers for MCP Streamable HTTP, SSE legacy and WebSocket transports."""
+"""Handlers for MCP Streamable HTTP, SSE and WebSocket transports."""
 from __future__ import annotations
 
 import asyncio
@@ -64,7 +64,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
     async def handle_sse(request: web.Request) -> web.Response:
-        """SSE legacy transport — open event stream."""
+        """SSE transport — open event stream."""
         r = ctx.require_auth(request)
         if r:
             return r
@@ -100,7 +100,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
         return resp
 
     async def handle_sse_messages(request: web.Request) -> web.Response:
-        """SSE legacy peer message endpoint."""
+        """SSE peer message endpoint."""
         r = ctx.require_auth(request)
         if r:
             return r

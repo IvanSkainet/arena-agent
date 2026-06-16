@@ -81,12 +81,12 @@ class H(BaseHTTPRequestHandler):
             return self._json(resp)
 
         if self.path.startswith("/messages"):
-            # SSE legacy peer endpoint
+            # SSE peer endpoint
             from urllib.parse import urlparse, parse_qs
             q = parse_qs(urlparse(self.path).query)
             session = (q.get("session_id") or [""])[0]
             resp = handle_rpc(msg)
-            # для legacy SSE мы должны просто принять; ответ дойдёт через SSE стрим (упрощённо: возвращаем сразу)
+            # для SSE мы должны просто принять; ответ дойдёт через SSE стрим (упрощённо: возвращаем сразу)
             self.send_response(202); self._cors(); self.end_headers()
             return
 

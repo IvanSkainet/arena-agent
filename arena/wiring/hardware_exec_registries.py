@@ -1,4 +1,4 @@
-"""Legacy hardware/inventory and exec handler wiring."""
+"""hardware/inventory and exec handler wiring."""
 from __future__ import annotations
 
 from collections.abc import MutableMapping

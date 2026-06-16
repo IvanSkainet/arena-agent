@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, MutableMapping
 
 
-def build_legacy_base_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
+def build_base_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     """Build bootstrap wrappers, logging, executors and simple constants."""
     def _ensure_session_env() -> None:
         return g["_ensure_session_env_runtime"]()
@@ -51,4 +51,4 @@ def build_legacy_base_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     }
 
 
-__all__ = ["build_legacy_base_runtime"]
+__all__ = ["build_base_runtime"]

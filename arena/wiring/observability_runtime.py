@@ -1,4 +1,4 @@
-"""Legacy audit, error middleware and env.log-cleanup runtime wiring."""
+"""audit, error middleware and env.log-cleanup runtime wiring."""
 from __future__ import annotations
 
 import os

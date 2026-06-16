@@ -7,7 +7,7 @@ from typing import Any, Callable
 
 from aiohttp import web
 
-# Legacy per-IP rate limiter.
+# per-IP rate limiter.
 _rate_limit_window: float = 60.0
 _rate_limit_max: int = 300
 _rate_limit_store: dict[str, list[float]] = {}

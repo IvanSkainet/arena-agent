@@ -42,7 +42,7 @@ def test_arena_app_factory_sets_cfg_ref_routes_and_lifecycle():
     assert cleanup in app.on_cleanup
 
 
-def test_unified_make_app_sets_legacy_app_ref():
+def test_unified_make_app_sets_app_ref():
     app = ub.make_app({
         "token": "test",
         "profile": "owner-shell",

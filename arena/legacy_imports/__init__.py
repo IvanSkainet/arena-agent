@@ -5,9 +5,9 @@ while still re-exporting historical imports and helper names.
 """
 from __future__ import annotations
 
-from arena.legacy_imports.stdlib import *  # noqa: F401,F403
-from arena.legacy_imports.core import *  # noqa: F401,F403
-from arena.legacy_imports.domains import *  # noqa: F401,F403
-from arena.legacy_imports.observability_system_wiring import *  # noqa: F401,F403
+from arena.imports.stdlib import *  # noqa: F401,F403
+from arena.imports.core import *  # noqa: F401,F403
+from arena.imports.domains import *  # noqa: F401,F403
+from arena.imports.observability_system_wiring import *  # noqa: F401,F403
 
 __all__ = [name for name in globals() if not name.startswith("__")]

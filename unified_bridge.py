@@ -31,11 +31,11 @@ if sys.platform == "win32":
     sys.modules["resource"] = MockResource()
     import resource  # noqa: E402
 
-from arena.legacy_imports import *  # noqa: F401,F403,E402
+from arena.imports import *  # noqa: F401,F403,E402
 
 
-_legacy_bridge_runtime = build_legacy_bridge_runtime(globals())
-globals().update(_legacy_bridge_runtime)
+_bridge_runtime = build_bridge_runtime(globals())
+globals().update(_bridge_runtime)
 
 
 # ============================================================================

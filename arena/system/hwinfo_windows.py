@@ -1,4 +1,4 @@
-"""Windows legacy hardware info collection via CIM."""
+"""Windows hardware info collection via CIM."""
 from __future__ import annotations
 
 import json

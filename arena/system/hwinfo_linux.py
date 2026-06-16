@@ -1,4 +1,4 @@
-"""Linux legacy hardware info collection."""
+"""Linux hardware info collection."""
 from __future__ import annotations
 
 import re
