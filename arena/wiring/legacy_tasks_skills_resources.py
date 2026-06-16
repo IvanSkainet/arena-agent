@@ -43,9 +43,9 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     registry.update({"_task_handler_ctx": task_handler_ctx, "_task_handlers": task_handlers})
 
     skill_runtime_ctx = SkillRuntimeContext(
-        skills_dir=lambda: SKILLS_DIR,
-        root_agent=lambda: ROOT_AGENT,
-        bin_dir=lambda: BIN,
+        skills_dir=lambda: g["SKILLS_DIR"],
+        root_agent=lambda: g["ROOT_AGENT"],
+        bin_dir=lambda: g["BIN"],
         subprocess_kwargs=_subprocess_kwargs,
     )
     skill_runtime = make_skill_runtime(skill_runtime_ctx)

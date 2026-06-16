@@ -497,6 +497,7 @@ from arena.wiring.legacy_cdp import build_cdp_registries  # noqa: E402,F401
 from arena.wiring.legacy_desktop import build_desktop_registries  # noqa: E402,F401
 from arena.wiring.legacy_memory_observability import build_memory_observability_registries  # noqa: E402,F401
 from arena.wiring.legacy_tasks_skills_resources import build_tasks_skills_resources_registries  # noqa: E402,F401
+from arena.wiring.legacy_mcp_task import build_mcp_task_runtimes  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -895,20 +896,6 @@ _log_cleanup_loop = _log_cleanup_runtime.log_cleanup_loop
 # MCP session state/helpers now live in arena/mcp/runtime.py.
 
 
-def _cleanup_mcp_sessions() -> int:
-    return _mcp_cleanup_sessions(MCP_SESSIONS)
-
-
-# ============================================================================
-# WEB GATEWAY WHITELIST
-# ============================================================================
-# Web Gateway whitelist/runtime helpers now live in arena/gateway/runtime.py;
-# imported above and re-exported here for compatibility.
-
-# ============================================================================
-# TASK RUNNER (integrated asyncio background)
-# ============================================================================
-
 PATHS = ArenaPaths.from_env(BRIDGE_DIR)
 ROOT_AGENT = PATHS.root_agent
 QUEUE = PATHS.queue
@@ -929,62 +916,8 @@ REPORTS_DIR = PATHS.reports_dir
 WEBHOOKS_FILE = PATHS.webhooks_file
 # BACKUPS_DIR removed in v2.5.2 — backup feature deleted
 
-
-# ============================================================================
-# MCP TOOLS REGISTRY / JSON-RPC dispatcher
-# ============================================================================
-# MCP tool registry and JSON-RPC dispatch now live in arena/mcp/tools.py.
-
-
-def _mcp_app_config() -> dict:
-    return _app_ref.get("cfg", {}) if _app_ref else {}
-
-
-_mcp_tool_ctx = McpToolContext(
-    version=VERSION,
-    bin_dir=BIN,
-    bridge_dir=BRIDGE_DIR,
-    reports_dir=REPORTS_DIR,
-    subprocess_kwargs=_subprocess_kwargs,
-    blocked_reason=blocked_reason,
-    first_word=first_word,
-    cautious_allow=CAUTIOUS_ALLOW,
-    under_root=under_root,
-    write_fact=lambda entry: _write_fact(entry),
-    load_facts=lambda: _load_facts(),
-    audit=audit,
-    app_config=_mcp_app_config,
-    common_status=lambda cfg: common_status(cfg),
-    skills_list_sync_with_cache=_skills_list_sync_with_cache,
-    skills_run_sync=lambda *args, **kwargs: _skills_run_sync(*args, **kwargs),
-)
-_mcp_tool_runtime = make_mcp_tool_runtime(_mcp_tool_ctx)
-MCP_TOOLS = _mcp_tool_runtime.tools
-run_local = _mcp_tool_runtime.run_local
-run_sd = _mcp_tool_runtime.run_sd
-text_content = _mcp_tool_runtime.text_content
-call_tool = _mcp_tool_runtime.call_tool
-handle_rpc = _mcp_tool_runtime.handle_rpc
-
-
-
-
-_task_runner_ctx = TaskRunnerContext(
-    inbox=INBOX,
-    running=RUNNING,
-    done=DONE,
-    failed=FAILED,
-    blocked_reason=blocked_reason,
-    cleanup_mcp_sessions=_cleanup_mcp_sessions,
-    utc_now=utc_now,
-    log_info=log.info,
-    log_error=log.error,
-)
-_task_runner_runtime = make_task_runner_runtime(_task_runner_ctx)
-move_atomic = _task_runner_runtime.move_atomic
-task_ensure_dirs = _task_runner_runtime.ensure_dirs
-task_run_one = _task_runner_runtime.run_one
-task_runner_loop = _task_runner_runtime.runner_loop
+_mcp_task_runtime_registry = build_mcp_task_runtimes(globals())
+globals().update(_mcp_task_runtime_registry)
 
 
 # ============================================================================
