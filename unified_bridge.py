@@ -500,6 +500,7 @@ from arena.wiring.legacy_tasks_skills_resources import build_tasks_skills_resour
 from arena.wiring.legacy_mcp_task import build_mcp_task_runtimes  # noqa: E402,F401
 from arena.wiring.legacy_observability_runtime import build_observability_runtimes  # noqa: E402,F401
 from arena.wiring.legacy_lifecycle import build_app_lifecycle  # noqa: E402,F401
+from arena.wiring.legacy_runtime_wrappers import build_runtime_wrappers  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -574,230 +575,8 @@ _app_ref: Any = None
 # below preserves the historical `emit_event(event_type, data)` helper.
 
 
-async def emit_event(event_type: str, data: dict | None = None) -> None:
-    return await _events_emit_event(event_type, data, utc_now_fn=utc_now)
-
-
-# ============================================================================
-# PHASE 3: Plugin/Hot-Reload System for Skills
-# ============================================================================
-_skills_cache_obj: SkillsCache | None = None
-
-
-def _get_skills_cache() -> SkillsCache:
-    global _skills_cache_obj
-    if _skills_cache_obj is None:
-        _skills_cache_obj = SkillsCache(skills_dir=SKILLS_DIR, scan_fn=_skills_list_sync, ttl=5.0, hot_reload=True)
-    return _skills_cache_obj
-
-
-def _skills_list_sync_with_cache() -> dict:
-    """Scan skills with caching and hot-reload support."""
-    return _get_skills_cache().list()
-
-
-def _skills_cache_reset() -> None:
-    """Reset cached skills so the next list call rescans the filesystem."""
-    _get_skills_cache().reset()
-
-
-
-
-# ============================================================================
-# PHASE 3: Request/Response Logging
-# ============================================================================
-_REQ_LOG_FILE = APP_DIR / "requests.jsonl"
-_REQ_LOG_MAX_BYTES = 10 * 1024 * 1024  # 10MB before rotation
-_REQ_LOG_BACKUP_COUNT = 3
-
-
-def _log_request_response(method: str, path: str, status: int, duration: float,
-                           req_id: str, peer: str = "", error: str = "") -> None:
-    """Log request/response to requests.jsonl for observability."""
-    return request_log_response(
-        log_file=_REQ_LOG_FILE,
-        app_dir=APP_DIR,
-        utc_now_fn=utc_now,
-        method=method,
-        path=path,
-        status=status,
-        duration=duration,
-        req_id=req_id,
-        peer=peer,
-        error=error,
-        lock=request_log_lock,
-        max_bytes=_REQ_LOG_MAX_BYTES,
-        backup_count=_REQ_LOG_BACKUP_COUNT,
-    )
-
-
-
-
-# ============================================================================
-# PHASE 3: Health Watchdog (auto-restart, memory/CPU monitoring, alerts)
-# ============================================================================
-# Watchdog runtime and handler now live in arena/watchdog/. Wrappers preserve
-# historical helper names used by startup/cleanup code.
-
-
-def _start_watchdog() -> None:
-    _watchdog_start(
-        utc_now_fn=utc_now,
-        emit_event_fn=emit_event,
-        log_info=log.info,
-        log_warning=log.warning,
-        log_error=log.error,
-    )
-
-
-def _stop_watchdog() -> None:
-    _watchdog_stop(log_info=log.info)
-
-
-# ============================================================================
-# PHASE 3: Multi-User Auth with Roles
-# ============================================================================
-# User store lives in arena/auth/users.py; auth runtime helpers live in
-# arena/auth/runtime.py. Bind compatibility globals here.
-_USERS_FILE = APP_DIR / "users.json"
-_user_store = UserStore(_USERS_FILE, log_warning=log.warning, log_debug=log.debug)
-_auth_runtime_ctx = AuthRuntimeContext(
-    user_store=_user_store,
-    rate_limit_lock=_rate_limit_lock,
-    rate_limit_store=_rate_limit_store,
-    cors_json_response=_cors_json_response,
-    log_warning=log.warning,
-    now=time.time,
-)
-_auth_runtime = make_auth_runtime(_auth_runtime_ctx)
-_load_users = _auth_runtime.load_users
-check_auth_with_role = _auth_runtime.check_auth_with_role
-
-
-# ============================================================================
-# PHASE 3: Batch Operations API
-# ============================================================================
-# Batch operation handler now lives in arena/batch/handlers.py; bound below via
-# make_batch_handlers(...) to preserve the public route global.
-
-
-# ============================================================================
-# PHASE 3: Browser Session Profiles
-# ============================================================================
-# Browser session profile handlers now live in arena/profiles/handlers.py.
-# The wrapper preserves the historical `_ensure_profiles_dir()` helper name.
-
-
-def _ensure_profiles_dir() -> Path:
-    return _profiles_ensure_profiles_dir()
-
-
-# ============================================================================
-# PHASE 3: Prometheus Alerts Configuration
-# ============================================================================
-# Alert configuration/status handler now lives in arena/observability/alerts.py;
-# imported above and re-exported here for compatibility.
-
-
-# ============================================================================
-# PHASE 4: Built-in TLS/HTTPS Support
-# ============================================================================
-# TLS config/runtime helpers and handler now live in arena/tls/handlers.py;
-# imported above and re-exported here for compatibility.
-
-
-def _generate_self_signed_cert() -> tuple[str, str]:
-    return _tls_generate_self_signed_cert(log_info=log.info, log_warning=log.warning)
-
-
-def _get_tailscale_cert() -> tuple[str, str]:
-    return _tls_get_tailscale_cert(log_info=log.info)
-
-
-# ============================================================================
-# PHASE 4: gRPC-style Secondary Interface
-# ============================================================================
-# gRPC-style secondary interface runtime and management handler now live in
-# arena/grpc/. Imported above and re-exported here for compatibility.
-
-
-# ============================================================================
-# PHASE 4: Live Dashboard v2
-# ============================================================================
-# Dashboard v2 HTML/template handler now lives in arena/gui/handlers.py.
-
-
-# ============================================================================
-# PHASE 4: Rate Limiting v2 (per-user, per-endpoint with X-RateLimit-* headers)
-# ============================================================================
-# Enhanced rate limit state lives in arena/rate_limit.py.
-
-
-def _check_rate_limit_v2(request: web.Request) -> web.Response | None:
-    return rl_check_rate_limit_v2(
-        request,
-        check_auth_with_role_fn=check_auth_with_role,
-        cors_json_response_fn=_cors_json_response,
-    )
-
-
-# Rate-limit configuration/stat handler now lives in
-# arena/observability/ratelimit_handlers.py; bound below via
-# make_rate_limit_handlers(...) to preserve the public route global.
-
-
-# ============================================================================
-# PHASE 4: Skill Sandboxing (isolated execution with resource limits)
-# ============================================================================
-# Sandbox runtime/config and handler now live in arena/sandbox/. The wrapper
-# below preserves the historical `_run_sandboxed(...)` helper signature used by
-# v2 compatibility code and tests.
-
-
-async def _run_sandboxed(cmd: str, timeout: int = 30, memory_mb: int = 256) -> dict:
-    return await _sandbox_run_sandboxed(
-        cmd,
-        timeout=timeout,
-        memory_mb=memory_mb,
-        root_agent=ROOT_AGENT,
-        decode_output_fn=decode_output,
-    )
-
-
-# ============================================================================
-# PHASE 4: Clustering / High Availability
-# ============================================================================
-# Cluster runtime state/helpers and route handler now live in arena/cluster/.
-# Wrappers below preserve historical helper names for compatibility.
-
-
-def _get_node_id() -> str:
-    return _cluster_get_node_id()
-
-
-async def _cluster_heartbeat_loop() -> None:
-    await _cluster_runtime_heartbeat_loop(log_error=log.error)
-
-
-# ============================================================================
-# PHASE 4: API Versioning (/v2/ endpoints with deprecation headers)
-# ============================================================================
-# v2 compatibility API handlers and deprecation metadata now live in
-# arena/api_v2/handlers.py; imported above and re-exported here for middleware
-# and route compatibility.
-
-
-# ============================================================================
-# PHASE 4: OpenTelemetry Tracing
-# ============================================================================
-# OpenTelemetry-style tracing state/helpers and route handlers now live in
-# arena/observability/tracing.py; imported above and re-exported here for
-# compatibility with existing middleware/metrics references.
-
-
-
-def _check_rate_limit(request: web.Request) -> web.Response | None:
-    return rl_check_rate_limit(request, cors_json_response_fn=_cors_json_response)
+_runtime_wrapper_registry = build_runtime_wrappers(globals())
+globals().update(_runtime_wrapper_registry)
 
 CAUTIOUS_ALLOW = {
     "echo", "pwd", "ls", "dir", "tree", "find", "fd", "rg", "grep", "cat", "type",
@@ -878,6 +657,22 @@ globals().update(_app_lifecycle_registry)
 # ============================================================================
 # AUTH HELPER
 # ============================================================================
+# User store lives in arena/auth/users.py; auth runtime helpers live in
+# arena/auth/runtime.py. Bind compatibility globals here.
+_USERS_FILE = APP_DIR / "users.json"
+_user_store = UserStore(_USERS_FILE, log_warning=log.warning, log_debug=log.debug)
+_auth_runtime_ctx = AuthRuntimeContext(
+    user_store=_user_store,
+    rate_limit_lock=_rate_limit_lock,
+    rate_limit_store=_rate_limit_store,
+    cors_json_response=_cors_json_response,
+    log_warning=log.warning,
+    now=time.time,
+)
+_auth_runtime = make_auth_runtime(_auth_runtime_ctx)
+_load_users = _auth_runtime.load_users
+check_auth_with_role = _auth_runtime.check_auth_with_role
+
 # check_auth/require_auth implementations live in arena/auth/runtime.py.
 check_auth = _auth_runtime.check_auth
 require_auth = _auth_runtime.require_auth
