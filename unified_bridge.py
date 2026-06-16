@@ -459,6 +459,15 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
+from arena.system.hwinfo_legacy import collect_legacy_hwinfo  # noqa: E402,F401
+from arena.system.compat import (  # noqa: E402,F401
+    make_check_internet_sync,
+    make_common_status,
+    make_doctor_sync,
+    make_play_beep_sync,
+    make_sysinfo_cim_sync,
+    make_sysinfo_sync,
+)
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, CdpInterceptHandlerContext, CdpAdvancedHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
@@ -467,6 +476,7 @@ from arena.routes import register_routes  # noqa: E402,F401
 from arena.app import make_app as _make_arena_app  # noqa: E402,F401
 from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiringContext, SystemWiringContext, build_admin_handlers, build_container, build_context_handlers, build_public_handlers, build_service_handlers, build_system_handlers, export_handler_attrs  # noqa: E402,F401
 from arena.wiring.legacy_registries import build_early_handler_registries  # noqa: E402,F401
+from arena.wiring.legacy_system import build_system_public_admin_registries  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1015,89 +1025,37 @@ require_auth = _auth_runtime.require_auth
 _early_handler_registry = build_early_handler_registries(globals())
 globals().update(_early_handler_registry)
 
-def _check_internet_sync() -> bool:
-    return check_internet()
-
-def _doctor_sync(token: str) -> dict:
-    return run_doctor(
-        version=VERSION,
-        token=token,
-        bridge_dir=BRIDGE_DIR,
-        memory_dir=MEMORY_FILE.parent,
-        missions_dir=MISSIONS_DIR,
-        facts_count_fn=lambda: len(_load_facts()),
-        internet_check_fn=_check_internet_sync,
-        home_dir=Path.home(),
-    )
-
-
-def _play_beep_sync(beep_type: str, freq: int, dur: int) -> dict:
-    return play_beep(beep_type, freq, dur, subprocess_kwargs_fn=_subprocess_kwargs)
-def _sysinfo_cim_sync() -> tuple[int, int]:
-    return sysinfo_cim_cpu_counts(subprocess_kwargs_fn=_subprocess_kwargs)
-
-def _sysinfo_sync(root) -> dict:
-    return collect_sysinfo(
-        root=root,
-        clean_platform_name_fn=get_clean_platform_name,
-        subprocess_kwargs_fn=_subprocess_kwargs,
-    )
-
-def common_status(cfg: dict) -> dict:
-    return {
-        "ok": True,
-        "service": "arena-unified-bridge",
-        "version": VERSION,
-        "host": socket.gethostname(),
-        "platform": get_clean_platform_name(),
-        "python": sys.version.split()[0],
-        "profile": cfg["profile"],
-        "root": str(cfg["root"]),
-        "auth_required_for_exec": True,
-        "active_exec": cfg["active_exec"],
-        "max_concurrent": cfg["max_concurrent"],
-        "audit": str(AUDIT),
-    }
-
-
-_system_handler_registry = build_system_handlers(SystemWiringContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    common_status=lambda cfg: common_status(cfg),
+_check_internet_sync = make_check_internet_sync(check_internet)
+_doctor_sync = make_doctor_sync(
+    run_doctor_fn=run_doctor,
     version=VERSION,
-    clean_platform_name=get_clean_platform_name,
-    doctor_sync=_doctor_sync,
-    sysinfo_sync=_sysinfo_sync,
-    play_beep_sync=_play_beep_sync,
-))
-globals().update(_system_handler_registry)
-
-
-_admin_handler_registry = build_admin_handlers(AdminWiringContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    audit=audit,
-    default_token_file=TOKEN_FILE,
-    root_agent=ROOT_AGENT,
-    subprocess_kwargs=_subprocess_kwargs,
-))
-globals().update(_admin_handler_registry)
-
-
-_public_handler_registry = build_public_handlers(PublicWiringContext(
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    metrics=BRIDGE_METRICS,
+    bridge_dir=BRIDGE_DIR,
+    memory_dir=MEMORY_FILE.parent,
+    missions_dir=MISSIONS_DIR,
+    facts_count_fn=lambda: len(_load_facts()),
+    internet_check_fn=_check_internet_sync,
+    home_dir=Path.home(),
+)
+_play_beep_sync = make_play_beep_sync(
+    play_beep_fn=play_beep,
+    subprocess_kwargs_fn=_subprocess_kwargs,
+)
+_sysinfo_cim_sync = make_sysinfo_cim_sync(
+    sysinfo_cim_cpu_counts_fn=sysinfo_cim_cpu_counts,
+    subprocess_kwargs_fn=_subprocess_kwargs,
+)
+_sysinfo_sync = make_sysinfo_sync(
+    collect_sysinfo_fn=collect_sysinfo,
+    clean_platform_name_fn=get_clean_platform_name,
+    subprocess_kwargs_fn=_subprocess_kwargs,
+)
+common_status = make_common_status(
     version=VERSION,
-    now=time.time,
-    hostname=socket.gethostname,
-    bridge_port=_get_bridge_port,
-))
-globals().update(_public_handler_registry)
+    audit_path=AUDIT,
+    clean_platform_name_fn=get_clean_platform_name,
+)
+_system_public_admin_registry = build_system_public_admin_registries(globals())
+globals().update(_system_public_admin_registry)
 
 
 # ============================================================================
