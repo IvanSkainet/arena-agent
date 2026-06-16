@@ -594,7 +594,7 @@ arena-bridge/
 └── mcp/                  ← MCP configuration
 ```
 
-See [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md), [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md), [`docs/V3_RELEASE_CHECKLIST.md`](docs/V3_RELEASE_CHECKLIST.md), and [`docs/MOBILE_SUPPORT_ROADMAP.md`](docs/MOBILE_SUPPORT_ROADMAP.md) for domain maps, release gates, mobile planning, and guidance for humans and AI coding agents.
+See [`AGENTS.md`](AGENTS.md), [`docs/AI_CODEBASE_NAVIGATION.md`](docs/AI_CODEBASE_NAVIGATION.md), [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md), [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md), [`docs/V3_RELEASE_CHECKLIST.md`](docs/V3_RELEASE_CHECKLIST.md), and [`docs/MOBILE_SUPPORT_ROADMAP.md`](docs/MOBILE_SUPPORT_ROADMAP.md) for domain maps, release gates, mobile planning, and guidance for humans and AI coding agents.
 
 ---
 
