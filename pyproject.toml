@@ -1,7 +1,7 @@
 [project]
 name = "arena-unified-bridge"
-version = "3.0.0-beta.2"
-description = "Cross-platform local automation bridge for AI agents — one process, one port, one Python file."
+version = "3.0.0-rc.1"
+description = "Cross-platform local automation bridge for AI agents — one process, one port, modular Python architecture."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

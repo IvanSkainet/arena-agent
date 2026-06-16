@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.0.0-rc.1 — 2026-06-16
+
+### Milestone
+- Release candidate for the stable modular `v3.0.0` line.
+- v3 remains API-compatible with the v2 bridge surface while replacing the old monolith with focused modules.
+
+### Changed
+- Version metadata updated from `3.0.0-beta.2` to `3.0.0-rc.1`.
+- README now describes the RC stabilization state and the current 98-line `unified_bridge.py` compatibility entrypoint.
+- Added a mobile/Android support roadmap for post-`v3.0.0` planning without making mobile work a stable-release blocker.
+
+### Validation target
+- Local `pytest -q` must pass before tagging.
+- Fresh release-zip install checks are required on CachyOS/Linux and Windows before promoting this RC to stable.
+- Expected stress gates: CachyOS `PASS=18`; Windows `PASS=15 SKIP=3` with `pending-win32` desktop skips documented.
+
 ## v3.0.0-beta.2 — 2026-06-16
 
 ### Fixed

@@ -5,7 +5,7 @@ large `unified_bridge.py` implementation with focused domain packages.
 
 ## Current status
 
-- `unified_bridge.py` is a thin compatibility/CLI entrypoint (~165 lines).
+- `unified_bridge.py` is a thin compatibility/CLI entrypoint (98 lines).
 - Public routes, handler globals and legacy `import unified_bridge as ub` usage
   remain available through compatibility import/wiring layers.
 - New development should happen in `arena/<domain>/...`, not in

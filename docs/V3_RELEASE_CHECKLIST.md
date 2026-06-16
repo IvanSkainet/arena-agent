@@ -64,11 +64,22 @@ Expected:
 - [ ] GitHub release notes include validation results and migration/install guidance.
 - [ ] For stable, release is not marked as prerelease.
 
-## Recommended promotion path
+## Current v3 promotion ledger
 
 ```text
 v3.0.0-alpha.1  -> architecture complete
-v3.0.0-beta.1   -> Windows validation + architecture guard tests
-v3.0.0-rc.1     -> install/upgrade/package validation
-v3.0.0          -> stable replacement for v2.12.0
+v3.0.0-beta.1   -> Linux/Windows modular beta validation
+v3.0.0-beta.2   -> installer hotfix candidate, stale Windows service cleanup
+v3.0.0-rc.1     -> release-zip/fresh-install validation gate
+v3.0.0          -> stable replacement for v2.12.0 on master
 ```
+
+## RC/stable promotion notes
+
+- [ ] Tag and package `v3.0.0-rc.1` only after local tests pass.
+- [ ] Fresh-install `v3.0.0-rc.1` ZIP on CachyOS/Linux.
+- [ ] Fresh-install `v3.0.0-rc.1` ZIP on Windows.
+- [ ] Re-run stress v4 with restart on both machines.
+- [ ] Fast-forward or merge the modular v3 tree into `master` after RC validation.
+- [ ] Tag stable `v3.0.0` from `master` after final smoke/stress checks.
+- [ ] Keep `v2.12.0` available as the old monolith tag/release.

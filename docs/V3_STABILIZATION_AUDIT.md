@@ -2,13 +2,13 @@
 
 Date: 2026-06-16
 Branch: `v3-modular-core`
-Baseline release candidate: `v3.0.0-alpha.1`
+Baseline release candidate: `v3.0.0-rc.1`
 
 ## Summary
 
 The v3 modularization is functionally complete:
 
-- `unified_bridge.py` is a thin compatibility/CLI entrypoint (~100-165 lines depending on docstring edits).
+- `unified_bridge.py` is a thin compatibility/CLI entrypoint (98 lines at RC prep).
 - Runtime code lives under focused `arena/*` packages.
 - Route registration, handler contexts and compatibility wiring are split into domain modules.
 - Public API compatibility is preserved through `arena/legacy_imports/*` and `arena/wiring/legacy_*`.
@@ -65,8 +65,10 @@ features make them grow.
 
 ## Release blockers for stable v3.0.0
 
-- Windows fresh install and stress validation still required.
-- Release package install/uninstall smoke should be repeated from the v3 zip.
+- Fresh install from the `v3.0.0-rc.1` release ZIP on CachyOS/Linux.
+- Fresh install from the `v3.0.0-rc.1` release ZIP on Windows.
+- Stress v4 with restart on both platforms after the RC install.
+- Fast-forward/merge modular v3 into `master` only after RC validation.
 - Optional: add CI matrix for Linux/Windows Python versions if release process allows.
 
 ## Non-blocking improvements after v3 stable
@@ -84,3 +86,11 @@ At `v3.0.0-alpha.1`:
 - Live CachyOS/KDE `pytest -q`: PASS, 392 tests.
 - Live stress v4 with restart: PASS=18.
 - Live `/health`, `/v1/version`, `/v1/status`, `/api-docs`, `/v1/capabilities`, `/gateway/tools`, `/v1/cdp/status` smoke: PASS.
+
+
+At `v3.0.0-beta.1`/`v3.0.0-beta.2` stabilization:
+
+- Local/live `pytest -q`: PASS, 400 tests.
+- CachyOS/KDE stress v4 with restart: PASS=18.
+- Windows stress v4 with restart: PASS=15 SKIP=3 (`pending-win32` desktop backend skips expected).
+- Windows installer stale SCM/NSSM service cleanup validated with Scheduled Task fallback.

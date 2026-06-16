@@ -6,7 +6,7 @@
 One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v3.0.0--beta.2-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v3.0.0--rc.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,12 +44,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.0.0-beta.2
+### 🆕 What's new in v3.0.0-rc.1
 
-- **First modular release:** the former one-file bridge has been split into focused `arena/*` domain packages while preserving the public REST/MCP/WebSocket API.
-- **Thin compatibility entrypoint:** `unified_bridge.py` is now a ~165-line compatibility/CLI layer instead of a giant server implementation.
-- **AI-friendly architecture:** handlers, runtime helpers, contexts, routes, wiring, CDP, desktop, service, memory, skills, observability, and admin logic now live in predictable folders.
-- **Validated migration:** full `pytest -q` and live CachyOS/KDE stress-test v4 with restart checks pass on the modular branch.
+- **Release-candidate modular bridge:** v3 is now in RC stabilization for promotion to stable `v3.0.0`.
+- **Thin compatibility entrypoint:** `unified_bridge.py` is now a 98-line compatibility/CLI layer instead of a giant server implementation.
+- **AI-friendly architecture:** handlers, runtime helpers, contexts, routes, wiring, CDP, desktop, service, memory, skills, observability, and admin logic live in predictable folders.
+- **Installer hardening:** Windows stale-service cleanup, Scheduled Task fallback, Linux local-source installs, Tailscale-first public access, and optional Cloudflared checks are included.
+- **Validated migration path:** local tests plus live CachyOS/KDE and Windows stress-test gates are used before stable promotion.
 
 ---
 
@@ -57,7 +58,7 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 
 ### 1. Download the latest release
 
-> ⚠️ **Always download from [Releases](https://github.com/IvanSkainet/arena-agent/releases).** The `master` branch is the development branch and may contain unstable or untested changes. Only tagged releases are production-ready.
+> ⚠️ **Always download from [Releases](https://github.com/IvanSkainet/arena-agent/releases).** Branches may contain development changes during active releases. Only tagged releases are production-ready.
 
 Go to **[latest release](https://github.com/IvanSkainet/arena-agent/releases/latest)** and download the ZIP archive. Extract it to a folder of your choice, for example `C:\Users\You\arena-bridge` (Windows) or `~/arena-bridge` (Linux/macOS).
 
@@ -555,7 +556,7 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 
 ```
 arena-bridge/
-├── unified_bridge.py     ← thin compatibility/CLI entrypoint (~165 lines)
+├── unified_bridge.py     ← thin compatibility/CLI entrypoint (98 lines)
 ├── arena/                ← modular bridge implementation
 │   ├── app.py            ← aiohttp app factory
 │   ├── routes.py         ← route registry facade
@@ -593,7 +594,7 @@ arena-bridge/
 └── mcp/                  ← MCP configuration
 ```
 
-See [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md), [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md), and [`docs/V3_RELEASE_CHECKLIST.md`](docs/V3_RELEASE_CHECKLIST.md) for domain maps, release gates, and guidance for humans and AI coding agents.
+See [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md), [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md), [`docs/V3_RELEASE_CHECKLIST.md`](docs/V3_RELEASE_CHECKLIST.md), and [`docs/MOBILE_SUPPORT_ROADMAP.md`](docs/MOBILE_SUPPORT_ROADMAP.md) for domain maps, release gates, mobile planning, and guidance for humans and AI coding agents.
 
 ---
 
@@ -650,7 +651,7 @@ Cross-platform installer auto-detects `apt`, `dnf`, `pacman`, `apk`, `zypper`, `
   - Tailscale status checks
 - **Not stealth software.** The bridge runs as a visible service/scheduled task with readable command lines and documented process names. It is designed to be inspectable and removable, not hidden.
 
-When in doubt, read `unified_bridge.py` — it's a single Python file.
+When in doubt, start with `unified_bridge.py` — it is the thin compatibility entrypoint, and the implementation lives in focused `arena/*` modules.
 
 ---
 
@@ -901,6 +902,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - [x] Linux Wayland recording in `mission-record` (currently x11grab only)
 - [ ] AnythingLLM / Open WebUI integration recipes in `skills/`
 - [x] Webhook notifications for events
+- [ ] Android/mobile support after v3.0.0 stable (see `docs/MOBILE_SUPPORT_ROADMAP.md`)
 - [ ] Code and repository cleanup (remove unused test files, old configs)
 
 ---
