@@ -32,6 +32,7 @@ if sys.platform == "win32":
     import resource  # noqa: E402
 
 from arena.imports import *  # noqa: F401,F403,E402
+from arena.wiring.bridge_runtime import build_bridge_runtime  # noqa: E402
 
 
 _bridge_runtime = build_bridge_runtime(globals())
