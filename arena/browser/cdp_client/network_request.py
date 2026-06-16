@@ -1,7 +1,7 @@
 """CDP network monitor components."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
 class NetworkRequest:
     """Represents a single network request/response cycle.

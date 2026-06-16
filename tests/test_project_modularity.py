@@ -128,3 +128,38 @@ def test_dashboard_bootstrap_preserves_original_flex_layout():
     assert "root.replaceWith" in html
     assert "root.innerHTML = bodyHtml.join" not in html
     assert "#arena-dashboard-root{display:contents}" in css
+
+
+def test_no_removed_cdp_browser_modules_references_remain():
+    offenders = []
+    for path in _product_files():
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "cdp_browser_modules" in text:
+            offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == []
+
+
+def test_modularized_cli_wrappers_import_cleanly(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    env = {**os.environ, "ARENA_AGENT_HOME": str(tmp_path / "arena-home")}
+    checks = [
+        [sys.executable, "bin/mcp_marketplace.py", "list"],
+        [sys.executable, "scripts/memory.py", "--help"],
+        [sys.executable, "bin/memory_recall.py", "--help"],
+        [sys.executable, "scripts/mcp_stream_server.py", "--help"],
+        [sys.executable, "scripts/mcp_ws_server.py", "--help"],
+        [sys.executable, "scripts/desktop_manager.py", "--help"],
+        [sys.executable, "scripts/hwinfo.py", "--full"],
+        [sys.executable, "scripts/agent_helpers.py", "--help"],
+        [sys.executable, "scripts/project_git.py", "--help"],
+        [sys.executable, "scripts/mission_manager.py", "--help"],
+    ]
+    failures = []
+    for cmd in checks:
+        cp = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True, timeout=30)
+        if cp.returncode != 0:
+            failures.append((cmd, cp.returncode, cp.stdout[-500:], cp.stderr[-500:]))
+    assert failures == []

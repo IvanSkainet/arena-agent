@@ -1,10 +1,10 @@
 """Extracted module from scripts/cdp_browser.py."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
-from cdp_browser_modules.process_discovery import _resolve_browser_binary, _build_session_env, _build_chromium_cmd
-from cdp_browser_modules.process_helpers import _ts, _drain_stderr, _kill_port_processes, _write_diag_file
+from arena.browser.cdp_client.process_discovery import _resolve_browser_binary, _build_session_env, _build_chromium_cmd
+from arena.browser.cdp_client.process_helpers import _ts, _drain_stderr, _kill_port_processes, _write_diag_file
 
 def launch_browser(port: int = DEFAULT_PORT, headless: bool = True) -> subprocess.Popen:
     """Launch a browser with remote debugging enabled. Returns the Popen object.

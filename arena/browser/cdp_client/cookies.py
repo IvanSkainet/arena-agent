@@ -1,9 +1,9 @@
 """High-level CDP cookie manager."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.cookie_crud import CDPCookieCrudMixin
-from cdp_browser_modules.cookie_profiles import CDPCookieProfileMixin
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.cookie_crud import CDPCookieCrudMixin
+from arena.browser.cdp_client.cookie_profiles import CDPCookieProfileMixin
 
 
 class CDPCookieManager(CDPCookieCrudMixin, CDPCookieProfileMixin):

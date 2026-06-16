@@ -71,20 +71,20 @@ DEFAULT_TIMEOUT = 30  # seconds
 RECONNECT_ATTEMPTS = 3
 RECONNECT_DELAY = 1  # seconds
 
-from cdp_browser_modules.process import (
+from arena.browser.cdp_client.process import (
     find_browser_exe, _resolve_browser_binary, _build_session_env, _build_chromium_cmd,
     _ts, _drain_stderr, _kill_port_processes, _write_diag_file, launch_browser,
 )
-from cdp_browser_modules.tabs_http import list_tabs, get_websocket_url, get_new_tab_url, close_tab
-from cdp_browser_modules.websocket_adapter import WebsocketsCDPAdapter, _WSMessage
-from cdp_browser_modules.sync_browser import SyncCDPBrowser
-from cdp_browser_modules.network_monitor import NetworkRequest, CDPNetworkMonitor
-from cdp_browser_modules.interceptor import InterceptRule, CDPNetworkInterceptor
-from cdp_browser_modules.cookies import CDPCookieManager
-from cdp_browser_modules.browser import CDPBrowser
-from cdp_browser_modules.tab import CDPTab
-from cdp_browser_modules.tab_manager import CDPTabManager
-from cdp_browser_modules.cli import main
+from arena.browser.cdp_client.tabs_http import list_tabs, get_websocket_url, get_new_tab_url, close_tab
+from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter, _WSMessage
+from arena.browser.cdp_client.sync_browser import SyncCDPBrowser
+from arena.browser.cdp_client.network_monitor import NetworkRequest, CDPNetworkMonitor
+from arena.browser.cdp_client.interceptor import InterceptRule, CDPNetworkInterceptor
+from arena.browser.cdp_client.cookies import CDPCookieManager
+from arena.browser.cdp_client.browser import CDPBrowser
+from arena.browser.cdp_client.tab import CDPTab
+from arena.browser.cdp_client.tab_manager import CDPTabManager
+from arena.browser.cdp_client.cli import main
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """CDP cookie manager components."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
 class CDPCookieCrudMixin:
     def _ensure_active(self) -> None:

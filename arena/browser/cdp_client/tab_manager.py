@@ -1,12 +1,12 @@
 """High-level CDP tab manager facade."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.tab_manager_browser_ws import CDPTabManagerBrowserWsMixin
-from cdp_browser_modules.tab_manager_callbacks import CDPTabManagerCallbackMixin
-from cdp_browser_modules.tab_manager_connect import CDPTabManagerConnectMixin
-from cdp_browser_modules.tab_manager_ops import CDPTabManagerOpsMixin
-from cdp_browser_modules.tab_manager_targets import CDPTabManagerTargetMixin
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.tab_manager_browser_ws import CDPTabManagerBrowserWsMixin
+from arena.browser.cdp_client.tab_manager_callbacks import CDPTabManagerCallbackMixin
+from arena.browser.cdp_client.tab_manager_connect import CDPTabManagerConnectMixin
+from arena.browser.cdp_client.tab_manager_ops import CDPTabManagerOpsMixin
+from arena.browser.cdp_client.tab_manager_targets import CDPTabManagerTargetMixin
 
 
 class CDPTabManager(

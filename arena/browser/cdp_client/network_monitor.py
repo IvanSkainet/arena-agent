@@ -1,9 +1,9 @@
 """High-level CDP network monitor."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.network_har import CDPNetworkHarMixin
-from cdp_browser_modules.network_request import NetworkRequest
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.network_har import CDPNetworkHarMixin
+from arena.browser.cdp_client.network_request import NetworkRequest
 
 
 class CDPNetworkMonitor(CDPNetworkHarMixin):

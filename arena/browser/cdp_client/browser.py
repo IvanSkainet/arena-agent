@@ -1,12 +1,12 @@
 """Async CDP browser facade."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.browser_events import CDPBrowserEventsMixin
-from cdp_browser_modules.browser_page import CDPBrowserPageMixin
-from cdp_browser_modules.process import launch_browser
-from cdp_browser_modules.tabs_http import get_websocket_url
-from cdp_browser_modules.websocket_adapter import WebsocketsCDPAdapter
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.browser_events import CDPBrowserEventsMixin
+from arena.browser.cdp_client.browser_page import CDPBrowserPageMixin
+from arena.browser.cdp_client.process import launch_browser
+from arena.browser.cdp_client.tabs_http import get_websocket_url
+from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
 
 class CDPBrowser(CDPBrowserEventsMixin, CDPBrowserPageMixin):

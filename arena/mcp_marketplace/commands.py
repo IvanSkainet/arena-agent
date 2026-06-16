@@ -1,7 +1,12 @@
 """MCP marketplace commands."""
 from __future__ import annotations
 
-from arena.mcp_marketplace.registry import *  # noqa: F401,F403
+import json
+import os
+import subprocess
+import sys
+
+from arena.mcp_marketplace.registry import _load_config, _load_registry, _save_config
 
 def cmd_registry(_args):
     reg = _load_registry()

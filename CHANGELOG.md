@@ -4,12 +4,16 @@
 
 ### Fixed
 - Fixed the modular dashboard layout regression introduced by the asset split: body fragments now replace the bootstrap root so `.sidebar` and `.main` are again direct flex children of `body`, matching the pre-split DOM layout.
-- Added a dashboard bootstrap regression test so future changes cannot reintroduce `root.innerHTML` wrapping.
+- Fixed `scripts/cdp_browser.py` and `arena/browser/cdp_client/*` stale imports that still referenced the removed `cdp_browser_modules` package.
+- Fixed `bin/mcp_marketplace.py list` after modularization by importing underscored registry helpers explicitly instead of relying on star imports.
+- Added dashboard bootstrap and wrapper import regression tests so these failures cannot pass unnoticed again.
 
 ### Validation
-- Local `pytest -q`: PASS, 405 tests.
+- Local `pytest -q`: PASS, 407 tests.
 - Local critical ruff and py_compile: PASS.
-- CachyOS source/live validation required before release publication.
+- CachyOS source pytest/ruff/py_compile: PASS.
+- CachyOS installed wrapper smoke found the stale import bugs above and passed after fixes.
+- CachyOS live install, GUI BrowserAct smoke and stress are required before release publication.
 
 ## v3.1.1 — 2026-06-16
 

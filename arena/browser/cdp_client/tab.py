@@ -1,9 +1,9 @@
 """Single CDP tab abstraction."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.tab_connection import CDPTabConnectionMixin
-from cdp_browser_modules.tab_ops import CDPTabOpsMixin
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.tab_connection import CDPTabConnectionMixin
+from arena.browser.cdp_client.tab_ops import CDPTabOpsMixin
 
 
 class CDPTab(CDPTabConnectionMixin, CDPTabOpsMixin):

@@ -1,10 +1,10 @@
 """Extracted CDP browser component."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.tabs_http import get_new_tab_url, close_tab, list_tabs
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.tabs_http import get_new_tab_url, close_tab, list_tabs
 
-from cdp_browser_modules.browser_input import CDPBrowserInputMixin
+from arena.browser.cdp_client.browser_input import CDPBrowserInputMixin
 
 class CDPBrowserPageMixin(CDPBrowserInputMixin):
     async def navigate(self, url: str, wait: bool = True,

@@ -1,10 +1,10 @@
 """High-level CDP network interceptor."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
-from cdp_browser_modules.intercept_rule import InterceptRule
-from cdp_browser_modules.intercept_rules import CDPNetworkInterceptRulesMixin
-from cdp_browser_modules.intercept_runtime import CDPNetworkInterceptRuntimeMixin
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.intercept_rule import InterceptRule
+from arena.browser.cdp_client.intercept_rules import CDPNetworkInterceptRulesMixin
+from arena.browser.cdp_client.intercept_runtime import CDPNetworkInterceptRuntimeMixin
 
 
 class CDPNetworkInterceptor(CDPNetworkInterceptRuntimeMixin, CDPNetworkInterceptRulesMixin):

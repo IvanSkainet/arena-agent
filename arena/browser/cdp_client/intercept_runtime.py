@@ -1,9 +1,9 @@
 """CDP network interception components."""
 from __future__ import annotations
 
-from cdp_browser_modules.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
-from cdp_browser_modules.intercept_rule import InterceptRule
+from arena.browser.cdp_client.intercept_rule import InterceptRule
 
 class CDPNetworkInterceptRuntimeMixin:
     async def start(self, patterns: Optional[List[Dict]] = None) -> None:
