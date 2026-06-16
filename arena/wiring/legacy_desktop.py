@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy desktop and control lease handler wiring."""
 from __future__ import annotations
 

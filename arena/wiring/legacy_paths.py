@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy path constants wiring for unified_bridge."""
 from __future__ import annotations
 

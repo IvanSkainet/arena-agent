@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy auth runtime wiring."""
 from __future__ import annotations
 

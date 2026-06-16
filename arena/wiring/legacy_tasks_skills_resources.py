@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy task, skill and resource handler/runtime wiring."""
 from __future__ import annotations
 

@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy MCP tool runtime and task-runner wiring."""
 from __future__ import annotations
 

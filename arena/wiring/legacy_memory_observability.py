@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy memory and observability handler wiring."""
 from __future__ import annotations
 

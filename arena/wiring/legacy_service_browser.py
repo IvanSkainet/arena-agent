@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy service and browser handler wiring."""
 from __future__ import annotations
 

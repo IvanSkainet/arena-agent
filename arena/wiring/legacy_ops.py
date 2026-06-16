@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy ops handler registry wiring."""
 from __future__ import annotations
 

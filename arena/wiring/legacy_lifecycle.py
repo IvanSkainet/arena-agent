@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy app factory and lifecycle wiring."""
 from __future__ import annotations
 

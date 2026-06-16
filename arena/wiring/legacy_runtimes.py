@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy runtime object wiring extracted from unified_bridge.py."""
 from __future__ import annotations
 

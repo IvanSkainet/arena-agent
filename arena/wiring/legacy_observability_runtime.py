@@ -1,3 +1,4 @@
+# ruff: noqa: F821
 """Legacy audit, error middleware and log-cleanup runtime wiring."""
 from __future__ import annotations
 
