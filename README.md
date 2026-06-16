@@ -593,7 +593,7 @@ arena-bridge/
 └── mcp/                  ← MCP configuration
 ```
 
-See [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md) for a domain-by-domain map intended for humans and AI coding agents.
+See [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md), [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md), and [`docs/V3_RELEASE_CHECKLIST.md`](docs/V3_RELEASE_CHECKLIST.md) for domain maps, release gates, and guidance for humans and AI coding agents.
 
 ---
 
