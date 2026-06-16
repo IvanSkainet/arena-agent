@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.0.0-beta.1 — 2026-06-16
+
+### Milestone
+- First beta of the modular v3 bridge line.
+- Linux/CachyOS and Windows 10 validation both pass on the modular architecture.
+
+### Fixed
+- Windows installer no longer prints the broken `Bridge is healthyHEALTH_VERSION` message.
+- Windows installer no longer fails on repeated installs with a missing `cloudflared_done` label.
+- Linux/macOS installer now defaults to the v3 modular branch and supports local-source installs, avoiding accidental v2.12 installs from `master` during v3 testing.
+- Linux/macOS uninstaller now stops Cloudflared quick tunnel processes and removes bundled `cloudflared` binaries when present.
+
+### Improved
+- Windows and Linux installers now report/verify optional component status more clearly: cloudflared, SuperPowers, BrowserAct, Camoufox and Tailscale Funnel.
+- Added architecture boundary tests and unified bridge compatibility surface tests.
+- Added `docs/MODULE_MAP.md`, `docs/V3_RELEASE_CHECKLIST.md`, and `docs/V3_STABILIZATION_AUDIT.md`.
+
+### Validation
+- Local `pytest -q`: PASS, 400 tests.
+- Live CachyOS/KDE `pytest -q`: PASS, 400 tests.
+- Live CachyOS/KDE stress v4 with restart: PASS=18.
+- Windows 10 stress v4 with restart: PASS=15 SKIP=3 (desktop backend intentionally pending-win32).
+
 ## v3.0.0-alpha.1 — 2026-06-16
 
 ### Milestone
