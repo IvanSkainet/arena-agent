@@ -483,6 +483,7 @@ from arena.container import AdminWiringContext, PublicWiringContext, ServiceWiri
 from arena.wiring.legacy_registries import build_early_handler_registries  # noqa: E402,F401
 from arena.wiring.legacy_system import build_system_public_admin_registries  # noqa: E402,F401
 from arena.wiring.legacy_hardware_exec import build_hardware_exec_registries  # noqa: E402,F401
+from arena.wiring.legacy_runtimes import build_memory_resource_browser_runtimes  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1120,51 +1121,8 @@ globals().update(_hardware_exec_registry)
 # HANDLERS — Dashboard API endpoints
 # ============================================================================
 
-_memory_runtime_ctx = MemoryRuntimeContext(
-    db_path=MEMORY_DB,
-    jsonl_path=MEMORY_FILE,
-    audit_path=AUDIT,
-    read_tail=read_tail,
-    utc_now=utc_now,
-    log_error=log.error,
-)
-_memory_runtime = make_memory_runtime(_memory_runtime_ctx)
-init_memory_db = _memory_runtime.init_memory_db
-_load_facts = _memory_runtime.load_facts
-_search_facts_paged = _memory_runtime.search_facts_paged
-_write_fact = _memory_runtime.write_fact
-_delete_fact = _memory_runtime.delete_fact
-_recall_sync = _memory_runtime.recall_sync
-_recall_digest_sync = _memory_runtime.recall_digest_sync
-
-
-
-
-
-
-
-
-_resource_runtime_ctx = ResourceRuntimeContext(
-    missions_dir=MISSIONS_DIR,
-    reports_dir=REPORTS_DIR,
-    hooks_dir=HOOKS_DIR,
-    agents_dir=AGENTS_DIR,
-    subagents_dir=SUBAGENTS_DIR,
-    bin_dir=BIN,
-    subprocess_kwargs=_subprocess_kwargs,
-)
-_resource_runtime = make_resource_runtime(_resource_runtime_ctx)
-_list_missions_sync = _resource_runtime.list_missions_sync
-_list_reports_sync = _resource_runtime.list_reports_sync
-
-
-_browser_runtime_ctx = BrowserRuntimeContext(
-    version=VERSION,
-    validate_url=_validate_url,
-)
-_browser_runtime = make_browser_runtime(_browser_runtime_ctx)
-_browser_search_sync = _browser_runtime.browser_search_sync
-_browser_read_sync = _browser_runtime.browser_read_sync
+_memory_resource_browser_runtime_registry = build_memory_resource_browser_runtimes(globals())
+globals().update(_memory_resource_browser_runtime_registry)
 
 
 # ============================================================================
@@ -1265,10 +1223,6 @@ def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
 
 
 # Browser fetch/search runtime wrappers live in arena/browser/runtime.py.
-_browser_dump_sync = _browser_runtime.browser_dump_sync
-_browser_fetch_sync = _browser_runtime.browser_fetch_sync
-_browser_head_sync = _browser_runtime.browser_head_sync
-
 
 _browser_fetch_handler_ctx = BrowserFetchHandlerContext(
     require_auth=require_auth,
