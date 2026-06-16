@@ -1,4 +1,4 @@
-"""Compatibility factories for admin helper globals."""
+"""Runtime sync factories for admin helper globals."""
 from __future__ import annotations
 
 import os

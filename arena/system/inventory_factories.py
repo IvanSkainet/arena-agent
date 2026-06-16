@@ -1,4 +1,4 @@
-"""Compatibility factories for inventory/hardware helpers."""
+"""Runtime sync factories for inventory/hardware helpers."""
 from __future__ import annotations
 
 import sys
@@ -42,7 +42,7 @@ def make_hardware_from_inventory_sync(
 ):
     def _hardware_from_inventory_sync(timeout: int = 45) -> dict:
         """Return one normalized hardware/system inventory payload."""
-        # Deliberately resolve through globals_ref to preserve monkeypatch/backcompat
+        # Deliberately resolve through globals_ref to preserve monkeypatch
         # behavior for tests and callers that replace unified_bridge._inventory_sync.
         inv_result = globals_ref["_inventory_sync"](None, "json", timeout)
         return hardware_from_inventory_result_fn(inv_result, hwinfo_fn=globals_ref["_hwinfo_sync"])

@@ -60,13 +60,13 @@ from arena.system.sound import (  # noqa: E402,F401
     play_beep,
     winsound_melody,
 )
-from arena.system.hwinfo_legacy import collect_hwinfo  # noqa: E402,F401
-from arena.system.inventory_compat import (  # noqa: E402,F401
+from arena.system.hwinfo_fallback import collect_hwinfo  # noqa: E402,F401
+from arena.system.inventory_factories import (  # noqa: E402,F401
     make_hardware_from_inventory_sync,
     make_hwinfo_sync,
     make_inventory_sync,
 )
-from arena.system.compat import (  # noqa: E402,F401
+from arena.system.sync_factories import (  # noqa: E402,F401
     make_check_internet_sync,
     make_common_status,
     make_doctor_sync,
