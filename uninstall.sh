@@ -95,7 +95,24 @@ else
 fi
 
 echo ""
-echo "[3/4] Removing bridge directory..."
+echo "[3/5] Stopping Cloudflared quick tunnels (if active)..."
+CF_PIDS="$(pgrep -f 'cloudflared.*tunnel.*--url.*127.0.0.1' 2>/dev/null || true)"
+if [ -n "$CF_PIDS" ]; then
+    kill $CF_PIDS 2>/dev/null || true
+    sleep 1
+    CF_PIDS="$(pgrep -f 'cloudflared.*tunnel.*--url.*127.0.0.1' 2>/dev/null || true)"
+    [ -n "$CF_PIDS" ] && kill -9 $CF_PIDS 2>/dev/null || true
+    ok "cloudflared quick tunnel processes stopped"
+else
+    ok "No cloudflared quick tunnel processes found"
+fi
+if [ -f "$INSTALL_DIR/cloudflared" ] || [ -f "$INSTALL_DIR/cloudflared.exe" ]; then
+    rm -f "$INSTALL_DIR/cloudflared" "$INSTALL_DIR/cloudflared.exe" 2>/dev/null || true
+    ok "Bundled cloudflared binary removed"
+fi
+
+echo ""
+echo "[4/5] Removing bridge directory..."
 if [ -d "$INSTALL_DIR" ]; then
     rm -rf "$INSTALL_DIR"
     ok "Directory removed: $INSTALL_DIR"
@@ -104,7 +121,7 @@ else
 fi
 
 echo ""
-echo "[4/4] Removing old installation directories (if any)..."
+echo "[5/5] Removing old installation directories (if any)..."
 for OLD_DIR in "$HOME/.arena-local-bridge" "$HOME/.arena-agent"; do
     if [ -d "$OLD_DIR" ]; then
         rm -rf "$OLD_DIR"

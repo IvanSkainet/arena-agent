@@ -13,8 +13,9 @@ fi
 set -euo pipefail
 
 REPO="IvanSkainet/arena-agent"
-BRANCH="master"
-INSTALL_DIR="${ARENA_INSTALL_DIR:-$HOME/arena-bridge}"
+BRANCH="${ARENA_BRANCH:-v3-modular-core}"
+INSTALL_DIR="${ARENA_INSTALL_DIR:-${HOME:-$(pwd)}/arena-bridge}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${ARENA_PORT:-8765}"
 PROFILE="owner-shell"
 
@@ -66,40 +67,25 @@ echo ""
 
 # --- Step 1: Download or update the repo ---
 if [ -d "$INSTALL_DIR/.git" ]; then
-    info "Updating existing installation at $INSTALL_DIR ..."
+    info "Updating existing installation at $INSTALL_DIR (branch: $BRANCH) ..."
     cd "$INSTALL_DIR"
-    # Try normal pull first
-    if git pull --ff-only 2>/dev/null; then
-        : # success
+    if git fetch origin "$BRANCH" --depth 1 2>/dev/null && git checkout -B "$BRANCH" FETCH_HEAD 2>/dev/null; then
+        ok "Updated to origin/$BRANCH"
     else
-        # Pull failed — likely due to untracked files conflicting with incoming files
-        # Capture the error message to find conflicting files
-        PULL_ERR=$(git pull --ff-only 2>&1 || true)
-        # Extract conflicting file paths from error message (works with any locale)
-        CONFLICTING=$(echo "$PULL_ERR" | grep -oE '[^ ]+SKILL\.md' || true)
-        if [ -n "$CONFLICTING" ]; then
-            info "Resolving untracked file conflicts..."
-            echo "$CONFLICTING" | while read -r f; do
-                if [ -f "$INSTALL_DIR/$f" ]; then
-                    rm -f "$INSTALL_DIR/$f"
-                elif [ -f "$f" ]; then
-                    rm -f "$f"
-                fi
-            done
-            # Retry pull
-            if git pull --ff-only 2>/dev/null; then
-                ok "Update successful after resolving conflicts"
-            else
-                # Last resort: force checkout
-                git checkout --theirs . 2>/dev/null || true
-                git pull --ff-only 2>/dev/null || warn "git pull still failed, using existing code"
-            fi
-        else
-            warn "git pull failed, using existing code"
-        fi
+        warn "git update to $BRANCH failed, trying ff-only pull on current branch"
+        git pull --ff-only 2>/dev/null || warn "git pull failed, using existing code"
     fi
+elif [ -f "$SCRIPT_DIR/unified_bridge.py" ] && [ -d "$SCRIPT_DIR/arena" ]; then
+    info "Installing from local source: $SCRIPT_DIR -> $INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR"
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -a           --exclude '.git' --exclude '__pycache__' --exclude '.pytest_cache'           --exclude 'token.txt' --exclude 'audit.jsonl' --exclude 'requests.jsonl' --exclude 'bridge.log'           --exclude 'queue/running/' --exclude 'queue/done/' --exclude 'queue/failed/'           "$SCRIPT_DIR/" "$INSTALL_DIR/"
+    else
+        (cd "$SCRIPT_DIR" && tar --exclude='.git' --exclude='__pycache__' --exclude='.pytest_cache' -cf - .) | (cd "$INSTALL_DIR" && tar -xf -)
+    fi
+    cd "$INSTALL_DIR"
 else
-    info "Downloading Arena Unified Bridge from GitHub ..."
+    info "Downloading Arena Unified Bridge from GitHub (branch: $BRANCH) ..."
     git clone --depth 1 -b "$BRANCH" "https://github.com/$REPO.git" "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 fi
@@ -302,10 +288,13 @@ fi
 # repository stays lightweight. The bridge looks for it on PATH first, then in
 # the install directory, so either source works.
 CF_BIN="$INSTALL_DIR/cloudflared"
+CF_CURRENT=""
 if command -v cloudflared >/dev/null 2>&1; then
-    ok "cloudflared found on PATH"
+    CF_CURRENT="$(cloudflared --version 2>/dev/null || true)"
+    ok "cloudflared found on PATH${CF_CURRENT:+ — $CF_CURRENT}"
 elif [ -f "$CF_BIN" ]; then
-    ok "cloudflared present in install directory"
+    CF_CURRENT="$($CF_BIN --version 2>/dev/null || true)"
+    ok "cloudflared present in install directory${CF_CURRENT:+ — $CF_CURRENT}"
 else
     UNAME_S="$(uname -s)"
     UNAME_M="$(uname -m)"
@@ -338,12 +327,25 @@ else
         fi
     fi
 fi
+if [ -n "${CF_CURRENT:-}" ]; then
+    CF_LATEST=""
+    if command -v curl >/dev/null 2>&1; then
+        CF_LATEST="$(curl -fsSL --max-time 20 https://api.github.com/repos/cloudflare/cloudflared/releases/latest 2>/dev/null | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("tag_name", ""))' 2>/dev/null || true)"
+    fi
+    [ -n "$CF_LATEST" ] && info "cloudflared latest release: $CF_LATEST" || warn "Could not verify cloudflared latest release (network/GitHub unavailable)"
+fi
 
 # --- 6b: SuperPowers (agentic skills framework) ---
 SP_DIR="$INSTALL_DIR/skills/superpowers/skills"
 if [ -d "$SP_DIR" ]; then
     SP_COUNT=$(ls -1 "$SP_DIR" 2>/dev/null | wc -l)
     ok "SuperPowers already installed — $SP_COUNT skills in skills/superpowers/skills/"
+    if [ -d "$INSTALL_DIR/skills/superpowers/.git" ]; then
+        SP_REV="$(git -C "$INSTALL_DIR/skills/superpowers" rev-parse --short HEAD 2>/dev/null || true)"
+        [ -n "$SP_REV" ] && info "SuperPowers revision: $SP_REV"
+        info "Checking SuperPowers updates..."
+        git -C "$INSTALL_DIR/skills/superpowers" pull --ff-only --quiet 2>/dev/null && ok "SuperPowers is up to date or fast-forwarded" || warn "SuperPowers update check failed/skipped"
+    fi
 else
     # Check if bundled in repo (skills/superpowers/skills/ ships with the repo)
     BUNDLED_SP="$INSTALL_DIR/skills/superpowers/skills"
@@ -369,7 +371,12 @@ fi
 
 # --- 6c: BrowserAct (browser automation for AI agents) ---
 if command -v browser-act >/dev/null 2>&1; then
-    ok "BrowserAct already installed: $(browser-act --version 2>/dev/null || echo 'installed')"
+    BA_VERSION="$(browser-act --version 2>/dev/null || echo 'installed')"
+    ok "BrowserAct already installed: $BA_VERSION"
+    if command -v uv >/dev/null 2>&1; then
+        info "Checking BrowserAct updates via uv..."
+        uv tool upgrade browser-act-cli >/dev/null 2>&1 && ok "BrowserAct is up to date or upgraded" || warn "BrowserAct update check failed/skipped"
+    fi
 else
     # Check for uv
     if command -v uv >/dev/null 2>&1; then
@@ -418,6 +425,8 @@ if command -v browser-act >/dev/null 2>&1; then
         CAMOUFOX_PATH="$($BA_PYTHON -m camoufox path 2>/dev/null)" || CAMOUFOX_PATH=""
         if [ -n "$CAMOUFOX_PATH" ] && [ -x "$CAMOUFOX_PATH" ]; then
             ok "Camoufox stealth browser ready: $CAMOUFOX_PATH"
+            info "Checking Camoufox browser files..."
+            $BA_PYTHON -m camoufox fetch >/dev/null 2>&1 && ok "Camoufox browser files are present/current" || warn "Camoufox fetch/update failed or skipped"
         else
             if ask "Download Camoufox stealth browser? (~300MB, enables BrowserAct stealth mode)"; then
                 info "Downloading Camoufox browser binary..."
@@ -593,7 +602,7 @@ fi
 info "Waiting for bridge to start..."
 for i in $(seq 1 20); do
     if curl -fsS "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
-        ok "Bridge is healthy! v${VERSION}"
+        ok "Bridge is healthy. v${VERSION}"
         break
     fi
     sleep 1
@@ -657,6 +666,14 @@ if [ -n "$TS_URL" ]; then
     echo ""
     echo " Your secure Tailscale URL:"
     echo "   $TS_URL"
+    if command -v tailscale >/dev/null 2>&1; then
+        if tailscale funnel status 2>/dev/null | grep -Eiq 'Funnel on|proxy http'; then
+            ok "Tailscale Funnel appears active for this machine."
+        else
+            info "Tailscale Funnel does not appear to be enabled yet."
+            echo "   To publish the bridge: tailscale funnel --bg $PORT"
+        fi
+    fi
 fi
 echo ""
 echo " Background service/agent:"
