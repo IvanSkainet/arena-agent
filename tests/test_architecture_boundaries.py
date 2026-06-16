@@ -52,7 +52,7 @@ def test_core_modular_directories_exist():
         "contexts",
         "route_registry",
         "wiring",
-        "imports",
+        "runtime_deps",
         "browser",
         "desktop",
         "service",

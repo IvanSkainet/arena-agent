@@ -97,3 +97,18 @@ def test_transitional_wiring_does_not_mutate_module_globals():
         if "globals().update(" in text or "ruff: noqa: F821" in text:
             offenders.append(str(path.relative_to(ROOT)))
     assert offenders == []
+
+
+def test_runtime_dependency_namespace_is_facade_only():
+    assert not (ROOT / "arena" / "imports").exists()
+    offenders = []
+    for path in (ROOT / "arena").rglob("*.py"):
+        rel = path.relative_to(ROOT)
+        if rel.parts[:2] in [("arena", "runtime_deps"), ("arena", "compat_surface")]:
+            continue
+        text = path.read_text(encoding="utf-8")
+        if "arena.runtime_deps" in text:
+            offenders.append(str(rel))
+    unified = (ROOT / "unified_bridge.py").read_text(encoding="utf-8")
+    assert "arena.runtime_deps" in unified
+    assert offenders == []

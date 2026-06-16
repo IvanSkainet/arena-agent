@@ -59,7 +59,7 @@ Do not rebuild a giant inline `dashboard/index.html`.
 
 ## Compatibility layer status
 
-`arena/wiring/*` and `arena/imports/*` are transitional. They keep
+`arena/wiring/*` and `arena/runtime_deps/*` are transitional. They keep
 old imports and route wiring stable while the modular runtime is being completed.
 New features should not be added there unless the change is purely an adapter
 for an already-modular implementation.
@@ -75,5 +75,4 @@ protect against regressions:
   installers that are validated by fresh install tests.
 - wrapper entrypoints must stay thin.
 
-If a file approaches the limit, split it by responsibility instead of increasing
-the limit.
+If a file approaches the limit, split it by responsibility. If a larger file is truly unavoidable, add a narrow allowlist entry with a comment explaining why rather than raising the global limit casually.

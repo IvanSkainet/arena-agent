@@ -31,7 +31,7 @@ if sys.platform == "win32":
     sys.modules["resource"] = MockResource()
     import resource  # noqa: E402
 
-from arena.imports import *  # noqa: F401,F403,E402
+from arena.runtime_deps import *  # noqa: F401,F403,E402
 from arena.wiring.bridge_runtime import build_bridge_runtime  # noqa: E402
 
 
