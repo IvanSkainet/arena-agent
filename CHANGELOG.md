@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.1.2 — 2026-06-16
+
+### Fixed
+- Fixed the modular dashboard layout regression introduced by the asset split: body fragments now replace the bootstrap root so `.sidebar` and `.main` are again direct flex children of `body`, matching the pre-split DOM layout.
+- Added a dashboard bootstrap regression test so future changes cannot reintroduce `root.innerHTML` wrapping.
+
+### Validation
+- Local `pytest -q`: PASS, 405 tests.
+- Local critical ruff and py_compile: PASS.
+- CachyOS source/live validation required before release publication.
+
 ## v3.1.1 — 2026-06-16
 
 ### Fixed

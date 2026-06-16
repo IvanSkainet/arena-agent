@@ -120,3 +120,11 @@ def test_unified_bridge_uses_isolated_runtime_namespace():
     assert "from arena.runtime_deps import *" not in text
     assert "build_runtime_namespace(_runtime_deps)" in text
     assert "apply_compat_exports(globals(), _runtime_namespace, _bridge_runtime)" in text
+
+
+def test_dashboard_bootstrap_preserves_original_flex_layout():
+    html = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "dashboard" / "assets" / "dashboard.css").read_text(encoding="utf-8")
+    assert "root.replaceWith" in html
+    assert "root.innerHTML = bodyHtml.join" not in html
+    assert "#arena-dashboard-root{display:contents}" in css
