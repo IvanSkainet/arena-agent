@@ -1,82 +1,90 @@
-# v3 Modular Architecture Plan
+# Arena Unified Bridge v3 Modular Architecture
 
-This branch (`v3-modular-core`) keeps the public API compatible while gradually
-turning `unified_bridge.py` into a thin entrypoint/router/wiring layer.
+The v3 line keeps the public bridge API stable while replacing the historical
+large `unified_bridge.py` implementation with focused domain packages.
 
-## Rules
+## Current status
 
-1. **Do not break public endpoints.** Existing `/v1/*`, MCP, dashboard, and gateway paths remain stable.
-2. **Extract one domain at a time.** Every extraction must pass `pytest` and `dev/stress-test-v4.py`.
-3. **Prefer pure modules first.** Subprocess/OS-specific logic belongs in runtime modules; HTTP handlers should be thin.
-4. **Use explicit context injection for handlers.** Handler modules must not import `unified_bridge.py`.
-5. **Keep compatibility shims during migration.** Old internal import paths may re-export from new package paths until v3 stabilizes.
-6. **Domain packages own their handlers.** Prefer `arena/<domain>/handlers.py` over a large central handlers package; `arena/handlers/*` exists only as a migration shim.
+- `unified_bridge.py` is a thin compatibility/CLI entrypoint (~165 lines).
+- Public routes, handler globals and legacy `import unified_bridge as ub` usage
+  remain available through compatibility import/wiring layers.
+- New development should happen in `arena/<domain>/...`, not in
+  `unified_bridge.py`.
 
-## Current package layout
+## Top-level flow
+
+```text
+unified_bridge.py
+  └─ imports compatibility surface from arena/legacy_imports
+  └─ build_legacy_bridge_runtime(globals())
+       ├─ bootstrap/logging/executors/path constants
+       ├─ auth + runtime wrappers
+       ├─ app/lifecycle
+       ├─ system/public/admin/service/browser/CDP/desktop/domain wiring
+       └─ handler globals for route compatibility
+
+arena/app.py
+  └─ creates aiohttp app, installs middleware, registers routes
+
+arena/routes.py
+  └─ delegates to arena/route_registry/* route groups
+```
+
+## Domain map
 
 ```text
 arena/
-  constants.py
-  control.py
-  security.py
-  util.py
-  http.py
-  capabilities.py
-  handler_context.py
+  app.py, routes.py, route_registry/  # app creation and route registration
+  contexts/                           # handler dependency dataclasses
+  wiring/                             # composition and compatibility wiring
+  legacy_imports/                     # unified_bridge import compatibility
 
-  service/
-    runtime.py
-    handlers.py
-
-  inventory/
-    runner.py
-    hardware.py
-    handlers.py
-
-  handlers/        # temporary compatibility shims during migration
-    hardware.py    # -> arena.inventory.handlers
-    service.py     # -> arena.service.handlers
+  admin/                              # token regeneration, Tailscale/cloudflared
+  api_v2/                             # /v2 compatibility API
+  auth/                               # users, auth runtime, auth handlers
+  browser/                            # browser fetch/read/browse facade
+  browser/cdp/                        # CDP runtime, handlers and diagnostics
+  desktop/                            # desktop screenshots/input/windows/focus
+  events/                             # WebSocket event stream
+  exec/                               # command execution and process tracking
+  files/                              # upload/download
+  gateway/                            # web gateway and command whitelist
+  grpc/                               # gRPC-style secondary interface
+  inventory/                          # inventory runner + hardware normalization
+  mcp/                                # MCP transports and tool dispatch
+  memory/                             # SQLite memory store, recall, handlers
+  observability/                      # metrics, audit, logs, alerts, tracing
+  profiles/                           # browser session profiles
+  resources/                          # missions/reports/hooks/agents/subagents
+  sandbox/                            # sandboxed command execution
+  service/                            # service info/status/restart/capabilities
+  skills/                             # skill registry/cache/install/run
+  system/                             # version/status/sysinfo/doctor/sound/hwinfo
+  tasks/                              # task queue and async task runner
+  tls/                                # TLS/Tailscale certificate helpers
+  watchdog/                           # memory/CPU watchdog and restart safety
 ```
 
-Compatibility shims currently exist for:
+## Rules for future agents
 
-```text
-arena/service_runtime.py  -> arena.service.runtime
-arena/hardware.py         -> arena.inventory.hardware
-arena/inventory_runner.py -> arena.inventory.runner
-arena/handlers/service.py -> arena.service.handlers
-arena/handlers/hardware.py -> arena.inventory.handlers
-```
-
-## Extraction order
-
-Done:
-
-1. `arena/service/runtime.py` — service/process/restart runtime helpers.
-2. `arena/capabilities.py` — capability map builder.
-3. `arena/inventory/hardware.py` — `/v1/hardware` normalization.
-4. `arena/inventory/runner.py` — `scripts/inventory.py` subprocess runner.
-5. `arena/http.py` — CORS JSON response helpers.
-6. `arena/inventory/handlers.py` — `/v1/inventory`, `/v1/hardware`, `/v1/hwinfo` handlers.
-7. `arena/service/handlers.py` — `/v1/service/info`, `/v1/sys/svc`, `/v1/capabilities`, `/v1/restart` handlers.
-8. Re-homed handler implementations into their domain packages; `arena/handlers/*` remains as compatibility shims.
-
-Next candidates:
-
-1. `arena/tasks/queue.py` and `arena/handlers/tasks.py`.
-2. `arena/skills/*` and `arena/handlers/skills.py`.
-3. `arena/desktop/*` and `arena/handlers/desktop.py`.
-4. `arena/browser/*` and browser/CDP handlers.
-5. `arena/app.py` / `arena/routes.py` after enough handlers are extracted.
-
-## Validation gate
-
-Before pushing meaningful extraction commits:
+1. Do not add new business logic to `unified_bridge.py`.
+2. Preserve public endpoints and handler names unless a migration document says otherwise.
+3. Put route registration in `arena/route_registry/*`.
+4. Put handler dependency dataclasses in `arena/contexts/*` and re-export via
+   `arena/handler_context.py` if legacy import compatibility is needed.
+5. Keep handlers thin; put OS/subprocess/state logic in runtime/helper modules.
+6. Avoid new mini-monoliths: split files by natural boundaries before they grow
+   beyond roughly 180-220 lines, except pure templates/docs.
+7. For meaningful changes, run:
 
 ```bash
 pytest -q
-python dev/stress-test-v4.py --url https://MACHINE.tail.ts.net --token TOKEN --timeout 45 --restart
+python dev/stress-test-v4.py --url <bridge-url> --token <token> --timeout 45 --restart
 ```
 
-`SKIP` is acceptable only when `/v1/capabilities` reports a backend unavailable.
-`FAIL` blocks the extraction.
+## Compatibility layers
+
+`arena/legacy_imports/*` and `arena/wiring/legacy_*` are transitional. They keep
+legacy imports and globals stable while the rest of the project uses focused
+modules. They should be simplified over time, but they should not accumulate new
+domain logic.

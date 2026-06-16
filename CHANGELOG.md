@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.0.0-alpha.1 — 2026-06-16
+
+### Milestone
+- First modular Arena Unified Bridge release.
+- `unified_bridge.py` reduced from the old monolithic implementation to a thin compatibility/CLI entrypoint (~165 lines).
+- Public REST, MCP, WebSocket, dashboard, gateway and installer behavior remain compatibility-preserving.
+
+### Changed
+- Split the bridge into focused `arena/*` domain packages: app factory, route registry, contexts, wiring, browser/CDP, desktop, service, system, memory, skills, tasks, observability, admin, MCP, TLS, sandbox and cluster modules.
+- Added `arena/legacy_imports/*` and `arena/wiring/legacy_*` compatibility layers so existing `import unified_bridge as ub` integrations continue to work during the v3 transition.
+- Updated README project layout and contribution guidance for the modular architecture.
+
+### Validation
+- Full local and live `pytest -q` pass.
+- Live CachyOS/KDE `dev/stress-test-v4.py --restart` pass with `Summary: PASS=18`.
+
 ## v2.12.0 — 2026-06-10
 
 ### Milestone

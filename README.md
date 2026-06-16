@@ -3,10 +3,10 @@
 # 🌉 Arena Unified Bridge
 
 **Cross-platform local automation bridge for AI agents.**
-One process · One port · One Python file — drives your computer from any chat, any AI, any OS.
+One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v2.12.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v3.0.0--alpha.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,12 +44,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v2.12.0
+### 🆕 What's new in v3.0.0-alpha.1
 
-- **Stable monolith baseline:** Windows and CachyOS/KDE have both passed the capability-aware v4 stress suite, including restart lifecycle checks.
-- **Stress-test v4 documented:** `dev/stress-test-v4.py` is now the recommended release gate; default mode is non-persistent, while `--restart` and `--task-roundtrip` are explicit mutating checks.
-- **Queue-safe stress defaults:** stress-test no longer submits queue tasks by default; task roundtrip uses a benign cross-shell `echo` command when explicitly enabled.
-- **Ready for v3 modularization:** v2.12.0 is intended as a stable monolith checkpoint before extracting service, inventory, desktop, skills, and API modules.
+- **First modular release:** the former one-file bridge has been split into focused `arena/*` domain packages while preserving the public REST/MCP/WebSocket API.
+- **Thin compatibility entrypoint:** `unified_bridge.py` is now a ~165-line compatibility/CLI layer instead of a giant server implementation.
+- **AI-friendly architecture:** handlers, runtime helpers, contexts, routes, wiring, CDP, desktop, service, memory, skills, observability, and admin logic now live in predictable folders.
+- **Validated migration:** full `pytest -q` and live CachyOS/KDE stress-test v4 with restart checks pass on the modular branch.
 
 ---
 
@@ -240,7 +240,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
                                            │
         ┌──────────────────────────────────▼──────────────────────────────────┐
         │                                                                     │
-        │   localhost:8765   (one Python asyncio process, ~11.7K lines)       │
+        │   localhost:8765   (one modular Python process, thin entrypoint)       │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │              │
@@ -555,46 +555,45 @@ launchctl kickstart -k    gui/$UID/com.arena.bridge
 
 ```
 arena-bridge/
-├── unified_bridge.py     ← the entire server (one file, ~11.7K lines)
+├── unified_bridge.py     ← thin compatibility/CLI entrypoint (~165 lines)
+├── arena/                ← modular bridge implementation
+│   ├── app.py            ← aiohttp app factory
+│   ├── routes.py         ← route registry facade
+│   ├── route_registry/   ← route groups by domain (core, CDP, desktop, v2, MCP)
+│   ├── contexts/         ← handler dependency dataclasses grouped by domain
+│   ├── wiring/           ← composition/wiring helpers and legacy compatibility setup
+│   ├── browser/          ← browser fetch, high-level browse and CDP modules
+│   ├── desktop/          ← screenshots, input, windows, KWin/Wayland helpers
+│   ├── service/          ← service status, capabilities, restart helpers
+│   ├── system/           ← sysinfo, doctor, sound, legacy hwinfo fallback
+│   ├── memory/           ← SQLite/FTS memory store and recall handlers
+│   ├── skills/           ← skill registry, install/uninstall/run/cache
+│   ├── tasks/            ← task queue and background runner
+│   ├── observability/    ← metrics, audit, logs, alerts, tracing
+│   ├── admin/            ← token, Tailscale Funnel, cloudflared tunnels
+│   ├── mcp/              ← MCP tools and transports
+│   └── ...               ← gateway, grpc, tls, sandbox, cluster, resources
 ├── token.txt             ← your auth token (auto-generated)
 ├── install.bat           ← Windows installer (run this)
 ├── install.sh            ← Linux/macOS installer (run this; re-run to update)
-├── uninstall.bat         ← Windows uninstaller
-├── uninstall.sh          ← Linux/macOS uninstaller
-├── start.bat             ← Quick start (manual)
-├── stop.bat              ← Quick stop
-├── status.bat            ← Quick health check
-├── _arena_helper.py      ← Installer helper (version detection, token gen)
-│
-├── dashboard/
-│   └── index.html        ← single-file web dashboard (14 tabs)
-│
-├── docs/
-│   └── AI_PROMPT_TEMPLATE.md ← Ready-to-use AI prompt template
-│
-├── dev/
-│   └── stress-test-v3.sh     ← load/stress test suite (run before PRs)
-│
+├── uninstall.bat/.sh     ← clean removal of service + files
+├── docs/                 ← architecture notes, stress-test guide, AI prompt template
+├── dev/                  ← release/stress tooling (`stress-test-v4.py`)
 ├── bin/                  ← user-facing CLIs (agentctl, bridge-curl, etc.)
-├── scripts/              ← background helpers (inventory, hwinfo, CDP, desktop, etc.)
-├── skills/               ← AI-runnable playbooks
-│   ├── superpowers/      ← 14 curated AI skills from obra/superpowers
-│   ├── core/             ← cleanup, digest, health, snapshot
-│   ├── dev/              ← auto-fix
-│   ├── web/              ← research
-│   ├── system/           ← sys-snapshot
-│   └── browseract/       ← BrowserAct stealth automation
-├── memory/               ← key/value/tag facts (JSONL)
+├── scripts/              ← background helpers (inventory, CDP, desktop, etc.)
+├── skills/               ← AI-runnable playbooks and BrowserAct integration
+├── memory/               ← local memory database/files
 ├── missions/             ← scripted workflows
 ├── queue/                ← task queue (inbox/running/done/failed)
-├── reports/              ← screenshots, recordings
-├── logs/                 ← bridge log files (rotated)
+├── reports/              ← screenshots, recordings, outputs
 ├── hooks/                ← pre/post skill hooks
 ├── agents/               ← agent configurations
 ├── subagents/            ← subagent spawn/track
 ├── tools/                ← external tools
 └── mcp/                  ← MCP configuration
 ```
+
+See [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md) for a domain-by-domain map intended for humans and AI coding agents.
 
 ---
 
@@ -909,8 +908,8 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 ## 🤝 Contributing
 
 Issues and PRs welcome. Please:
-- Keep `unified_bridge.py` a **single file** with **stdlib + aiohttp** only.
-- Stress-test with `dev/stress-test-v3.sh` before sending PRs.
+- Keep `unified_bridge.py` a **thin compatibility entrypoint**; new code belongs in focused `arena/<domain>/` modules.
+- Stress-test with `pytest -q` and `dev/stress-test-v4.py` before sending PRs.
 - Pure-ASCII PowerShell scripts (no unicode dashes/emoji — they break Cyrillic Windows installs).
 - Snapshot before destructive ops (use external backup tools).
 
