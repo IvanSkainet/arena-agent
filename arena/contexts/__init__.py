@@ -1,0 +1,12 @@
+"""Domain-grouped handler context dataclasses."""
+from __future__ import annotations
+
+from arena.contexts.core import HandlerContext, PublicHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, GuiHandlerContext
+from arena.contexts.platform import ServiceHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, SystemHandlerContext, UserHandlerContext, AdminHandlerContext
+from arena.contexts.browser import BrowserFetchHandlerContext, BrowserBrowseHandlerContext, ProfileHandlerContext
+from arena.contexts.cdp import CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, CdpInterceptHandlerContext, CdpAdvancedHandlerContext
+from arena.contexts.domain import TaskHandlerContext, SkillHandlerContext, ResourceHandlerContext, MemoryHandlerContext
+from arena.contexts.observability import ObservabilityHandlerContext, TracingHandlerContext, ApiV2HandlerContext, AlertsHandlerContext, RateLimitHandlerContext, RuntimeObservabilityHandlerContext
+from arena.contexts.integration import BatchHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, McpHandlerContext
+
+__all__ = ['HandlerContext', 'PublicHandlerContext', 'FileHandlerContext', 'ExecHandlerContext', 'GatewayHandlerContext', 'GuiHandlerContext', 'ServiceHandlerContext', 'DesktopHandlerContext', 'ControlLeaseHandlerContext', 'SystemHandlerContext', 'UserHandlerContext', 'AdminHandlerContext', 'BrowserFetchHandlerContext', 'BrowserBrowseHandlerContext', 'ProfileHandlerContext', 'CdpBasicHandlerContext', 'CdpDiagnosticHandlerContext', 'CdpSessionHandlerContext', 'CdpPageHandlerContext', 'CdpTabsHandlerContext', 'CdpCookiesHandlerContext', 'CdpNetworkHandlerContext', 'CdpInterceptHandlerContext', 'CdpAdvancedHandlerContext', 'TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'MemoryHandlerContext', 'ObservabilityHandlerContext', 'TracingHandlerContext', 'ApiV2HandlerContext', 'AlertsHandlerContext', 'RateLimitHandlerContext', 'RuntimeObservabilityHandlerContext', 'BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'EventHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']
