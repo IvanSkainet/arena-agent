@@ -92,6 +92,7 @@ def build_legacy_platform_registries(g: MutableMapping[str, Any]) -> dict[str, C
         {
             "handle_gui": "gui",
             "handle_gui_v2": "gui_v2",
+            "handle_gui_asset": "gui_asset",
         },
     )
     registry.update(_gui_handler_registry)

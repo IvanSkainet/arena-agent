@@ -1,0 +1,77 @@
+<div class="tab" id="tab-control">
+<h1>Agent Control <span class="version-tag">v2.9.0</span></h1>
+
+<div class="card" style="text-align:center;padding:24px">
+<div id="controlBigStatus" style="font-size:48px;margin-bottom:8px">&#9989;</div>
+<div id="controlBigLabel" style="font-size:20px;font-weight:700;margin-bottom:4px">ACTIVE</div>
+<div id="controlBigReason" style="font-size:13px;color:var(--text2)"></div>
+</div>
+
+<div class="card">
+<h2>Control Actions</h2>
+<div class="row" style="gap:10px;flex-wrap:wrap">
+<button id="ctrlPauseBtn" class="warning" onclick="controlPause()" style="font-size:14px;padding:10px 24px">&#9208; Pause Agent</button>
+<button id="ctrlResumeBtn" class="success" onclick="controlResume()" style="font-size:14px;padding:10px 24px;display:none">&#9654; Resume Agent</button>
+<button id="ctrlRevokeBtn" class="danger" onclick="controlRevoke()" style="font-size:14px;padding:10px 24px">&#128683; Revoke Control</button>
+</div>
+<p style="font-size:11px;color:var(--text2);margin-top:8px">
+<strong>Pause:</strong> Temporarily blocks all desktop input (click/type/key/mouse/focus). Non-desktop APIs still work.<br>
+<strong>Revoke:</strong> Hard revoke. Blocks all desktop input until explicitly resumed.<br>
+<strong>Resume:</strong> Re-enables desktop control after pause or revoke.
+</p>
+</div>
+
+<div class="card">
+<h2>Control Status</h2>
+<table>
+<tr><th style="width:180px">Property</th><th>Value</th></tr>
+<tr><td>Control State</td><td><span id="ctrlStatusBadge" class="badge ok">active</span></td></tr>
+<tr><td>Reason</td><td id="ctrlReason" class="mono">--</td></tr>
+<tr><td>Paused At</td><td id="ctrlPausedAt" class="mono">--</td></tr>
+<tr><td>Revoked At</td><td id="ctrlRevokedAt" class="mono">--</td></tr>
+<tr><td>Last Agent Action</td><td id="ctrlLastAgent" class="mono">--</td></tr>
+<tr><td>Last User Input</td><td id="ctrlLastUser" class="mono">--</td></tr>
+<tr><td>Session ID</td><td id="ctrlSession" class="mono">--</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>Active Window</h2>
+<div class="row" style="gap:8px;margin-bottom:8px">
+<button class="sm" onclick="refreshActiveWindow()">&#8635; Refresh</button>
+<span class="mono" style="font-size:12px" id="ctrlActiveWinText">Loading...</span>
+</div>
+<table>
+<tr><th style="width:120px">Property</th><th>Value</th></tr>
+<tr><td>Window ID</td><td id="ctrlWinId" class="mono">--</td></tr>
+<tr><td>Title</td><td id="ctrlWinTitle" class="mono">--</td></tr>
+<tr><td>PID</td><td id="ctrlWinPid" class="mono">--</td></tr>
+<tr><td>Class</td><td id="ctrlWinClass" class="mono">--</td></tr>
+<tr><td>Backend</td><td id="ctrlWinBackend" class="mono">--</td></tr>
+</table>
+</div>
+
+<div class="card">
+<h2>Focus Window</h2>
+<div class="row" style="gap:8px;margin-bottom:8px">
+<input type="text" id="ctrlFocusTitle" placeholder="Window title (contains match)" style="flex:1">
+<button onclick="focusByTitle()">Focus by Title</button>
+</div>
+<div id="ctrlFocusResult" class="mono" style="font-size:12px;white-space:pre-wrap;color:var(--text2);display:none"></div>
+</div>
+
+<div class="card">
+<h2>Input Guard Test</h2>
+<p style="font-size:12px;color:var(--text2);margin-bottom:8px">
+Tests <code>require_active_title</code> -- verifies desktop click only works when the expected window is active.
+</p>
+<div class="row" style="gap:8px;margin-bottom:8px">
+<input type="text" id="guardTitleInput" placeholder="Required window title" style="flex:1">
+<button onclick="testInputGuard()">Test Guard</button>
+</div>
+<div id="guardTestResult" class="mono" style="font-size:12px;white-space:pre-wrap;color:var(--text2);display:none"></div>
+</div>
+
+</div>
+
+<!-- ==================== SETTINGS ==================== -->

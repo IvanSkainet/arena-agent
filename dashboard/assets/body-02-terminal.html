@@ -1,0 +1,30 @@
+<div class="tab" id="tab-terminal">
+<h1>Terminal</h1>
+<div class="row" style="position:relative">
+<input type="text" id="termCmd" placeholder="Enter command or /shot /search /read /dump ..." style="flex:1" autofocus autocomplete="off">
+<button onclick="runCommand()">Run</button>
+<div id="termSuggest" style="display:none;position:absolute;top:100%;left:0;right:80px;background:var(--bg2);border:1px solid var(--border);border-top:none;z-index:50;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:12px"></div>
+</div>
+<div class="row" style="margin-bottom:6px;font-size:11px;color:var(--text2)">
+Slash shortcuts: <code>/shot</code> /search /read /dump /head /hardware /hwinfo /status /doctor /sysinfo /audit /facts /tasks /ip /dns
+</div>
+<div class="row" style="margin-bottom:12px">
+<select id="termTimeout" style="width:120px">
+<option value="10">10s timeout</option>
+<option value="30" selected>30s timeout</option>
+<option value="60">60s timeout</option>
+<option value="120">120s timeout</option>
+</select>
+<button onclick="clearTerminal()">Clear</button>
+<button class="copy-btn" onclick="copyTermOutput()">Copy Output</button>
+<span style="margin-left:auto;font-size:12px;color:var(--text2)" id="termDuration"></span>
+</div>
+<div id="termSession" style="min-height:300px;max-height:65vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;border-radius:6px">
+  <div style="color:var(--text2);font-style:italic">Arena shell ready. Type a command and press Enter. Use ↑/↓ to navigate history, Tab to expand slash-commands, Ctrl+L or "Clear" to wipe.</div>
+</div>
+<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">Recent commands (click to re-run)</summary>
+<div id="termHistory" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
+</details>
+</div>
+
+<!-- ==================== MEMORY ==================== -->

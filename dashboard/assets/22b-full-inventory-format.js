@@ -1,0 +1,166 @@
+function formatInventoryText(inv, onlySections) {
+  const lines = [];
+  const wantAll = !onlySections || onlySections.length === 0;
+  const want = new Set(onlySections || []);
+  function show(name) { return wantAll || want.has(name); }
+
+  if (inv.generated_at) lines.push(`generated_at: ${inv.generated_at}`);
+  lines.push("");
+
+  if (show("identity") && inv.identity) {
+    lines.push("### Identity");
+    const i = inv.identity;
+    lines.push(`  user: ${i.user}   host: ${i.hostname}`);
+    lines.push(`  home: ${i.home}`);
+    if (i.shell) lines.push(`  shell: ${i.shell}`);
+    lines.push("");
+  }
+  if (show("os") && inv.os) {
+    const o = inv.os;
+    lines.push("### OS");
+    lines.push(`  ${o.system} ${o.release} (${o.machine})`);
+    if (o.distro?.pretty) lines.push(`  distro: ${o.distro.pretty}`);
+    if (o.caption) lines.push(`  edition: ${o.caption}  build ${o.build_number||""}`);
+    if (o.uptime_seconds) {
+      const u = o.uptime_seconds;
+      const d = Math.floor(u/86400), h = Math.floor((u%86400)/3600), m = Math.floor((u%3600)/60);
+      lines.push(`  uptime: ${d}d ${h}h ${m}m`);
+    }
+    lines.push(`  python: ${o.python_version}`);
+    lines.push("");
+  }
+  if (show("cpu") && inv.cpu) {
+    const c = inv.cpu;
+    lines.push("### CPU");
+    lines.push(`  ${c.name || "(unknown)"}`);
+    lines.push(`  ${c.cores_physical || "?"} physical / ${c.cores_logical || "?"} logical cores${c.max_ghz?(", "+c.max_ghz+" GHz max"):""}`);
+    if (c.load_avg) lines.push(`  load avg: ${c.load_avg.map(x=>x.toFixed(2)).join(", ")}`);
+    lines.push("");
+  }
+  if (show("memory") && inv.memory) {
+    const m = inv.memory;
+    lines.push("### Memory");
+    if (m.total_gb) {
+      lines.push(`  ${m.total_gb} GB total, ${m.used_gb||"?"} GB used, ${m.available_gb||"?"} GB free`);
+    }
+    if (m.swap_total_gb) lines.push(`  swap: ${m.swap_free_gb||0} free / ${m.swap_total_gb} GB`);
+    (m.modules||[]).forEach((mod,i) => {
+      let s = `  slot ${i+1}: ${mod.size_gb} GB`;
+      if (mod.speed_mhz) s += ` @ ${mod.speed_mhz} MHz`;
+      if (mod.manufacturer) s += ` — ${mod.manufacturer}`;
+      if (mod.part_number) s += ` (${mod.part_number})`;
+      lines.push(s);
+    });
+    lines.push("");
+  }
+  if (show("motherboard") && inv.motherboard) {
+    const mb = inv.motherboard;
+    if (mb.motherboard) {
+      lines.push("### Motherboard");
+      lines.push(`  ${mb.motherboard.manufacturer || ""} ${mb.motherboard.product || ""}`);
+      if (mb.motherboard.version) lines.push(`  rev ${mb.motherboard.version}`);
+      lines.push("");
+    }
+    if (mb.bios) {
+      lines.push("### BIOS");
+      lines.push(`  ${mb.bios.manufacturer || ""} v${mb.bios.version || ""}${mb.bios.release_date?" ("+mb.bios.release_date+")":""}`);
+      lines.push("");
+    }
+  }
+  if (show("gpu") && inv.gpu) {
+    lines.push("### GPU");
+    (inv.gpu.gpus||[]).forEach(g => {
+      let s = `  • ${g.name}`;
+      if (g.vram_mb) s += ` (${(g.vram_mb/1024).toFixed(1)} GB VRAM)`;
+      if (g.driver_version) s += ` — driver ${g.driver_version}`;
+      lines.push(s);
+    });
+    (inv.gpu.nvidia||[]).forEach(n => {
+      lines.push(`  NVIDIA: ${n.name} — ${n.vram_used_mb}/${n.vram_total_mb} MB used, ${n.temperature_c}°C, ${n.utilization_pct}% util`);
+    });
+    lines.push("");
+  }
+  if (show("disks") && inv.disks) {
+    lines.push("### Disks");
+    inv.disks.forEach(d => {
+      lines.push(`  ${(d.device||"").padEnd(10)} ${(d.mount||"").padEnd(15)} ${(d.filesystem||"").padEnd(8)} ${d.free_gb}/${d.total_gb} GB free (${d.used_pct}% used)`);
+    });
+    lines.push("");
+  }
+  if (show("network") && inv.network) {
+    const n = inv.network;
+    lines.push("### Network");
+    lines.push(`  hostname: ${n.hostname}  fqdn: ${n.fqdn||""}`);
+    (n.interfaces||[]).forEach(i => {
+      lines.push(`  ${(i.name||"").padEnd(28)} ${i.ipv4||""}`);
+    });
+    lines.push("");
+  }
+  if (show("runtimes") && inv.runtimes) {
+    lines.push("### Runtimes (" + Object.keys(inv.runtimes).length + ")");
+    Object.entries(inv.runtimes).sort().forEach(([k,v]) => lines.push(`  ${k.padEnd(12)} ${v}`));
+    lines.push("");
+  }
+  if (show("package_managers") && inv.package_managers) {
+    lines.push("### Package managers (" + Object.keys(inv.package_managers).length + ")");
+    Object.entries(inv.package_managers).sort().forEach(([k,v]) => lines.push(`  ${k.padEnd(12)} ${v}`));
+    lines.push("");
+  }
+  if (show("browsers") && inv.browsers) {
+    lines.push("### Browsers");
+    Object.entries(inv.browsers).sort().forEach(([k,v]) => lines.push(`  ${k.padEnd(22)} ${v}`));
+    lines.push("");
+  }
+  if (show("displays") && inv.displays) {
+    lines.push("### Displays / GUI");
+    Object.entries(inv.displays).forEach(([k,v]) => {
+      if (k === "screens") {
+        (v||[]).forEach(s => lines.push(`  screen: ${JSON.stringify(s)}`));
+      } else {
+        lines.push(`  ${k.padEnd(22)} ${v}`);
+      }
+    });
+    lines.push("");
+  }
+  if (show("services") && inv.services) {
+    lines.push("### Services");
+    Object.entries(inv.services).forEach(([k,v]) => {
+      if (Array.isArray(v)) {
+        lines.push(`  ${k} (${v.length}):`);
+        v.slice(0, 10).forEach(item => lines.push(`    - ${item}`));
+        if (v.length > 10) lines.push(`    ... and ${v.length-10} more`);
+      } else {
+        lines.push(`  ${k}: ${v}`);
+      }
+    });
+    lines.push("");
+  }
+  if (show("python_env") && inv.python_env) {
+    const pe = inv.python_env;
+    lines.push("### Python environment");
+    lines.push(`  exe: ${pe.executable}`);
+    lines.push(`  version: ${pe.version} (${pe.implementation})  in_venv: ${pe.is_venv}`);
+    if (pe.installed_pkgs_count != null) lines.push(`  installed: ${pe.installed_pkgs_count} packages`);
+    if (pe.installed_pkgs_top20) {
+      lines.push("  top 20:");
+      pe.installed_pkgs_top20.forEach(p => lines.push(`    ${p}`));
+    }
+    lines.push("");
+  }
+  if (show("env") && inv.env) {
+    lines.push("### Env (selected)");
+    Object.entries(inv.env).sort().forEach(([k,v]) => {
+      if (k === "PATH" || k === "PATH_dirs") return;
+      let val = v;
+      if (typeof v === "string" && v.length > 120) val = v.slice(0,120)+"…";
+      lines.push(`  ${k.padEnd(22)} ${val}`);
+    });
+    if (inv.env.PATH_entries) {
+      lines.push(`  PATH                   (${inv.env.PATH_entries} entries; expand with 'env' section JSON)`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+

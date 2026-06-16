@@ -15,6 +15,7 @@ from arena.gui.templates import DASHBOARD_V2_HTML, GUI_LOGIN_HTML
 class GuiHandlers:
     gui: object
     gui_v2: object
+    gui_asset: object
 
 
 def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
@@ -28,6 +29,28 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         if not valid_token:
             return web.Response(text=GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
         return web.Response(text=DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
+
+
+    async def handle_gui_asset(request: web.Request) -> web.Response:
+        """GET /gui/assets/{path} — static dashboard assets."""
+        rel = request.match_info.get("path", "")
+        asset_root = (Path(ctx.bridge_dir) / "dashboard" / "assets").resolve()
+        asset_path = (asset_root / rel).resolve()
+        try:
+            asset_path.relative_to(asset_root)
+        except ValueError:
+            return web.Response(status=404, text="not found")
+        if not asset_path.is_file():
+            return web.Response(status=404, text="not found")
+        suffix = asset_path.suffix.lower()
+        content_type = {
+            ".js": "application/javascript",
+            ".css": "text/css",
+            ".html": "text/html",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+        }.get(suffix, "application/octet-stream")
+        return web.FileResponse(asset_path, headers={"Access-Control-Allow-Origin": "*"})
 
     async def handle_gui(request: web.Request) -> web.Response:
         """GET /gui — Dashboard. Shows login page if no valid URL token, then serves dashboard."""
@@ -66,4 +89,4 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         except Exception:
             return ctx.cors_json_response({"ok": False, "error": "Internal server error"}, status=500)
 
-    return GuiHandlers(gui=handle_gui, gui_v2=handle_gui_v2)
+    return GuiHandlers(gui=handle_gui, gui_v2=handle_gui_v2, gui_asset=handle_gui_asset)

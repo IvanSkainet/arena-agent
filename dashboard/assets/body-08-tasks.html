@@ -1,0 +1,26 @@
+<div class="tab" id="tab-tasks">
+<h1>Tasks <span class="badge info" id="taskCountBadge">0</span></h1>
+<div class="card">
+<div class="row">
+<button class="success" onclick="showTaskSubmit()">New Task</button>
+<button onclick="loadTasks()">Refresh</button>
+<button class="danger" onclick="cleanTasks()">Clean Completed</button>
+<span style="margin-left:auto;font-size:12px;color:var(--text2)">Auto-refresh: 10s</span>
+</div>
+</div>
+<div id="taskSubmitPanel" class="card" style="display:none">
+<h2>Submit New Task</h2>
+<div class="row"><input id="taskCmd" placeholder="Command to run" style="flex:2"><input id="taskTimeout" type="number" value="30" placeholder="Timeout (s)" style="width:100px"><input id="taskCwd" placeholder="Working directory" style="flex:1"></div>
+<div class="row"><button class="success" onclick="submitTask()">Submit</button><button onclick="document.getElementById('taskSubmitPanel').style.display='none'">Cancel</button></div>
+</div>
+<h2>Task Queue</h2>
+<div class="card-grid-sm" id="taskStats">
+<div class="card"><div class="stat task-inbox" id="taskInbox">0</div><div class="label">Inbox</div></div>
+<div class="card"><div class="stat task-running" id="taskRunning">0</div><div class="label">Running</div></div>
+<div class="card"><div class="stat task-done" id="taskDone">0</div><div class="label">Done</div></div>
+<div class="card"><div class="stat task-failed" id="taskFailed">0</div><div class="label">Failed</div></div>
+</div>
+<table><thead><tr><th>ID</th><th>Command</th><th>State</th><th>Started</th><th>Duration</th></tr></thead><tbody id="tasksTable"></tbody></table>
+</div>
+
+<!-- ==================== SKILLS ==================== -->

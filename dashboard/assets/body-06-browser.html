@@ -1,0 +1,24 @@
+<div class="tab" id="tab-browser">
+<h1>Browser</h1>
+<div class="card">
+<h2>Search</h2>
+<div class="row"><input id="searchQuery" placeholder="Search query..." style="flex:1">
+<select id="searchCount" style="width:80px"><option value="5">5</option><option value="10">10</option><option value="15">15</option></select>
+<button onclick="browserSearch()">Search</button></div>
+</div>
+<div id="searchResults"></div>
+<div class="card" style="margin-top:12px">
+<h2>URL Tools</h2>
+<div class="row"><input id="readUrl" placeholder="https://example.com" style="flex:1">
+<button onclick="browserRead()">Read</button>
+<button class="warning" onclick="browserDump()">Dump</button>
+<button class="info" onclick="browserFetch()">Fetch</button>
+<button onclick="browserHead()">HEAD</button>
+<button class="success" onclick="browserScreenshot()">Screenshot</button></div>
+</div>
+<div id="readResult" style="margin-top:8px"></div>
+<div id="dumpResult" style="margin-top:8px"></div>
+<div id="headResult" style="margin-top:8px"></div>
+</div>
+
+<!-- ==================== REPORTS ==================== -->

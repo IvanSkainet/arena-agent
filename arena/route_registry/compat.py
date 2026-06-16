@@ -20,6 +20,7 @@ def register_compat_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_post("/v1/traces/export", h["handle_v1_traces_export"])
 
     app.router.add_get("/gui", h["handle_gui"])
+    app.router.add_get("/gui/assets/{path:.*}", h["handle_gui_asset"])
     app.router.add_post("/mcp", h["handle_mcp_post"])
     app.router.add_delete("/mcp", h["handle_mcp_delete"])
     app.router.add_get("/sse", h["handle_sse"])

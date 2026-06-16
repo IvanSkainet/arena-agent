@@ -21,6 +21,7 @@ _ALWAYS_EXPORTED = {
     "handle_ws",
     "handle_gui",
     "handle_gui_v2",
+    "handle_gui_asset",
 }
 
 

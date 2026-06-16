@@ -1,0 +1,13 @@
+<div class="tab" id="tab-audit">
+<h1>Audit Log</h1>
+<div class="row">
+<input id="auditLines" type="number" value="50" style="width:100px">
+<select id="auditFilter" style="width:160px"><option value="">All Events</option><option value="exec">Exec</option><option value="memory">Memory</option><option value="mission">Mission</option><option value="browser">Browser</option><option value="error">Error</option><option value="system">System</option></select>
+<button onclick="loadAudit()">Load</button>
+<button class="info" onclick="auditStats()">Stats</button>
+</div>
+<div id="auditStatsPanel" class="card" style="display:none"></div>
+<table><thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead><tbody id="auditTable"></tbody></table>
+</div>
+
+<!-- ==================== CONTROL (v2.9.0) ==================== -->

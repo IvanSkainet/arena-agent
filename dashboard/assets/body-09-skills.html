@@ -1,0 +1,17 @@
+<div class="tab" id="tab-skills">
+<h1>Skills</h1>
+<div class="card" style="margin-bottom:12px">
+  <h2>Install Third-Party Skill</h2>
+  <div class="row">
+    <input id="installSkillName" placeholder="Skill name (e.g. test-skill)">
+    <input id="installSkillUrl" placeholder="Git or ZIP URL" style="flex:1">
+    <button class="success" onclick="installSkill()">Install</button>
+  </div>
+</div>
+<button onclick="loadSkills()" style="margin-bottom:12px">Refresh</button>
+<table><thead><tr><th>Name</th><th>Description</th><th>Actions</th></tr></thead><tbody id="skillsTable"></tbody></table>
+<div id="skillDetail" class="detail-panel"></div>
+<div id="skillOutput" class="card" style="display:none;margin-top:12px"><h2>Skill Output</h2><div class="output" id="skillOutputText"></div></div>
+</div>
+
+<!-- ==================== HOOKS ==================== -->
