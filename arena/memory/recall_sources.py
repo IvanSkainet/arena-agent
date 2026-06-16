@@ -1,0 +1,86 @@
+"""Memory recall data sources."""
+from __future__ import annotations
+
+from arena.memory.recall_paths import *  # noqa: F401,F403
+from arena.memory.recall_score import score
+
+def recall_facts(q_tokens: list[str], top: int) -> list[dict]:
+    """Возврат top фактов из facts.db с ненулевым score."""
+    p = get_mem_dir() / "facts.db"
+    if not p.exists(): return []
+    items = []
+    try:
+        with sqlite3.connect(p) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts")
+            for r in cursor:
+                key = r['key'] or ""
+                value = r['value'] or ""
+                try:
+                    tags_list = json.loads(r['tags']) if r['tags'] else []
+                except Exception:
+                    tags_list = []
+                
+                fact_obj = {
+                    "ts": r['timestamp'],
+                    "type": "fact",
+                    "key": key,
+                    "value": value,
+                    "tags": tags_list
+                }
+                line = json.dumps(fact_obj, ensure_ascii=False)
+                sc = score(line, q_tokens)
+                if sc > 0:
+                    items.append({"score": sc, "text": line[:500]})
+    except Exception as e:
+        print(f"error querying database in recall_facts: {e}", file=sys.stderr)
+    items.sort(key=lambda x: x["score"], reverse=True)
+    return items[:top]
+
+def recall_snapshots(q_tokens: list[str], top: int) -> list[dict]:
+    snap_dir = get_rpt_dir() / "snapshots"
+    if not snap_dir.exists(): return []
+    items = []
+    for f in sorted(snap_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:30]:
+        try:
+            text = f.read_text(errors="replace")
+            sc = score(text, q_tokens)
+            if sc > 0:
+                items.append({"score": sc, "file": f.name,
+                              "preview": text[:300]})
+        except Exception: pass
+    items.sort(key=lambda x: x["score"], reverse=True)
+    return items[:top]
+
+def recall_subagents(q_tokens: list[str], top: int) -> list[dict]:
+    sub_dir = get_sub_dir()
+    if not sub_dir.exists(): return []
+    items = []
+    for d in sub_dir.iterdir():
+        s = d / "summary.json"
+        if not s.exists(): continue
+        try:
+            data = json.loads(s.read_text())
+            blob = json.dumps(data, ensure_ascii=False)
+            sc = score(blob, q_tokens)
+            if sc > 0:
+                items.append({"score": sc, "id": data.get("id"),
+                              "name": data.get("name"), "status": data.get("status"),
+                              "stdout_tail": (data.get("stdout_tail") or "")[:300]})
+        except Exception: pass
+    items.sort(key=lambda x: x["score"], reverse=True)
+    return items[:top]
+
+def recall_sessions(q_tokens: list[str], top: int) -> list[dict]:
+    sd = get_mem_dir() / "sessions"
+    if not sd.exists(): return []
+    items = []
+    for f in sorted(sd.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
+        try:
+            text = f.read_text(errors="replace")
+            sc = score(text, q_tokens)
+            if sc > 0:
+                items.append({"score": sc, "file": f.name, "preview": text[:300]})
+        except Exception: pass
+    items.sort(key=lambda x: x["score"], reverse=True)
+    return items[:top]

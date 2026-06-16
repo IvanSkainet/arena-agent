@@ -1,0 +1,26 @@
+"""Desktop manager CLI implementation."""
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import random
+import re
+import shutil
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
+REPORTS = ROOT / "reports"
+_wm_started = False
+
+def stamp(): return dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+def run(cmd, timeout=20): return subprocess.run(cmd,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
+
+def have(c): return shutil.which(c) is not None
+
+def j(o): print(json.dumps(o,ensure_ascii=False,indent=2))
