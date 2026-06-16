@@ -6,7 +6,7 @@
 One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v3.0.0--rc.1-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v3.0.0-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,13 +44,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.0.0-rc.1
+### 🆕 What's new in v3.0.0
 
-- **Release-candidate modular bridge:** v3 is now in RC stabilization for promotion to stable `v3.0.0`.
+- **Stable modular v3 release:** v3 replaces the old monolithic bridge with focused `arena/*` modules while preserving the public REST/MCP/WebSocket surface.
 - **Thin compatibility entrypoint:** `unified_bridge.py` is now a 98-line compatibility/CLI layer instead of a giant server implementation.
 - **AI-friendly architecture:** handlers, runtime helpers, contexts, routes, wiring, CDP, desktop, service, memory, skills, observability, and admin logic live in predictable folders.
 - **Installer hardening:** Windows stale-service cleanup, Scheduled Task fallback, Linux local-source installs, Tailscale-first public access, and optional Cloudflared checks are included.
-- **Validated migration path:** local tests plus live CachyOS/KDE and Windows stress-test gates are used before stable promotion.
+- **Validated release gates:** Windows and CachyOS/Linux fresh installs, source tests, endpoint smoke, and stress-test v4 restart checks passed before stable promotion.
 
 ---
 

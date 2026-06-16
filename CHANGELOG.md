@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.0.0 — 2026-06-16
+
+### Milestone
+- Stable modular Arena Unified Bridge v3 release.
+- `master` is promoted to the modular v3 code line; `v2.12.0` remains available as the old monolith tag/release.
+- `unified_bridge.py` remains a 98-line compatibility/CLI entrypoint; implementation lives in focused `arena/*` modules.
+
+### Added
+- `docs/MOBILE_SUPPORT_ROADMAP.md` for post-v3.0 Android/mobile planning.
+
+### Fixed
+- Windows installer stale SCM/NSSM service cleanup when Scheduled Task mode is active.
+- Linux installer local-source install path and v3 branch defaulting.
+- Windows ZIP skill installation handle locking around temporary ZIP files.
+- Cross-platform test portability issues found during Windows RC validation.
+
+### Validation
+- Linux/CachyOS fresh install from `v3.0.0-rc.1` release ZIP: PASS.
+- Linux/CachyOS source `pytest -q`: PASS, 400 tests.
+- Linux/CachyOS endpoint smoke: PASS, including KDE/Wayland desktop windows, active window and screenshot.
+- Linux/CachyOS stress v4 with restart: PASS=18.
+- Windows fresh install from `v3.0.0-rc.1` release ZIP: PASS.
+- Windows source `pytest -q`: PASS, 400 tests.
+- Windows endpoint smoke: PASS.
+- Windows stress v4 with restart: PASS=15 SKIP=3 (`pending-win32` desktop backend skips expected).
+
 ## v3.0.0-rc.1 — 2026-06-16
 
 ### Milestone

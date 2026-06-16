@@ -2,7 +2,7 @@
 
 Date: 2026-06-16
 Branch: `v3-modular-core`
-Baseline release candidate: `v3.0.0-rc.1`
+Baseline release candidate: `v3.0.0`
 
 ## Summary
 
@@ -65,11 +65,14 @@ features make them grow.
 
 ## Release blockers for stable v3.0.0
 
-- Fresh install from the `v3.0.0-rc.1` release ZIP on CachyOS/Linux.
-- Fresh install from the `v3.0.0-rc.1` release ZIP on Windows.
-- Stress v4 with restart on both platforms after the RC install.
-- Fast-forward/merge modular v3 into `master` only after RC validation.
-- Optional: add CI matrix for Linux/Windows Python versions if release process allows.
+All required v3.0.0 stable gates passed before promotion:
+
+- Fresh install from the `v3.0.0-rc.1` release ZIP on CachyOS/Linux: PASS.
+- Fresh install from the `v3.0.0-rc.1` release ZIP on Windows: PASS.
+- Stress v4 with restart on CachyOS/Linux: PASS=18.
+- Stress v4 with restart on Windows: PASS=15 SKIP=3.
+- Source `pytest -q` on CachyOS/Linux and Windows: PASS, 400 tests each.
+- Optional future improvement: add CI matrix for Linux/Windows Python versions if release process allows.
 
 ## Non-blocking improvements after v3 stable
 
@@ -94,3 +97,10 @@ At `v3.0.0-beta.1`/`v3.0.0-beta.2` stabilization:
 - CachyOS/KDE stress v4 with restart: PASS=18.
 - Windows stress v4 with restart: PASS=15 SKIP=3 (`pending-win32` desktop backend skips expected).
 - Windows installer stale SCM/NSSM service cleanup validated with Scheduled Task fallback.
+
+
+At `v3.0.0` stable promotion:
+
+- `master` promoted to modular v3 after RC validation.
+- `v2.12.0` preserved as the old monolith tag/release.
+- Release package and installed bridge report `3.0.0`.

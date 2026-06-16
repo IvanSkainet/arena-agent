@@ -71,7 +71,7 @@ v3.0.0-alpha.1  -> architecture complete
 v3.0.0-beta.1   -> Linux/Windows modular beta validation
 v3.0.0-beta.2   -> installer hotfix candidate, stale Windows service cleanup
 v3.0.0-rc.1     -> release-zip/fresh-install validation gate
-v3.0.0          -> stable replacement for v2.12.0 on master
+v3.0.0          -> stable replacement for v2.12.0 on master (validated)
 ```
 
 ## RC/stable promotion notes
@@ -82,4 +82,15 @@ v3.0.0          -> stable replacement for v2.12.0 on master
 - [ ] Re-run stress v4 with restart on both machines.
 - [ ] Fast-forward or merge the modular v3 tree into `master` after RC validation.
 - [ ] Tag stable `v3.0.0` from `master` after final smoke/stress checks.
-- [ ] Keep `v2.12.0` available as the old monolith tag/release.
+
+## v3.0.0 validation summary
+
+- [x] Windows fresh install from RC release ZIP: PASS.
+- [x] Windows source `pytest -q`: PASS, 400 tests.
+- [x] Windows stress v4 with restart: PASS=15 SKIP=3.
+- [x] CachyOS/Linux fresh install from RC release ZIP: PASS.
+- [x] CachyOS/Linux source `pytest -q`: PASS, 400 tests.
+- [x] CachyOS/Linux stress v4 with restart: PASS=18.
+- [x] CachyOS/Linux KDE/Wayland desktop smoke: PASS.
+- [x] Tailscale Funnel public health on both platforms: PASS.
+- [x] Keep `v2.12.0` available as the old monolith tag/release.
