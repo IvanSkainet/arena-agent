@@ -2,7 +2,7 @@
 
 Date: 2026-06-16
 Branch: `v3-modular-core`
-Baseline release candidate: `v3.0.0`
+Baseline release candidate: `v3.1.0`
 
 ## Summary
 
@@ -11,7 +11,7 @@ The v3 modularization is functionally complete:
 - `unified_bridge.py` is a thin compatibility/CLI entrypoint (98 lines at RC prep).
 - Runtime code lives under focused `arena/*` packages.
 - Route registration, handler contexts and compatibility wiring are split into domain modules.
-- Public API compatibility is preserved through `arena/legacy_imports/*` and `arena/wiring/legacy_*`.
+- Public API compatibility is preserved at the facade boundary through `unified_bridge.py`, `arena/runtime_deps/*`, and `arena/compat_surface/*`.
 
 ## Current architecture strengths
 
@@ -20,7 +20,7 @@ The v3 modularization is functionally complete:
 - `arena/route_registry/*` groups routes by area: core, CDP, desktop, domain, compatibility.
 - `arena/contexts/*` groups handler dependency dataclasses by domain.
 - `arena/wiring/*` contains transitional composition code instead of burying wiring inside the entrypoint.
-- `arena/legacy_imports/*` keeps old `import unified_bridge as ub` integrations working.
+- `arena/runtime_deps/*` and `arena/compat_surface/*` keep the old `import unified_bridge as ub` facade working without making `unified_bridge.py` the runtime composition source.
 
 ## Transitional modules
 
@@ -28,8 +28,9 @@ These modules are compatibility layers and should be simplified over time, but
 must not accumulate new domain logic:
 
 ```text
-arena/legacy_imports/*
-arena/wiring/legacy_*
+arena/runtime_deps/*
+arena/compat_surface/*
+arena/wiring/*
 arena/handler_context.py
 unified_bridge.py
 ```
@@ -76,7 +77,7 @@ All required v3.0.0 stable gates passed before promotion:
 
 ## Non-blocking improvements after v3 stable
 
-- Gradually replace `arena/wiring/legacy_*` with typed composition roots.
+- Continue shrinking `arena/runtime_deps/*` as compatibility requirements allow.
 - Add route snapshot tests if endpoint churn becomes a risk.
 - Improve Windows desktop automation backend coverage.
 - Add richer diagnostics to installer failures and service detection errors.
@@ -104,3 +105,13 @@ At `v3.0.0` stable promotion:
 - `master` promoted to modular v3 after RC validation.
 - `v2.12.0` preserved as the old monolith tag/release.
 - Release package and installed bridge report `3.0.0`.
+
+
+At `v3.1.0` full modularity stabilization:
+
+- Secondary monoliths in `scripts/`, `bin/`, dashboard, inventory and CDP were split into focused modules.
+- Runtime wiring modules were renamed away from `legacy_*`.
+- Wiring modules no longer use hidden `globals().update(g)`.
+- `unified_bridge.py` builds an isolated runtime namespace before exporting compatibility names.
+- Repository guardrails prevent product files over 200 lines and prevent reintroducing hidden globals wiring.
+- Local/CachyOS `pytest -q`: PASS, 404 tests.

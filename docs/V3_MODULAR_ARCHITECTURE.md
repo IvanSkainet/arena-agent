@@ -15,8 +15,8 @@ large `unified_bridge.py` implementation with focused domain packages.
 
 ```text
 unified_bridge.py
-  └─ imports compatibility surface from arena/legacy_imports
-  └─ build_legacy_bridge_runtime(globals())
+  └─ runtime dependency namespace from arena/runtime_deps
+  └─ build_runtime_namespace(...) → build_bridge_runtime(...) → compatibility exports
        ├─ bootstrap/logging/executors/path constants
        ├─ auth + runtime wrappers
        ├─ app/lifecycle
@@ -37,7 +37,7 @@ arena/
   app.py, routes.py, route_registry/  # app creation and route registration
   contexts/                           # handler dependency dataclasses
   wiring/                             # composition and compatibility wiring
-  legacy_imports/                     # unified_bridge import compatibility
+  runtime_deps/                       # unified_bridge runtime dependency namespace
 
   admin/                              # token regeneration, Tailscale/cloudflared
   api_v2/                             # /v2 compatibility API
@@ -84,7 +84,7 @@ python dev/stress-test-v4.py --url <bridge-url> --token <token> --timeout 45 --r
 
 ## Compatibility layers
 
-`arena/legacy_imports/*` and `arena/wiring/legacy_*` are transitional. They keep
+`arena/runtime_deps/*` and `arena/wiring/*` are transitional. They keep
 legacy imports and globals stable while the rest of the project uses focused
 modules. They should be simplified over time, but they should not accumulate new
 domain logic.

@@ -137,8 +137,9 @@ Recommended version path:
 
 ```text
 v3.0.0       stable modular desktop bridge
-v3.1.0-alpha Android/ADB experimental endpoints
-v3.1.0-beta  ADB validation on emulator + one real device
-v3.1.0       stable ADB companion support
-v3.2.x+      Termux/native companion experiments
+v3.1.0       full modularity stabilization release
+v3.2.0-alpha Android/ADB experimental endpoints
+v3.2.0-beta  ADB validation on emulator + one real device
+v3.2.0       stable ADB companion support
+v3.3.x+      Termux/native companion experiments
 ```

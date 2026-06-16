@@ -1,7 +1,7 @@
 # v3 Stable Release Checklist
 
 Use this checklist before promoting the modular bridge from alpha/beta/RC to a
-stable `v3.0.0` release.
+stable modular release line.
 
 ## Architecture gates
 
@@ -72,6 +72,7 @@ v3.0.0-beta.1   -> Linux/Windows modular beta validation
 v3.0.0-beta.2   -> installer hotfix candidate, stale Windows service cleanup
 v3.0.0-rc.1     -> release-zip/fresh-install validation gate
 v3.0.0          -> stable replacement for v2.12.0 on master (validated)
+v3.1.0          -> full modularity stabilization release
 ```
 
 ## RC/stable promotion notes
@@ -94,3 +95,15 @@ v3.0.0          -> stable replacement for v2.12.0 on master (validated)
 - [x] CachyOS/Linux KDE/Wayland desktop smoke: PASS.
 - [x] Tailscale Funnel public health on both platforms: PASS.
 - [x] Keep `v2.12.0` available as the old monolith tag/release.
+
+
+## v3.1.0 validation summary
+
+- [x] Product files are guarded below 200 lines, excluding installer deployment scripts.
+- [x] `scripts/` and `bin/` compatibility entrypoints are thin wrappers.
+- [x] Dashboard assets are split into modular HTML/CSS/JS files.
+- [x] CDP low-level client lives in `arena/browser/cdp_client/*`.
+- [x] Runtime wiring no longer uses hidden `globals().update(g)`.
+- [x] `unified_bridge.py` builds an isolated runtime namespace instead of passing its own globals into runtime composition.
+- [x] Local/CachyOS `pytest -q`: PASS, 404 tests.
+- [x] Local/CachyOS critical ruff lint: PASS.

@@ -11,8 +11,8 @@ into the relevant `arena/<domain>/` package, not into `unified_bridge.py`.
 | aiohttp app construction | `arena/app.py` |
 | Route registration | `arena/routes.py`, `arena/route_registry/*` |
 | Handler dependency dataclasses | `arena/contexts/*`, re-exported by `arena/handler_context.py` |
-| Transitional compatibility wiring | `arena/wiring/legacy_*` |
-| Historical `import unified_bridge as ub` surface | `arena/legacy_imports/*` |
+| Runtime composition wiring | `arena/wiring/*_registries.py`, `arena/wiring/*_runtime.py`, `arena/wiring/bridge_runtime.py` |
+| Runtime dependency namespace / facade surface | `arena/runtime_deps/*`, `arena/compat_surface/*` |
 
 ## Core domains
 

@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.1.0 — 2026-06-16
+
+### Milestone
+- Full modularity stabilization release after `v3.0.0`.
+- Moves secondary monoliths out of `scripts/`, `bin/`, dashboard, CDP, inventory and helper tooling into focused `arena/*` packages.
+- Runtime composition now uses an isolated runtime namespace; `unified_bridge.py` only exports compatibility names at the boundary.
+
+### Changed
+- Split `bin/agentctl` into `arena/agentctl_cli/*`.
+- Split `scripts/inventory.py` into `arena/inventory/*`.
+- Moved low-level CDP client/runtime from `scripts/cdp_browser.py` into `arena/browser/cdp_client/*`.
+- Split helper CLIs into modular packages: `arena/skills/cli*.py`, `arena/memory/cli*.py`, `arena/memory/recall_*.py`, `arena/desktop/cli/*`, `arena/agent_helpers/*`, `arena/project_cli/*`, `arena/missions_cli/*`, `arena/mcp_marketplace/*`.
+- Split dashboard assets into modular HTML/CSS/JS files under `dashboard/assets/`; `/gui/assets/{path}` serves them.
+- Renamed internal wiring modules from `legacy_*` names to domain-oriented runtime/composition names.
+- Replaced hidden `globals().update(g)` wiring with explicit `RuntimeEnv` access.
+- Separated `arena/runtime_deps/*` from boundary-only `arena/compat_surface/*`.
+
+### Guardrails
+- Added `AGENTS.md` and `docs/AI_CODEBASE_NAVIGATION.md` for future AI maintainers.
+- Added project-wide modularity tests: product files must stay under 200 lines, wrappers must stay thin, wiring cannot reintroduce hidden globals mutation, and `unified_bridge.py` must use an isolated runtime namespace.
+
+### Validation
+- Local `python -m py_compile scripts/*.py bin/*.py arena/**/*.py`: PASS.
+- Local `python -m ruff check . --select F821,F811`: PASS.
+- Local `pytest -q`: PASS, 404 tests.
+- CachyOS source `pytest -q`: PASS, 404 tests.
+- CachyOS source ruff/py_compile: PASS.
+
 ## v3.0.0 — 2026-06-16
 
 ### Milestone
