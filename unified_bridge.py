@@ -209,6 +209,13 @@ from arena.exec.runner import (  # noqa: E402,F401
     run_shell_command,
 )
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
+from arena.admin.compat import (  # noqa: E402,F401
+    make_cloudflared_funnel_action_sync,
+    make_sys_funnel_sync,
+    make_tailscale_funnel_action_sync,
+    make_token_path,
+    make_token_regen_sync,
+)
 from arena.admin.runtime import (  # noqa: E402,F401
     CLOUDFLARED_STATE as _CLOUDFLARED_STATE,
     cloudflared_funnel_action as _cloudflared_funnel_action_runtime,
@@ -475,6 +482,7 @@ from arena.system.compat import (  # noqa: E402,F401
 )
 from arena.handler_context import HandlerContext, ServiceHandlerContext, TaskHandlerContext, SkillHandlerContext, DesktopHandlerContext, ControlLeaseHandlerContext, BrowserFetchHandlerContext, BrowserBrowseHandlerContext, CdpBasicHandlerContext, CdpDiagnosticHandlerContext, CdpSessionHandlerContext, CdpPageHandlerContext, CdpTabsHandlerContext, CdpCookiesHandlerContext, CdpNetworkHandlerContext, CdpInterceptHandlerContext, CdpAdvancedHandlerContext, ResourceHandlerContext, MemoryHandlerContext, ObservabilityHandlerContext, SystemHandlerContext, UserHandlerContext, FileHandlerContext, ExecHandlerContext, GatewayHandlerContext, TracingHandlerContext, ApiV2HandlerContext, BatchHandlerContext, AlertsHandlerContext, RateLimitHandlerContext, TlsHandlerContext, SandboxHandlerContext, ClusterHandlerContext, ProfileHandlerContext, GrpcHandlerContext, EventHandlerContext, WatchdogHandlerContext, GuiHandlerContext, McpHandlerContext, RuntimeObservabilityHandlerContext, PublicHandlerContext, AdminHandlerContext  # noqa: E402,F401
 from arena.inventory.handlers import make_hardware_handlers  # noqa: E402,F401
+from arena.service.capabilities import make_capabilities_sync  # noqa: E402,F401
 from arena.service.handlers import make_service_handlers  # noqa: E402,F401
 from arena.tasks.handlers import make_task_handlers  # noqa: E402,F401
 from arena.routes import register_routes  # noqa: E402,F401
@@ -484,6 +492,7 @@ from arena.wiring.legacy_registries import build_early_handler_registries  # noq
 from arena.wiring.legacy_system import build_system_public_admin_registries  # noqa: E402,F401
 from arena.wiring.legacy_hardware_exec import build_hardware_exec_registries  # noqa: E402,F401
 from arena.wiring.legacy_runtimes import build_memory_resource_browser_runtimes  # noqa: E402,F401
+from arena.wiring.legacy_service_browser import build_service_browser_registries  # noqa: E402,F401
 from arena.paths import ArenaPaths  # noqa: E402,F401
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402,F401
 from arena.cli import CliContext, main as _cli_main, serve as _cli_serve, token_cmd as _cli_token_cmd  # noqa: E402,F401
@@ -1150,106 +1159,34 @@ globals().update(_memory_resource_browser_runtime_registry)
 
 
 
-def _capabilities_sync() -> dict:
-    """Machine-readable capability map for agents."""
-    return build_capabilities(
-        version=VERSION,
-        cdp_module_available=_get_cdp_module() is not None,
-        cdp_connected=bool(_cdp_state.get("connected")),
-        desktop_env=_detect_desktop_env(),
-        service_info_fn=_service_info_sync,
-        sys_svc_fn=_sys_svc_sync,
-    )
-
-
-_service_handler_registry = build_service_handlers(ServiceWiringContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
+_capabilities_sync = make_capabilities_sync(
+    build_capabilities_fn=build_capabilities,
+    version=VERSION,
+    get_cdp_module=_get_cdp_module,
+    cdp_state=_cdp_state,
+    detect_desktop_env=_detect_desktop_env,
     service_info_sync=_service_info_sync,
     sys_svc_sync=_sys_svc_sync,
-    capabilities_sync=_capabilities_sync,
-    spawn_respawn_helper=_spawn_respawn_helper,
-    audit=audit,
-))
-globals().update(_service_handler_registry)
-
-
-
-
-# --- /v1/sys/funnel, token regeneration, Tailscale/Cloudflared tunnels ---
-# Admin/network runtime helpers and handlers now live in arena/admin/. Wrappers
-# preserve historical helper names for compatibility.
-
-
-def _sys_funnel_sync() -> dict:
-    return _sys_funnel_status_runtime(subprocess_kwargs=_subprocess_kwargs)
-
-
-def _token_path() -> Path:
-    return Path(os.environ.get("ARENA_TOKEN_FILE", str(TOKEN_FILE))).expanduser()
-
-
-def _token_regen_sync(target_path: str = "") -> dict:
-    return _token_regenerate_runtime(target_path, default_token_file=TOKEN_FILE)
-
-
-def _tailscale_funnel_action_sync(action: str, port: int) -> dict:
-    return _tailscale_funnel_action_runtime(action, port)
-
-
-def _cloudflared_funnel_action_sync(action: str, port: int) -> dict:
-    return _cloudflared_funnel_action_runtime(
-        action,
-        port,
-        root_agent=ROOT_AGENT,
-        subprocess_kwargs=_subprocess_kwargs,
-    )
-
-
-# --- /v1/restart POST — Graceful shutdown (scheduled task / systemd / launchd will respawn) ---
-
-
-
-
-
-# --- /v1/config GET — Token-free configuration dump ---
-
-
-
-
-
-
-
-# Browser fetch/search runtime wrappers live in arena/browser/runtime.py.
-
-_browser_fetch_handler_ctx = BrowserFetchHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    executor=_EXECUTOR,
-    browser_search_sync=_browser_search_sync,
-    browser_read_sync=_browser_read_sync,
-    browser_dump_sync=_browser_dump_sync,
-    browser_fetch_sync=_browser_fetch_sync,
-    browser_head_sync=_browser_head_sync,
 )
-_browser_fetch_handlers = make_browser_fetch_handlers(_browser_fetch_handler_ctx)
-export_handler_attrs(globals(), _browser_fetch_handlers, {"handle_v1_browser_search": "search", "handle_v1_browser_read": "read", "handle_v1_browser_dump": "dump", "handle_v1_browser_fetch": "fetch", "handle_v1_browser_head": "head"})
-
-
-_browser_browse_handler_ctx = BrowserBrowseHandlerContext(
-    require_auth=require_auth,
-    record_request=_record_request,
-    cors_json_response=_cors_json_response,
-    app_dir=APP_DIR,
-    cdp_state=_cdp_state,
-    get_cdp_module=_get_cdp_module,
-    start_cdp_watcher=_start_cdp_watcher,
+_sys_funnel_sync = make_sys_funnel_sync(
+    sys_funnel_status_fn=_sys_funnel_status_runtime,
+    subprocess_kwargs_fn=_subprocess_kwargs,
 )
-_browser_browse_handlers = make_browser_browse_handlers(_browser_browse_handler_ctx)
-export_handler_attrs(globals(), _browser_browse_handlers, {"handle_v1_browser_browse": "browse"})
+_token_path = make_token_path(default_token_file=TOKEN_FILE)
+_token_regen_sync = make_token_regen_sync(
+    token_regenerate_fn=_token_regenerate_runtime,
+    default_token_file=TOKEN_FILE,
+)
+_tailscale_funnel_action_sync = make_tailscale_funnel_action_sync(
+    tailscale_funnel_action_fn=_tailscale_funnel_action_runtime,
+)
+_cloudflared_funnel_action_sync = make_cloudflared_funnel_action_sync(
+    cloudflared_funnel_action_fn=_cloudflared_funnel_action_runtime,
+    root_agent=ROOT_AGENT,
+    subprocess_kwargs_fn=_subprocess_kwargs,
+)
+_service_browser_registry = build_service_browser_registries(globals())
+globals().update(_service_browser_registry)
 
 
 _cdp_basic_handler_ctx = CdpBasicHandlerContext(
