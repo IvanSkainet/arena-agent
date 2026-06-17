@@ -68,10 +68,15 @@ window.ARENA_DASHBOARD_SCRIPTS = [
   ];
   const cacheBust = "?v=" + encodeURIComponent(window.ARENA_VERSION || "dev");
   const bodyHtml = await Promise.all(bodyParts.map(async p => (await fetch(p + cacheBust, {cache: "no-store"})).text()));
+  const placeholders = {
+    token: "{{" + "TOKEN" + "}}",
+    version: "{{" + "VERSION" + "}}",
+    host: "{{" + "HOST" + "}}",
+  };
   const renderedBody = bodyHtml.join("")
-    .replaceAll("{{TOKEN}}", window.ARENA_TOKEN || "")
-    .replaceAll("{{VERSION}}", window.ARENA_VERSION || "")
-    .replaceAll("{{HOST}}", window.ARENA_HOST || "");
+    .replaceAll(placeholders.token, window.ARENA_TOKEN || "")
+    .replaceAll(placeholders.version, window.ARENA_VERSION || "")
+    .replaceAll(placeholders.host, window.ARENA_HOST || "");
   const tpl = document.createElement("template");
   tpl.innerHTML = renderedBody;
   root.replaceWith(tpl.content.cloneNode(true));
