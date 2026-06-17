@@ -2,12 +2,26 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
 
 _DEFAULT_WEBHOOKS = {"urls": [], "events": ["*"]}
 _WEBHOOKS_CACHE: dict[str, Any] | None = None
+_WEBHOOK_FAIL_THRESHOLD = 3
+_WEBHOOK_BASE_COOLDOWN = 30.0
+_WEBHOOK_MAX_COOLDOWN = 3600.0
+_BREAKERS: dict[str, dict[str, Any]] = {}
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def reset_webhook_breakers() -> None:
+    """Clear per-URL circuit breaker state after config changes or in tests."""
+    _BREAKERS.clear()
 
 
 def load_webhooks(path: Path) -> dict[str, Any]:
@@ -28,6 +42,7 @@ def load_webhooks(path: Path) -> dict[str, Any]:
 def save_webhooks(path: Path, data: dict[str, Any]) -> None:
     global _WEBHOOKS_CACHE
     _WEBHOOKS_CACHE = data
+    reset_webhook_breakers()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
@@ -41,6 +56,37 @@ def normalize_webhooks_config(data: dict[str, Any]) -> tuple[dict[str, Any] | No
     return cfg, None
 
 
+def _send_one(url: str, payload: bytes) -> None:
+    req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
+    with urllib.request.urlopen(req, timeout=5):
+        pass
+
+
+def _breaker_for(url: str) -> dict[str, Any]:
+    return _BREAKERS.setdefault(url, {"fails": 0, "open_until": 0.0, "trips": 0, "down": False})
+
+
+def _mark_webhook_failure(url: str, exc: Exception, *, now: float, log_debug: Callable[..., None] | None) -> None:
+    state = _breaker_for(url)
+    state["fails"] += 1
+    if state["fails"] < _WEBHOOK_FAIL_THRESHOLD:
+        return
+    state["trips"] += 1
+    cooldown = min(_WEBHOOK_BASE_COOLDOWN * (2 ** (state["trips"] - 1)), _WEBHOOK_MAX_COOLDOWN)
+    state["fails"] = 0
+    state["open_until"] = now + cooldown
+    if not state["down"] and log_debug:
+        log_debug("[Webhooks] %s unreachable (%s); backing off %.0fs", url, exc, cooldown)
+    state["down"] = True
+
+
+def _mark_webhook_success(url: str, *, log_debug: Callable[..., None] | None) -> None:
+    state = _breaker_for(url)
+    if state["down"] and log_debug:
+        log_debug("[Webhooks] %s recovered", url)
+    state.update({"fails": 0, "open_until": 0.0, "trips": 0, "down": False})
+
+
 def fire_webhooks(event: dict[str, Any], *, load_fn: Callable[[], dict[str, Any]], log_debug: Callable[..., None] | None = None) -> None:
     try:
         config = load_fn()
@@ -51,14 +97,16 @@ def fire_webhooks(event: dict[str, Any], *, load_fn: Callable[[], dict[str, Any]
         if "*" not in filters and event_type not in filters:
             return
         payload = json.dumps(event, ensure_ascii=False).encode("utf-8")
+        now = _now()
         for url in config["urls"]:
+            if now < _breaker_for(url)["open_until"]:
+                continue
             try:
-                req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-                with urllib.request.urlopen(req, timeout=5):
-                    pass
+                _send_one(url, payload)
             except Exception as e:
-                if log_debug:
-                    log_debug("[Webhooks] Failed to send to %s: %s", url, e)
+                _mark_webhook_failure(url, e, now=now, log_debug=log_debug)
+            else:
+                _mark_webhook_success(url, log_debug=log_debug)
     except Exception as e:
         if log_debug:
             log_debug("[Webhooks] Internal error: %s", e)
