@@ -13,7 +13,10 @@ fi
 set -euo pipefail
 
 REPO="IvanSkainet/arena-agent"
-BRANCH="${ARENA_BRANCH:-v3-modular-core}"
+# Default to `master` (stable release branch). Override with ARENA_BRANCH.
+# NOTE: the updater below never force-checks-out a different branch on
+# existing installations - it only ff-pulls the CURRENT branch.
+BRANCH="${ARENA_BRANCH:-master}"
 INSTALL_DIR="${ARENA_INSTALL_DIR:-${HOME:-$(pwd)}/arena-bridge}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PORT="${ARENA_PORT:-8765}"
@@ -24,6 +27,27 @@ warn() { echo -e "\033[33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[31m[ERROR]\033[0m $*"; }
 info() { echo -e "\033[34m[INFO]\033[0m $*"; }
 ask()  { echo -en "\033[36m[?] $* [y/N]: \033[0m"; read -r REPLY; [[ "$REPLY" =~ ^[Yy]$ ]]; }
+
+# Compare two semver-ish versions X.Y.Z. Returns 0 (true) if v1 < v2, 1 otherwise.
+_arena_version_lt() {
+    local v1="$1" v2="$2"
+    local i1 i2
+    # Strip leading non-digit (e.g. "v3.1.5" -> "3.1.5") and split on "."
+    v1="${v1#v}"; v2="${v2#v}"
+    IFS="." read -ra i1 <<< "$v1"
+    IFS="." read -ra i2 <<< "$v2"
+    local n=${#i1[@]}; [ ${#i2[@]} -gt $n ] && n=${#i2[@]}
+    local idx a b
+    for ((idx=0; idx<n; idx++)); do
+        a="${i1[idx]:-0}"; b="${i2[idx]:-0}"
+        # Strip any suffix like "-rc1" by taking only the leading integer
+        a="${a%%[^0-9]*}"; b="${b%%[^0-9]*}"
+        [ -z "$a" ] && a=0; [ -z "$b" ] && b=0
+        if [ "$a" -lt "$b" ]; then return 0; fi
+        if [ "$a" -gt "$b" ]; then return 1; fi
+    done
+    return 1
+}
 
 echo ""
 echo "========================================"
@@ -67,13 +91,83 @@ echo ""
 
 # --- Step 1: Download or update the repo ---
 if [ -d "$INSTALL_DIR/.git" ]; then
-    info "Updating existing installation at $INSTALL_DIR (branch: $BRANCH) ..."
     cd "$INSTALL_DIR"
-    if git fetch origin "$BRANCH" --depth 1 2>/dev/null && git checkout -B "$BRANCH" FETCH_HEAD 2>/dev/null; then
-        ok "Updated to origin/$BRANCH"
+    CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+    info "Existing installation found at $INSTALL_DIR (branch: $CURRENT_BRANCH)"
+
+    # Find a Python interpreter for the version probe. The full Python search
+    # happens later (Step 2); here we just need any python3 to call _arena_helper.
+    _ARENA_PROBE_PY=""
+    for _cand in python3.14 python3.13 python3.12 python3.11 python3.10 python3 python; do
+        if command -v "$_cand" >/dev/null 2>&1; then _ARENA_PROBE_PY="$(command -v "$_cand")"; break; fi
+    done
+
+    # Read locally-installed version (canonical source: arena/constants.py).
+    LOCAL_VERSION=""
+    HELPER="$INSTALL_DIR/_arena_helper.py"
+    if [ -n "$_ARENA_PROBE_PY" ] && [ -f "$HELPER" ]; then
+        LOCAL_VERSION="$("$_ARENA_PROBE_PY" "$HELPER" version 2>/dev/null || true)"
+    fi
+    [ -z "$LOCAL_VERSION" ] && LOCAL_VERSION="unknown"
+
+    # Fetch current branch from origin. DO NOT switch branches - that would
+    # silently downgrade users who pinned themselves to a release branch.
+    if ! git fetch origin "$CURRENT_BRANCH" --depth 1 2>/dev/null; then
+        warn "git fetch origin/$CURRENT_BRANCH failed (offline?). Continuing with local code."
+    fi
+
+    # Inspect the remote tip version without checking it out.
+    REMOTE_VERSION="unknown"
+    REMOTE_HELPER="$(mktemp 2>/dev/null || echo /tmp/arena_remote_helper.$$)"
+    if git show "origin/$CURRENT_BRANCH:_arena_helper.py" > "$REMOTE_HELPER" 2>/dev/null \
+       && [ -n "$_ARENA_PROBE_PY" ]; then
+        REMOTE_VERSION="$($_ARENA_PROBE_PY "$REMOTE_HELPER" version 2>/dev/null || true)"
+    fi
+    [ -n "$REMOTE_HELPER" ] && [ -f "$REMOTE_HELPER" ] && rm -f "$REMOTE_HELPER" 2>/dev/null
+    [ -z "$REMOTE_VERSION" ] && REMOTE_VERSION="unknown"
+
+    info "Local version:  v$LOCAL_VERSION"
+    info "Remote version: v$REMOTE_VERSION (origin/$CURRENT_BRANCH)"
+
+    # Decide whether to update.
+    SHOULD_UPDATE="no"
+    if [ "$REMOTE_VERSION" = "unknown" ]; then
+        warn "Could not determine remote version. Keeping local v$LOCAL_VERSION."
+    elif [ "$LOCAL_VERSION" = "unknown" ]; then
+        warn "Could not determine local version. Offering update to v$REMOTE_VERSION."
+        SHOULD_UPDATE="ask"
+    elif [ "$LOCAL_VERSION" = "$REMOTE_VERSION" ]; then
+        ok "Already up to date (v$LOCAL_VERSION). No update needed."
+    elif _arena_version_lt "$LOCAL_VERSION" "$REMOTE_VERSION"; then
+        SHOULD_UPDATE="ask"
     else
-        warn "git update to $BRANCH failed, trying ff-only pull on current branch"
-        git pull --ff-only 2>/dev/null || warn "git pull failed, using existing code"
+        # Local version is NEWER than remote. This happens when the user is on
+        # a development branch or has local commits. NEVER downgrade silently.
+        ok "Local v$LOCAL_VERSION is newer than remote v$REMOTE_VERSION. Keeping local."
+        info "To downgrade to origin/$CURRENT_BRANCH, run: cd \"$INSTALL_DIR\" && git reset --hard origin/$CURRENT_BRANCH"
+    fi
+
+    if [ "$SHOULD_UPDATE" = "ask" ]; then
+        if [ "${ARENA_ASSUME_YES:-}" = "1" ] || [ "${ARENA_AUTO_UPDATE:-}" = "1" ]; then
+            ok "Auto-updating to v$REMOTE_VERSION (ARENA_ASSUME_YES=1)"
+            SHOULD_UPDATE="yes"
+        elif ask "Update local v$LOCAL_VERSION -> v$REMOTE_VERSION from origin/$CURRENT_BRANCH?"; then
+            SHOULD_UPDATE="yes"
+        else
+            warn "Update declined. Keeping local v$LOCAL_VERSION."
+        fi
+    fi
+
+    if [ "$SHOULD_UPDATE" = "yes" ]; then
+        # Fast-forward only. Never reset --hard, never switch branches, never
+        # discard uncommitted work. If ff fails, the user resolves manually.
+        if git merge --ff-only "origin/$CURRENT_BRANCH" 2>/dev/null; then
+            ok "Updated to v$REMOTE_VERSION (origin/$CURRENT_BRANCH)"
+        else
+            warn "Fast-forward update failed (diverged branches or local commits)."
+            warn "Your local changes are preserved. Resolve manually:"
+            warn "  cd \"$INSTALL_DIR\" && git status && git log --oneline -5"
+        fi
     fi
 elif [ -f "$SCRIPT_DIR/unified_bridge.py" ] && [ -d "$SCRIPT_DIR/arena" ]; then
     info "Installing from local source: $SCRIPT_DIR -> $INSTALL_DIR"

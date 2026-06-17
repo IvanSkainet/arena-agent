@@ -52,6 +52,23 @@ if exist "%BRIDGE_DIR%\_arena_helper.py" (
 )
 echo       Bridge v!VERSION!
 
+REM --- Soft version-check: inform (never auto-update) if a newer release exists ---
+REM Queries the public GitHub releases API. Safe to fail offline.
+set "LATEST_VERSION="
+for /f "delims=" %%v in ('curl --max-time 8 -fsSL "https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest" 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"tag_name\",\"\").lstrip(\"v\"))" 2^>nul') do set "LATEST_VERSION=%%v"
+if defined LATEST_VERSION (
+    if /I not "!LATEST_VERSION!"=="!VERSION!" (
+        echo       [INFO] A different version is available on GitHub: v!LATEST_VERSION!
+        echo              You are running: v!VERSION!
+        echo              To upgrade manually: download from https://github.com/IvanSkainet/arena-agent/releases
+        echo              Or, if this is a git clone: cd /d "%BRIDGE_DIR%" ^&^& git pull ^&^& install.bat
+    ) else (
+        echo       [OK] You are on the latest release.
+    )
+) else (
+    echo       [INFO] Could not check GitHub for newer releases (offline or rate-limited).
+)
+
 echo.
 echo  ========================================
 echo   TRANSPARENCY NOTICE - BACKGROUND SERVICE
