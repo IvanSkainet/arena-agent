@@ -148,7 +148,46 @@ echo.
 REM --- Tailscale ---
 where tailscale >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] Tailscale not found. Install: https://tailscale.com
+    echo [INFO] Tailscale not found. Tailscale Funnel is the recommended way
+    echo       to expose the bridge to the internet (real HTTPS via Let's Encrypt,
+    echo       no port-forward). Browser-based AI dashboards can call you directly.
+    echo.
+    echo       Installing Tailscale adds a system package (requires admin elevation).
+    echo       After install, you will need to run:
+    echo         1. tailscale login  ^(opens a browser URL - sign in with Google/GitHub/etc.^)
+    echo         2. tailscale funnel --bg %PORT%
+    echo            ^(exposes http://127.0.0.1:%PORT% to the internet via HTTPS^)
+    echo.
+    set "TS_INSTALL_CONFIRM="
+    set /p "TS_INSTALL_CONFIRM=Install Tailscale now via winget? [y/N]: "
+    if /I "%TS_INSTALL_CONFIRM%"=="Y" (
+        where winget >nul 2>&1
+        if not errorlevel 1 (
+            echo [INFO] Running: winget install --id Tailscale.Tailscale --silent --accept-package-agreements --accept-source-agreements
+            winget install --id Tailscale.Tailscale --silent --accept-package-agreements --accept-source-agreements
+            where tailscale >nul 2>&1
+            if errorlevel 1 (
+                echo [WARN] winget install may have failed. Install manually:
+                echo        https://tailscale.com/download/windows
+            ) else (
+                echo [OK] Tailscale installed. Next steps:
+                echo        1. Open a new terminal ^(to refresh PATH^)
+                echo        2. Run: tailscale login
+                echo        3. Run: tailscale funnel --bg %PORT%
+            )
+        ) else (
+            echo [WARN] winget not available. Install Tailscale manually:
+            echo        https://tailscale.com/download/windows
+            echo        Then: tailscale login
+            echo        Then: tailscale funnel --bg %PORT%
+        )
+    ) else (
+        echo [INFO] Tailscale install skipped. To set up later:
+        echo        winget install --id Tailscale.Tailscale
+        echo        tailscale login
+        echo        tailscale funnel --bg %PORT%
+        echo        Alternative: cloudflared \(below\) also exposes the bridge.
+    )
     goto :tailscale_done
 )
 echo [OK] Tailscale is installed
@@ -177,7 +216,18 @@ if defined CLOUDFLARED_BIN (
     if errorlevel 1 echo [WARN] Could not verify cloudflared latest release ^(network/GitHub unavailable^).
     goto :cloudflared_done
 )
-echo [INFO] Downloading cloudflared.exe for Cloudflare Quick Tunnels ^(optional^)...
+echo [INFO] cloudflared not found. It installs INSIDE the bridge directory
+echo       ^(%BRIDGE_DIR%\cloudflared.exe^), ~40MB. Tailscale Funnel is the
+echo       recommended option; cloudflared is an alternative for environments
+echo       where Tailscale cannot run.
+set "CF_CONFIRM="
+set /p "CF_CONFIRM=Download cloudflared.exe (~40MB) to bridge dir? [y/N]: "
+if /I not "%CF_CONFIRM%"=="Y" (
+    echo [INFO] cloudflared download skipped. Get it later from:
+    echo        https://github.com/cloudflare/cloudflared/releases/latest
+    goto :cloudflared_done
+)
+echo [INFO] Downloading cloudflared.exe for Cloudflare Quick Tunnels...
 curl --max-time 120 -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%BRIDGE_DIR%\cloudflared.exe" 2>nul
 if exist "%BRIDGE_DIR%\cloudflared.exe" (
     set "CLOUDFLARED_BIN=%BRIDGE_DIR%\cloudflared.exe"
@@ -190,6 +240,15 @@ if exist "%BRIDGE_DIR%\cloudflared.exe" (
 
 REM --- SuperPowers ---
 if exist "%BRIDGE_DIR%\skills\superpowers\skills" goto :sp_exists
+echo [INFO] SuperPowers is a 14-skill agentic framework (TDD, debugging, planning).
+echo       It clones into the bridge directory ^(%BRIDGE_DIR%\skills\superpowers^).
+set "SP_CONFIRM="
+set /p "SP_CONFIRM=Install SuperPowers? [y/N]: "
+if /I not "%SP_CONFIRM%"=="Y" (
+    echo [INFO] SuperPowers skipped. Install later with:
+    echo        git clone https://github.com/obra/superpowers.git skills\superpowers
+    goto :sp_done
+)
 echo [INFO] Installing SuperPowers from GitHub...
 git clone --depth 1 https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers" >nul 2>&1
 if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
@@ -228,7 +287,17 @@ if errorlevel 1 (
     echo [INFO] BrowserAct requires uv. Install: https://docs.astral.sh/uv/getting-started/installation/
     goto :ba_done
 )
-echo [INFO] Installing BrowserAct via uv...
+echo [INFO] BrowserAct installs GLOBALLY via `uv tool` (in your user PATH,
+echo       outside the bridge directory). The bridge calls `browser-act` via PATH,
+echo       so a global install is required for it to work.
+set "BA_CONFIRM="
+set /p "BA_CONFIRM=Install BrowserAct globally via uv? [y/N]: "
+if /I not "%BA_CONFIRM%"=="Y" (
+    echo [INFO] BrowserAct skipped. Install later with:
+    echo        uv tool install browser-act-cli --python 3.12
+    goto :ba_done
+)
+echo [INFO] Installing BrowserAct via uv tool (global, outside bridge dir)...
 uv tool install browser-act-cli --python 3.12 >nul 2>&1
 where browser-act >nul 2>&1
 if errorlevel 1 (
@@ -250,13 +319,24 @@ if not errorlevel 1 (
     set /p CAMOUFOX_VERSION=<"%TEMP%\arena_camoufox_version.txt"
     del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
     echo [OK] Camoufox package present: !CAMOUFOX_VERSION!
+    echo [INFO] Camoufox downloads ~300MB to a SYSTEM cache directory
+    echo       ^(%%LOCALAPPDATA%%\camoufox or %%USERPROFILE%%\.cache\camoufox^),
+    echo       NOT inside the bridge directory.
+    set "CAM_CONFIRM="
+    set /p "CAM_CONFIRM=Download/refresh Camoufox browser (~300MB to system cache)? [y/N]: "
+    if /I not "%CAM_CONFIRM%"=="Y" (
+        echo [INFO] Camoufox fetch skipped. BrowserAct will use regular Chrome/Chromium.
+        goto :camoufox_done
+    )
     echo [INFO] Ensuring Camoufox browser files are present/current...
     %PYTHON% -m camoufox fetch >nul 2>&1
     if errorlevel 1 (echo [WARN] Camoufox fetch/update failed or skipped.) else (echo [OK] Camoufox stealth browser ready.)
     goto :camoufox_done
 )
-%PYTHON% -m camoufox fetch >nul 2>&1
-if errorlevel 1 (echo [WARN] Camoufox fetch failed. BrowserAct may fetch it later.) else (echo [OK] Camoufox stealth browser ready.)
+echo [INFO] Camoufox package not present. BrowserAct stealth mode may not work.
+echo       It should be auto-installed with browser-act-cli. Try:
+echo         uv tool install browser-act-cli --python 3.12 --force-reinstall
+goto :camoufox_done
 :camoufox_done
 
 echo.

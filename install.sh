@@ -374,7 +374,52 @@ except Exception: pass
         fi
     fi
 else
-    info "Tailscale not found. Install it for internet access: https://tailscale.com"
+    # Tailscale is NOT installed. Offer to install it (with explicit consent),
+    # because Tailscale Funnel is the recommended way to expose the bridge to
+    # the internet. We use the official Tailscale install script which handles
+    # apt/dnf/pacman/etc. automatically.
+    info "Tailscale not found. Tailscale Funnel is the recommended way to expose"
+    info "the bridge to the internet (real HTTPS via Let's Encrypt, no port-forward)."
+    info ""
+    info "Installing Tailscale requires sudo and will add a system package."
+    info "After install, you will need to run 'tailscale login' (opens a browser URL)"
+    info "and then 'tailscale funnel --bg $PORT' to publish the bridge."
+    info ""
+    if [ "${ARENA_ASSUME_YES:-}" = "1" ] || ask "Install Tailscale now via official script?"; then
+        info "Running official Tailscale install script (requires sudo)..."
+        if command -v curl >/dev/null 2>&1; then
+            curl -fsSL https://tailscale.com/install.sh | sudo sh 2>&1
+        elif command -v wget >/dev/null 2>&1; then
+            wget -qO- https://tailscale.com/install.sh | sudo sh 2>&1
+        else
+            warn "Neither curl nor wget found; cannot run Tailscale install script."
+            warn "Install manually: https://tailscale.com/download"
+        fi
+        if command -v tailscale >/dev/null 2>&1; then
+            ok "Tailscale installed. Next steps:"
+            echo "  1. Log in:           sudo tailscale login"
+            echo "     (opens a URL in your browser - sign in with Google/GitHub/etc.)"
+            echo "  2. Publish bridge:   sudo tailscale funnel --bg $PORT"
+            echo "     (exposes http://127.0.0.1:$PORT to the internet via HTTPS)"
+            echo "  3. Your public URL will look like: https://$(hostname).tail-XXXXX.ts.net"
+            echo ""
+            if ask "Run 'tailscale login' now? (requires sudo)"; then
+                sudo tailscale login 2>&1 && ok "Tailscale login initiated - follow the URL in output" || warn "Tailscale login failed"
+            else
+                info "You can log in later: sudo tailscale login"
+            fi
+        else
+            warn "Tailscale install may have failed. Install manually:"
+            echo "  https://tailscale.com/download"
+        fi
+    else
+        info "Tailscale install skipped. To set up later:"
+        echo "  curl -fsSL https://tailscale.com/install.sh | sh"
+        echo "  sudo tailscale login"
+        echo "  sudo tailscale funnel --bg $PORT"
+        info ""
+        info "Alternative: cloudflared (below) also exposes the bridge without Tailscale."
+    fi
 fi
 
 # --- 6a-bis: cloudflared (optional Cloudflare Quick Tunnel) ---
@@ -474,8 +519,11 @@ if command -v browser-act >/dev/null 2>&1; then
 else
     # Check for uv
     if command -v uv >/dev/null 2>&1; then
-        if ask "Install BrowserAct? (browser automation CLI for AI agents — browse, click, forms, CAPTCHAs)"; then
-            info "Installing BrowserAct via uv..."
+        info "BrowserAct installs GLOBALLY via `uv tool` (in ~/.local/bin or equivalent),"
+        info "NOT inside the bridge directory. The bridge calls `browser-act` via PATH,"
+        info "so a global install is required for it to work."
+        if ask "Install BrowserAct globally via uv? (browser automation CLI — browse, click, forms, CAPTCHAs)"; then
+            info "Installing BrowserAct via uv tool (global, outside bridge dir)..."
             uv tool install browser-act-cli --python 3.12 2>/dev/null
             if command -v browser-act >/dev/null 2>&1; then
                 ok "BrowserAct installed: $(browser-act --version 2>/dev/null || echo 'OK')"
@@ -522,8 +570,11 @@ if command -v browser-act >/dev/null 2>&1; then
             info "Checking Camoufox browser files..."
             $BA_PYTHON -m camoufox fetch >/dev/null 2>&1 && ok "Camoufox browser files are present/current" || warn "Camoufox fetch/update failed or skipped"
         else
-            if ask "Download Camoufox stealth browser? (~300MB, enables BrowserAct stealth mode)"; then
-                info "Downloading Camoufox browser binary..."
+            info "Camoufox downloads ~300MB to a SYSTEM CACHE directory"
+            info "(typically ~/.cache/camoufox on Linux), NOT inside the bridge directory."
+            info "This is required by the camoufox Python package and cannot be redirected."
+            if ask "Download Camoufox stealth browser? (~300MB to system cache, enables BrowserAct stealth mode)"; then
+                info "Downloading Camoufox browser binary to system cache..."
                 $BA_PYTHON -m camoufox fetch 2>&1
                 CAMOUFOX_PATH="$($BA_PYTHON -m camoufox path 2>/dev/null)" || CAMOUFOX_PATH=""
                 if [ -n "$CAMOUFOX_PATH" ] && [ -x "$CAMOUFOX_PATH" ]; then

@@ -100,12 +100,12 @@ The installer will:
 2. Install `aiohttp` + `psutil`
 3. Create all required subdirectories inside the repo folder (no files scattered in your home)
 4. Generate a fresh auth token (or preserve the existing one)
-5. Detect and install optional components: Tailscale, SuperPowers, BrowserAct, Camoufox
+5. Ask before installing each optional component (Tailscale, SuperPowers, BrowserAct, Camoufox) — see [Optional components](#-optional-components-and-where-they-install) for what lands where
 6. Register a background service (NSSM on Windows, Scheduled Task as fallback, systemd-user on Linux, launchd on macOS)
 7. Rotate any oversized log files from previous runs
 8. Start the bridge and verify it's healthy
 
-> **Everything stays in one folder.** No files are copied outside the repo directory.
+> **The bridge itself stays in one folder.** Optional components are installed only after explicit consent; some of them (Tailscale, BrowserAct, Camoufox) intentionally land outside the bridge directory because they are system-wide tools. See [Optional components and where they install](#-optional-components-and-where-they-install) for the full picture.
 
 ### 3. Updating an existing installation
 
@@ -117,6 +117,55 @@ Re-running the installer on an existing installation is **safe and non-destructi
 - **Falls back gracefully.** If GitHub is unreachable, the installer keeps your local code and continues with dependency setup and service registration.
 
 On Windows, `install.bat` additionally queries the GitHub releases API and prints an `[INFO]` line when a newer release is available - it never auto-updates, just informs you.
+
+## 🧩 Optional components and where they install
+
+The installer asks for explicit consent before installing each optional component. Some components are scoped to the bridge directory; others are system-wide by design (they cannot work from inside a single folder).
+
+| Component | Where it installs | Required for | Consent prompt |
+|-----------|-------------------|--------------|----------------|
+| **Tailscale** | System package (`/usr/bin/tailscale` on Linux, `C:\Program Files\Tailscale` on Windows) | Recommended way to expose the bridge to the internet via Tailscale Funnel (real HTTPS, no port-forward) | Yes — installs via official script (Linux/macOS) or `winget` (Windows); requires sudo/admin |
+| **cloudflared** | Inside the bridge directory (`$INSTALL_DIR/cloudflared` or `%BRIDGE_DIR%\cloudflared.exe`) | Alternative to Tailscale Funnel (Cloudflare Quick Tunnels, no account needed) | Yes — downloads ~40MB |
+| **SuperPowers** | Inside the bridge directory (`skills/superpowers/`) | 14-skill agentic framework (TDD, debugging, planning) | Yes — clones from GitHub |
+| **BrowserAct** | **Globally** via `uv tool` (in `~/.local/bin` or `%USERPROFILE%\.local\bin`, outside the bridge directory) | Browser automation CLI (browse, click, forms, CAPTCHAs) — the bridge calls `browser-act` via PATH | Yes — global install is required for it to work |
+| **Camoufox** | **System cache** (`~/.cache/camoufox` on Linux, `%LOCALAPPDATA%\camoufox` on Windows, outside the bridge directory) | Stealth browser engine for BrowserAct (~300MB download) | Yes — required by the camoufox Python package |
+
+### Setting up Tailscale Funnel for internet access
+
+Tailscale Funnel is the recommended way to expose your bridge to the internet. It gives you a real HTTPS URL (like `https://your-pc.tail-XXXXX.ts.net`) with a Let's Encrypt certificate, no port-forwarding, no DDNS, no Cloudflare account.
+
+**If you skipped Tailscale during install**, set it up in three steps:
+
+```bash
+# 1. Install Tailscale (Linux/macOS — uses your system package manager)
+curl -fsSL https://tailscale.com/install.sh | sh
+# On Windows:  winget install --id Tailscale.Tailscale
+
+# 2. Log in (opens a URL in your browser — sign in with Google, GitHub, Microsoft, etc.)
+sudo tailscale login         # Linux/macOS
+tailscale login              # Windows
+
+# 3. Publish the bridge (exposes http://127.0.0.1:8765 to the internet via HTTPS)
+sudo tailscale funnel --bg 8765    # Linux/macOS
+tailscale funnel --bg 8765         # Windows
+```
+
+After step 3, your public URL will look like `https://your-pc.tail-XXXXX.ts.net`. Use it (with your auth token) in any AI chat to drive your computer remotely.
+
+> **Why Tailscale and not just port-forwarding?** Tailscale Funnel terminates TLS with a real Let's Encrypt cert (no self-signed warnings), works behind any NAT/firewall, and gives you a stable hostname that follows your machine across networks. The bridge's `/v1/sys/funnel` endpoint checks Funnel status; the dashboard Settings tab has a toggle for it.
+
+### Skipping optional components
+
+If you answer "N" to every optional component prompt, the bridge still works fully for:
+- Local execution (`POST /v1/exec`)
+- Memory and recall (`/v1/memory`, `/v1/recall`)
+- Local browser fetch (`/v1/browser/read`, `/dump`, `/fetch`, `/head`)
+- Desktop automation (`/v1/desktop/*`) — uses `ydotool`/`xdotool`, not BrowserAct
+- Web dashboard at `http://127.0.0.1:8765/gui`
+
+You only need the optional components for: remote internet access (Tailscale/cloudflared), agentic skill playbooks (SuperPowers), or anti-detection browser automation (BrowserAct + Camoufox). You can install any of them later by re-running the installer.
+
+---
 
 ## 🧾 Transparency: background processes are expected (not malware)
 
@@ -204,7 +253,7 @@ In your chat:
 
 Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI, ...) support custom HTTP tools or MCP servers and can call your endpoints directly.
 
-For a ready-to-use system prompt template, see [`docs/AI_SYSTEM_PROMPT.md`](docs/AI_SYSTEM_PROMPT.md).
+For a ready-to-use system prompt template, see [`docs/AI_PROMPT_TEMPLATE.md`](docs/AI_PROMPT_TEMPLATE.md).
 
 ### 4. Update
 
@@ -889,7 +938,7 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - **Fixed:** Process counter counts PIDs, not output lines
 - **Added:** Unique sound melodies per notification type on Linux
 - **Added:** Uninstall scripts (`uninstall.bat`, `uninstall.sh`)
-- **Added:** `docs/AI_SYSTEM_PROMPT.md` — AI system prompt template
+- **Added:** `docs/AI_PROMPT_TEMPLATE.md` — AI system prompt template
 - **Fixed:** MCP port changed from 8767 to 8765
 - **Removed:** 8 deprecated/garbage skills, old docs, duplicate scripts
 
