@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
 REM ============================================================
-REM  Arena Unified Bridge — Windows Installer v2.1.0
+REM  Arena Unified Bridge - Windows Installer v2.1.2
 REM  Full parity with install.sh. Window stays open on errors.
 REM ============================================================
 
@@ -45,28 +45,27 @@ if not defined PYTHON (
 )
 for /f "delims=" %%v in ('%PYTHON% --version 2^>^&1') do echo       %%v found
 
-REM --- Read version via helper (canonical source: arena\constants.py) ---
+REM --- Read version via helper ---
 set "VERSION=unknown"
 if exist "%BRIDGE_DIR%\_arena_helper.py" (
     for /f "delims=" %%v in ('%PYTHON% "%BRIDGE_DIR%\_arena_helper.py" version 2^>nul') do set "VERSION=%%v"
 )
 echo       Bridge v!VERSION!
 
-REM --- Soft version-check: inform (never auto-update) if a newer release exists ---
-REM Queries the public GitHub releases API. Safe to fail offline.
+REM --- Soft version-check: query GitHub releases API via Python urllib ---
+REM We use Python urllib directly (no curl pipe, no \" escapes inside if-blocks)
+REM so the cmd parser does not break on quoted strings.
 set "LATEST_VERSION="
-for /f "delims=" %%v in ('curl --max-time 8 -fsSL "https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest" 2^>nul ^| %PYTHON% -c "import json,sys; d=json.load(sys.stdin); print(d.get(\"tag_name\",\"\").lstrip(\"v\"))" 2^>nul') do set "LATEST_VERSION=%%v"
-if defined LATEST_VERSION (
-    if /I not "!LATEST_VERSION!"=="!VERSION!" (
-        echo       [INFO] A different version is available on GitHub: v!LATEST_VERSION!
-        echo              You are running: v!VERSION!
-        echo              To upgrade manually: download from https://github.com/IvanSkainet/arena-agent/releases
-        echo              Or, if this is a git clone: cd /d "%BRIDGE_DIR%" ^&^& git pull ^&^& install.bat
-    ) else (
-        echo       [OK] You are on the latest release.
-    )
+for /f "delims=" %%v in ('%PYTHON% -c "import urllib.request,json; req=urllib.request.Request('https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest'); print(json.load(urllib.request.urlopen(req,timeout=8)).get('tag_name','').lstrip('v'))" 2^>nul') do set "LATEST_VERSION=%%v"
+if not defined LATEST_VERSION (
+    echo       [INFO] Could not check GitHub for newer releases - offline or rate-limited.
+) else if /I "!LATEST_VERSION!"=="!VERSION!" (
+    echo       [OK] You are on the latest release.
 ) else (
-    echo       [INFO] Could not check GitHub for newer releases (offline or rate-limited).
+    echo       [INFO] A different version is available on GitHub: v!LATEST_VERSION!
+    echo              You are running: v!VERSION!
+    echo              To upgrade manually: download from https://github.com/IvanSkainet/arena-agent/releases
+    echo              Or, if this is a git clone: cd to bridge dir, then run "git pull", then "install.bat"
 )
 
 echo.
@@ -149,18 +148,18 @@ REM --- Tailscale ---
 where tailscale >nul 2>&1
 if errorlevel 1 (
     echo [INFO] Tailscale not found. Tailscale Funnel is the recommended way
-    echo       to expose the bridge to the internet (real HTTPS via Let's Encrypt,
-    echo       no port-forward). Browser-based AI dashboards can call you directly.
+    echo       to expose the bridge to the internet - real HTTPS via Let's Encrypt,
+    echo       no port-forward. Browser-based AI dashboards can call you directly.
     echo.
-    echo       Installing Tailscale adds a system package (requires admin elevation).
+    echo       Installing Tailscale adds a system package - requires admin elevation.
     echo       After install, you will need to run:
-    echo         1. tailscale login  ^(opens a browser URL - sign in with Google/GitHub/etc.^)
+    echo         1. tailscale login  - opens a browser URL, sign in with Google/GitHub/etc.
     echo         2. tailscale funnel --bg %PORT%
-    echo            ^(exposes http://127.0.0.1:%PORT% to the internet via HTTPS^)
+    echo            This exposes http://127.0.0.1:%PORT% to the internet via HTTPS.
     echo.
     set "TS_INSTALL_CONFIRM="
     set /p "TS_INSTALL_CONFIRM=Install Tailscale now via winget? [y/N]: "
-    if /I "%TS_INSTALL_CONFIRM%"=="Y" (
+    if /I "!TS_INSTALL_CONFIRM!"=="Y" (
         where winget >nul 2>&1
         if not errorlevel 1 (
             echo [INFO] Running: winget install --id Tailscale.Tailscale --silent --accept-package-agreements --accept-source-agreements
@@ -171,7 +170,7 @@ if errorlevel 1 (
                 echo        https://tailscale.com/download/windows
             ) else (
                 echo [OK] Tailscale installed. Next steps:
-                echo        1. Open a new terminal ^(to refresh PATH^)
+                echo        1. Open a new terminal - to refresh PATH
                 echo        2. Run: tailscale login
                 echo        3. Run: tailscale funnel --bg %PORT%
             )
@@ -186,7 +185,7 @@ if errorlevel 1 (
         echo        winget install --id Tailscale.Tailscale
         echo        tailscale login
         echo        tailscale funnel --bg %PORT%
-        echo        Alternative: cloudflared \(below\) also exposes the bridge.
+        echo        Alternative: cloudflared - see below - also exposes the bridge.
     )
     goto :tailscale_done
 )
@@ -200,8 +199,7 @@ if not defined TS_URL (
 echo [OK] Tailscale connected: %TS_URL%
 :tailscale_done
 
-REM --- cloudflared (optional Cloudflare Quick Tunnel) ---
-REM Not bundled in the repo (~40 MB binary); fetched on demand here.
+REM --- cloudflared ---
 set "CLOUDFLARED_BIN="
 where cloudflared >nul 2>&1
 if not errorlevel 1 (
@@ -213,15 +211,15 @@ if defined CLOUDFLARED_BIN (
     echo [OK] cloudflared present: !CLOUDFLARED_VERSION!
     echo [INFO] Checking cloudflared latest download availability...
     curl --max-time 20 -fsI "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" >nul 2>&1
-    if errorlevel 1 echo [WARN] Could not verify cloudflared latest release ^(network/GitHub unavailable^).
+    if errorlevel 1 echo [WARN] Could not verify cloudflared latest release - network/GitHub unavailable.
     goto :cloudflared_done
 )
-echo [INFO] cloudflared not found. It installs INSIDE the bridge directory
-echo       ^(%BRIDGE_DIR%\cloudflared.exe^), ~40MB. Tailscale Funnel is the
+echo [INFO] cloudflared not found. It installs INSIDE the bridge directory.
+echo       Path: %BRIDGE_DIR%\cloudflared.exe - 40MB. Tailscale Funnel is the
 echo       recommended option; cloudflared is an alternative for environments
 echo       where Tailscale cannot run.
 set "CF_CONFIRM="
-set /p "CF_CONFIRM=Download cloudflared.exe (~40MB) to bridge dir? [y/N]: "
+set /p "CF_CONFIRM=Download cloudflared.exe - 40MB - to bridge dir? [y/N]: "
 if /I not "%CF_CONFIRM%"=="Y" (
     echo [INFO] cloudflared download skipped. Get it later from:
     echo        https://github.com/cloudflare/cloudflared/releases/latest
@@ -232,7 +230,7 @@ curl --max-time 120 -fsSL "https://github.com/cloudflare/cloudflared/releases/la
 if exist "%BRIDGE_DIR%\cloudflared.exe" (
     set "CLOUDFLARED_BIN=%BRIDGE_DIR%\cloudflared.exe"
     for /f "delims=" %%v in ('"%BRIDGE_DIR%\cloudflared.exe" --version 2^>nul') do if not defined CLOUDFLARED_VERSION set "CLOUDFLARED_VERSION=%%v"
-    echo [OK] cloudflared installed at %BRIDGE_DIR%\cloudflared.exe ^(!CLOUDFLARED_VERSION!^)
+    echo [OK] cloudflared installed at %BRIDGE_DIR%\cloudflared.exe - !CLOUDFLARED_VERSION!
 ) else (
     echo [WARN] cloudflared download skipped/failed. Get it later: https://github.com/cloudflare/cloudflared/releases/latest
 )
@@ -240,8 +238,8 @@ if exist "%BRIDGE_DIR%\cloudflared.exe" (
 
 REM --- SuperPowers ---
 if exist "%BRIDGE_DIR%\skills\superpowers\skills" goto :sp_exists
-echo [INFO] SuperPowers is a 14-skill agentic framework (TDD, debugging, planning).
-echo       It clones into the bridge directory ^(%BRIDGE_DIR%\skills\superpowers^).
+echo [INFO] SuperPowers is a 14-skill agentic framework - TDD, debugging, planning.
+echo       It clones into the bridge directory: %BRIDGE_DIR%\skills\superpowers
 set "SP_CONFIRM="
 set /p "SP_CONFIRM=Install SuperPowers? [y/N]: "
 if /I not "%SP_CONFIRM%"=="Y" (
@@ -264,7 +262,11 @@ if exist "%BRIDGE_DIR%\skills\superpowers\.git" (
     for /f "delims=" %%r in ('git -C "%BRIDGE_DIR%\skills\superpowers" rev-parse --short HEAD 2^>nul') do echo [INFO] SuperPowers revision: %%r
     echo [INFO] Checking SuperPowers updates...
     git -C "%BRIDGE_DIR%\skills\superpowers" pull --ff-only --quiet >nul 2>&1
-    if errorlevel 1 (echo [WARN] SuperPowers update check failed/skipped.) else (echo [OK] SuperPowers is up to date or fast-forwarded.)
+    if errorlevel 1 (
+        echo [WARN] SuperPowers update check failed/skipped.
+    ) else (
+        echo [OK] SuperPowers is up to date or fast-forwarded.
+    )
 )
 :sp_done
 
@@ -278,7 +280,11 @@ if not errorlevel 1 (
     if not errorlevel 1 (
         echo [INFO] Checking BrowserAct updates via uv...
         uv tool upgrade browser-act-cli >nul 2>&1
-        if errorlevel 1 (echo [WARN] BrowserAct update check failed/skipped.) else (echo [OK] BrowserAct is up to date or upgraded.)
+        if errorlevel 1 (
+            echo [WARN] BrowserAct update check failed/skipped.
+        ) else (
+            echo [OK] BrowserAct is up to date or upgraded.
+        )
     )
     goto :ba_done
 )
@@ -287,8 +293,8 @@ if errorlevel 1 (
     echo [INFO] BrowserAct requires uv. Install: https://docs.astral.sh/uv/getting-started/installation/
     goto :ba_done
 )
-echo [INFO] BrowserAct installs GLOBALLY via `uv tool` (in your user PATH,
-echo       outside the bridge directory). The bridge calls `browser-act` via PATH,
+echo [INFO] BrowserAct installs GLOBALLY via uv tool - in your user PATH,
+echo       outside the bridge directory. The bridge calls browser-act via PATH,
 echo       so a global install is required for it to work.
 set "BA_CONFIRM="
 set /p "BA_CONFIRM=Install BrowserAct globally via uv? [y/N]: "
@@ -297,7 +303,7 @@ if /I not "%BA_CONFIRM%"=="Y" (
     echo        uv tool install browser-act-cli --python 3.12
     goto :ba_done
 )
-echo [INFO] Installing BrowserAct via uv tool (global, outside bridge dir)...
+echo [INFO] Installing BrowserAct via uv tool - global, outside bridge dir...
 uv tool install browser-act-cli --python 3.12 >nul 2>&1
 where browser-act >nul 2>&1
 if errorlevel 1 (
@@ -320,17 +326,21 @@ if not errorlevel 1 (
     del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
     echo [OK] Camoufox package present: !CAMOUFOX_VERSION!
     echo [INFO] Camoufox downloads ~300MB to a SYSTEM cache directory
-    echo       ^(%%LOCALAPPDATA%%\camoufox or %%USERPROFILE%%\.cache\camoufox^),
+    echo       in LOCALAPPDATA\camoufox or USERPROFILE\.cache\camoufox,
     echo       NOT inside the bridge directory.
     set "CAM_CONFIRM="
-    set /p "CAM_CONFIRM=Download/refresh Camoufox browser (~300MB to system cache)? [y/N]: "
-    if /I not "%CAM_CONFIRM%"=="Y" (
+    set /p "CAM_CONFIRM=Download/refresh Camoufox browser - 300MB to system cache? [y/N]: "
+    if /I not "!CAM_CONFIRM!"=="Y" (
         echo [INFO] Camoufox fetch skipped. BrowserAct will use regular Chrome/Chromium.
         goto :camoufox_done
     )
     echo [INFO] Ensuring Camoufox browser files are present/current...
     %PYTHON% -m camoufox fetch >nul 2>&1
-    if errorlevel 1 (echo [WARN] Camoufox fetch/update failed or skipped.) else (echo [OK] Camoufox stealth browser ready.)
+    if errorlevel 1 (
+        echo [WARN] Camoufox fetch/update failed or skipped.
+    ) else (
+        echo [OK] Camoufox stealth browser ready.
+    )
     goto :camoufox_done
 )
 echo [INFO] Camoufox package not present. BrowserAct stealth mode may not work.
@@ -346,14 +356,11 @@ REM Step 5: Install and start bridge service
 REM ============================================================
 echo [4/6] Installing as system service...
 
-REM Stop any existing bridge service/task BEFORE killing processes
 schtasks /end /tn "ArenaUnifiedBridge" >nul 2>&1
 where nssm >nul 2>&1
 if not errorlevel 1 (
     nssm stop ArenaUnifiedBridge >nul 2>&1
 ) else (
-    REM If NSSM is not installed but a stale SCM service exists, remove it so
-    REM diagnostics don't report an obsolete stopped service alongside the task.
     sc query ArenaUnifiedBridge >nul 2>&1
     if not errorlevel 1 (
         sc stop ArenaUnifiedBridge >nul 2>&1
@@ -363,30 +370,25 @@ if not errorlevel 1 (
 )
 ping -n 2 127.0.0.1 >nul
 
-REM Kill any remaining bridge processes on our port
 for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do taskkill /F /PID %%P >nul 2>nul
 ping -n 2 127.0.0.1 >nul
 
-REM Create start_bridge.bat (for manual use and schtasks)
 echo @echo off> "%BRIDGE_DIR%\start_bridge.bat"
 echo cd /d "%BRIDGE_DIR%">> "%BRIDGE_DIR%\start_bridge.bat"
 echo set ARENA_AGENT_HOME=%BRIDGE_DIR%>> "%BRIDGE_DIR%\start_bridge.bat"
 echo set ARENA_TOKEN_FILE=%TOKEN_FILE%>> "%BRIDGE_DIR%\start_bridge.bat"
 echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT%>> "%BRIDGE_DIR%\start_bridge.bat"
 
-REM Create start_hidden.vbs (launches start_bridge.bat with NO visible window)
 echo Set WshShell = CreateObject^("WScript.Shell"^)> "%BRIDGE_DIR%\start_hidden.vbs"
 echo WshShell.Run """%BRIDGE_DIR%\start_bridge.bat""", 0, False>> "%BRIDGE_DIR%\start_hidden.vbs"
 
 set "SERVICE_METHOD=none"
-
 where nssm >nul 2>&1
 if not errorlevel 1 goto :use_nssm
 
 :use_schtasks
 set "SERVICE_METHOD=schtasks"
 echo       NSSM not found, using Scheduled Task with hidden window...
-
 schtasks /delete /tn "ArenaUnifiedBridge" /f >nul 2>&1
 schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"%BRIDGE_DIR%\start_hidden.vbs\"" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
 schtasks /run /tn "ArenaUnifiedBridge" >nul 2>&1
@@ -396,22 +398,17 @@ goto :service_installed
 :use_nssm
 set "SERVICE_METHOD=nssm"
 echo       Using NSSM service manager...
-
 nssm remove ArenaUnifiedBridge confirm >nul 2>&1
-
-REM Find pythonw.exe (no console window) for NSSM
 set "PYW=%PYTHON%"
 for %%p in ("%PYTHON%") do (
     if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
 )
-
 nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
 nssm set ArenaUnifiedBridge AppDirectory "%BRIDGE_DIR%" >nul 2>&1
 nssm set ArenaUnifiedBridge DisplayName "Arena Unified Bridge v!VERSION!" >nul 2>&1
 nssm set ArenaUnifiedBridge Start SERVICE_AUTO_START >nul 2>&1
 nssm set ArenaUnifiedBridge AppStdout "%BRIDGE_DIR%\logs\bridge.log" >nul 2>&1
 nssm set ArenaUnifiedBridge AppStderr "%BRIDGE_DIR%\logs\bridge_err.log" >nul 2>&1
-REM v2.1.0: NSSM log rotation — rotate at 5MB, keep 3 copies
 nssm set ArenaUnifiedBridge AppRotateFiles 1 >nul 2>&1
 nssm set ArenaUnifiedBridge AppRotateBytes 5242880 >nul 2>&1
 nssm set ArenaUnifiedBridge AppRotateBackups 3 >nul 2>&1
@@ -421,7 +418,6 @@ echo       [OK] NSSM service installed and started.
 
 :service_installed
 
-REM --- Windows Firewall rule ---
 netsh advfirewall firewall show rule name="Arena Bridge" >nul 2>&1
 if not errorlevel 1 goto :firewall_done
 netsh advfirewall firewall add rule name="Arena Bridge" dir=in action=allow protocol=TCP localport=%PORT% >nul 2>&1
@@ -440,7 +436,7 @@ for /L %%i in (1,1,30) do (
         if not errorlevel 1 (
             set "HEALTHY=1"
             set "HEALTH_VERSION=!VERSION!"
-            for /f "delims=" %%v in ('%PYTHON% -c "import json,sys; print(json.load(open(r'%TEMP%\arena_health.json')).get('version',''))" 2^>nul') do set "HEALTH_VERSION=%%v"
+            for /f "delims=" %%v in ('%PYTHON% -c "import json;print(json.load(open(r'%TEMP%\arena_health.json')).get('version',''))" 2^>nul') do set "HEALTH_VERSION=%%v"
             del "%TEMP%\arena_health.json" >nul 2>&1
             echo       Bridge is healthy. v!HEALTH_VERSION!
         ) else (
@@ -535,7 +531,7 @@ where browser-act >nul 2>&1
 if not errorlevel 1 echo   BrowserAct    - installed
 echo.
 echo   Update:
-echo   cd /d "%BRIDGE_DIR%" ^&^& git pull ^&^& install.bat
+echo   cd to bridge dir, then run: git pull, then: install.bat
 echo.
 
 :end
