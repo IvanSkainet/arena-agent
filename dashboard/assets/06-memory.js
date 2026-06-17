@@ -63,7 +63,7 @@ async function addMemory() {
 async function deleteMemory(key) {
   if (!confirm("Delete fact: " + key + "?")) return;
   try {
-    const result = await api("/v1/memory/delete", {method: "POST", body: JSON.stringify({key})});
+    const result = await api("/v1/memory", {method: "DELETE", body: JSON.stringify({key})});
     if (result.ok) loadMemory();
     else alert("Error: " + (result.error||"?"));
   } catch(e) {

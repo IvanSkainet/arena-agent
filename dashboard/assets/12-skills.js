@@ -103,7 +103,7 @@ async function runSkill(skill) {
   outputEl.style.display = "block";
   outputText.textContent = "Running skill: " + (skill.name || skill.id || "?") + "...";
   try {
-    const result = await api("/v1/skills/run", {method: "POST", body: JSON.stringify({skill: skill.name || skill.id})});
+    const result = await api("/v1/skills/run", {method: "POST", body: JSON.stringify({name: skill.name || skill.id, args: []})});
     outputText.textContent = JSON.stringify(result, null, 2);
   } catch(e) {
     outputText.textContent = "Error: " + (e.message || "Unknown error");

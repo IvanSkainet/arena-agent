@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.1.3 — 2026-06-17
+
+### Fixed
+- Fixed GUI terminal `agentctl ...` commands by resolving them to the installed bridge bin path instead of relying on service PATH.
+- Fixed GUI Quick Commands to render API results inside the terminal session instead of writing to a removed `termOutput` element.
+- Fixed GUI memory deletion by using `DELETE /v1/memory` instead of the removed `/v1/memory/delete` route.
+- Fixed GUI skill execution payload by sending `{name, args}` instead of `{skill}`.
+- Fixed Control pause cancellation: pressing Cancel in the prompt no longer pauses control.
+- Fixed modular inventory runtime/package/browser/env probes by restoring extracted constants (`RUNTIMES`, `PACKAGE_MANAGERS`, `BROWSERS`, `ENV_KEYS_OF_INTEREST`, platform browser paths).
+- Fixed stale CDP client imports and MCP marketplace helper imports found by installed-wrapper smoke tests.
+
+### Validation
+- Local `pytest -q`: PASS, 407 tests.
+- Local critical ruff and py_compile: PASS.
+- Installed-wrapper smoke added/used for scripts/bin entrypoints.
+- CachyOS live install, GUI BrowserAct smoke, endpoint smoke and stress are required before publication.
+
 ## v3.1.2 — 2026-06-16
 
 ### Fixed

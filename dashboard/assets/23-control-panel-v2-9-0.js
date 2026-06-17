@@ -47,7 +47,9 @@ async function refreshControlPanel() {
 }
 
 async function controlPause() {
-  const reason = prompt("Reason for pausing (optional):", "User paused from dashboard") || "Dashboard pause";
+  const prompted = prompt("Reason for pausing (optional):", "User paused from dashboard");
+  if (prompted === null) return;
+  const reason = prompted || "Dashboard pause";
   const r = await api("/v1/control/pause", {method: "POST", body: JSON.stringify({reason})});
   if (r && r.ok) { refreshControlPanel(); }
   else { alert("Pause failed: " + (r ? r.error : "unknown")); }

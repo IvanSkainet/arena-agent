@@ -72,8 +72,15 @@ function _termAppendEntry(cmdText, opts) {
   return { entry, head, meta, out };
 }
 
+function normalizeShellCommand(cmd) {
+  const trimmed = String(cmd || "").trim();
+  if (/^agentctl(\s|$)/.test(trimmed)) return trimmed.replace(/^agentctl\b/, "$HOME/arena-bridge/bin/agentctl");
+  return cmd;
+}
+
 async function runCommand(cmd) {
-  const c = cmd || termInput.value;
+  const raw = cmd || termInput.value;
+  const c = normalizeShellCommand(raw);
   if (!c.trim()) return;
   termInput.value = "";
   const timeout = parseInt(document.getElementById("termTimeout").value);
@@ -166,20 +173,22 @@ function copyTermOutput() {
 }
 
 async function apiQuickGet(path) {
-  const output = document.getElementById("termOutput");
   document.querySelectorAll(".sidebar nav a").forEach(x => x.classList.remove("active"));
   document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
   document.querySelector('[data-tab="terminal"]').classList.add("active");
   document.getElementById("tab-terminal").classList.add("active");
-  output.textContent = "Fetching " + path + "...\n";
+  const slot = _termAppendEntry("GET " + path);
   const t0 = Date.now();
   try {
     const result = await api(path);
     const dur = ((Date.now() - t0) / 1000).toFixed(1);
     document.getElementById("termDuration").textContent = dur + "s";
-    output.textContent = JSON.stringify(result, null, 2);
+    if (slot) {
+      slot.out.textContent = JSON.stringify(result, null, 2);
+      slot.meta.textContent = "HTTP helper · " + dur + "s";
+    }
   } catch(e) {
-    output.textContent = "Error fetching " + path + ": " + (e.message || "Unknown error");
+    if (slot) { slot.out.textContent = "Error fetching " + path + ": " + (e.message || "Unknown error"); slot.meta.textContent = "error"; }
   }
   cmdHistory.unshift("GET " + path);
   if (cmdHistory.length > 30) cmdHistory.length = 30;

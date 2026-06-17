@@ -14,6 +14,41 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+RUNTIMES = [
+    "python", "python3", "node", "npm", "pnpm", "yarn", "bun", "deno",
+    "go", "rustc", "cargo", "java", "javac", "dotnet", "php", "ruby",
+    "perl", "lua", "scala", "gcc", "clang", "cmake", "make",
+]
+PACKAGE_MANAGERS = [
+    "pacman", "apt", "apt-get", "dnf", "yum", "zypper", "apk", "brew",
+    "flatpak", "snap", "pip", "pipx", "uv", "conda", "winget", "scoop",
+    "choco", "docker", "podman", "kubectl",
+]
+BROWSERS = [
+    "librewolf", "firefox", "firefox-esr", "chromium", "google-chrome",
+    "google-chrome-stable", "brave", "brave-browser", "vivaldi", "opera",
+    "microsoft-edge", "msedge", "yandex-browser",
+]
+WINDOWS_BROWSER_PATHS = [
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+    r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe",
+    r"C:\Program Files\Mozilla Firefox\firefox.exe",
+]
+MACOS_BROWSER_APPS = [
+    "/Applications/Google Chrome.app",
+    "/Applications/Firefox.app",
+    "/Applications/Brave Browser.app",
+    "/Applications/Chromium.app",
+    "/Applications/Safari.app",
+]
+ENV_KEYS_OF_INTEREST = [
+    "SHELL", "TERM", "LANG", "LC_ALL", "XDG_SESSION_TYPE",
+    "XDG_CURRENT_DESKTOP", "DESKTOP_SESSION", "WAYLAND_DISPLAY", "DISPLAY",
+    "XDG_RUNTIME_DIR", "PATH", "PYTHONPATH", "VIRTUAL_ENV", "CONDA_PREFIX",
+]
+
 
 def _run(cmd: list[str] | str, timeout: float = 5.0, capture_stderr: bool = False, shell: bool = False) -> str:
     """Run a command, return stdout (str) or empty string on failure.
