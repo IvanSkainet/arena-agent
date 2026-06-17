@@ -6,7 +6,7 @@
 One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v3.1.5-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=version)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -104,6 +104,17 @@ The installer will:
 8. Start the bridge and verify it's healthy
 
 > **Everything stays in one folder.** No files are copied outside the repo directory.
+
+### 3. Updating an existing installation
+
+Re-running the installer on an existing installation is **safe and non-destructive**:
+
+- **Never silently downgrades.** The installer reads your locally-installed version and compares it with the remote tip of your current branch. If your local version is newer than (or equal to) the remote, nothing is changed.
+- **Never switches branches.** The updater fast-forwards the *current* branch only. It does not run `git checkout -B` against a hardcoded branch, so users who pinned themselves to a release branch stay on it.
+- **Asks before updating.** If the remote version is newer, you get a prompt (or set `ARENA_ASSUME_YES=1` for automation). If `git merge --ff-only` would fail (diverged branches, local commits), your work is preserved and you get instructions to resolve manually.
+- **Falls back gracefully.** If GitHub is unreachable, the installer keeps your local code and continues with dependency setup and service registration.
+
+On Windows, `install.bat` additionally queries the GitHub releases API and prints an `[INFO]` line when a newer release is available - it never auto-updates, just informs you.
 
 ## 🧾 Transparency: background processes are expected (not malware)
 
