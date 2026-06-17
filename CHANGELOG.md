@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.1.6 — 2026-06-17
+
+### Fixed
+- **Installer no longer silently downgrades existing installations.** `install.sh` (Linux/macOS) now reads the locally-installed version, fetches only the *current* branch from origin (never switches branches), compares local vs. remote versions semver-aware, and asks before updating. Updates use `git merge --ff-only` so local commits are never discarded. The destructive `git checkout -B <branch> FETCH_HEAD` pattern is gone.
+- **Installer no longer defaults to the stale `v3-modular-core` branch.** Fresh installs now pull `master` (the current stable release branch). Override with `ARENA_BRANCH=<name>`.
+- **`install.bat` (Windows) now informs about newer GitHub releases.** Soft version-check via the GitHub releases API prints an `[INFO]` line when a newer version exists. It never auto-updates and never switches branches - just informs the user.
+- **Shipped `webhooks.json` no longer contains a dead debug URL.** Previous releases inherited `http://127.0.0.1:9999/webhook` from the repo, causing every fresh install to spam a non-existent endpoint (the v3.1.5 circuit breaker correctly backed off, but the config noise should not exist in the first place). Default is now `{urls: [], events: ["*"]}`.
+
+### Refactored
+- Replaced `asyncio.get_event_loop()` with `asyncio.get_running_loop()` across 18 files (43 call sites). All calls are inside async functions that immediately `await loop.run_in_executor(...)`, so the new API returns the same loop without the `DeprecationWarning` Python 3.12+ emits for `get_event_loop()` outside a running loop. No behavioral change.
+
+### Tests
+- Added `tests/test_installer_version_safety.py` (7 tests) guarding the installer fix: default branch is `master`, no destructive `git checkout -B`, fast-forward-only updates, `_arena_version_lt()` passes 12 semver cases (equal, v-prefix, double-digit patch, pre-release suffix, short versions), `install.bat` has soft version-check and does not git-pull/checkout the bridge itself.
+
+### Documentation
+- `README.md`: replaced the static `version-v3.1.5-blue` badge with a dynamic `shields.io/github/v/release/...` badge that auto-updates on every release - no more manual README edits just to bump the version number.
+- `README.md`: added a new "### 3. Updating an existing installation" section documenting the safe-update behavior.
+
+### Validation
+- Local `pytest -q`: PASS, 413 tests (406 prior + 7 new installer guardrails).
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across all changed files: PASS.
+- Live `install.sh` smoke test on a test clone: correctly reports `Local version: v3.1.6 / Remote version: v3.1.6 / Already up to date` and does not switch branches.
+- Bridge `/v1/doctor`: 10/10 checks pass.
+
 ## v3.1.5 — 2026-06-17
 
 ### Fixed
