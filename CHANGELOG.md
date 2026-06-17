@@ -1,5 +1,37 @@
 # Changelog
 
+## v3.1.7 - 2026-06-17
+
+### Fixed
+- **Windows installer no longer crashes with "Непредвиденное появление: .."** The v3.1.6 `install.bat` used `^(...^)`, `^&^&`, and `\(...\)` to escape special characters inside `if (...)` blocks, but cmd does not honor `^` inside if-blocks - so the unescaped parens broke block balance and the parser died immediately after `Bridge v!VERSION!`.
+- **Root cause:** the Soft version-check block used `curl ... | %PYTHON% -c "...d.get(\"tag_name\",\"\")..."` - the `\"` escapes inside a `for /f` single-quoted string broke the cmd parser.
+- **Fix (install.bat v2.1.2):**
+  - Replaced `curl | python -c` with a direct `python -c "import urllib.request,json; ..."` call that uses single-quoted Python strings (no `\"` escapes anywhere).
+  - Rewrote the if/else cascade as a flat `if not defined ... () else if ... () else ()` so no nested parens inside if-blocks.
+  - Replaced all `^(...^)` inside if-block echo lines with plain text using dashes.
+  - Replaced `^&^&` in echo lines with the word "and" / commas.
+  - Replaced `\(...\)` (backslash-parens) with plain text - cmd does not honor `\(` either.
+  - Expanded inline `if errorlevel 1 (echo X) else (echo Y)` into multi-line if-blocks so parens do not collide with the surrounding block.
+  - Used `!VAR!` (delayed expansion) consistently for variables set inside if-blocks (`TS_INSTALL_CONFIRM`, `CAM_CONFIRM`) - `%VAR%` would have been expanded to empty at parse time, breaking the Y comparison.
+
+### Validated on Windows 10 LTSC 2021 (build 19044)
+- `install.bat` runs cleanly through all 6 steps without parser errors.
+- Soft version-check prints `[OK] You are on the latest release.` when v3.1.7 is current.
+- Optional component prompts work: Tailscale, cloudflared, SuperPowers, BrowserAct, Camoufox.
+- Bridge starts as Scheduled Task (wscript + start_hidden.vbs) and `/health` returns v3.1.7.
+- `stress-test-v4.py --task-roundtrip`: **15 PASS / 3 SKIP / 0 FAIL**.
+- `/v1/doctor`: 10/10 checks pass.
+- `/v1/metrics`: 0% error rate over 541 requests.
+- `/v1/memory` (set/get/delete), `/v1/exec` (whoami), `/v1/browser/fetch` (example.com), `/v1/sys/funnel` (Tailscale Funnel active) - all pass.
+
+### Known limitations on Windows (not regressions)
+- `/v1/desktop/*` endpoints return `"Windows desktop backend is not implemented yet"` - the win32 desktop automation backend is `pending-win32` in the roadmap. The bridge correctly reports this via `/v1/capabilities` and `stress-test-v4` SKIPs these endpoints.
+- Russian (CP866) text in `nssm_service.raw` and `scheduled_task.raw` fields of `/v1/capabilities` may render as mojibake when decoded as UTF-8 - cosmetic only.
+
+### No behavioral change on Linux/macOS
+- `install.sh` is untouched in this release.
+- The installer logic is identical to v3.1.6 on systems where the old `install.bat` worked - only the cmd escaping and the version-check implementation changed.
+
 ## v3.1.6 — 2026-06-17
 
 ### Fixed
