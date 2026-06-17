@@ -117,13 +117,19 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     fi
 
     # Inspect the remote tip version without checking it out.
+    # Read `arena/constants.py` from git and extract the VERSION
+    # line. We do NOT use _arena_helper.py for this because the
+    # helper resolves Path(__file__).parent to find arena/constants.py
+    # next to it, and a temp-file copy would not have that neighbour.
     REMOTE_VERSION="unknown"
-    REMOTE_HELPER="$(mktemp 2>/dev/null || echo /tmp/arena_remote_helper.$$)"
-    if git show "origin/$CURRENT_BRANCH:_arena_helper.py" > "$REMOTE_HELPER" 2>/dev/null \
-       && [ -n "$_ARENA_PROBE_PY" ]; then
-        REMOTE_VERSION="$($_ARENA_PROBE_PY "$REMOTE_HELPER" version 2>/dev/null || true)"
+    REMOTE_CONSTANTS="$(git show "origin/$CURRENT_BRANCH:arena/constants.py" 2>/dev/null || true)"
+    if [ -n "$REMOTE_CONSTANTS" ]; then
+        # Pick the VERSION = "x.y.z" line, then cut between the double quotes.
+        VERSION_LINE="$(printf '%s\n' "$REMOTE_CONSTANTS" | grep -E '^VERSION[[:space:]]*=' | head -1)"
+        if [ -n "$VERSION_LINE" ]; then
+            REMOTE_VERSION="$(printf '%s\n' "$VERSION_LINE" | cut -d\" -f2)"
+        fi
     fi
-    [ -n "$REMOTE_HELPER" ] && [ -f "$REMOTE_HELPER" ] && rm -f "$REMOTE_HELPER" 2>/dev/null
     [ -z "$REMOTE_VERSION" ] && REMOTE_VERSION="unknown"
 
     info "Local version:  v$LOCAL_VERSION"
