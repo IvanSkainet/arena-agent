@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.1.4 — 2026-06-17
+
+### Fixed
+- Fixed a JavaScript syntax error in dashboard slash-command definitions that prevented slash suggestions and normal Terminal Run handling from working.
+- Fixed `bin/agentctl` wrapper import path so GUI terminal commands such as `agentctl sys status` run successfully from the installed bridge directory.
+- Simplified sidebar icons to one consistent icon per navigation item.
+
+### Guardrails
+- Added dashboard JavaScript syntax validation with `node --check` when Node.js is available.
+
+### Validation
+- Local `node --check dashboard/assets/*.js`: PASS.
+- Local `pytest -q`: PASS, 408 tests.
+- Local critical ruff and py_compile: PASS.
+- CachyOS live validation required before publication.
+
 ## v3.1.3 — 2026-06-17
 
 ### Fixed

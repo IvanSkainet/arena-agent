@@ -163,3 +163,19 @@ def test_modularized_cli_wrappers_import_cleanly(tmp_path):
         if cp.returncode != 0:
             failures.append((cmd, cp.returncode, cp.stdout[-500:], cp.stderr[-500:]))
     assert failures == []
+
+
+def test_dashboard_javascript_assets_have_valid_syntax():
+    import shutil
+    import subprocess
+    import pytest
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node is not available for JavaScript syntax checks")
+    failures = []
+    for path in sorted((ROOT / "dashboard" / "assets").glob("*.js")):
+        cp = subprocess.run([node, "--check", str(path)], capture_output=True, text=True, timeout=20)
+        if cp.returncode != 0:
+            failures.append((str(path.relative_to(ROOT)), cp.stderr[-1000:]))
+    assert failures == []

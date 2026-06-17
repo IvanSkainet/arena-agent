@@ -6,7 +6,7 @@ const SLASH_COMMANDS = {
   "/text":    { cmd: "agentctl browser py-dump ",          hint: "Plain text + links (urllib)" },
   "/head":    { cmd: "agentctl browser py-head ",          hint: "HTTP HEAD request" },
   "/search":  { cmd: "agentctl browser py-search ",        hint: "DuckDuckGo search --n 5" },
-  "/fetch":   { cmd: "python - <<PY\nimport urllib.request,sys\nprint(urllib.request.urlopen(sys.argv[1],timeout=20).read().decode(errors="replace")[:20000])\nPY ",         hint: "Raw HTTP GET to URL" },
+  "/fetch":   { cmd: "python -c 'import sys,urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=20).read().decode(errors=\"replace\")[:20000])' ", hint: "Raw HTTP GET to URL" },
   "/hardware":{ cmd: "curl -s http://127.0.0.1:8765/v1/hardware?include_inventory=0 -H \"Authorization: Bearer $ARENA_TOKEN\"", hint: "Unified hardware inventory" },
   "/hwinfo":  { cmd: "curl -s http://127.0.0.1:8765/v1/hwinfo?include_inventory=0 -H \"Authorization: Bearer $ARENA_TOKEN\"", hint: "Hardware report (compat alias)" },
   "/status":  { cmd: "agentctl sys status",                hint: "Bridge + tunnel + ports overview" },
