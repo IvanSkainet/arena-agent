@@ -5,6 +5,8 @@
 **Cross-platform local automation bridge for AI agents.**
 One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
+**🌐 English · [Русский](README.ru.md)**
+
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=version)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()

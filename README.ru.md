@@ -1,0 +1,782 @@
+<div align="center">
+
+# 🌉 Arena Unified Bridge
+
+**Кроссплатформенный локальный мост автоматизации для AI-агентов.**
+Один процесс · Один порт · Модульная Python-архитектура — управляет вашим компьютером из любого чата, любой AI, любой ОС.
+
+**🌐 [English](README.md) · Русский**
+
+[![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=version)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
+[![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#-лицензия)
+
+</div>
+
+---
+
+## ✨ Что это такое?
+
+Arena Unified Bridge — это маленький локальный HTTP/MCP-сервер, который позволяет любому AI — ChatGPT, Claude, Gemini, Grok, GLM, вашим собственным скриптам — **безопасно управлять вашим компьютером**. Выполнять команды, просматривать веб, сохранять память, делать скриншоты, запускать навыки (skills), управлять очередью фоновых задач, контролировать настоящий браузер через Chrome DevTools Protocol и даже автоматизировать рабочий стол кликами, вводом текста и нажатиями клавиш на Wayland и X11.
+
+Мост открывает один защищённый URL вида `https://your-machine.tail-XXXXX.ts.net` (через Tailscale Funnel) и обслуживает REST API, протокол MCP, события WebSocket и встроенный веб-дашборд на `/gui`.
+
+> **Цель:** *Распаковал папку, запустил один установщик — у вашего AI появились руки.*
+
+---
+
+## 🚀 Ключевые возможности
+
+| Категория | Возможность |
+|-----------|-------------|
+| **Кроссплатформенность** | Установщик сам определяет Windows / Linux / macOS и выбирает правильную стратегию упаковки (NSSM-сервис, Scheduled Task, systemd user-юнит или launchd-агент) |
+| **Единая архитектура** | REST API, MCP (HTTP/SSE/WebSocket), web-gateway, дашборд, async-задачник — всё на **одном порту** (по умолчанию `8765`) |
+| **236 регистраций маршрутов** | 130+ обработчиков покрывают exec, memory, browser, CDP, desktop, tasks, skills, audit, watchdog, profiles, OpenAPI и др. |
+| **36 CDP-эндпоинтов** | Полная поддержка Chrome DevTools Protocol: навигация, клики, ввод, скриншоты, cookies, перехват сети, управление вкладками |
+| **6 desktop-эндпоинтов** | Автоматизация рабочего стола Wayland/X11: скриншот (PNG/JPEG/WebP + resize), клик, layout-safe ввод, нажатие клавиш, движение мыши, список окон |
+| **Токен-аутентификация** | 256-битный Bearer-токен, хранится в `token.txt`, можно горячо сменить из дашборда |
+| **Авто-рестарт везде** | NSSM на Windows, Scheduled Task как fallback, `Restart=on-failure` на systemd, `KeepAlive` на launchd |
+| **Публичный HTTPS в один клик** | Интеграция с Tailscale Funnel — без проброса портов, без DDNS, настоящий сертификат Let's Encrypt |
+| **Дашборд на 14 вкладок** | Overview, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Settings |
+| **Глубокий инвентарь системы** | Материнская плата, BIOS, CPU по ядрам, GPU/VRAM, модули RAM с vendor/part-номерами, все диски, все сетевые интерфейсы, рантаймы, пакетные менеджеры, браузеры, дисплеи |
+| **Встроенные AI-инструменты** | MCP-сервер с 20+ инструментами, интеграция BrowserAct, репозиторий навыков Superpowers (14 навыков), стелс-браузер Camoufox |
+| **Защита диска в логах** | Многоуровневая ротация логов и мониторинг диска — больше никаких сюрпризов с заполненным диском (см. [Защита диска](#-защита-диска-v210)) |
+| **Ноль внешних зависимостей** | Только `aiohttp` (и опционально `psutil`) — всё остальное из Python stdlib |
+| **Удаление в один клик** | `uninstall.bat` / `uninstall.sh` — чистое удаление сервисов и файлов |
+
+### 🆕 Что нового в v3.1.6
+
+- **Установщик больше не понижает версию молча.** `install.sh` теперь читает локально установленную версию, сравнивает её с remote-версией текущей ветки и спрашивает перед обновлением. Никаких тихих `git checkout -B` больше.
+- **По умолчанию ставится с ветки `master`** (актуальный стабильный релиз) вместо устаревшей `v3-modular-core`.
+- **`install.bat` (Windows) информирует о новой версии на GitHub** — мягкая проверка через GitHub API без авто-обновления.
+- **`webhooks.json` по умолчанию пустой** — раньше в релизе лежал мёртвый debug-URL `http://127.0.0.1:9999/webhook`, который засорял логи.
+- **Рефакторинг `asyncio.get_running_loop()`** — 43 места в 18 файлах обновлены под Python 3.12+ (без DeprecationWarning).
+- **Динамический badge версии в README** — больше не нужно править README при каждом релизе.
+- **7 новых тестов** защищают инсталлятор от регрессий (всего 413 тестов проходят).
+
+Полная история изменений — в [CHANGELOG.md](CHANGELOG.md).
+
+---
+
+## 📦 Быстрый старт
+
+### 1. Скачать последний релиз
+
+> ⚠️ **Всегда качайте из [Releases](https://github.com/IvanSkainet/arena-agent/releases).** В ветках могут быть незавершённые изменения во время активных релизов. Только тегированные релизы готовы к продакшену.
+
+Зайдите на **[последний релиз](https://github.com/IvanSkainet/arena-agent/releases/latest)** и скачайте ZIP-архив. Распакуйте его в папку по выбору, например `C:\Users\You\arena-bridge` (Windows) или `~/arena-bridge` (Linux/macOS).
+
+<details>
+<summary>📦 Альтернатива: однострочные команды</summary>
+
+**Windows (PowerShell):**
+```powershell
+Invoke-WebRequest -Uri "https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip" -OutFile "arena-agent.zip"
+Expand-Archive arena-agent.zip -DestinationPath arena-bridge
+cd arena-bridge
+```
+
+**Linux / macOS:**
+```bash
+curl -fsSL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip -o arena-agent.zip
+unzip arena-agent.zip -d arena-bridge
+cd arena-bridge
+```
+</details>
+
+### 2. Запустить установщик
+
+**Windows (PowerShell или cmd):**
+```cmd
+install.bat
+```
+
+**Linux / macOS:**
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+Установщик сделает:
+1. Найдёт Python >= 3.10
+2. Установит `aiohttp` + `psutil`
+3. Создаст все нужные поддиректории внутри папки репозитория (никаких файлов раскидано по домашней папке)
+4. Сгенерирует новый auth-токен (или сохранит существующий)
+5. Определит и установит опциональные компоненты: Tailscale, SuperPowers, BrowserAct, Camoufox
+6. Зарегистрирует фоновый сервис (NSSM на Windows, Scheduled Task как fallback, systemd-user на Linux, launchd на macOS)
+7. Сделает ротацию раздутых логов от прошлых запусков
+8. Запустит мост и проверит, что он здоров
+
+> **Всё остаётся в одной папке.** Никакие файлы не копируются за пределы директории репозитория.
+
+### 3. Обновление существующей установки
+
+Повторный запуск установщика на существующей установке **безопасен и неразрушим**:
+
+- **Никогда не понижает версию молча.** Установщик читает локально установленную версию и сравнивает её с remote-версией вашей текущей ветки. Если локальная новее или равна remote — ничего не меняется.
+- **Никогда не переключает ветки.** Обновление делает fast-forward только *текущей* ветки. Никаких `git checkout -B` против захардкоженной ветки — пользователи, pinned на release-ветку, остаются на ней.
+- **Спрашивает перед обновлением.** Если remote-версия новее, вы получите промпт (или установите `ARENA_ASSUME_YES=1` для автоматизации). Если `git merge --ff-only` упадёт (разошедшиеся ветки, локальные коммиты) — ваша работа сохранится, получите инструкции для ручного разрешения.
+- **Аккуратно откатывается при сбое сети.** Если GitHub недоступен, установщик оставляет локальный код и продолжает установку зависимостей и регистрацию сервиса.
+
+На Windows `install.bat` дополнительно опрашивает GitHub releases API и печатает строку `[INFO]` если доступна новая версия — он никогда не авто-обновляет, только информирует.
+
+---
+
+## 🧾 Прозрачность: фоновые процессы — это нормально (не вирус)
+
+Arena Unified Bridge — это **локальный сервер автоматизации**. После установки он намеренно работает в фоне, чтобы ваши AI-инструменты могли продолжать общаться с вашей машиной после закрытия терминала.
+
+Установщики (`install.bat` и `install.sh`) показывают это уведомление о прозрачности и спрашивают подтверждение перед регистрацией/обновлением фонового сервиса. Для автоматизации можно явно согласиться через `ARENA_ACCEPT_BACKGROUND=1`.
+
+Это может выглядеть подозрительно, если вы не ожидали — особенно на Windows, где Task Manager показывает процессы `python.exe`. Эти процессы не скрыты и не предназначены быть стелс: это сервис моста, опциональные helper-серверы и/или legacy helper-скрипты из старых приватных сборок.
+
+### Нормальные имена процессов, которые вы можете увидеть
+
+| Процесс / содержит в командной строке | Зачем существует |
+|----------------------------------------|------------------|
+| `unified_bridge.py serve` | Текущий главный сервер моста (`http://127.0.0.1:8765`) |
+| `local_bridge.py serve` | Старое pre-GitHub имя моста из приватных сборок |
+| `mcp_ws_server.py` | Старый MCP/WebSocket-helper из ранних сборок |
+| `web_gateway.py` | Старый web-gateway-helper из ранних сборок |
+| `agentctl task-watch` | Worker фоновой очереди задач / legacy-helper |
+| `cloudflared` или `tailscale` | Опциональный туннель/exposure-helper если вы включили удалённый доступ |
+| `ydotoold` | Linux/Wayland-демон ввода для автоматизации рабочего стола |
+
+### Windows: проверить, остановить и удалить
+
+Проверить Arena-связанные Python/фоновые процессы:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'arena|bridge|mcp_ws|web_gateway|agentctl|local_bridge' } |
+  Select-Object ProcessId, ParentProcessId, CommandLine |
+  Format-List
+```
+
+Проверить scheduled tasks/сервисы:
+
+```powershell
+schtasks /query /fo LIST /v | findstr /i "Arena Bridge arena local_bridge unified_bridge agentctl mcp_ws web_gateway"
+sc query ArenaUnifiedBridge
+```
+
+Остановить текущую официальную установку:
+
+```cmd
+uninstall.bat
+```
+
+Если вы чистите **старую приватную/pre-GitHub сборку**, в которой не было uninstaller'а, остановите и удалите stale-задачи вручную:
+
+```powershell
+# Остановить совпадающие Python-helper процессы
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'arena|bridge|mcp_ws|web_gateway|agentctl|local_bridge' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+
+# Удалить известные имена scheduled tasks (игнорировать ошибки, если не существуют)
+schtasks /Delete /TN "ArenaUnifiedBridge" /F
+schtasks /Delete /TN "ArenaBridge" /F
+schtasks /Delete /TN "ArenaLocalBridge" /F
+```
+
+### Linux/macOS: проверить и удалить
+
+```bash
+pgrep -af 'arena|bridge|unified_bridge|local_bridge|mcp_ws|web_gateway|agentctl'
+systemctl --user status arena-bridge.service  # Linux systemd user-установка
+./uninstall.sh
+```
+
+### Обещание по приватности
+
+Мост **не** устанавливает себя молча, **не** скрывает имена процессов и **не** связывается с внешними серверами. Он предоставляет только локальную/API-функциональность, для которой вы его установили. См. [Модель безопасности](#-модель-безопасности) про auth, safety-фильтры, audit-логи и детали удаления.
+
+Готово. Теперь у вас есть:
+
+| URL | Что |
+|-----|-----|
+| `http://127.0.0.1:8765/health` | Health-check (публичный, без auth) |
+| `http://127.0.0.1:8765/gui` | Веб-дашборд (вход по токену) |
+| `https://YOUR-PC.tail-net.ts.net` | Публичный HTTPS (если Funnel включён) |
+
+### 4. Передать AI URL + токен
+
+В чате:
+
+> *"Мой мост по адресу `https://YOUR-PC.tail-net.ts.net` с токеном `...`. Сделай, пожалуйста, X."*
+
+Большинство современных AI-чатов (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI, ...) поддерживают кастомные HTTP-инструменты или MCP-серверы и могут вызывать ваши эндпоинты напрямую.
+
+Готовый шаблон системного промпта — в [`docs/AI_SYSTEM_PROMPT.md`](docs/AI_SYSTEM_PROMPT.md).
+
+### 5. Обновление
+
+Скачайте ZIP [последнего релиза](https://github.com/IvanSkainet/arena-agent/releases/latest) и распакуйте поверх существующей папки (или в новую). Затем перезапустите установщик:
+
+**Windows:**
+```cmd
+cd /d "C:\Users\You\arena-bridge"
+install.bat
+```
+
+**Linux / macOS:**
+```bash
+cd ~/arena-bridge
+./install.sh
+```
+
+Установщик по умолчанию сохраняет существующий токен. Скажите `N`, когда спросит про регенерацию.
+
+### 6. Удаление
+
+**Windows:**
+```cmd
+uninstall.bat
+```
+
+**Linux / macOS:**
+```bash
+chmod +x uninstall.sh
+./uninstall.sh
+```
+
+Удаляет сервис, scheduled task и все файлы моста. Токен и память тоже пропадают — сделайте бэкап заранее.
+
+---
+
+## 🏗️ Архитектура
+
+```
+                        ┌──────────────────────────────────────────────┐
+                        │       Интернет (HTTPS, Let's Encrypt)         │
+                        └──────────────────┬───────────────────────────┘
+                                           │
+                        ┌──────────────────▼───────────────────────────┐
+                        │   Tailscale Funnel  →  https://pc.ts.net      │
+                        └──────────────────┬───────────────────────────┘
+                                           │
+        ┌──────────────────────────────────▼──────────────────────────────────┐
+        │                                                                     │
+        │   localhost:8765   (один модульный Python-процесс, тонкий entry)     │
+        │                                                                     │
+        │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+        │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │              │
+        │   │ 141 routes   │  │ Streamable   │  │ WebSocket    │              │
+        │   └──────────────┘  └──────────────┘  └──────────────┘              │
+        │                                                                     │
+        │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
+        │   │ /gui         │  │ /sse,        │  │ /gateway     │              │
+        │   │ Дашборд      │  │ /messages    │  │ /run, /tool  │              │
+        │   └──────────────┘  └──────────────┘  └──────────────┘              │
+        │                                                                     │
+        │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐      │
+        │   │ CDP browser  │  │ Desktop API  │  │  Async Task Runner   │      │
+        │   │ 36 эндпоинтов│  │ 6 эндпоинтов │  │  + Log + Disk Mon.   │      │
+        │   └──────────────┘  └──────────────┘  └──────────────────────┘      │
+        │                                                                     │
+        └─────────────────────────────────────────────────────────────────────┘
+                                           │
+                ┌──────────────────────────┼──────────────────────────┐
+                ▼                          ▼                          ▼
+        ┌──────────────┐         ┌──────────────┐           ┌──────────────┐
+        │   memory/    │         │   missions/  │           │   skills/    │
+        │ JSONL facts  │         │ scripted     │           │ AI-runnable  │
+        │ + recall     │         │ workflows    │           │ playbooks    │
+        └──────────────┘         └──────────────┘           └──────────────┘
+```
+
+---
+
+## 📡 Справочник по API
+
+### Основные эндпоинты
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/health` | Публичная проверка здоровья (без auth) |
+| `GET` | `/v1/version` | Информация о версии |
+| `GET` | `/v1/info` | Информация о мосте (auth) |
+| `GET` | `/v1/status` | Статус моста (auth) |
+| `GET` | `/v1/config` | Дамп конфигурации без токена |
+
+### Система и диагностика
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/sysinfo` | CPU, RAM, диск + **disk_usage_percent** |
+| `GET` | `/v1/hardware` | Канонический богатый инвентарь оборудования/системы (нормализованный JSON из унифицированного сборщика) |
+| `GET` | `/v1/hwinfo` | Backward-compatible алиас для `/v1/hardware` |
+| `GET` | `/v1/inventory[?section=…]` | Глубокий инвентарь: рантаймы, браузеры, дисплеи, env, сервисы и т.д. |
+| `GET` | `/v1/doctor` | 9 селфтестов (Python, директории, сеть, диск, звук…) |
+| `GET` | `/v1/metrics` | Метрики производительности моста |
+| `GET` | `/v1/logs?level=&lines=` | Просмотр структурированных логов с фильтром по уровню |
+| `GET/POST` | `/v1/watchdog` | Статус health-watchdog (память/CPU/алёрты) |
+| `GET` | `/v1/ps` | Список активных exec-процессов |
+
+### Выполнение команд
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/v1/exec` | Выполнить shell-команду. Body: `{"cmd": "..."}` (правила безопасности; команды input-injection блокируются, пока desktop-control на паузе/отозван) |
+| `POST` | `/v1/kill` | Убить запущенный процесс. Body: `{"pid": N}` |
+| `POST` | `/v1/batch` | Пакетные операции параллельно. Body: `{"operations": [{"method": "GET", "path": "/v1/status"}, ...]}` |
+| `POST` | `/v1/restart` | Мягкий рестарт (использует NSSM/systemd respawn) |
+
+### Файловые операции
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/v1/upload?path=…` | Загрузить бинарный файл (`--data-binary`, путь должен быть внутри домашней папки) |
+| `GET` | `/v1/download?path=…` | Скачать файл (путь должен быть внутри домашней папки) |
+
+> **Безопасность:** Пути upload/download ограничены домашней директорией пользователя. Path traversal (`..`) блокируется. Сам бинарник моста нельзя перезаписать.
+
+### Память и Recall
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/memory` | Список фактов памяти (key/value/tags JSONL, пагинация: `?offset=&limit=`) |
+| `POST` | `/v1/memory` | Установить факт. Body: `{"key": "...", "value": "...", "tags": [...]}` |
+| `DELETE` | `/v1/memory` | Удалить факт по ключу. Body: `{"key": "..."}` |
+| `GET` | `/v1/recall?q=…&top=5` | TF-scored fuzzy-поиск + дайджест |
+| `GET` | `/v1/recall/digest` | Дайджест памяти |
+
+### Задачи и очередь
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/tasks` | Список очереди задач |
+| `POST` | `/v1/tasks` | Отправить фоновую задачу. Body: `{"cmd": "...", "title": "..."}` |
+| `POST` | `/v1/tasks/clean` | Очистить завершённые задачи |
+
+### Навыки (Skills) и хуки
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/skills` | Список доступных AI-навыков |
+| `POST` | `/v1/skills/run` | Запустить навык |
+| `POST` | `/v1/skills/reload` | Принудительно перезагрузить кэш навыков |
+| `GET` | `/v1/hooks` | Список pre/post-хуков |
+| `GET` | `/v1/agents` | Список конфигов агентов |
+| `GET` | `/v1/subagents` | Список сабагентов |
+| `POST` | `/v1/subagents/spawn` | Запустить сабагента |
+
+### Браузер и веб
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/browser/search?q=…` | Поиск в DuckDuckGo |
+| `GET` | `/v1/browser/read?url=…` | Readability-извлечение текста |
+| `GET` | `/v1/browser/dump?url=…` | Полный дамп страницы со ссылками |
+| `GET` | `/v1/browser/fetch?url=…` | Получить «сырой» контент |
+| `GET` | `/v1/browser/head?url=…` | HTTP HEAD-запрос |
+| `POST` | `/v1/browser/browse` | Умный просмотр с рендерингом (авто-выбор CDP или BrowserAct) |
+
+### Chrome DevTools Protocol (36 эндпоинтов + `/v1/cdp/*` алиасы)
+
+| Возможность | Эндпоинты | Что делает |
+|-------------|-----------|------------|
+| **Подключение** | `/v1/browser/cdp/connect`, `disconnect`, `status`, `diag`, `health`, `raw-info`, `test-launch`, `test-ws` (также поддерживаются алиасы `/v1/cdp/*`) | Запустить/подключиться к Chromium со стелс-профилем |
+| **Навигация** | `cdp/navigate` | Перейти на URL, дождаться загрузки (30s timeout) |
+| **Взаимодействие** | `cdp/click`, `cdp/type` | Кликнуть элементы, ввести текст с событиями |
+| **Скриншоты** | `cdp/screenshot`, `cdp/stealth/shot` | Захват всей страницы или viewport PNG |
+| **DOM** | `cdp/dom` | Запрос DOM-элементов по CSS-селектору |
+| **JavaScript** | `cdp/eval` | Выполнить произвольный JS на странице (настраиваемый timeout) |
+| **Вкладки** | `cdp/tabs`, `tabs/new`, `tabs/close`, `tabs/activate` | Управление мульти-вкладками |
+| **Cookies** | `cdp/cookies` (GET/POST/DELETE), `cookies/clear`, `cookies/profiles` | Управление cookies с сохранением/загрузкой профилей |
+| **Сеть** | `cdp/network/start`, `network/stop`, `network/requests`, `network/har` | Мониторинг сети и экспорт HAR |
+| **Перехват** | `cdp/intercept/start`, `intercept/stop`, `intercept/rule` (POST/DELETE), `intercept/rules` | Перехват сети с кастомными правилами |
+| **Стелс** | `cdp/stealth/extract`, `stealth/shot` | Anti-detection-автоматизация браузера |
+| **Сессия** | `cdp/session/check` | Управление сессией и диагностика |
+
+### Автоматизация рабочего стола (6 эндпоинтов)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/desktop/screenshot` | Скриншот рабочего стола. Query: `format=png|jpeg|webp|base64`, `scale`, `max_width`, `quality` |
+| `POST` | `/v1/desktop/click` | Клик по координатам. Body: `{"x": N, "y": N, "button": "left"}` |
+| `POST` | `/v1/desktop/type` | Ввести текст. Body: `{"text": "...", "ensure_latin": true}` (по умолчанию: layout-safe ввод на KDE) |
+| `POST` | `/v1/desktop/key` | Нажать клавишу. Body: `{"key": "Return"}` |
+| `POST` | `/v1/desktop/mouse` | Двинуть мышь. Body: `{"action": "move", "x": N, "y": N}` |
+| `GET` | `/v1/desktop/windows` | Список открытых окон с заголовками/позициями; пробует нативный KWin-скриптинг на KDE Wayland, затем fallback на wmctrl/xdotool |
+
+> **Поддержка Wayland:** Установщик автоматически запускает `ydotoold` для автоматизации рабочего стола на Wayland. На X11 используется `xdotool` как fallback. Клик автоматически активирует целевое окно (v2.5.1+). Для vision-агентов предпочитайте `GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80` или `max_width=1280`, чтобы сильно уменьшить размер payload.
+
+### Аудит и логи
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/audit?lines=N` | Хвост audit-лога |
+| `GET` | `/v1/audit/stats` | Статистика аудита |
+| `GET` | `/v1/audit/log?method=&path=&status=` | Лог запросов/ответов с фильтрами |
+
+### Сервис и безопасность
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/sys/svc` | Статус сервиса (NSSM/Scheduled Task/systemd) |
+| `GET` | `/v1/service/info` | Подробная информация о сервисе + PID |
+| `GET` | `/v1/sys/funnel` | Статус Tailscale Funnel |
+| `POST` | `/v1/tailscale/funnel/{action}` | Старт/стоп Funnel |
+| `POST` | `/v1/token/regenerate` | Сменить auth-токен |
+| `GET/POST/DELETE` | `/v1/users` | Управление пользователями |
+| `GET/POST` | `/v1/profiles` | Safety-профили (cautious / owner-shell) |
+| `POST` | `/v1/profiles/{name}/load` | Загрузить именованный safety-профиль |
+| `GET/POST` | `/v1/ratelimit` | Конфигурация rate limiter'а |
+
+### Наблюдаемость и продвинутое
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/events` | WebSocket real-time поток событий |
+| `GET/POST` | `/v1/tracing` | Конфигурация OpenTelemetry-трассировки |
+| `GET/POST` | `/v1/traces/export` | Экспорт трасс |
+| `GET/POST` | `/v1/alerts` | Управление алёртами |
+| `GET` | `/v1/tls` | Конфигурация TLS |
+| `GET/POST` | `/v1/sandbox` | Конфигурация sandbox |
+| `GET/POST` | `/v1/cluster` | Статус кластера |
+| `GET` | `/metrics` | Prometheus-совместимые метрики (text format) |
+
+### Отчёты и миссии
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/v1/reports` | Список скриншотов и отчётов |
+| `GET` | `/v1/missions` | Список скриптов-миссий |
+| `GET` | `/v1/mission/show?name=…` | Показать детали миссии |
+
+### Протокол MCP
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/mcp` | MCP Streamable HTTP (спецификация 2025-03-26) |
+| `DELETE` | `/mcp` | Закрыть MCP-сессию |
+| `GET` | `/sse` | MCP SSE legacy-транспорт |
+| `POST` | `/messages` | MCP SSE peer-эндпоинт |
+| `GET` | `/ws` | MCP WebSocket-транспорт |
+
+### Web Gateway
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/gateway` | Информация о Web Gateway |
+| `GET` | `/gateway/tools` | Доступные gateway-инструменты |
+| `POST` | `/run` | Запустить whitelisted-команду |
+| `POST` | `/tool` | Проксировать MCP-вызов инструмента |
+
+### Звук и уведомления
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/v1/beep` | Воспроизвести звук (`success`, `warning`, `error`, `attention`, `melody`) |
+
+### Дашборд и документация
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/gui` | Веб-дашборд (single-file HTML/JS) |
+| `GET` | `/api-docs` | Спецификация OpenAPI 3.0 (JSON) |
+| `GET` | `/openapi.json` | Алиас OpenAPI 3.0 для инструментов, ожидающих этот конвенциональный путь |
+
+> Полный список: `GET /` возвращает JSON-каталог всех маршрутов.
+
+---
+
+## 🖥️ Веб-дашборд
+
+Дашборд на `/gui` имеет **14 вкладок** и работает в любом современном браузере без внешних зависимостей (single self-contained HTML-файл).
+
+| Вкладка | Что делает |
+|---------|------------|
+| **Overview** | Метрики моста, карточка диагностики оборудования, drawer с полным инвентарём, использование диска |
+| **Terminal** | Настоящая shell-сессия со slash-командами (`/shot`, `/read`, `/search`, ...) + история по стрелкам |
+| **Memory** | Список, поиск, добавление, удаление key/value/tag фактов |
+| **Recall** | Fuzzy TF-scored поиск по памяти и дайджест |
+| **Missions** | Просмотр директории `missions/` |
+| **Browser** | One-click `search`, `read`, `dump`, `fetch`, `HEAD`, скриншот |
+| **Reports** | Просмотр и скачивание скриншотов / отчётов |
+| **Tasks** | Очередь inbox / running / done / failed, отправка новой задачи, очистка |
+| **Skills** | Core skills + Superpowers + BrowserAct |
+| **Hooks** | Список pre/post-хуков |
+| **Agents** | Реестр сабагентов |
+| **Doctor** | 9 селфтестов + статус сервиса/Funnel + проверка свободного места на диске |
+| **Audit** | Все события, фильтр по категории, статистика |
+| **Settings** | Токены, звуковые уведомления, тумблер Tailscale Funnel, рестарт, экспорт конфигурации |
+
+---
+
+## 🛡️ Защита диска (v2.1.0)
+
+Предыдущие версии могли заполнить весь диск, потому что дефолтный AccessLogger aiohttp писал строку в stderr на каждый HTTP-запрос, и эти строки попадали в append-only файлы логов без ротации. **Это исправлено в v2.1.0** многоуровневой защитой:
+
+| Уровень | Механизм | Детали |
+|---------|----------|--------|
+| **Источник устранён** | `access_log=None` | aiohttp больше не пишет access-логи вообще |
+| **Структурированное логирование** | `RotatingFileHandler` | 5 MB × 5 файлов для `bridge.log` |
+| **Ротация при старте** | `_rotate_all_logs_on_startup()` | Ротирует любой oversized-файл перед стартом сервера |
+| **Периодическая очистка** | `_log_cleanup_loop()` | Фоновая задача каждые 30 мин, ротирует логи больше 10 MB |
+| **Мониторинг диска** | `disk_usage_percent` | Warning на 80%, critical на 90%, виден в `/v1/sysinfo` |
+| **Ротация на уровне скрипта** | `install.bat`, `install.sh` | Ротация при 10 MB перед стартом моста |
+| **Ротация NSSM** | `AppRotateFiles=1` | 5 MB, 3 rotated-копии в Windows-сервисе |
+| **Навык очистки** | `core/cleanup` | Покрывает старые сессии, отчёты, завершённые задачи |
+
+Все файлы логов — `bridge.log`, `audit.jsonl` (лимит 50 MB), `requests.jsonl` (лимит 10 MB) — теперь корректно ротируются.
+
+> **Результат:** После 50+ тестовых запросов `bridge.log` остался на **797 байтах**. Раньше он мог расти до гигабайтов в час.
+
+---
+
+## 🔧 Управление сервисом
+
+### Windows (NSSM или Scheduled Task)
+
+```powershell
+# NSSM-сервис
+nssm status ArenaUnifiedBridge
+nssm restart ArenaUnifiedBridge
+nssm stop ArenaUnifiedBridge
+
+# Scheduled Task (используется, если NSSM не установлен)
+schtasks /run /tn "ArenaUnifiedBridge"
+schtasks /end /tn "ArenaUnifiedBridge"
+schtasks /query /tn "ArenaUnifiedBridge" /fo LIST /v
+
+# Удалить stale scheduled task вручную (обычно uninstall.bat это делает)
+schtasks /delete /tn "ArenaUnifiedBridge" /f
+
+# Ручной старт
+start_bridge.bat
+
+# Посмотреть структурированные логи
+type %USERPROFILE%\arena-bridge\bridge.log
+```
+
+### Linux (systemd-user)
+
+```bash
+systemctl --user status   arena-bridge
+systemctl --user restart  arena-bridge
+journalctl  --user -u     arena-bridge -f
+```
+
+### macOS (launchd)
+
+```bash
+launchctl print           gui/$UID/com.arena.bridge
+launchctl kickstart -k    gui/$UID/com.arena.bridge
+```
+
+---
+
+## 📂 Структура проекта
+
+```
+arena-bridge/
+├── unified_bridge.py     ← тонкий compatibility/CLI-entrypoint (<150 строк)
+├── arena/                ← модульная реализация моста
+│   ├── app.py            ← фабрика aiohttp-приложения
+│   ├── routes.py         ← фасад реестра маршрутов
+│   ├── route_registry/   ← группы маршрутов по доменам (core, CDP, desktop, v2, MCP)
+│   ├── contexts/         ← dataclass-ы зависимостей обработчиков, сгруппированные по доменам
+│   ├── wiring/           ← хелперы композиции/wiring и legacy-compatibility-настройка
+│   ├── browser/          ← browser fetch, high-level browse и CDP-модули
+│   ├── desktop/          ← скриншоты, ввод, окна, KWin/Wayland-хелперы
+│   ├── service/          ← статус сервиса, capabilities, рестарт-хелперы
+│   ├── system/           ← sysinfo, doctor, звук, legacy hwinfo-fallback
+│   ├── memory/           ← SQLite/FTS-хранилище памяти и recall-обработчики
+│   ├── skills/           ← реестр навыков, install/uninstall/run/cache
+│   ├── tasks/            ← очередь задач и фоновый runner
+│   ├── observability/    ← метрики, аудит, логи, алёрты, трассировка
+│   ├── admin/            ← токен, Tailscale Funnel, cloudflared-туннели
+│   ├── mcp/              ← MCP-инструменты и транспорты
+│   └── ...               ← gateway, grpc, tls, sandbox, cluster, resources
+├── token.txt             ← ваш auth-токен (генерируется автоматически)
+├── install.bat           ← Windows-установщик (запустите это)
+├── install.sh            ← Linux/macOS-установщик (запустите это; повторно — для обновления)
+├── uninstall.bat/.sh     ← чистое удаление сервиса + файлов
+├── docs/                 ← заметки по архитектуре, stress-test-гайд, шаблон AI-промпта
+├── dev/                  ← инструменты релиза/stress-тестов (`stress-test-v4.py`)
+├── bin/                  ← пользовательские CLI (agentctl, bridge-curl и т.д.)
+├── scripts/              ← фоновые helper'ы (inventory, CDP, desktop и т.д.)
+├── skills/               ← AI-runnable playbooks и интеграция BrowserAct
+├── memory/               ← локальная БД/файлы памяти
+├── missions/             ← скриптовые workflows
+├── queue/                ← очередь задач (inbox/running/done/failed)
+├── reports/              ← скриншоты, записи, выводы
+├── hooks/                ← pre/post skill-хуки
+├── agents/               ← конфигурации агентов
+├── subagents/            ← spawn/track сабагентов
+├── tools/                ← внешние инструменты
+└── mcp/                  ← конфигурация MCP
+```
+
+См. [`AGENTS.md`](AGENTS.md), [`docs/AI_CODEBASE_NAVIGATION.md`](docs/AI_CODEBASE_NAVIGATION.md), [`docs/V3_MODULAR_ARCHITECTURE.md`](docs/V3_MODULAR_ARCHITECTURE.md), [`docs/MODULE_MAP.md`](docs/MODULE_MAP.md), [`docs/V3_RELEASE_CHECKLIST.md`](docs/V3_RELEASE_CHECKLIST.md), [`docs/MOBILE_SUPPORT_ROADMAP.md`](docs/MOBILE_SUPPORT_ROADMAP.md) — карты доменов, release gates, мобильное планирование и гайдансы для людей и AI-кодинг-агентов.
+
+---
+
+## ⚙️ Конфигурация
+
+Все настройки — переменные окружения (установите перед запуском `install.*` или стартом сервиса):
+
+| Переменная | По умолчанию | Назначение |
+|------------|--------------|------------|
+| `ARENA_HOME` | директория репо | Директория данных агента (та же, что и репо) |
+| `BRIDGE_HOME` | директория репо | Директория моста (та же, что и репо) |
+| `ARENA_PORT` | `8765` | Порт прослушивания |
+| `ARENA_PROFILE` | `owner-shell` | Safety-профиль (правила в коде) |
+| `ARENA_TASK_NAME` | `ArenaUnifiedBridge` | Windows Scheduled Task / Service |
+| `ARENA_SERVICE_NAME` | `ArenaUnifiedBridge` | Имя NSSM-сервиса |
+| `ARENA_TOKEN_FILE` | `<repo>/token.txt` | Файл токена |
+| `ARENA_BRIDGE_TOKEN` | (нет) | Переопределить токен в рантайме |
+| `ARENA_BRIDGE_URL` | `http://127.0.0.1:8765` | Базовый URL для `bridge-curl`/клиентов |
+
+---
+
+## 🧪 Протестированные платформы
+
+| ОС | Способ установки | Сервис | Статус |
+|----|------------------|--------|--------|
+| Windows 10 LTSC (build 19044) | `install.bat` | Scheduled Task | daily-driver |
+| Windows 11 | `install.bat` | NSSM | smoke-tested |
+| Debian 13 (trixie) | `install.sh` | systemd-user | smoke-tested |
+| Ubuntu 22.04 / 24.04 | `install.sh` | systemd-user | через контейнер |
+| CachyOS (Arch) | `install.sh` | systemd-user | daily-driver |
+| Fedora 40+ | `install.sh` | systemd-user | dnf-aware |
+| macOS 13+ (Apple Silicon) | `install.sh` | launchd | нужна помощь |
+| FreeBSD 14 | `install.sh` | rc.d / nohup | нужна помощь |
+
+Кроссплатформенный установщик сам определяет `apt`, `dnf`, `pacman`, `apk`, `zypper`, `nix`, `brew`, `pkg`, `winget`.
+
+---
+
+## 🔒 Модель безопасности
+
+- **Только токен-auth** по умолчанию. Токен — 256-битная base64-url-строка, хранится в `token.txt` (`chmod 600` на Linux).
+- **Ни один запрос не без auth**, кроме `/health` и индекса `/`.
+- **`/v1/exec` фильтрует команды** через заблокированные паттерны (`rm -rf /`, `sudo`, `su`, `format`, `mkfs`, `diskpart`, `bcdedit`, `reg delete`, `curl|sh`, encoded PowerShell, очевидные чтения секретов, reverse shells, ...) и `CAUTIOUS_ALLOW` allowlist для безопасных read-only команд. Кастомизируется в `unified_bridge.py`.
+- **Control lease применяется к input injection** — когда активны `/v1/control/pause` или `/v1/control/revoke`, desktop-эндпоинты блокируются, а `/v1/exec` также отклоняет команды, которые инжектируют ввод клавиатуры/мыши (`ydotool`, `xdotool key/click/type`, `wtype` и т.д.). Общая shell-диагностика остаётся доступной, чтобы не залочить себя.
+- **Файловые операции в sandbox** — пути upload/download должны быть внутри домашней директории пользователя. Path traversal (`..`) блокируется, перезаписать сам бинарник моста нельзя.
+- **SSRF-защита browser fetch** — `/v1/browser/read`, `/dump`, `/fetch`, `/head` разрешают только HTTP(S) публичные цели. Валидатор блокирует localhost/private/link-local/reserved/multicast/unspecified-адреса, обфусцированные IPv4 (`127.1`, octal, hex, integer), IPv4-mapped IPv6 loopback, internal/metadata-имена хостов и DNS-имена, резолвящиеся во внутренние адреса.
+- **Система профилей**: `owner-shell` (разрешительный) и `cautious` (ограниченный). Переключается через env-var `ARENA_PROFILE`.
+- **Rate limiting**: 300 запросов в минуту на IP, настраивается через `/v1/ratelimit`. Auth-неудачи rate-limit'ятся отдельно — 10 попыток в минуту на IP.
+- **CORS** включён на всех ответах (браузерные AI-дашборды могут вызывать вас).
+- **Audit-лог** фиксирует каждый exec, каждый upload/download, каждое событие token/funnel/restart с автоматической ротацией на 50 MB.
+- **Никакой телеметрии, никакой аналитики, никаких phone-home.** Единственные исходящие вызовы:
+  - Пользовательские вызовы из эндпоинтов `/v1/browser/*`
+  - Вызовы MCP-инструментов (exec, fs.read, fs.write, browser.search и т.д.)
+  - Проверки статуса Tailscale
+- **Не стелс-ПО.** Мост работает как видимый сервис/scheduled task с читаемыми командными строками и задокументированными именами процессов. Он спроектирован проверяемым и удаляемым, не скрытым.
+
+Если сомневаетесь — начните с `unified_bridge.py`. Это тонкий compatibility-entrypoint, реализация лежит в сфокусированных модулях `arena/*`.
+
+---
+
+## 🐛 Устранение неполадок
+
+### Я вижу `python.exe`, `local_bridge.py`, `mcp_ws_server.py` или `web_gateway.py` в Task Manager — это вирус?
+Нет — это процессы моста Arena / фоновые helper'ы, особенно из старых приватных/pre-GitHub сборок. Они должны быть видны в Task Manager/PowerShell, и вы можете их удалить.
+
+Проверьте так:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name like 'python%'" |
+  Where-Object { $_.CommandLine -match 'arena|bridge|mcp_ws|web_gateway|agentctl|local_bridge' } |
+  Select-Object ProcessId, ParentProcessId, CommandLine |
+  Format-List
+```
+
+Затем запустите `uninstall.bat` из папки моста. Если это старая сборка без uninstaller'а — остановите процессы и удалите stale scheduled tasks, как показано в [Прозрачность: фоновые процессы — это нормально](#-прозрачность-фоновые-процессы--это-нормально-не-вирус).
+
+### Мост не поднимается после рестарта на Windows
+Мост использует Scheduled Task (или NSSM, если установлен). Оба авто-рестартуют при failure. Проверьте:
+```powershell
+schtasks /query /tn "ArenaUnifiedBridge"
+# или, если NSSM:
+nssm status ArenaUnifiedBridge
+```
+
+### Диск заполнился файлами логов (v2.0.9 и ранее)
+**Исправлено в v2.1.0.** Корневая причина — AccessLogger aiohttp писал каждый HTTP-запрос в stderr, попадавший в append-only файлы логов. Обновитесь до v2.1.0, и мост будет:
+- Полностью отключать access-логи
+- Делать ротацию всех файлов логов при старте
+- Периодически проверять и ротировать oversized-логи (каждые 30 мин)
+- Предупреждать, когда использование диска превышает 80%
+
+### CDP WebSocket становится нестабильным на тяжёлых страницах
+**Улучшено в v2.5.1.** Health-probe теперь использует лёгкий `Target.getTargetInfo` вместо `eval_js`, а проверка WebSocket-ping толерантна к случайным timeout'ам. Мост переподключится автоматически после 3 подряд неудач.
+
+### Клик/нажатие клавиши на рабочем столе не доходит до целевого окна
+**Исправлено в v2.5.1.** Клик теперь автоматически активирует целевое окно (через `kdotool`/`xdotool`) перед отправкой события клика, что гарантирует попадание ввода в правильное окно.
+
+### PowerShell-окна всплывают на каждом обновлении дашборда
+Bridge < v1.6.7 запускал `wmic`/`tailscale`/`schtasks` без `CREATE_NO_WINDOW`. Исправлено в v2.0+ — все subprocess-вызовы используют `_NO_WINDOW_FLAG` на Windows.
+
+### Tailscale Funnel постоянно отваливается
+Funnel периодически падает, если upstream-порт перестаёт принимать (например, когда мост рестартует). NSSM/Scheduled Task авто-респавнит мост; переактивируйте Funnel:
+```powershell
+tailscale funnel --bg 8765
+```
+
+### Команды desktop печатаются как абракадабра (например, `/time set day` → `.ешьу ыуе вфн`)
+Это происходит, когда raw keycodes интерпретируются через нелатинскую активную раскладку клавиатуры. **Улучшено в v2.10.0:** `/v1/desktop/type` использует `ensure_latin: true` по умолчанию на KDE, переключаясь на первую/Latin-раскладку перед вводом.
+
+### Скриншот слишком большой или медленный для vision-агентов
+Используйте transforms скриншотов v2.10.0 вместо полноразмерного PNG:
+
+```bash
+GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80
+# или
+GET /v1/desktop/screenshot?format=jpeg&max_width=1280&quality=80
+```
+
+### "Token rejected (401)" после нажатия Regenerate
+Новый токен записан на диск; запущенный процесс держит старый в памяти. Нажмите **Restart Bridge** в Settings или перезапустите сервис.
+
+### Как удалить
+Запустите `uninstall.bat` (Windows) или `uninstall.sh` (Linux/macOS). Это остановит сервис, удалит scheduled task / systemd-юнит и удалит все файлы моста.
+
+---
+
+## 🗺️ Roadmap
+
+- [x] **Cloudflare Tunnel** как альтернатива Tailscale Funnel (без аккаунта)
+- [x] **Плагин-архитектура** для установки/удаления сторонних навыков
+- [x] **Локальная семантическая RAG-память** через SQLite FTS5
+- [x] **AppContainer-sandbox** на Windows для опциональной изоляции команд
+- [x] Замена `wmic` (deprecated в Win11) на CIM-cmdlets в `_sys_*` helper'ах
+- [x] Linux Wayland-запись в `mission-record` (раньше только x11grab)
+- [ ] Рецепты интеграции AnythingLLM / Open WebUI в `skills/`
+- [x] Webhook-уведомления о событиях
+- [ ] Поддержка Android/mobile после стабильного v3.0.0 (см. `docs/MOBILE_SUPPORT_ROADMAP.md`)
+- [ ] Очистка кода и репозитория (удалить неиспользуемые тест-файлы, старые конфиги)
+
+---
+
+## 🤝 Контрибьюшн
+
+Issues и PR приветствуются. Пожалуйста:
+- Держите `unified_bridge.py` **тонким compatibility-entrypoint**; новый код принадлежит сфокусированным `arena/<domain>/`-модулям.
+- Прогоняйте stress-test через `pytest -q` и `dev/stress-test-v4.py` перед отправкой PR.
+- Pure-ASCII PowerShell-скрипты (никаких unicode-дефисов/эмодзи — они ломают кириллические Windows-установки).
+- Делайте снэпшот перед деструктивными операциями (используйте внешние backup-инструменты).
+
+---
+
+## 📄 Лицензия
+
+MIT License
+
+Copyright (c) 2025-2026 Ivan / IvanSkainet
+
+Данная лицензия разрешает любому лицу, получившему копию данного программного обеспечения и сопутствующей документации (далее — «ПО»), безвозмездно использовать, копировать, изменять, сливать, публиковать, распространять, сублицензировать и/или продавать копии ПО, а также лицам, которым предоставляется ПО, делать это при следующих условиях:
+
+Вышеуказанное уведомление об авторских правах и данное уведомление о разрешении должны быть включены во все копии или существенные части ПО.
+
+ПО ПРЕДОСТАВЛЯЕТСЯ «КАК ЕСТЬ», БЕЗ КАКИХ-ЛИБО ГАРАНТИЙ, явных или подразумеваемых, включая, но не ограничиваясь, гарантиями товарности, пригодности для конкретной цели и ненарушения прав. Ни при каких обстоятельствах авторы или правообладатели не несут ответственности за какие-либо претензии, ущерб или иную ответственность, будь то в результате действия контракта, деликта или иного, возникающего из или в связи с ПО или использованием или иными сделками с ПО.
+
+---
+
+*Создано совместно Иваном и сменяющимися AI-ассистентами на [arena.ai](https://arena.ai/) — мост использовался для разработки моста. Рекурсия дружелюбного толка.*
