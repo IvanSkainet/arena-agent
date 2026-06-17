@@ -73,7 +73,7 @@ def make_gateway_handlers(ctx: GatewayHandlerContext) -> GatewayHandlers:
                 "error": "command not in whitelist",
                 "allowed": list(GW_WHITELIST),
             }, status=403)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             ctx.executor,
             functools.partial(

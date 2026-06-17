@@ -54,7 +54,7 @@ async def _cdp_watcher_loop():
                 # Tab was connected but now isn't — try a quick re-check
                 try:
                     cdp_mod = _get_cdp_module()
-                    tabs = await asyncio.get_event_loop().run_in_executor(
+                    tabs = await asyncio.get_running_loop().run_in_executor(
                         None, cdp_mod.list_tabs, _cdp_state["port"]
                     )
                     if tabs:

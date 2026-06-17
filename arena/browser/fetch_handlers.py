@@ -35,7 +35,7 @@ def make_browser_fetch_handlers(ctx: BrowserFetchHandlerContext) -> BrowserFetch
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.browser_search_sync, query, n)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -54,7 +54,7 @@ def make_browser_fetch_handlers(ctx: BrowserFetchHandlerContext) -> BrowserFetch
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": missing_error}, status=400)
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(ctx.executor, sync_fn, url)
                 return ctx.cors_json_response(result)
             except Exception as e:

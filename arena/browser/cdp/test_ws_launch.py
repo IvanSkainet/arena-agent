@@ -12,7 +12,7 @@ async def launch_test_browser(ctx: CdpDiagnosticHandlerContext, cdp, port: int, 
     Returns ``(browser_proc, done)`` where ``done`` means the caller should return
     the current result immediately.
     """
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     ctx.log_info("[test-ws] START port=%d", port)
 
     try:

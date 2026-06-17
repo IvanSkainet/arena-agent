@@ -31,7 +31,7 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
             n = int(qs.get("lines", ["100"])[0])
         except ValueError:
             n = 100
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         lines = await loop.run_in_executor(ctx.executor, ctx.read_tail, ctx.audit_path, n)
         rows = []
         for line in lines:
@@ -47,7 +47,7 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.audit_stats_sync)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -89,7 +89,7 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
         if r:
             return r
         ctx.record_request()
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(ctx.executor, ctx.load_webhooks)
         return ctx.cors_json_response({"ok": True, "webhooks": data})
 
@@ -105,7 +105,7 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
         cfg, err = ctx.normalize_webhooks_config(data)
         if err:
             return ctx.cors_json_response({"ok": False, "error": err}, status=400)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(ctx.executor, ctx.save_webhooks, cfg)
         ctx.audit({"type": "webhooks_updated", "urls_count": len(cfg["urls"])})
         return ctx.cors_json_response({"ok": True, "webhooks": cfg})

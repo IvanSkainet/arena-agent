@@ -27,7 +27,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, functools.partial(sys_funnel_status, subprocess_kwargs=ctx.subprocess_kwargs))
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -42,7 +42,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         cfg = request.app["cfg"]
         target = str(cfg.get("token_file") or "")
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 ctx.executor,
                 lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
@@ -64,7 +64,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         cfg = request.app["cfg"]
         port = cfg.get("port", 8765)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, tailscale_funnel_action, action, port)
             ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
             return ctx.cors_json_response(result)
@@ -81,7 +81,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         cfg = request.app["cfg"]
         port = cfg.get("port", 8765)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(
                 ctx.executor,
                 lambda: cloudflared_funnel_action(

@@ -8,7 +8,7 @@ from arena.handler_context import CdpDiagnosticHandlerContext
 
 async def launch_raw_info_browser(ctx: CdpDiagnosticHandlerContext, cdp, port: int, result: dict):
     """Kill stale debug-port users, launch Chromium, and store PID in result."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(None, cdp._kill_port_processes, port)
         await asyncio.sleep(0.3)
@@ -22,7 +22,7 @@ async def launch_raw_info_browser(ctx: CdpDiagnosticHandlerContext, cdp, port: i
 
 async def wait_for_raw_info_port(ctx: CdpDiagnosticHandlerContext, cdp, port: int, browser_proc, result: dict) -> bool:
     """Wait up to 10s for Chromium's CDP HTTP endpoint to list tabs."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     for attempt in range(20):
         await asyncio.sleep(0.5)
         if browser_proc.poll() is not None:

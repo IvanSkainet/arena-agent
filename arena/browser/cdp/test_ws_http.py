@@ -11,7 +11,7 @@ from arena.handler_context import CdpDiagnosticHandlerContext
 
 async def fetch_ws_targets(ctx: CdpDiagnosticHandlerContext, port: int, result: dict) -> tuple[str, str]:
     """Fetch /json/version and /json/list and return browser/tab WS URLs."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     raw_version = {}
     browser_ws_url = ""
 

@@ -29,7 +29,7 @@ def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:
         except ValueError:
             limit = 20
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.tasks_list_sync, status, limit)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -53,7 +53,7 @@ def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing cmd or title"}, status=400)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.task_submit_sync, data)
             ctx.audit({"type": "task_submit", "task_id": result.get("task_id"), "cmd": cmd or title})
             return ctx.cors_json_response(result)
@@ -68,7 +68,7 @@ def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.tasks_clean_sync)
             ctx.audit({"type": "tasks_clean", "removed": result.get("removed", 0)})
             return ctx.cors_json_response(result)

@@ -17,7 +17,7 @@ def _fetch_json(path: str, port: int):
 
 async def fetch_raw_version(ctx: CdpDiagnosticHandlerContext, port: int, result: dict) -> None:
     """Fetch and summarize /json/version from Chromium's debug port."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     try:
         version_data, _version_raw = await loop.run_in_executor(None, _fetch_json, "/json/version", port)
         result["raw_version"] = version_data
@@ -43,7 +43,7 @@ async def fetch_raw_version(ctx: CdpDiagnosticHandlerContext, port: int, result:
 
 async def fetch_raw_tabs(ctx: CdpDiagnosticHandlerContext, port: int, result: dict) -> list[dict]:
     """Fetch and summarize /json/list from Chromium's debug port."""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     page_tabs: list[dict] = []
     try:
         tabs_data, _tabs_raw = await loop.run_in_executor(None, _fetch_json, "/json/list", port)

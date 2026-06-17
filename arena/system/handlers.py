@@ -90,7 +90,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.doctor_sync, request.app["cfg"]["token"])
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -103,7 +103,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.sysinfo_sync, request.app["cfg"]["root"])
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -127,7 +127,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             dur = int(data.get("duration", dur))
         except Exception:
             freq, dur = presets.get(beep_type, (800, 300))
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.play_beep_sync, beep_type, freq, dur)
         return ctx.cors_json_response(result)
     return SystemHandlers(

@@ -43,7 +43,7 @@ class LifecycleRuntime:
 def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
     async def on_startup(app: web.Application):
         """Start background task runner and initialize async primitives."""
-        await asyncio.get_event_loop().run_in_executor(ctx.executor, ctx.init_memory_db)
+        await asyncio.get_running_loop().run_in_executor(ctx.executor, ctx.init_memory_db)
 
         cfg = app["cfg"]
         cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])

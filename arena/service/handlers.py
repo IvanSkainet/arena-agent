@@ -25,7 +25,7 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             info = await loop.run_in_executor(ctx.executor, ctx.service_info_sync)
             return ctx.cors_json_response(info)
         except Exception as e:
@@ -39,7 +39,7 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.sys_svc_sync)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -53,7 +53,7 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.capabilities_sync)
             return ctx.cors_json_response(result)
         except Exception as e:

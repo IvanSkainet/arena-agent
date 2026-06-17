@@ -28,7 +28,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             if r:
                 return r
             ctx.record_request()
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             missions = await loop.run_in_executor(ctx.executor, ctx.list_missions_sync)
             return ctx.cors_json_response({"ok": True, "count": len(missions), "missions": missions})
         except Exception as e:
@@ -40,7 +40,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             if r:
                 return r
             ctx.record_request()
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             reports = await loop.run_in_executor(ctx.executor, ctx.list_reports_sync)
             return ctx.cors_json_response({"ok": True, "count": len(reports), "reports": reports})
         except Exception as e:
@@ -53,7 +53,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
                 return r
             ctx.record_request()
             try:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 result = await loop.run_in_executor(ctx.executor, sync_fn)
                 return ctx.cors_json_response(result)
             except Exception as e:
@@ -72,7 +72,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing name parameter"}, status=400)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.mission_show_sync, name)
             if not result.get("ok"):
                 ctx.record_request(is_error=True, count_request=False)
@@ -98,7 +98,7 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing cmd"}, status=400)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.subagent_spawn_sync, data)
             ctx.audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""), "ok": result.get("ok", False)})
             return ctx.cors_json_response(result)

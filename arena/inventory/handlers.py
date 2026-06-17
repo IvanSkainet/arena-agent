@@ -32,7 +32,7 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
         except Exception:
             timeout = 30
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.inventory_sync, section, fmt, timeout)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -52,7 +52,7 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
             timeout = 45
         include_inventory = (request.query.get("include_inventory", "1").lower() not in ("0", "false", "no"))
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await asyncio.wait_for(
                 loop.run_in_executor(ctx.slow_executor, ctx.hardware_sync, timeout),
                 timeout=float(timeout) + 5.0,

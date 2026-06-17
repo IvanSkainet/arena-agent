@@ -27,7 +27,7 @@ def make_skill_handlers(ctx: SkillHandlerContext) -> SkillHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.skills_list_with_cache)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -42,7 +42,7 @@ def make_skill_handlers(ctx: SkillHandlerContext) -> SkillHandlers:
         ctx.record_request()
         ctx.skills_cache_reset()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.skills_list_with_cache)
             ctx.log_info("[Skills] Hot-reload: %d skills scanned", result.get("count", 0))
             return ctx.cors_json_response({
@@ -65,7 +65,7 @@ def make_skill_handlers(ctx: SkillHandlerContext) -> SkillHandlers:
             data = await request.json()
             name = str(data.get("name", "")).strip()
             url = str(data.get("url", "")).strip()
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.skill_install_sync, name, url)
             if result.get("ok"):
                 ctx.audit({"type": "skill_installed", "name": name, "url": url})
@@ -83,7 +83,7 @@ def make_skill_handlers(ctx: SkillHandlerContext) -> SkillHandlers:
         try:
             data = await request.json()
             name = str(data.get("name", "")).strip()
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.skill_uninstall_sync, name)
             if result.get("ok"):
                 ctx.audit({"type": "skill_uninstalled", "name": name})
@@ -133,7 +133,7 @@ def make_skill_handlers(ctx: SkillHandlerContext) -> SkillHandlers:
             env_extra["SKILL_INPUT"] = json.dumps(skill_input)
 
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.skills_run_sync, name, skill_args, env_extra)
             ctx.audit({"type": "skill_run", "name": name, "args": skill_args, "ok": result.get("ok", False)})
             return ctx.cors_json_response(result)

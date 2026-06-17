@@ -34,7 +34,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
             except (ValueError, TypeError):
                 offset = 0
                 limit = 100
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             total, facts = await loop.run_in_executor(ctx.executor, ctx.search_facts_paged, q, offset, limit)
             result = {"ok": True, "total": total, "count": len(facts), "facts": facts}
             if offset + limit < total:
@@ -59,7 +59,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing key"}, status=400)
         entry = {"key": key, "value": value, "tags": data.get("tags") or [], "timestamp": ctx.utc_now()}
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(ctx.executor, ctx.write_fact, entry)
         return ctx.cors_json_response({"ok": True, "fact": entry})
 
@@ -77,7 +77,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
         if not key:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing key"}, status=400)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         deleted = await loop.run_in_executor(ctx.executor, ctx.delete_fact, key)
         if deleted:
             ctx.audit({"event": "memory_delete", "key": key})
@@ -99,7 +99,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.recall_sync, query, top)
             return ctx.cors_json_response(result)
         except Exception as e:
@@ -112,7 +112,7 @@ def make_memory_handlers(ctx: MemoryHandlerContext) -> MemoryHandlers:
             return r
         ctx.record_request()
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(ctx.executor, ctx.recall_digest_sync)
             return ctx.cors_json_response(result)
         except Exception as e:

@@ -28,7 +28,7 @@ def make_cdp_test_launch_handler(ctx: CdpDiagnosticHandlerContext):
         qs = parse_qs(request.query_string)
         port = int(qs.get("port", ["9223"])[0])
         headless = qs.get("headless", ["true"])[0].lower() != "false"
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         try:
             result = await loop.run_in_executor(
