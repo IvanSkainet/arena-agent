@@ -6,7 +6,7 @@
 One process · One port · Modular Python architecture — drives your computer from any chat, any AI, any OS.
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-v3.1.4-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/badge/version-v3.1.5-blue.svg)](https://github.com/IvanSkainet/arena-agent/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](#license)
@@ -44,9 +44,9 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.1.4
+### 🆕 What's new in v3.1.5
 
-- **Fully modular v3.1.4 baseline:** secondary monoliths in `scripts/`, `bin/`, CDP, inventory, agentctl, helper tools, and dashboard have been split into focused modules.
+- **Fully modular v3.1.5 baseline:** secondary monoliths in `scripts/`, `bin/`, CDP, inventory, agentctl, helper tools, and dashboard have been split into focused modules.
 - **Native runtime composition:** runtime wiring no longer mutates module globals; `unified_bridge.py` builds an isolated runtime namespace and exports compatibility names only at the facade boundary.
 - **Thin compatibility entrypoints:** `unified_bridge.py`, `bin/agentctl`, and major `scripts/*` tools are wrappers; real implementation lives under `arena/*`.
 - **AI-friendly guardrails:** `AGENTS.md`, `docs/AI_CODEBASE_NAVIGATION.md`, and tests prevent new product monoliths above 200 lines and block hidden globals wiring regressions.

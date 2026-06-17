@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.1.5 — 2026-06-17
+
+### Fixed
+- Added per-URL webhook circuit breaker/backoff so dead webhook targets are not retried and logged on every event.
+- Webhook failure/recovery is now logged on state changes instead of flooding `bridge.log` continuously.
+
+### Tests
+- Added `tests/test_webhooks_backoff.py` covering threshold, cooldown, exponential retry, recovery, event filtering, and internal error logging.
+
+### Validation
+- Local `pytest -q`: PASS, 413 tests.
+- Local critical ruff and py_compile: PASS.
+
 ## v3.1.4 — 2026-06-17
 
 ### Fixed
