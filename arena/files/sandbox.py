@@ -65,3 +65,31 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     if not target_path.exists() or not target_path.is_file():
         return None, "file not found", 404
     return target_path, None, 200
+
+
+def validate_view_target(target: str, *, root: Path, home: Path) -> tuple[Path | None, str | None, int]:
+    """Validate target for fs.view: must exist as a file, be inside home, not be sensitive."""
+    target_path, err, status = resolve_home_path(target, root=root, home=home)
+    if err:
+        return None, err, status
+    if target_path.name in SENSITIVE_FILE_BASENAMES:
+        return None, f"viewing {target_path.name} is not allowed", 403
+    if not target_path.exists() or not target_path.is_file():
+        return None, "file not found", 404
+    return target_path, None, 200
+
+
+def validate_create_target(target: str, *, root: Path, home: Path, bridge_py: Path) -> tuple[Path | None, str | None, int]:
+    """Validate target for fs.create: must not exist, be inside home, not be sensitive/bridge."""
+    target_path, err, status = resolve_home_path(target, root=root, home=home)
+    if err:
+        if err == "path outside home directory":
+            return None, "create path must be inside user home", status
+        return None, err, status
+    if target_path.name in SENSITIVE_FILE_BASENAMES:
+        return None, f"creating {target_path.name} is not allowed", 403
+    if target_path.resolve() == bridge_py.resolve():
+        return None, "cannot overwrite the bridge itself", 403
+    if target_path.exists():
+        return None, f"file already exists: {target_path.name} (use PATCH /v1/fs/edit to modify)", 409
+    return target_path, None, 200

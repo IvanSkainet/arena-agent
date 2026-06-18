@@ -71,6 +71,7 @@ from arena.auth.users import UserStore  # noqa: E402,F401
 from arena.auth.runtime import AuthRuntimeContext, make_auth_runtime  # noqa: E402,F401
 from arena.auth.handlers import make_user_handlers  # noqa: E402,F401
 from arena.files.handlers import make_file_handlers  # noqa: E402,F401
+from arena.files.fs_view_create import make_fs_view_create_handlers  # noqa: E402,F401
 from arena.exec.runner import (  # noqa: E402,F401
     ACTIVE_PROCESSES,
     active_processes_snapshot,

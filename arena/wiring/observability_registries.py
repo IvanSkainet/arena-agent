@@ -99,4 +99,22 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
         },
     )
     registry.update(_file_handler_registry)
+
+    _fs_view_create_registry = env.build_context_handlers(
+        env.FileHandlerContext,
+        env.make_fs_view_create_handlers,
+        {
+            "require_auth": env.require_auth,
+            "record_request": env._record_request,
+            "cors_json_response": env._cors_json_response,
+            "audit": env.audit,
+            "home": env.Path.home(),
+            "bridge_py": env.Path(__file__).resolve(),
+        },
+        {
+            "handle_v1_fs_view": "view",
+            "handle_v1_fs_create": "create",
+        },
+    )
+    registry.update(_fs_view_create_registry)
     return registry
