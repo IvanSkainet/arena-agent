@@ -65,6 +65,9 @@ def build_openapi_spec(ctx) -> dict:
                 {"name": "quality", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 80}}
             ], "responses": {"200": {"description": "Screenshot image bytes or base64 JSON"}}}},
             "/v1/desktop/type": {"post": {"summary": "Type text on the desktop", "tags": ["Desktop"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"text": {"type": "string"}, "delay": {"type": "integer", "default": 50}, "clear": {"type": "boolean", "default": False}, "ensure_latin": {"type": "boolean", "default": True}}, "required": ["text"]}}}}, "responses": {"200": {"description": "Type result"}}}},
+            "/v1/upload": {"post": {"summary": "Upload binary file (data-binary body, path query param)", "tags": ["Files"], "parameters": [{"name": "path", "in": "query", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "Upload result"}, "400": {"description": "Bad path"}, "403": {"description": "Path outside home or blocked"}}}},
+            "/v1/download": {"get": {"summary": "Download file (path query param)", "tags": ["Files"], "parameters": [{"name": "path", "in": "query", "required": True, "schema": {"type": "string"}}], "responses": {"200": {"description": "File bytes"}, "404": {"description": "File not found"}}}},
+            "/v1/fs/edit": {"patch": {"summary": "Find-and-replace in a text file (surgical edit)", "tags": ["Files"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}, "replace_all": {"type": "boolean", "default": False}}, "required": ["path", "old_text", "new_text"]}}}}, "responses": {"200": {"description": "Edit result"}, "404": {"description": "File not found / old_text not found"}, "409": {"description": "old_text matches multiple times"}}}},
             "/v1/exec": {"post": {"summary": "Execute command", "tags": ["Exec"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 30}, "cwd": {"type": "string"}}}}}}, "responses": {"200": {"description": "Command result"}}}},
             "/v1/kill": {"post": {"summary": "Kill process by PID", "tags": ["Exec"], "responses": {"200": {"description": "Kill result"}}}},
             "/v1/skills": {"get": {"summary": "List available skills", "tags": ["Skills"], "responses": {"200": {"description": "Skill list"}}}},
@@ -92,6 +95,7 @@ def build_openapi_spec(ctx) -> dict:
             {"name": "CDP", "description": "Chrome DevTools Protocol browser control"},
             {"name": "CDP Stealth", "description": "Stealth-aware content extraction and screenshots via CDP"},
             {"name": "CDP Debug", "description": "CDP diagnostic and testing endpoints"},
+            {"name": "Files", "description": "File upload, download, and surgical edit"},
             {"name": "Exec", "description": "Command execution"},
             {"name": "Desktop", "description": "Desktop screenshot, input, focus and control lease"},
             {"name": "Skills", "description": "Skill system"},

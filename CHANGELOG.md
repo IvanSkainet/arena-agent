@@ -1,5 +1,44 @@
 # Changelog
 
+## v3.2.1 - 2026-06-18
+
+### Added
+- **MCP `fs.view` tool** — view file contents with line numbers. Optional `view_range=[start, end]` for reading a specific line range (1-indexed, inclusive). Returns line-numbered output matching Anthropic's `str_replace_editor` format.
+- **MCP `fs.create` tool** — create a new text file. Fails if file already exists (use `fs.edit` to modify). Creates parent directories if needed. Both tools reuse `_validate_home_path` for path traversal + blocked file protection.
+- **OpenAPI spec updated** — `/api-docs` now includes `POST /v1/upload`, `GET /v1/download`, and `PATCH /v1/fs/edit` with request/response schemas. New "Files" tag added.
+
+### Tests
+- **`tests/test_fs_edit.py`** (18 tests): MCP `fs.edit` success/replace_all/not_found/multiple_matches/empty/blocked/noop, `validate_edit_target` traversal/bridge/sensitive_files/not_found, REST route registration, schema validation.
+- **`tests/test_fs_view_create.py`** (14 tests): `fs.view` full/range/not_found/invalid_range/blocked, `fs.create` success/exists/empty/parent_dirs/blocked, registry schema validation.
+
+Total: **445 tests pass** (was 431, +14 new for view/create; +18 new for edit = +32 total since v3.2.0).
+
+### str_replace_editor parity complete
+The `fs.*` tool family now has full parity with Anthropic's `str_replace_editor`:
+  - `fs.read` — read file (existing)
+  - `fs.write` — write file (existing)
+  - `fs.list` — list directory (existing)
+  - `fs.view` — view with line numbers + range (new)
+  - `fs.create` — create new file (new)
+  - `fs.edit` — find-and-replace (added in v3.2.0)
+
+AI coding agents (Claude Code, Cline, Cursor) can now use Arena's MCP server as a complete filesystem tool backend.
+
+### Validation
+- 445 tests pass (no regressions).
+- py_compile OK for all changed files.
+- Bridge `/v1/doctor`: 10/10 checks pass.
+
+### Files changed
+- `arena/mcp/tool_fs.py` — +`_handle_fs_view`, +`_handle_fs_create`, dispatch for fs.view/fs.create
+- `arena/mcp/tool_registry.py` — +fs.view, +fs.create in MCP_TOOLS
+- `arena/public/openapi.py` — +upload, +download, +fs/edit, +Files tag
+- `tests/test_fs_edit.py` — new, 18 tests
+- `tests/test_fs_view_create.py` — new, 14 tests
+- `arena/constants.py` — version bump
+- `pyproject.toml` — version bump
+- `CHANGELOG.md` — this entry
+
 ## v3.2.0 - 2026-06-18
 
 ### Added
