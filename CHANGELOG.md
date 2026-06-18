@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.2.3 - 2026-06-19
+
+### Added
+- **MCP `fs.search` tool** — search file contents by regex pattern. Supports glob filter, context lines, case-insensitive mode, max_results limit. Skips sensitive files, hidden directories, and binary files.
+- **MCP `fs.grep` tool** — alias for fs.search (familiar name for grep users).
+
+### Security
+- Path must be inside home directory (path traversal blocked)
+- SENSITIVE_FILE_BASENAMES skipped (token.txt, .env, SSH keys, etc.)
+- Hidden directories skipped (.git, __pycache__, node_modules, .venv)
+- File size limit: 512KB per file; max 500 files scanned; max 200 results
+
+### Tests
+- tests/test_fs_search.py — 17 tests (basic search, directory search, no matches, errors, glob filter, ignore_case, context lines, max_results, blocked files, hidden dirs, grep alias, registry schema)
+
+Total: **498 tests pass** (was 481, +17 new).
+
+### Validation
+- 498 tests pass (no regressions)
+- py_compile OK
+- Bridge /v1/doctor: 10/10
+
 ## v3.2.2 - 2026-06-18
 
 ### Added
