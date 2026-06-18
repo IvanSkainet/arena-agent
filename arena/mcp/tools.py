@@ -12,6 +12,7 @@ from arena.mcp.tool_utils import make_run_local, make_run_sd, text_content
 from arena.mcp.tool_browser import handle_browser_tool
 from arena.mcp.tool_exec import handle_exec_tool
 from arena.mcp.tool_fs import handle_fs_tool
+from arena.mcp.tool_fs_search import handle_fs_search_tool
 from arena.mcp.tool_memory import handle_memory_tool
 from arena.mcp.tool_misc import handle_misc_tool
 
@@ -65,6 +66,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
             for handler in (
                 lambda: handle_exec_tool(name, args, ctx=ctx, run_sd=run_sd),
                 lambda: handle_fs_tool(name, args, ctx=ctx),
+                lambda: handle_fs_search_tool(name, args, ctx=ctx),
                 lambda: handle_browser_tool(name, args, ctx=ctx, run_local=run_local, run_sd=run_sd),
                 lambda: handle_memory_tool(name, args, ctx=ctx, run_local=run_local),
                 lambda: handle_misc_tool(name, args, ctx=ctx, run_local=run_local),
