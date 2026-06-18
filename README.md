@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.1.5
+### 🆕 What's new in v3.2.1
 
-- **Fully modular v3.1.5 baseline:** secondary monoliths in `scripts/`, `bin/`, CDP, inventory, agentctl, helper tools, and dashboard have been split into focused modules.
-- **Native runtime composition:** runtime wiring no longer mutates module globals; `unified_bridge.py` builds an isolated runtime namespace and exports compatibility names only at the facade boundary.
-- **Thin compatibility entrypoints:** `unified_bridge.py`, `bin/agentctl`, and major `scripts/*` tools are wrappers; real implementation lives under `arena/*`.
-- **AI-friendly guardrails:** `AGENTS.md`, `docs/AI_CODEBASE_NAVIGATION.md`, and tests prevent new product monoliths above 200 lines and block hidden globals wiring regressions.
-- **Validated release gates:** local and CachyOS source tests, ruff critical lint, endpoint smoke, and stress-test v4 restart checks are used before release.
+- **MCP `fs.view` + `fs.create`** — view file contents with optional line range, and create new files (fails if they exist). Completes full **str_replace_editor parity**: AI coding agents (Claude Code, Cline, Cursor) can now use Arena's MCP server as a complete filesystem backend (`fs.read`/`write`/`list`/`view`/`create`/`edit`).
+- **MCP `fs.edit`** — surgical find-and-replace in text files (`old_text`/`new_text`, with `replace_all`), plus its REST equivalent `PATCH /v1/fs/edit`.
+- **`/v1/browser/search` fixed** — DuckDuckGo switched endpoints; Arena now queries `lite.duckduckgo.com` which still parses correctly.
+- **OpenAPI spec** — `/api-docs` now documents upload, download, and `fs/edit`.
+- **445 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
