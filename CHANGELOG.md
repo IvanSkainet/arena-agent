@@ -1,5 +1,43 @@
 # Changelog
 
+## v3.2.2 - 2026-06-18
+
+### Added
+- **REST `POST /v1/fs/view`** — HTTP equivalent of MCP `fs.view`. Read file with optional `view_range=[start, end]`. Returns JSON with content, line range, and total lines.
+- **REST `POST /v1/fs/create`** — HTTP equivalent of MCP `fs.create`. Create new file (fails if exists). Creates parent directories.
+- **OpenAPI spec** — `/api-docs` now includes `/v1/fs/view` and `/v1/fs/create` with request/response schemas.
+- **DuckDuckGo search tests** — 10 formal tests for the DDG lite HTML parser (no network, mock HTML). Covers: result parsing, n parameter, empty results, HTML tag stripping, URL decoding, User-Agent header.
+
+### Refactored
+- **Sensitive file blocklist deduplicated** — `SENSITIVE_FILE_BASENAMES` (frozenset) in `arena/files/sandbox.py` is now the single source of truth. `_MCP_BLOCKED_FILES` in `tool_fs.py` and `_EDIT_BLOCKED_BASENAMES` are aliases of the same object. Adding a new sensitive file now requires editing one place, not two.
+
+### Documentation
+- **README "What's new"** updated from v3.1.5/v3.1.6 to v3.2.1 (both EN and RU).
+
+### Tests
+- `tests/test_fs_rest_view_create.py` — 26 tests (sandbox validators + handler behavior + route registration + auth)
+- `tests/test_ddg_search.py` — 10 tests (mock HTML parsing, no network)
+- Total: **481 tests pass** (was 445, +36 new since v3.2.1).
+
+### Files changed
+- `arena/files/sandbox.py` — +validate_view_target, +validate_create_target, SENSITIVE_FILE_BASENAMES
+- `arena/files/fs_view_create.py` — new module, FsViewCreateHandlers + factory
+- `arena/mcp/tool_fs.py` — import SENSITIVE_FILE_BASENAMES from sandbox (dedup)
+- `arena/runtime_deps/core.py` — import make_fs_view_create_handlers
+- `arena/wiring/observability_registries.py` — handler mappings for view/create
+- `arena/route_registry/core.py` — POST /v1/fs/view + POST /v1/fs/create routes
+- `arena/public/openapi.py` — OpenAPI spec for fs/view + fs/create
+- `tests/test_fs_rest_view_create.py` — new, 26 tests
+- `tests/test_ddg_search.py` — new, 10 tests
+- `README.md` + `README.ru.md` — "What's new" updated
+- `arena/constants.py` + `pyproject.toml` — version bump
+- `CHANGELOG.md` — this entry
+
+### Validation
+- 481 tests pass (no regressions)
+- py_compile OK for all changed files
+- Bridge `/v1/doctor`: 10/10 checks pass
+
 ## v3.2.1 - 2026-06-18
 
 ### Added
