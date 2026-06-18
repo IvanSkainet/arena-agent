@@ -54,6 +54,18 @@ MCP_TOOLS = [
          "context": {"type": "integer", "default": 0},
          "ignore_case": {"type": "boolean", "default": False}},
          "required": ["path", "pattern"]}},
+    {"name": "fs.tree", "description": "Show directory tree structure. Optional max_depth and glob filter.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string", "description": "Directory to show tree for"},
+         "max_depth": {"type": "integer", "default": 3, "description": "Maximum depth (1-10)"},
+         "show_files": {"type": "boolean", "default": True},
+         "glob": {"type": "string", "description": "Optional file glob filter (e.g. *.py)"}},
+         "required": ["path"]}},
+    {"name": "fs.diff", "description": "Compare two text files and return unified diff.",
+     "inputSchema": {"type": "object", "properties": {
+         "path_a": {"type": "string", "description": "First file (old)"},
+         "path_b": {"type": "string", "description": "Second file (new)"}},
+         "required": ["path_a", "path_b"]}},
     {"name": "browser.search", "description": "DuckDuckGo search via pure-Python (no chromium)",
      "inputSchema": {"type": "object", "properties": {
          "query": {"type": "string"}, "n": {"type": "integer", "default": 5}},
