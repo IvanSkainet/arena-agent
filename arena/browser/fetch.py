@@ -18,13 +18,13 @@ def _request(url: str, *, version: str, method: str = "GET", timeout: int = 15) 
 
 
 def browser_search(query: str, n: int, *, version: str) -> dict[str, Any]:
-    url = f"https://html.duckduckgo.com/html/?q={_up.quote_plus(query)}"
+    url = f"https://lite.duckduckgo.com/lite/?q={_up.quote_plus(query)}"
     req = _request(url, version=version, timeout=15)
     with urllib.request.urlopen(req, timeout=15) as resp:
         content = resp.read().decode("utf-8", errors="replace")
     results = []
-    link_pat = _re.compile(r'<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', _re.DOTALL)
-    snippet_pat = _re.compile(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', _re.DOTALL)
+    link_pat = _re.compile(r'''<a[^>]+href="([^"]+)"[^>]*class='result-link'[^>]*>(.*?)</a>''', _re.DOTALL)
+    snippet_pat = _re.compile(r'''class='result-snippet'[^>]*>(.*?)</td>''', _re.DOTALL)
     links = link_pat.findall(content)
     snippets = snippet_pat.findall(content)
     for i, (href, title) in enumerate(links[:n]):
