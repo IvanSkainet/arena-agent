@@ -1,5 +1,43 @@
 # Changelog
 
+## v3.2.0 - 2026-06-18
+
+### Added
+- **MCP `fs.edit` tool** — find-and-replace in text files, mirroring Anthropic's `str_replace_editor` semantics. AI coding agents (Claude Code, Cline, Cursor) can now do surgical file edits via MCP without re-uploading the whole file. Supports `replace_all` for multi-occurrence replacement. Reuses `_validate_home_path` + `_MCP_BLOCKED_FILES` for security (path traversal protection, blocks `token.txt`, `.env`, SSH keys, etc.).
+- **REST `PATCH /v1/fs/edit` endpoint** — HTTP equivalent of the MCP tool. Same find-and-replace semantics, same security model. Enables AI agents without MCP support (like popbob's Local API pattern, or simple curl scripts) to do surgical edits. Body: `{"path": "...", "old_text": "...", "new_text": "...", "replace_all": false}`. Returns `{"ok": true, "path": "...", "replacements": N, "bytes": N}`.
+- **Arena Agent Mode integration** — new documentation section explaining how to use Arena Unified Bridge as the tool backend for Arena.ai's free frontier models (Claude Opus, GPT-5, Grok). Paste the system prompt from `docs/AI_PROMPT_TEMPLATE.md` with your URL and token, and any Arena AI can drive your computer.
+- **"Similar Projects" section in README** — honest comparison with 10 other open-source projects in the AI agent / computer-use space: Bytebot, OpenClaw, Open Interpreter, Agent S, Anthropic Computer Use, Cline, Desktop Commander MCP, MCP servers, awesome-mcp-servers, browser-use. Each entry includes stars, language, what it does, and how Arena differs. Includes disclaimer that Arena is independent and not affiliated with any listed project.
+
+### Fixed
+- **`/v1/browser/search` no longer returns 0 results** — DuckDuckGo's `html.duckduckgo.com/html/` endpoint stopped returning `result__a` CSS class names, breaking the parser. Switched to `lite.duckduckgo.com/lite/` which still works and uses `result-link` / `result-snippet` classes. Also fixed: in lite HTML, `href` attribute comes before `class` (opposite order from the html endpoint), so the regex was reordered. Used triple-quoted raw strings (`r'''...'''`) to avoid quoting conflicts.
+
+### Security
+- New `_EDIT_BLOCKED_BASENAMES` set in `arena/files/sandbox.py`: `token.txt`, `users.json`, `.env`, `id_rsa`, `id_ed25519`, `id_ecdsa`, `id_dsa`, `.netrc`, `.ssh_config`. These files cannot be edited via `fs.edit` or `PATCH /v1/fs/edit`, even if they are inside the user's home directory.
+- `fs.edit` and `PATCH /v1/fs/edit` cannot edit the bridge itself (`unified_bridge.py`).
+- All file edit operations are audit-logged: `{"type": "file_edit", "path": "...", "replacements": N, "bytes": N}`.
+
+### Validation
+- 413 existing tests pass (no regressions).
+- MCP `fs.edit` tested with 6 error cases: multiple matches, replace_all, not found, file not found, empty old_text, blocked file — all correct.
+- REST `PATCH /v1/fs/edit` compile OK, pytest pass, logic identical to MCP tool.
+- DDG search tested: `browser_search("python programming", 3)` returns 3 results with correct title, URL, snippet.
+- Bridge `/v1/doctor`: 10/10 checks pass.
+
+### Files changed
+- `arena/mcp/tool_fs.py` — added `fs.edit` handler + `_handle_fs_edit` function
+- `arena/mcp/tool_registry.py` — added `fs.edit` to `MCP_TOOLS` list
+- `arena/files/sandbox.py` — added `validate_edit_target` + `_EDIT_BLOCKED_BASENAMES`
+- `arena/files/handlers.py` — added `handle_v1_fs_edit` handler + `fs_edit` field
+- `arena/route_registry/core.py` — added `PATCH /v1/fs/edit` route
+- `arena/wiring/observability_registries.py` — added `handle_v1_fs_edit` mapping
+- `arena/browser/fetch.py` — switched DDG to lite endpoint, updated CSS selectors
+- `README.md` — File Operations table, Similar Projects section, Arena Agent Mode note
+- `README.ru.md` — mirror all changes in Russian
+- `docs/AI_PROMPT_TEMPLATE.md` — added fs.edit and PATCH /v1/fs/edit
+- `arena/constants.py` — version bump
+- `pyproject.toml` — version bump
+- `CHANGELOG.md` — this entry
+
 ## v3.1.7 - 2026-06-17
 
 ### Fixed
