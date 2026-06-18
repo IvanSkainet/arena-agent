@@ -15,6 +15,7 @@ from arena.mcp.tool_fs import handle_fs_tool
 from arena.mcp.tool_fs_search import handle_fs_search_tool
 from arena.mcp.tool_fs_tree_diff import handle_fs_tree_diff_tool
 from arena.mcp.tool_memory_export_import import handle_memory_export_import_tool
+from arena.mcp.tool_git import handle_git_tool
 from arena.mcp.tool_memory import handle_memory_tool
 from arena.mcp.tool_misc import handle_misc_tool
 
@@ -71,6 +72,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_fs_search_tool(name, args, ctx=ctx),
                 lambda: handle_fs_tree_diff_tool(name, args, ctx=ctx),
                 lambda: handle_memory_export_import_tool(name, args, ctx=ctx),
+                lambda: handle_git_tool(name, args, ctx=ctx),
                 lambda: handle_browser_tool(name, args, ctx=ctx, run_local=run_local, run_sd=run_sd),
                 lambda: handle_memory_tool(name, args, ctx=ctx, run_local=run_local),
                 lambda: handle_misc_tool(name, args, ctx=ctx, run_local=run_local),

@@ -112,4 +112,27 @@ MCP_TOOLS = [
          "data": {"type": "string", "description": "JSONL text to import"},
          "overwrite": {"type": "boolean", "default": False, "description": "If true, replace all existing facts before import"}},
          "required": ["data"]}},
+    {"name": "git.status", "description": "Show git status for a repository.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string", "description": "Path to git repository"},
+         "short": {"type": "boolean", "default": False}},
+         "required": ["path"]}},
+    {"name": "git.diff", "description": "Show git diff (staged or unstaged).",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string", "description": "Path to git repository"},
+         "staged": {"type": "boolean", "default": False, "description": "Show staged (cached) changes"},
+         "commit": {"type": "string", "description": "Optional commit hash to diff against"}},
+         "required": ["path"]}},
+    {"name": "git.log", "description": "Show recent git commits.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string", "description": "Path to git repository"},
+         "limit": {"type": "integer", "default": 10, "description": "Max commits to show (1-100)"},
+         "oneline": {"type": "boolean", "default": True}},
+         "required": ["path"]}},
+    {"name": "git.commit", "description": "Stage all changes and create a git commit.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string", "description": "Path to git repository"},
+         "message": {"type": "string", "description": "Commit message"},
+         "add_all": {"type": "boolean", "default": True, "description": "Stage all changes before commit"}},
+         "required": ["path", "message"]}},
 ]
