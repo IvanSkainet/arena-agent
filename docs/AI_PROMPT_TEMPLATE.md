@@ -29,6 +29,8 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 ### 2. Files & Storage
 - **`POST /v1/upload?path=...`**: Upload binary data directly to any path inside the home directory.
 - **`GET /v1/download?path=...`**: Download any file inside the home directory.
+- **`PATCH /v1/fs/edit`**: Find-and-replace in a text file (surgical edit — no need to re-upload the whole file). Body: `{"path": "...", "old_text": "foo()", "new_text": "bar()", "replace_all": false}`. Use this for code edits — it's faster and safer than download+modify+upload. The `old_text` must be unique in the file unless `replace_all=true`.
+- **MCP tool `fs.edit`**: Same as above, but via MCP protocol. Use when connected through `/mcp` or `/ws`.
 
 ### 3. Local Semantic RAG Memory (SQLite)
 - **`GET /v1/memory?q=...`**: Fuzzy/FTS5 trigram matched search in the local memory database.

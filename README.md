@@ -255,6 +255,17 @@ Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI
 
 For a ready-to-use system prompt template, see [`docs/AI_PROMPT_TEMPLATE.md`](docs/AI_PROMPT_TEMPLATE.md).
 
+#### Using with Arena Agent Mode
+
+[Arena.ai](https://arena.ai/) Agent Mode gives you free access to frontier AI models (Claude Opus, GPT-5, Grok, etc.) that can call tools. You can use Arena Unified Bridge as the "tool backend" for Arena Agent Mode:
+
+1. Start the bridge: `./install.sh` (or `install.bat`)
+2. Note your bridge URL and token (printed at the end of install)
+3. In Arena Agent Mode, paste the system prompt from [`docs/AI_PROMPT_TEMPLATE.md`](docs/AI_PROMPT_TEMPLATE.md) with your URL and token filled in
+4. The AI agent can now call your bridge endpoints to execute commands, edit files, browse the web, and more
+
+This gives you a **free, unlimited AI agent** that can drive your computer — the bridge handles security (token auth, command firewall, path sandbox), and Arena handles the AI reasoning.
+
 ### 4. Update
 
 Download the [latest release](https://github.com/IvanSkainet/arena-agent/releases/latest) ZIP and extract it over your existing folder (or into a new one). Then re-run the installer:
@@ -374,8 +385,9 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 |--------|------|-------------|
 | `POST` | `/v1/upload?path=…` | Upload binary file (`--data-binary`, path must be inside user home) |
 | `GET` | `/v1/download?path=…` | Download file (path must be inside user home) |
+| `PATCH` | `/v1/fs/edit` | Find-and-replace in a text file (surgical edit, no re-upload). Body: `{"path": "...", "old_text": "foo()", "new_text": "bar()", "replace_all": false}` |
 
-> **Security:** Upload and download paths are restricted to the user's home directory. Path traversal (`..`) is blocked. The bridge binary itself cannot be overwritten.
+> **Security:** Upload, download, and edit paths are restricted to the user's home directory. Path traversal (`..`) is blocked. The bridge binary itself cannot be overwritten. File edit additionally blocks sensitive files (`token.txt`, `.env`, SSH keys, `users.json`, etc.) and requires `old_text` to be unique unless `replace_all=true`.
 
 ### Memory & Recall
 
@@ -951,6 +963,53 @@ Run `uninstall.bat` (Windows) or `uninstall.sh` (Linux/macOS). This stops the se
 - Tailscale Funnel integration
 - Chrome DevTools Protocol endpoints
 - Web Gateway for external tool access
+
+---
+
+## 📊 Similar Projects
+
+> **Disclaimer:** This section lists other open-source projects in the AI agent / computer-use space for comparison purposes only. Arena Unified Bridge is an independent project and is not affiliated with, endorsed by, or derived from any of the projects listed below. All trademarks belong to their respective owners. Star counts are approximate and were accurate at the time of writing (June 2026) — check each project's GitHub for current numbers.
+
+Arena Unified Bridge occupies a specific niche: a **cross-platform local bridge** that lets **any AI** (not just one vendor's model) drive your computer through **REST + MCP + WebSocket** on a **single port** with **token auth + command firewall + path sandbox**. The projects below overlap in different ways — some focus on desktop automation, some on coding agents, some on chat-bot assistants. None of them is a direct replacement; each has different trade-offs.
+
+### Desktop automation / computer-use agents
+
+| Project | Stars | Language | What it does | How Arena differs |
+|---------|-------|----------|--------------|-------------------|
+| [**Bytebot**](https://github.com/bytebot-ai/bytebot) | ~11k | TypeScript | Self-hosted AI desktop agent in Docker containers; controls a Linux desktop via mouse/keyboard | Bytebot is Docker-only (Linux), Arena runs natively on Windows/Linux/macOS. Bytebot has no REST/MCP API — Arena exposes 130+ endpoints. Bytebot has no file edit or shell exec endpoints. |
+| [**OpenClaw**](https://github.com/openclaw/openclaw) (ex-Clawdbot) | ~379k | TypeScript | Self-hosted personal AI assistant via WhatsApp/Telegram/Discord/Slack; reads files, runs commands, sends emails | OpenClaw is a chat-bot assistant (you talk to it via messengers). Arena is an automation API (any AI calls your computer via HTTP). Different use cases — OpenClaw for personal assistant, Arena for developer/AI integration. |
+| [**Open Interpreter**](https://github.com/OpenInterpreter/open-interpreter) | ~58k | Python | Lets LLMs run code (Python, JS, shell) on your machine through a chat interface | Open Interpreter is a CLI chat tool (one model, one session). Arena is a persistent server (any AI, any number of sessions, background tasks, dashboard). Open Interpreter has no MCP/REST API. |
+| [**Agent S**](https://github.com/simular-ai/Agent-S) | ~2k | Python | Open agentic framework for autonomous computer interaction (GUI automation) | Agent S focuses on GUI perception + click automation. Arena focuses on API-level automation (exec, files, browser) with optional desktop. Different abstraction layers. |
+| [**Anthropic Computer Use**](https://www.anthropic.com/news/3-5-models-and-computer-use) | — | Python | Official Claude computer-use API (screenshot + mouse/keyboard) | Only works with Claude. Cloud-only, not self-hosted. Arena works with any AI and runs on your machine. |
+
+### AI coding agents (edit files, run shell)
+
+| Project | Stars | Language | What it does | How Arena differs |
+|---------|-------|----------|--------------|-------------------|
+| [**Cline**](https://github.com/cline/cline) | ~63k | TypeScript | VS Code extension: AI coding agent with plan/act modes, MCP integration | Cline lives inside VS Code. Arena is a standalone server accessible from any tool. Cline's `str_replace_editor` inspired Arena's `fs.edit` — but Arena's works via REST and MCP, not just VS Code. |
+| [**Desktop Commander MCP**](https://github.com/wonderwhy-er/DesktopCommanderMCP) | ~5k | TypeScript | MCP server for Claude: terminal control, file search, diff editing | Single-purpose MCP server (Claude only). Arena is a multi-protocol bridge (REST + MCP + WS + SSE) that works with any AI, not just Claude Desktop. |
+
+### MCP server collections
+
+| Project | Stars | Language | What it does | How Arena differs |
+|---------|-------|----------|--------------|-------------------|
+| [**Model Context Protocol servers**](https://github.com/modelcontextprotocol/servers) | ~87k | TypeScript | Official reference MCP servers (filesystem, shell, etc.) — each does one thing | Each MCP server is a single tool. Arena bundles 20+ MCP tools **plus** 130+ REST endpoints **plus** dashboard **plus** background tasks — all in one process. You'd need 5+ separate MCP servers to match Arena's feature set. |
+| [**awesome-mcp-servers**](https://github.com/appcypher/awesome-mcp-servers) | ~3k | — | Curated list of MCP servers | A list, not a product. Arena is a runnable product that includes its own MCP server. |
+
+### Browser automation
+
+| Project | Stars | Language | What it does | How Arena differs |
+|---------|-------|----------|--------------|-------------------|
+| [**browser-use**](https://github.com/browser-use/browser-use) | ~50k | Python | Make websites accessible for AI via browser automation | browser-use is browser-only. Arena has browser **plus** shell **plus** files **plus** desktop **plus** memory. browser-use is a library; Arena is a server. |
+
+### Where Arena Unified Bridge fits
+
+Arena is **not trying to replace** any of the above. It fills a gap: a **single, self-hosted, cross-platform bridge** that any AI can call via standard HTTP/MCP, with security built in. If you want:
+- A **personal assistant** you chat with → use OpenClaw
+- A **coding agent in VS Code** → use Cline
+- **GUI click automation** → use Bytebot or Anthropic Computer Use
+- **Browser-only automation** → use browser-use
+- **A local API that any AI or script can call to drive your computer** → that's Arena
 
 ---
 
