@@ -1,5 +1,25 @@
 # Changelog
 
+## v3.2.4 - 2026-06-19
+
+### Added
+- **MCP `fs.tree`** — directory tree with ├──/└── connectors, file sizes, max_depth, glob filter, show_files toggle.
+- **MCP `fs.diff`** — unified diff between two files (difflib format).
+- **MCP `memory.export`** — export all memory facts as JSONL text.
+- **MCP `memory.import`** — import memory facts from JSONL (upsert, overwrite mode, error reporting).
+
+### fs.* toolkit complete
+The fs.* family now has **10 tools**: read, write, list, edit, view, create, search, grep, tree, diff.
+
+### Memory tools
+Memory now has **4 tools**: mem.set, mem.get, memory.recall, memory.digest + **memory.export** + **memory.import** (new).
+
+### Tests
+- tests/test_fs_tree_diff.py — 17 tests
+- tests/test_memory_export_import.py — 13 tests (incl. roundtrip: export→import)
+
+Total: **528 tests pass** (was 498, +30 new).
+
 ## v3.2.3 - 2026-06-19
 
 ### Added
