@@ -28,7 +28,7 @@ def _validate_home_path(path: str, ctx) -> tuple[Path | None, dict[str, Any] | N
 
 
 def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
-    if name not in {"fs.read", "fs.write", "fs.list", "fs.edit"}:
+    if name not in {"fs.read", "fs.write", "fs.list", "fs.edit", "fs.view", "fs.create"}:
         return None
 
     p = os.path.expanduser(args.get("path", ""))
@@ -39,10 +39,6 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
         if name == "fs.edit" and p and Path(p).name in _MCP_BLOCKED_FILES:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: editing {Path(p).name} is not allowed"}]}
         return err
-
-    # fs.edit has its own find-and-replace logic with richer error messages.
-    if name == "fs.edit":
-        return _handle_fs_edit(path, args)
 
     try:
         if name == "fs.read":
@@ -66,6 +62,17 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
     # fs.edit is handled separately because it needs the file to already exist
     # (the try/except above catches FileNotFoundError for read/write/list, but
     # fs.edit has its own error messages).
+    if name == "fs.edit":
+        return _handle_fs_edit(path, args)
+
+    # fs.view: read file with optional line range (mirrors str_replace_editor "view")
+    if name == "fs.view":
+        return _handle_fs_view(path, args)
+
+    # fs.create: create a new file (fails if it already exists)
+    if name == "fs.create":
+        return _handle_fs_create(path, args)
+
     return None
 
 
@@ -109,3 +116,71 @@ def _handle_fs_edit(path: Path, args: dict[str, Any]) -> dict[str, Any]:
 
     replacements = count if replace_all else 1
     return text_content(f"edited {path}: {replacements} replacement(s), {len(new_content)} bytes total")
+
+
+
+def _handle_fs_view(path: Path, args: dict[str, Any]) -> dict[str, Any]:
+    """Read a file with optional line range. Mirrors str_replace_editor 'view' command."""
+    view_range = args.get("view_range")
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: file not found"}]}
+    except PermissionError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+    except UnicodeDecodeError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: file is not valid utf-8 (binary file)"}]}
+
+    lines = content.split("\n")
+    total_lines = len(lines)
+
+    if view_range:
+        if not isinstance(view_range, list) or len(view_range) != 2:
+            return {"isError": True, "content": [{"type": "text", "text": "ERROR: view_range must be a list of [start, end] line numbers (1-indexed)"}]}
+        try:
+            start, end = int(view_range[0]), int(view_range[1])
+        except (ValueError, TypeError):
+            return {"isError": True, "content": [{"type": "text", "text": "ERROR: view_range values must be integers"}]}
+        if start < 1 or end < 1 or start > end:
+            return {"isError": True, "content": [{"type": "text", "text": f"ERROR: invalid view_range [{start}, {end}] — must be 1-indexed with start <= end"}]}
+        if start > total_lines:
+            return {"isError": True, "content": [{"type": "text", "text": f"ERROR: start line {start} exceeds file length ({total_lines} lines)"}]}
+        # Clamp end to total_lines
+        end = min(end, total_lines)
+        selected = lines[start - 1:end]
+        # Add line numbers (1-indexed, matching str_replace_editor format)
+        numbered = []
+        for i, line in enumerate(selected, start=start):
+            width = len(str(end))
+            numbered.append(f"{str(i).rjust(width)}: {line}")
+        result_text = "\n".join(numbered)
+        return text_content(f"{path} (lines {start}-{end} of {total_lines}):\n{result_text}")
+    else:
+        # Full file with line numbers
+        numbered = []
+        width = len(str(total_lines))
+        for i, line in enumerate(lines, start=1):
+            numbered.append(f"{str(i).rjust(width)}: {line}")
+        result_text = "\n".join(numbered)
+        return text_content(f"{path} ({total_lines} lines):\n{result_text}")
+
+
+def _handle_fs_create(path: Path, args: dict[str, Any]) -> dict[str, Any]:
+    """Create a new file. Fails if the file already exists. Mirrors str_replace_editor 'create'."""
+    content = args.get("content", "")
+    if not content:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing or empty 'content' argument"}]}
+
+    if path.exists():
+        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: file already exists: {path} (use fs.edit to modify existing files)"}]}
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    except PermissionError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+    except Exception as e:
+        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {type(e).__name__}: {e}"}]}
+
+    return text_content(f"created {path}: {len(content)} bytes")

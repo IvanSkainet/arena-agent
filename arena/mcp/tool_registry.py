@@ -26,6 +26,16 @@ MCP_TOOLS = [
          "new_text": {"type": "string"},
          "replace_all": {"type": "boolean", "default": False}},
          "required": ["path", "old_text", "new_text"]}},
+    {"name": "fs.view", "description": "View file contents with line numbers. Optional view_range=[start,end] for line range (1-indexed).",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"},
+         "view_range": {"type": "array", "items": {"type": "integer"}, "maxItems": 2}},
+         "required": ["path"]}},
+    {"name": "fs.create", "description": "Create a new text file. Fails if file already exists (use fs.edit to modify).",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"},
+         "content": {"type": "string"}},
+         "required": ["path", "content"]}},
     {"name": "browser.search", "description": "DuckDuckGo search via pure-Python (no chromium)",
      "inputSchema": {"type": "object", "properties": {
          "query": {"type": "string"}, "n": {"type": "integer", "default": 5}},
