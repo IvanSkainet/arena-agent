@@ -6,12 +6,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+from arena.files.sandbox import SENSITIVE_FILE_BASENAMES
 from arena.mcp.tool_utils import text_content
 
-_MCP_BLOCKED_FILES = {
-    "token.txt", "users.json", ".env", "id_rsa", "id_ed25519",
-    "id_ecdsa", "id_dsa", ".netrc", ".ssh_config",
-}
+# Reuse the canonical sensitive-file set from the sandbox layer so fs.*
+# operations can never drift out of sync with the REST endpoints.
+_MCP_BLOCKED_FILES = SENSITIVE_FILE_BASENAMES
 
 
 def _validate_home_path(path: str, ctx) -> tuple[Path | None, dict[str, Any] | None]:

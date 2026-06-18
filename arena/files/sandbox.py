@@ -40,11 +40,17 @@ def validate_download_target(target: str, *, root: Path, home: Path) -> tuple[Pa
     return target_path, None, 200
 
 
-_EDIT_BLOCKED_BASENAMES = {
+# Canonical set of sensitive file basenames that must never be read, written,
+# listed, viewed, created, or edited through any fs endpoint (REST or MCP).
+# This is the single source of truth — import it instead of redefining locally.
+SENSITIVE_FILE_BASENAMES = frozenset({
     "token.txt", "users.json", ".env",
     "id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
     ".netrc", ".ssh_config",
-}
+})
+# Backcompat alias for the name introduced in v3.2.0 (kept so existing imports
+# and the documented surface keep working). Points at the same object.
+_EDIT_BLOCKED_BASENAMES = SENSITIVE_FILE_BASENAMES
 
 
 def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path) -> tuple[Path | None, str | None, int]:
@@ -52,7 +58,7 @@ def validate_edit_target(target: str, *, root: Path, home: Path, bridge_py: Path
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
         return None, err, status
-    if target_path.name in _EDIT_BLOCKED_BASENAMES:
+    if target_path.name in SENSITIVE_FILE_BASENAMES:
         return None, f"editing {target_path.name} is not allowed", 403
     if target_path.resolve() == bridge_py.resolve():
         return None, "cannot edit the bridge itself", 403
