@@ -105,4 +105,11 @@ MCP_TOOLS = [
          "required": ["query"]}},
     {"name": "memory.digest", "description": "Compact markdown digest of recent memory (facts/snapshots/subagents)",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "memory.export", "description": "Export all memory facts as JSONL text.",
+     "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "memory.import", "description": "Import memory facts from JSONL text. Each line is a JSON object with key, value, tags, timestamp.",
+     "inputSchema": {"type": "object", "properties": {
+         "data": {"type": "string", "description": "JSONL text to import"},
+         "overwrite": {"type": "boolean", "default": False, "description": "If true, replace all existing facts before import"}},
+         "required": ["data"]}},
 ]
