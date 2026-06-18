@@ -19,6 +19,13 @@ MCP_TOOLS = [
          "path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}},
     {"name": "fs.list", "description": "List directory entries",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}},
+    {"name": "fs.edit", "description": "Find-and-replace in a text file (str_replace_editor semantics). old_text must be unique unless replace_all=true.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"},
+         "old_text": {"type": "string"},
+         "new_text": {"type": "string"},
+         "replace_all": {"type": "boolean", "default": False}},
+         "required": ["path", "old_text", "new_text"]}},
     {"name": "browser.search", "description": "DuckDuckGo search via pure-Python (no chromium)",
      "inputSchema": {"type": "object", "properties": {
          "query": {"type": "string"}, "n": {"type": "integer", "default": 5}},

@@ -28,7 +28,7 @@ def _validate_home_path(path: str, ctx) -> tuple[Path | None, dict[str, Any] | N
 
 
 def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
-    if name not in {"fs.read", "fs.write", "fs.list"}:
+    if name not in {"fs.read", "fs.write", "fs.list", "fs.edit"}:
         return None
 
     p = os.path.expanduser(args.get("path", ""))
@@ -36,7 +36,13 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
     if err:
         if name == "fs.write" and p and Path(p).name in _MCP_BLOCKED_FILES:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: writing {Path(p).name} is not allowed"}]}
+        if name == "fs.edit" and p and Path(p).name in _MCP_BLOCKED_FILES:
+            return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: editing {Path(p).name} is not allowed"}]}
         return err
+
+    # fs.edit has its own find-and-replace logic with richer error messages.
+    if name == "fs.edit":
+        return _handle_fs_edit(path, args)
 
     try:
         if name == "fs.read":
@@ -56,4 +62,50 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
     except FileNotFoundError:
         msg = "ERROR: directory not found" if name == "fs.list" else "ERROR: file not found"
         return {"isError": True, "content": [{"type": "text", "text": msg}]}
+
+    # fs.edit is handled separately because it needs the file to already exist
+    # (the try/except above catches FileNotFoundError for read/write/list, but
+    # fs.edit has its own error messages).
     return None
+
+
+def _handle_fs_edit(path: Path, args: dict[str, Any]) -> dict[str, Any]:
+    """find-and-replace in a file. Mirrors Anthropic str_replace_editor semantics."""
+    old_text = args.get("old_text", "")
+    new_text = args.get("new_text", "")
+    replace_all = bool(args.get("replace_all", False))
+
+    if not old_text:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing or empty 'old_text' argument"}]}
+
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: file not found"}]}
+    except PermissionError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+    except UnicodeDecodeError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: file is not valid utf-8 (binary file)"}]}
+
+    count = content.count(old_text)
+    if count == 0:
+        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: old_text not found in {path}"}]}
+    if count > 1 and not replace_all:
+        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: old_text matches {count} times in {path}; make it unique or set replace_all=true"}]}
+
+    if old_text == new_text:
+        return text_content(f"no changes (old_text == new_text) in {path}")
+
+    if replace_all:
+        new_content = content.replace(old_text, new_text)
+    else:
+        # Replace only the first (and unique) occurrence
+        new_content = content.replace(old_text, new_text, 1)
+
+    try:
+        path.write_text(new_content, encoding="utf-8")
+    except PermissionError:
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied (cannot write)"}]}
+
+    replacements = count if replace_all else 1
+    return text_content(f"edited {path}: {replacements} replacement(s), {len(new_content)} bytes total")
