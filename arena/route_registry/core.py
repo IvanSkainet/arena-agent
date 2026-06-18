@@ -26,6 +26,7 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/kill", h["handle_v1_kill"])
     app.router.add_post("/v1/upload", h["handle_v1_upload"])
     app.router.add_get("/v1/download", h["handle_v1_download"])
+    app.router.add_patch("/v1/fs/edit", h["handle_v1_fs_edit"])
 
     # ---- Dashboard API (auth required) ----
     app.router.add_get("/v1/memory", h["handle_v1_memory"])

@@ -95,6 +95,7 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
         {
             "handle_v1_upload": "upload",
             "handle_v1_download": "download",
+            "handle_v1_fs_edit": "fs_edit",
         },
     )
     registry.update(_file_handler_registry)
