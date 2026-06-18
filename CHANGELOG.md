@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.2.5 - 2026-06-19
+
+### Added
+- **MCP `git.status`** — show working tree status
+- **MCP `git.diff`** — show staged/unstaged changes
+- **MCP `git.log`** — show recent commits
+- **MCP `git.commit`** — stage all + commit
+
+### F6 Git Integration: COMPLETE
+### Tests: 545 passed (+17 new)
+
 ## v3.2.4 - 2026-06-19
 
 ### Added
