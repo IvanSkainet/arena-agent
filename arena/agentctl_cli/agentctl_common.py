@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-VERSION = "2.0.0"
+from arena.constants import VERSION
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
 BIN = ROOT / "bin"

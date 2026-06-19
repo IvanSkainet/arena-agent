@@ -46,10 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.12
+### 🆕 What's new in v3.2.13
 
-- **Rate-limiter race fix** — the v2 rate limiter now keeps shared `_rl_v2_store` cleanup under `_rl_v2_lock`, eliminating a real concurrent mutation window in `check_rate_limit_v2()`.
-- **553 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Stale backup CLI/workflow references removed** — `agentctl backup run` now clearly reports that the backup feature was removed, and built-in mission templates no longer emit dead backup commands.
+- **Canonical planning docs added** — Arena now ships a normalized roadmap/product-direction set in `docs/ROADMAP_CANONICAL.md`, `docs/PRODUCT_DIRECTION.md`, and `docs/EXPERIMENTS.md`.
+- **`agentctl` version string fixed** — the CLI now reports the real bridge version instead of an old hard-coded value.
+- **558 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

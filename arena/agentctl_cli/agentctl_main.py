@@ -26,7 +26,7 @@ Namespaces:
   task    list|submit|clean                      Task queue
   skill   list|run                               Skills (executable + prompt-only)
   audit   stats|tail                             Audit log
-  backup  run                                    Backups
+  backup  run                                    Removed backup feature notice
   mission list                                   Missions
   report  list                                   Reports
   sub     spawn|list                             Subagents

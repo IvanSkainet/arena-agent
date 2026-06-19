@@ -26,12 +26,9 @@ def audit_tail(args):
 
 
 def backup_run(args):
-    try:
-        r = bridge_post("/v1/backup", {"paths": args if args else [str(ROOT)]})
-        print(f"Backup: {r.get('ok')} files={r.get('file_count',0)} size={r.get('size',0)//1024}KB")
-        print(f"Path: {r.get('backup_path','')}")
-    except Exception as e:
-        print(f"Error: {e}")
+    _ = args
+    print("Backup feature was removed from Arena Unified Bridge because oversized archives were unsafe.")
+    print("Use external backup tools instead. See README.md and CHANGELOG.md for background.")
 
 
 def mission_list(args):

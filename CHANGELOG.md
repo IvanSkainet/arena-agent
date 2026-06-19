@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.2.13 - 2026-06-19
+
+### Fixed
+- **Stale backup surface removed from the CLI/workflow layer.** `agentctl backup run` no longer tries to call the long-removed `/v1/backup` API and now prints an explicit deprecation notice instead.
+- **Mission templates no longer reference removed backup commands.** `cli-agent-core` and `recovery-drill` were updated to use existing audit/status checks instead of dead `backup ls` steps.
+- **`agentctl` version string now follows the canonical bridge version.** The CLI no longer advertises a stale hard-coded `2.0.0` while the bridge is on a newer release.
+
+### Documentation
+- Added `docs/ROADMAP_CANONICAL.md` as the planning source of truth.
+- Added `docs/PRODUCT_DIRECTION.md` to capture the "Arena Companion Mode" product direction.
+- Added `docs/EXPERIMENTS.md` to isolate risky ideas like browser/session-driven model proxies from the core roadmap.
+
+### Tests
+- Added regressions covering the removed-backup CLI notice, canonical `agentctl` version wiring, and mission templates no longer emitting backup commands.
+- Total: **558 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 558 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.2.12 - 2026-06-19
 
 ### Fixed
