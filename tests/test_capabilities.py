@@ -26,6 +26,20 @@ def test_build_capabilities_basic_shape():
     assert caps["network"]["tailscale_installed"] is True
 
 
+def test_build_capabilities_uses_kwin_dbus_for_active_window_on_kde_wayland(monkeypatch):
+    monkeypatch.setattr("arena.capabilities.shutil.which", lambda name: "/usr/bin/" + name if name in {"qdbus6", "journalctl"} else None)
+    caps = build_capabilities(
+        version="test-version",
+        cdp_module_available=True,
+        cdp_connected=False,
+        desktop_env={"wayland": True, "x11": True, "session_type": "wayland", "desktop": "KDE", "has_xdotool": True},
+        service_info_fn=lambda: {"ok": True, "running_as": "test"},
+        sys_svc_fn=lambda: {"ok": True, "tailscale": {"installed": True, "connected": False}},
+    )
+    assert caps["desktop"]["windows"]["backend"] == "kwin_journal"
+    assert caps["desktop"]["active_window"]["backend"] == "kwin_dbus"
+
+
 def test_unified_bridge_capabilities_wrapper():
     caps = ub._capabilities_sync()
     assert caps["ok"] is True

@@ -49,25 +49,27 @@ def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
     monkeypatch.setenv("XDG_CURRENT_DESKTOP", "")
     monkeypatch.setenv("XDG_SESSION_TYPE", "")
 
-    calls = {"probe": 0}
+    calls = {"probe": 0, "unload": 0}
 
     async def _exec(cmd: str, timeout: float = 10):
         if "activeOutputName" in cmd:
             calls["probe"] += 1
             return {"ok": True, "stdout": "DP-1\n", "stderr": ""}
+        if "unloadScript" in cmd:
+            calls["unload"] += 1
+            return {"ok": True, "stdout": "", "stderr": ""}
         if "loadScript" in cmd:
             return {"ok": True, "stdout": "1\n", "stderr": ""}
         if "org.kde.kwin.Scripting.start" in cmd:
             return {"ok": True, "stdout": "", "stderr": ""}
         if "journalctl" in cmd:
             return {"ok": True, "stdout": 'ARENA_KWIN_WINDOWS_token {"ok": true, "backend": "kwin_journal", "count": 1, "windows": [{"title": "Arena"}]}\n', "stderr": ""}
-        if "unloadScript" in cmd:
-            return {"ok": True, "stdout": "", "stderr": ""}
         return {"ok": False, "stdout": "", "stderr": "unexpected"}
 
     monkeypatch.setattr(kw, "_desktop_exec", _exec)
     monkeypatch.setattr(kw.uuid, "uuid4", lambda: type("U", (), {"hex": "token"})())
     result = asyncio.run(kw._kwin_windows_via_script())
     assert calls["probe"] == 1
+    assert calls["unload"] == 1
     assert result["ok"] is True
     assert result["count"] == 1

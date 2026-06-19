@@ -46,13 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.6
+### 🆕 What's new in v3.2.7
 
-- **KDE/Wayland desktop fixes** — `/v1/desktop/active_window` now uses modern KWin DBus `queryWindowInfo`, and `/v1/desktop/windows` no longer silently gives up just because `XDG_CURRENT_DESKTOP` or `XDG_SESSION_TYPE` were missing from the bridge service environment.
-- **Session bootstrap hardened** — the bridge now infers missing Linux desktop metadata (`XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`) when possible, improving `/v1/capabilities` and desktop automation reliability on systemd-user installs.
-- **aiohttp AppKey cleanup** — bridge app state moved off raw string keys for cleaner aiohttp compatibility and warning-free tests/runtime.
-- **Installer polish** — `install.sh` now persists desktop session metadata into the generated systemd user unit when available.
-- **549 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Native KDE window listing fixed for real** — `/v1/desktop/windows` now keeps the KWin temporary script simple and unloads it from Python instead of inside the script body, fixing the live Plasma case where `loadScript` returned `0` and the bridge always fell back to `xdotool`.
+- **KDE backend reporting refined** — `/v1/capabilities` now correctly distinguishes `kwin_journal` for window listing from `kwin_dbus` for active-window discovery.
+- **550 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

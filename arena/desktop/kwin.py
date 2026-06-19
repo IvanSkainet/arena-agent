@@ -70,7 +70,6 @@ try {
   }
 } catch(e) { windows.push({error:String(e)}); }
 print(__TOKEN__ + ' ' + JSON.stringify({ok:true, backend:'kwin_journal', count:windows.length, windows:windows}));
-callDBus('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'unloadScript', __PLUGIN__);
 """
         js = js_template.replace("__TOKEN__", json.dumps(token)).replace("__PLUGIN__", json.dumps(plugin))
         with os.fdopen(js_fd, "w", encoding="utf-8") as f:

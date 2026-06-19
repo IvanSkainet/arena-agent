@@ -1,5 +1,21 @@
 # Changelog
 
+## v3.2.7 - 2026-06-19
+
+### Fixed
+- **Native KDE window listing now actually works.** The temporary KWin script used by `/v1/desktop/windows` no longer tries to unload itself via `callDBus(...)` from inside the script body — that line caused `loadScript` to return `0` on the live Plasma session, so the bridge always fell back to `xdotool`. Unloading is handled purely from Python now.
+- **Capability map now distinguishes KWin backends correctly.** `/v1/capabilities` reports `windows.backend = kwin_journal` and `active_window.backend = kwin_dbus` on KDE/Wayland instead of claiming the same backend for both operations.
+
+### Tests
+- Added regression coverage proving the KWin helper unload still happens from Python and that KDE/Wayland capabilities report separate backends for window listing vs active-window discovery.
+- Total: **550 tests pass** (was 549, +1 new).
+
+### Validation
+- Local `pytest -q`: PASS, 550 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `python -m ruff check . --select F821,F811`: PASS.
+
 ## v3.2.6 - 2026-06-19
 
 ### Fixed

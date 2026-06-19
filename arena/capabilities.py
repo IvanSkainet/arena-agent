@@ -88,11 +88,13 @@ def build_capabilities(
     elif sys.platform == "linux":
         is_kde = "kde" in desktop_name.lower() or "plasma" in desktop_name.lower()
         wayland = bool(env.get("wayland"))
+        kwin_available = is_kde and wayland and bool(shutil.which("qdbus6") or shutil.which("qdbus"))
         windows_backend = (
             "kwin_journal"
-            if (is_kde and wayland and (shutil.which("qdbus6") or shutil.which("qdbus")) and shutil.which("journalctl"))
+            if (kwin_available and shutil.which("journalctl"))
             else ("wmctrl" if shutil.which("wmctrl") else ("xdotool" if env.get("has_xdotool") else "none"))
         )
+        active_backend = "kwin_dbus" if kwin_available else windows_backend
         screenshot_backend = "spectacle" if env.get("has_spectacle") else ("grim" if env.get("has_grim") else ("scrot" if env.get("has_scrot") else "none"))
         input_backend = "ydotool" if env.get("has_ydotool") else ("wtype" if env.get("has_wtype") else ("xdotool" if env.get("has_xdotool") else "none"))
         caps["desktop"].update({
@@ -100,7 +102,7 @@ def build_capabilities(
             "wayland": wayland,
             "x11": bool(env.get("x11")),
             "windows": {"available": windows_backend != "none", "backend": windows_backend},
-            "active_window": {"available": windows_backend != "none", "backend": windows_backend},
+            "active_window": {"available": active_backend != "none", "backend": active_backend},
             "screenshot": {"available": screenshot_backend != "none", "backend": screenshot_backend},
             "input": {"available": input_backend != "none", "backend": input_backend},
         })
