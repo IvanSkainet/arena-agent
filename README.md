@@ -46,11 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.11
+### 🆕 What's new in v3.2.12
 
-- **Interactive KWin focus stealing removed** — `/v1/desktop/active_window` no longer calls the KWin DBus method that could trigger a crosshair-style picker and steal desktop focus.
-- **Native KWin desktop introspection stabilized** — `loadScript=0` is now treated correctly, and both window listing and active-window discovery use the non-interactive KWin journal path on KDE/Wayland.
-- **552 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Rate-limiter race fix** — the v2 rate limiter now keeps shared `_rl_v2_store` cleanup under `_rl_v2_lock`, eliminating a real concurrent mutation window in `check_rate_limit_v2()`.
+- **553 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

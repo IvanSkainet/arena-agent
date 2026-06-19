@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.2.12 - 2026-06-19
+
+### Fixed
+- **Race condition in the v2 rate limiter removed.** `arena/rate_limit.py::check_rate_limit_v2()` now performs endpoint-store cleanup while still holding `_rl_v2_lock`, instead of mutating `_rl_v2_store[user_id]` after releasing the lock.
+
+### Tests
+- Added a regression test that wraps `_rl_v2_store` in a lock-aware dictionary and fails if shared rate-limit state is touched outside the lock.
+- Total: **553 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 553 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.2.11 - 2026-06-19
 
 ### Fixed

@@ -66,9 +66,9 @@ def check_rate_limit_v2(
             resp.headers["Retry-After"] = str(retry_after)
             return resp
         ep_store.append(now)
-    _rl_v2_store[user_id] = {key: value for key, value in _rl_v2_store[user_id].items() if value}
-    if not _rl_v2_store[user_id]:
-        del _rl_v2_store[user_id]
+        _rl_v2_store[user_id] = {key: value for key, value in _rl_v2_store[user_id].items() if value}
+        if not _rl_v2_store[user_id]:
+            del _rl_v2_store[user_id]
     request["_rl_headers"] = {
         "X-RateLimit-Limit": str(limit),
         "X-RateLimit-Remaining": str(remaining - 1),
