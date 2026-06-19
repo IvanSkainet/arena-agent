@@ -46,10 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.9
+### 🆕 What's new in v3.2.10
 
-- **KWin active-window retries** — `/v1/desktop/active_window` now retries `queryWindowInfo` briefly before falling back, smoothing out the intermittent empty-response case seen on the live Plasma/Wayland bridge.
-- **552 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Native KWin fallback for active window** — when direct KWin `queryWindowInfo` cancels, `/v1/desktop/active_window` now reuses the native KWin window list and returns the active entry from there before ever dropping to `xdotool`.
+- **553 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

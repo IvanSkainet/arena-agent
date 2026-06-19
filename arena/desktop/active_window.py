@@ -6,6 +6,7 @@ import os
 import shutil
 
 from arena.desktop.exec import _desktop_exec
+from arena.desktop.kwin import _kwin_windows_via_script
 
 
 def _parse_kwin_window_info(text: str) -> dict[str, str]:
@@ -64,6 +65,23 @@ async def _get_active_window() -> dict | None:
                     await asyncio.sleep(0.05)
         except Exception:
             pass
+
+    kwin_list = await _kwin_windows_via_script()
+    if kwin_list and kwin_list.get("ok"):
+        for win in kwin_list.get("windows") or []:
+            if win.get("active"):
+                return {
+                    "id": win.get("id"),
+                    "uuid": win.get("internal_id"),
+                    "title": win.get("title", ""),
+                    "pid": win.get("pid"),
+                    "class": win.get("resource_class", ""),
+                    "resource_name": win.get("resource_name", ""),
+                    "desktop_file": win.get("desktop_file", ""),
+                    "geometry": win.get("geometry"),
+                    "active": True,
+                    "backend": "kwin_journal",
+                }
 
     if shutil.which("xdotool"):
         result = await _desktop_exec(

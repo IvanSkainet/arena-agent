@@ -75,12 +75,44 @@ def test_get_active_window_retries_kwin_before_fallback(monkeypatch):
             return {"ok": True, "stdout": "caption: Retry Window\nresourceClass: retry\nresourceName: retry\n", "stderr": ""}
         return {"ok": False, "stdout": "", "stderr": "should not fallback"}
 
+    async def _kwin_list():
+        return {"ok": False}
+
     monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
     monkeypatch.setattr(aw, "_desktop_exec", _exec)
+    monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
     result = asyncio.run(aw._get_active_window())
     assert calls["count"] == 2
     assert result["backend"] == "kwin_dbus"
     assert result["title"] == "Retry Window"
+
+
+def test_get_active_window_uses_kwin_window_list_when_query_is_cancelled(monkeypatch):
+    import asyncio
+    import arena.desktop.active_window as aw
+
+    async def _exec(cmd: str, timeout: float = 10):
+        if "queryWindowInfo" in cmd:
+            return {"ok": False, "stdout": "Error: org.kde.KWin.Error.UserCancel\n", "stderr": ""}
+        return {"ok": False, "stdout": "", "stderr": "xdotool should not be used"}
+
+    async def _kwin_list():
+        return {
+            "ok": True,
+            "windows": [
+                {"id": "{active}", "internal_id": "{active}", "title": "Arena Window", "pid": 123, "resource_class": "librewolf", "resource_name": "librewolf", "desktop_file": "librewolf", "geometry": {"x": 1, "y": 2, "width": 3, "height": 4}, "active": True},
+                {"id": "{other}", "internal_id": "{other}", "title": "Other", "active": False},
+            ],
+        }
+
+    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
+    monkeypatch.setattr(aw, "_desktop_exec", _exec)
+    monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
+    result = asyncio.run(aw._get_active_window())
+    assert result["backend"] == "kwin_journal"
+    assert result["id"] == "{active}"
+    assert result["title"] == "Arena Window"
+    assert result["class"] == "librewolf"
 
 
 def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):

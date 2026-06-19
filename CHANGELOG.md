@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.2.10 - 2026-06-19
+
+### Fixed
+- **KDE active-window fallback now uses native KWin window data when direct DBus lookup is cancelled.** When `org.kde.KWin.queryWindowInfo` returns `org.kde.KWin.Error.UserCancel` or otherwise yields no usable data, `/v1/desktop/active_window` now tries the already-working KWin journal-based window listing and returns the active entry from there before falling back to `xdotool`.
+
+### Tests
+- Added regression coverage for the `queryWindowInfo` cancellation path to ensure `_get_active_window()` reuses the native KWin window list instead of jumping straight to `xdotool`.
+- Total: **553 tests pass** (was 552, +1 new).
+
+### Validation
+- Local `pytest -q`: PASS, 553 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `python -m ruff check . --select F821,F811`: PASS.
+
 ## v3.2.9 - 2026-06-19
 
 ### Fixed
