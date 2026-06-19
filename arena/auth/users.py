@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 ROLE_LEVEL = {"admin": 3, "user": 2, "readonly": 1}
 
@@ -80,7 +81,7 @@ class UserStore:
                         return False, user_role
                     return True, user_role
 
-        cfg_token = request.app["cfg"]["token"]
+        cfg_token = request.app[APP_CFG]["token"]
         if token and hmac.compare_digest(token, cfg_token):
             return True, "admin"
         return False, ""

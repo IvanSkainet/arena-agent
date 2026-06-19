@@ -8,6 +8,7 @@ from typing import Any
 
 import aiohttp
 from aiohttp import web
+from arena.app_keys import APP_MCP_SESSIONS
 
 from arena.handler_context import McpHandlerContext
 from arena.mcp.runtime import now_ms, sid
@@ -39,7 +40,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
         session_hdr = request.headers.get("Mcp-Session-Id", "")
         if msg.get("method") == "initialize":
             session = sid()
-            request.app["mcp_sessions"][session] = {"created": now_ms()}
+            request.app[APP_MCP_SESSIONS][session] = {"created": now_ms()}
             resp = ctx.handle_rpc(msg)
             return web.json_response(resp, headers={
                 "Mcp-Session-Id": session,
@@ -58,7 +59,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
             return r
         try:
             sess = request.headers.get("Mcp-Session-Id", "")
-            request.app["mcp_sessions"].pop(sess, None)
+            request.app[APP_MCP_SESSIONS].pop(sess, None)
             return web.Response(status=204, headers={"Access-Control-Allow-Origin": "*"})
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
@@ -70,7 +71,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
             return r
         ctx.record_request()
         session = sid()
-        request.app["mcp_sessions"][session] = {"created": now_ms()}
+        request.app[APP_MCP_SESSIONS][session] = {"created": now_ms()}
 
         resp = web.StreamResponse(
             status=200,
@@ -95,7 +96,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
         except (ConnectionResetError, asyncio.CancelledError):
             pass
         finally:
-            request.app["mcp_sessions"].pop(session, None)
+            request.app[APP_MCP_SESSIONS].pop(session, None)
 
         return resp
 

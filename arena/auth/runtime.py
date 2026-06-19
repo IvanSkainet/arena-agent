@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.auth.users import UserStore
 
@@ -38,7 +39,7 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
         return ctx.user_store.check_auth_with_role(request, required_role=required_role)
 
     def check_auth(request: web.Request) -> bool:
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         token = cfg["token"]
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):

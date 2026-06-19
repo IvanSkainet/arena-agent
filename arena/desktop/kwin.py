@@ -19,18 +19,19 @@ async def _kwin_windows_via_script() -> dict | None:
     """Best-effort native KDE Plasma/Wayland window listing via KWin script.
 
     KWin's JS environment in Plasma 6 does not expose QFile, so the temporary
-    script prints a single tokenized JSON line to the user journal.  The bridge
-    reads that line back with journalctl and parses it.  If scripting or journal
-    access is unavailable, callers fall back to wmctrl/xdotool.
+    script prints a single tokenized JSON line to the user journal. The bridge
+    reads that line back with journalctl and parses it. If KWin/DBus scripting
+    is unavailable, callers fall back to wmctrl/xdotool.
     """
     qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
-    if not qdbus:
+    if not qdbus or not shutil.which("journalctl"):
         return None
-    if not shutil.which("journalctl"):
-        return None
-    desktop = (os.environ.get("XDG_CURRENT_DESKTOP") or "").lower()
-    session = (os.environ.get("XDG_SESSION_TYPE") or "").lower()
-    if "kde" not in desktop and "plasma" not in desktop and session != "wayland":
+
+    probe = await _desktop_exec(
+        f'{shlex.quote(qdbus)} org.kde.KWin /KWin org.kde.KWin.activeOutputName 2>/dev/null',
+        timeout=3,
+    )
+    if not probe.get("ok") or not (probe.get("stdout") or "").strip():
         return None
 
     plugin = "arena_windows_" + uuid.uuid4().hex
@@ -109,4 +110,3 @@ callDBus('org.kde.KWin', '/Scripting', 'org.kde.kwin.Scripting', 'unloadScript',
             os.unlink(js_path)
         except OSError:
             pass
-

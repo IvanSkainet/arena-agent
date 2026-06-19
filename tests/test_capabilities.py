@@ -13,7 +13,7 @@ def test_build_capabilities_basic_shape():
         version="test-version",
         cdp_module_available=True,
         cdp_connected=False,
-        desktop_env={"wayland": False, "x11": False},
+        desktop_env={"wayland": False, "x11": False, "session_type": "x11", "desktop": "TestDE"},
         service_info_fn=lambda: {"ok": True, "running_as": "test"},
         sys_svc_fn=lambda: {"ok": True, "tailscale": {"installed": True, "connected": False}},
     )
@@ -21,7 +21,8 @@ def test_build_capabilities_basic_shape():
     assert caps["version"] == "test-version"
     assert caps["browser"]["cdp_module"] is True
     assert caps["browser"]["cdp_connected"] is False
-    assert "desktop" in caps
+    assert caps["desktop"]["session"] == "x11"
+    assert caps["desktop"]["desktop"] == "TestDE"
     assert caps["network"]["tailscale_installed"] is True
 
 

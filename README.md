@@ -33,9 +33,9 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 |----------|---------|
 | **Cross-platform** | Installer auto-detects Windows / Linux / macOS and picks the right packaging strategy (NSSM Service, Scheduled Task, systemd user unit, or launchd agent) |
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
-| **236 route registrations** | 130+ handlers covering exec, memory, browser, CDP, desktop, tasks, skills, audit, watchdog, profiles, OpenAPI, and more |
+| **190+ method/path routes** | Public REST, MCP, gateway, dashboard, observability, desktop, browser, admin, and compatibility surfaces on one port |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
-| **6 Desktop endpoints** | Wayland/X11 desktop automation: screenshot (PNG/JPEG/WebP + resize), click, layout-safe type, key press, mouse move, window list |
+| **8 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, click, layout-safe type, key press, mouse move, window list, active window, focus, plus control lease pause/resume/revoke/status |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.1
+### 🆕 What's new in v3.2.6
 
-- **MCP `fs.view` + `fs.create`** — view file contents with optional line range, and create new files (fails if they exist). Completes full **str_replace_editor parity**: AI coding agents (Claude Code, Cline, Cursor) can now use Arena's MCP server as a complete filesystem backend (`fs.read`/`write`/`list`/`view`/`create`/`edit`).
-- **MCP `fs.edit`** — surgical find-and-replace in text files (`old_text`/`new_text`, with `replace_all`), plus its REST equivalent `PATCH /v1/fs/edit`.
-- **`/v1/browser/search` fixed** — DuckDuckGo switched endpoints; Arena now queries `lite.duckduckgo.com` which still parses correctly.
-- **OpenAPI spec** — `/api-docs` now documents upload, download, and `fs/edit`.
-- **445 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **KDE/Wayland desktop fixes** — `/v1/desktop/active_window` now uses modern KWin DBus `queryWindowInfo`, and `/v1/desktop/windows` no longer silently gives up just because `XDG_CURRENT_DESKTOP` or `XDG_SESSION_TYPE` were missing from the bridge service environment.
+- **Session bootstrap hardened** — the bridge now infers missing Linux desktop metadata (`XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, `DESKTOP_SESSION`) when possible, improving `/v1/capabilities` and desktop automation reliability on systemd-user installs.
+- **aiohttp AppKey cleanup** — bridge app state moved off raw string keys for cleaner aiohttp compatibility and warning-free tests/runtime.
+- **Installer polish** — `install.sh` now persists desktop session metadata into the generated systemd user unit when available.
+- **549 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -318,7 +318,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │              │
-        │   │ 141 routes   │  │ Streamable   │  │ WebSocket    │              │
+        │   │ 190+ routes  │  │ Streamable   │  │ WebSocket    │              │
         │   └──────────────┘  └──────────────┘  └──────────────┘              │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
@@ -328,7 +328,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐      │
         │   │ CDP browser  │  │ Desktop API  │  │  Async Task Runner   │      │
-        │   │ 36 endpoints │  │ 6 endpoints  │  │  + Log + Disk Mon.   │      │
+        │   │ 36 endpoints │  │ 8+4 endpoints│  │  + Log + Disk Mon.   │      │
         │   └──────────────┘  └──────────────┘  └──────────────────────┘      │
         │                                                                     │
         └─────────────────────────────────────────────────────────────────────┘
@@ -447,7 +447,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | **Stealth** | `cdp/stealth/extract`, `stealth/shot` | Anti-detection browser automation |
 | **Session** | `cdp/session/check` | Session management and diagnostics |
 
-### Desktop Automation (6 endpoints)
+### Desktop Automation (8 endpoints + 4 control lease endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|

@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from aiohttp import web
+from arena.app_keys import APP_CFG, APP_MCP_SESSIONS
 
 from arena.routes import register_routes
 
@@ -26,8 +27,8 @@ def make_app(
     HandlerRegistry instead without changing route registration.
     """
     app = web.Application(client_max_size=client_max_size, middlewares=[error_middleware])
-    app["cfg"] = cfg
-    app["mcp_sessions"] = {}
+    app[APP_CFG] = cfg
+    app[APP_MCP_SESSIONS] = {}
 
     if set_app_ref is not None:
         set_app_ref(app)

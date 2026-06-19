@@ -6,6 +6,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
+from arena.app_keys import APP_CFG  # noqa: E402
 from arena.auth.runtime import AuthRuntimeContext, make_auth_runtime  # noqa: E402
 
 
@@ -18,7 +19,7 @@ class _Request:
             else:
                 self.headers["X-Arena-Token"] = token
         self.remote = remote
-        self.app = {"cfg": {"token": "primary"}}
+        self.app = {APP_CFG: {"token": "primary"}}
 
 
 class _UserStore:
@@ -37,7 +38,7 @@ class _UserStore:
             token = request.headers["X-Arena-Token"]
         if token == "user-token":
             return True, "user"
-        if token == request.app["cfg"]["token"]:
+        if token == request.app[APP_CFG]["token"]:
             return True, "admin"
         return False, ""
 

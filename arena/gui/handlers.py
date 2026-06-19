@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.handler_context import GuiHandlerContext
 
@@ -23,7 +24,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         """GET /gui/v2 — Live dashboard with WebSocket real-time updates.
         Shows login page if no valid URL token.
         """
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         url_token = request.query.get("token", "")
         valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])
         if not valid_token:
@@ -54,7 +55,7 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
 
     async def handle_gui(request: web.Request) -> web.Response:
         """GET /gui — Dashboard. Shows login page if no valid URL token, then serves dashboard."""
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         # Only URL token param is accepted — timing-attack safe.
         url_token = request.query.get("token", "")
         valid_token = bool(url_token) and hmac.compare_digest(url_token, cfg["token"])

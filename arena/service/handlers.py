@@ -6,6 +6,7 @@ import os
 from dataclasses import dataclass
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.handler_context import ServiceHandlerContext
 
@@ -65,7 +66,7 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
         if r:
             return r
         ctx.record_request()
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         port = int(cfg.get("port", 8765))
         ctx.audit({"type": "restart_requested"})
 

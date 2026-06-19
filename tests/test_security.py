@@ -14,6 +14,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
+from arena.app_keys import APP_CFG  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +223,7 @@ def _mock_request(headers):
     from aiohttp import web
     from aiohttp.test_utils import make_mocked_request
     app = web.Application()
-    app["cfg"] = {"token": "secret-token-xyz"}
+    app[APP_CFG] = {"token": "secret-token-xyz"}
     return make_mocked_request("GET", "/v1/info", headers=headers, app=app)
 
 

@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
+from arena.app_keys import APP_CFG  # noqa: E402
 from arena.files.fs_view_create import make_fs_view_create_handlers, FsViewCreateHandlers  # noqa: E402
 from arena.files.sandbox import validate_view_target, validate_create_target  # noqa: E402
 from arena.handler_context import FileHandlerContext  # noqa: E402
@@ -69,7 +70,7 @@ def _mock_request(method, path, body: dict, token="t"):
         return body
     req.json = _json
     # app cfg needed by handlers for root
-    req.app["cfg"] = {"root": "/tmp"}
+    req.app[APP_CFG] = {"root": "/tmp"}
     return req
 
 
@@ -287,7 +288,7 @@ def test_handler_fs_view_invalid_json(tmp_path):
     async def _bad():
         raise ValueError("bad json")
     req.json = _bad
-    req.app["cfg"] = {"root": "/tmp"}
+    req.app[APP_CFG] = {"root": "/tmp"}
     resp = asyncio.run(handlers.view(req))
     assert resp.status == 400, resp._data
     assert "invalid JSON" in resp._data["error"]

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import web
+from arena.app_keys import APP_CFG, APP_TASK_RUNNER, APP_LOG_CLEANUP
 
 
 @dataclass(frozen=True)
@@ -45,10 +46,10 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         """Start background task runner and initialize async primitives."""
         await asyncio.get_running_loop().run_in_executor(ctx.executor, ctx.init_memory_db)
 
-        cfg = app["cfg"]
+        cfg = app[APP_CFG]
         cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
-        app["task_runner"] = asyncio.ensure_future(ctx.task_runner_loop(app))
-        app["log_cleanup"] = asyncio.ensure_future(ctx.log_cleanup_loop(app))
+        app[APP_TASK_RUNNER] = asyncio.ensure_future(ctx.task_runner_loop(app))
+        app[APP_LOG_CLEANUP] = asyncio.ensure_future(ctx.log_cleanup_loop(app))
         ctx.start_watchdog()
 
         if shutil.which("ydotoold") and hasattr(os, "getuid") and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid()):
@@ -65,7 +66,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
 
     async def on_cleanup(app: web.Application):
         """Stop background task runner and clean up resources."""
-        tr = app.get("task_runner")
+        tr = app.get(APP_TASK_RUNNER)
         if tr:
             tr.cancel()
             try:
@@ -73,7 +74,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             except asyncio.CancelledError:
                 pass
 
-        lc = app.get("log_cleanup")
+        lc = app.get(APP_LOG_CLEANUP)
         if lc:
             lc.cancel()
             try:

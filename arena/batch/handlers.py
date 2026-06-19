@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import aiohttp
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.handler_context import BatchHandlerContext
 
@@ -60,7 +61,7 @@ def make_batch_handlers(ctx: BatchHandlerContext) -> BatchHandlers:
                                 "status": 403}
 
                     # Use aiohttp client to call ourselves (cleanest approach).
-                    cfg = request.app["cfg"]
+                    cfg = request.app[APP_CFG]
                     port = cfg.get("port", 8765)
                     url = f"http://127.0.0.1:{port}{path}"
                     headers = {"Authorization": f"Bearer {cfg['token']}",

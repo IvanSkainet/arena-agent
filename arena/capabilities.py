@@ -10,7 +10,6 @@ status callbacks) is injected by the caller to avoid circular imports.
 """
 from __future__ import annotations
 
-import os
 import platform
 import shutil
 import socket
@@ -28,6 +27,9 @@ def build_capabilities(
     sys_svc_fn: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
     """Build a machine-readable capability map for agents."""
+    env = desktop_env or {}
+    desktop_name = env.get("desktop") or env.get("desktop_session") or ("Windows" if sys.platform == "win32" else "")
+    session_name = env.get("session_type") or ("windows" if sys.platform == "win32" else "")
     caps: dict[str, Any] = {
         "ok": True,
         "version": version,
@@ -61,8 +63,8 @@ def build_capabilities(
         },
         "desktop": {
             "available": False,
-            "session": os.environ.get("XDG_SESSION_TYPE") or ("windows" if sys.platform == "win32" else ""),
-            "desktop": os.environ.get("XDG_CURRENT_DESKTOP") or ("Windows" if sys.platform == "win32" else ""),
+            "session": session_name,
+            "desktop": desktop_name,
             "windows": {"available": False, "backend": "none"},
             "active_window": {"available": False, "backend": "none"},
             "screenshot": {"available": False, "backend": "none"},
@@ -84,8 +86,7 @@ def build_capabilities(
         })
         caps["warnings"].append("Windows core is supported; desktop automation backend is pending")
     elif sys.platform == "linux":
-        env = desktop_env or {}
-        is_kde = "kde" in (os.environ.get("XDG_CURRENT_DESKTOP", "").lower())
+        is_kde = "kde" in desktop_name.lower() or "plasma" in desktop_name.lower()
         wayland = bool(env.get("wayland"))
         windows_backend = (
             "kwin_journal"

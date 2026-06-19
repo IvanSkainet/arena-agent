@@ -2,6 +2,26 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+
+
+def _kwin_session_available() -> bool:
+    qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
+    if not qdbus:
+        return False
+    try:
+        proc = subprocess.run(
+            [qdbus, "org.kde.KWin", "/KWin", "org.kde.KWin.activeOutputName"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            encoding="utf-8",
+            errors="replace",
+        )
+        return proc.returncode == 0 and bool(proc.stdout.strip())
+    except Exception:
+        return False
 
 
 def ensure_session_env() -> None:
@@ -33,3 +53,19 @@ def ensure_session_env() -> None:
         wayland_sock = os.path.join(os.environ["XDG_RUNTIME_DIR"], "wayland-0")
         if os.path.exists(wayland_sock):
             os.environ["WAYLAND_DISPLAY"] = "wayland-0"
+
+    if not os.environ.get("XDG_SESSION_TYPE"):
+        if os.environ.get("WAYLAND_DISPLAY"):
+            os.environ["XDG_SESSION_TYPE"] = "wayland"
+        elif os.environ.get("DISPLAY"):
+            os.environ["XDG_SESSION_TYPE"] = "x11"
+
+    if not os.environ.get("XDG_CURRENT_DESKTOP"):
+        desktop = os.environ.get("DESKTOP_SESSION", "")
+        if desktop:
+            os.environ["XDG_CURRENT_DESKTOP"] = desktop
+        elif _kwin_session_available():
+            os.environ["XDG_CURRENT_DESKTOP"] = "KDE"
+
+    if not os.environ.get("DESKTOP_SESSION") and os.environ.get("XDG_CURRENT_DESKTOP"):
+        os.environ["DESKTOP_SESSION"] = os.environ["XDG_CURRENT_DESKTOP"]

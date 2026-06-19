@@ -202,3 +202,10 @@ def test_install_bat_does_not_force_checkout():
             assert "-C" in stripped and "superpowers" in stripped, (
                 f"install.bat line {i+1} does git checkout without scoping to skills:\n  {line}"
             )
+
+
+def test_install_sh_exports_desktop_session_metadata_when_available():
+    src = INSTALL_SH.read_text(encoding="utf-8")
+    assert 'Environment=XDG_SESSION_TYPE=${XDG_SESSION_TYPE}' in src
+    assert 'Environment=XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP}' in src
+    assert 'Environment=DESKTOP_SESSION=${DESKTOP_SESSION}' in src

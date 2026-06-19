@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.grpc.runtime import GRPC_CONFIG
 from arena.handler_context import GrpcHandlerContext
@@ -36,7 +37,7 @@ def make_grpc_handlers(ctx: GrpcHandlerContext) -> GrpcHandlers:
                     GRPC_CONFIG["enabled"] = True
                     if "port" in data:
                         GRPC_CONFIG["port"] = int(data["port"])
-                    cfg = request.app["cfg"]
+                    cfg = request.app[APP_CFG]
                     ctx.start_server(cfg)
                     return ctx.cors_json_response({
                         "ok": True,

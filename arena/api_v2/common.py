@@ -5,12 +5,13 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 
 def cfg_get_max_timeout(request: web.Request) -> int:
     """Get max timeout from bridge config."""
     try:
-        return request.app["cfg"].get("max_timeout", 600)
+        return request.app[APP_CFG].get("max_timeout", 600)
     except Exception:
         return 600
 

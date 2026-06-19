@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.handler_context import ExecHandlerContext
 
@@ -41,7 +42,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         r = ctx.require_auth(request)
         if r:
             return r
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
 
         try:
             data = await request.json()

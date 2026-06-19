@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.files.sandbox import validate_create_target, validate_view_target
 from arena.handler_context import FileHandlerContext
@@ -35,7 +36,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         view_range = data.get("view_range")
         target_path, err, status = validate_view_target(
             target,
-            root=request.app["cfg"]["root"],
+            root=request.app[APP_CFG]["root"],
             home=ctx.home,
         )
         if err:
@@ -99,7 +100,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
             return ctx.cors_json_response({"ok": False, "error": "missing or empty 'content'"}, status=400)
         target_path, err, status = validate_create_target(
             target,
-            root=request.app["cfg"]["root"],
+            root=request.app[APP_CFG]["root"],
             home=ctx.home,
             bridge_py=ctx.bridge_py,
         )

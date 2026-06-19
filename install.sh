@@ -675,6 +675,15 @@ EOF
     elif [ -S "${XDG_RUNTIME_DIR:-/run/user/${ACTUAL_UID}}/wayland-0" ]; then
         echo "Environment=WAYLAND_DISPLAY=wayland-0" >> "$SD_DIR/arena-bridge.service"
     fi
+    if [ -n "$XDG_SESSION_TYPE" ]; then
+        echo "Environment=XDG_SESSION_TYPE=${XDG_SESSION_TYPE}" >> "$SD_DIR/arena-bridge.service"
+    fi
+    if [ -n "$XDG_CURRENT_DESKTOP" ]; then
+        echo "Environment=XDG_CURRENT_DESKTOP=${XDG_CURRENT_DESKTOP}" >> "$SD_DIR/arena-bridge.service"
+    fi
+    if [ -n "$DESKTOP_SESSION" ]; then
+        echo "Environment=DESKTOP_SESSION=${DESKTOP_SESSION}" >> "$SD_DIR/arena-bridge.service"
+    fi
     # Auto-detect Chromium library path
     CHROMIUM_LIB=""
     for libdir in /usr/lib/chromium /usr/lib64/chromium /usr/lib/chromium-browser /usr/lib64/chromium-browser /snap/chromium/current/usr/lib; do

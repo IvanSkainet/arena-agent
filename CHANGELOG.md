@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.2.6 - 2026-06-19
+
+### Fixed
+- **KDE/Wayland active window detection restored.** `/v1/desktop/active_window` now uses `org.kde.KWin.queryWindowInfo` instead of outdated DBus calls that no longer worked on modern Plasma, so Wayland sessions can report the focused window again.
+- **KWin window listing no longer depends on missing desktop env vars.** `/v1/desktop/windows` now probes KWin directly over DBus before loading the temporary scripting helper, fixing live installs where `WAYLAND_DISPLAY` existed but `XDG_CURRENT_DESKTOP` / `XDG_SESSION_TYPE` were absent in the bridge service environment.
+- **Session bootstrap now self-heals desktop metadata.** `ensure_session_env()` now infers `XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, and `DESKTOP_SESSION` when possible, including KDE detection via KWin DBus, so `/v1/capabilities` and desktop helpers report a more accurate runtime picture.
+- **aiohttp `NotAppKeyWarning` removed from the bridge runtime/tests.** Shared app state (`cfg`, MCP sessions, lifecycle tasks) now uses proper `aiohttp.web.AppKey` definitions instead of raw string keys.
+
+### Improved
+- **Linux systemd installer now preserves desktop session metadata.** `install.sh` writes `XDG_SESSION_TYPE`, `XDG_CURRENT_DESKTOP`, and `DESKTOP_SESSION` into the user service when those values are available at install time.
+- **Capability reporting is more accurate.** `/v1/capabilities` now prefers the detected desktop/session metadata instead of reading only raw environment variables.
+- **README counts refreshed.** Route and desktop endpoint counts were updated to match the modular v3.2.x surface more closely and avoid stale hard-coded numbers.
+
+### Tests
+- Added regression coverage for desktop session bootstrap inference, KWin active-window parsing, KWin window-list probing without desktop env vars, and installer export of desktop session metadata.
+- Total: **549 tests pass** (was 545, +4 new).
+
+### Validation
+- Local `pytest -q`: PASS, 549 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `python -m ruff check . --select F821,F811`: PASS.
+
 ## v3.2.5 - 2026-06-19
 
 ### Added

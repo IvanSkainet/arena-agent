@@ -17,5 +17,57 @@ def test_desktop_helpers_reexported():
 
 def test_detect_desktop_env_shape():
     env = dr._detect_desktop_env()
-    for key in ["session_type", "wayland", "x11", "has_xdotool", "has_spectacle"]:
+    for key in ["session_type", "desktop", "desktop_session", "wayland", "x11", "has_xdotool", "has_spectacle"]:
         assert key in env
+
+
+def test_get_active_window_prefers_kwin_querywindowinfo(monkeypatch):
+    import asyncio
+    import arena.desktop.active_window as aw
+
+    async def _exec(cmd: str, timeout: float = 10):
+        return {
+            "ok": True,
+            "stdout": "caption: Arena Window\nresourceClass: librewolf\nresourceName: librewolf\ndesktopFile: librewolf\nuuid: {abc}\nx: 10\ny: 20\nwidth: 300\nheight: 200\n",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
+    monkeypatch.setattr(aw, "_desktop_exec", _exec)
+    result = asyncio.run(aw._get_active_window())
+    assert result["backend"] == "kwin_dbus"
+    assert result["title"] == "Arena Window"
+    assert result["class"] == "librewolf"
+    assert result["geometry"] == {"x": 10, "y": 20, "width": 300, "height": 200}
+
+
+def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
+    import asyncio
+    import arena.desktop.kwin as kw
+
+    monkeypatch.setattr(kw.shutil, "which", lambda name: "/usr/bin/" + name if name in {"qdbus6", "journalctl"} else None)
+    monkeypatch.setenv("XDG_CURRENT_DESKTOP", "")
+    monkeypatch.setenv("XDG_SESSION_TYPE", "")
+
+    calls = {"probe": 0}
+
+    async def _exec(cmd: str, timeout: float = 10):
+        if "activeOutputName" in cmd:
+            calls["probe"] += 1
+            return {"ok": True, "stdout": "DP-1\n", "stderr": ""}
+        if "loadScript" in cmd:
+            return {"ok": True, "stdout": "1\n", "stderr": ""}
+        if "org.kde.kwin.Scripting.start" in cmd:
+            return {"ok": True, "stdout": "", "stderr": ""}
+        if "journalctl" in cmd:
+            return {"ok": True, "stdout": 'ARENA_KWIN_WINDOWS_token {"ok": true, "backend": "kwin_journal", "count": 1, "windows": [{"title": "Arena"}]}\n', "stderr": ""}
+        if "unloadScript" in cmd:
+            return {"ok": True, "stdout": "", "stderr": ""}
+        return {"ok": False, "stdout": "", "stderr": "unexpected"}
+
+    monkeypatch.setattr(kw, "_desktop_exec", _exec)
+    monkeypatch.setattr(kw.uuid, "uuid4", lambda: type("U", (), {"hex": "token"})())
+    result = asyncio.run(kw._kwin_windows_via_script())
+    assert calls["probe"] == 1
+    assert result["ok"] is True
+    assert result["count"] == 1

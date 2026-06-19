@@ -8,6 +8,7 @@ import sys
 from dataclasses import dataclass
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.handler_context import SystemHandlerContext
 
@@ -43,7 +44,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             if r:
                 return r
             ctx.record_request()
-            return ctx.cors_json_response(ctx.common_status(request.app["cfg"]))
+            return ctx.cors_json_response(ctx.common_status(request.app[APP_CFG]))
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -53,7 +54,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             if r:
                 return r
             ctx.record_request()
-            return ctx.cors_json_response(ctx.common_status(request.app["cfg"]))
+            return ctx.cors_json_response(ctx.common_status(request.app[APP_CFG]))
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
@@ -62,7 +63,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         if r:
             return r
         ctx.record_request()
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         return ctx.cors_json_response({
             "ok": True,
             "service": "arena-unified-bridge",
@@ -91,7 +92,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         ctx.record_request()
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.doctor_sync, request.app["cfg"]["token"])
+            result = await loop.run_in_executor(ctx.executor, ctx.doctor_sync, request.app[APP_CFG]["token"])
             return ctx.cors_json_response(result)
         except Exception as e:
             ctx.record_request(is_error=True, count_request=False)
@@ -104,7 +105,7 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         ctx.record_request()
         try:
             loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.sysinfo_sync, request.app["cfg"]["root"])
+            result = await loop.run_in_executor(ctx.executor, ctx.sysinfo_sync, request.app[APP_CFG]["root"])
             return ctx.cors_json_response(result)
         except Exception as e:
             ctx.record_request(is_error=True, count_request=False)

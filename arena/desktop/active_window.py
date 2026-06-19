@@ -7,11 +7,21 @@ import shutil
 from arena.desktop.exec import _desktop_exec
 
 
+def _parse_kwin_window_info(text: str) -> dict[str, str]:
+    data: dict[str, str] = {}
+    for line in (text or "").splitlines():
+        if ":" not in line:
+            continue
+        key, value = line.split(":", 1)
+        data[key.strip()] = value.strip()
+    return data
+
+
 async def _get_active_window() -> dict | None:
     """Get currently active (focused) window info. Used by input guard.
 
     Tries multiple backends in order of reliability:
-    1. KWin DBus (KDE Plasma Wayland — most reliable)
+    1. KWin DBus queryWindowInfo (KDE Plasma Wayland — most reliable)
     2. xdotool (X11 / XWayland)
     3. kdotool (KDE Wayland fallback)
     4. wmctrl (generic fallback)
@@ -19,54 +29,37 @@ async def _get_active_window() -> dict | None:
     """
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
-    # Strategy 0: KWin DBus (KDE Plasma Wayland — native, most reliable)
-    # Uses org.kde.KWin to get active window caption and ID
-    if shutil.which("dbus-send") or shutil.which("qdbus") or shutil.which("qdbus6"):
+    qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
+    if qdbus:
         try:
-            # Try qdbus6 first (KDE Plasma 6)
-            qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
-            if qdbus:
-                # Get active window caption
-                result = await _desktop_exec(
-                    f'{qdbus} org.kde.KWin /KWin org.kde.KWin.getActiveOutputName 2>/dev/null',
-                    timeout=2)
-                # Get active window info via KWin scripting
-                result = await _desktop_exec(
-                    f'{qdbus} org.kde.KWin /KWin supportInformation 2>/dev/null | '
-                    f'grep -A2 "Active window"',
-                    timeout=3)
-                # Simpler approach: get active window via kscreen/kwin
-                result = await _desktop_exec(
-                    f'dbus-send --session --dest=org.kde.KWin --type=method_call '
-                    f'--print-reply /KWin org.kde.KWin.getActiveWindowId 2>/dev/null',
-                    timeout=3)
-                if result["ok"] and result["stdout"].strip():
-                    # Parse int32 from dbus reply
-                    import re as _re
-                    match = _re.search(r'int32\s+(\d+)|int64\s+(\d+)', result["stdout"])
-                    if match:
-                        wid = match.group(1) or match.group(2)
-                        if wid and wid != "0":
-                            # Get window caption
-                            caption_r = await _desktop_exec(
-                                f'dbus-send --session --dest=org.kde.KWin --type=method_call '
-                                f'--print-reply /KWin org.kde.KWin.getWindowCaption int32:{wid} 2>/dev/null',
-                                timeout=2)
-                            title = ""
-                            if caption_r["ok"] and caption_r["stdout"].strip():
-                                # Parse string from dbus reply: string "caption"
-                                cap_match = _re.search(r'string\s+"(.+)"', caption_r["stdout"])
-                                if cap_match:
-                                    title = cap_match.group(1)
-                            return {
-                                "id": wid,
-                                "title": title,
-                                "backend": "kwin_dbus",
-                            }
+            result = await _desktop_exec(
+                f'{qdbus} org.kde.KWin /KWin org.kde.KWin.queryWindowInfo 2>/dev/null',
+                timeout=3,
+            )
+            info = _parse_kwin_window_info(result.get("stdout", "")) if result.get("ok") else {}
+            if info.get("caption") or info.get("uuid"):
+                geometry = {}
+                for key in ("x", "y", "width", "height"):
+                    if info.get(key) is not None:
+                        try:
+                            geometry[key] = int(info[key])
+                        except (TypeError, ValueError):
+                            geometry[key] = info[key]
+                return {
+                    "id": info.get("uuid") or info.get("caption") or None,
+                    "uuid": info.get("uuid"),
+                    "title": info.get("caption", ""),
+                    "pid": info.get("pid") or None,
+                    "class": info.get("resourceClass", ""),
+                    "resource_name": info.get("resourceName", ""),
+                    "desktop_file": info.get("desktopFile", ""),
+                    "geometry": geometry or None,
+                    "active": True,
+                    "backend": "kwin_dbus",
+                }
         except Exception:
-            pass  # Fall through to other strategies
+            pass
 
-    # Strategy 1: xdotool getactivewindow (X11 / XWayland)
     if shutil.which("xdotool"):
         result = await _desktop_exec(
             f'{display_env} xdotool getactivewindow 2>/dev/null', timeout=3)
@@ -90,7 +83,6 @@ async def _get_active_window() -> dict | None:
                 "backend": "xdotool",
             }
 
-    # Strategy 2: kdotool (KDE Plasma Wayland)
     if shutil.which("kdotool"):
         result = await _desktop_exec(
             'kdotool search --active 2>/dev/null || '
@@ -99,11 +91,10 @@ async def _get_active_window() -> dict | None:
             wid = result["stdout"].strip().split("\n")[0]
             return {
                 "id": wid,
-                "title": "",  # kdotool doesn't easily give title
+                "title": "",
                 "backend": "kdotool",
             }
 
-    # Strategy 3: wmctrl active window (reads * marker)
     if shutil.which("wmctrl"):
         result = await _desktop_exec(
             f'{display_env} wmctrl -l -p 2>/dev/null', timeout=3)
@@ -123,4 +114,3 @@ async def _get_active_window() -> dict | None:
                         }
 
     return None
-

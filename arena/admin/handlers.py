@@ -6,6 +6,7 @@ import functools
 from dataclasses import dataclass
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.admin.runtime import cloudflared_funnel_action, sys_funnel_status, tailscale_funnel_action, token_regenerate
 from arena.handler_context import AdminHandlerContext
@@ -39,7 +40,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         if r:
             return r
         ctx.record_request()
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         target = str(cfg.get("token_file") or "")
         try:
             loop = asyncio.get_running_loop()
@@ -61,7 +62,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             return r
         ctx.record_request()
         action = request.match_info.get("action", "status")
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
         try:
             loop = asyncio.get_running_loop()
@@ -78,7 +79,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             return r
         ctx.record_request()
         action = request.match_info.get("action", "status")
-        cfg = request.app["cfg"]
+        cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
         try:
             loop = asyncio.get_running_loop()

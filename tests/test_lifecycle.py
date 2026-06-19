@@ -9,6 +9,7 @@ from aiohttp import web
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
+from arena.app_keys import APP_CFG, APP_LOG_CLEANUP, APP_TASK_RUNNER  # noqa: E402
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402
 
 
@@ -60,12 +61,14 @@ def test_lifecycle_startup_cleanup_flow():
     slow_executor = ThreadPoolExecutor(max_workers=1)
     runtime = make_lifecycle(_ctx(events, executor, slow_executor))
     app = web.Application()
-    app["cfg"] = {"max_concurrent": 2}
+    app[APP_CFG] = {"max_concurrent": 2}
 
     asyncio.run(runtime.on_startup(app))
     assert "init_memory" in events
     assert "start_watchdog" in events
-    assert app["semaphore"] if "semaphore" in app else app["cfg"]["semaphore"]
+    assert app.get(APP_TASK_RUNNER) is not None
+    assert app.get(APP_LOG_CLEANUP) is not None
+    assert app[APP_CFG]["semaphore"]
 
     asyncio.run(runtime.on_cleanup(app))
     assert "stop_watchdog" in events

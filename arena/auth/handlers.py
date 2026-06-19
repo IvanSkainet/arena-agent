@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.handler_context import UserHandlerContext
 
@@ -24,7 +25,7 @@ def make_user_handlers(ctx: UserHandlerContext) -> UserHandlers:
             return ctx.cors_json_response({"ok": False, "error": "admin role required"}, status=403)
 
         if request.method == "GET":
-            user_list = ctx.list_users(request.app["cfg"]["token"])
+            user_list = ctx.list_users(request.app[APP_CFG]["token"])
             return ctx.cors_json_response({"ok": True, "users": user_list, "count": len(user_list)})
 
         if request.method == "POST":

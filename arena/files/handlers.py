@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs
 
 from aiohttp import web
+from arena.app_keys import APP_CFG
 
 from arena.files.sandbox import validate_download_target, validate_edit_target, validate_upload_target
 from arena.handler_context import FileHandlerContext
@@ -26,7 +27,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         target = qs.get("path", [""])[0]
         target_path, err, status = validate_upload_target(
             target,
-            root=request.app["cfg"]["root"],
+            root=request.app[APP_CFG]["root"],
             home=ctx.home,
             bridge_py=ctx.bridge_py,
         )
@@ -56,7 +57,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         target = qs.get("path", [""])[0]
         target_path, err, status = validate_download_target(
             target,
-            root=request.app["cfg"]["root"],
+            root=request.app[APP_CFG]["root"],
             home=ctx.home,
         )
         if err:
@@ -89,7 +90,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         replace_all = bool(data.get("replace_all", False))
         target_path, err, status = validate_edit_target(
             target,
-            root=request.app["cfg"]["root"],
+            root=request.app[APP_CFG]["root"],
             home=ctx.home,
             bridge_py=ctx.bridge_py,
         )

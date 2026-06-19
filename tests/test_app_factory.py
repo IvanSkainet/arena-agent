@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
 from arena.app import make_app as make_arena_app  # noqa: E402
+from arena.app_keys import APP_CFG, APP_MCP_SESSIONS  # noqa: E402
 
 
 def test_unified_make_app_uses_arena_app_factory():
@@ -32,8 +33,8 @@ def test_arena_app_factory_sets_cfg_ref_routes_and_lifecycle():
         on_cleanup=cleanup,
         set_app_ref=refs.append,
     )
-    assert app["cfg"] == {"token": "test"}
-    assert app["mcp_sessions"] == {}
+    assert app[APP_CFG] == {"token": "test"}
+    assert app[APP_MCP_SESSIONS] == {}
     assert refs == [app]
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     assert ("GET", "/health") in paths
