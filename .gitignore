@@ -97,6 +97,8 @@ patch_*.py
 fix_*.py
 debug*.bat
 debug*.py
+bump_v*.py
+release_v*.md
 RESTORE_*.md
 worklog.md
 

@@ -40,6 +40,8 @@ git push origin vX.Y.Z
 python3 scripts/make_release_zip.py    # produces /tmp/arena-agent-vX.Y.Z.zip
 
 # 7) Create the GitHub Release with TWO assets (the second is critical!)
+#    Use a temporary/untracked notes file (for example under /tmp) — do not
+#    keep per-release scratch notes like release_vXXXX.md in the repository.
 gh release create vX.Y.Z \
     --title "vX.Y.Z — <summary>" \
     --notes-file <path-to-release-notes.md> \

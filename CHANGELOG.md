@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.2.14 - 2026-06-19
+
+### Removed
+- **Dead release scratch files removed from the repository.** Old `release_v*.md` note files and the obsolete `bump_v323.py` helper were deleted because they were not part of the runtime product and only added noise to the tree and release zip.
+
+### Improved
+- **Release hygiene guardrail.** `.gitignore` now ignores future `release_v*.md` and `bump_v*.py` scratch files so they do not accumulate again.
+- **Release process docs clarified.** `RELEASE.md` now explicitly tells maintainers to use a temporary/untracked notes file for GitHub releases instead of committing per-release scratch markdown into the repository.
+
+### Validation
+- Local `pytest -q`: PASS, 558 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.2.13 - 2026-06-19
 
 ### Fixed
