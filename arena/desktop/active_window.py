@@ -1,7 +1,6 @@
 """Active window discovery helper."""
 from __future__ import annotations
 
-import asyncio
 import os
 import shutil
 
@@ -9,62 +8,18 @@ from arena.desktop.exec import _desktop_exec
 from arena.desktop.kwin import _kwin_windows_via_script
 
 
-def _parse_kwin_window_info(text: str) -> dict[str, str]:
-    data: dict[str, str] = {}
-    for line in (text or "").splitlines():
-        if ":" not in line:
-            continue
-        key, value = line.split(":", 1)
-        data[key.strip()] = value.strip()
-    return data
-
-
 async def _get_active_window() -> dict | None:
     """Get currently active (focused) window info. Used by input guard.
 
-    Tries multiple backends in order of reliability:
-    1. KWin DBus queryWindowInfo (KDE Plasma Wayland — most reliable)
+    Backend order is chosen to avoid interactive desktop prompts on KDE/Wayland:
+    1. Native KWin journal-backed window list (preferred on KDE/Wayland)
     2. xdotool (X11 / XWayland)
     3. kdotool (KDE Wayland fallback)
     4. wmctrl (generic fallback)
+
     Returns dict with id, title, pid, class or None.
     """
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
-
-    qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
-    if qdbus:
-        try:
-            for attempt in range(3):
-                result = await _desktop_exec(
-                    f'{qdbus} org.kde.KWin /KWin org.kde.KWin.queryWindowInfo 2>/dev/null',
-                    timeout=3,
-                )
-                info = _parse_kwin_window_info(result.get("stdout", "")) if result.get("ok") else {}
-                if info:
-                    geometry = {}
-                    for key in ("x", "y", "width", "height"):
-                        if info.get(key) is not None:
-                            try:
-                                geometry[key] = int(info[key])
-                            except (TypeError, ValueError):
-                                geometry[key] = info[key]
-                    identifier = info.get("uuid") or info.get("caption") or info.get("resourceName") or info.get("resourceClass")
-                    return {
-                        "id": identifier or None,
-                        "uuid": info.get("uuid"),
-                        "title": info.get("caption", ""),
-                        "pid": info.get("pid") or None,
-                        "class": info.get("resourceClass", ""),
-                        "resource_name": info.get("resourceName", ""),
-                        "desktop_file": info.get("desktopFile", ""),
-                        "geometry": geometry or None,
-                        "active": True,
-                        "backend": "kwin_dbus",
-                    }
-                if attempt < 2:
-                    await asyncio.sleep(0.05)
-        except Exception:
-            pass
 
     kwin_list = await _kwin_windows_via_script()
     if kwin_list and kwin_list.get("ok"):
@@ -99,10 +54,10 @@ async def _get_active_window() -> dict | None:
                 f'{display_env} xdotool getwindowgeometry {wid} 2>/dev/null', timeout=2)
             return {
                 "id": wid,
-                "title": name_r.get("stdout", "").strip() if name_r["ok"] else "",
-                "pid": pid_r.get("stdout", "").strip() if pid_r["ok"] else None,
-                "class": cls_r.get("stdout", "").strip() if cls_r["ok"] else "",
-                "geometry": geom_r.get("stdout", "").strip() if geom_r["ok"] else "",
+                "title": name_r.get("stdout", "").strip() if name_r.get("ok") else "",
+                "pid": pid_r.get("stdout", "").strip() if pid_r.get("ok") else None,
+                "class": cls_r.get("stdout", "").strip() if cls_r.get("ok") else "",
+                "geometry": geom_r.get("stdout", "").strip() if geom_r.get("ok") else "",
                 "backend": "xdotool",
             }
 

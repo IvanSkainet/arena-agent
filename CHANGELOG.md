@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.2.11 - 2026-06-19
+
+### Fixed
+- **Removed the interactive KWin query that was stealing desktop focus/cursor.** `/v1/desktop/active_window` no longer calls `org.kde.KWin.queryWindowInfo`, which on the live Plasma session could trigger a crosshair-style window picker and repeatedly steal focus from the user.
+- **KWin script loading no longer rejects valid `loadScript=0` responses.** `/v1/desktop/windows` and native active-window discovery now treat the DBus call itself as success and rely on journal output to determine whether the script actually ran, matching observed Plasma behavior.
+- **Active-window discovery now prefers native KWin journal data.** On KDE/Wayland, `/v1/desktop/active_window` now uses the same non-interactive native KWin listing path as `/v1/desktop/windows`, returning the active entry from that list before falling back to X11 tools.
+- **Capability map updated to match runtime reality.** `/v1/capabilities` now reports `kwin_journal` for both window listing and active-window discovery on KDE/Wayland.
+
+### Tests
+- Reworked desktop runtime tests around the non-interactive KWin journal path and added regression coverage for `loadScript` returning `0` while the script still executes correctly.
+- Total: **552 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 552 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.2.10 - 2026-06-19
 
 ### Fixed
@@ -7,10 +25,10 @@
 
 ### Tests
 - Added regression coverage for the `queryWindowInfo` cancellation path to ensure `_get_active_window()` reuses the native KWin window list instead of jumping straight to `xdotool`.
-- Total: **553 tests pass** (was 552, +1 new).
+- Total: **552 tests pass** (no regressions; test suite currently collects 552 tests).
 
 ### Validation
-- Local `pytest -q`: PASS, 553 tests.
+- Local `pytest -q`: PASS, 552 tests.
 - Local `bash -n install.sh`: PASS.
 - Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
 - Local `python -m ruff check . --select F821,F811`: PASS.

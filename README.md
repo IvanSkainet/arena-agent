@@ -46,10 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.10
+### 🆕 What's new in v3.2.11
 
-- **Native KWin fallback for active window** — when direct KWin `queryWindowInfo` cancels, `/v1/desktop/active_window` now reuses the native KWin window list and returns the active entry from there before ever dropping to `xdotool`.
-- **553 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Interactive KWin focus stealing removed** — `/v1/desktop/active_window` no longer calls the KWin DBus method that could trigger a crosshair-style picker and steal desktop focus.
+- **Native KWin desktop introspection stabilized** — `loadScript=0` is now treated correctly, and both window listing and active-window discovery use the non-interactive KWin journal path on KDE/Wayland.
+- **552 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

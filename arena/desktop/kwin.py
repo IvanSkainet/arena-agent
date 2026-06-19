@@ -80,8 +80,11 @@ print(__TOKEN__ + ' ' + JSON.stringify({ok:true, backend:'kwin_journal', count:w
             timeout=3,
         )
         load_id = (load.get("stdout") or "").strip()
-        if not load.get("ok") or not load_id or load_id == "0":
+        if not load.get("ok"):
             return {"ok": False, "backend": "kwin_journal", "error": "loadScript failed", "detail": load}
+        # Plasma may legally return "0" here while still loading the script.
+        # Treat the DBus call itself as success and let the journal-output loop
+        # decide whether the script actually ran.
         await _desktop_exec(f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.start', timeout=3)
 
         for _ in range(20):

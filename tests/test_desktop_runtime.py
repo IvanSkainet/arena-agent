@@ -21,98 +21,74 @@ def test_detect_desktop_env_shape():
         assert key in env
 
 
-def test_get_active_window_prefers_kwin_querywindowinfo(monkeypatch):
+def test_get_active_window_prefers_kwin_window_list(monkeypatch):
     import asyncio
     import arena.desktop.active_window as aw
-
-    async def _exec(cmd: str, timeout: float = 10):
-        return {
-            "ok": True,
-            "stdout": "caption: Arena Window\nresourceClass: librewolf\nresourceName: librewolf\ndesktopFile: librewolf\nuuid: {abc}\nx: 10\ny: 20\nwidth: 300\nheight: 200\n",
-            "stderr": "",
-        }
-
-    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
-    monkeypatch.setattr(aw, "_desktop_exec", _exec)
-    result = asyncio.run(aw._get_active_window())
-    assert result["backend"] == "kwin_dbus"
-    assert result["title"] == "Arena Window"
-    assert result["class"] == "librewolf"
-    assert result["geometry"] == {"x": 10, "y": 20, "width": 300, "height": 200}
-
-
-def test_get_active_window_accepts_kwin_info_without_caption_or_uuid(monkeypatch):
-    import asyncio
-    import arena.desktop.active_window as aw
-
-    async def _exec(cmd: str, timeout: float = 10):
-        return {
-            "ok": True,
-            "stdout": "resourceClass: plasmashell\nresourceName: plasmashell\nx: 0\ny: 0\nwidth: 32\nheight: 32\n",
-            "stderr": "",
-        }
-
-    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
-    monkeypatch.setattr(aw, "_desktop_exec", _exec)
-    result = asyncio.run(aw._get_active_window())
-    assert result["backend"] == "kwin_dbus"
-    assert result["id"] == "plasmashell"
-    assert result["class"] == "plasmashell"
-    assert result["geometry"] == {"x": 0, "y": 0, "width": 32, "height": 32}
-
-
-def test_get_active_window_retries_kwin_before_fallback(monkeypatch):
-    import asyncio
-    import arena.desktop.active_window as aw
-
-    calls = {"count": 0}
-
-    async def _exec(cmd: str, timeout: float = 10):
-        if "queryWindowInfo" in cmd:
-            calls["count"] += 1
-            if calls["count"] == 1:
-                return {"ok": True, "stdout": "", "stderr": ""}
-            return {"ok": True, "stdout": "caption: Retry Window\nresourceClass: retry\nresourceName: retry\n", "stderr": ""}
-        return {"ok": False, "stdout": "", "stderr": "should not fallback"}
-
-    async def _kwin_list():
-        return {"ok": False}
-
-    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
-    monkeypatch.setattr(aw, "_desktop_exec", _exec)
-    monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
-    result = asyncio.run(aw._get_active_window())
-    assert calls["count"] == 2
-    assert result["backend"] == "kwin_dbus"
-    assert result["title"] == "Retry Window"
-
-
-def test_get_active_window_uses_kwin_window_list_when_query_is_cancelled(monkeypatch):
-    import asyncio
-    import arena.desktop.active_window as aw
-
-    async def _exec(cmd: str, timeout: float = 10):
-        if "queryWindowInfo" in cmd:
-            return {"ok": False, "stdout": "Error: org.kde.KWin.Error.UserCancel\n", "stderr": ""}
-        return {"ok": False, "stdout": "", "stderr": "xdotool should not be used"}
 
     async def _kwin_list():
         return {
             "ok": True,
             "windows": [
-                {"id": "{active}", "internal_id": "{active}", "title": "Arena Window", "pid": 123, "resource_class": "librewolf", "resource_name": "librewolf", "desktop_file": "librewolf", "geometry": {"x": 1, "y": 2, "width": 3, "height": 4}, "active": True},
+                {"id": "{active}", "internal_id": "{active}", "title": "Arena Window", "pid": 123, "resource_class": "librewolf", "resource_name": "librewolf", "desktop_file": "librewolf", "geometry": {"x": 10, "y": 20, "width": 300, "height": 200}, "active": True},
                 {"id": "{other}", "internal_id": "{other}", "title": "Other", "active": False},
             ],
         }
 
-    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
-    monkeypatch.setattr(aw, "_desktop_exec", _exec)
     monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
     result = asyncio.run(aw._get_active_window())
     assert result["backend"] == "kwin_journal"
-    assert result["id"] == "{active}"
     assert result["title"] == "Arena Window"
     assert result["class"] == "librewolf"
+    assert result["geometry"] == {"x": 10, "y": 20, "width": 300, "height": 200}
+
+
+def test_get_active_window_uses_kwin_window_list_minimal_shape(monkeypatch):
+    import asyncio
+    import arena.desktop.active_window as aw
+
+    async def _kwin_list():
+        return {
+            "ok": True,
+            "windows": [
+                {"id": "plasmashell-id", "internal_id": "plasmashell-id", "title": "", "pid": 55, "resource_class": "plasmashell", "resource_name": "plasmashell", "desktop_file": "", "geometry": {"x": 0, "y": 0, "width": 32, "height": 32}, "active": True},
+            ],
+        }
+
+    monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
+    result = asyncio.run(aw._get_active_window())
+    assert result["backend"] == "kwin_journal"
+    assert result["id"] == "plasmashell-id"
+    assert result["class"] == "plasmashell"
+    assert result["geometry"] == {"x": 0, "y": 0, "width": 32, "height": 32}
+
+
+def test_get_active_window_falls_back_to_xdotool_when_kwin_list_fails(monkeypatch):
+    import asyncio
+    import arena.desktop.active_window as aw
+
+    async def _kwin_list():
+        return {"ok": False}
+
+    async def _exec(cmd: str, timeout: float = 10):
+        if "getactivewindow" in cmd:
+            return {"ok": True, "stdout": "123\n", "stderr": ""}
+        if "getwindowname" in cmd:
+            return {"ok": True, "stdout": "Fallback Window\n", "stderr": ""}
+        if "getwindowpid" in cmd:
+            return {"ok": True, "stdout": "456\n", "stderr": ""}
+        if "getwindowclassname" in cmd:
+            return {"ok": True, "stdout": "fallback\n", "stderr": ""}
+        if "getwindowgeometry" in cmd:
+            return {"ok": True, "stdout": "Window 123\n  Position: 1,2 (screen: 0)\n  Geometry: 3x4\n", "stderr": ""}
+        return {"ok": False, "stdout": "", "stderr": "unexpected"}
+
+    monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
+    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/xdotool" if name == "xdotool" else None)
+    monkeypatch.setattr(aw, "_desktop_exec", _exec)
+    result = asyncio.run(aw._get_active_window())
+    assert result["backend"] == "xdotool"
+    assert result["id"] == "123"
+    assert result["title"] == "Fallback Window"
 
 
 def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
@@ -133,7 +109,7 @@ def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
             calls["unload"] += 1
             return {"ok": True, "stdout": "", "stderr": ""}
         if "loadScript" in cmd:
-            return {"ok": True, "stdout": "1\n", "stderr": ""}
+            return {"ok": True, "stdout": "0\n", "stderr": ""}
         if "org.kde.kwin.Scripting.start" in cmd:
             return {"ok": True, "stdout": "", "stderr": ""}
         if "journalctl" in cmd:

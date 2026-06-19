@@ -94,7 +94,7 @@ def build_capabilities(
             if (kwin_available and shutil.which("journalctl"))
             else ("wmctrl" if shutil.which("wmctrl") else ("xdotool" if env.get("has_xdotool") else "none"))
         )
-        active_backend = "kwin_dbus" if kwin_available else windows_backend
+        active_backend = windows_backend
         screenshot_backend = "spectacle" if env.get("has_spectacle") else ("grim" if env.get("has_grim") else ("scrot" if env.get("has_scrot") else "none"))
         input_backend = "ydotool" if env.get("has_ydotool") else ("wtype" if env.get("has_wtype") else ("xdotool" if env.get("has_xdotool") else "none"))
         caps["desktop"].update({

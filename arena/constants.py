@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-VERSION = "3.2.10"
+VERSION = "3.2.11"
 
 AUDIT_CMD_LIMIT = 4000
 
