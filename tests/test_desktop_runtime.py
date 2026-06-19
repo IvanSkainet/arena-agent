@@ -61,6 +61,28 @@ def test_get_active_window_accepts_kwin_info_without_caption_or_uuid(monkeypatch
     assert result["geometry"] == {"x": 0, "y": 0, "width": 32, "height": 32}
 
 
+def test_get_active_window_retries_kwin_before_fallback(monkeypatch):
+    import asyncio
+    import arena.desktop.active_window as aw
+
+    calls = {"count": 0}
+
+    async def _exec(cmd: str, timeout: float = 10):
+        if "queryWindowInfo" in cmd:
+            calls["count"] += 1
+            if calls["count"] == 1:
+                return {"ok": True, "stdout": "", "stderr": ""}
+            return {"ok": True, "stdout": "caption: Retry Window\nresourceClass: retry\nresourceName: retry\n", "stderr": ""}
+        return {"ok": False, "stdout": "", "stderr": "should not fallback"}
+
+    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
+    monkeypatch.setattr(aw, "_desktop_exec", _exec)
+    result = asyncio.run(aw._get_active_window())
+    assert calls["count"] == 2
+    assert result["backend"] == "kwin_dbus"
+    assert result["title"] == "Retry Window"
+
+
 def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
     import asyncio
     import arena.desktop.kwin as kw

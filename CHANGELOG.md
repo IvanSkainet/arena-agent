@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.2.9 - 2026-06-19
+
+### Fixed
+- **KWin active-window lookup now retries briefly before giving up.** `/v1/desktop/active_window` now retries `org.kde.KWin.queryWindowInfo` up to three times with a tiny delay before falling back to `xdotool`, smoothing out the intermittent empty-response case seen on the live Plasma/Wayland session.
+
+### Tests
+- Added regression coverage for the KWin retry path when the first DBus active-window query returns an empty payload.
+- Total: **552 tests pass** (was 551, +1 new).
+
+### Validation
+- Local `pytest -q`: PASS, 552 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `python -m ruff check . --select F821,F811`: PASS.
+
 ## v3.2.8 - 2026-06-19
 
 ### Fixed

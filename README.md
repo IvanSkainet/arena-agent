@@ -46,10 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.8
+### 🆕 What's new in v3.2.9
 
-- **KWin active-window detection hardened** — `/v1/desktop/active_window` now accepts any non-empty KWin `queryWindowInfo` payload, so Plasma helper/focus-proxy windows no longer force a fallback to `xdotool` just because KWin omitted `caption` or `uuid`.
-- **551 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **KWin active-window retries** — `/v1/desktop/active_window` now retries `queryWindowInfo` briefly before falling back, smoothing out the intermittent empty-response case seen on the live Plasma/Wayland bridge.
+- **552 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

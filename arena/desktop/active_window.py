@@ -1,6 +1,7 @@
 """Active window discovery helper."""
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 
@@ -32,32 +33,35 @@ async def _get_active_window() -> dict | None:
     qdbus = shutil.which("qdbus6") or shutil.which("qdbus")
     if qdbus:
         try:
-            result = await _desktop_exec(
-                f'{qdbus} org.kde.KWin /KWin org.kde.KWin.queryWindowInfo 2>/dev/null',
-                timeout=3,
-            )
-            info = _parse_kwin_window_info(result.get("stdout", "")) if result.get("ok") else {}
-            if info:
-                geometry = {}
-                for key in ("x", "y", "width", "height"):
-                    if info.get(key) is not None:
-                        try:
-                            geometry[key] = int(info[key])
-                        except (TypeError, ValueError):
-                            geometry[key] = info[key]
-                identifier = info.get("uuid") or info.get("caption") or info.get("resourceName") or info.get("resourceClass")
-                return {
-                    "id": identifier or None,
-                    "uuid": info.get("uuid"),
-                    "title": info.get("caption", ""),
-                    "pid": info.get("pid") or None,
-                    "class": info.get("resourceClass", ""),
-                    "resource_name": info.get("resourceName", ""),
-                    "desktop_file": info.get("desktopFile", ""),
-                    "geometry": geometry or None,
-                    "active": True,
-                    "backend": "kwin_dbus",
-                }
+            for attempt in range(3):
+                result = await _desktop_exec(
+                    f'{qdbus} org.kde.KWin /KWin org.kde.KWin.queryWindowInfo 2>/dev/null',
+                    timeout=3,
+                )
+                info = _parse_kwin_window_info(result.get("stdout", "")) if result.get("ok") else {}
+                if info:
+                    geometry = {}
+                    for key in ("x", "y", "width", "height"):
+                        if info.get(key) is not None:
+                            try:
+                                geometry[key] = int(info[key])
+                            except (TypeError, ValueError):
+                                geometry[key] = info[key]
+                    identifier = info.get("uuid") or info.get("caption") or info.get("resourceName") or info.get("resourceClass")
+                    return {
+                        "id": identifier or None,
+                        "uuid": info.get("uuid"),
+                        "title": info.get("caption", ""),
+                        "pid": info.get("pid") or None,
+                        "class": info.get("resourceClass", ""),
+                        "resource_name": info.get("resourceName", ""),
+                        "desktop_file": info.get("desktopFile", ""),
+                        "geometry": geometry or None,
+                        "active": True,
+                        "backend": "kwin_dbus",
+                    }
+                if attempt < 2:
+                    await asyncio.sleep(0.05)
         except Exception:
             pass
 
