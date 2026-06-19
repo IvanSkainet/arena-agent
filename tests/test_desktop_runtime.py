@@ -41,6 +41,26 @@ def test_get_active_window_prefers_kwin_querywindowinfo(monkeypatch):
     assert result["geometry"] == {"x": 10, "y": 20, "width": 300, "height": 200}
 
 
+def test_get_active_window_accepts_kwin_info_without_caption_or_uuid(monkeypatch):
+    import asyncio
+    import arena.desktop.active_window as aw
+
+    async def _exec(cmd: str, timeout: float = 10):
+        return {
+            "ok": True,
+            "stdout": "resourceClass: plasmashell\nresourceName: plasmashell\nx: 0\ny: 0\nwidth: 32\nheight: 32\n",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/qdbus6" if name == "qdbus6" else None)
+    monkeypatch.setattr(aw, "_desktop_exec", _exec)
+    result = asyncio.run(aw._get_active_window())
+    assert result["backend"] == "kwin_dbus"
+    assert result["id"] == "plasmashell"
+    assert result["class"] == "plasmashell"
+    assert result["geometry"] == {"x": 0, "y": 0, "width": 32, "height": 32}
+
+
 def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
     import asyncio
     import arena.desktop.kwin as kw

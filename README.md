@@ -46,11 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.7
+### 🆕 What's new in v3.2.8
 
-- **Native KDE window listing fixed for real** — `/v1/desktop/windows` now keeps the KWin temporary script simple and unloads it from Python instead of inside the script body, fixing the live Plasma case where `loadScript` returned `0` and the bridge always fell back to `xdotool`.
-- **KDE backend reporting refined** — `/v1/capabilities` now correctly distinguishes `kwin_journal` for window listing from `kwin_dbus` for active-window discovery.
-- **550 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **KWin active-window detection hardened** — `/v1/desktop/active_window` now accepts any non-empty KWin `queryWindowInfo` payload, so Plasma helper/focus-proxy windows no longer force a fallback to `xdotool` just because KWin omitted `caption` or `uuid`.
+- **551 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

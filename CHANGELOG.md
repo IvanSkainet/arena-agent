@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.2.8 - 2026-06-19
+
+### Fixed
+- **KWin active-window detection is more stable on helper windows/panels.** `/v1/desktop/active_window` now accepts any non-empty `queryWindowInfo` payload from KWin instead of requiring a `caption` or `uuid`, so Plasma-managed focus proxies and other minimal windows no longer force a fallback to `xdotool` just because KWin omitted those two fields.
+
+### Tests
+- Added regression coverage for KWin active-window payloads that expose only `resourceClass` / `resourceName` plus geometry.
+- Total: **551 tests pass** (was 550, +1 new).
+
+### Validation
+- Local `pytest -q`: PASS, 551 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `python -m ruff check . --select F821,F811`: PASS.
+
 ## v3.2.7 - 2026-06-19
 
 ### Fixed

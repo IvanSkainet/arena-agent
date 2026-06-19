@@ -37,7 +37,7 @@ async def _get_active_window() -> dict | None:
                 timeout=3,
             )
             info = _parse_kwin_window_info(result.get("stdout", "")) if result.get("ok") else {}
-            if info.get("caption") or info.get("uuid"):
+            if info:
                 geometry = {}
                 for key in ("x", "y", "width", "height"):
                     if info.get(key) is not None:
@@ -45,8 +45,9 @@ async def _get_active_window() -> dict | None:
                             geometry[key] = int(info[key])
                         except (TypeError, ValueError):
                             geometry[key] = info[key]
+                identifier = info.get("uuid") or info.get("caption") or info.get("resourceName") or info.get("resourceClass")
                 return {
-                    "id": info.get("uuid") or info.get("caption") or None,
+                    "id": identifier or None,
                     "uuid": info.get("uuid"),
                     "title": info.get("caption", ""),
                     "pid": info.get("pid") or None,
