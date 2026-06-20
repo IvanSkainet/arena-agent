@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.3.1
+### 🆕 What's new in v3.4.0
 
-- **DX2 integration recipes** — Arena now ships a real integration recipe set in `docs/INTEGRATIONS.md`, covering Arena Agent Mode, Claude-style chats, Cursor, Cline, Windsurf, Open Interpreter, and local model backends.
-- **AI prompt template refreshed for Memory Profiles** — the base prompt now explicitly teaches agents to use scoped memory profiles like `projects/<name>`, `personal`, `code`, and `browser`.
-- **README discoverability improved** — README and README.ru now link directly to the integration recipe index.
-- **569 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Built-in Planner (`A1`)** — Arena now ships a first-party planning endpoint at `POST /v1/plan` plus MCP `plan.create`, returning structured steps, risks, required tools, next action, and a suggested Memory Profile.
+- **Planner heuristics** — the first planner classifies goals across code/browser/desktop/system/task domains and flags higher-risk steps for confirmation.
+- **OpenAPI updated** — `/v1/plan` is now documented in the public API spec.
+- **575 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -408,6 +408,12 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `DELETE` | `/v1/memory` | Delete memory fact by key within a profile. Body: `{"profile": "default", "key": "..."}` |
 | `GET` | `/v1/recall?q=…&top=5&profile=` | TF-scored fuzzy search scoped to a profile (or `profile=all`) |
 | `GET` | `/v1/recall/digest?profile=` | Memory digest for a profile (or `profile=all`) |
+
+### Planner
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/v1/plan` | Build a structured execution plan from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_steps": 8, "memory_profile": "projects/<name>"}` |
 
 ### Tasks & Queue
 

@@ -81,6 +81,17 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     env.export_handler_attrs(registry, skill_handlers, {"handle_v1_skills": "skills", "handle_v1_skills_install": "install", "handle_v1_skills_uninstall": "uninstall", "handle_v1_skills_run": "run", "handle_v1_skills_reload": "reload"})
     registry.update({"_skill_handler_ctx": skill_handler_ctx, "_skill_handlers": skill_handlers})
 
+    planner_handler_ctx = env.PlannerHandlerContext(
+        require_auth=env.require_auth,
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        build_plan=env.build_plan,
+        audit=env.audit,
+    )
+    planner_handlers = env.make_planner_handlers(planner_handler_ctx)
+    env.export_handler_attrs(registry, planner_handlers, {"handle_v1_plan": "plan"})
+    registry.update({"_planner_handler_ctx": planner_handler_ctx, "_planner_handlers": planner_handlers})
+
     registry.update({
         "_hooks_list_sync": env._resource_runtime.hooks_list_sync,
         "_agents_list_sync": env._resource_runtime.agents_list_sync,

@@ -38,25 +38,29 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`DELETE /v1/memory`**: Delete a fact by key within a profile: `{"profile": "projects/demo", "key": "..."}`.
 - **`GET /v1/recall?q=...&profile=...`**: Run TF-scored recall and obtain profile-scoped results.
 
-### 4. Background Tasks & Queue
+### 4. Planning
+- **`POST /v1/plan`**: Build a structured execution plan from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_steps": 8, "memory_profile": "projects/demo"}`.
+- **MCP tool `plan.create`**: Same planner capability through MCP.
+
+### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.
 - **`GET /v1/tasks`**: Check statuses (`inbox`, `running`, `done`, `failed`).
 
-### 5. Desktop Automation (Wayland / X11 / Windows)
+### 6. Desktop Automation (Wayland / X11 / Windows)
 - **`GET /v1/desktop/screenshot`**: Capture full desktop screenshot (PNG).
 - **`GET /v1/desktop/windows`**: List currently open window IDs, titles, and geometries.
 - **`POST /v1/desktop/click`**: Perform click at `{"x": N, "y": N, "button": "left"}`.
 - **`POST /v1/desktop/type`**: Simulate keystrokes/text typing on the active window: `{"text": "..."}`.
 - **`POST /v1/desktop/key`**: Send specific keys (e.g. `{"key": "Return"}`).
 
-### 6. Stealth Browser & CDP (Chrome DevTools Protocol)
+### 7. Stealth Browser & CDP (Chrome DevTools Protocol)
 - **`POST /v1/browser/cdp/connect`**: Launch & connect to headless Chromium with stealth profile.
 - **`POST /v1/browser/cdp/navigate`**: Go to URL: `{"url": "..."}`.
 - **`GET /v1/browser/cdp/screenshot`**: Viewport PNG capture.
 - **`POST /v1/browser/cdp/eval`**: Evaluate JavaScript on page: `{"code": "..."}`.
 - **`POST /v1/browser/cdp/disconnect`**: Safely disconnect and close Chromium.
 
-### 7. Sound Notifications
+### 8. Sound Notifications
 - **`POST /v1/beep`**: Play audio feedback on user's speakers. Body: `{"type": "melody"}` (or `success`, `warning`, `error`, `attention`).
 
 ---

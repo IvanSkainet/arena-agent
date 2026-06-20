@@ -102,6 +102,8 @@ from arena.resources.listing import (  # noqa: E402,F401
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
 from arena.resources.runtime import ResourceRuntimeContext, make_resource_runtime  # noqa: E402,F401
 from arena.resources.subagents import spawn_subagent  # noqa: E402,F401
+from arena.planner.logic import build_plan  # noqa: E402,F401
+from arena.planner.handlers import make_planner_handlers  # noqa: E402,F401
 from arena.memory.handlers import make_memory_handlers  # noqa: E402,F401
 from arena.memory.runtime import MemoryRuntimeContext, make_memory_runtime  # noqa: E402,F401
 from arena.memory.store import (  # noqa: E402,F401

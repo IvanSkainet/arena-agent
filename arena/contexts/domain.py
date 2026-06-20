@@ -60,6 +60,17 @@ class ResourceHandlerContext:
 
 
 @dataclass(frozen=True)
+class PlannerHandlerContext:
+    """Dependencies for planner API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    build_plan: Callable[..., dict[str, Any]]
+    audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
 class MemoryHandlerContext:
     """Dependencies for memory/recall API handlers."""
 
@@ -76,4 +87,4 @@ class MemoryHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     utc_now: Callable[[], str]
 
-__all__ = ['TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'MemoryHandlerContext']
+__all__ = ['TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'PlannerHandlerContext', 'MemoryHandlerContext']

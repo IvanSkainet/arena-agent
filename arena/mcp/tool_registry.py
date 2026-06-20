@@ -74,6 +74,14 @@ MCP_TOOLS = [
      "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
     {"name": "browser.shot", "description": "Take headless chromium screenshot via sd-exec",
      "inputSchema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]}},
+    {"name": "plan.create", "description": "Create a structured execution plan for a goal, with suggested tools, steps, risks, and a suggested memory profile.",
+     "inputSchema": {"type": "object", "properties": {
+         "goal": {"type": "string"},
+         "context": {"type": "string"},
+         "constraints": {"type": "array", "items": {"type": "string"}},
+         "max_steps": {"type": "integer", "default": 8},
+         "memory_profile": {"type": "string"}},
+         "required": ["goal"]}},
     {"name": "mem.set", "description": "Remember a fact in a memory profile",
      "inputSchema": {"type": "object", "properties": {
          "profile": {"type": "string", "description": "Memory profile id (default: default)"},

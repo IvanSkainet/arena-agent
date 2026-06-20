@@ -36,6 +36,7 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
         audit=env.audit,
         app_config=_mcp_app_config,
         common_status=lambda cfg: g["common_status"](cfg),
+        build_plan=env.build_plan,
         skills_list_sync_with_cache=env._skills_list_sync_with_cache,
         skills_run_sync=lambda *args, **kwargs: g["_skills_run_sync"](*args, **kwargs),
     )

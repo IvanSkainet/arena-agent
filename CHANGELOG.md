@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.4.0 - 2026-06-20
+
+### Added
+- **Built-in Planner (`A1`)** — added `POST /v1/plan`, a first-party planner endpoint that turns a goal into a structured execution plan with steps, risks, required tools, next action, and a suggested Memory Profile.
+- **MCP `plan.create`** — the planner is now available through Arena's MCP surface, so coding/agent frontends can request plans without custom REST wiring.
+- **Planner heuristics** — the first planner infers likely domains (code, browser, desktop, system, task queue), suggests a memory profile, and marks higher-risk steps as requiring confirmation.
+
+### Improved
+- **OpenAPI docs updated** with `/v1/plan`.
+- **Canonical roadmap advanced** — `A1` is now complete, and the recommended next step moves to `F5` File Watchers.
+
+### Tests
+- Added planner logic, handler, route, and MCP regressions.
+- Total: **575 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 575 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.3.1 - 2026-06-20
 
 ### Added
