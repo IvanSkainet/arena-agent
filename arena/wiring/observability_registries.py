@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import MutableMapping
 from typing import Any, Callable
 
+from arena.files.safe_edit import apply_preview, create_preview, rollback_change
 from arena.wiring.env import RuntimeEnv
 
 
@@ -91,11 +92,16 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
             "audit": env.audit,
             "home": env.Path.home(),
             "bridge_py": env.Path(__file__).resolve(),
+            "create_edit_preview": create_preview,
+            "apply_edit_preview": apply_preview,
+            "rollback_edit_change": rollback_change,
         },
         {
             "handle_v1_upload": "upload",
             "handle_v1_download": "download",
             "handle_v1_fs_edit": "fs_edit",
+            "handle_v1_fs_edit_apply": "fs_edit_apply",
+            "handle_v1_fs_edit_rollback": "fs_edit_rollback",
         },
     )
     registry.update(_file_handler_registry)

@@ -30,7 +30,8 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/upload?path=...`**: Upload binary data directly to any path inside the home directory.
 - **`GET /v1/download?path=...`**: Download any file inside the home directory.
 - **`PATCH /v1/fs/edit`**: Find-and-replace in a text file (surgical edit — no need to re-upload the whole file). Body: `{"path": "...", "old_text": "foo()", "new_text": "bar()", "replace_all": false}`. Use this for code edits — it's faster and safer than download+modify+upload. The `old_text` must be unique in the file unless `replace_all=true`.
-- **MCP tool `fs.edit`**: Same as above, but via MCP protocol. Use when connected through `/mcp` or `/ws`.
+- **Safe editor mode:** set `preview: true` on `PATCH /v1/fs/edit` to get a preview diff and `preview_id` without writing. Then confirm with `POST /v1/fs/edit/apply` and keep the returned `rollback_id` for `POST /v1/fs/edit/rollback`.
+- **MCP tools `fs.edit`, `fs.edit_apply`, `fs.edit_rollback`**: Same safe workflow via MCP. Use preview mode for higher-trust code changes.
 
 ### 3. Local Semantic RAG Memory (SQLite)
 - **`GET /v1/memory?q=...&profile=...`**: Fuzzy/FTS5 trigram matched search in the local memory database, scoped to a Memory Profile (`default`, `personal`, `projects/<name>`, `code`, `browser`, or `all`).

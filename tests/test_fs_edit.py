@@ -3,7 +3,8 @@
 Covers:
   - MCP fs.edit: success, replace_all, not found, multiple matches, empty old_text,
     blocked file, file not found, no-op (old==new)
-  - REST PATCH /v1/fs/edit: route registered
+  - MCP safe editor companions: fs.edit_apply, fs.edit_rollback registration
+  - REST PATCH /v1/fs/edit and safe-editor companion routes
   - validate_edit_target: path traversal, blocked files, bridge itself, missing file
 """
 import sys
@@ -148,7 +149,11 @@ def test_mcp_fs_edit_schema_has_required_fields():
     assert "old_text" in schema["required"]
     assert "new_text" in schema["required"]
     assert "replace_all" in schema["properties"]
+    assert "preview" in schema["properties"]
     assert schema["properties"]["replace_all"]["type"] == "boolean"
+    names = [t["name"] for t in MCP_TOOLS]
+    assert "fs.edit_apply" in names
+    assert "fs.edit_rollback" in names
 
 
 # ============================================================
@@ -212,15 +217,17 @@ def test_edit_blocked_basenames_set_contents():
 # ============================================================
 
 def test_rest_fs_edit_route_registered():
-    """PATCH /v1/fs/edit route is registered in the app."""
+    """PATCH /v1/fs/edit and safe-editor companion routes are registered in the app."""
     app = ub.make_app({"token": "test", "profile": "owner-shell", "root": "/tmp", "active_exec": 0, "max_concurrent": 3, "audit": "audit"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     assert ("PATCH", "/v1/fs/edit") in paths, f"PATCH /v1/fs/edit not in routes: {paths}"
+    assert ("POST", "/v1/fs/edit/apply") in paths
+    assert ("POST", "/v1/fs/edit/rollback") in paths
 
 
-def test_file_handlers_have_fs_edit_field():
-    """FileHandlers dataclass has fs_edit field."""
+def test_file_handlers_have_fs_edit_fields():
+    """FileHandlers dataclass has safe-edit fields."""
     from arena.files.handlers import FileHandlers
     import dataclasses
     fields = {f.name for f in dataclasses.fields(FileHandlers)}
-    assert "fs_edit" in fields, f"fs_edit not in FileHandlers fields: {fields}"
+    assert {"fs_edit", "fs_edit_apply", "fs_edit_rollback"}.issubset(fields), f"missing fields: {fields}"

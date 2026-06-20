@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.4.2 - 2026-06-20
+
+### Added
+- **Safe editor foundation (`F4`)** — `PATCH /v1/fs/edit` now supports `preview: true` for a non-destructive preview/confirm workflow.
+- **Edit confirmation endpoint** — added `POST /v1/fs/edit/apply` to apply a previously previewed edit by `preview_id`.
+- **Rollback endpoint** — added `POST /v1/fs/edit/rollback` to restore the pre-edit contents using `rollback_id`.
+- **MCP safe editor support** — added `fs.edit_apply` and `fs.edit_rollback`, while `fs.edit` now supports `preview=true`.
+
+### Improved
+- **Safe edit conflict protection** — applying a preview now refuses to write if the target file changed after the preview was generated.
+- **Rollback conflict protection** — rollback refuses to overwrite a file that changed again after apply unless explicitly forced.
+- **AI prompt template updated** — the prompt now documents the preview/apply/rollback edit workflow.
+- **OpenAPI updated** — safe editor endpoints and preview semantics are now documented.
+
+### Tests
+- Added safe-editor regressions covering preview, apply, rollback, conflict detection, new routes, and MCP schemas.
+- Total: **582 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 582 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.4.0 - 2026-06-20
 
 ### Added
