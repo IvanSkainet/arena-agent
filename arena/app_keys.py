@@ -9,10 +9,12 @@ APP_CFG = web.AppKey("cfg", dict[str, Any])
 APP_MCP_SESSIONS = web.AppKey("mcp_sessions", dict[str, Any])
 APP_TASK_RUNNER = web.AppKey("task_runner", Any)
 APP_LOG_CLEANUP = web.AppKey("log_cleanup", Any)
+APP_FILE_WATCH_LOOP = web.AppKey("file_watch_loop", Any)
 
 __all__ = [
     "APP_CFG",
     "APP_MCP_SESSIONS",
     "APP_TASK_RUNNER",
     "APP_LOG_CLEANUP",
+    "APP_FILE_WATCH_LOOP",
 ]

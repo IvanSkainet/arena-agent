@@ -13,10 +13,10 @@
 
 ### Tests
 - Added planner logic, handler, route, and MCP regressions.
-- Total: **575 tests pass**.
+- Total: **579 tests pass**.
 
 ### Validation
-- Local `pytest -q`: PASS, 575 tests.
+- Local `pytest -q`: PASS, 579 tests.
 - Local `bash -n install.sh`: PASS.
 - Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
 - Local `ruff check . --select F821,F811`: PASS.

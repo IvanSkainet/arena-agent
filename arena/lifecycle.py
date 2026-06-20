@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import web
-from arena.app_keys import APP_CFG, APP_TASK_RUNNER, APP_LOG_CLEANUP
+from arena.app_keys import APP_CFG, APP_TASK_RUNNER, APP_LOG_CLEANUP, APP_FILE_WATCH_LOOP
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class LifecycleContext:
     init_memory_db: Callable[[], None]
     task_runner_loop: Callable[[web.Application], Any]
     log_cleanup_loop: Callable[[web.Application], Any]
+    file_watch_loop: Callable[[web.Application], Any]
     start_watchdog: Callable[[], None]
     stop_watchdog: Callable[[], None]
     stop_cdp_watcher: Callable[[], None]
@@ -50,6 +51,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         cfg["semaphore"] = asyncio.Semaphore(cfg["max_concurrent"])
         app[APP_TASK_RUNNER] = asyncio.ensure_future(ctx.task_runner_loop(app))
         app[APP_LOG_CLEANUP] = asyncio.ensure_future(ctx.log_cleanup_loop(app))
+        app[APP_FILE_WATCH_LOOP] = asyncio.ensure_future(ctx.file_watch_loop(app))
         ctx.start_watchdog()
 
         if shutil.which("ydotoold") and hasattr(os, "getuid") and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid()):
@@ -79,6 +81,14 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             lc.cancel()
             try:
                 await lc
+            except asyncio.CancelledError:
+                pass
+
+        fw = app.get(APP_FILE_WATCH_LOOP)
+        if fw:
+            fw.cancel()
+            try:
+                await fw
             except asyncio.CancelledError:
                 pass
 

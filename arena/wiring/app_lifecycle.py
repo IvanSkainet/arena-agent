@@ -35,6 +35,7 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         init_memory_db=lambda: g["init_memory_db"](),
         task_runner_loop=g["task_runner_loop"],
         log_cleanup_loop=g["_log_cleanup_loop"],
+        file_watch_loop=g["file_watch_loop"],
         start_watchdog=env._start_watchdog,
         stop_watchdog=env._stop_watchdog,
         stop_cdp_watcher=env._stop_cdp_watcher,

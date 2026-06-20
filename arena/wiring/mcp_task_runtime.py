@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import MutableMapping
+from pathlib import Path
 from typing import Any
 
 from arena.wiring.env import RuntimeEnv
@@ -18,6 +19,24 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
     def _mcp_app_config() -> dict:
         app_ref = g.get("_app_ref")
         return app_ref.get("cfg", {}) if app_ref else {}
+
+    file_watch_ctx = env.FileWatchRuntimeContext(
+        home=Path.home(),
+        default_root=Path.home(),
+        emit_event=env.emit_event,
+        utc_now=env.utc_now,
+        log_info=env.log.info,
+        log_warning=env.log.warning,
+    )
+    file_watch_runtime = env.make_file_watch_runtime(file_watch_ctx)
+    registry.update({
+        "_file_watch_ctx": file_watch_ctx,
+        "_file_watch_runtime": file_watch_runtime,
+        "_file_watch_list_sync": file_watch_runtime.list_sync,
+        "_file_watch_add_sync": file_watch_runtime.add_sync,
+        "_file_watch_remove_sync": file_watch_runtime.remove_sync,
+        "file_watch_loop": file_watch_runtime.loop,
+    })
 
     mcp_tool_ctx = env.McpToolContext(
         version=env.VERSION,
@@ -37,6 +56,10 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
         app_config=_mcp_app_config,
         common_status=lambda cfg: g["common_status"](cfg),
         build_plan=env.build_plan,
+        file_watch_list_sync=registry["_file_watch_list_sync"],
+        file_watch_add_sync=registry["_file_watch_add_sync"],
+        file_watch_remove_sync=registry["_file_watch_remove_sync"],
+        utc_now=env.utc_now,
         skills_list_sync_with_cache=env._skills_list_sync_with_cache,
         skills_run_sync=lambda *args, **kwargs: g["_skills_run_sync"](*args, **kwargs),
     )

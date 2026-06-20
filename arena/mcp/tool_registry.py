@@ -82,6 +82,14 @@ MCP_TOOLS = [
          "max_steps": {"type": "integer", "default": 8},
          "memory_profile": {"type": "string"}},
          "required": ["goal"]}},
+    {"name": "watch.files", "description": "List, add, or remove file watchers that emit realtime file change events over /v1/events.",
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},
+         "id": {"type": "string"},
+         "path": {"type": "string"},
+         "recursive": {"type": "boolean", "default": True},
+         "patterns": {"type": "array", "items": {"type": "string"}},
+         "label": {"type": "string"}}}},
     {"name": "mem.set", "description": "Remember a fact in a memory profile",
      "inputSchema": {"type": "object", "properties": {
          "profile": {"type": "string", "description": "Memory profile id (default: default)"},

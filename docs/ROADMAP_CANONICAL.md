@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-19
-Validated baseline: `v3.4.0`
+Validated baseline: `v3.4.1`
 
 This file is the planning source of truth.
 
@@ -9,9 +9,9 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.4.0`
-- Tests: `575 passed`
-- MCP tools: `34`
+- Version: `3.4.1`
+- Tests: `579 passed`
+- MCP tools: `35`
 - Route objects in aiohttp app: `296`
 - Distinct method/path routes excluding auto-HEAD: `194`
 
@@ -22,6 +22,7 @@ This file is the planning source of truth.
 - memory profiles (`M3`) across REST, MCP, runtime, and dashboard
 - integration recipes (`DX2`) for Arena Agent Mode, Claude-style chats, Cursor, Cline, Windsurf, Open Interpreter, and local model stacks
 - built-in planner (`A1`) via `POST /v1/plan` and MCP `plan.create`
+- file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -50,15 +51,16 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — File Watchers (`F5`)
+## P1 — Safe editor with preview/confirm/rollback (`F4`)
 Why:
-- adds live workspace awareness
-- fits strongly with the assistant/workspace vision
-- complements memory and planning
+- raises trust and reversibility for coding/automation workflows
+- complements planner + memory nicely
+- reduces fear of autonomous edits
 
 Definition of done:
-- file-change notifications over WebSocket/events
-- path filtering / debounce / safe scope rules
+- preview mode
+- confirmation gate
+- rollback path for recent edits
 
 ---
 
@@ -66,9 +68,6 @@ Definition of done:
 
 ### A2 / A3 — ReAct loop + Reflection
 Critical for higher agent quality, and now easier to build because planner foundations exist.
-
-### F4 — Safe editor with preview/confirm/rollback
-Strong trust feature.
 
 ### UI / Workspace surfaces
 - memory browser
@@ -102,6 +101,7 @@ Status update:
 - stale backup CLI/missions references were cleaned up in `v3.2.13`
 - integration recipes were added in `v3.3.1`
 - built-in planner (`A1`) landed in `v3.4.0`
+- file watchers (`F5`) landed in `v3.4.1`
 
 ---
 

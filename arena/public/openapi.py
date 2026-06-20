@@ -103,6 +103,11 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/recall": {"get": {"summary": "Recall relevant facts", "tags": ["Memory"], "parameters": [{"name": "q", "in": "query", "required": True, "schema": {"type": "string"}}, {"name": "top", "in": "query", "schema": {"type": "integer", "default": 5}}, {"name": "profile", "in": "query", "schema": {"type": "string"}, "description": "Memory profile id, or 'all' / '*' for all profiles"}], "responses": {"200": {"description": "Recalled facts"}}}},
             "/v1/recall/digest": {"get": {"summary": "Generate a memory digest", "tags": ["Memory"], "parameters": [{"name": "profile", "in": "query", "schema": {"type": "string"}, "description": "Memory profile id, or 'all' / '*' for all profiles"}], "responses": {"200": {"description": "Digest markdown"}}}},
             "/v1/plan": {"post": {"summary": "Create a structured execution plan for a goal", "tags": ["Planner"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"goal": {"type": "string"}, "context": {"type": "string"}, "constraints": {"type": "array", "items": {"type": "string"}}, "max_steps": {"type": "integer", "default": 8}, "memory_profile": {"type": "string"}}, "required": ["goal"]}}}}, "responses": {"200": {"description": "Planner output"}}}},
+            "/v1/watch/files": {
+                "get": {"summary": "List active file watchers", "tags": ["Watchers"], "responses": {"200": {"description": "Watcher list"}}},
+                "post": {"summary": "Add a file watcher", "tags": ["Watchers"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"path": {"type": "string"}, "recursive": {"type": "boolean", "default": True}, "patterns": {"type": "array", "items": {"type": "string"}}, "label": {"type": "string"}}, "required": ["path"]}}}}, "responses": {"200": {"description": "Watcher added"}}},
+                "delete": {"summary": "Remove a file watcher", "tags": ["Watchers"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}}}}, "responses": {"200": {"description": "Watcher removed"}}}
+            },
             "/v1/sysinfo": {"get": {"summary": "System information", "tags": ["System"], "responses": {"200": {"description": "System info"}}}},
             "/v1/audit": {"get": {"summary": "Audit log", "tags": ["System"], "responses": {"200": {"description": "Audit entries"}}}},
             "/v1/doctor": {"get": {"summary": "Run diagnostics", "tags": ["System"], "responses": {"200": {"description": "Diagnostic results"}}}},
@@ -130,6 +135,7 @@ def build_openapi_spec(ctx) -> dict:
             {"name": "Tasks", "description": "Task management"},
             {"name": "Memory", "description": "Memory and recall"},
             {"name": "Planner", "description": "Structured task planning"},
+            {"name": "Watchers", "description": "Realtime file watchers and file-change events"},
             {"name": "System", "description": "System information and diagnostics"},
             {"name": "Events", "description": "Real-time WebSocket event stream"},
             {"name": "Watchdog", "description": "Health monitoring and alerting"},

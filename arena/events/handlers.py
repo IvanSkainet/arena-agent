@@ -24,7 +24,8 @@ def make_event_handlers(ctx: EventHandlerContext) -> EventHandlers:
 
         Clients connect via WebSocket and receive events as JSON messages.
         Events include: cdp_connect, cdp_disconnect, task_start, task_done,
-        error, skill_run, exec, memory_update, browser_browse, alert.
+        error, skill_run, exec, memory_update, browser_browse, alert,
+        and file_watch_change.
         """
         r = ctx.require_auth(request)
         if r:

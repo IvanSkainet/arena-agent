@@ -46,21 +46,28 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.
 - **`GET /v1/tasks`**: Check statuses (`inbox`, `running`, `done`, `failed`).
 
-### 6. Desktop Automation (Wayland / X11 / Windows)
+### 6. File Watchers & Realtime Events
+- **`GET /v1/watch/files`**: List active file watchers.
+- **`POST /v1/watch/files`**: Add a file watcher: `{"path": "...", "recursive": true, "patterns": ["*.py"], "label": "repo"}`.
+- **`DELETE /v1/watch/files`**: Remove a watcher by id: `{"id": "..."}`.
+- **MCP `watch.files`**: List/add/remove watchers through the MCP tool surface.
+- **`GET /v1/events`**: WebSocket realtime event stream. File watchers emit `file_watch_change` events.
+
+### 7. Desktop Automation (Wayland / X11 / Windows)
 - **`GET /v1/desktop/screenshot`**: Capture full desktop screenshot (PNG).
 - **`GET /v1/desktop/windows`**: List currently open window IDs, titles, and geometries.
 - **`POST /v1/desktop/click`**: Perform click at `{"x": N, "y": N, "button": "left"}`.
 - **`POST /v1/desktop/type`**: Simulate keystrokes/text typing on the active window: `{"text": "..."}`.
 - **`POST /v1/desktop/key`**: Send specific keys (e.g. `{"key": "Return"}`).
 
-### 7. Stealth Browser & CDP (Chrome DevTools Protocol)
+### 8. Stealth Browser & CDP (Chrome DevTools Protocol)
 - **`POST /v1/browser/cdp/connect`**: Launch & connect to headless Chromium with stealth profile.
 - **`POST /v1/browser/cdp/navigate`**: Go to URL: `{"url": "..."}`.
 - **`GET /v1/browser/cdp/screenshot`**: Viewport PNG capture.
 - **`POST /v1/browser/cdp/eval`**: Evaluate JavaScript on page: `{"code": "..."}`.
 - **`POST /v1/browser/cdp/disconnect`**: Safely disconnect and close Chromium.
 
-### 8. Sound Notifications
+### 9. Sound Notifications
 - **`POST /v1/beep`**: Play audio feedback on user's speakers. Body: `{"type": "melody"}` (or `success`, `warning`, `error`, `attention`).
 
 ---

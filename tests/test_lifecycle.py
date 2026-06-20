@@ -9,7 +9,7 @@ from aiohttp import web
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.app_keys import APP_CFG, APP_LOG_CLEANUP, APP_TASK_RUNNER  # noqa: E402
+from arena.app_keys import APP_CFG, APP_FILE_WATCH_LOOP, APP_LOG_CLEANUP, APP_TASK_RUNNER  # noqa: E402
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402
 
 
@@ -36,6 +36,7 @@ def _ctx(events, executor=None, slow_executor=None):
         init_memory_db=lambda: events.append("init_memory"),
         task_runner_loop=dummy_loop,
         log_cleanup_loop=dummy_loop,
+        file_watch_loop=dummy_loop,
         start_watchdog=lambda: events.append("start_watchdog"),
         stop_watchdog=lambda: events.append("stop_watchdog"),
         stop_cdp_watcher=lambda: events.append("stop_cdp"),
@@ -68,6 +69,7 @@ def test_lifecycle_startup_cleanup_flow():
     assert "start_watchdog" in events
     assert app.get(APP_TASK_RUNNER) is not None
     assert app.get(APP_LOG_CLEANUP) is not None
+    assert app.get(APP_FILE_WATCH_LOOP) is not None
     assert app[APP_CFG]["semaphore"]
 
     asyncio.run(runtime.on_cleanup(app))

@@ -39,6 +39,8 @@ from arena.tasks.queue import (  # noqa: E402,F401
     list_tasks,
     submit_task,
 )
+from arena.filewatch.runtime import FileWatchRuntimeContext, make_file_watch_runtime  # noqa: E402,F401
+from arena.filewatch.handlers import make_file_watch_handlers  # noqa: E402,F401
 from arena.tasks.runner import TaskRunnerContext, make_task_runner_runtime  # noqa: E402,F401
 from arena.tasks.runtime import TaskQueueRuntimeContext, make_task_queue_runtime  # noqa: E402,F401
 from arena.skills.registry import (  # noqa: E402,F401

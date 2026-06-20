@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.4.0
+### 🆕 What's new in v3.4.1
 
-- **Built-in Planner (`A1`)** — Arena now ships a first-party planning endpoint at `POST /v1/plan` plus MCP `plan.create`, returning structured steps, risks, required tools, next action, and a suggested Memory Profile.
-- **Planner heuristics** — the first planner classifies goals across code/browser/desktop/system/task domains and flags higher-risk steps for confirmation.
-- **OpenAPI updated** — `/v1/plan` is now documented in the public API spec.
-- **575 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **File Watchers (`F5`)** — Arena now supports realtime file watchers via `GET/POST/DELETE /v1/watch/files`, emitting `file_watch_change` events over `/v1/events` when watched files are added, modified, or deleted.
+- **MCP `watch.files`** — watcher management is also available through MCP for agent frontends that prefer tool calls over raw REST.
+- **OpenAPI updated** — `/v1/watch/files` is now documented in the public API spec.
+- **579 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -414,6 +414,16 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/v1/plan` | Build a structured execution plan from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_steps": 8, "memory_profile": "projects/<name>"}` |
+
+### File Watchers
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/v1/watch/files` | List active file watchers |
+| `POST` | `/v1/watch/files` | Add a watcher. Body: `{"path": "...", "recursive": true, "patterns": ["*.py"], "label": "repo"}` |
+| `DELETE` | `/v1/watch/files` | Remove a watcher. Body: `{"id": "..."}` |
+
+> File watcher changes are emitted as `file_watch_change` events over `/v1/events`.
 
 ### Tasks & Queue
 

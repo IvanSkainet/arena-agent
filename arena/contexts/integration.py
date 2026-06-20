@@ -83,6 +83,21 @@ class EventHandlerContext:
 
 
 @dataclass(frozen=True)
+class FileWatchHandlerContext:
+    """Dependencies for file watcher management handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    app_cfg_key: Any
+    home: Any
+    list_sync: Callable[[], dict[str, Any]]
+    add_sync: Callable[..., dict[str, Any]]
+    remove_sync: Callable[[str], dict[str, Any]]
+    utc_now: Callable[[], str]
+
+
+@dataclass(frozen=True)
 class WatchdogHandlerContext:
     """Dependencies for watchdog status/config handlers."""
 
@@ -104,4 +119,4 @@ class McpHandlerContext:
     handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
     log_error: Callable[..., None]
 
-__all__ = ['BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'EventHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']
+__all__ = ['BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'EventHandlerContext', 'FileWatchHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']

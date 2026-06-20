@@ -5,6 +5,7 @@ from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any, Callable
 
+from arena.app_keys import APP_CFG
 from arena.wiring.env import RuntimeEnv
 
 
@@ -91,6 +92,21 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     planner_handlers = env.make_planner_handlers(planner_handler_ctx)
     env.export_handler_attrs(registry, planner_handlers, {"handle_v1_plan": "plan"})
     registry.update({"_planner_handler_ctx": planner_handler_ctx, "_planner_handlers": planner_handlers})
+
+    file_watch_handler_ctx = env.FileWatchHandlerContext(
+        require_auth=env.require_auth,
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        app_cfg_key=APP_CFG,
+        home=Path.home(),
+        list_sync=env._file_watch_list_sync,
+        add_sync=env._file_watch_add_sync,
+        remove_sync=env._file_watch_remove_sync,
+        utc_now=env.utc_now,
+    )
+    file_watch_handlers = env.make_file_watch_handlers(file_watch_handler_ctx)
+    env.export_handler_attrs(registry, file_watch_handlers, {"handle_v1_watch_files": "watch_files"})
+    registry.update({"_file_watch_handler_ctx": file_watch_handler_ctx, "_file_watch_handlers": file_watch_handlers})
 
     registry.update({
         "_hooks_list_sync": env._resource_runtime.hooks_list_sync,
