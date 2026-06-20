@@ -1,5 +1,22 @@
 # Changelog
 
+## v3.3.1 - 2026-06-20
+
+### Added
+- **DX2 integration recipe set** — added `docs/INTEGRATIONS.md` plus concrete recipe docs for Arena Agent Mode, Claude-style chats, Cursor, Cline, Windsurf, Open Interpreter, and local model backends.
+- **Integration doc regression tests** — added coverage ensuring the recipe index exists, the expected recipe files are present, and they mention profile-aware memory usage.
+
+### Improved
+- **AI prompt template refreshed for Memory Profiles.** `docs/AI_PROMPT_TEMPLATE.md` now teaches agents to use scoped profiles like `projects/<name>`, `personal`, `code`, and `browser` instead of dumping everything into one memory bucket.
+- **README / README.ru now point at the integration recipe index**, making the new documentation easier to discover.
+- **Canonical roadmap updated** — `DX2` is now considered complete and the recommended next step shifts to `A1` Built-in Planner.
+
+### Validation
+- Local `pytest -q`: PASS, 569 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.3.0 - 2026-06-19
 
 ### Added

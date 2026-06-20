@@ -46,14 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.3.0
+### 🆕 What's new in v3.3.1
 
-- **Memory Profiles (`M3`)** — memory is now segmented by profile across REST, MCP, runtime, and dashboard flows. You can keep separate spaces like `default`, `personal`, `projects/<name>`, `code`, `browser`, or custom profile ids.
-- **Profile-aware memory API** — `/v1/memory`, `/v1/recall`, and `/v1/recall/digest` now accept `profile`, and memory listing responses include discovered profile names.
-- **Profile-aware MCP memory tools** — `mem.set`, `mem.get`, `memory.recall`, `memory.digest`, `memory.export`, and `memory.import` now understand profiles.
-- **Automatic schema migration** — old single-profile memory databases are migrated into the `default` profile without losing facts.
-- **Dashboard memory profile controls** — Memory and Recall tabs now keep an active profile in sync.
-- **566 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **DX2 integration recipes** — Arena now ships a real integration recipe set in `docs/INTEGRATIONS.md`, covering Arena Agent Mode, Claude-style chats, Cursor, Cline, Windsurf, Open Interpreter, and local model backends.
+- **AI prompt template refreshed for Memory Profiles** — the base prompt now explicitly teaches agents to use scoped memory profiles like `projects/<name>`, `personal`, `code`, and `browser`.
+- **README discoverability improved** — README and README.ru now link directly to the integration recipe index.
+- **569 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -255,6 +253,17 @@ In your chat:
 Most modern AI chat UIs (Claude.ai, ChatGPT custom GPTs, AnythingLLM, Open WebUI, ...) support custom HTTP tools or MCP servers and can call your endpoints directly.
 
 For a ready-to-use system prompt template, see [`docs/AI_PROMPT_TEMPLATE.md`](docs/AI_PROMPT_TEMPLATE.md).
+
+#### Integration recipes
+
+Ready-to-use recipes for major frontends and IDE agents live in [`docs/INTEGRATIONS.md`](docs/INTEGRATIONS.md), including:
+- Arena Agent Mode
+- Claude / generic custom-tools chats
+- Cursor
+- Cline
+- Windsurf
+- Open Interpreter
+- Local model backends (Ollama / OpenRouter / Groq / Together)
 
 #### Using with Arena Agent Mode
 

@@ -33,10 +33,10 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **MCP tool `fs.edit`**: Same as above, but via MCP protocol. Use when connected through `/mcp` or `/ws`.
 
 ### 3. Local Semantic RAG Memory (SQLite)
-- **`GET /v1/memory?q=...`**: Fuzzy/FTS5 trigram matched search in the local memory database.
-- **`POST /v1/memory`**: Store a new key/value fact with optional tags: `{"key": "...", "value": "...", "tags": [...]}`.
-- **`DELETE /v1/memory`**: Delete a fact by key: `{"key": "..."}`.
-- **`GET /v1/recall?q=...`**: Run TF-scored recall and obtain a compact memory digest.
+- **`GET /v1/memory?q=...&profile=...`**: Fuzzy/FTS5 trigram matched search in the local memory database, scoped to a Memory Profile (`default`, `personal`, `projects/<name>`, `code`, `browser`, or `all`).
+- **`POST /v1/memory`**: Store a new key/value fact with optional tags and profile: `{"profile": "projects/demo", "key": "...", "value": "...", "tags": [...]}`.
+- **`DELETE /v1/memory`**: Delete a fact by key within a profile: `{"profile": "projects/demo", "key": "..."}`.
+- **`GET /v1/recall?q=...&profile=...`**: Run TF-scored recall and obtain profile-scoped results.
 
 ### 4. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.
@@ -88,7 +88,7 @@ print(resp.json())
 
 1. **Be Independent & Agentic:** Analyze my request, figure out which endpoints of the Arena Bridge you need to call, and execute them recursively until you reach the target.
 2. **Double Check Execution:** If a shell command or action fails, check `stderr` or read relevant logs at `/v1/logs`.
-3. **Save Memory Often:** When you learn important facts about my setup, projects, or preferences, store them via `POST /v1/memory` so you and other agents can recall them in the future.
+3. **Save Memory Often — and scope it correctly:** When you learn important facts about my setup, projects, or preferences, store them via `POST /v1/memory` in an appropriate Memory Profile (`personal`, `projects/<name>`, `code`, `browser`, or `default`) so you and other agents can recall them later without mixing unrelated contexts.
 4. **Be respectful of OS constraints:** The bridge auto-detects CachyOS, Linux, Windows, or macOS, and adapts helpers (e.g. using `Get-CimInstance` on Windows or user systemd on Linux). Write platform-aware commands.
 5. **Always notify when done:** You can play a `success` or `melody` beep on my PC when you finish a long task to let me know you are done!
 
