@@ -46,11 +46,14 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.2.14
+### 🆕 What's new in v3.3.0
 
-- **Repository cleanup** — dead per-release scratch files (`release_v*.md`) and the obsolete `bump_v323.py` helper were removed from the repo.
-- **Release hygiene improved** — future `release_v*.md` and `bump_v*.py` scratch files are now ignored, and `RELEASE.md` explicitly tells maintainers to use temporary/untracked notes files for GitHub releases.
-- **558 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Memory Profiles (`M3`)** — memory is now segmented by profile across REST, MCP, runtime, and dashboard flows. You can keep separate spaces like `default`, `personal`, `projects/<name>`, `code`, `browser`, or custom profile ids.
+- **Profile-aware memory API** — `/v1/memory`, `/v1/recall`, and `/v1/recall/digest` now accept `profile`, and memory listing responses include discovered profile names.
+- **Profile-aware MCP memory tools** — `mem.set`, `mem.get`, `memory.recall`, `memory.digest`, `memory.export`, and `memory.import` now understand profiles.
+- **Automatic schema migration** — old single-profile memory databases are migrated into the `default` profile without losing facts.
+- **Dashboard memory profile controls** — Memory and Recall tabs now keep an active profile in sync.
+- **566 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -391,11 +394,11 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/memory` | List memory facts (key/value/tags JSONL, pagination: `?offset=&limit=`) |
-| `POST` | `/v1/memory` | Set memory fact. Body: `{"key": "...", "value": "...", "tags": [...]}` |
-| `DELETE` | `/v1/memory` | Delete memory fact by key. Body: `{"key": "..."}` |
-| `GET` | `/v1/recall?q=…&top=5` | TF-scored fuzzy search + digest |
-| `GET` | `/v1/recall/digest` | Memory digest |
+| `GET` | `/v1/memory` | List memory facts for a profile (default: `default`), pagination: `?profile=&offset=&limit=`; use `profile=all` to query all profiles |
+| `POST` | `/v1/memory` | Set memory fact. Body: `{"profile": "default", "key": "...", "value": "...", "tags": [...]}` |
+| `DELETE` | `/v1/memory` | Delete memory fact by key within a profile. Body: `{"profile": "default", "key": "..."}` |
+| `GET` | `/v1/recall?q=…&top=5&profile=` | TF-scored fuzzy search scoped to a profile (or `profile=all`) |
+| `GET` | `/v1/recall/digest?profile=` | Memory digest for a profile (or `profile=all`) |
 
 ### Tasks & Queue
 

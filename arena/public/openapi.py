@@ -75,8 +75,33 @@ def build_openapi_spec(ctx) -> dict:
             "/v1/skills": {"get": {"summary": "List available skills", "tags": ["Skills"], "responses": {"200": {"description": "Skill list"}}}},
             "/v1/skills/run": {"post": {"summary": "Execute a skill", "tags": ["Skills"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"name": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}}}}}}}, "responses": {"200": {"description": "Skill output"}}},
             "/v1/tasks": {"get": {"summary": "List tasks", "tags": ["Tasks"], "responses": {"200": {"description": "Task list"}}}, "post": {"summary": "Create task (cmd or title)", "tags": ["Tasks"], "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"cmd": {"type": "string", "description": "Command to execute"}, "title": {"type": "string", "description": "Task title (if no cmd)"}, "description": {"type": "string"}, "priority": {"type": "string", "enum": ["low", "normal", "high"]}}}}}}, "responses": {"200": {"description": "Created task"}}}},
-            "/v1/memory": {"get": {"summary": "List memory facts", "tags": ["Memory"], "responses": {"200": {"description": "Memory entries"}}}},
-            "/v1/recall": {"get": {"summary": "Recall relevant facts", "tags": ["Memory"], "responses": {"200": {"description": "Recalled facts"}}}},
+            "/v1/memory": {
+                "get": {
+                    "summary": "List memory facts",
+                    "tags": ["Memory"],
+                    "parameters": [
+                        {"name": "profile", "in": "query", "schema": {"type": "string"}, "description": "Memory profile id, or 'all' / '*' for all profiles (default: default)"},
+                        {"name": "q", "in": "query", "schema": {"type": "string"}, "description": "Optional substring filter"},
+                        {"name": "offset", "in": "query", "schema": {"type": "integer", "default": 0}},
+                        {"name": "limit", "in": "query", "schema": {"type": "integer", "default": 100}}
+                    ],
+                    "responses": {"200": {"description": "Memory entries"}}
+                },
+                "post": {
+                    "summary": "Create or update a memory fact",
+                    "tags": ["Memory"],
+                    "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"profile": {"type": "string"}, "key": {"type": "string"}, "value": {"type": "string"}, "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["key", "value"]}}}},
+                    "responses": {"200": {"description": "Memory fact written"}}
+                },
+                "delete": {
+                    "summary": "Delete a memory fact from a profile",
+                    "tags": ["Memory"],
+                    "requestBody": {"content": {"application/json": {"schema": {"type": "object", "properties": {"profile": {"type": "string"}, "key": {"type": "string"}}, "required": ["key"]}}}},
+                    "responses": {"200": {"description": "Delete result"}}
+                }
+            },
+            "/v1/recall": {"get": {"summary": "Recall relevant facts", "tags": ["Memory"], "parameters": [{"name": "q", "in": "query", "required": True, "schema": {"type": "string"}}, {"name": "top", "in": "query", "schema": {"type": "integer", "default": 5}}, {"name": "profile", "in": "query", "schema": {"type": "string"}, "description": "Memory profile id, or 'all' / '*' for all profiles"}], "responses": {"200": {"description": "Recalled facts"}}}},
+            "/v1/recall/digest": {"get": {"summary": "Generate a memory digest", "tags": ["Memory"], "parameters": [{"name": "profile", "in": "query", "schema": {"type": "string"}, "description": "Memory profile id, or 'all' / '*' for all profiles"}], "responses": {"200": {"description": "Digest markdown"}}}},
             "/v1/sysinfo": {"get": {"summary": "System information", "tags": ["System"], "responses": {"200": {"description": "System info"}}}},
             "/v1/audit": {"get": {"summary": "Audit log", "tags": ["System"], "responses": {"200": {"description": "Audit entries"}}}},
             "/v1/doctor": {"get": {"summary": "Run diagnostics", "tags": ["System"], "responses": {"200": {"description": "Diagnostic results"}}}},

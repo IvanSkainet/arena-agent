@@ -2,7 +2,7 @@
 <h1>Memory</h1>
 <div class="card">
 <h2>Add Fact</h2>
-<div class="row"><input id="memKey" placeholder="Key" style="flex:1"><input id="memValue" placeholder="Value" style="flex:2"><input id="memTags" placeholder="Tags (comma)" style="flex:1"><button class="success" onclick="addMemory()">Add</button></div>
+<div class="row"><input id="memProfile" placeholder="Profile (default)" style="flex:1" oninput="syncMemoryProfileFields(this.value)"><input id="memKey" placeholder="Key" style="flex:1"><input id="memValue" placeholder="Value" style="flex:2"><input id="memTags" placeholder="Tags (comma)" style="flex:1"><button class="success" onclick="addMemory()">Add</button></div>
 </div>
 <div class="card">
 <div class="row"><input id="memSearch" placeholder="Search facts..." style="flex:1"><button onclick="loadMemory()">Search</button>

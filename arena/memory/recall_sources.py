@@ -1,18 +1,27 @@
 """Memory recall data sources."""
 from __future__ import annotations
 
+from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profile_filter
 from arena.memory.recall_paths import *  # noqa: F401,F403
 from arena.memory.recall_score import score
 
-def recall_facts(q_tokens: list[str], top: int) -> list[dict]:
+def recall_facts(q_tokens: list[str], top: int, profile: str | None = DEFAULT_MEMORY_PROFILE) -> list[dict]:
     """Возврат top фактов из facts.db с ненулевым score."""
     p = get_mem_dir() / "facts.db"
     if not p.exists(): return []
     items = []
+    profile_filter = None if profile is None else normalize_memory_profile_filter(profile)
     try:
         with sqlite3.connect(p) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts")
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(memory_facts)").fetchall()]
+            if "profile" in cols:
+                if profile_filter is None:
+                    cursor = conn.execute("SELECT profile, key, value, tags, timestamp FROM memory_facts")
+                else:
+                    cursor = conn.execute("SELECT profile, key, value, tags, timestamp FROM memory_facts WHERE profile = ?", (profile_filter,))
+            else:
+                cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts")
             for r in cursor:
                 key = r['key'] or ""
                 value = r['value'] or ""
@@ -24,6 +33,7 @@ def recall_facts(q_tokens: list[str], top: int) -> list[dict]:
                 fact_obj = {
                     "ts": r['timestamp'],
                     "type": "fact",
+                    "profile": r['profile'] if 'profile' in r.keys() else DEFAULT_MEMORY_PROFILE,
                     "key": key,
                     "value": value,
                     "tags": tags_list

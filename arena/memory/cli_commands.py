@@ -9,9 +9,9 @@ def remember(args: argparse.Namespace) -> int:
     value_tokens, tags = _split_remember_rest(args.rest)
     if not value_tokens:
         raise ValueError("value is required")
-    append({"ts": now(), "type": "fact", "key": args.key,
+    append({"ts": now(), "type": "fact", "profile": getattr(args, "profile", "default"), "key": args.key,
             "value": " ".join(value_tokens), "tags": tags})
-    print(f"remembered: {args.key} [{','.join(tags) or '-'}]")
+    print(f"remembered: {args.key} [{','.join(tags) or '-'}] profile={getattr(args, 'profile', 'default')}")
     return 0
 
 def recall(args: argparse.Namespace) -> int:
@@ -22,10 +22,15 @@ def recall(args: argparse.Namespace) -> int:
     q = (args.query or "").lower()
     rows: list[dict] = []
     
+    profile = getattr(args, "profile", "default")
     try:
         with sqlite3.connect(db_path) as conn:
             conn.row_factory = sqlite3.Row
-            cursor = conn.execute("SELECT key, value, tags, timestamp FROM memory_facts ORDER BY timestamp ASC")
+            cols = [row[1] for row in conn.execute("PRAGMA table_info(memory_facts)").fetchall()]
+            if "profile" in cols and profile not in ("all", "*"):
+                cursor = conn.execute("SELECT profile, key, value, tags, timestamp FROM memory_facts WHERE profile = ? ORDER BY timestamp ASC", (profile,))
+            else:
+                cursor = conn.execute("SELECT profile, key, value, tags, timestamp FROM memory_facts ORDER BY timestamp ASC" if "profile" in cols else "SELECT key, value, tags, timestamp FROM memory_facts ORDER BY timestamp ASC")
             for r in cursor:
                 key = r['key'] or ""
                 value = r['value'] or ""
@@ -36,6 +41,7 @@ def recall(args: argparse.Namespace) -> int:
                 
                 obj = {
                     "ts": r['timestamp'],
+                    "profile": r['profile'] if 'profile' in r.keys() else 'default',
                     "key": key,
                     "value": value,
                     "tags": tags_list

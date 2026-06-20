@@ -14,11 +14,13 @@ def main() -> int:
     s = sub.add_parser("remember")
     s.add_argument("key")
     s.add_argument("rest", nargs=argparse.REMAINDER)
+    s.add_argument("--profile", default="default")
     s.set_defaults(func=remember)
 
     s = sub.add_parser("recall")
     s.add_argument("query", nargs="?")
     s.add_argument("--limit", type=int, default=50)
+    s.add_argument("--profile", default="default")
     s.set_defaults(func=recall)
 
     args = p.parse_args()

@@ -18,6 +18,7 @@ def build_memory_observability_registries(g: MutableMapping[str, Any]) -> dict[s
         cors_json_response=env._cors_json_response,
         executor=env._EXECUTOR,
         search_facts_paged=env._search_facts_paged,
+        list_profiles=env._list_memory_profiles,
         write_fact=env._write_fact,
         delete_fact=env._delete_fact,
         recall_sync=env._recall_sync,

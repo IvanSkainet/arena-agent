@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.3.0 - 2026-06-19
+
+### Added
+- **Memory Profiles (`M3`)** — memory is now scoped by profile across REST, MCP, runtime, and dashboard flows. Facts may live in spaces like `default`, `personal`, `projects/<name>`, `code`, `browser`, or custom profile ids.
+- **Profile-aware REST memory API** — `/v1/memory`, `/v1/recall`, and `/v1/recall/digest` now accept `profile`, and `/v1/memory` responses include `profile` plus discovered `profiles`.
+- **Profile-aware MCP memory tools** — `mem.set`, `mem.get`, `memory.recall`, `memory.digest`, `memory.export`, and `memory.import` now understand profiles.
+- **Memory schema migration** — existing single-profile SQLite memory stores are migrated automatically into the `default` profile without data loss.
+- **Dashboard profile controls** — Memory and Recall tabs now let the user choose the active memory profile and keep it synced locally.
+
+### Changed
+- **Memory DB schema upgraded** from `PRIMARY KEY(key)` to `PRIMARY KEY(profile, key)`, allowing the same key to exist independently in multiple profiles.
+- **`agentctl` memory commands** now understand `--profile`, and CLI recall output is aligned with the profile-aware API.
+- **OpenAPI memory docs** now document profile-aware memory and recall usage.
+
+### Tests
+- Added coverage for memory schema migration, cross-profile key isolation, profile-scoped CRUD/recall handlers, MCP profile support, and export/import round-trips with profile preservation.
+- Total: **566 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 566 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.2.14 - 2026-06-19
 
 ### Removed

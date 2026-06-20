@@ -2,7 +2,7 @@
 <h1>Recall <span class="version-tag">Smart Search</span></h1>
 <div class="card">
 <h2>TF-Scored Memory Search</h2>
-<div class="row"><input id="recallQuery" placeholder="Enter search query for smart recall..." style="flex:1">
+<div class="row"><input id="recallProfile" placeholder="Profile (default / all)" style="flex:1" oninput="syncMemoryProfileFields(this.value)"><input id="recallQuery" placeholder="Enter search query for smart recall..." style="flex:2">
 <button class="info" onclick="runRecall()">Recall</button>
 <button onclick="memoryDigestFull()">Memory Digest</button></div>
 </div>

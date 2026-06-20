@@ -16,21 +16,18 @@ function tfScore(query, text) {
 async function runRecall() {
   const q = document.getElementById("recallQuery").value.trim();
   if (!q) { alert("Enter a search query"); return; }
+  syncMemoryProfileFields(getActiveMemoryProfile());
   const resultsEl = document.getElementById("recallResults");
   resultsEl.style.display = "block";
   resultsEl.innerHTML = "<span class='spinner'></span> Searching with TF scoring...";
   try {
-    const result = await api("/v1/memory");
+    const result = await api("/v1/recall?q=" + encodeURIComponent(q) + "&top=20&" + memoryProfileQueryParam());
     if (!result.ok) { resultsEl.innerHTML = "Error: " + esc(result.error||"?"); return; }
-    const facts = (result.facts || []).map(f => {
-      const text = (f.key + " " + f.value + " " + (f.tags||[]).join(" "));
-      const score = tfScore(q, text);
-      return {...f, score};
-    }).filter(f => f.score > 0).sort((a,b) => b.score - a.score);
+    const facts = (result.facts || []).slice();
 
     resultsEl.innerHTML = "";
     const h3 = document.createElement("h3");
-    h3.textContent = "Results for: \"" + q + "\" (" + facts.length + " matches)";
+    h3.textContent = "Results for: \"" + q + "\" in profile \"" + (result.profile || getActiveMemoryProfile()) + "\" (" + facts.length + " matches)";
     resultsEl.appendChild(h3);
 
     if (!facts.length) {
@@ -41,12 +38,14 @@ async function runRecall() {
       return;
     }
 
-    facts.forEach(f => {
+    facts.forEach(item => {
+      const f = item.fact || item;
       const card = document.createElement("div");
       card.style.cssText = "background:var(--bg3);border:1px solid var(--accent);border-radius:4px;padding:8px 12px;margin-top:6px";
       const scoreBadge = document.createElement("span");
-      scoreBadge.className = "badge " + (f.score > 0.3 ? "ok" : f.score > 0.1 ? "warn" : "info");
-      scoreBadge.textContent = "Score: " + (f.score * 100).toFixed(1) + "%";
+      const score = item.score || tfScore(q, (f.key || "") + " " + (f.value || "") + " " + (f.tags || []).join(" "));
+      scoreBadge.className = "badge " + (score > 0.3 ? "ok" : score > 0.1 ? "warn" : "info");
+      scoreBadge.textContent = "Score: " + (score * 100).toFixed(1) + "%";
       const keySpan = document.createElement("strong");
       keySpan.textContent = f.key || "?";
       const valSpan = document.createElement("span");
@@ -57,6 +56,14 @@ async function runRecall() {
       card.appendChild(keySpan);
       card.appendChild(document.createTextNode(": "));
       card.appendChild(valSpan);
+      if (f.profile) {
+        card.appendChild(document.createElement("br"));
+        const profile = document.createElement("span");
+        profile.className = "mono";
+        profile.style.color = "var(--text2)";
+        profile.textContent = "profile=" + f.profile;
+        card.appendChild(profile);
+      }
       if (f.tags && f.tags.length) {
         card.appendChild(document.createTextNode(" "));
         f.tags.forEach(t => {
@@ -75,41 +82,17 @@ async function runRecall() {
 }
 
 async function memoryDigestFull() {
+  syncMemoryProfileFields(getActiveMemoryProfile());
   const panel = document.getElementById("digestResults");
   panel.style.display = "block";
   panel.innerHTML = "<span class='spinner'></span> Generating memory digest...";
   try {
-    const result = await api("/v1/memory");
+    const result = await api("/v1/recall/digest?" + memoryProfileQueryParam());
     if (!result.ok) { panel.innerHTML = "Error: " + esc(result.error||"?"); return; }
-    const facts = result.facts || [];
-    const tagCounts = {};
-    const tagKeys = {};
-    facts.forEach(f => {
-      (f.tags||[]).forEach(t => {
-        tagCounts[t] = (tagCounts[t]||0) + 1;
-        if (!tagKeys[t]) tagKeys[t] = [];
-        tagKeys[t].push(f.key);
-      });
-    });
-
-    let output = "=== MEMORY DIGEST ===\n";
-    output += "Total Facts: " + facts.length + "\n";
-    output += "Unique Tags: " + Object.keys(tagCounts).length + "\n\n";
-    output += "--- By Tag ---\n";
-    Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]).forEach(([t,c]) => {
-      output += "[" + t + "] (" + c + " facts)\n";
-      (tagKeys[t]||[]).slice(0,5).forEach(k => { output += "  - " + k + "\n"; });
-      if (tagKeys[t].length > 5) output += "  ... and " + (tagKeys[t].length - 5) + " more\n";
-    });
-    output += "\n--- Recent Facts ---\n";
-    facts.slice(0, 20).forEach(f => {
-      output += (f.key||"?") + ": " + (f.value||"").slice(0, 100) + "\n";
-    });
-
     const pre = document.createElement("pre");
     pre.className = "mono";
     pre.style.whiteSpace = "pre-wrap";
-    pre.textContent = output;
+    pre.textContent = result.digest || "";
     panel.innerHTML = "";
     const h3 = document.createElement("h3");
     h3.textContent = "Memory Digest";
@@ -119,4 +102,3 @@ async function memoryDigestFull() {
     panel.innerHTML = "Error: " + esc(e.message||"Unknown");
   }
 }
-

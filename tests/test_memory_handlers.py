@@ -16,6 +16,7 @@ def test_memory_handlers_factory_outputs():
         cors_json_response=ub._cors_json_response,
         executor=ub._EXECUTOR,
         search_facts_paged=ub._search_facts_paged,
+        list_profiles=ub._list_memory_profiles,
         write_fact=ub._write_fact,
         delete_fact=ub._delete_fact,
         recall_sync=ub._recall_sync,

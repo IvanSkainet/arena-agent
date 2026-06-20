@@ -26,6 +26,7 @@ def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[
         "_memory_runtime": memory_runtime,
         "init_memory_db": memory_runtime.init_memory_db,
         "_load_facts": memory_runtime.load_facts,
+        "_list_memory_profiles": memory_runtime.list_profiles,
         "_search_facts_paged": memory_runtime.search_facts_paged,
         "_write_fact": memory_runtime.write_fact,
         "_delete_fact": memory_runtime.delete_fact,

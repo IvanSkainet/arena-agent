@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-19
-Validated baseline: `v3.2.13`
+Validated baseline: `v3.3.0`
 
 This file is the planning source of truth.
 
@@ -9,8 +9,8 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.2.13`
-- Tests: `558 passed`
+- Version: `3.3.0`
+- Tests: `566 passed`
 - MCP tools: `33`
 - Route objects in aiohttp app: `296`
 - Distinct method/path routes excluding auto-HEAD: `194`
@@ -19,6 +19,7 @@ This file is the planning source of truth.
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
 - MCP git tools: `git.status`, `git.diff`, `git.log`, `git.commit`
 - memory export/import
+- memory profiles (`M3`) across REST, MCP, runtime, and dashboard
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -47,18 +48,7 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — Memory Profiles (`M3`)
-Why:
-- directly supports project/personal/code/browser separation
-- enables companion-style state without memory soup
-- creates the foundation for notes, user profile, and workspace panes
-
-Definition of done:
-- profile-aware write/read/recall
-- profile switch via REST + MCP
-- visible current profile in UI/API
-
-## P2 — Integration Recipes (`DX2`)
+## P1 — Integration Recipes (`DX2`)
 Why:
 - low-risk, high-utility
 - helps users actually use Arena with external agent frontends and IDEs
@@ -67,7 +57,7 @@ Why:
 Definition of done:
 - ready examples for Claude, Cursor, Cline, Open Interpreter, Windsurf, local model backends
 
-## P3 — Built-in Planner (`A1`)
+## P2 — Built-in Planner (`A1`)
 Why:
 - the strongest first step from "toolbox" to "agent"
 - aligns with the companion/workspace direction better than adding another isolated endpoint
@@ -77,7 +67,7 @@ Definition of done:
 - task decomposition into actionable steps
 - stable machine-readable + human-readable output
 
-## P4 — File Watchers (`F5`)
+## P3 — File Watchers (`F5`)
 Why:
 - adds live workspace awareness
 - fits strongly with the assistant/workspace vision
@@ -132,9 +122,9 @@ Status update:
 
 ## 7. Order of execution I recommend
 
-1. `M3` Memory Profiles
-2. `DX2` Integration Recipes
-3. `A1` Built-in Planner
-4. `F5` File Watchers
+1. `DX2` Integration Recipes
+2. `A1` Built-in Planner
+3. `F5` File Watchers
+4. `F4` Safe editor with preview/confirm/rollback
 
 If a low-risk cleanup slot is needed between major tasks, use it for stale-surface cleanup and doc consistency.
