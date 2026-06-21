@@ -8,7 +8,7 @@ import shutil
 from typing import Any
 
 from arena.desktop.kwin_window_action import kwin_window_action_via_script
-from arena.desktop.window_action_plans import plan_window_action_geometry
+from arena.desktop.window_action_plans import PLANNED_ACTIONS, plan_window_action_geometry
 from arena.desktop.window_catalog import find_window_by_id, list_desktop_windows
 
 
@@ -38,7 +38,7 @@ async def perform_window_action(
     backend_detail = None
     effective_action = action
     plan = None
-    if action in {"center", "move_to_display"}:
+    if action in PLANNED_ACTIONS:
         plan = plan_window_action_geometry(action, before=before, displays=list(before_listing.get("displays") or []), target_display=target_display)
         if not plan.get("ok"):
             return {"ok": False, "action": action, "target_id": target_id, **plan}
@@ -86,7 +86,7 @@ def _verify_action(action: str, before: dict[str, Any] | None, after: dict[str, 
         return after is None
     if not after:
         return False
-    if action in {"center", "move_to_display"}:
+    if action in PLANNED_ACTIONS:
         geometry = after.get("geometry") or {}
         checks = []
         if x is not None:

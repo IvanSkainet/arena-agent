@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.12.0 - 2026-06-21
+
+### Added
+- **Snap/tile-style placement actions (`D3`)** — `desktop.window_action` now supports `snap_left`, `snap_right`, `snap_top`, `snap_bottom`, `snap_top_left`, `snap_top_right`, `snap_bottom_left`, and `snap_bottom_right`.
+
+### Improved
+- **Display-aware planning now covers tiling semantics** — window-action planning can now translate higher-level placement intents into deterministic geometry on the resolved display instead of requiring raw coordinates.
+- **Display-aware dry-runs are richer again** — semantic placement actions like `snap_right` now preview the exact geometry that will be applied before the action runs.
+- **Desktop maturity advanced from placement to layout policies** — the bridge now has the beginnings of monitor-aware tiling behavior on top of raw move/resize primitives.
+
+### Tests
+- Added snap-placement planning regressions.
+- Total: **613 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 613 tests.
+- Local `pytest --collect-only`: PASS, 613 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live KDE/Wayland validation: PASS for `snap_right`; multi-display placement remains validated through unit coverage when only one live display is exposed.
+
 ## v3.11.0 - 2026-06-21
 
 ### Added

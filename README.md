@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.11.0
+### 🆕 What's new in v3.12.0
 
-- **Display-aware window placement landed** — `POST /v1/desktop/window_action` and MCP `desktop.window_action` now support `center` and `move_to_display` on top of the earlier low-level move/resize actions.
-- **Dry-runs got more useful** — for display-aware actions, Arena now returns planned geometry plus source/target display information before doing anything.
-- **Desktop control is getting more semantic** — the bridge is moving from raw coordinates toward policies like “place this window on that monitor” and “center this window on the display”.
-- **Still no KWin regression** — the new placement behavior stays on the non-interactive KDE/Wayland path instead of reintroducing focus-stealing queries.
-- **612 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Snap/tile-style placement arrived** — `POST /v1/desktop/window_action` and MCP `desktop.window_action` now support actions like `snap_left`, `snap_right`, and quadrant snaps.
+- **Window placement got more policy-driven** — the bridge can now express common tiling intents instead of forcing every agent to compute monitor-relative coordinates itself.
+- **Dry-runs remain first-class** — semantic placement actions preview the exact geometry that will be applied before the bridge changes anything.
+- **Still no KWin regression** — the richer placement semantics remain on the non-interactive KDE/Wayland path instead of reintroducing focus-stealing queries.
+- **613 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -491,7 +491,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/desktop/windows` | List desktop windows with optional filters for title, class, pid, display, and active state; annotates windows with display metadata when available |
 | `GET` | `/v1/desktop/active_window` | Get the currently active desktop window |
 | `POST` | `/v1/desktop/focus` | Focus a window by id or semantic filters like title/class/display; supports `dry_run` target resolution before actual focus |
-| `POST` | `/v1/desktop/window_action` | Move, resize, center, move to another display, minimize, maximize, restore, close, or toggle fullscreen on a window resolved by id or semantic filters; supports `dry_run` |
+| `POST` | `/v1/desktop/window_action` | Move, resize, center, snap into common tiling positions, move to another display, minimize, maximize, restore, close, or toggle fullscreen on a window resolved by id or semantic filters; supports `dry_run` |
 | `POST` | `/v1/desktop/ocr` | Run OCR on a fresh desktop screenshot and return words, full text, confidence, and bounding boxes; can be scoped to a named display |
 | `POST` | `/v1/desktop/find_text` | Find text on the current desktop and return ranked matching bounding boxes plus click-ready center coordinates; can prefer or constrain matches to the active window or a named display |
 | `POST` | `/v1/desktop/click_text` | Find text on the current desktop, choose the best ranked match, and click it in one step; supports active-window-aware and display-aware targeting |

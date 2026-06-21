@@ -6,6 +6,19 @@ from typing import Any
 from arena.desktop.displays import match_display
 from arena.desktop.text_matching import coerce_geometry, point_in_geometry
 
+PLANNED_ACTIONS = {
+    "center",
+    "move_to_display",
+    "snap_left",
+    "snap_right",
+    "snap_top",
+    "snap_bottom",
+    "snap_top_left",
+    "snap_top_right",
+    "snap_bottom_left",
+    "snap_bottom_right",
+}
+
 
 def _clamp(value: int, minimum: int, maximum: int) -> int:
     return max(minimum, min(value, maximum))
@@ -56,6 +69,21 @@ def plan_window_action_geometry(action: str, *, before: dict[str, Any] | None, d
         max_y = dest_geom["y"] + max(0, dest_geom["height"] - height)
         x = _clamp(dest_geom["x"] + rel_x, dest_geom["x"], max_x)
         y = _clamp(dest_geom["y"] + rel_y, dest_geom["y"], max_y)
+    elif action.startswith("snap_"):
+        half_w, half_h = max(1, dest_geom["width"] // 2), max(1, dest_geom["height"] // 2)
+        snap_map = {
+            "snap_left": (dest_geom["x"], dest_geom["y"], half_w, dest_geom["height"]),
+            "snap_right": (dest_geom["x"] + half_w, dest_geom["y"], dest_geom["width"] - half_w, dest_geom["height"]),
+            "snap_top": (dest_geom["x"], dest_geom["y"], dest_geom["width"], half_h),
+            "snap_bottom": (dest_geom["x"], dest_geom["y"] + half_h, dest_geom["width"], dest_geom["height"] - half_h),
+            "snap_top_left": (dest_geom["x"], dest_geom["y"], half_w, half_h),
+            "snap_top_right": (dest_geom["x"] + half_w, dest_geom["y"], dest_geom["width"] - half_w, half_h),
+            "snap_bottom_left": (dest_geom["x"], dest_geom["y"] + half_h, half_w, dest_geom["height"] - half_h),
+            "snap_bottom_right": (dest_geom["x"] + half_w, dest_geom["y"] + half_h, dest_geom["width"] - half_w, dest_geom["height"] - half_h),
+        }
+        if action not in snap_map:
+            return {"ok": False, "error": "unsupported_planned_action", "status": 400}
+        x, y, width, height = snap_map[action]
     else:
         return {"ok": False, "error": "unsupported_planned_action", "status": 400}
     return {
@@ -69,4 +97,4 @@ def plan_window_action_geometry(action: str, *, before: dict[str, Any] | None, d
     }
 
 
-__all__ = ["plan_window_action_geometry"]
+__all__ = ["PLANNED_ACTIONS", "plan_window_action_geometry"]

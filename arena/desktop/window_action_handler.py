@@ -25,7 +25,7 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
         action = str(body.get("action", "") or "").strip().lower()
-        if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize", "center", "move_to_display"}:
+        if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right"}:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "unsupported action"}, status=400)
         resolved = await resolve_window_target(
@@ -46,7 +46,7 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "window_not_found", "candidates": resolved.get("candidates", [])}, status=404)
         preview = None
-        if action in {"center", "move_to_display"}:
+        if action in {"center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right"}:
             preview = plan_window_action_geometry(action, before=target, displays=list((resolved.get("listing") or {}).get("displays") or []), target_display=str(body.get("target_display", "") or ""))
             if not preview.get("ok"):
                 ctx.record_request(is_error=True, count_request=False)

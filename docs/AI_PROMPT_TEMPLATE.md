@@ -62,7 +62,7 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`GET /v1/desktop/windows`**: List desktop windows with optional filters for title, class, pid, display, and active state.
 - **`GET /v1/desktop/active_window`**: Return the currently active desktop window.
 - **`POST /v1/desktop/focus`**: Focus a window by id or semantic filters like title/class/display. Use `dry_run: true` first when you want to confirm resolution before actually moving focus.
-- **`POST /v1/desktop/window_action`**: Move, resize, center, move to another display, minimize, maximize, restore, close, or toggle fullscreen on a resolved window. Supports `dry_run` target resolution before acting.
+- **`POST /v1/desktop/window_action`**: Move, resize, center, snap into common tiling positions, move to another display, minimize, maximize, restore, close, or toggle fullscreen on a resolved window. Supports `dry_run` target resolution before acting.
 - **`POST /v1/desktop/click`**: Perform click at `{"x": N, "y": N, "button": "left"}`.
 - **`POST /v1/desktop/type`**: Simulate keystrokes/text typing on the active window: `{"text": "..."}`.
 - **`POST /v1/desktop/key`**: Send specific keys (e.g. `{"key": "Return"}`).

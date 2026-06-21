@@ -51,3 +51,16 @@ def test_plan_move_to_display_requires_target_display():
     result = plan_window_action_geometry("move_to_display", before=WINDOW, displays=DISPLAYS)
     assert result["ok"] is False
     assert result["error"] == "missing_target_display"
+
+
+
+def test_plan_snap_positions_use_target_display_geometry():
+    left = plan_window_action_geometry("snap_left", before=WINDOW, displays=DISPLAYS)
+    assert left["ok"] is True
+    assert left["x"] == 0 and left["y"] == 0
+    assert left["width"] == 1280 and left["height"] == 1440
+
+    br = plan_window_action_geometry("snap_bottom_right", before=WINDOW, displays=DISPLAYS)
+    assert br["ok"] is True
+    assert br["x"] == 1280 and br["y"] == 720
+    assert br["width"] == 1280 and br["height"] == 720
