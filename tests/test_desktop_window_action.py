@@ -74,6 +74,7 @@ def test_kwin_window_action_script_accepts_loadscript_zero(monkeypatch):
     result = asyncio.run(kwin_window_action_via_script("minimize", "{editor}", desktop_exec=_exec))
     assert result["ok"] is True
     assert result["minimized"] is True
+    assert result.get("error") is None
 
 
 

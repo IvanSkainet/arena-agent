@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.9.0
+### 🆕 What's new in v3.9.1
 
-- **Actual window actions landed** — `POST /v1/desktop/window_action` and MCP `desktop.window_action` now let agents move, resize, minimize, restore, and toggle fullscreen on resolved desktop windows.
+- **Actual window actions landed** — `POST /v1/desktop/window_action` and MCP `desktop.window_action` let agents move, resize, minimize, restore, and toggle fullscreen on resolved desktop windows.
 - **The same semantic targeting now powers focus and window actions** — title/class/pid/display-based resolution is reusable across desktop window control instead of living in one narrow endpoint.
-- **KWin/Wayland stays non-interactive** — UUID-style Wayland windows can now be manipulated through a journal-backed KWin script path, still avoiding the old focus-stealing regression class.
-- **Desktop maturity keeps compounding** — displays, filtered windows, focus dry-runs, OCR ranking, click-by-text, and window actions now form a more coherent desktop-control stack.
+- **KWin/Wayland stays non-interactive** — UUID-style Wayland windows can be manipulated through a journal-backed KWin script path, still avoiding the old focus-stealing regression class.
+- **Hotfix:** successful KWin window actions no longer report a stale `window_not_found` error in result metadata.
 - **607 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

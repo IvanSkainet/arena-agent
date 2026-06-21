@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.9.1 - 2026-06-21
+
+### Fixed
+- **KWin window-action result metadata** — the non-interactive KWin window-action helper no longer returns a stale `error: "window_not_found"` field on successful actions like move/resize/minimize/restore.
+
+### Validation
+- Local `pytest -q`: PASS, 607 tests.
+- Local `pytest --collect-only`: PASS, 607 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.9.0 - 2026-06-21
 
 ### Added

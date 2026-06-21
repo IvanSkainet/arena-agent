@@ -36,7 +36,8 @@ async def kwin_window_action_via_script(action: str, target_id: str, *, x=None, 
 function val(o, k, d) { try { var v = o[k]; return (v === undefined || v === null) ? d : v; } catch(e) { return d; } }
 function geom(r) { try { return {x:r.x, y:r.y, width:r.width, height:r.height}; } catch(e) { return null; } }
 var spec = __SPEC__;
-var result = {ok:false, action:spec.action, target_id:spec.target_id, error:'window_not_found'};
+var result = {ok:false, action:spec.action, target_id:spec.target_id, error:null};
+var matched = false;
 try {
   var list = workspace.windowList ? workspace.windowList() : (workspace.windows || []);
   for (var i = 0; i < list.length; i++) {
@@ -44,6 +45,7 @@ try {
     var id = String(val(w, 'windowId', val(w, 'internalId', '')));
     var iid = String(val(w, 'internalId', ''));
     if (id !== spec.target_id && iid !== spec.target_id) continue;
+    matched = true;
     result.title = String(val(w, 'caption', ''));
     try {
       if (spec.action === 'minimize') w.minimized = true;
@@ -59,13 +61,15 @@ try {
         try { g.x = nx; g.y = ny; g.width = nw; g.height = nh; w.frameGeometry = g; }
         catch(e) { w.frameGeometry = Qt.rect(nx, ny, nw, nh); }
       } else result.error = 'unsupported_action';
-      result.ok = result.error !== 'unsupported_action';
+      if (result.error !== 'unsupported_action') result.error = null;
+      result.ok = result.error === null;
     } catch(e) { result.error = String(e); }
     result.geometry = geom(val(w, 'frameGeometry', null));
     result.minimized = !!val(w, 'minimized', false);
     result.full_screen = !!val(w, 'fullScreen', false);
     break;
   }
+  if (!matched && result.error === null) result.error = 'window_not_found';
 } catch(e) { result.error = String(e); }
 print(__TOKEN__ + ' ' + JSON.stringify(result));
 '''.replace("__SPEC__", json.dumps(spec)).replace("__TOKEN__", json.dumps(token))

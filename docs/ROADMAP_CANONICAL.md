@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-21
-Validated baseline: `v3.9.0`
+Validated baseline: `v3.9.1`
 
 This file is the planning source of truth.
 
