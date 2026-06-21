@@ -4,6 +4,7 @@ from __future__ import annotations
 from aiohttp import web
 
 from arena.desktop.window_action import perform_window_action
+from arena.desktop.window_action_plans import plan_window_action_geometry
 from arena.desktop.window_catalog import resolve_window_target
 from arena.handler_context import DesktopHandlerContext
 
@@ -24,7 +25,7 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
         action = str(body.get("action", "") or "").strip().lower()
-        if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize"}:
+        if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize", "center", "move_to_display"}:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "unsupported action"}, status=400)
         resolved = await resolve_window_target(
@@ -44,8 +45,19 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
         if not target:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "window_not_found", "candidates": resolved.get("candidates", [])}, status=404)
+        preview = None
+        if action in {"center", "move_to_display"}:
+            preview = plan_window_action_geometry(action, before=target, displays=list((resolved.get("listing") or {}).get("displays") or []), target_display=str(body.get("target_display", "") or ""))
+            if not preview.get("ok"):
+                ctx.record_request(is_error=True, count_request=False)
+                return ctx.cors_json_response(preview, status=int(preview.get("status", 400)))
         if body.get("dry_run", False):
-            return ctx.cors_json_response({"ok": True, "resolved": True, "action": action, "target": target, "candidates": resolved.get("candidates", []), "dry_run": True})
+            payload = {"ok": True, "resolved": True, "action": action, "target": target, "candidates": resolved.get("candidates", []), "dry_run": True}
+            if preview:
+                payload["planned_geometry"] = {"x": preview["x"], "y": preview["y"], "width": preview["width"], "height": preview["height"]}
+                payload["source_display"] = preview.get("source_display")
+                payload["target_display"] = preview.get("target_display")
+            return ctx.cors_json_response(payload)
         result = await perform_window_action(
             action,
             target_id=str(target.get("id") or target.get("internal_id") or ""),
@@ -55,6 +67,7 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
             y=body.get("y"),
             width=body.get("width"),
             height=body.get("height"),
+            target_display=str(body.get("target_display", "") or ""),
             verify=body.get("verify", True),
             verify_timeout_ms=body.get("timeout_ms", 1000),
             desktop_exec=ctx.desktop_exec,

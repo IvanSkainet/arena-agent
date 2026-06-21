@@ -167,6 +167,17 @@ def test_window_action_handler_dry_run_and_registry():
     assert data["dry_run"] is True
     assert data["target"]["title"] == "Code - repo"
 
+    req2 = make_mocked_request("POST", "/v1/desktop/window_action", headers={"Authorization": "Bearer t"})
+
+    async def _json2():
+        return {"action": "center", "class": "code", "dry_run": True}
+
+    req2.json = _json2
+    resp2 = asyncio.run(handler(req2))
+    data2 = json.loads(resp2.text)
+    assert data2["ok"] is True
+    assert data2["planned_geometry"]["width"] == 900
+
     names = [tool["name"] for tool in MCP_TOOLS]
     assert "desktop.window_action" in names
     ctx2 = type("Ctx", (), {"app_config": staticmethod(lambda: {"port": 8765, "token": "t"})})()

@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.11.0 - 2026-06-21
+
+### Added
+- **Higher-level display-aware window actions (`D3`)** — `desktop.window_action` now supports `center` and `move_to_display`, building semantic multi-monitor behavior on top of the earlier low-level move/resize actions.
+
+### Improved
+- **Window-action dry-runs are more informative** — when the action is display-aware (`center` / `move_to_display`), dry-run responses now include planned geometry plus source/target display info.
+- **Display-aware planning is reusable** — window action geometry planning now lives in a dedicated helper, making desktop policies easier to extend without growing the execution backend into another monolith.
+- **Desktop roadmap advanced again** — the bridge now has not just primitive window movement but actual display-aware placement semantics.
+
+### Tests
+- Added centered-placement and move-to-display planning regressions.
+- Total: **612 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 612 tests.
+- Local `pytest --collect-only`: PASS, 612 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live KDE/Wayland validation: PASS for `center`; `move_to_display` remains unit-validated because the current live machine exposes only one active display.
+
 ## v3.10.0 - 2026-06-21
 
 ### Added

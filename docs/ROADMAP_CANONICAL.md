@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-21
-Validated baseline: `v3.10.0`
+Validated baseline: `v3.11.0`
 
 This file is the planning source of truth.
 
@@ -9,8 +9,8 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.10.0`
-- Tests: `609 passed`
+- Version: `3.11.0`
+- Tests: `612 passed`
 - MCP tools: `46`
 - Route objects in aiohttp app: `311`
 - Distinct method/path routes excluding auto-HEAD: `207`
@@ -32,6 +32,7 @@ This file is the planning source of truth.
 - desktop display/output discovery and display-scoped OCR/text targeting (`D3` slice)
 - filtered window catalog + safer focus resolution/dry-run + stronger KWin Wayland focus (`D3` slice)
 - window actions for move/resize/minimize/maximize/restore/close/fullscreen (`D3` slice)
+- display-aware placement actions like `center` and `move_to_display` (`D3` slice)
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -69,11 +70,12 @@ What just landed:
 - filtered window catalog and safer focus resolution/dry-run
 - stronger non-interactive KWin Wayland focus for UUID-style windows
 - actual window actions: move/resize/minimize/maximize/restore/close/fullscreen
+- display-aware placement actions: `center`, `move_to_display`
 
 What is still next:
-- higher-level window actions and policies beyond the current core set
-- further multi-monitor polish beyond output discovery/cropping and window-to-output mapping
+- richer multi-monitor policies beyond the current placement helpers
 - more semantic desktop actions beyond click-by-text
+- stronger workflows that combine windows + OCR + actions as one operation
 
 Definition of done:
 - better window management affordances
@@ -128,12 +130,13 @@ Status update:
 - semantic click-by-text, stronger OCR ranking, and display-aware desktop targeting landed in `v3.7.0`
 - filtered window catalog, safer focus resolution, stronger KWin Wayland focus, and initial window actions landed in `v3.8.0` / `v3.9.0`
 - maximize/unmaximize/close and geometry-aware maximize verification landed in `v3.10.0`
+- display-aware placement helpers landed in `v3.11.0`
 
 ---
 
 ## 7. Order of execution I recommend
 
-1. continue `D3` desktop maturity (more monitor/window semantics + higher-level desktop actions)
+1. continue `D3` desktop maturity (richer monitor/window semantics + composable desktop workflows)
 2. deeper agent loops and mission composition
 3. workspace UI surfaces v3 (user/profile panes, richer memory browser)
 4. model/provider abstraction improvements

@@ -8,6 +8,7 @@ import shutil
 from typing import Any
 
 from arena.desktop.kwin_window_action import kwin_window_action_via_script
+from arena.desktop.window_action_plans import plan_window_action_geometry
 from arena.desktop.window_catalog import find_window_by_id, list_desktop_windows
 
 
@@ -21,6 +22,7 @@ async def perform_window_action(
     y=None,
     width=None,
     height=None,
+    target_display: str = "",
     verify: bool = True,
     verify_timeout_ms: int = 1000,
     desktop_exec,
@@ -34,15 +36,23 @@ async def perform_window_action(
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
     backend = "none"
     backend_detail = None
+    effective_action = action
+    plan = None
+    if action in {"center", "move_to_display"}:
+        plan = plan_window_action_geometry(action, before=before, displays=list(before_listing.get("displays") or []), target_display=target_display)
+        if not plan.get("ok"):
+            return {"ok": False, "action": action, "target_id": target_id, **plan}
+        effective_action = "move_resize"
+        x, y, width, height = plan["x"], plan["y"], plan["width"], plan["height"]
 
     kwin_like_target = str(target_id).startswith("{") and str(target_id).endswith("}")
     if kwin_like_target or env.get("session_type") == "wayland":
-        backend_detail = await kwin_window_action_via_script(action, target_id, x=x, y=y, width=width, height=height, desktop_exec=desktop_exec)
+        backend_detail = await kwin_window_action_via_script(effective_action, target_id, x=x, y=y, width=width, height=height, desktop_exec=desktop_exec)
         if backend_detail.get("ok"):
             backend = backend_detail.get("backend", "kwin_window_action")
 
     if backend == "none" and shutil.which("wmctrl"):
-        cmd = _wmctrl_command(action, target_id, before, x=x, y=y, width=width, height=height, display_env=display_env)
+        cmd = _wmctrl_command(effective_action, target_id, before, x=x, y=y, width=width, height=height, display_env=display_env)
         if cmd:
             result = await desktop_exec(cmd, timeout=5)
             if result.get("ok") and result.get("exit_code") == 0:
@@ -50,7 +60,7 @@ async def perform_window_action(
                 backend_detail = result
 
     if backend == "none" and env.get("has_xdotool"):
-        cmd = _xdotool_command(action, target_id, before, x=x, y=y, width=width, height=height, display_env=display_env)
+        cmd = _xdotool_command(effective_action, target_id, before, x=x, y=y, width=width, height=height, display_env=display_env)
         if cmd:
             result = await desktop_exec(cmd, timeout=5)
             if result.get("ok") and result.get("exit_code") == 0:
@@ -67,7 +77,7 @@ async def perform_window_action(
         after_listing = await list_desktop_windows(desktop_exec=desktop_exec, detect_env=detect_env, kwin_windows_via_script=kwin_windows_via_script)
         after = find_window_by_id(list(after_listing.get("windows") or []), target_id)
         verified = _verify_action(action, before, after, x=x, y=y, width=width, height=height)
-    return {"ok": bool(backend) and (verified is not False), "action": action, "target_id": target_id, "title_contains": title_contains, "target_title": target_title, "tool": backend, "before": before, "after": after, "verified": verified, "backend_detail": backend_detail}
+    return {"ok": bool(backend) and (verified is not False), "action": action, "effective_action": effective_action, "target_id": target_id, "title_contains": title_contains, "target_title": target_title, "tool": backend, "before": before, "after": after, "verified": verified, "backend_detail": backend_detail, "planned_geometry": None if not plan else {"x": x, "y": y, "width": width, "height": height}, "source_display": None if not plan else plan.get("source_display"), "target_display": None if not plan else plan.get("target_display")}
 
 
 
@@ -76,6 +86,18 @@ def _verify_action(action: str, before: dict[str, Any] | None, after: dict[str, 
         return after is None
     if not after:
         return False
+    if action in {"center", "move_to_display"}:
+        geometry = after.get("geometry") or {}
+        checks = []
+        if x is not None:
+            checks.append(int(geometry.get("x", -1)) == int(x))
+        if y is not None:
+            checks.append(int(geometry.get("y", -1)) == int(y))
+        if width is not None:
+            checks.append(int(geometry.get("width", -1)) == int(width))
+        if height is not None:
+            checks.append(int(geometry.get("height", -1)) == int(height))
+        return all(checks)
     if action == "minimize":
         return after.get("minimized") is True
     if action == "restore":
