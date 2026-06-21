@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.9.0 - 2026-06-21
+
+### Added
+- **Window actions (`D3` slice)** — added `POST /v1/desktop/window_action`, supporting semantic target resolution plus actions like `move`, `resize`, `move_resize`, `minimize`, `restore`, `fullscreen`, and `unfullscreen`.
+- **MCP `desktop.window_action`** — window manipulation is now available through the MCP tool surface in addition to REST.
+
+### Improved
+- **Semantic target resolution is now reusable across desktop controls** — focus and window actions both reuse the same filtered window-catalog resolution path (`id`, `title`, `class`, `desktop_file`, `resource_name`, `pid`, `display`).
+- **KWin/Wayland window actions stay non-interactive** — UUID-style Wayland windows can now be manipulated through a temporary journal-reporting KWin script path without reintroducing interactive focus-stealing behavior.
+- **Desktop docs updated again** — README, OpenAPI, prompt docs, and canonical roadmap now reflect display-aware windows, focus dry-runs, and the new window-action surface.
+
+### Tests
+- Added KWin window-action, action verification, semantic dry-run, and MCP/handler regressions.
+- Total: **607 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 607 tests.
+- Local `pytest --collect-only`: PASS, 607 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.8.0 - 2026-06-21
 
 ### Added

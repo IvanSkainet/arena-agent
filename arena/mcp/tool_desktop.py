@@ -50,6 +50,8 @@ def handle_desktop_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_bridge_get(ctx, "/v1/desktop/windows", args), ensure_ascii=False))
     if name == "desktop.focus":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/focus", args), ensure_ascii=False))
+    if name == "desktop.window_action":
+        return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/window_action", args), ensure_ascii=False))
     if name == "desktop.ocr":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/desktop/ocr", args), ensure_ascii=False))
     if name == "desktop.find_text":

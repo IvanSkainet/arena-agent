@@ -36,6 +36,7 @@ def test_desktop_handlers_factory_outputs():
     assert callable(handlers.windows)
     assert callable(handlers.active_window)
     assert callable(handlers.focus)
+    assert callable(handlers.window_action)
     assert callable(handlers.ocr)
     assert callable(handlers.find_text)
     assert callable(handlers.click_text)
@@ -53,6 +54,7 @@ def test_unified_routes_use_extracted_desktop_handlers():
     assert ("GET", "/v1/desktop/windows") in paths
     assert ("GET", "/v1/desktop/active_window") in paths
     assert ("POST", "/v1/desktop/focus") in paths
+    assert ("POST", "/v1/desktop/window_action") in paths
     assert ("POST", "/v1/desktop/ocr") in paths
     assert ("POST", "/v1/desktop/find_text") in paths
     assert ("POST", "/v1/desktop/click_text") in paths

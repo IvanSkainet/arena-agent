@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from aiohttp import web
 
-from arena.desktop.window_catalog import list_desktop_windows, window_candidates
+from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
 
 
@@ -19,11 +19,7 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
         if r:
             return r
         ctx.record_request()
-        result = await list_desktop_windows(
-            desktop_exec=ctx.desktop_exec,
-            detect_env=ctx.detect_desktop_env,
-            kwin_windows_via_script=ctx.kwin_windows_via_script,
-        )
+        result = await list_desktop_windows(desktop_exec=ctx.desktop_exec, detect_env=ctx.detect_desktop_env, kwin_windows_via_script=ctx.kwin_windows_via_script)
         windows = window_candidates(
             list(result.get("windows") or []),
             title=request.query.get("title", ""),
@@ -39,15 +35,7 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
             "count": len(windows),
             "all_count": result.get("count", len(result.get("windows") or [])),
             "windows": windows,
-            "filters": {k: v for k, v in {
-                "title": request.query.get("title", ""),
-                "class": request.query.get("class", ""),
-                "desktop_file": request.query.get("desktop_file", ""),
-                "resource_name": request.query.get("resource_name", ""),
-                "pid": request.query.get("pid", ""),
-                "display": request.query.get("display", ""),
-                "active_only": _truthy(request.query.get("active_only")),
-            }.items() if v not in ("", False, None)},
+            "filters": {k: v for k, v in {"title": request.query.get("title", ""), "class": request.query.get("class", ""), "desktop_file": request.query.get("desktop_file", ""), "resource_name": request.query.get("resource_name", ""), "pid": request.query.get("pid", ""), "display": request.query.get("display", ""), "active_only": _truthy(request.query.get("active_only"))}.items() if v not in ("", False, None)},
         }
         if not _truthy(request.query.get("include_displays")):
             payload.pop("displays", None)
@@ -86,57 +74,32 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
         pid = body.get("pid")
         dry_run = bool(body.get("dry_run", False))
 
-        target_title = ""
-        candidates = []
-        if not window_id or class_contains or desktop_file or resource_name or display_name or pid is not None or dry_run:
-            result = await list_desktop_windows(
-                desktop_exec=ctx.desktop_exec,
-                detect_env=ctx.detect_desktop_env,
-                kwin_windows_via_script=ctx.kwin_windows_via_script,
-            )
-            candidates = window_candidates(
-                list(result.get("windows") or []),
-                title=title_contains,
-                class_contains=class_contains,
-                desktop_file=desktop_file,
-                resource_name=resource_name,
-                pid=int(pid) if pid is not None else None,
-                display=display_name,
-                active_only=False,
-            )
-            if not window_id and candidates:
-                chosen = candidates[0]
-                window_id = chosen.get("id")
-                target_title = chosen.get("title", "")
-
-        if not window_id and not title_contains:
+        if not window_id and not title_contains and not class_contains and not desktop_file and not resource_name and not display_name and pid is None:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'id', 'title', or other window filters"}, status=400)
-        if not window_id:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "window_not_found", "candidates": candidates[: int(body.get("max_candidates", 5) or 5)]}, status=404)
-        if dry_run:
-            return ctx.cors_json_response({
-                "ok": True,
-                "resolved": True,
-                "target_id": window_id,
-                "target_title": target_title,
-                "candidates": candidates[: int(body.get("max_candidates", 5) or 5)],
-                "dry_run": True,
-            })
-        result = await ctx.focus_window(
+        resolved = await resolve_window_target(
             window_id=window_id,
-            title_contains=title_contains,
-            target_title=target_title,
-            verify=body.get("verify", True),
-            verify_timeout_ms=body.get("timeout_ms", 1500),
+            title=title_contains,
+            class_contains=class_contains,
+            desktop_file=desktop_file,
+            resource_name=resource_name,
+            pid=int(pid) if pid is not None else None,
+            display=display_name,
+            max_candidates=int(body.get("max_candidates", 5) or 5),
             desktop_exec=ctx.desktop_exec,
             detect_env=ctx.detect_desktop_env,
-            get_active_window=ctx.get_active_window,
-            kwin_focus_window=ctx.kwin_focus_window,
+            kwin_windows_via_script=ctx.kwin_windows_via_script,
         )
-        if candidates:
-            result["candidates"] = candidates[: int(body.get("max_candidates", 5) or 5)]
+        target = resolved.get("target")
+        candidates = resolved.get("candidates", [])
+        if not target:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": "window_not_found", "candidates": candidates}, status=404)
+        if dry_run:
+            return ctx.cors_json_response({"ok": True, "resolved": True, "target_id": target.get("id"), "target_title": target.get("title", ""), "target": target, "candidates": candidates, "dry_run": True})
+        result = await ctx.focus_window(window_id=target.get("id"), title_contains=title_contains, target_title=str(target.get("title", "") or ""), verify=body.get("verify", True), verify_timeout_ms=body.get("timeout_ms", 1500), desktop_exec=ctx.desktop_exec, detect_env=ctx.detect_desktop_env, get_active_window=ctx.get_active_window, kwin_focus_window=ctx.kwin_focus_window)
+        result["candidates"] = candidates
+        result["target"] = target
         if not result.get("ok") and result.get("status"):
             ctx.record_request(is_error=True, count_request=False)
             status = int(result.pop("status"))
