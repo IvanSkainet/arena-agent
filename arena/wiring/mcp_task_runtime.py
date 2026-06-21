@@ -5,6 +5,7 @@ from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
+from arena.app_keys import APP_CFG
 from arena.wiring.env import RuntimeEnv
 
 
@@ -18,7 +19,7 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
 
     def _mcp_app_config() -> dict:
         app_ref = g.get("_app_ref")
-        return app_ref.get("cfg", {}) if app_ref else {}
+        return app_ref.get(APP_CFG, {}) if app_ref else {}
 
     file_watch_ctx = env.FileWatchRuntimeContext(
         home=Path.home(),

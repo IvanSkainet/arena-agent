@@ -46,12 +46,9 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.5.0
+### 🆕 What's new in v3.5.1
 
-- **Bounded ReAct loop (`A2`)** — Arena now ships `POST /v1/react`, which runs a safe reason → act → observe loop built on top of the planner, memory profiles, system checks, task state, file watchers, and optional browser HEAD checks.
-- **Reflection endpoint (`A3`)** — `POST /v1/reflect` critiques a prior run and returns positives, concerns, missing evidence, confidence, and suggested next steps.
-- **MCP `react.run` + `reflect.run`** — the same agentic surfaces are now available through Arena's MCP layer.
-- **OpenAPI updated** — `/v1/react` and `/v1/reflect` are now documented in the public API spec.
+- **ReAct/reflection runtime stabilized** — `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run` now read the installed bridge config correctly after the AppKey migration, fixing the live runtime issue found immediately after `v3.5.0`.
 - **586 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

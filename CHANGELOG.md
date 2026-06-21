@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.5.1 - 2026-06-21
+
+### Fixed
+- **ReAct/reflection live runtime fix** — agentic endpoints now read app config through the shared aiohttp `AppKey` instead of the old raw string key, so `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run` work correctly on the installed bridge after the `v3.5.0` modular AppKey migration.
+
+### Validation
+- Local `pytest -q`: PASS, 586 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.5.0 - 2026-06-20
 
 ### Added

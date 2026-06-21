@@ -84,7 +84,7 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
 
     def _agentic_app_config() -> dict[str, Any]:
         app_ref = g.get("_app_ref")
-        return app_ref.get("cfg", {}) if app_ref else {}
+        return app_ref.get(APP_CFG, {}) if app_ref else {}
 
     agentic_runtime_ctx = env.AgenticRuntimeContext(
         build_plan=env.build_plan,
