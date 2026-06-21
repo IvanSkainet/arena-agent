@@ -82,6 +82,30 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     env.export_handler_attrs(registry, skill_handlers, {"handle_v1_skills": "skills", "handle_v1_skills_install": "install", "handle_v1_skills_uninstall": "uninstall", "handle_v1_skills_run": "run", "handle_v1_skills_reload": "reload"})
     registry.update({"_skill_handler_ctx": skill_handler_ctx, "_skill_handlers": skill_handlers})
 
+    def _agentic_app_config() -> dict[str, Any]:
+        app_ref = g.get("_app_ref")
+        return app_ref.get("cfg", {}) if app_ref else {}
+
+    agentic_runtime_ctx = env.AgenticRuntimeContext(
+        build_plan=env.build_plan,
+        recall_sync=env._recall_sync,
+        common_status=g["common_status"],
+        app_config=_agentic_app_config,
+        doctor_sync=g["_doctor_sync"],
+        sysinfo_sync=g["_sysinfo_sync"],
+        tasks_list_sync=registry["_tasks_list_sync"],
+        file_watch_list_sync=env._file_watch_list_sync,
+        browser_head_sync=env._browser_head_sync,
+    )
+    agentic_runtime = env.make_agentic_runtime(agentic_runtime_ctx)
+    registry.update({
+        "_agentic_app_config": _agentic_app_config,
+        "_agentic_runtime_ctx": agentic_runtime_ctx,
+        "_agentic_runtime": agentic_runtime,
+        "_react_sync": agentic_runtime.react_sync,
+        "_reflect_sync": agentic_runtime.reflect_sync,
+    })
+
     planner_handler_ctx = env.PlannerHandlerContext(
         require_auth=env.require_auth,
         record_request=env._record_request,
@@ -92,6 +116,18 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     planner_handlers = env.make_planner_handlers(planner_handler_ctx)
     env.export_handler_attrs(registry, planner_handlers, {"handle_v1_plan": "plan"})
     registry.update({"_planner_handler_ctx": planner_handler_ctx, "_planner_handlers": planner_handlers})
+
+    agentic_handler_ctx = env.AgenticHandlerContext(
+        require_auth=env.require_auth,
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        react_sync=registry["_react_sync"],
+        reflect_sync=registry["_reflect_sync"],
+        audit=env.audit,
+    )
+    agentic_handlers = env.make_agentic_handlers(agentic_handler_ctx)
+    env.export_handler_attrs(registry, agentic_handlers, {"handle_v1_react": "react", "handle_v1_reflect": "reflect"})
+    registry.update({"_agentic_handler_ctx": agentic_handler_ctx, "_agentic_handlers": agentic_handlers})
 
     file_watch_handler_ctx = env.FileWatchHandlerContext(
         require_auth=env.require_auth,

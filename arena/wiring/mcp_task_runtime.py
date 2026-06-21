@@ -59,6 +59,8 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
         file_watch_list_sync=registry["_file_watch_list_sync"],
         file_watch_add_sync=registry["_file_watch_add_sync"],
         file_watch_remove_sync=registry["_file_watch_remove_sync"],
+        react_sync=lambda *args, **kwargs: g["_react_sync"](*args, **kwargs),
+        reflect_sync=lambda *args, **kwargs: g["_reflect_sync"](*args, **kwargs),
         utc_now=env.utc_now,
         skills_list_sync_with_cache=env._skills_list_sync_with_cache,
         skills_run_sync=lambda *args, **kwargs: g["_skills_run_sync"](*args, **kwargs),

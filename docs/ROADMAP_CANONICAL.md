@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-19
-Validated baseline: `v3.4.2`
+Validated baseline: `v3.5.0`
 
 This file is the planning source of truth.
 
@@ -9,8 +9,8 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.4.2`
-- Tests: `582 passed`
+- Version: `3.5.0`
+- Tests: `586 passed`
 - MCP tools: `37`
 - Route objects in aiohttp app: `296`
 - Distinct method/path routes excluding auto-HEAD: `194`
@@ -24,6 +24,7 @@ This file is the planning source of truth.
 - built-in planner (`A1`) via `POST /v1/plan` and MCP `plan.create`
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
+- bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -52,28 +53,31 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — ReAct loop + Reflection (`A2` / `A3`)
+## P1 — Workspace UI surfaces
 Why:
-- now that planner, memory profiles, and file watchers exist, the next leverage point is a real reason → act → observe loop with post-hoc critique.
-- this is the strongest next step toward the companion/workspace direction.
+- the bridge now has memory profiles, planning, ReAct/reflection, safe editing, and file watchers; the biggest remaining gap is surfacing this clearly in the product UX.
+- this is the shortest path to making Arena feel like a true companion/workspace rather than a powerful backend only.
 
 Definition of done:
-- a bounded autonomous loop
-- observation-aware step execution
-- explicit reflection/critique output
+- visible memory browser
+- notes / lessons / profile panes
+- clearer task + planner + watcher status surfaces
 
 ---
 
 ## 4. Secondary priorities
 
-### UI / Workspace surfaces
+### D1 — OCR + element detection
+Important for richer desktop autonomy and future visual workflows.
+
+### Model/provider abstraction
+Important, but should be done cleanly rather than via fragile proxy hacks.
+
+### Additional workspace UI targets
 - memory browser
 - lessons pane
 - user profile pane
 - recurring tasks/schedules view
-
-### Model/provider abstraction
-Important, but should be done cleanly rather than via fragile proxy hacks.
 
 ---
 
@@ -100,14 +104,15 @@ Status update:
 - built-in planner (`A1`) landed in `v3.4.0`
 - file watchers (`F5`) landed in `v3.4.1`
 - safe editor foundation (`F4`) landed in `v3.4.2`
+- bounded ReAct + reflection foundation (`A2` / `A3`) landed in `v3.5.0`
 
 ---
 
 ## 7. Order of execution I recommend
 
-1. `A2` / `A3` ReAct + Reflection
-2. workspace UI surfaces (memory browser / notes / lessons)
-3. `D1` OCR + element detection
+1. workspace UI surfaces (memory browser / notes / lessons)
+2. `D1` OCR + element detection
+3. deeper agent loops and mission composition
 4. model/provider abstraction improvements
 
 If a low-risk cleanup slot is needed between major tasks, use it for stale-surface cleanup and doc consistency.

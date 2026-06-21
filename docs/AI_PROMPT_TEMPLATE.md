@@ -39,9 +39,11 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`DELETE /v1/memory`**: Delete a fact by key within a profile: `{"profile": "projects/demo", "key": "..."}`.
 - **`GET /v1/recall?q=...&profile=...`**: Run TF-scored recall and obtain profile-scoped results.
 
-### 4. Planning
+### 4. Planning & Agentic Loops
 - **`POST /v1/plan`**: Build a structured execution plan from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_steps": 8, "memory_profile": "projects/demo"}`.
-- **MCP tool `plan.create`**: Same planner capability through MCP.
+- **`POST /v1/react`**: Run a bounded reason → act → observe loop using safe observation steps. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_iterations": 4, "memory_profile": "projects/demo", "url": "https://..."}`.
+- **`POST /v1/reflect`**: Reflect on a prior run and return concerns, missing evidence, confidence, and suggested next steps.
+- **MCP tools `plan.create`, `react.run`, `reflect.run`**: The same planning/agentic capabilities through MCP.
 
 ### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.

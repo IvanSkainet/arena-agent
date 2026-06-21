@@ -71,6 +71,18 @@ class PlannerHandlerContext:
 
 
 @dataclass(frozen=True)
+class AgenticHandlerContext:
+    """Dependencies for bounded ReAct and reflection API handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    react_sync: Callable[..., dict[str, Any]]
+    reflect_sync: Callable[..., dict[str, Any]]
+    audit: Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
 class MemoryHandlerContext:
     """Dependencies for memory/recall API handlers."""
 
@@ -87,4 +99,4 @@ class MemoryHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     utc_now: Callable[[], str]
 
-__all__ = ['TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'PlannerHandlerContext', 'MemoryHandlerContext']
+__all__ = ['TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'PlannerHandlerContext', 'AgenticHandlerContext', 'MemoryHandlerContext']

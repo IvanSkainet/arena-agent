@@ -46,12 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.4.2
+### 🆕 What's new in v3.5.0
 
-- **Safe editor foundation (`F4`)** — `PATCH /v1/fs/edit` now supports `preview: true`, so agents can request a non-destructive diff before applying a change.
-- **Confirm + rollback workflow** — Arena now ships `POST /v1/fs/edit/apply`, `POST /v1/fs/edit/rollback`, and MCP companions `fs.edit_apply` / `fs.edit_rollback`.
-- **Conflict-aware safety** — apply/rollback now detect when the file changed after preview/apply and refuse unsafe overwrites unless explicitly forced.
-- **582 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Bounded ReAct loop (`A2`)** — Arena now ships `POST /v1/react`, which runs a safe reason → act → observe loop built on top of the planner, memory profiles, system checks, task state, file watchers, and optional browser HEAD checks.
+- **Reflection endpoint (`A3`)** — `POST /v1/reflect` critiques a prior run and returns positives, concerns, missing evidence, confidence, and suggested next steps.
+- **MCP `react.run` + `reflect.run`** — the same agentic surfaces are now available through Arena's MCP layer.
+- **OpenAPI updated** — `/v1/react` and `/v1/reflect` are now documented in the public API spec.
+- **586 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -416,6 +417,8 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/v1/plan` | Build a structured execution plan from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_steps": 8, "memory_profile": "projects/<name>"}` |
+| `POST` | `/v1/react` | Run a bounded reason → act → observe loop from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_iterations": 4, "memory_profile": "projects/<name>", "url": "https://..."}` |
+| `POST` | `/v1/reflect` | Reflect on a prior run and return positives, concerns, missing evidence, confidence, and suggested next steps. |
 
 ### File Watchers
 

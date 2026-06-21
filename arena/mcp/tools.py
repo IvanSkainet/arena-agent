@@ -19,6 +19,7 @@ from arena.mcp.tool_git import handle_git_tool
 from arena.mcp.tool_memory import handle_memory_tool
 from arena.mcp.tool_misc import handle_misc_tool
 from arena.mcp.tool_watch import handle_watch_tool
+from arena.mcp.tool_agentic import handle_agentic_tool
 from arena.mcp.tool_plan import handle_plan_tool
 
 
@@ -45,6 +46,8 @@ class McpToolContext:
     file_watch_list_sync: Callable[[], dict[str, Any]]
     file_watch_add_sync: Callable[..., dict[str, Any]]
     file_watch_remove_sync: Callable[[str], dict[str, Any]]
+    react_sync: Callable[..., dict[str, Any]]
+    reflect_sync: Callable[..., dict[str, Any]]
     utc_now: Callable[[], str]
     skills_list_sync_with_cache: Callable[[], dict[str, Any]]
     skills_run_sync: Callable[..., dict[str, Any]]
@@ -86,6 +89,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_memory_tool(name, args, ctx=ctx, run_local=run_local),
                 lambda: handle_plan_tool(name, args, ctx=ctx),
                 lambda: handle_watch_tool(name, args, ctx=ctx),
+                lambda: handle_agentic_tool(name, args, ctx=ctx),
                 lambda: handle_misc_tool(name, args, ctx=ctx, run_local=run_local),
             ):
                 result = handler()

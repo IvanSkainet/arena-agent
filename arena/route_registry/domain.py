@@ -10,6 +10,8 @@ def register_domain_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_get("/v1/recall", h["handle_v1_recall"])
     app.router.add_get("/v1/recall/digest", h["handle_v1_recall_digest"])
     app.router.add_post("/v1/plan", h["handle_v1_plan"])
+    app.router.add_post("/v1/react", h["handle_v1_react"])
+    app.router.add_post("/v1/reflect", h["handle_v1_reflect"])
     app.router.add_get("/v1/audit/stats", h["handle_v1_audit_stats"])
     app.router.add_get("/v1/tasks", h["handle_v1_tasks_get"])
     app.router.add_post("/v1/tasks", h["handle_v1_tasks_post"])

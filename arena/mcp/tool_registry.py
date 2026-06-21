@@ -87,6 +87,21 @@ MCP_TOOLS = [
          "max_steps": {"type": "integer", "default": 8},
          "memory_profile": {"type": "string"}},
          "required": ["goal"]}},
+    {"name": "react.run", "description": "Run a bounded reason-act-observe loop using safe observation steps derived from the planner.",
+     "inputSchema": {"type": "object", "properties": {
+         "goal": {"type": "string"},
+         "context": {"type": "string"},
+         "constraints": {"type": "array", "items": {"type": "string"}},
+         "max_iterations": {"type": "integer", "default": 4},
+         "memory_profile": {"type": "string"},
+         "url": {"type": "string"}},
+         "required": ["goal"]}},
+    {"name": "reflect.run", "description": "Reflect on a prior react/planning run and produce concerns, missing evidence, and next steps.",
+     "inputSchema": {"type": "object", "properties": {
+         "goal": {"type": "string"},
+         "run": {"type": "object"},
+         "notes": {"type": "string"},
+         "outcome": {"type": "string"}}}},
     {"name": "watch.files", "description": "List, add, or remove file watchers that emit realtime file change events over /v1/events.",
      "inputSchema": {"type": "object", "properties": {
          "action": {"type": "string", "enum": ["list", "add", "remove"], "default": "list"},

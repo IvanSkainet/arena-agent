@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.5.0 - 2026-06-20
+
+### Added
+- **Bounded ReAct loop foundation (`A2`)** — added `POST /v1/react`, which runs a safe reason → act → observe loop derived from the built-in planner and executes bounded observation steps such as memory recall, bridge status, doctor/sysinfo, task listing, file watcher listing, and optional browser HEAD checks.
+- **Reflection endpoint (`A3`)** — added `POST /v1/reflect`, which critiques a prior run and returns positives, concerns, missing evidence, confidence, and suggested next steps.
+- **MCP `react.run` and `reflect.run`** — the same agentic surfaces are now available through Arena's MCP tool layer.
+- **OpenAPI updated** — `/v1/react` and `/v1/reflect` are now documented in the public API spec.
+
+### Improved
+- **Canonical roadmap advanced** — `A1` was already complete; `A2/A3` now have an implementation foundation, and the next practical priority shifts toward workspace UI surfaces and deeper agent loops rather than basic planning plumbing.
+- **Agentic runtime reuses existing foundations** — planner, memory profiles, task queue state, file watchers, bridge status, and browser HEAD checks now feed into a unified bounded loop instead of staying isolated features.
+
+### Tests
+- Added agentic runtime, handler, route, and MCP regressions.
+- Total: **586 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 586 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.4.2 - 2026-06-20
 
 ### Added
