@@ -17,11 +17,13 @@ async def focus_window(
     *,
     window_id: str | None = None,
     title_contains: str | None = None,
+    target_title: str | None = None,
     verify: bool = True,
     verify_timeout_ms: int = 1500,
     desktop_exec: DesktopExec,
     detect_env: DetectEnv,
     get_active_window: ActiveWindowFn,
+    kwin_focus_window=None,
 ) -> dict[str, Any]:
     """Focus a desktop window by ID or title and optionally verify it."""
     active_before = await get_active_window()
@@ -29,7 +31,7 @@ async def focus_window(
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
     target_id = window_id
-    target_title = ""
+    target_title = target_title or ""
 
     if not target_id and title_contains:
         if shutil.which("wmctrl"):
@@ -63,7 +65,17 @@ async def focus_window(
     focus_ok = False
     focus_tool = "none"
 
-    # Strategy A: KWin DBus.
+    # Strategy A: native non-interactive KWin focus helper.
+    if not focus_ok and kwin_focus_window is not None:
+        try:
+            result = await kwin_focus_window(str(target_id), desktop_exec=desktop_exec)
+            if result.get("ok"):
+                focus_ok = True
+                focus_tool = result.get("backend", "kwin_focus_script")
+        except Exception:
+            pass
+
+    # Strategy B: KWin DBus for numeric ids.
     if not focus_ok:
         try:
             wid_int = int(target_id, 0)

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from arena.desktop.display_handler import make_desktop_display_handler
 from arena.desktop.input_handlers import make_desktop_input_handlers
 from arena.desktop.ocr_handler import make_desktop_ocr_handlers
 from arena.desktop.screenshot_handler import make_desktop_screenshot_handler
@@ -13,6 +14,7 @@ from arena.handler_context import DesktopHandlerContext
 @dataclass(frozen=True)
 class DesktopHandlers:
     screenshot: object
+    displays: object
     click: object
     type: object
     key: object
@@ -22,6 +24,8 @@ class DesktopHandlers:
     focus: object
     ocr: object
     find_text: object
+    click_text: object
+
 
 
 def make_desktop_handlers(ctx: DesktopHandlerContext) -> DesktopHandlers:
@@ -30,6 +34,7 @@ def make_desktop_handlers(ctx: DesktopHandlerContext) -> DesktopHandlers:
     ocr_handlers = make_desktop_ocr_handlers(ctx)
     return DesktopHandlers(
         screenshot=make_desktop_screenshot_handler(ctx),
+        displays=make_desktop_display_handler(ctx),
         click=click,
         type=type_handler,
         key=key,
@@ -39,4 +44,5 @@ def make_desktop_handlers(ctx: DesktopHandlerContext) -> DesktopHandlers:
         focus=focus,
         ocr=ocr_handlers.ocr,
         find_text=ocr_handlers.find_text,
+        click_text=ocr_handlers.click_text,
     )

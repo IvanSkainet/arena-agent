@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
-Date: 2026-06-19
-Validated baseline: `v3.6.1`
+Date: 2026-06-21
+Validated baseline: `v3.8.0`
 
 This file is the planning source of truth.
 
@@ -9,11 +9,11 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.6.1`
-- Tests: `593 passed`
-- MCP tools: `37`
-- Route objects in aiohttp app: `296`
-- Distinct method/path routes excluding auto-HEAD: `194`
+- Version: `3.8.0`
+- Tests: `604 passed`
+- MCP tools: `45`
+- Route objects in aiohttp app: `310`
+- Distinct method/path routes excluding auto-HEAD: `206`
 
 ### Completed enough to count as done
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
@@ -28,6 +28,9 @@ This file is the planning source of truth.
 - workspace dashboard surface v1 for profile context, planner, ReAct/reflection, and watcher management
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - workspace dashboard surface v2 with notes, lessons, and recent activity
+- desktop semantic click-by-text + active-window-aware OCR ranking (`D2` slice)
+- desktop display/output discovery and display-scoped OCR/text targeting (`D3` slice)
+- filtered window catalog + safer focus resolution/dry-run + stronger KWin Wayland focus (`D3` slice)
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -56,15 +59,24 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — D2 / D3 desktop maturity
-Why:
-- now that OCR/text-target detection exists, the most natural next step is richer semantic desktop control: better monitor handling, stronger window management, and click-by-text / action-on-target flows.
-- this compounds directly with the newly added OCR layer.
+## P1 — Continue `D2 / D3` desktop maturity
+What just landed:
+- exact/phrase-first OCR ranking
+- active-window-aware text targeting
+- semantic `click_text` flows on top of OCR
+- display/output discovery plus display-scoped screenshot/OCR targeting
+- filtered window catalog and safer focus resolution/dry-run
+- stronger non-interactive KWin Wayland focus for UUID-style windows
+
+What is still next:
+- actual window actions beyond focus (move/resize/maximize/minimize)
+- more semantic desktop actions beyond click-by-text
+- further multi-monitor polish beyond output discovery/cropping and window-to-output mapping
 
 Definition of done:
 - better window management affordances
 - improved multi-monitor correctness
-- practical OCR-assisted interaction flows
+- practical OCR-assisted interaction flows that are reliable enough for daily agent use
 
 ---
 
@@ -111,12 +123,14 @@ Status update:
 - workspace dashboard surface v1 landed in `v3.5.2`
 - desktop OCR + text-target detection (`D1`) landed in `v3.6.0`
 - workspace dashboard surface v2 landed in `v3.6.1`
+- semantic click-by-text, stronger OCR ranking, and display-aware desktop targeting landed in `v3.7.0`
+- filtered window catalog, safer focus resolution, and stronger KWin Wayland focus landed in `v3.8.0`
 
 ---
 
 ## 7. Order of execution I recommend
 
-1. `D2` / `D3` desktop maturity
+1. finish `D2 / D3` desktop maturity (multi-monitor + window management + more semantic actions)
 2. deeper agent loops and mission composition
 3. workspace UI surfaces v3 (user/profile panes, richer memory browser)
 4. model/provider abstraction improvements

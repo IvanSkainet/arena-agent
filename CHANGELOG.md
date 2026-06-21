@@ -1,5 +1,52 @@
 # Changelog
 
+## v3.8.0 - 2026-06-21
+
+### Added
+- **Window-management targeting (`D3` slice)** — `/v1/desktop/windows` now supports semantic filtering by title, class, desktop file, resource name, pid, display, and active-only state, with optional display metadata in the response.
+- **Focus dry-run resolution** — `POST /v1/desktop/focus` now supports `dry_run: true`, so agents can resolve the target window and inspect candidates before actually stealing focus.
+- **MCP `desktop.windows` and `desktop.focus`** — richer desktop window inspection and focus control are now available through the MCP surface.
+
+### Improved
+- **KWin/Wayland focus path is stronger and still non-interactive** — focus can now use a temporary journal-reporting KWin script for UUID-style Wayland window ids instead of relying only on numeric/X11-style activation paths.
+- **Window metadata is now display-aware** — window listings annotate the owning display/output, which compounds with the new `/v1/desktop/displays` surface for multi-monitor correctness.
+- **Desktop API docs are fuller** — OpenAPI and prompt docs now describe display discovery, filtered window listing, and safer focus-resolution workflows.
+
+### Tests
+- Added display-aware window catalog, focus dry-run, KWin focus helper, and filtered window-list regressions.
+- Total: **604 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 604 tests.
+- Local `pytest --collect-only`: PASS, 604 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
+## v3.7.0 - 2026-06-21
+
+### Added
+- **Desktop semantic click-by-text (`D2`)** — added `POST /v1/desktop/click_text`, which runs OCR, ranks the best text match, and clicks it in one step with optional `dry_run`, active-window preference, target edge selection, and click offsets.
+- **Desktop display/output discovery (`D3` slice)** — added `GET /v1/desktop/displays`, returning output geometry and active-display metadata for multi-monitor aware automation.
+- **MCP `desktop.click_text` and `desktop.displays`** — semantic desktop targeting and display discovery are now available over the MCP tool surface in addition to REST.
+
+### Improved
+- **OCR match ranking is now exact/phrase-first** — `desktop.find_text` and OCR-backed desktop targeting now prioritize exact and phrase matches over weak substring noise, fixing the live-class issue where a query like `Google` could degrade to a one-letter best match.
+- **Active-window-aware text targeting** — OCR text matching can now prefer or constrain matches to the current active window, improving desktop targeting correctness on busy multi-window setups without reintroducing interactive KWin focus-stealing behavior.
+- **Display-scoped screenshot/OCR targeting** — desktop screenshot, OCR, text-find, and click-by-text flows can now be restricted to a named display/output, improving multi-monitor correctness.
+- **OpenAPI / prompt docs updated** — the public API spec and AI prompt template now document the new semantic desktop targeting and display-aware flow.
+
+### Tests
+- Added ranking, active-window scoping, semantic click handler, display discovery, display scoping, route, and MCP regressions for the new desktop maturity slice.
+- Total: **600 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 600 tests.
+- Local `pytest --collect-only`: PASS, 600 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.6.1 - 2026-06-21
 
 ### Added

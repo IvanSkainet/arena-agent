@@ -65,6 +65,7 @@ from arena.desktop.runtime import (  # noqa: E402,F401
 )
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
 from arena.desktop.focus import focus_window  # noqa: E402,F401
+from arena.desktop.kwin_focus import kwin_focus_window_via_script  # noqa: E402,F401
 from arena.desktop.handlers import make_desktop_handlers  # noqa: E402,F401
 from arena.control_handlers import make_control_lease_handlers  # noqa: E402,F401
 from arena.browser.fetch import (  # noqa: E402,F401

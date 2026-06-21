@@ -17,6 +17,10 @@ async def capture_desktop_screenshot(
     scale: float | None = None,
     max_width: int | None = None,
     quality: int = 80,
+    region_x: int | None = None,
+    region_y: int | None = None,
+    region_width: int | None = None,
+    region_height: int | None = None,
     desktop_exec: DesktopExec,
     detect_env: DetectEnv,
     audit_fn: AuditFn | None = None,
@@ -68,12 +72,21 @@ async def capture_desktop_screenshot(
     out_format = "png"
     transformed = False
 
-    if fmt in ("jpeg", "jpg", "webp") or scale or max_width:
+    if fmt in ("jpeg", "jpg", "webp") or scale or max_width or None not in (region_x, region_y, region_width, region_height):
         try:
             from PIL import Image as _PILImage
             import io as _io
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
+            if None not in (region_x, region_y, region_width, region_height):
+                x = max(0, int(region_x or 0))
+                y = max(0, int(region_y or 0))
+                width = max(1, int(region_width or 1))
+                height = max(1, int(region_height or 1))
+                right = min(im.size[0], x + width)
+                bottom = min(im.size[1], y + height)
+                im = im.crop((x, y, right, bottom))
+                transformed = True
             w, h = im.size
             target_w = w
             if scale and 0 < scale <= 1:
@@ -106,4 +119,5 @@ async def capture_desktop_screenshot(
         "encoding": out_format,
         "transformed": transformed,
         "tool": tool,
+        "crop_region": None if None in (region_x, region_y, region_width, region_height) else {"x": int(region_x), "y": int(region_y), "width": int(region_width), "height": int(region_height)},
     }

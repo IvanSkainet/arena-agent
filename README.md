@@ -33,24 +33,26 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 |----------|---------|
 | **Cross-platform** | Installer auto-detects Windows / Linux / macOS and picks the right packaging strategy (NSSM Service, Scheduled Task, systemd user unit, or launchd agent) |
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
-| **190+ method/path routes** | Public REST, MCP, gateway, dashboard, observability, desktop, browser, admin, and compatibility surfaces on one port |
+| **200+ method/path routes** | Public REST, MCP, gateway, dashboard, observability, desktop, browser, admin, and compatibility surfaces on one port |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
-| **10 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, OCR, text-target detection, click, layout-safe type, key press, mouse move, window list, active window, focus, plus control lease pause/resume/revoke/status |
+| **12 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, display/output discovery, OCR, text-target detection, semantic click-by-text, click, layout-safe type, key press, mouse move, window list, active window, focus, plus control lease pause/resume/revoke/status |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
 | **16-tab dashboard** | Overview, Workspace, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Control, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
-| **Built-in AI tooling** | MCP server with 20+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
+| **Built-in AI tooling** | MCP server with 40+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.6.1
+### 🆕 What's new in v3.8.0
 
-- **Workspace UI v2** — the Workspace tab now includes profile notes, important lessons, and recent activity panels on top of the existing planner, ReAct/reflection, and file watcher controls.
-- **Dashboard bootstrap updated** — `/gui` now loads the Workspace v2 asset bundle and wiring automatically.
-- **593 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Window-management targeting got smarter** — `/v1/desktop/windows` now supports title/class/pid/display filtering, and every window can be annotated with its owning display.
+- **Safer focus workflows** — `POST /v1/desktop/focus` now supports `dry_run: true`, so an agent can resolve the intended target and inspect candidates before actually focusing anything.
+- **KWin/Wayland focus is stronger** — UUID-style Wayland windows can now be focused through a non-interactive KWin script path instead of depending only on X11-style activation methods.
+- **MCP desktop maturity expanded** — MCP now includes `desktop.windows`, `desktop.focus`, `desktop.displays`, `desktop.find_text`, and `desktop.click_text` for richer semantic desktop control.
+- **604 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -327,7 +329,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
         │   │ REST /v1/*   │  │ MCP /mcp     │  │ MCP /ws      │              │
-        │   │ 190+ routes  │  │ Streamable   │  │ WebSocket    │              │
+        │   │ 200+ routes  │  │ Streamable   │  │ WebSocket    │              │
         │   └──────────────┘  └──────────────┘  └──────────────┘              │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐              │
@@ -337,7 +339,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐      │
         │   │ CDP browser  │  │ Desktop API   │  │  Async Task Runner   │      │
-        │   │ 36 endpoints │  │ 10+4 endpoints │  │  + Log + Disk Mon.  │      │
+        │   │ 36 endpoints │  │ 12+4 endpoints │  │  + Log + Disk Mon.  │      │
         │   └──────────────┘  └──────────────┘  └──────────────────────┘      │
         │                                                                     │
         └─────────────────────────────────────────────────────────────────────┘
@@ -476,18 +478,22 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | **Stealth** | `cdp/stealth/extract`, `stealth/shot` | Anti-detection browser automation |
 | **Session** | `cdp/session/check` | Session management and diagnostics |
 
-### Desktop Automation (10 endpoints + 4 control lease endpoints)
+### Desktop Automation (12 endpoints + 4 control lease endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/v1/desktop/screenshot` | Take a desktop screenshot. Query: `format=png|jpeg|webp|base64`, `scale`, `max_width`, `quality` |
+| `GET` | `/v1/desktop/screenshot` | Take a desktop screenshot. Query: `format=png|jpeg|webp|base64`, optional `display`, `scale`, `max_width`, `quality` |
+| `GET` | `/v1/desktop/displays` | List desktop displays/outputs with global geometry for multi-monitor aware automation |
 | `POST` | `/v1/desktop/click` | Click at coordinates. Body: `{"x": N, "y": N, "button": "left"}` |
 | `POST` | `/v1/desktop/type` | Type text. Body: `{"text": "...", "ensure_latin": true}` (default: layout-safe typing on KDE) |
 | `POST` | `/v1/desktop/key` | Press a key. Body: `{"key": "Return"}` |
 | `POST` | `/v1/desktop/mouse` | Move mouse. Body: `{"action": "move", "x": N, "y": N}` |
-| `GET` | `/v1/desktop/windows` | List open windows with titles/positions; tries native KWin scripting on KDE Wayland, then wmctrl/xdotool fallbacks |
-| `POST` | `/v1/desktop/ocr` | Run OCR on a fresh desktop screenshot and return words, full text, confidence, and bounding boxes |
-| `POST` | `/v1/desktop/find_text` | Find text on the current desktop and return matching bounding boxes plus click-ready center coordinates |
+| `GET` | `/v1/desktop/windows` | List desktop windows with optional filters for title, class, pid, display, and active state; annotates windows with display metadata when available |
+| `GET` | `/v1/desktop/active_window` | Get the currently active desktop window |
+| `POST` | `/v1/desktop/focus` | Focus a window by id or semantic filters like title/class/display; supports `dry_run` target resolution before actual focus |
+| `POST` | `/v1/desktop/ocr` | Run OCR on a fresh desktop screenshot and return words, full text, confidence, and bounding boxes; can be scoped to a named display |
+| `POST` | `/v1/desktop/find_text` | Find text on the current desktop and return ranked matching bounding boxes plus click-ready center coordinates; can prefer or constrain matches to the active window or a named display |
+| `POST` | `/v1/desktop/click_text` | Find text on the current desktop, choose the best ranked match, and click it in one step; supports active-window-aware and display-aware targeting |
 
 > **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+). For vision agents, prefer `GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80` or `max_width=1280` to reduce payload size dramatically. OCR uses the locally installed `tesseract` binary when available.
 

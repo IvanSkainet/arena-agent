@@ -7,6 +7,7 @@ from typing import Any, Callable
 from arena.wiring.env import RuntimeEnv
 
 
+
 def build_desktop_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
     """Build desktop automation and control lease registries."""
     env = RuntimeEnv(g)
@@ -24,11 +25,29 @@ def build_desktop_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]
         kwin_windows_via_script=env._kwin_windows_via_script,
         capture_screenshot=env.capture_desktop_screenshot,
         ocr_desktop=env.ocr_desktop,
+        kwin_focus_window=env.kwin_focus_window_via_script,
         focus_window=env.focus_window,
         audit=env.audit,
     )
     desktop_handlers = env.make_desktop_handlers(desktop_handler_ctx)
-    env.export_handler_attrs(registry, desktop_handlers, {"handle_v1_desktop_screenshot": "screenshot", "handle_v1_desktop_click": "click", "handle_v1_desktop_type": "type", "handle_v1_desktop_key": "key", "handle_v1_desktop_mouse": "mouse", "handle_v1_desktop_windows": "windows", "handle_v1_desktop_active_window": "active_window", "handle_v1_desktop_focus": "focus", "handle_v1_desktop_ocr": "ocr", "handle_v1_desktop_find_text": "find_text"})
+    env.export_handler_attrs(
+        registry,
+        desktop_handlers,
+        {
+            "handle_v1_desktop_screenshot": "screenshot",
+            "handle_v1_desktop_displays": "displays",
+            "handle_v1_desktop_click": "click",
+            "handle_v1_desktop_type": "type",
+            "handle_v1_desktop_key": "key",
+            "handle_v1_desktop_mouse": "mouse",
+            "handle_v1_desktop_windows": "windows",
+            "handle_v1_desktop_active_window": "active_window",
+            "handle_v1_desktop_focus": "focus",
+            "handle_v1_desktop_ocr": "ocr",
+            "handle_v1_desktop_find_text": "find_text",
+            "handle_v1_desktop_click_text": "click_text",
+        },
+    )
     registry.update({"_desktop_handler_ctx": desktop_handler_ctx, "_desktop_handlers": desktop_handlers})
 
     control_lease_handler_ctx = env.ControlLeaseHandlerContext(

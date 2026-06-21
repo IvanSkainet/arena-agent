@@ -39,6 +39,7 @@ class DesktopHandlerContext:
     kwin_windows_via_script: Callable[[], Any]
     capture_screenshot: Callable[..., Any]
     ocr_desktop: Callable[..., Any]
+    kwin_focus_window: Callable[..., Any]
     focus_window: Callable[..., Any]
     audit: Callable[[dict[str, Any]], None]
 

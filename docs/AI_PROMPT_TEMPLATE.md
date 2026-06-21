@@ -57,14 +57,18 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`GET /v1/events`**: WebSocket realtime event stream. File watchers emit `file_watch_change` events.
 
 ### 7. Desktop Automation (Wayland / X11 / Windows)
-- **`GET /v1/desktop/screenshot`**: Capture full desktop screenshot (PNG).
-- **`GET /v1/desktop/windows`**: List currently open window IDs, titles, and geometries.
+- **`GET /v1/desktop/screenshot`**: Capture full desktop screenshot (PNG). You can scope it to a named display with `?display=...`.
+- **`GET /v1/desktop/displays`**: List desktop displays/outputs with global geometry for multi-monitor aware automation.
+- **`GET /v1/desktop/windows`**: List desktop windows with optional filters for title, class, pid, display, and active state.
+- **`GET /v1/desktop/active_window`**: Return the currently active desktop window.
+- **`POST /v1/desktop/focus`**: Focus a window by id or semantic filters like title/class/display. Use `dry_run: true` first when you want to confirm resolution before actually moving focus.
 - **`POST /v1/desktop/click`**: Perform click at `{"x": N, "y": N, "button": "left"}`.
 - **`POST /v1/desktop/type`**: Simulate keystrokes/text typing on the active window: `{"text": "..."}`.
 - **`POST /v1/desktop/key`**: Send specific keys (e.g. `{"key": "Return"}`).
-- **`POST /v1/desktop/ocr`**: Run OCR on a fresh desktop screenshot and return recognized text with bounding boxes.
-- **`POST /v1/desktop/find_text`**: Find text on the current desktop and return matching coordinates you can pass into click automation.
-- **MCP tools `desktop.ocr` / `desktop.find_text`**: The same OCR and text-target detection via MCP.
+- **`POST /v1/desktop/ocr`**: Run OCR on a fresh desktop screenshot and return recognized text with bounding boxes. You can scope OCR to a named `display`.
+- **`POST /v1/desktop/find_text`**: Find text on the current desktop and return ranked matches plus click-ready coordinates. Use `prefer_active_window`, `within_active_window`, or `display` when multiple windows/monitors are visible.
+- **`POST /v1/desktop/click_text`**: Find text and click the best match in one step. Supports `dry_run`, `target_position`, active-window-aware targeting, and display-aware targeting.
+- **MCP tools `desktop.displays` / `desktop.windows` / `desktop.focus` / `desktop.ocr` / `desktop.find_text` / `desktop.click_text`**: The same display discovery, window targeting, focus control, OCR, and semantic text targeting via MCP.
 
 ### 8. Stealth Browser & CDP (Chrome DevTools Protocol)
 - **`POST /v1/browser/cdp/connect`**: Launch & connect to headless Chromium with stealth profile.
