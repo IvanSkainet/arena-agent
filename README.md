@@ -46,12 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.6.0
+### 🆕 What's new in v3.6.1
 
-- **Desktop OCR + text-target detection (`D1`)** — Arena now ships `POST /v1/desktop/ocr` and `POST /v1/desktop/find_text`, returning recognized text, bounding boxes, confidence, and click-ready coordinates.
-- **MCP desktop OCR tools** — added `desktop.ocr` and `desktop.find_text` so agent frontends can request OCR and text targeting through MCP.
-- **OpenAPI and prompt docs updated** — OCR/text-target detection are now documented in the public API and AI prompt template.
-- **592 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Workspace UI v2** — the Workspace tab now includes profile notes, important lessons, and recent activity panels on top of the existing planner, ReAct/reflection, and file watcher controls.
+- **Dashboard bootstrap updated** — `/gui` now loads the Workspace v2 asset bundle and wiring automatically.
+- **593 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -579,7 +578,7 @@ The dashboard at `/gui` has **16 tabs** and works in any modern browser without 
 | Tab | What it does |
 |-----|--------------|
 | **Overview** | Bridge metrics, hardware diagnostics card, full inventory drawer, disk usage |
-| **Workspace** | Companion-style surface for active profile context, planner output, bounded ReAct runs, reflection, and file watcher management |
+| **Workspace** | Companion-style surface for active profile context, planner output, bounded ReAct runs, reflection, file watcher management, profile notes, important lessons, and recent activity |
 | **Terminal** | Real shell session with slash-commands (`/shot`, `/read`, `/search`, ...) + arrow history |
 | **Memory** | List, search, add, delete key/value/tag facts |
 | **Recall** | Fuzzy TF-scored memory search and digest |

@@ -37,4 +37,24 @@
   <div class="row"><input id="watchLabel" placeholder="repo" style="flex:1"><label><input id="watchRecursive" type="checkbox" checked> recursive</label><button class="success" onclick="addWorkspaceWatcher()">Add watcher</button><button onclick="loadWorkspaceWatchers()">Refresh</button></div>
   <div id="workspaceWatchers" class="output" style="display:none"></div>
 </div>
+
+<div class="card-grid">
+  <div class="card">
+    <h2>Profile Notes</h2>
+    <textarea id="workspaceProfileNotes" placeholder="Notes for the active memory profile..." style="min-height:120px"></textarea>
+    <div class="row"><button class="success" onclick="saveWorkspaceNotes()">Save Notes</button><button onclick="loadWorkspaceNotes()">Reload</button></div>
+  </div>
+
+  <div class="card">
+    <h2>Important Lessons</h2>
+    <div class="row"><input id="workspaceLessonText" placeholder="What should future agents remember?" style="flex:1"><button class="warning" onclick="addWorkspaceLesson()">Add Lesson</button></div>
+    <div id="workspaceLessons" class="output" style="display:block;min-height:120px"></div>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Recent Activity</h2>
+  <div class="row"><button onclick="loadWorkspaceActivity()">Refresh Activity</button></div>
+  <div id="workspaceActivity" class="output" style="display:block;min-height:120px"></div>
+</div>
 </div>

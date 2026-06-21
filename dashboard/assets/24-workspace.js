@@ -29,6 +29,7 @@ async function loadWorkspace() {
     summary.textContent = "Error: " + (e.message || "unknown");
   }
   loadWorkspaceWatchers();
+  if (typeof loadWorkspacePanels === "function") loadWorkspacePanels();
 }
 
 function _workspaceConstraints() {

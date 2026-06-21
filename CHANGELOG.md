@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.6.1 - 2026-06-21
+
+### Added
+- **Workspace dashboard v2** — the Workspace tab now includes profile notes, important lessons, and recent activity panels on top of the existing profile context, planner, ReAct/reflection, and file watcher surfaces.
+- **Workspace v2 dashboard regressions** — added checks that the new asset bundle and workspace v2 surface are wired into the dashboard bootstrap.
+
+### Validation
+- Local `pytest -q`: PASS, 593 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check dashboard/assets/25-workspace-v2.js`: PASS.
+
 ## v3.6.0 - 2026-06-21
 
 ### Added
