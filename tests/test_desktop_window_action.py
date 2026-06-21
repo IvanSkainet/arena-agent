@@ -134,7 +134,7 @@ def test_kwin_window_action_script_accepts_loadscript_zero(monkeypatch):
 
 
 
-def test_window_action_handler_dry_run_and_registry():
+def test_window_action_handler_dry_run_and_registry(monkeypatch):
     async def _kwin_list():
         return await _kwin_list_before()
 
@@ -188,6 +188,30 @@ def test_window_action_handler_dry_run_and_registry():
     data3 = json.loads(resp3.text)
     assert data3["ok"] is True
     assert data3["planned_geometry"]["width"] == 1280
+
+    import arena.desktop.window_action_handler as wah
+
+    async def _resolve_text(**kwargs):
+        return {
+            "ok": True,
+            "query": kwargs.get("query"),
+            "best_match": {"text": "Arena"},
+            "target_window": {"id": "{editor}", "title": "Code - repo", "geometry": {"x": 100, "y": 100, "width": 900, "height": 700}, "display": {"name": "DP-1", "id": "DP-1"}},
+            "window_candidates": [{"id": "{editor}", "title": "Code - repo"}],
+        }
+
+    monkeypatch.setattr(wah, "resolve_text_window_target", _resolve_text)
+    req4 = make_mocked_request("POST", "/v1/desktop/window_action", headers={"Authorization": "Bearer t"})
+
+    async def _json4():
+        return {"action": "center", "query": "Arena", "dry_run": True}
+
+    req4.json = _json4
+    resp4 = asyncio.run(handler(req4))
+    data4 = json.loads(resp4.text)
+    assert data4["ok"] is True
+    assert data4["text_target"]["query"] == "Arena"
+    assert data4["target"]["title"] == "Code - repo"
 
     names = [tool["name"] for tool in MCP_TOOLS]
     assert "desktop.window_action" in names

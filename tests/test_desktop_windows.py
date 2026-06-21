@@ -95,7 +95,7 @@ def test_focus_window_uses_kwin_script_for_uuid_targets():
 
 
 
-def test_window_handlers_support_filters_and_focus_dry_run():
+def test_window_handlers_support_filters_and_focus_dry_run(monkeypatch):
     async def _active_window():
         return {"id": "{browser}", "title": "Arena – LibreWolf", "backend": "kwin_journal"}
 
@@ -135,3 +135,27 @@ def test_window_handlers_support_filters_and_focus_dry_run():
     assert focus_data["ok"] is True
     assert focus_data["dry_run"] is True
     assert focus_data["target_title"] == "Code - repo"
+
+    import arena.desktop.window_handlers as wh
+
+    async def _resolve_text(**kwargs):
+        return {
+            "ok": True,
+            "query": kwargs.get("query"),
+            "best_match": {"text": "Arena"},
+            "target_window": {"id": "{browser}", "title": "Arena – LibreWolf"},
+            "window_candidates": [{"id": "{browser}", "title": "Arena – LibreWolf"}],
+        }
+
+    monkeypatch.setattr(wh, "resolve_text_window_target", _resolve_text)
+    focus_req2 = make_mocked_request("POST", "/v1/desktop/focus", headers={"Authorization": "Bearer t"})
+
+    async def _json2():
+        return {"query": "Arena", "dry_run": True}
+
+    focus_req2.json = _json2
+    focus_resp2 = asyncio.run(focus_handler(focus_req2))
+    focus_data2 = json.loads(focus_resp2.text)
+    assert focus_data2["ok"] is True
+    assert focus_data2["text_target"]["query"] == "Arena"
+    assert focus_data2["target"]["title"] == "Arena – LibreWolf"

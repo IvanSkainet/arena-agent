@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.13.0 - 2026-06-21
+
+### Added
+- **OCR-to-window resolution (`D3`)** — added `POST /v1/desktop/resolve_text_target`, which resolves recognized text into both a click target and the containing desktop window.
+- **MCP `desktop.resolve_text_target`** — text-to-window resolution is now available through the MCP surface.
+
+### Improved
+- **`desktop.focus` can now use OCR text queries** — agents can focus the window containing visible text instead of relying only on ids/titles/classes.
+- **`desktop.window_action` can now use OCR text queries** — semantic window actions can target the window containing visible text, not just windows resolved by metadata filters.
+- **Desktop workflows are more composable** — windows, OCR, display-awareness, and semantic actions now interlock more directly instead of living as separate primitives.
+
+### Tests
+- Added OCR-to-window target resolution and query-driven focus/window-action regressions.
+- Total: **616 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 616 tests.
+- Local `pytest --collect-only`: PASS, 616 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live KDE/Wayland validation: PASS for `resolve_text_target`, query-driven `focus` dry-run, and query-driven `window_action` dry-run / center on a real helper window.
+
 ## v3.12.0 - 2026-06-21
 
 ### Added

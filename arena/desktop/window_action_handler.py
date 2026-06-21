@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from aiohttp import web
 
+from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_action import perform_window_action
 from arena.desktop.window_action_plans import plan_window_action_geometry
 from arena.desktop.window_catalog import resolve_window_target
@@ -28,6 +29,40 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
         if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize", "center", "move_to_display", "snap_left", "snap_right", "snap_top", "snap_bottom", "snap_top_left", "snap_top_right", "snap_bottom_left", "snap_bottom_right"}:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "unsupported action"}, status=400)
+        query = str(body.get("query", "") or "")
+        text_target = None
+        if query:
+            text_target = await resolve_text_window_target(
+                query=query,
+                display=str(body.get("display", "") or ""),
+                window_title=str(body.get("title", "") or ""),
+                class_contains=str(body.get("class", "") or ""),
+                desktop_file=str(body.get("desktop_file", "") or ""),
+                resource_name=str(body.get("resource_name", "") or ""),
+                pid=int(body["pid"]) if body.get("pid") is not None else None,
+                scale=body.get("scale"),
+                max_width=body.get("max_width"),
+                quality=int(body.get("quality", 80) or 80),
+                min_confidence=int(body.get("min_confidence", 40) or 40),
+                psm=int(body.get("psm", 11) or 11),
+                max_results=int(body.get("max_results", 20) or 20),
+                prefer_active_window=bool(body.get("prefer_active_window", True)),
+                within_active_window=bool(body.get("within_active_window", False)),
+                require_active_title=str(body.get("require_active_title", "") or ""),
+                max_window_candidates=int(body.get("max_candidates", 5) or 5),
+                capture_screenshot=ctx.capture_screenshot,
+                desktop_exec=ctx.desktop_exec,
+                detect_env=ctx.detect_desktop_env,
+                get_active_window=ctx.get_active_window,
+                kwin_windows_via_script=ctx.kwin_windows_via_script,
+                ocr_desktop=ctx.ocr_desktop,
+                audit_fn=ctx.audit,
+            )
+            if not text_target.get("ok"):
+                ctx.record_request(is_error=True, count_request=False)
+                return ctx.cors_json_response(text_target, status=int(text_target.pop("status", 404)))
+            body["id"] = (text_target.get("target_window") or {}).get("id") or body.get("id")
+            body["title"] = body.get("title") or (text_target.get("target_window") or {}).get("title")
         resolved = await resolve_window_target(
             window_id=body.get("id"),
             title=str(body.get("title", "") or ""),
@@ -57,6 +92,8 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
                 payload["planned_geometry"] = {"x": preview["x"], "y": preview["y"], "width": preview["width"], "height": preview["height"]}
                 payload["source_display"] = preview.get("source_display")
                 payload["target_display"] = preview.get("target_display")
+            if text_target:
+                payload["text_target"] = text_target
             return ctx.cors_json_response(payload)
         result = await perform_window_action(
             action,
@@ -76,6 +113,8 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
         )
         result["target"] = target
         result["candidates"] = resolved.get("candidates", [])
+        if text_target:
+            result["text_target"] = text_target
         if not result.get("ok") and result.get("status"):
             ctx.record_request(is_error=True, count_request=False)
             status = int(result.pop("status"))

@@ -44,6 +44,7 @@ def build_desktop_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]
             "handle_v1_desktop_active_window": "active_window",
             "handle_v1_desktop_focus": "focus",
             "handle_v1_desktop_window_action": "window_action",
+            "handle_v1_desktop_resolve_text_target": "resolve_text_target",
             "handle_v1_desktop_ocr": "ocr",
             "handle_v1_desktop_find_text": "find_text",
             "handle_v1_desktop_click_text": "click_text",

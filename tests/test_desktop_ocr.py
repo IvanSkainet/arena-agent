@@ -251,6 +251,8 @@ def test_desktop_mcp_tools_registry():
     assert "desktop.displays" in names
     assert "desktop.windows" in names
     assert "desktop.focus" in names
+    assert "desktop.window_action" in names
+    assert "desktop.resolve_text_target" in names
     assert "desktop.ocr" in names
     assert "desktop.find_text" in names
     assert "desktop.click_text" in names
