@@ -28,7 +28,7 @@ async def _kwin_list_before():
 
 
 async def _kwin_list_after():
-    return {"ok": True, "backend": "kwin_journal", "count": 1, "windows": [{"id": "{editor}", "internal_id": "{editor}", "title": "Code - repo", "pid": 222, "resource_class": "code", "resource_name": "code", "desktop_file": "code", "active": True, "geometry": {"x": 300, "y": 200, "width": 800, "height": 600}}]}
+    return {"ok": True, "backend": "kwin_journal", "count": 1, "windows": [{"id": "{editor}", "internal_id": "{editor}", "title": "Code - repo", "pid": 222, "resource_class": "code", "resource_name": "code", "desktop_file": "code", "active": True, "maximized": False, "maximized_horiz": False, "maximized_vert": False, "geometry": {"x": 300, "y": 200, "width": 800, "height": 600}}]}
 
 
 async def _exec(cmd: str, timeout: float = 10):
@@ -63,6 +63,62 @@ def test_perform_window_action_move_resize_via_kwin(monkeypatch):
     assert result["tool"] == "kwin_window_action"
     assert result["verified"] is True
     assert result["after"]["geometry"]["width"] == 800
+
+
+
+def test_perform_window_action_maximize_and_close_verification(monkeypatch):
+    import arena.desktop.window_action as wa
+
+    calls = {"n": 0}
+
+    async def _list_max(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return await _kwin_list_before()
+        return {"ok": True, "backend": "kwin_journal", "count": 1, "windows": [{"id": "{editor}", "internal_id": "{editor}", "title": "Code - repo", "pid": 222, "resource_class": "code", "resource_name": "code", "desktop_file": "code", "active": True, "maximized": True, "maximized_horiz": True, "maximized_vert": True, "geometry": {"x": 0, "y": 0, "width": 1920, "height": 1080}}]}
+
+    async def _kwin_action(action, target_id, **kwargs):
+        return {"ok": True, "backend": "kwin_window_action", "action": action, "target_id": target_id, "error": None}
+
+    monkeypatch.setattr(wa, "list_desktop_windows", _list_max)
+    monkeypatch.setattr(wa, "kwin_window_action_via_script", _kwin_action)
+    result = asyncio.run(perform_window_action("maximize", target_id="{editor}", desktop_exec=_exec, detect_env=lambda: {"session_type": "wayland", "has_xdotool": False}, kwin_windows_via_script=_kwin_list_before))
+    assert result["ok"] is True
+    assert result["verified"] is True
+    assert result["after"]["maximized"] is True
+
+    async def _list_close(**kwargs):
+        _list_close.calls += 1
+        if _list_close.calls == 1:
+            return await _kwin_list_before()
+        return {"ok": True, "backend": "kwin_journal", "count": 0, "windows": []}
+    _list_close.calls = 0
+    monkeypatch.setattr(wa, "list_desktop_windows", _list_close)
+    result = asyncio.run(perform_window_action("close", target_id="{editor}", desktop_exec=_exec, detect_env=lambda: {"session_type": "wayland", "has_xdotool": False}, kwin_windows_via_script=_kwin_list_before))
+    assert result["ok"] is True
+    assert result["verified"] is True
+    assert result["after"] is None
+
+
+
+def test_window_action_maximize_verifies_by_geometry_growth_when_flags_missing(monkeypatch):
+    import arena.desktop.window_action as wa
+
+    async def _list_windows(**kwargs):
+        _list_windows.calls += 1
+        if _list_windows.calls == 1:
+            return await _kwin_list_before()
+        return {"ok": True, "backend": "kwin_journal", "count": 1, "windows": [{"id": "{editor}", "internal_id": "{editor}", "title": "Code - repo", "pid": 222, "resource_class": "code", "resource_name": "code", "desktop_file": "code", "active": True, "maximized": False, "maximized_horiz": False, "maximized_vert": False, "geometry": {"x": 0, "y": 0, "width": 1920, "height": 1080}}]}
+    _list_windows.calls = 0
+
+    async def _kwin_action(action, target_id, **kwargs):
+        return {"ok": True, "backend": "kwin_window_action", "action": action, "target_id": target_id, "error": None}
+
+    monkeypatch.setattr(wa, "list_desktop_windows", _list_windows)
+    monkeypatch.setattr(wa, "kwin_window_action_via_script", _kwin_action)
+    result = asyncio.run(perform_window_action("maximize", target_id="{editor}", desktop_exec=_exec, detect_env=lambda: {"session_type": "wayland", "has_xdotool": False}, kwin_windows_via_script=_kwin_list_before))
+    assert result["ok"] is True
+    assert result["verified"] is True
 
 
 

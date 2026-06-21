@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.10.0 - 2026-06-21
+
+### Added
+- **More complete window actions (`D3`)** — `desktop.window_action` now supports `maximize`, `unmaximize`, and `close` in addition to the previously added move/resize/minimize/restore/fullscreen operations.
+
+### Improved
+- **KWin/Wayland maximize and close flows validated live** — non-interactive KWin window actions now cover maximize/unmaximize/close on UUID-style Wayland windows without reintroducing focus-stealing behavior.
+- **Maximize verification is geometry-aware** — when KWin expands a window geometrically but does not expose maximized flags in the listing payload, verification now still succeeds by comparing before/after geometry growth.
+- **Desktop docs updated again** — release notes and roadmap state now reflect that the desktop window-action surface has moved beyond the initial move/resize slice.
+
+### Tests
+- Added maximize-by-geometry regression coverage.
+- Total: **609 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 609 tests.
+- Local `pytest --collect-only`: PASS, 609 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live KDE/Wayland validation: PASS for `maximize`, `unmaximize`, and `close` on a real helper window.
+
 ## v3.9.1 - 2026-06-21
 
 ### Fixed

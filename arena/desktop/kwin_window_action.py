@@ -49,9 +49,26 @@ try {
     result.title = String(val(w, 'caption', ''));
     try {
       if (spec.action === 'minimize') w.minimized = true;
-      else if (spec.action === 'restore') { try { w.minimized = false; } catch(e) {} try { w.fullScreen = false; } catch(e) {} }
+      else if (spec.action === 'restore') {
+        try { w.minimized = false; } catch(e) {}
+        try { w.fullScreen = false; } catch(e) {}
+        try { if (typeof w.setMaximize === 'function') w.setMaximize(false, false); } catch(e) {}
+      }
+      else if (spec.action === 'maximize') {
+        if (typeof w.setMaximize === 'function') w.setMaximize(true, true);
+        else result.error = 'maximize_unsupported';
+      }
+      else if (spec.action === 'unmaximize') {
+        if (typeof w.setMaximize === 'function') w.setMaximize(false, false);
+        else result.error = 'unmaximize_unsupported';
+      }
       else if (spec.action === 'fullscreen') w.fullScreen = true;
       else if (spec.action === 'unfullscreen') w.fullScreen = false;
+      else if (spec.action === 'close') {
+        if (typeof w.closeWindow === 'function') w.closeWindow();
+        else if (typeof workspace.slotWindowClose === 'function') { try { workspace.activeWindow = w; } catch(e) {} workspace.slotWindowClose(); }
+        else result.error = 'close_unsupported';
+      }
       else if (spec.action === 'move' || spec.action === 'resize' || spec.action === 'move_resize') {
         var g = w.frameGeometry;
         var nx = (spec.x === null || spec.x === undefined) ? g.x : Number(spec.x);
@@ -61,11 +78,14 @@ try {
         try { g.x = nx; g.y = ny; g.width = nw; g.height = nh; w.frameGeometry = g; }
         catch(e) { w.frameGeometry = Qt.rect(nx, ny, nw, nh); }
       } else result.error = 'unsupported_action';
-      if (result.error !== 'unsupported_action') result.error = null;
+      if (!result.error || result.error === 'unsupported_action') result.error = (result.error === 'unsupported_action') ? result.error : null;
       result.ok = result.error === null;
     } catch(e) { result.error = String(e); }
     result.geometry = geom(val(w, 'frameGeometry', null));
     result.minimized = !!val(w, 'minimized', false);
+    result.maximized = !!val(w, 'maximized', false);
+    result.maximized_horiz = !!val(w, 'maximizedHorizontally', false);
+    result.maximized_vert = !!val(w, 'maximizedVertically', false);
     result.full_screen = !!val(w, 'fullScreen', false);
     break;
   }

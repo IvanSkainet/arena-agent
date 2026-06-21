@@ -64,6 +64,9 @@ try {
       desktop_file: String(val(w, 'desktopFileName', '')),
       active: !!val(w, 'active', false),
       minimized: !!val(w, 'minimized', false),
+      maximized: !!val(w, 'maximized', false),
+      maximized_horiz: !!val(w, 'maximizedHorizontally', false),
+      maximized_vert: !!val(w, 'maximizedVertically', false),
       full_screen: !!val(w, 'fullScreen', false),
       geometry: geom(val(w, 'frameGeometry', null))
     });

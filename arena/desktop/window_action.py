@@ -72,12 +72,24 @@ async def perform_window_action(
 
 
 def _verify_action(action: str, before: dict[str, Any] | None, after: dict[str, Any] | None, *, x=None, y=None, width=None, height=None) -> bool:
+    if action == "close":
+        return after is None
     if not after:
         return False
     if action == "minimize":
         return after.get("minimized") is True
     if action == "restore":
-        return not after.get("minimized", False) and not after.get("full_screen", False)
+        return not after.get("minimized", False) and not after.get("full_screen", False) and not after.get("maximized", False)
+    if action == "maximize":
+        if after.get("maximized") is True or (after.get("maximized_horiz") and after.get("maximized_vert")):
+            return True
+        before_geom = (before or {}).get("geometry") or {}
+        after_geom = after.get("geometry") or {}
+        before_area = int(before_geom.get("width", 0)) * int(before_geom.get("height", 0))
+        after_area = int(after_geom.get("width", 0)) * int(after_geom.get("height", 0))
+        return after_area > before_area and (int(after_geom.get("x", 0)) <= int(before_geom.get("x", 0))) and (int(after_geom.get("y", 0)) <= int(before_geom.get("y", 0)))
+    if action == "unmaximize":
+        return not after.get("maximized", False) and not after.get("maximized_horiz", False) and not after.get("maximized_vert", False)
     if action == "fullscreen":
         return after.get("full_screen") is True
     if action == "unfullscreen":
@@ -101,10 +113,16 @@ def _wmctrl_command(action: str, target_id: str, before: dict[str, Any] | None, 
         return f'{display_env} wmctrl -i -r {target_id} -b add,hidden 2>/dev/null'
     if action == "restore":
         return f'{display_env} wmctrl -i -r {target_id} -b remove,hidden,fullscreen,maximized_vert,maximized_horz 2>/dev/null'
+    if action == "maximize":
+        return f'{display_env} wmctrl -i -r {target_id} -b add,maximized_vert,maximized_horz 2>/dev/null'
+    if action == "unmaximize":
+        return f'{display_env} wmctrl -i -r {target_id} -b remove,maximized_vert,maximized_horz 2>/dev/null'
     if action == "fullscreen":
         return f'{display_env} wmctrl -i -r {target_id} -b add,fullscreen 2>/dev/null'
     if action == "unfullscreen":
         return f'{display_env} wmctrl -i -r {target_id} -b remove,fullscreen 2>/dev/null'
+    if action == "close":
+        return f'{display_env} wmctrl -i -c {target_id} 2>/dev/null'
     if action in {"move", "resize", "move_resize"}:
         g = (before or {}).get("geometry") or {}
         nx = int(g.get("x", 0) if x is None else x)
@@ -122,6 +140,12 @@ def _xdotool_command(action: str, target_id: str, before: dict[str, Any] | None,
         return f'{display_env} xdotool windowminimize {wid} 2>/dev/null'
     if action == "restore":
         return f'{display_env} xdotool windowmap {wid} 2>/dev/null'
+    if action == "maximize":
+        return f'{display_env} xdotool windowstate --add MAXIMIZED_VERT --add MAXIMIZED_HORZ {wid} 2>/dev/null'
+    if action == "unmaximize":
+        return f'{display_env} xdotool windowstate --remove MAXIMIZED_VERT --remove MAXIMIZED_HORZ {wid} 2>/dev/null'
+    if action == "close":
+        return f'{display_env} xdotool windowclose {wid} 2>/dev/null'
     if action in {"move", "resize", "move_resize"}:
         g = (before or {}).get("geometry") or {}
         nx = int(g.get("x", 0) if x is None else x)

@@ -24,7 +24,7 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
         action = str(body.get("action", "") or "").strip().lower()
-        if action not in {"minimize", "restore", "fullscreen", "unfullscreen", "move", "resize", "move_resize"}:
+        if action not in {"minimize", "restore", "maximize", "unmaximize", "fullscreen", "unfullscreen", "close", "move", "resize", "move_resize"}:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "unsupported action"}, status=400)
         resolved = await resolve_window_target(

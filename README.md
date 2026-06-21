@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.9.1
+### 🆕 What's new in v3.10.0
 
-- **Actual window actions landed** — `POST /v1/desktop/window_action` and MCP `desktop.window_action` let agents move, resize, minimize, restore, and toggle fullscreen on resolved desktop windows.
-- **The same semantic targeting now powers focus and window actions** — title/class/pid/display-based resolution is reusable across desktop window control instead of living in one narrow endpoint.
-- **KWin/Wayland stays non-interactive** — UUID-style Wayland windows can be manipulated through a journal-backed KWin script path, still avoiding the old focus-stealing regression class.
-- **Hotfix:** successful KWin window actions no longer report a stale `window_not_found` error in result metadata.
-- **607 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Window actions are more complete** — `POST /v1/desktop/window_action` and MCP `desktop.window_action` now support `maximize`, `unmaximize`, and `close` in addition to move/resize/minimize/restore/fullscreen.
+- **KWin/Wayland window actions were validated live** — maximize, unmaximize, and close now work through the same non-interactive journal-backed KWin path used for the earlier desktop maturity work.
+- **Maximize verification is smarter** — if KWin expands a window geometrically without surfacing maximized flags, Arena now still verifies the action correctly from before/after geometry.
+- **Desktop maturity keeps compounding** — displays, filtered windows, focus dry-runs, OCR ranking, click-by-text, and richer window actions now form a stronger real desktop-control stack.
+- **609 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -491,7 +491,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/desktop/windows` | List desktop windows with optional filters for title, class, pid, display, and active state; annotates windows with display metadata when available |
 | `GET` | `/v1/desktop/active_window` | Get the currently active desktop window |
 | `POST` | `/v1/desktop/focus` | Focus a window by id or semantic filters like title/class/display; supports `dry_run` target resolution before actual focus |
-| `POST` | `/v1/desktop/window_action` | Move, resize, minimize, restore, or toggle fullscreen on a window resolved by id or semantic filters; supports `dry_run` |
+| `POST` | `/v1/desktop/window_action` | Move, resize, minimize, maximize, restore, close, or toggle fullscreen on a window resolved by id or semantic filters; supports `dry_run` |
 | `POST` | `/v1/desktop/ocr` | Run OCR on a fresh desktop screenshot and return words, full text, confidence, and bounding boxes; can be scoped to a named display |
 | `POST` | `/v1/desktop/find_text` | Find text on the current desktop and return ranked matching bounding boxes plus click-ready center coordinates; can prefer or constrain matches to the active window or a named display |
 | `POST` | `/v1/desktop/click_text` | Find text on the current desktop, choose the best ranked match, and click it in one step; supports active-window-aware and display-aware targeting |
