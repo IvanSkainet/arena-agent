@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.6.0 - 2026-06-21
+
+### Added
+- **Desktop OCR + text-target detection (`D1`)** — added `POST /v1/desktop/ocr` and `POST /v1/desktop/find_text`, returning recognized words, full text, confidence, bounding boxes, and click-ready center coordinates.
+- **MCP desktop OCR tools** — added `desktop.ocr` and `desktop.find_text` for OCR and text-target detection through Arena's MCP layer.
+- **Tesseract TSV parsing and matching helpers** — OCR now groups recognized words into lines, exposes bounding boxes, and supports multi-word text matching with aggregated coordinates.
+
+### Improved
+- **OpenAPI updated** — OCR/text-target detection endpoints are now documented in the public API spec.
+- **Prompt/template docs updated** — `docs/AI_PROMPT_TEMPLATE.md` now documents OCR and text-target detection for desktop automation.
+- **Desktop API surface expanded** — desktop automation now includes OCR and semantic text targeting in addition to screenshots, windows, input, and focus APIs.
+
+### Tests
+- Added desktop OCR parsing, handler, runtime reexport, MCP, and route regressions.
+- Total: **592 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 592 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.5.2 - 2026-06-21
 
 ### Added

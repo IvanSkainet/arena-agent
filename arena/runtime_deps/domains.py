@@ -61,6 +61,7 @@ from arena.desktop.runtime import (  # noqa: E402,F401
     _detect_desktop_env,
     _get_active_window,
     _kwin_windows_via_script,
+    ocr_desktop,
 )
 from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402,F401
 from arena.desktop.focus import focus_window  # noqa: E402,F401

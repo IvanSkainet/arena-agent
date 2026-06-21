@@ -21,6 +21,7 @@ def test_desktop_handlers_factory_outputs():
         get_active_window=ub._get_active_window,
         kwin_windows_via_script=ub._kwin_windows_via_script,
         capture_screenshot=ub.capture_desktop_screenshot,
+        ocr_desktop=ub.ocr_desktop,
         focus_window=ub.focus_window,
         audit=ub.audit,
     )
@@ -33,6 +34,8 @@ def test_desktop_handlers_factory_outputs():
     assert callable(handlers.windows)
     assert callable(handlers.active_window)
     assert callable(handlers.focus)
+    assert callable(handlers.ocr)
+    assert callable(handlers.find_text)
 
 
 def test_unified_routes_use_extracted_desktop_handlers():
@@ -46,13 +49,17 @@ def test_unified_routes_use_extracted_desktop_handlers():
     assert ("GET", "/v1/desktop/windows") in paths
     assert ("GET", "/v1/desktop/active_window") in paths
     assert ("POST", "/v1/desktop/focus") in paths
+    assert ("POST", "/v1/desktop/ocr") in paths
+    assert ("POST", "/v1/desktop/find_text") in paths
 
 
 def test_desktop_handlers_facade_uses_split_modules():
     from arena.desktop.input_handlers import make_desktop_input_handlers
+    from arena.desktop.ocr_handler import make_desktop_ocr_handlers
     from arena.desktop.screenshot_handler import make_desktop_screenshot_handler
     from arena.desktop.window_handlers import make_desktop_window_handlers
 
     assert callable(make_desktop_screenshot_handler)
     assert callable(make_desktop_input_handlers)
     assert callable(make_desktop_window_handlers)
+    assert callable(make_desktop_ocr_handlers)

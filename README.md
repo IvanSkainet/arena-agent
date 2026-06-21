@@ -35,7 +35,7 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
 | **190+ method/path routes** | Public REST, MCP, gateway, dashboard, observability, desktop, browser, admin, and compatibility surfaces on one port |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
-| **8 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, click, layout-safe type, key press, mouse move, window list, active window, focus, plus control lease pause/resume/revoke/status |
+| **10 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, OCR, text-target detection, click, layout-safe type, key press, mouse move, window list, active window, focus, plus control lease pause/resume/revoke/status |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
@@ -46,11 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.5.2
+### 🆕 What's new in v3.6.0
 
-- **Workspace dashboard surface v1** — `/gui` now includes a dedicated **Workspace** tab for active profile context, planner output, bounded ReAct runs, reflection, and file watcher management.
-- **Dashboard documentation updated** — README / README.ru now reflect the expanded tab set, including Workspace and Control.
-- **588 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Desktop OCR + text-target detection (`D1`)** — Arena now ships `POST /v1/desktop/ocr` and `POST /v1/desktop/find_text`, returning recognized text, bounding boxes, confidence, and click-ready coordinates.
+- **MCP desktop OCR tools** — added `desktop.ocr` and `desktop.find_text` so agent frontends can request OCR and text targeting through MCP.
+- **OpenAPI and prompt docs updated** — OCR/text-target detection are now documented in the public API and AI prompt template.
+- **592 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -336,8 +337,8 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │   └──────────────┘  └──────────────┘  └──────────────┘              │
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐      │
-        │   │ CDP browser  │  │ Desktop API  │  │  Async Task Runner   │      │
-        │   │ 36 endpoints │  │ 8+4 endpoints│  │  + Log + Disk Mon.   │      │
+        │   │ CDP browser  │  │ Desktop API   │  │  Async Task Runner   │      │
+        │   │ 36 endpoints │  │ 10+4 endpoints │  │  + Log + Disk Mon.  │      │
         │   └──────────────┘  └──────────────┘  └──────────────────────┘      │
         │                                                                     │
         └─────────────────────────────────────────────────────────────────────┘
@@ -476,7 +477,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | **Stealth** | `cdp/stealth/extract`, `stealth/shot` | Anti-detection browser automation |
 | **Session** | `cdp/session/check` | Session management and diagnostics |
 
-### Desktop Automation (8 endpoints + 4 control lease endpoints)
+### Desktop Automation (10 endpoints + 4 control lease endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -486,8 +487,10 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `POST` | `/v1/desktop/key` | Press a key. Body: `{"key": "Return"}` |
 | `POST` | `/v1/desktop/mouse` | Move mouse. Body: `{"action": "move", "x": N, "y": N}` |
 | `GET` | `/v1/desktop/windows` | List open windows with titles/positions; tries native KWin scripting on KDE Wayland, then wmctrl/xdotool fallbacks |
+| `POST` | `/v1/desktop/ocr` | Run OCR on a fresh desktop screenshot and return words, full text, confidence, and bounding boxes |
+| `POST` | `/v1/desktop/find_text` | Find text on the current desktop and return matching bounding boxes plus click-ready center coordinates |
 
-> **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+). For vision agents, prefer `GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80` or `max_width=1280` to reduce payload size dramatically.
+> **Wayland support:** The installer auto-starts `ydotoold` for Wayland desktop automation. On X11, `xdotool` is used as fallback. Desktop click automatically activates the target window (v2.5.1+). For vision agents, prefer `GET /v1/desktop/screenshot?format=jpeg&scale=0.5&quality=80` or `max_width=1280` to reduce payload size dramatically. OCR uses the locally installed `tesseract` binary when available.
 
 ### Audit & Logs
 

@@ -62,6 +62,9 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/desktop/click`**: Perform click at `{"x": N, "y": N, "button": "left"}`.
 - **`POST /v1/desktop/type`**: Simulate keystrokes/text typing on the active window: `{"text": "..."}`.
 - **`POST /v1/desktop/key`**: Send specific keys (e.g. `{"key": "Return"}`).
+- **`POST /v1/desktop/ocr`**: Run OCR on a fresh desktop screenshot and return recognized text with bounding boxes.
+- **`POST /v1/desktop/find_text`**: Find text on the current desktop and return matching coordinates you can pass into click automation.
+- **MCP tools `desktop.ocr` / `desktop.find_text`**: The same OCR and text-target detection via MCP.
 
 ### 8. Stealth Browser & CDP (Chrome DevTools Protocol)
 - **`POST /v1/browser/cdp/connect`**: Launch & connect to headless Chromium with stealth profile.

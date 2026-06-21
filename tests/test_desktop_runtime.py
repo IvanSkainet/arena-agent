@@ -13,6 +13,7 @@ def test_desktop_helpers_reexported():
     assert ub._detect_desktop_env is dr._detect_desktop_env
     assert ub._kwin_windows_via_script is dr._kwin_windows_via_script
     assert ub._get_active_window is dr._get_active_window
+    assert ub.ocr_desktop is dr.ocr_desktop
 
 
 def test_detect_desktop_env_shape():

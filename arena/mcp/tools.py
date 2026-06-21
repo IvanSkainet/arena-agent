@@ -20,6 +20,7 @@ from arena.mcp.tool_memory import handle_memory_tool
 from arena.mcp.tool_misc import handle_misc_tool
 from arena.mcp.tool_watch import handle_watch_tool
 from arena.mcp.tool_agentic import handle_agentic_tool
+from arena.mcp.tool_desktop import handle_desktop_tool
 from arena.mcp.tool_plan import handle_plan_tool
 
 
@@ -90,6 +91,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_plan_tool(name, args, ctx=ctx),
                 lambda: handle_watch_tool(name, args, ctx=ctx),
                 lambda: handle_agentic_tool(name, args, ctx=ctx),
+                lambda: handle_desktop_tool(name, args, ctx=ctx),
                 lambda: handle_misc_tool(name, args, ctx=ctx, run_local=run_local),
             ):
                 result = handler()

@@ -15,6 +15,8 @@ def register_desktop_routes(app: web.Application, h: Mapping[str, Callable]) -> 
     app.router.add_get("/v1/desktop/windows", h["handle_v1_desktop_windows"])
     app.router.add_get("/v1/desktop/active_window", h["handle_v1_desktop_active_window"])
     app.router.add_post("/v1/desktop/focus", h["handle_v1_desktop_focus"])
+    app.router.add_post("/v1/desktop/ocr", h["handle_v1_desktop_ocr"])
+    app.router.add_post("/v1/desktop/find_text", h["handle_v1_desktop_find_text"])
 
     app.router.add_get("/v1/control/status", h["handle_v1_control_status"])
     app.router.add_post("/v1/control/pause", h["handle_v1_control_pause"])
