@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-19
-Validated baseline: `v3.5.1`
+Validated baseline: `v3.5.2`
 
 This file is the planning source of truth.
 
@@ -9,8 +9,8 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.5.1`
-- Tests: `586 passed`
+- Version: `3.5.2`
+- Tests: `588 passed`
 - MCP tools: `37`
 - Route objects in aiohttp app: `296`
 - Distinct method/path routes excluding auto-HEAD: `194`
@@ -25,6 +25,7 @@ This file is the planning source of truth.
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
+- workspace dashboard surface v1 for profile context, planner, ReAct/reflection, and watcher management
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -53,22 +54,22 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — Workspace UI surfaces
+## P1 — D1 OCR + element detection
 Why:
-- the bridge now has memory profiles, planning, ReAct/reflection, safe editing, and file watchers; the biggest remaining gap is surfacing this clearly in the product UX.
-- this is the shortest path to making Arena feel like a true companion/workspace rather than a powerful backend only.
+- now that planner, memory profiles, safe editing, agentic loops, and file watchers exist, OCR/element detection becomes the most natural next leap in practical computer-use capability.
+- it opens the path from coordinate-driven desktop automation to semantic desktop automation.
 
 Definition of done:
-- visible memory browser
-- notes / lessons / profile panes
-- clearer task + planner + watcher status surfaces
+- text extraction from screenshots
+- stable target detection pipeline
+- usable coordinate output for click/type workflows
 
 ---
 
 ## 4. Secondary priorities
 
-### D1 — OCR + element detection
-Important for richer desktop autonomy and future visual workflows.
+### Workspace UI surfaces v2
+The first Workspace tab is now present; the next layer is deeper notes/lessons/profile affordances and more live state presentation.
 
 ### Model/provider abstraction
 Important, but should be done cleanly rather than via fragile proxy hacks.
@@ -105,14 +106,15 @@ Status update:
 - file watchers (`F5`) landed in `v3.4.1`
 - safe editor foundation (`F4`) landed in `v3.4.2`
 - bounded ReAct + reflection foundation (`A2` / `A3`) landed in `v3.5.0`
+- workspace dashboard surface v1 landed in `v3.5.2`
 
 ---
 
 ## 7. Order of execution I recommend
 
-1. workspace UI surfaces (memory browser / notes / lessons)
-2. `D1` OCR + element detection
-3. deeper agent loops and mission composition
+1. `D1` OCR + element detection
+2. deeper agent loops and mission composition
+3. workspace UI surfaces v2 (notes / lessons / profile panes)
 4. model/provider abstraction improvements
 
 If a low-risk cleanup slot is needed between major tasks, use it for stale-surface cleanup and doc consistency.

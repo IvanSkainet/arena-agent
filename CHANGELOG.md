@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.5.2 - 2026-06-21
+
+### Added
+- **Workspace dashboard surface v1** — the dashboard now has a dedicated **Workspace** tab that brings companion-style UI around the new backend foundations: active profile context, planner output, bounded ReAct runs, reflection, and file watcher management.
+- **Workspace dashboard regressions** — added tests ensuring the new dashboard tab and assets are wired into the bootstrap shell.
+
+### Improved
+- **Dashboard navigation updated** — `/gui` now exposes the Workspace tab alongside Overview, Memory, Recall, Tasks, Control, and the rest of the operational UI.
+- **README / README.ru dashboard docs updated** — tab counts and descriptions now reflect the Workspace and Control surfaces.
+- **Canonical roadmap advanced** — after shipping planner, watchers, safe editing, and ReAct/reflection, the roadmap now points at workspace UI surfaces as the primary next layer of product polish.
+
+### Validation
+- Local `pytest -q`: PASS, 588 tests.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/*.py`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check dashboard/assets/24-workspace.js`: PASS.
+
 ## v3.5.1 - 2026-06-21
 
 ### Fixed

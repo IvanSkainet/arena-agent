@@ -9,6 +9,7 @@ document.querySelectorAll(".sidebar nav a").forEach(a => {
     document.getElementById("tab-" + tabName).classList.add("active");
     // Load data on tab switch
     if (tabName === "overview") refreshOverview();
+    if (tabName === "workspace") loadWorkspace();
     if (tabName === "memory") loadMemory();
     if (tabName === "missions") loadMissions();
     if (tabName === "reports") loadReports();

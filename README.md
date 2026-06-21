@@ -39,17 +39,18 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
-| **14-tab dashboard** | Overview, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Doctor, Audit, Settings |
+| **16-tab dashboard** | Overview, Workspace, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Control, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
 | **Built-in AI tooling** | MCP server with 20+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.5.1
+### 🆕 What's new in v3.5.2
 
-- **ReAct/reflection runtime stabilized** — `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run` now read the installed bridge config correctly after the AppKey migration, fixing the live runtime issue found immediately after `v3.5.0`.
-- **586 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Workspace dashboard surface v1** — `/gui` now includes a dedicated **Workspace** tab for active profile context, planner output, bounded ReAct runs, reflection, and file watcher management.
+- **Dashboard documentation updated** — README / README.ru now reflect the expanded tab set, including Workspace and Control.
+- **588 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -570,11 +571,12 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 
 ## 🖥️ Web Dashboard
 
-The dashboard at `/gui` has **14 tabs** and works in any modern browser without external dependencies (single self-contained HTML file).
+The dashboard at `/gui` has **16 tabs** and works in any modern browser without external dependencies (single self-contained HTML file).
 
 | Tab | What it does |
 |-----|--------------|
 | **Overview** | Bridge metrics, hardware diagnostics card, full inventory drawer, disk usage |
+| **Workspace** | Companion-style surface for active profile context, planner output, bounded ReAct runs, reflection, and file watcher management |
 | **Terminal** | Real shell session with slash-commands (`/shot`, `/read`, `/search`, ...) + arrow history |
 | **Memory** | List, search, add, delete key/value/tag facts |
 | **Recall** | Fuzzy TF-scored memory search and digest |
@@ -585,6 +587,7 @@ The dashboard at `/gui` has **14 tabs** and works in any modern browser without 
 | **Skills** | Core skills + Superpowers + BrowserAct |
 | **Hooks** | List pre/post hooks |
 | **Agents** | Sub-agent registry |
+| **Control** | Desktop control lease status, pause/resume/revoke actions, and active window overview |
 | **Doctor** | 9 self-tests + service/Funnel status + disk free check |
 | **Audit** | All events, filter by category, stats |
 | **Settings** | Tokens, sound notifications, Tailscale Funnel toggle, restart, export config |

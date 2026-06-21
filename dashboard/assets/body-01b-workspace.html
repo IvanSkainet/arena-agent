@@ -1,0 +1,40 @@
+<div class="tab" id="tab-workspace">
+<h1>Workspace <span class="version-tag">Companion Surface</span></h1>
+
+<div class="card">
+  <h2>Context</h2>
+  <div class="row">
+    <input id="workspaceProfile" placeholder="Profile (projects/arena)" style="flex:1" oninput="syncMemoryProfileFields(this.value)">
+    <button onclick="loadWorkspace()">Refresh</button>
+  </div>
+  <div id="workspaceSummary" class="mono" style="font-size:12px;white-space:pre-wrap">Loading...</div>
+</div>
+
+<div class="card">
+  <h2>Planner</h2>
+  <div class="row"><input id="workspaceGoal" placeholder="Goal" style="flex:2"><input id="workspaceMaxSteps" type="number" min="3" max="12" value="6" style="width:100px"></div>
+  <div class="row"><textarea id="workspaceContext" placeholder="Context / current situation" style="flex:1;min-height:90px"></textarea></div>
+  <div class="row"><input id="workspaceConstraints" placeholder="Constraints (comma separated)" style="flex:1"><button class="info" onclick="runWorkspacePlan()">Plan</button></div>
+  <div id="workspacePlanResult" class="output" style="display:none"></div>
+</div>
+
+<div class="card">
+  <h2>Agentic Loop</h2>
+  <div class="row">
+    <input id="workspaceReactUrl" placeholder="Optional URL for browser.head step" style="flex:1">
+    <input id="workspaceMaxIterations" type="number" min="1" max="8" value="4" style="width:100px">
+    <button class="warning" onclick="runWorkspaceReact()">React</button>
+    <button onclick="runWorkspaceReflect()">Reflect</button>
+  </div>
+  <div class="row"><input id="workspaceOutcome" placeholder="Outcome (optional)" style="flex:1"><input id="workspaceNotes" placeholder="Reflection notes (optional)" style="flex:1"></div>
+  <div id="workspaceReactResult" class="output" style="display:none"></div>
+  <div id="workspaceReflectResult" class="output" style="display:none;margin-top:8px"></div>
+</div>
+
+<div class="card">
+  <h2>File Watchers</h2>
+  <div class="row"><input id="watchPath" placeholder="/home/you/project" style="flex:2"><input id="watchPatterns" placeholder="*.py,*.md" style="flex:1"></div>
+  <div class="row"><input id="watchLabel" placeholder="repo" style="flex:1"><label><input id="watchRecursive" type="checkbox" checked> recursive</label><button class="success" onclick="addWorkspaceWatcher()">Add watcher</button><button onclick="loadWorkspaceWatchers()">Refresh</button></div>
+  <div id="workspaceWatchers" class="output" style="display:none"></div>
+</div>
+</div>

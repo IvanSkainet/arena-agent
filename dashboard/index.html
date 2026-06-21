@@ -44,13 +44,15 @@ window.ARENA_DASHBOARD_SCRIPTS = [
     '/gui/assets/21b-hwinfo-overview-extensions.js',
     '/gui/assets/22-full-inventory-loader.js',
     '/gui/assets/22b-full-inventory-format.js',
-    '/gui/assets/23-control-panel-v2-9-0.js'
+    '/gui/assets/23-control-panel-v2-9-0.js',
+    '/gui/assets/24-workspace.js'
 ];
 (async function bootArenaDashboard() {
   const root = document.getElementById("arena-dashboard-root");
   const bodyParts = [
     '/gui/assets/body-00-shell.html',
     '/gui/assets/body-01-overview.html',
+    '/gui/assets/body-01b-workspace.html',
     '/gui/assets/body-02-terminal.html',
     '/gui/assets/body-03-memory.html',
     '/gui/assets/body-04-recall.html',
