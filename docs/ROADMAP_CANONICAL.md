@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
-Date: 2026-06-21
-Validated baseline: `v3.13.1`
+Date: 2026-06-22
+Validated baseline: `v3.14.0`
 
 This file is the planning source of truth.
 
@@ -9,11 +9,11 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.13.1`
-- Tests: `617 passed`
-- MCP tools: `47`
-- Route objects in aiohttp app: `312`
-- Distinct method/path routes excluding auto-HEAD: `208`
+- Version: `3.14.0`
+- Tests: `619 passed`
+- MCP tools: `48`
+- Route objects in aiohttp app: `313`
+- Distinct method/path routes excluding auto-HEAD: `209`
 
 ### Completed enough to count as done
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
@@ -28,13 +28,7 @@ This file is the planning source of truth.
 - workspace dashboard surface v1 for profile context, planner, ReAct/reflection, and watcher management
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - workspace dashboard surface v2 with notes, lessons, and recent activity
-- desktop semantic click-by-text + active-window-aware OCR ranking (`D2` slice)
-- desktop display/output discovery and display-scoped OCR/text targeting (`D3` slice)
-- filtered window catalog + safer focus resolution/dry-run + stronger KWin Wayland focus (`D3` slice)
-- window actions for move/resize/minimize/maximize/restore/close/fullscreen (`D3` slice)
-- display-aware placement actions like `center` and `move_to_display` (`D3` slice)
-- snap/tile-style placement actions on the resolved display (`D3` slice)
-- OCR-to-window resolution plus query-driven focus/window actions (`D3` slice)
+- `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, and non-interactive KDE/Wayland window control
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -63,28 +57,17 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — Continue `D3` desktop maturity
-What just landed:
-- exact/phrase-first OCR ranking
-- active-window-aware text targeting
-- semantic `click_text` flows on top of OCR
-- display/output discovery plus display-scoped screenshot/OCR targeting
-- filtered window catalog and safer focus resolution/dry-run
-- stronger non-interactive KWin Wayland focus for UUID-style windows
-- actual window actions: move/resize/minimize/maximize/restore/close/fullscreen
-- display-aware placement actions: `center`, `move_to_display`
-- snap/tile-style placement actions on the resolved display
-- OCR-to-window resolution and query-driven focus/window actions
+## P1 — Deeper agent loops and mission composition
+Why this moves up now:
+- `D2 / D3` is now complete enough to count as done for the current roadmap slice.
+- The bridge has enough desktop maturity for higher-level agent workflows to build on top of it instead of more foundational desktop plumbing.
 
-What is still next:
-- richer multi-monitor policies beyond the current placement helpers
-- more semantic desktop actions beyond click-by-text
-- stronger workflows that combine windows + OCR + actions as one operation
-
-Definition of done:
-- better window management affordances
-- improved multi-monitor correctness
-- practical OCR-assisted interaction flows that are reliable enough for daily agent use
+What is already in place for that future work:
+- OCR/text targeting
+- query-driven focus/window actions
+- display-aware placement and snaps
+- planner + bounded ReAct + reflection foundations
+- workspace UI surfaces and memory profiles
 
 ---
 
@@ -136,15 +119,15 @@ Status update:
 - maximize/unmaximize/close and geometry-aware maximize verification landed in `v3.10.0`
 - display-aware placement helpers landed in `v3.11.0`
 - snap/tile-style placement helpers landed in `v3.12.0`
-- OCR-to-window resolution and query-driven window targeting landed in `v3.13.0`
+- OCR-to-window resolution, query-driven window targeting, and high-level text workflows landed in `v3.13.0` / `v3.13.1` / `v3.14.0`
 
 ---
 
 ## 7. Order of execution I recommend
 
-1. continue `D3` desktop maturity (richer monitor/window semantics + composable desktop workflows)
-2. deeper agent loops and mission composition
-3. workspace UI surfaces v3 (user/profile panes, richer memory browser)
-4. model/provider abstraction improvements
+1. deeper agent loops and mission composition
+2. workspace UI surfaces v3 (user/profile panes, richer memory browser)
+3. model/provider abstraction improvements
+4. future desktop polish only if a concrete gap appears during real-world use
 
 If a low-risk cleanup slot is needed between major tasks, use it for stale-surface cleanup and doc consistency.

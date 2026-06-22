@@ -35,7 +35,7 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Unified architecture** | REST API, MCP (HTTP/SSE/WebSocket), web gateway, dashboard, async task runner — all on **one port** (default `8765`) |
 | **200+ method/path routes** | Public REST, MCP, gateway, dashboard, observability, desktop, browser, admin, and compatibility surfaces on one port |
 | **36 CDP endpoints** | Full Chrome DevTools Protocol: navigate, click, type, screenshot, cookies, network interception, multi-tab management |
-| **14 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, display/output discovery, OCR, text-target detection, OCR-to-window resolution, semantic click-by-text, click, layout-safe type, key press, mouse move, window list, active window, focus, window actions, plus control lease pause/resume/revoke/status |
+| **15 desktop + 4 control endpoints** | Wayland/X11 desktop automation: screenshot, display/output discovery, OCR, text-target detection, OCR-to-window resolution, high-level text actions, semantic click-by-text, click, layout-safe type, key press, mouse move, window list, active window, focus, window actions, plus control lease pause/resume/revoke/status |
 | **Token-authenticated** | 256-bit Bearer token, persistent in `token.txt`, hot-rotatable from the dashboard |
 | **Auto-restart everywhere** | NSSM on Windows, Scheduled Task as fallback, `Restart=on-failure` on systemd, `KeepAlive` on launchd |
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.13.1
+### 🆕 What's new in v3.14.0
 
-- **OCR-to-window resolution is now practical on the live KDE/Wayland bridge** — query-driven text workflows can crop OCR work to the active window instead of scanning the entire desktop every time.
-- **`desktop.focus` and `desktop.window_action` work better from text queries** — when the target text is on the active window, the bridge now resolves it with much less noise and lower timeout risk.
-- **Composable desktop workflows keep getting stronger** — OCR, window resolution, display-awareness, focus, snap/placement actions, and click-by-text now fit together into more useful higher-level flows.
-- **Still no KWin focus-stealing regression** — the richer text-driven behavior stays on the non-interactive KDE/Wayland path.
-- **617 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **High-level text-driven desktop workflows landed** — `POST /v1/desktop/text_action` and MCP `desktop.text_action` can now resolve visible text and then focus, click, or run semantic window actions from one workflow surface.
+- **`D2 / D3` desktop maturity is now complete enough to count as done** — the bridge now has stronger OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, and non-interactive KDE/Wayland window control.
+- **The product can move forward** — with desktop maturity now substantially complete, the next roadmap center of gravity can shift toward deeper agent loops and workspace UX rather than more foundational desktop plumbing.
+- **Still no KWin focus-stealing regression** — the richer workflows remain on the non-interactive KDE/Wayland path.
+- **619 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -339,7 +339,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
         │                                                                     │
         │   ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐      │
         │   │ CDP browser  │  │ Desktop API   │  │  Async Task Runner   │      │
-        │   │ 36 endpoints │  │ 14+4 endpoints │  │  + Log + Disk Mon.  │      │
+        │   │ 36 endpoints │  │ 15+4 endpoints │  │  + Log + Disk Mon.  │      │
         │   └──────────────┘  └──────────────┘  └──────────────────────┘      │
         │                                                                     │
         └─────────────────────────────────────────────────────────────────────┘
@@ -478,7 +478,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | **Stealth** | `cdp/stealth/extract`, `stealth/shot` | Anti-detection browser automation |
 | **Session** | `cdp/session/check` | Session management and diagnostics |
 
-### Desktop Automation (14 endpoints + 4 control lease endpoints)
+### Desktop Automation (15 endpoints + 4 control lease endpoints)
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -493,6 +493,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `POST` | `/v1/desktop/focus` | Focus a window by id, semantic filters, or OCR text query; supports `dry_run` target resolution before actual focus |
 | `POST` | `/v1/desktop/window_action` | Move, resize, center, snap into common tiling positions, move to another display, minimize, maximize, restore, close, or toggle fullscreen on a window resolved by id, semantic filters, or OCR text query; supports `dry_run` |
 | `POST` | `/v1/desktop/resolve_text_target` | Resolve OCR text into both a click target and the containing window, with optional display/window filters |
+| `POST` | `/v1/desktop/text_action` | High-level OCR → target → action workflow that can resolve, focus, click, or run semantic window actions from visible text |
 | `POST` | `/v1/desktop/ocr` | Run OCR on a fresh desktop screenshot and return words, full text, confidence, and bounding boxes; can be scoped to a named display |
 | `POST` | `/v1/desktop/find_text` | Find text on the current desktop and return ranked matching bounding boxes plus click-ready center coordinates; can prefer or constrain matches to the active window or a named display |
 | `POST` | `/v1/desktop/click_text` | Find text on the current desktop, choose the best ranked match, and click it in one step; supports active-window-aware and display-aware targeting |

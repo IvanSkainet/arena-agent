@@ -1,5 +1,28 @@
 # Changelog
 
+## v3.14.0 - 2026-06-21
+
+### Added
+- **High-level text-driven desktop workflow (`D3`)** — added `POST /v1/desktop/text_action`, a composable OCR → window-target → desktop-action flow that can resolve, focus, click, or apply semantic window actions from visible text.
+- **MCP `desktop.text_action`** — the same high-level text-driven desktop workflow is now available via MCP.
+
+### Improved
+- **`D2 / D3` desktop maturity is now complete enough to count as done** — Arena now has exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile-style placement, stronger non-interactive KWin Wayland focus, and richer multi-monitor semantics.
+- **Roadmap priority shifts forward** — with the desktop maturity slice completed enough to count, the next recommended focus moves to deeper agent loops / mission composition and workspace UI v3 rather than more foundational desktop plumbing.
+- **Desktop actions are more composable** — OCR, display-aware targeting, window resolution, focus, click, and window actions can now be chained through one workflow surface instead of being manually orchestrated by every client.
+
+### Tests
+- Added text-driven workflow regressions.
+- Total: **619 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 619 tests.
+- Local `pytest --collect-only`: PASS, 619 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live KDE/Wayland validation: PASS for `resolve_text_target`, query-driven `focus` dry-run, query-driven `window_action` dry-run / center, and `snap_right`.
+
 ## v3.13.1 - 2026-06-21
 
 ### Improved

@@ -7,6 +7,7 @@ from arena.desktop.display_handler import make_desktop_display_handler
 from arena.desktop.input_handlers import make_desktop_input_handlers
 from arena.desktop.ocr_handler import make_desktop_ocr_handlers
 from arena.desktop.screenshot_handler import make_desktop_screenshot_handler
+from arena.desktop.text_action_handler import make_desktop_text_action_handler
 from arena.desktop.text_window_handler import make_desktop_text_window_handler
 from arena.desktop.window_action_handler import make_desktop_window_action_handler
 from arena.desktop.window_handlers import make_desktop_window_handlers
@@ -26,6 +27,7 @@ class DesktopHandlers:
     focus: object
     window_action: object
     resolve_text_target: object
+    text_action: object
     ocr: object
     find_text: object
     click_text: object
@@ -48,6 +50,7 @@ def make_desktop_handlers(ctx: DesktopHandlerContext) -> DesktopHandlers:
         focus=focus,
         window_action=make_desktop_window_action_handler(ctx),
         resolve_text_target=make_desktop_text_window_handler(ctx),
+        text_action=make_desktop_text_action_handler(ctx),
         ocr=ocr_handlers.ocr,
         find_text=ocr_handlers.find_text,
         click_text=ocr_handlers.click_text,
