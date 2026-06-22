@@ -25,6 +25,7 @@ async def resolve_text_window_target(
     max_results: int = 20,
     prefer_active_window: bool = True,
     within_active_window: bool = False,
+    crop_active_window: bool = False,
     require_active_title: str = "",
     max_window_candidates: int = 5,
     capture_screenshot,
@@ -67,6 +68,12 @@ async def resolve_text_window_target(
                 "status": 404,
             }
 
+    crop_geometry = None
+    if display_info:
+        crop_geometry = display_info.get("geometry")
+    elif crop_active_window and active_window:
+        crop_geometry = active_window.get("geometry")
+
     ocr_result = await ocr_desktop(
         query=query,
         scale=scale,
@@ -78,10 +85,10 @@ async def resolve_text_window_target(
         prefer_active_window=prefer_active_window,
         within_active_window=within_active_window,
         active_window=active_window,
-        region_x=(display_info or {}).get("geometry", {}).get("x"),
-        region_y=(display_info or {}).get("geometry", {}).get("y"),
-        region_width=(display_info or {}).get("geometry", {}).get("width"),
-        region_height=(display_info or {}).get("geometry", {}).get("height"),
+        region_x=(crop_geometry or {}).get("x"),
+        region_y=(crop_geometry or {}).get("y"),
+        region_width=(crop_geometry or {}).get("width"),
+        region_height=(crop_geometry or {}).get("height"),
         capture_screenshot=capture_screenshot,
         desktop_exec=desktop_exec,
         detect_env=detect_env,
@@ -126,6 +133,8 @@ async def resolve_text_window_target(
         "window_candidates": containing_windows,
         "filtered_window_count": len(filtered_windows),
         "displays": displays,
+        "crop_active_window": bool(crop_active_window),
+        "crop_region": crop_geometry,
         "windows_backend": windows_result.get("tool") or windows_result.get("backend"),
     }
     if not target_window:

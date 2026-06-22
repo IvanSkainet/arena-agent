@@ -89,6 +89,21 @@ def test_resolve_text_window_target_respects_window_filters():
 
 
 
+def test_resolve_text_window_target_can_crop_to_active_window():
+    captured = {}
+
+    async def _ocr_capture(**kwargs):
+        captured.update(kwargs)
+        return await _ocr_echo(**kwargs)
+
+    result = asyncio.run(resolve_text_window_target(query="Arena", crop_active_window=True, capture_screenshot=ub.capture_desktop_screenshot, desktop_exec=_exec, detect_env=lambda: {"session_type": "wayland", "has_xdotool": False}, get_active_window=_active_window, kwin_windows_via_script=_kwin_list, ocr_desktop=_ocr_capture, audit_fn=None))
+    assert result["ok"] is True
+    assert result["crop_active_window"] is True
+    assert captured["region_x"] == 0
+    assert captured["region_width"] == 1200
+
+
+
 def test_resolve_text_window_handler_route_and_body():
     handler = make_desktop_text_window_handler(_ctx())
     req = make_mocked_request("POST", "/v1/desktop/resolve_text_target", headers={"Authorization": "Bearer t"})

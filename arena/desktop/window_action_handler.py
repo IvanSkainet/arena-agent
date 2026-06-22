@@ -48,6 +48,7 @@ def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
                 max_results=int(body.get("max_results", 20) or 20),
                 prefer_active_window=bool(body.get("prefer_active_window", True)),
                 within_active_window=bool(body.get("within_active_window", False)),
+                crop_active_window=bool(body.get("crop_active_window", True)),
                 require_active_title=str(body.get("require_active_title", "") or ""),
                 max_window_candidates=int(body.get("max_candidates", 5) or 5),
                 capture_screenshot=ctx.capture_screenshot,

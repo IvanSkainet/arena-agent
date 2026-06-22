@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-21
-Validated baseline: `v3.13.0`
+Validated baseline: `v3.13.1`
 
 This file is the planning source of truth.
 
@@ -9,8 +9,8 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.13.0`
-- Tests: `616 passed`
+- Version: `3.13.1`
+- Tests: `617 passed`
 - MCP tools: `47`
 - Route objects in aiohttp app: `312`
 - Distinct method/path routes excluding auto-HEAD: `208`

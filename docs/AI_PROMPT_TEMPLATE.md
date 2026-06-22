@@ -63,7 +63,7 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`GET /v1/desktop/active_window`**: Return the currently active desktop window.
 - **`POST /v1/desktop/focus`**: Focus a window by id, semantic filters like title/class/display, or an OCR text query. Use `dry_run: true` first when you want to confirm resolution before actually moving focus.
 - **`POST /v1/desktop/window_action`**: Move, resize, center, snap into common tiling positions, move to another display, minimize, maximize, restore, close, or toggle fullscreen on a resolved window. Supports `dry_run` target resolution before acting, and can also resolve the window from visible `query` text.
-- **`POST /v1/desktop/resolve_text_target`**: Resolve OCR text into a click target plus the containing window, so you can compose text-aware focus or window actions more safely.
+- **`POST /v1/desktop/resolve_text_target`**: Resolve OCR text into a click target plus the containing window, so you can compose text-aware focus or window actions more safely. If the text is already on the active window, keep `crop_active_window=true` to reduce OCR noise and timeout risk.
 - **`POST /v1/desktop/click`**: Perform click at `{"x": N, "y": N, "button": "left"}`.
 - **`POST /v1/desktop/type`**: Simulate keystrokes/text typing on the active window: `{"text": "..."}`.
 - **`POST /v1/desktop/key`**: Send specific keys (e.g. `{"key": "Return"}`).

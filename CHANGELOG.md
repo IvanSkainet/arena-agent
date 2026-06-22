@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.13.1 - 2026-06-21
+
+### Improved
+- **OCR-to-window resolution is more practical on KDE/Wayland** — `resolve_text_target`, query-driven `desktop.focus`, and query-driven `desktop.window_action` can now crop OCR work to the active window, which reduces noisy full-screen scans and makes text-to-window targeting much more usable on the live bridge.
+- **Text-aware desktop workflows are more reliable** — the new query-driven flows now compose OCR, window resolution, and desktop actions with less timeout risk when the relevant text is already on the active window.
+
+### Tests
+- Added active-window crop coverage for OCR-to-window targeting.
+- Total: **617 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 617 tests.
+- Local `pytest --collect-only`: PASS, 617 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live KDE/Wayland validation: PASS for `resolve_text_target`, query-driven `focus` dry-run, query-driven `window_action` dry-run / center, and `snap_right`.
+
 ## v3.13.0 - 2026-06-21
 
 ### Added
@@ -13,11 +31,11 @@
 
 ### Tests
 - Added OCR-to-window target resolution and query-driven focus/window-action regressions.
-- Total: **616 tests pass**.
+- Total: **617 tests pass**.
 
 ### Validation
-- Local `pytest -q`: PASS, 616 tests.
-- Local `pytest --collect-only`: PASS, 616 tests collected.
+- Local `pytest -q`: PASS, 617 tests.
+- Local `pytest --collect-only`: PASS, 617 tests collected.
 - Local `bash -n install.sh`: PASS.
 - Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
 - Local `ruff check . --select F821,F811`: PASS.

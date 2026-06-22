@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.13.0
+### 🆕 What's new in v3.13.1
 
-- **OCR-to-window resolution landed** — `POST /v1/desktop/resolve_text_target` and MCP `desktop.resolve_text_target` now map visible text to both a click target and the containing window.
-- **`desktop.focus` can now work from text queries** — an agent can focus the window containing visible text instead of relying only on ids or window metadata.
-- **`desktop.window_action` can now work from text queries** — placement and window-management actions can target the window containing recognized text.
-- **Desktop workflows are becoming composable** — OCR, windows, displays, focus, and actions now interlock more directly instead of living as isolated primitives.
-- **616 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **OCR-to-window resolution is now practical on the live KDE/Wayland bridge** — query-driven text workflows can crop OCR work to the active window instead of scanning the entire desktop every time.
+- **`desktop.focus` and `desktop.window_action` work better from text queries** — when the target text is on the active window, the bridge now resolves it with much less noise and lower timeout risk.
+- **Composable desktop workflows keep getting stronger** — OCR, window resolution, display-awareness, focus, snap/placement actions, and click-by-text now fit together into more useful higher-level flows.
+- **Still no KWin focus-stealing regression** — the richer text-driven behavior stays on the non-interactive KDE/Wayland path.
+- **617 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
