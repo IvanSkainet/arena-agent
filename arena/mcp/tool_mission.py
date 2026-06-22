@@ -22,6 +22,10 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, metho
 def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     if name == "mission.templates":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/templates", None, method="GET"), ensure_ascii=False))
+    if name == "mission.status":
+        return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/status?name={args.get('mission_id','') or args.get('name','')}", None, method="GET"), ensure_ascii=False))
+    if name == "mission.report":
+        return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/report?name={args.get('mission_id','') or args.get('name','')}", None, method="GET"), ensure_ascii=False))
     if name == "mission.compose":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/compose", args), ensure_ascii=False))
     if name == "mission.create":

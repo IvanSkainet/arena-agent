@@ -8,7 +8,7 @@ PUBLIC_ENDPOINTS = [
     "POST /v1/exec", "POST /v1/kill",
     "POST /v1/upload?path=", "GET /v1/download?path=",
     "GET /v1/memory?q=", "POST /v1/memory",
-    "GET /v1/missions", "GET /v1/mission/show?name=", "GET /v1/mission/templates",
+    "GET /v1/missions", "GET /v1/mission/show?name=", "GET /v1/mission/status?name=", "GET /v1/mission/report?name=", "GET /v1/mission/templates",
     "POST /v1/mission/compose", "POST /v1/mission/propose", "POST /v1/mission/create", "POST /v1/mission/run",
     "GET /v1/reports", "GET /v1/doctor", "POST /v1/beep",
     "GET /v1/browser/search?q=", "GET /v1/browser/read?url=",

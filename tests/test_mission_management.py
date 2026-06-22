@@ -74,6 +74,8 @@ def test_mission_handlers_and_registry(tmp_path):
         agents_list_sync=lambda: {"ok": True, "count": 0, "agents": []},
         subagents_list_sync=lambda: {"ok": True, "count": 0, "subagents": []},
         mission_show_sync=lambda name: {"ok": True, "name": name},
+        mission_status_sync=lambda name: {"ok": True, "mission": {"name": name, "state": "planned"}},
+        mission_report_sync=lambda name: {"ok": False, "status": 404, "error": "missing report"},
         mission_templates_sync=list_mission_templates,
         mission_compose_sync=lambda data: compose_mission_draft(goal=data.get("goal", ""), context=data.get("context", ""), build_plan=ub.build_plan),
         mission_propose_sync=lambda data: {"ok": True, "goal": data.get("goal", ""), "mission": {"draft": composed["draft"]}},
@@ -137,12 +139,33 @@ def test_mission_handlers_and_registry(tmp_path):
 
     names = [tool["name"] for tool in MCP_TOOLS]
     assert "mission.templates" in names
+    assert "mission.status" in names
+    assert "mission.report" in names
     assert "mission.compose" in names
     assert "mission.propose" in names
     assert "mission.create" in names
     assert "mission.run" in names
     ctx2 = type("Ctx", (), {"app_config": staticmethod(lambda: {"port": 8765, "token": "t"})})()
     assert handle_mission_tool("not-mission", {}, ctx=ctx2) is None
+
+
+
+def test_mission_status_and_report_helpers(tmp_path):
+    missions_dir = tmp_path / "missions"
+    mission_dir = missions_dir / "demo"
+    logs = mission_dir / "logs"
+    logs.mkdir(parents=True)
+    (mission_dir / "mission.json").write_text(json.dumps({"id": "demo", "title": "Demo", "template": "cli-agent-core", "state": "done", "runs": [{"ts": "now", "ok": True}], "created_at": "now"}), encoding="utf-8")
+    (mission_dir / "REPORT.md").write_text("report body", encoding="utf-8")
+
+    from arena.resources.mission_state import get_mission_report, get_mission_status
+
+    status = get_mission_status(missions_dir, "demo")
+    assert status["ok"] is True
+    assert status["mission"]["runs_count"] == 1
+    report = get_mission_report(missions_dir, "demo")
+    assert report["ok"] is True
+    assert report["content"] == "report body"
 
 
 

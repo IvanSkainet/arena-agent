@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.17.0 - 2026-06-22
+
+### Added
+- **Mission lifecycle/inspection surfaces** — added structured mission status and report inspection through `GET /v1/mission/status` and `GET /v1/mission/report`.
+- **MCP mission inspection tools** — added `mission.status` and `mission.report` so agent frontends can inspect persisted mission state and reports without custom REST glue.
+
+### Improved
+- **Mission composition is more usable in practice** — missions are no longer just creatable/runnable; they are now inspectable as first-class artifacts with structured state and report retrieval.
+- **The mission/orchestration block keeps deepening** — Arena now has template listing, composition, proposal/orchestration, creation, run, status, and report surfaces across REST and MCP.
+- **Mission runner validation is stronger** — the release includes explicit regression coverage for hook-helper imports, mission status, and mission report access.
+
+### Tests
+- Added mission status/report regressions.
+- Total: **624 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 624 tests.
+- Local `pytest --collect-only`: PASS, 624 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.16.0 - 2026-06-22
 
 ### Added

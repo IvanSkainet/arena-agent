@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-22
-Validated baseline: `v3.16.0`
+Validated baseline: `v3.17.0`
 
 This file is the planning source of truth.
 
@@ -9,11 +9,11 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.16.0`
-- Tests: `623 passed`
-- MCP tools: `53`
-- Route objects in aiohttp app: `319`
-- Distinct method/path routes excluding auto-HEAD: `214`
+- Version: `3.17.0`
+- Tests: `624 passed`
+- MCP tools: `55`
+- Route objects in aiohttp app: `321`
+- Distinct method/path routes excluding auto-HEAD: `216`
 
 ### Completed enough to count as done
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
@@ -25,7 +25,7 @@ This file is the planning source of truth.
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
-- mission composition v1 via REST + MCP (`mission.templates`, `mission.compose`, `mission.create`, `mission.run`)
+- mission composition and inspection v1 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`)
 - workspace dashboard surface v1 for profile context, planner, ReAct/reflection, and watcher management
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - workspace dashboard surface v2 with notes, lessons, and recent activity
@@ -123,6 +123,7 @@ Status update:
 - snap/tile-style placement helpers landed in `v3.12.0`
 - OCR-to-window resolution, query-driven window targeting, and high-level text workflows landed in `v3.13.0` / `v3.13.1` / `v3.14.0`
 - mission composition v1 landed in `v3.15.0`
+- mission proposal/orchestration plus mission inspection/status/report surfaces landed in `v3.16.0` / `v3.17.0`
 
 ---
 

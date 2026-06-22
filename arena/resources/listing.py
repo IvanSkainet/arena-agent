@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from arena.resources.mission_state import summarize_mission_dir
+
 
 def list_missions(missions_dir: Path) -> list[dict[str, Any]]:
     missions: list[dict[str, Any]] = []
@@ -14,7 +16,10 @@ def list_missions(missions_dir: Path) -> list[dict[str, Any]]:
             if path.is_file() and path.suffix in (".json", ".yaml", ".yml", ".md", ".txt"):
                 missions.append({"name": path.stem, "ext": path.suffix, "size": path.stat().st_size, "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()})
             elif path.is_dir():
-                missions.append({"name": path.name, "ext": "[dir]", "size": len(list(path.iterdir())), "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()})
+                if (path / "mission.json").exists():
+                    missions.append(summarize_mission_dir(path))
+                else:
+                    missions.append({"name": path.name, "ext": "[dir]", "size": len(list(path.iterdir())), "modified": datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).isoformat()})
     return missions
 
 
@@ -31,7 +36,10 @@ def show_mission(missions_dir: Path, name: str) -> dict[str, Any]:
         files = []
         for item in sorted(directory.iterdir()):
             files.append({"name": item.name, "size": item.stat().st_size if item.is_file() else 0, "is_dir": item.is_dir()})
-        return {"ok": True, "name": name, "is_dir": True, "files": files}
+        payload = {"ok": True, "name": name, "is_dir": True, "files": files}
+        if (directory / "mission.json").exists():
+            payload["mission"] = summarize_mission_dir(directory)
+        return payload
     return {"ok": False, "error": f"mission '{name}' not found"}
 
 
