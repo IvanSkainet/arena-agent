@@ -50,13 +50,13 @@ def list_mission_templates() -> dict[str, Any]:
 
 
 
-def compose_mission_draft(*, goal: str, context: str = "", constraints: list[str] | None = None, max_steps: int = 8, memory_profile: str | None = None, title: str = "", template: str = "", build_plan: Callable[..., dict[str, Any]]) -> dict[str, Any]:
+def compose_mission_draft(*, goal: str, context: str = "", constraints: list[str] | None = None, max_steps: int = 8, memory_profile: str | None = None, title: str = "", template: str = "", build_plan: Callable[..., dict[str, Any]], plan: dict[str, Any] | None = None) -> dict[str, Any]:
     goal = str(goal or "").strip()
     if not goal:
         return {"ok": False, "error": "missing goal", "status": 400}
     template_id = template if template in TEMPLATES_DATA else infer_mission_template(goal, context)
     template_data = TEMPLATES_DATA.get(template_id, {})
-    plan = build_plan(goal=goal, context=context, constraints=constraints or [], max_steps=max_steps, memory_profile=memory_profile)
+    plan = plan or build_plan(goal=goal, context=context, constraints=constraints or [], max_steps=max_steps, memory_profile=memory_profile)
     draft = {
         "spec_version": 1,
         "title": title or template_data.get("title") or goal[:80],

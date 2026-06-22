@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.16.0 - 2026-06-22
+
+### Added
+- **Mission proposal/orchestration flow** — added `POST /v1/mission/propose`, which runs a bounded agentic proposal loop, reflects on it, and returns a planner-backed mission bundle with optional mission creation and run.
+- **MCP `mission.propose`** — the same proposal/orchestration flow is now available through MCP.
+
+### Improved
+- **Mission composition is no longer just CRUD** — Arena can now go from goal → bounded observe/reflect → mission draft → optional persisted mission → optional mission run in one agent-facing flow.
+- **The post-desktop roadmap block is now materially underway** — this is the first real bridge between the agentic runtime (`react` / `reflect`) and reusable mission artifacts.
+
+### Tests
+- Added mission proposal regressions.
+- Total: **623 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 623 tests.
+- Local `pytest --collect-only`: PASS, 623 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Live validation: PASS for mission template listing, mission compose, mission create, and mission run. Mission propose is implemented and covered locally in the same release cycle.
+
 ## v3.15.0 - 2026-06-22
 
 ### Added

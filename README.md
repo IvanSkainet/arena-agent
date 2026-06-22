@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.15.0
+### 🆕 What's new in v3.16.0
 
-- **Mission composition APIs landed** — Arena now has first-party mission endpoints for listing templates, composing planner-backed mission drafts, creating reusable mission artifacts, and running missions through the bridge.
-- **Mission composition is also available over MCP** — `mission.templates`, `mission.compose`, `mission.create`, and `mission.run` let agent frontends use missions without inventing their own REST glue.
-- **The next roadmap block has truly started** — after closing the current D2/D3 desktop maturity slice, Arena now begins the deeper agent loops / mission composition layer instead of only preparing for it.
-- **Desktop maturity remains intact** — the new mission work builds on top of the already completed OCR, window, focus, and semantic desktop stack rather than replacing it.
-- **622 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Mission proposal/orchestration flow landed** — `POST /v1/mission/propose` and MCP `mission.propose` can now run a bounded agentic proposal loop, reflect on it, and return a planner-backed mission bundle with optional creation/run.
+- **Mission composition is no longer just CRUD** — Arena can now go from goal → observe/reflect → mission draft → persisted mission → optional mission run in one agent-facing flow.
+- **The next big roadmap block is materially underway** — this is the first real bridge between the agentic runtime (`react` / `reflect`) and reusable mission artifacts.
+- **Desktop maturity remains intact** — the new mission/orchestration work builds on top of the already completed OCR, window, focus, and semantic desktop stack rather than replacing it.
+- **623 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -544,6 +544,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/mission/show?name=…` | Show mission details |
 | `GET` | `/v1/mission/templates` | List built-in mission templates available for composition |
 | `POST` | `/v1/mission/compose` | Compose a planner-backed mission draft from a goal, context, and optional template |
+| `POST` | `/v1/mission/propose` | Run a bounded agentic proposal flow and return a mission bundle, with optional create/run |
 | `POST` | `/v1/mission/create` | Persist a composed mission draft into the local `missions/` directory |
 | `POST` | `/v1/mission/run` | Run a persisted mission by mission id through the built-in mission manager |
 

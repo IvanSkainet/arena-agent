@@ -20,6 +20,7 @@ class ResourceHandlers:
     mission_show: object
     mission_templates: object
     mission_compose: object
+    mission_propose: object
     mission_create: object
     mission_run: object
     subagents_spawn: object
@@ -96,6 +97,9 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
     async def handle_v1_mission_compose(request: web.Request) -> web.Response:
         return await _post_json(ctx.mission_compose_sync, request)
 
+    async def handle_v1_mission_propose(request: web.Request) -> web.Response:
+        return await _post_json(ctx.mission_propose_sync, request)
+
     async def handle_v1_mission_create(request: web.Request) -> web.Response:
         result = await _post_json(ctx.mission_create_sync, request)
         return result
@@ -123,4 +127,4 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         ctx.audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""), "ok": result.get("ok", False)})
         return ctx.cors_json_response(result)
 
-    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, subagents_spawn=handle_v1_subagents_spawn)
+    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, subagents_spawn=handle_v1_subagents_spawn)

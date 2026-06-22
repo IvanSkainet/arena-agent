@@ -26,6 +26,8 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/compose", args), ensure_ascii=False))
     if name == "mission.create":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/create", args), ensure_ascii=False))
+    if name == "mission.propose":
+        return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/propose", args), ensure_ascii=False))
     if name == "mission.run":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/run", args), ensure_ascii=False))
     return None

@@ -15,6 +15,7 @@ from arena.mcp.tool_mission import handle_mission_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.resources.handlers import make_resource_handlers  # noqa: E402
 from arena.resources.missions_manage import compose_mission_draft, create_mission_from_draft, list_mission_templates  # noqa: E402
+from arena.resources.missions_orchestration import propose_mission_bundle  # noqa: E402
 import unified_bridge as ub  # noqa: E402
 
 
@@ -30,6 +31,27 @@ def test_mission_template_listing_and_compose_create(tmp_path):
     assert created["ok"] is True
     assert (Path(created["path"]) / "mission.json").exists()
     assert (Path(created["path"]) / "PLAN.md").exists()
+
+
+
+def test_mission_propose_bundle_can_create_and_run(tmp_path):
+    composed = compose_mission_draft(goal="Fix repo test failures", context="Need reusable mission", build_plan=ub.build_plan)
+
+    result = propose_mission_bundle(
+        goal="Fix repo test failures",
+        context="Need reusable mission",
+        react_sync=lambda **kwargs: {"ok": True, "goal": kwargs["goal"], "iterations": [{"action": {"name": "bridge.status"}}], "summary": "observed", "memory_profile": "code"},
+        reflect_sync=lambda **kwargs: {"ok": True, "goal": kwargs["goal"], "confidence": "medium"},
+        compose_sync=lambda data: {"ok": True, "draft": composed["draft"], "plan": composed["plan"], "template_data": composed["template_data"]},
+        create_sync=lambda data: create_mission_from_draft(missions_dir=tmp_path / "missions", draft=data["draft"], mission_id=data.get("mission_id", "")),
+        run_sync=lambda data: {"ok": True, "mission_id": data["mission_id"], "exit_code": 0},
+        create=True,
+        run_now=True,
+    )
+    assert result["ok"] is True
+    assert result["mission"]["created"]["ok"] is True
+    assert result["mission"]["run"]["ok"] is True
+    assert result["mission"]["draft"]["analysis"]["reflection"]["confidence"] == "medium"
 
 
 
@@ -54,6 +76,7 @@ def test_mission_handlers_and_registry(tmp_path):
         mission_show_sync=lambda name: {"ok": True, "name": name},
         mission_templates_sync=list_mission_templates,
         mission_compose_sync=lambda data: compose_mission_draft(goal=data.get("goal", ""), context=data.get("context", ""), build_plan=ub.build_plan),
+        mission_propose_sync=lambda data: {"ok": True, "goal": data.get("goal", ""), "mission": {"draft": composed["draft"]}},
         mission_create_sync=_create,
         mission_run_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "exit_code": 0},
         subagent_spawn_sync=lambda data: {"ok": True},
@@ -77,6 +100,18 @@ def test_mission_handlers_and_registry(tmp_path):
     compose_data = json.loads(compose_resp.text)
     assert compose_data["ok"] is True
     assert compose_data["draft"]["goal"] == "Fix repo test failures"
+
+    propose_req = make_mocked_request("POST", "/v1/mission/propose", headers={"Authorization": "Bearer t"})
+
+    async def _propose_json():
+        return {"goal": "Fix repo test failures", "create": False}
+
+    propose_req.json = _propose_json
+    propose_resp = asyncio.run(handlers.mission_propose(propose_req))
+    propose_data = json.loads(propose_resp.text)
+    assert propose_data["ok"] is True
+    assert propose_data["goal"] == "Fix repo test failures"
+    assert propose_data["mission"]["draft"]["template"]
 
     create_req = make_mocked_request("POST", "/v1/mission/create", headers={"Authorization": "Bearer t"})
 
@@ -103,6 +138,7 @@ def test_mission_handlers_and_registry(tmp_path):
     names = [tool["name"] for tool in MCP_TOOLS]
     assert "mission.templates" in names
     assert "mission.compose" in names
+    assert "mission.propose" in names
     assert "mission.create" in names
     assert "mission.run" in names
     ctx2 = type("Ctx", (), {"app_config": staticmethod(lambda: {"port": 8765, "token": "t"})})()

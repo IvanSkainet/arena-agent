@@ -57,6 +57,7 @@ class ResourceHandlerContext:
     mission_show_sync: Callable[[str], dict[str, Any]]
     mission_templates_sync: Callable[[], dict[str, Any]]
     mission_compose_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_propose_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_create_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_run_sync: Callable[[dict[str, Any]], dict[str, Any]]
     subagent_spawn_sync: Callable[[dict[str, Any]], dict[str, Any]]
