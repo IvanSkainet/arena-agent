@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.15.0 - 2026-06-22
+
+### Added
+- **Mission composition surfaces** — added `GET /v1/mission/templates`, `POST /v1/mission/compose`, `POST /v1/mission/create`, and `POST /v1/mission/run`, giving the bridge first-party mission composition and execution APIs instead of leaving missions as a CLI-only side surface.
+- **MCP mission tools** — added `mission.templates`, `mission.compose`, `mission.create`, and `mission.run` so agent frontends can compose and launch reusable missions without custom REST wiring.
+
+### Improved
+- **The next big roadmap block has started** — Arena now has the first real implementation slice of deeper agent loops / mission composition on top of the already-shipped planner, ReAct, reflection, memory, tasks, and desktop stack.
+- **Mission drafts are planner-backed** — mission composition now turns a goal into a reusable mission draft with a selected template, planner steps, required tools, risks, and a suggested memory profile.
+- **Mission execution is no longer hidden behind the CLI** — agents can now create a mission artifact and trigger the built-in mission manager through API and MCP.
+
+### Fixed
+- **Mission runner hook helpers restored** — the built-in mission manager now imports its pre/post mission hook helpers explicitly, so `mission.run` no longer crashes with `NameError: _fire_mission_hook`.
+
+### Tests
+- Added mission composition/runtime/handler regressions.
+- Total: **622 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 622 tests.
+- Local `pytest --collect-only`: PASS, 622 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.14.0 - 2026-06-21
 
 ### Added

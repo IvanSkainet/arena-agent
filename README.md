@@ -41,18 +41,18 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
 | **16-tab dashboard** | Overview, Workspace, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Control, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
-| **Built-in AI tooling** | MCP server with 40+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
+| **Built-in AI tooling** | MCP server with 50+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.14.0
+### 🆕 What's new in v3.15.0
 
-- **High-level text-driven desktop workflows landed** — `POST /v1/desktop/text_action` and MCP `desktop.text_action` can now resolve visible text and then focus, click, or run semantic window actions from one workflow surface.
-- **`D2 / D3` desktop maturity is now complete enough to count as done** — the bridge now has stronger OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, and non-interactive KDE/Wayland window control.
-- **The product can move forward** — with desktop maturity now substantially complete, the next roadmap center of gravity can shift toward deeper agent loops and workspace UX rather than more foundational desktop plumbing.
-- **Still no KWin focus-stealing regression** — the richer workflows remain on the non-interactive KDE/Wayland path.
-- **619 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Mission composition APIs landed** — Arena now has first-party mission endpoints for listing templates, composing planner-backed mission drafts, creating reusable mission artifacts, and running missions through the bridge.
+- **Mission composition is also available over MCP** — `mission.templates`, `mission.compose`, `mission.create`, and `mission.run` let agent frontends use missions without inventing their own REST glue.
+- **The next roadmap block has truly started** — after closing the current D2/D3 desktop maturity slice, Arena now begins the deeper agent loops / mission composition layer instead of only preparing for it.
+- **Desktop maturity remains intact** — the new mission work builds on top of the already completed OCR, window, focus, and semantic desktop stack rather than replacing it.
+- **622 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -542,6 +542,10 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/reports` | List screenshots and reports |
 | `GET` | `/v1/missions` | List scripted missions |
 | `GET` | `/v1/mission/show?name=…` | Show mission details |
+| `GET` | `/v1/mission/templates` | List built-in mission templates available for composition |
+| `POST` | `/v1/mission/compose` | Compose a planner-backed mission draft from a goal, context, and optional template |
+| `POST` | `/v1/mission/create` | Persist a composed mission draft into the local `missions/` directory |
+| `POST` | `/v1/mission/run` | Run a persisted mission by mission id through the built-in mission manager |
 
 ### MCP Protocol
 

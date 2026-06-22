@@ -150,6 +150,10 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
         "_subagents_list_sync": env._resource_runtime.subagents_list_sync,
         "_subagents_spawn_sync": env._resource_runtime.subagents_spawn_sync,
         "_mission_show_sync": env._resource_runtime.mission_show_sync,
+        "_mission_templates_sync": env._resource_runtime.mission_templates_sync,
+        "_mission_compose_sync": env._resource_runtime.mission_compose_sync,
+        "_mission_create_sync": env._resource_runtime.mission_create_sync,
+        "_mission_run_sync": env._resource_runtime.mission_run_sync,
     })
     resource_handler_ctx = env.ResourceHandlerContext(
         require_auth=env.require_auth,
@@ -162,11 +166,15 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
         agents_list_sync=registry["_agents_list_sync"],
         subagents_list_sync=registry["_subagents_list_sync"],
         mission_show_sync=registry["_mission_show_sync"],
+        mission_templates_sync=registry["_mission_templates_sync"],
+        mission_compose_sync=registry["_mission_compose_sync"],
+        mission_create_sync=registry["_mission_create_sync"],
+        mission_run_sync=registry["_mission_run_sync"],
         subagent_spawn_sync=registry["_subagents_spawn_sync"],
         audit=env.audit,
     )
     resource_handlers = env.make_resource_handlers(resource_handler_ctx)
-    env.export_handler_attrs(registry, resource_handlers, {"handle_v1_missions": "missions", "handle_v1_reports": "reports", "handle_v1_hooks": "hooks", "handle_v1_agents": "agents", "handle_v1_subagents": "subagents", "handle_v1_subagents_spawn": "subagents_spawn", "handle_v1_mission_show": "mission_show"})
+    env.export_handler_attrs(registry, resource_handlers, {"handle_v1_missions": "missions", "handle_v1_reports": "reports", "handle_v1_hooks": "hooks", "handle_v1_agents": "agents", "handle_v1_subagents": "subagents", "handle_v1_subagents_spawn": "subagents_spawn", "handle_v1_mission_show": "mission_show", "handle_v1_mission_templates": "mission_templates", "handle_v1_mission_compose": "mission_compose", "handle_v1_mission_create": "mission_create", "handle_v1_mission_run": "mission_run"})
     registry.update({"_resource_handler_ctx": resource_handler_ctx, "_resource_handlers": resource_handlers})
     return registry
 

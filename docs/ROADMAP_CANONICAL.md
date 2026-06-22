@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-22
-Validated baseline: `v3.14.0`
+Validated baseline: `v3.15.0`
 
 This file is the planning source of truth.
 
@@ -9,11 +9,11 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.14.0`
-- Tests: `619 passed`
-- MCP tools: `48`
-- Route objects in aiohttp app: `313`
-- Distinct method/path routes excluding auto-HEAD: `209`
+- Version: `3.15.0`
+- Tests: `622 passed`
+- MCP tools: `52`
+- Route objects in aiohttp app: `318`
+- Distinct method/path routes excluding auto-HEAD: `213`
 
 ### Completed enough to count as done
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
@@ -25,10 +25,11 @@ This file is the planning source of truth.
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
+- mission composition v1 via REST + MCP (`mission.templates`, `mission.compose`, `mission.create`, `mission.run`)
 - workspace dashboard surface v1 for profile context, planner, ReAct/reflection, and watcher management
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - workspace dashboard surface v2 with notes, lessons, and recent activity
-- `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, and non-interactive KDE/Wayland window control
+- `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, non-interactive KDE/Wayland window control, and high-level text workflows
 - OpenAPI partial coverage
 - rate limiting exists
 - release packaging and dual zip assets exist
@@ -57,16 +58,17 @@ This means the priority is not only adding more endpoints. The priority is:
 
 ## 3. Recommended next priorities
 
-## P1 — Deeper agent loops and mission composition
-Why this moves up now:
+## P1 — Continue deeper agent loops and mission composition
+Why it stays in front now:
 - `D2 / D3` is now complete enough to count as done for the current roadmap slice.
-- The bridge has enough desktop maturity for higher-level agent workflows to build on top of it instead of more foundational desktop plumbing.
+- The bridge now has the first real mission-composition layer, so the next leverage comes from making those missions richer, more stateful, and more agent-driven.
 
-What is already in place for that future work:
+What is already in place for that next work:
+- planner + bounded ReAct + reflection foundations
+- mission templates / composition / creation / run surfaces
 - OCR/text targeting
 - query-driven focus/window actions
 - display-aware placement and snaps
-- planner + bounded ReAct + reflection foundations
 - workspace UI surfaces and memory profiles
 
 ---
@@ -120,6 +122,7 @@ Status update:
 - display-aware placement helpers landed in `v3.11.0`
 - snap/tile-style placement helpers landed in `v3.12.0`
 - OCR-to-window resolution, query-driven window targeting, and high-level text workflows landed in `v3.13.0` / `v3.13.1` / `v3.14.0`
+- mission composition v1 landed in `v3.15.0`
 
 ---
 

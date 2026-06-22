@@ -41,6 +41,8 @@ def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[
         agents_dir=env.AGENTS_DIR,
         subagents_dir=env.SUBAGENTS_DIR,
         bin_dir=env.BIN,
+        root_agent=env.ROOT_AGENT,
+        build_plan=env.build_plan,
         subprocess_kwargs=env._subprocess_kwargs,
     )
     resource_runtime = env.make_resource_runtime(resource_runtime_ctx)
@@ -49,6 +51,10 @@ def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[
         "_resource_runtime": resource_runtime,
         "_list_missions_sync": resource_runtime.list_missions_sync,
         "_list_reports_sync": resource_runtime.list_reports_sync,
+        "_mission_templates_sync": resource_runtime.mission_templates_sync,
+        "_mission_compose_sync": resource_runtime.mission_compose_sync,
+        "_mission_create_sync": resource_runtime.mission_create_sync,
+        "_mission_run_sync": resource_runtime.mission_run_sync,
     })
 
     browser_runtime_ctx = env.BrowserRuntimeContext(

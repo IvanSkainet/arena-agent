@@ -16,6 +16,8 @@ def _runtime(tmp_path: Path):
         agents_dir=tmp_path / "agents",
         subagents_dir=tmp_path / "subagents",
         bin_dir=tmp_path / "bin",
+        root_agent=tmp_path,
+        build_plan=ub.build_plan,
         subprocess_kwargs=lambda: {},
     ))
 
@@ -29,6 +31,10 @@ def test_resource_runtime_factory_outputs(tmp_path):
     assert callable(runtime.subagents_list_sync)
     assert callable(runtime.subagents_spawn_sync)
     assert callable(runtime.mission_show_sync)
+    assert callable(runtime.mission_templates_sync)
+    assert callable(runtime.mission_compose_sync)
+    assert callable(runtime.mission_create_sync)
+    assert callable(runtime.mission_run_sync)
 
 
 def test_unified_resource_runtime_bindings():
@@ -39,6 +45,10 @@ def test_unified_resource_runtime_bindings():
     assert ub._subagents_list_sync.__module__ == "arena.resources.runtime"
     assert ub._subagents_spawn_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_show_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_templates_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_compose_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_create_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_run_sync.__module__ == "arena.resources.runtime"
 
 
 def test_resource_runtime_lists_and_shows(tmp_path):
@@ -55,3 +65,8 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     assert runtime.hooks_list_sync() == {"ok": True, "count": 0, "hooks": []}
     assert runtime.agents_list_sync() == {"ok": True, "count": 0, "agents": []}
     assert runtime.subagents_list_sync() == {"ok": True, "count": 0, "subagents": []}
+    assert runtime.mission_templates_sync()["count"] > 0
+    composed = runtime.mission_compose_sync({"goal": "Fix a code bug in repo", "context": "pytest failing"})
+    assert composed["ok"] is True
+    created = runtime.mission_create_sync({"draft": composed["draft"]})
+    assert created["ok"] is True

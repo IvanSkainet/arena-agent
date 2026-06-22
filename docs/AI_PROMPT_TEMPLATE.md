@@ -43,7 +43,11 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/plan`**: Build a structured execution plan from a goal. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_steps": 8, "memory_profile": "projects/demo"}`.
 - **`POST /v1/react`**: Run a bounded reason → act → observe loop using safe observation steps. Body: `{"goal": "...", "context": "...", "constraints": ["..."], "max_iterations": 4, "memory_profile": "projects/demo", "url": "https://..."}`.
 - **`POST /v1/reflect`**: Reflect on a prior run and return concerns, missing evidence, confidence, and suggested next steps.
-- **MCP tools `plan.create`, `react.run`, `reflect.run`**: The same planning/agentic capabilities through MCP.
+- **`GET /v1/mission/templates`**: List built-in mission templates.
+- **`POST /v1/mission/compose`**: Turn a goal into a reusable planner-backed mission draft.
+- **`POST /v1/mission/create`**: Persist a mission draft into the local `missions/` directory.
+- **`POST /v1/mission/run`**: Run a persisted mission by mission id.
+- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.compose`, `mission.create`, `mission.run`**: The same planning/agentic and mission-composition capabilities through MCP.
 
 ### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.
