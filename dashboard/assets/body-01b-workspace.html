@@ -32,6 +32,29 @@
 </div>
 
 <div class="card">
+  <h2>Mission Loop Studio</h2>
+  <div class="row">
+    <input id="workspaceMissionId" placeholder="Mission id / name" style="flex:2">
+    <button onclick="loadWorkspaceMissionLineage()">Lineage</button>
+    <button onclick="loadWorkspaceMissionLoops()">Recent Missions</button>
+  </div>
+  <div class="row">
+    <input id="workspaceFollowupGoal" placeholder="Optional follow-up goal override" style="flex:2">
+    <input id="workspaceFollowupTitle" placeholder="Optional follow-up title" style="flex:1">
+  </div>
+  <div class="row">
+    <label><input id="workspaceMissionCreate" type="checkbox"> create</label>
+    <label><input id="workspaceMissionRun" type="checkbox"> run follow-up</label>
+    <label><input id="workspaceMissionRerun" type="checkbox"> rerun current first</label>
+    <button class="warning" onclick="runWorkspaceMissionFollowup()">Follow-up</button>
+    <button class="success" onclick="runWorkspaceMissionIterate()">Iterate</button>
+  </div>
+  <div id="workspaceMissionCatalog" class="output" style="display:block;min-height:90px">Loading mission catalog...</div>
+  <div id="workspaceMissionLineage" class="output" style="display:block;min-height:90px;margin-top:8px">Mission lineage will appear here.</div>
+  <div id="workspaceMissionLoopResult" class="output" style="display:none;margin-top:8px"></div>
+</div>
+
+<div class="card">
   <h2>File Watchers</h2>
   <div class="row"><input id="watchPath" placeholder="/home/you/project" style="flex:2"><input id="watchPatterns" placeholder="*.py,*.md" style="flex:1"></div>
   <div class="row"><input id="watchLabel" placeholder="repo" style="flex:1"><label><input id="watchRecursive" type="checkbox" checked> recursive</label><button class="success" onclick="addWorkspaceWatcher()">Add watcher</button><button onclick="loadWorkspaceWatchers()">Refresh</button></div>

@@ -21,6 +21,7 @@ class ResourceHandlers:
     mission_status: object
     mission_report: object
     mission_history: object
+    mission_lineage: object
     mission_catalog: object
     mission_templates: object
     mission_compose: object
@@ -192,4 +193,4 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         ctx.audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""), "ok": result.get("ok", False)})
         return ctx.cors_json_response(result)
 
-    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, mission_followup=handle_v1_mission_followup, mission_iterate=handle_v1_mission_iterate, subagents_spawn=handle_v1_subagents_spawn)
+    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_lineage=lambda request: _mission_get(ctx.mission_lineage_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, mission_followup=handle_v1_mission_followup, mission_iterate=handle_v1_mission_iterate, subagents_spawn=handle_v1_subagents_spawn)

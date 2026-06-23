@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.resources.mission_catalog import catalog_missions, extract_failed_steps, load_mission_json, mission_dir, summarize_mission_dir
+from arena.resources.mission_lineage import get_mission_lineage
 
 
 
@@ -68,4 +69,4 @@ def infer_rerun_step(missions_dir: Path, name: str, *, failed_only: bool = False
     return {"ok": False, "error": "latest run has no failed step", "status": 409, "mission": history["mission"]}
 
 
-__all__ = ["catalog_missions", "extract_failed_steps", "get_mission_history", "get_mission_report", "get_mission_status", "infer_rerun_step", "summarize_mission_dir"]
+__all__ = ["catalog_missions", "extract_failed_steps", "get_mission_history", "get_mission_lineage", "get_mission_report", "get_mission_status", "infer_rerun_step", "summarize_mission_dir"]

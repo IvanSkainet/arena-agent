@@ -47,6 +47,7 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`GET /v1/mission/status?name=...`**: Read structured mission state, latest run info, and report/log availability.
 - **`GET /v1/mission/report?name=...`**: Read the generated mission report.
 - **`GET /v1/mission/history?name=...`**: Inspect mission run history and step-log summaries.
+- **`GET /v1/mission/lineage?name=...`**: Inspect mission parent/child lineage, ancestors, descendants, and siblings.
 - **`GET /v1/mission/catalog?q=&state=&template=&has_report=&limit=&offset=`**: Filter persisted missions by lifecycle metadata and get summary stats.
 - **`POST /v1/mission/compose`**: Turn a goal into a reusable planner-backed mission draft.
 - **`POST /v1/mission/propose`**: Run a bounded agentic proposal loop, reflect on it, and return a mission bundle with optional mission creation/run.
@@ -56,7 +57,7 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/mission/recover`**: Build a recovery bundle for a persisted mission, with optional rerun and follow-up mission composition.
 - **`POST /v1/mission/followup`**: Build a next mission from an existing mission's artifacts using agentic analysis.
 - **`POST /v1/mission/iterate`**: Run a mission iteration loop that combines recovery with optional follow-up mission creation and execution.
-- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`**: The same planning/agentic and mission-composition capabilities through MCP.
+- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`**: The same planning/agentic and mission-composition capabilities through MCP.
 
 ### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.

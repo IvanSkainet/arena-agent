@@ -34,6 +34,7 @@ def test_resource_runtime_factory_outputs(tmp_path):
     assert callable(runtime.mission_status_sync)
     assert callable(runtime.mission_report_sync)
     assert callable(runtime.mission_history_sync)
+    assert callable(runtime.mission_lineage_sync)
     assert callable(runtime.mission_catalog_sync)
     assert callable(runtime.mission_templates_sync)
     assert callable(runtime.mission_compose_sync)
@@ -53,6 +54,7 @@ def test_unified_resource_runtime_bindings():
     assert ub._mission_status_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_report_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_history_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_lineage_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_catalog_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_templates_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_compose_sync.__module__ == "arena.resources.runtime"
@@ -80,6 +82,9 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     history = runtime.mission_history_sync("demo-run")
     assert history["ok"] is True
     assert history["mission"]["name"] == "demo-run"
+    lineage = runtime.mission_lineage_sync("demo-run")
+    assert lineage["ok"] is True
+    assert lineage["mission"]["name"] == "demo-run"
     catalog = runtime.mission_catalog_sync({"state": "done", "q": "Ship"})
     assert catalog["ok"] is True
     assert catalog["matched"] == 1

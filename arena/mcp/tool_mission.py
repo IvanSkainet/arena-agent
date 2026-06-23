@@ -31,6 +31,8 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/report?name={mission_name}", None, method="GET"), ensure_ascii=False))
     if name == "mission.history":
         return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/history?name={mission_name}", None, method="GET"), ensure_ascii=False))
+    if name == "mission.lineage":
+        return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/lineage?name={mission_name}", None, method="GET"), ensure_ascii=False))
     if name == "mission.catalog":
         query = urlencode({k: v for k, v in {"q": args.get("query", "") or args.get("q", ""), "state": args.get("state", ""), "template": args.get("template", ""), "has_report": args.get("has_report"), "limit": args.get("limit"), "offset": args.get("offset")}.items() if v not in (None, "")})
         suffix = f"?{query}" if query else ""

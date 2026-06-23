@@ -58,6 +58,7 @@ class ResourceHandlerContext:
     mission_status_sync: Callable[[str], dict[str, Any]]
     mission_report_sync: Callable[[str], dict[str, Any]]
     mission_history_sync: Callable[[str], dict[str, Any]]
+    mission_lineage_sync: Callable[[str], dict[str, Any]]
     mission_catalog_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_templates_sync: Callable[[], dict[str, Any]]
     mission_compose_sync: Callable[[dict[str, Any]], dict[str, Any]]

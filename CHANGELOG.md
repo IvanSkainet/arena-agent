@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.21.0 - 2026-06-23
+
+### Added
+- **Mission lineage surfaces** — added `GET /v1/mission/lineage` and MCP `mission.lineage`, so persisted missions expose parents, roots, ancestors, children, descendants, and sibling context as first-class lifecycle data.
+- **Workspace mission loop studio** — the Workspace tab now includes a mission loop surface for recent mission catalog summaries, lineage inspection, and direct follow-up / iterate actions.
+
+### Improved
+- **Mission families now persist provenance** — follow-up and iteration flows now write lineage metadata into persisted mission artifacts, including origin, parent, root, ancestor chain, and recovery hints.
+- **Deeper agent loops now span multiple missions, not just one run** — agents can carry recovery context forward into explicit mission families and iteration chains.
+- **Desktop maturity remains preserved** — this release does not touch the non-interactive KDE/Wayland focus/window-control path.
+
+### Tests
+- Added mission lineage, lineage persistence, and workspace v3 regressions.
+- Total: **625 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 625 tests.
+- Local `pytest --collect-only`: PASS, 625 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- MCP tools: 62.
+- Distinct non-HEAD routes: 223.
+
 ## v3.20.0 - 2026-06-23
 
 ### Added

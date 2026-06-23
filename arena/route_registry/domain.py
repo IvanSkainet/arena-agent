@@ -31,6 +31,7 @@ def register_domain_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_get("/v1/mission/status", h["handle_v1_mission_status"])
     app.router.add_get("/v1/mission/report", h["handle_v1_mission_report"])
     app.router.add_get("/v1/mission/history", h["handle_v1_mission_history"])
+    app.router.add_get("/v1/mission/lineage", h["handle_v1_mission_lineage"])
     app.router.add_get("/v1/mission/catalog", h["handle_v1_mission_catalog"])
     app.router.add_get("/v1/mission/templates", h["handle_v1_mission_templates"])
     app.router.add_post("/v1/mission/compose", h["handle_v1_mission_compose"])

@@ -82,11 +82,17 @@ def create_mission_from_draft(*, missions_dir: Path, draft: dict[str, Any], miss
     path = missions_dir / mid
     if path.exists() and not overwrite:
         return {"ok": False, "error": f"mission already exists: {mid}", "status": 409}
+    lineage = dict(draft.get("lineage") or {}) if isinstance(draft.get("lineage"), dict) else {}
+    if lineage and not lineage.get("root_mission_id"):
+        lineage["root_mission_id"] = lineage.get("parent_mission_id")
     (path / "artifacts").mkdir(parents=True, exist_ok=True)
     (path / "logs").mkdir(exist_ok=True)
-    mission = {"id": mid, "title": title, "created_at": _now(), "state": "planned", "draft": draft, "template": draft.get("template", "cli-agent-core"), "runs": []}
+    mission = {"id": mid, "title": title, "created_at": _now(), "state": "planned", "draft": draft, "template": draft.get("template", "cli-agent-core"), "lineage": lineage, "runs": []}
     (path / "mission.json").write_text(json.dumps(mission, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    lines = [f"# Mission: {title}", "", f"ID: `{mid}`", f"Template: `{draft.get('template','')}`", f"Memory profile: `{draft.get('suggested_memory_profile','default')}`", "", "## Goal", draft.get("goal", ""), "", "## Planner steps"]
+    lines = [f"# Mission: {title}", "", f"ID: `{mid}`", f"Template: `{draft.get('template','')}`", f"Memory profile: `{draft.get('suggested_memory_profile','default')}`"]
+    if lineage:
+        lines += [f"Parent mission: `{lineage.get('parent_mission_id') or ''}`", f"Root mission: `{lineage.get('root_mission_id') or ''}`", f"Origin: `{lineage.get('origin') or ''}`"]
+    lines += ["", "## Goal", draft.get("goal", ""), "", "## Planner steps"]
     lines += [f"- [ ] {step.get('title','')}: {step.get('reason','')}" for step in draft.get("planner_steps", [])]
     if draft.get("template_steps"):
         lines += ["", "## Template steps"] + [f"- [ ] {step}" for step in draft.get("template_steps", [])]

@@ -4,6 +4,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from arena.resources.mission_lineage import build_followup_lineage
 from arena.resources.mission_recovery import _followup_context, _followup_goal, recover_mission_bundle
 
 
@@ -32,6 +33,7 @@ def followup_mission_bundle(
     memory_profile: str | None = None,
     template: str = "",
     url: str = "",
+    origin: str = "followup",
     create: bool = False,
     run_now: bool = False,
     followup_mission_id: str = "",
@@ -62,6 +64,7 @@ def followup_mission_bundle(
     if not composed.get("ok"):
         return {"ok": False, "status": int(composed.get("status", 400)), "source_mission": mission, "history": history, "recovery": recovery_data, "react": react, "reflection": reflection, "followup": {"goal": next_goal, "title": next_title, "context": next_context, "composed": composed}}
     draft = dict(composed.get("draft") or {})
+    draft["lineage"] = build_followup_lineage(mission, origin=origin, recovery=recovery_data)
     draft["analysis"] = {
         **dict(draft.get("analysis") or {}),
         "source_mission": {"id": mission.get("id"), "title": mission.get("title"), "state": mission.get("state"), "template": mission.get("template")},
@@ -71,7 +74,7 @@ def followup_mission_bundle(
         "react_iterations": react.get("iterations", []),
         "reflection": reflection,
     }
-    result: dict[str, Any] = {"ok": True, "source_mission": mission, "history": history, "recovery": recovery_data, "react": react, "reflection": reflection, "followup": {"goal": next_goal, "title": next_title, "context": next_context, "draft": draft, "template_data": composed.get("template_data"), "plan": composed.get("plan")}}
+    result: dict[str, Any] = {"ok": True, "source_mission": mission, "history": history, "recovery": recovery_data, "react": react, "reflection": reflection, "followup": {"goal": next_goal, "title": next_title, "context": next_context, "lineage": draft.get("lineage"), "draft": draft, "template_data": composed.get("template_data"), "plan": composed.get("plan")}}
     created = None
     if create:
         created = create_sync({"draft": draft, "mission_id": followup_mission_id, "overwrite": overwrite})
@@ -132,7 +135,7 @@ def iterate_mission_bundle(
     decision = {"source_state": recovery.get("mission", {}).get("state"), "suggested_action": recovery.get("recovery", {}).get("suggested_action"), "prefer_rerun_first": recovery.get("recovery", {}).get("suggested_action") in {"rerun_failed_step", "rerun_specific_step", "rerun_full_mission"} and not rerun_now}
     result: dict[str, Any] = {"ok": True, "source_mission": recovery.get("mission"), "history": recovery.get("history"), "recovery": recovery.get("recovery"), "decision": decision, "mode": "recover_and_followup" if (compose_followup or create_followup or run_followup) else "recover_only"}
     if compose_followup or create_followup or run_followup:
-        followup = followup_mission_bundle(recovery=recovery, goal=followup_goal, title=followup_title, notes=notes, constraints=constraints, max_steps=max_steps, max_iterations=max_iterations, memory_profile=memory_profile, template=template, url=url, create=create_followup or run_followup, run_now=run_followup, followup_mission_id=followup_mission_id, overwrite=overwrite, timeout=timeout, react_sync=react_sync, reflect_sync=reflect_sync, compose_sync=compose_sync, create_sync=create_sync, run_sync=run_sync)
+        followup = followup_mission_bundle(recovery=recovery, goal=followup_goal, title=followup_title, notes=notes, constraints=constraints, max_steps=max_steps, max_iterations=max_iterations, memory_profile=memory_profile, template=template, url=url, origin="iterate", create=create_followup or run_followup, run_now=run_followup, followup_mission_id=followup_mission_id, overwrite=overwrite, timeout=timeout, react_sync=react_sync, reflect_sync=reflect_sync, compose_sync=compose_sync, create_sync=create_sync, run_sync=run_sync)
         result["followup"] = followup.get("followup")
         result["react"] = followup.get("react")
         result["reflection"] = followup.get("reflection")

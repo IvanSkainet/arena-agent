@@ -77,6 +77,7 @@ def test_mission_handlers_and_registry(tmp_path):
         mission_status_sync=lambda name: {"ok": True, "mission": {"name": name, "state": "planned"}},
         mission_report_sync=lambda name: {"ok": False, "status": 404, "error": "missing report"},
         mission_history_sync=lambda name: {"ok": True, "mission": {"name": name}, "runs": [], "step_logs": []},
+        mission_lineage_sync=lambda name: {"ok": True, "mission": {"name": name}, "ancestors": [], "children": [], "descendants": [], "siblings": [], "stats": {"depth": 0}},
         mission_catalog_sync=lambda data: {"ok": True, "total": 1, "matched": 1, "items": [{"name": "demo", "state": data.get("state") or "planned"}]},
         mission_templates_sync=list_mission_templates,
         mission_compose_sync=lambda data: compose_mission_draft(goal=data.get("goal", ""), context=data.get("context", ""), build_plan=ub.build_plan),
@@ -97,6 +98,12 @@ def test_mission_handlers_and_registry(tmp_path):
     templates_data = json.loads(templates_resp.text)
     assert templates_data["ok"] is True
     assert templates_data["count"] > 0
+
+    lineage_req = make_mocked_request("GET", "/v1/mission/lineage?name=demo", headers={"Authorization": "Bearer t"})
+    lineage_resp = asyncio.run(handlers.mission_lineage(lineage_req))
+    lineage_data = json.loads(lineage_resp.text)
+    assert lineage_data["ok"] is True
+    assert lineage_data["stats"]["depth"] == 0
 
     catalog_req = make_mocked_request("GET", "/v1/mission/catalog?state=planned&q=demo", headers={"Authorization": "Bearer t"})
     catalog_resp = asyncio.run(handlers.mission_catalog(catalog_req))
@@ -187,6 +194,7 @@ def test_mission_handlers_and_registry(tmp_path):
     assert "mission.status" in names
     assert "mission.report" in names
     assert "mission.history" in names
+    assert "mission.lineage" in names
     assert "mission.catalog" in names
     assert "mission.compose" in names
     assert "mission.propose" in names
@@ -213,6 +221,7 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     (success_dir / "logs").mkdir(parents=True)
     (success_dir / "mission.json").write_text(json.dumps({"id": "done-one", "title": "Done One", "template": "code-tdd", "state": "done", "draft": {"goal": "Ship feature"}, "runs": [{"ts": "later", "ok": True, "results": [{"cmd": "pytest", "exit_code": 0}]}], "created_at": "later"}), encoding="utf-8")
 
+    from arena.resources.mission_lineage import get_mission_lineage
     from arena.resources.mission_loops import followup_mission_bundle, iterate_mission_bundle
     from arena.resources.mission_state import catalog_missions, get_mission_history, get_mission_report, get_mission_status, infer_rerun_step
     from arena.resources.missions_manage import rerun_mission
@@ -277,6 +286,15 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     assert followup["followup"]["created"]["ok"] is True
     assert followup["followup"]["run"]["ok"] is True
     assert followup["reflection"]["confidence"] == "high"
+    assert followup["followup"]["lineage"]["parent_mission_id"] == "demo"
+
+    child_created = create_mission_from_draft(missions_dir=missions_dir, draft=followup["followup"]["draft"], mission_id="followup-child")
+    assert child_created["ok"] is True
+    lineage = get_mission_lineage(missions_dir, "followup-child")
+    assert lineage["ok"] is True
+    assert lineage["parent"]["id"] == "demo"
+    assert lineage["root"]["id"] == "demo"
+    assert lineage["stats"]["depth"] == 1
 
     iteration = iterate_mission_bundle(
         missions_dir=missions_dir,
@@ -296,6 +314,7 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     assert iteration["decision"]["suggested_action"] == "rerun_failed_step"
     assert iteration["followup"]["created"]["ok"] is True
     assert iteration["followup"]["run"]["ok"] is True
+    assert iteration["followup"]["lineage"]["origin"] == "iterate"
 
 
 

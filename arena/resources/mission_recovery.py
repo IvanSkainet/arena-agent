@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from arena.resources.mission_catalog import extract_failed_steps
+from arena.resources.mission_lineage import build_followup_lineage
 from arena.resources.mission_state import get_mission_history, get_mission_report, get_mission_status
 
 
@@ -116,6 +117,8 @@ def recover_mission_bundle(
         next_goal = _followup_goal(mission, failed_steps, reflection, followup_goal)
         next_title = str(followup_title or "").strip() or f"Follow-up: {mission.get('title') or mission_id}"
         composed = compose_sync({"goal": next_goal, "context": _followup_context(mission, failed_steps, reflection, report_excerpt), "constraints": list(mission.get("constraints") or []), "max_steps": int(max_steps or 8), "memory_profile": memory_profile or mission.get("memory_profile") or "default", "title": next_title, "template": template or mission.get("template") or ""})
+        if composed.get("ok") and isinstance(composed.get("draft"), dict):
+            composed["draft"]["lineage"] = build_followup_lineage(mission, origin="recover", recovery=result["recovery"])
         result["recovery"]["followup"] = {"goal": next_goal, "title": next_title, "composed": composed}
         if not composed.get("ok"):
             result["ok"] = False

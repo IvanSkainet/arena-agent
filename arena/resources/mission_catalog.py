@@ -81,6 +81,12 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
     latest_failed_steps = extract_failed_steps(latest_run)
     report = path / "REPORT.md"
     logs = path / "logs"
+    lineage = data.get("lineage") if isinstance(data.get("lineage"), dict) else {}
+    ancestor_ids = [str(item).strip() for item in list(lineage.get("ancestor_ids") or []) if str(item).strip()]
+    parent_mission_id = str(lineage.get("parent_mission_id") or "").strip() or None
+    root_mission_id = str(lineage.get("root_mission_id") or "").strip() or parent_mission_id or data.get("id", path.name)
+    origin = str(lineage.get("origin") or ("manual" if not parent_mission_id else "linked"))
+    depth = int(lineage.get("depth", len(ancestor_ids)) or len(ancestor_ids))
     return {
         "id": data.get("id", path.name),
         "name": path.name,
@@ -90,6 +96,12 @@ def summarize_mission_dir(path: Path) -> dict[str, Any]:
         "template": data.get("template", draft.get("template", "")),
         "memory_profile": draft.get("suggested_memory_profile", "default"),
         "state": data.get("state", "unknown"),
+        "origin": origin,
+        "parent_mission_id": parent_mission_id,
+        "root_mission_id": root_mission_id,
+        "lineage_depth": depth,
+        "ancestor_ids": ancestor_ids,
+        "lineage": lineage,
         "created_at": data.get("created_at", ""),
         "started_at": data.get("started_at", ""),
         "finished_at": data.get("finished_at", ""),
@@ -141,9 +153,15 @@ def catalog_missions(
     items.sort(key=lambda item: (str(item.get("last_activity_at", "") or ""), str(item.get("created_at", "") or ""), str(item.get("name", "") or "")), reverse=True)
     offset = max(0, int(offset or 0))
     limit = max(1, min(200, int(limit or 50)))
+    children_by_parent: dict[str, int] = {}
+    for item in all_items:
+        parent_id = str(item.get("parent_mission_id") or "").strip()
+        if parent_id:
+            children_by_parent[parent_id] = children_by_parent.get(parent_id, 0) + 1
     states: dict[str, int] = {}
     templates: dict[str, int] = {}
     for item in items:
+        item["child_count"] = int(children_by_parent.get(str(item.get("id") or item.get("name") or ""), 0))
         states[item.get("state", "unknown")] = states.get(item.get("state", "unknown"), 0) + 1
         key = item.get("template", "") or "unknown"
         templates[key] = templates.get(key, 0) + 1
