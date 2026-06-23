@@ -29,6 +29,8 @@ class ResourceHandlers:
     mission_run: object
     mission_rerun: object
     mission_recover: object
+    mission_followup: object
+    mission_iterate: object
     subagents_spawn: object
 
 
@@ -165,6 +167,12 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         response = await _post_json(ctx.mission_recover_sync, request)
         return response
 
+    async def handle_v1_mission_followup(request: web.Request) -> web.Response:
+        return await _post_json(ctx.mission_followup_sync, request)
+
+    async def handle_v1_mission_iterate(request: web.Request) -> web.Response:
+        return await _post_json(ctx.mission_iterate_sync, request)
+
     async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -184,4 +192,4 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         ctx.audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""), "ok": result.get("ok", False)})
         return ctx.cors_json_response(result)
 
-    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, subagents_spawn=handle_v1_subagents_spawn)
+    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, mission_followup=handle_v1_mission_followup, mission_iterate=handle_v1_mission_iterate, subagents_spawn=handle_v1_subagents_spawn)

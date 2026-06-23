@@ -85,6 +85,8 @@ def test_mission_handlers_and_registry(tmp_path):
         mission_run_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "exit_code": 0},
         mission_rerun_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "rerun": True},
         mission_recover_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "recovery": {"suggested_action": "rerun_failed_step"}},
+        mission_followup_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "followup": {"goal": data.get("goal", "next")}},
+        mission_iterate_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "decision": {"suggested_action": "rerun_failed_step"}},
         subagent_spawn_sync=lambda data: {"ok": True},
         audit=lambda data: None,
     )
@@ -158,6 +160,28 @@ def test_mission_handlers_and_registry(tmp_path):
     assert recover_data["ok"] is True
     assert recover_data["recovery"]["suggested_action"] == "rerun_failed_step"
 
+    followup_req = make_mocked_request("POST", "/v1/mission/followup", headers={"Authorization": "Bearer t"})
+
+    async def _followup_json():
+        return {"mission_id": create_data["mission_id"], "goal": "next mission"}
+
+    followup_req.json = _followup_json
+    followup_resp = asyncio.run(handlers.mission_followup(followup_req))
+    followup_data = json.loads(followup_resp.text)
+    assert followup_data["ok"] is True
+    assert followup_data["followup"]["goal"] == "next mission"
+
+    iterate_req = make_mocked_request("POST", "/v1/mission/iterate", headers={"Authorization": "Bearer t"})
+
+    async def _iterate_json():
+        return {"mission_id": create_data["mission_id"], "compose_followup": True}
+
+    iterate_req.json = _iterate_json
+    iterate_resp = asyncio.run(handlers.mission_iterate(iterate_req))
+    iterate_data = json.loads(iterate_resp.text)
+    assert iterate_data["ok"] is True
+    assert iterate_data["decision"]["suggested_action"] == "rerun_failed_step"
+
     names = [tool["name"] for tool in MCP_TOOLS]
     assert "mission.templates" in names
     assert "mission.status" in names
@@ -170,6 +194,8 @@ def test_mission_handlers_and_registry(tmp_path):
     assert "mission.run" in names
     assert "mission.rerun" in names
     assert "mission.recover" in names
+    assert "mission.followup" in names
+    assert "mission.iterate" in names
     ctx2 = type("Ctx", (), {"app_config": staticmethod(lambda: {"port": 8765, "token": "t"})})()
     assert handle_mission_tool("not-mission", {}, ctx=ctx2) is None
 
@@ -187,6 +213,7 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     (success_dir / "logs").mkdir(parents=True)
     (success_dir / "mission.json").write_text(json.dumps({"id": "done-one", "title": "Done One", "template": "code-tdd", "state": "done", "draft": {"goal": "Ship feature"}, "runs": [{"ts": "later", "ok": True, "results": [{"cmd": "pytest", "exit_code": 0}]}], "created_at": "later"}), encoding="utf-8")
 
+    from arena.resources.mission_loops import followup_mission_bundle, iterate_mission_bundle
     from arena.resources.mission_state import catalog_missions, get_mission_history, get_mission_report, get_mission_status, infer_rerun_step
     from arena.resources.missions_manage import rerun_mission
 
@@ -234,6 +261,41 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     assert recovery["recovery"]["followup"]["composed"]["ok"] is True
     assert recovery["recovery"]["followup"]["created"]["ok"] is True
     assert recovery["recovery"]["rerun"]["ok"] is True
+
+    followup = followup_mission_bundle(
+        recovery=recovery,
+        notes="Prefer minimal recovery.",
+        create=True,
+        run_now=True,
+        react_sync=lambda **kwargs: {"ok": True, "goal": kwargs["goal"], "iterations": [{"action": {"name": "bridge.status"}}], "summary": "followup react"},
+        reflect_sync=lambda **kwargs: {"ok": True, "goal": kwargs["goal"], "confidence": "high", "positives": ["ready"]},
+        compose_sync=lambda data: {"ok": True, "draft": {"goal": data["goal"], "template": data.get("template", "cli-agent-core")}, "plan": {"steps": [{"title": "followup"}]}, "template_data": {"id": data.get("template", "cli-agent-core")}},
+        create_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id") or "followup-run", "path": str(missions_dir / "followup-run")},
+        run_sync=lambda data: {"ok": True, "mission_id": data["mission_id"], "exit_code": 0},
+    )
+    assert followup["ok"] is True
+    assert followup["followup"]["created"]["ok"] is True
+    assert followup["followup"]["run"]["ok"] is True
+    assert followup["reflection"]["confidence"] == "high"
+
+    iteration = iterate_mission_bundle(
+        missions_dir=missions_dir,
+        mission_id="demo",
+        notes="Prefer minimal recovery.",
+        compose_followup=True,
+        create_followup=True,
+        run_followup=True,
+        react_sync=lambda **kwargs: {"ok": True, "goal": kwargs["goal"], "iterations": [{"action": {"name": "bridge.status"}}], "summary": "iterate react"},
+        reflect_sync=lambda **kwargs: {"ok": True, "goal": kwargs["goal"], "confidence": "medium", "positives": ["ready"], "suggested_next_steps": ["continue"]},
+        compose_sync=lambda data: {"ok": True, "draft": {"goal": data["goal"], "template": data.get("template", "cli-agent-core")}, "plan": {"steps": [{"title": "iterate"}]}, "template_data": {"id": data.get("template", "cli-agent-core")}},
+        create_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id") or "iterated-run", "path": str(missions_dir / "iterated-run")},
+        rerun_sync=lambda data: {"ok": True, "mission_id": data["mission_id"], "step": data.get("step"), "rerun": True},
+        run_sync=lambda data: {"ok": True, "mission_id": data["mission_id"], "exit_code": 0},
+    )
+    assert iteration["ok"] is True
+    assert iteration["decision"]["suggested_action"] == "rerun_failed_step"
+    assert iteration["followup"]["created"]["ok"] is True
+    assert iteration["followup"]["run"]["ok"] is True
 
 
 

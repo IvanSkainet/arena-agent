@@ -41,16 +41,16 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
 | **16-tab dashboard** | Overview, Workspace, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Control, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
-| **Built-in AI tooling** | MCP server with 50+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
+| **Built-in AI tooling** | MCP server with 60+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.19.0
+### 🆕 What's new in v3.20.0
 
-- **Mission lifecycle v3 landed** — Arena now has mission catalog and mission recovery surfaces on top of mission status, report, history, create, run, and rerun.
-- **Persisted missions are now navigable, filterable, and recoverable** — agents can query the mission catalog, inspect failed steps, derive a rerun plan, and optionally compose a follow-up mission from recovery context through REST and MCP.
-- **The mission/orchestration block keeps deepening** — the bridge is moving from “can create and run a mission” toward “can loop through mission state, recovery, and next-mission composition.”
+- **Mission lifecycle v4 landed** — Arena now has mission follow-up and mission iteration loop surfaces on top of mission catalog, recovery, history, report, create, run, and rerun.
+- **Persisted missions can now feed the next mission automatically** — agents can derive a follow-up mission from stored mission artifacts, then optionally create and run it through REST and MCP.
+- **The mission/orchestration block keeps deepening** — the bridge is moving from “can inspect and recover a mission” toward “can iterate mission state into the next agentic mission loop.”
 - **Desktop maturity remains intact** — this orchestration work continues to build on top of the already completed OCR/window/focus/semantic desktop stack.
 - **624 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
@@ -553,6 +553,8 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `POST` | `/v1/mission/run` | Run a persisted mission by mission id through the built-in mission manager |
 | `POST` | `/v1/mission/rerun` | Rerun a mission, optionally only the last failed step or a chosen step |
 | `POST` | `/v1/mission/recover` | Build a recovery bundle for a mission, with optional rerun and follow-up mission composition |
+| `POST` | `/v1/mission/followup` | Build a next mission from an existing mission's artifacts using agentic analysis |
+| `POST` | `/v1/mission/iterate` | Run a mission iteration loop that combines recovery with optional follow-up mission creation and execution |
 
 ### MCP Protocol
 

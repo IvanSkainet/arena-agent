@@ -54,7 +54,9 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/mission/run`**: Run a persisted mission by mission id.
 - **`POST /v1/mission/rerun`**: Rerun a mission, optionally only the last failed step or a chosen step.
 - **`POST /v1/mission/recover`**: Build a recovery bundle for a persisted mission, with optional rerun and follow-up mission composition.
-- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`**: The same planning/agentic and mission-composition capabilities through MCP.
+- **`POST /v1/mission/followup`**: Build a next mission from an existing mission's artifacts using agentic analysis.
+- **`POST /v1/mission/iterate`**: Run a mission iteration loop that combines recovery with optional follow-up mission creation and execution.
+- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`**: The same planning/agentic and mission-composition capabilities through MCP.
 
 ### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.

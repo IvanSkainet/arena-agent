@@ -66,6 +66,8 @@ class ResourceHandlerContext:
     mission_run_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_rerun_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_recover_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_followup_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_iterate_sync: Callable[[dict[str, Any]], dict[str, Any]]
     subagent_spawn_sync: Callable[[dict[str, Any]], dict[str, Any]]
     audit: Callable[[dict[str, Any]], None]
 

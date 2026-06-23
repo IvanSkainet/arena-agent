@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
-Date: 2026-06-22
-Validated baseline: `v3.19.0`
+Date: 2026-06-23
+Validated baseline: `v3.20.0`
 
 This file is the planning source of truth.
 
@@ -9,11 +9,11 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.19.0`
+- Version: `3.20.0`
 - Tests: `624 passed`
-- MCP tools: `59`
-- Route objects in aiohttp app: `329`
-- Distinct method/path routes excluding auto-HEAD: `220`
+- MCP tools: `61`
+- Route objects in aiohttp app: `331`
+- Distinct method/path routes excluding auto-HEAD: `222`
 
 ### Completed enough to count as done
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
@@ -25,7 +25,7 @@ This file is the planning source of truth.
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
-- mission composition and inspection v3 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`)
+- mission composition and inspection v4 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`)
 - workspace dashboard surface v1 for profile context, planner, ReAct/reflection, and watcher management
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - workspace dashboard surface v2 with notes, lessons, and recent activity
@@ -126,6 +126,7 @@ Status update:
 - mission proposal/orchestration plus mission inspection/status/report surfaces landed in `v3.16.0` / `v3.17.0`
 - mission history and mission rerun lifecycle surfaces landed in `v3.18.0`
 - mission catalog and mission recovery lifecycle surfaces landed in `v3.19.0`
+- mission follow-up and mission iteration loop surfaces landed in `v3.20.0`
 
 ---
 

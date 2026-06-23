@@ -1,5 +1,29 @@
 # Changelog
 
+## v3.20.0 - 2026-06-23
+
+### Added
+- **Mission follow-up bundles** — added `POST /v1/mission/followup` and MCP `mission.followup`, so agents can derive a next mission from persisted mission artifacts instead of restarting from a raw prompt.
+- **Mission iteration loops** — added `POST /v1/mission/iterate` and MCP `mission.iterate`, combining recovery analysis with optional follow-up mission composition/creation/run in one bridge-native loop.
+
+### Improved
+- **Deeper agent loops now chain mission state back into agentic planning** — mission history, failed-step summaries, report excerpts, ReAct observations, reflection, and follow-up mission composition now work as one iteration surface instead of isolated endpoints.
+- **Mission lifecycle v4 is now materially loop-shaped** — agents can move from inspect/recover into follow-up mission drafting and optional execution without rebuilding context by hand.
+- **Desktop maturity remains preserved** — this release stays out of the non-interactive KDE/Wayland focus/window-control path.
+
+### Tests
+- Added mission follow-up and mission iteration regressions.
+- Total: **624 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 624 tests.
+- Local `pytest --collect-only`: PASS, 624 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- MCP tools: 61.
+- Distinct non-HEAD routes: 222.
+
 ## v3.19.0 - 2026-06-23
 
 ### Added

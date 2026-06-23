@@ -53,6 +53,61 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
             rerun_sync=env._resource_runtime.mission_rerun_sync,
         )
 
+    def _mission_followup_sync(data: dict[str, Any]) -> dict[str, Any]:
+        return env.followup_mission_bundle(
+            missions_dir=env._resource_runtime_ctx.missions_dir,
+            mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""),
+            goal=str(data.get("goal", "") or data.get("followup_goal", "") or ""),
+            title=str(data.get("title", "") or data.get("followup_title", "") or ""),
+            notes=str(data.get("notes", "") or ""),
+            constraints=data.get("constraints"),
+            max_steps=int(data.get("max_steps", 8) or 8),
+            max_iterations=int(data.get("max_iterations", 4) or 4),
+            memory_profile=data.get("memory_profile"),
+            template=str(data.get("template", "") or ""),
+            url=str(data.get("url", "") or ""),
+            create=bool(data.get("create", False)),
+            run_now=bool(data.get("run_now", False)),
+            followup_mission_id=str(data.get("mission_id_new", "") or data.get("followup_mission_id", "") or ""),
+            overwrite=bool(data.get("overwrite", False)),
+            timeout=int(data.get("timeout", 180) or 180),
+            react_sync=registry["_react_sync"],
+            reflect_sync=registry["_reflect_sync"],
+            compose_sync=env._resource_runtime.mission_compose_sync,
+            create_sync=env._resource_runtime.mission_create_sync,
+            run_sync=env._resource_runtime.mission_run_sync,
+        )
+
+    def _mission_iterate_sync(data: dict[str, Any]) -> dict[str, Any]:
+        return env.iterate_mission_bundle(
+            missions_dir=env._resource_runtime_ctx.missions_dir,
+            mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""),
+            notes=str(data.get("notes", "") or ""),
+            failed_only=bool(data.get("failed_only", True)),
+            step=int(data["step"]) if data.get("step") is not None else None,
+            timeout=int(data.get("timeout", 180) or 180),
+            rerun_now=bool(data.get("rerun_now", False)),
+            compose_followup=bool(data.get("compose_followup", False)),
+            create_followup=bool(data.get("create_followup", False)),
+            run_followup=bool(data.get("run_followup", False)),
+            followup_goal=str(data.get("followup_goal", "") or data.get("goal", "") or ""),
+            followup_title=str(data.get("followup_title", "") or data.get("title", "") or ""),
+            followup_mission_id=str(data.get("followup_mission_id", "") or ""),
+            constraints=data.get("constraints"),
+            max_steps=int(data.get("max_steps", 8) or 8),
+            max_iterations=int(data.get("max_iterations", 4) or 4),
+            memory_profile=data.get("memory_profile"),
+            template=str(data.get("template", "") or ""),
+            url=str(data.get("url", "") or ""),
+            overwrite=bool(data.get("overwrite", False)),
+            react_sync=registry["_react_sync"],
+            reflect_sync=registry["_reflect_sync"],
+            compose_sync=env._resource_runtime.mission_compose_sync,
+            create_sync=env._resource_runtime.mission_create_sync,
+            rerun_sync=env._resource_runtime.mission_rerun_sync,
+            run_sync=env._resource_runtime.mission_run_sync,
+        )
+
     rr = env._resource_runtime
     registry.update({
         "_hooks_list_sync": rr.hooks_list_sync,
@@ -71,6 +126,8 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
         "_mission_run_sync": rr.mission_run_sync,
         "_mission_rerun_sync": rr.mission_rerun_sync,
         "_mission_recover_sync": _mission_recover_sync,
+        "_mission_followup_sync": _mission_followup_sync,
+        "_mission_iterate_sync": _mission_iterate_sync,
     })
     resource_handler_ctx = env.ResourceHandlerContext(
         require_auth=env.require_auth,
@@ -94,6 +151,8 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
         mission_run_sync=registry["_mission_run_sync"],
         mission_rerun_sync=registry["_mission_rerun_sync"],
         mission_recover_sync=registry["_mission_recover_sync"],
+        mission_followup_sync=registry["_mission_followup_sync"],
+        mission_iterate_sync=registry["_mission_iterate_sync"],
         subagent_spawn_sync=registry["_subagents_spawn_sync"],
         audit=env.audit,
     )
@@ -117,6 +176,8 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
         "handle_v1_mission_run": "mission_run",
         "handle_v1_mission_rerun": "mission_rerun",
         "handle_v1_mission_recover": "mission_recover",
+        "handle_v1_mission_followup": "mission_followup",
+        "handle_v1_mission_iterate": "mission_iterate",
     })
     registry.update({"_resource_handler_ctx": resource_handler_ctx, "_resource_handlers": resource_handlers})
 

@@ -47,4 +47,8 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/rerun", args), ensure_ascii=False))
     if name == "mission.recover":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/recover", args), ensure_ascii=False))
+    if name == "mission.followup":
+        return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/followup", args), ensure_ascii=False))
+    if name == "mission.iterate":
+        return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/iterate", args), ensure_ascii=False))
     return None
