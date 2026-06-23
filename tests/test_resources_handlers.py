@@ -24,12 +24,14 @@ def test_resource_handlers_factory_outputs():
         mission_status_sync=ub._mission_status_sync,
         mission_report_sync=ub._mission_report_sync,
         mission_history_sync=ub._mission_history_sync,
+        mission_catalog_sync=ub._mission_catalog_sync,
         mission_templates_sync=ub._mission_templates_sync,
         mission_compose_sync=ub._mission_compose_sync,
         mission_propose_sync=lambda data: {"ok": True, "goal": data.get("goal", "")},
         mission_create_sync=ub._mission_create_sync,
         mission_run_sync=ub._mission_run_sync,
         mission_rerun_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "rerun": True},
+        mission_recover_sync=lambda data: {"ok": True, "mission_id": data.get("mission_id", "demo"), "recovery": {"suggested_action": "rerun_failed_step"}},
         subagent_spawn_sync=ub._subagents_spawn_sync,
         audit=ub.audit,
     )
@@ -43,19 +45,21 @@ def test_resource_handlers_factory_outputs():
     assert callable(handlers.mission_status)
     assert callable(handlers.mission_report)
     assert callable(handlers.mission_history)
+    assert callable(handlers.mission_catalog)
     assert callable(handlers.mission_templates)
     assert callable(handlers.mission_compose)
     assert callable(handlers.mission_propose)
     assert callable(handlers.mission_create)
     assert callable(handlers.mission_run)
     assert callable(handlers.mission_rerun)
+    assert callable(handlers.mission_recover)
     assert callable(handlers.subagents_spawn)
 
 
 def test_unified_routes_use_extracted_resource_handlers():
     app = ub.make_app({"token": "test"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
-    for path in ["/v1/missions", "/v1/reports", "/v1/hooks", "/v1/agents", "/v1/subagents", "/v1/mission/show", "/v1/mission/status", "/v1/mission/report", "/v1/mission/history", "/v1/mission/templates"]:
+    for path in ["/v1/missions", "/v1/reports", "/v1/hooks", "/v1/agents", "/v1/subagents", "/v1/mission/show", "/v1/mission/status", "/v1/mission/report", "/v1/mission/history", "/v1/mission/catalog", "/v1/mission/templates"]:
         assert ("GET", path) in paths
-    for path in ["/v1/subagents/spawn", "/v1/mission/compose", "/v1/mission/propose", "/v1/mission/create", "/v1/mission/run", "/v1/mission/rerun"]:
+    for path in ["/v1/subagents/spawn", "/v1/mission/compose", "/v1/mission/propose", "/v1/mission/create", "/v1/mission/run", "/v1/mission/rerun", "/v1/mission/recover"]:
         assert ("POST", path) in paths

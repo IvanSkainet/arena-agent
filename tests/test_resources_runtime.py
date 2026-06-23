@@ -34,6 +34,7 @@ def test_resource_runtime_factory_outputs(tmp_path):
     assert callable(runtime.mission_status_sync)
     assert callable(runtime.mission_report_sync)
     assert callable(runtime.mission_history_sync)
+    assert callable(runtime.mission_catalog_sync)
     assert callable(runtime.mission_templates_sync)
     assert callable(runtime.mission_compose_sync)
     assert callable(runtime.mission_create_sync)
@@ -52,6 +53,7 @@ def test_unified_resource_runtime_bindings():
     assert ub._mission_status_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_report_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_history_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_catalog_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_templates_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_compose_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_create_sync.__module__ == "arena.resources.runtime"
@@ -64,7 +66,7 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     (tmp_path / "missions" / "demo.md").write_text("mission", encoding="utf-8")
     mission_dir = tmp_path / "missions" / "demo-run"
     mission_dir.mkdir()
-    (mission_dir / "mission.json").write_text('{"id":"demo-run","title":"Demo Run","template":"cli-agent-core","state":"done","runs":[]}', encoding="utf-8")
+    (mission_dir / "mission.json").write_text('{"id":"demo-run","title":"Demo Run","template":"cli-agent-core","state":"done","draft":{"goal":"Ship feature"},"runs":[]}', encoding="utf-8")
     (tmp_path / "reports").mkdir()
     (tmp_path / "reports" / "report.txt").write_text("report", encoding="utf-8")
 
@@ -78,6 +80,10 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     history = runtime.mission_history_sync("demo-run")
     assert history["ok"] is True
     assert history["mission"]["name"] == "demo-run"
+    catalog = runtime.mission_catalog_sync({"state": "done", "q": "Ship"})
+    assert catalog["ok"] is True
+    assert catalog["matched"] == 1
+    assert catalog["items"][0]["name"] == "demo-run"
     assert runtime.mission_report_sync("demo-run")["ok"] is False
     assert runtime.list_reports_sync()[0]["name"] == "report.txt"
     assert runtime.hooks_list_sync() == {"ok": True, "count": 0, "hooks": []}

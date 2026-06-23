@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.19.0 - 2026-06-23
+
+### Added
+- **Mission catalog surfaces** — added `GET /v1/mission/catalog` and MCP `mission.catalog` so agents can filter persisted missions by query, state, template, and report presence instead of scraping the raw missions list.
+- **Mission recovery bundles** — added `POST /v1/mission/recover` and MCP `mission.recover` so agents can inspect a failed mission, derive a rerun recommendation, and optionally compose/create a follow-up mission from the recovery context.
+
+### Improved
+- **Deeper agent loops now bridge mission state back into planning** — mission recovery can turn stored history, failed-step summaries, and report excerpts into a structured next action instead of leaving the agent to reconstruct state manually.
+- **Mission lifecycle v3 is more operational** — agents can now move from catalog → inspect → recover → rerun/follow-up within bridge-native REST and MCP surfaces.
+- **Desktop maturity remains preserved** — this mission/orchestration expansion does not touch the non-interactive KDE/Wayland focus/window-control path.
+
+### Tests
+- Added mission catalog and mission recovery regressions.
+- Total: **624 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 624 tests.
+- Local `pytest --collect-only`: PASS, 624 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.18.0 - 2026-06-22
 
 ### Added

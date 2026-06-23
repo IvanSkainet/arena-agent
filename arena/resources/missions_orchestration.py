@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from arena.resources.mission_recovery import recover_mission_bundle
+
 
 
 def propose_mission_bundle(
@@ -38,11 +40,7 @@ def propose_mission_bundle(
     if not composed.get("ok"):
         return composed
     draft = dict(composed.get("draft") or {})
-    draft["analysis"] = {
-        "react_summary": react.get("summary", ""),
-        "react_iterations": react.get("iterations", []),
-        "reflection": reflection,
-    }
+    draft["analysis"] = {"react_summary": react.get("summary", ""), "react_iterations": react.get("iterations", []), "reflection": reflection}
     result: dict[str, Any] = {"ok": True, "goal": goal, "react": react, "reflection": reflection, "mission": {"draft": draft, "template_data": composed.get("template_data"), "plan": composed.get("plan")}}
     created = None
     if create:
@@ -68,4 +66,4 @@ def propose_mission_bundle(
     return result
 
 
-__all__ = ["propose_mission_bundle"]
+__all__ = ["propose_mission_bundle", "recover_mission_bundle"]

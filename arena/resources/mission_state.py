@@ -5,54 +5,13 @@ import json
 from pathlib import Path
 from typing import Any
 
-
-
-def _mission_dir(missions_dir: Path, name: str) -> Path:
-    if ".." in name or "/" in name or "\\" in name or name.startswith("."):
-        raise ValueError("invalid mission name")
-    return missions_dir / name
-
-
-
-def _load_mission_json(path: Path) -> dict[str, Any]:
-    mission_file = path / "mission.json"
-    if not mission_file.exists():
-        return {}
-    try:
-        return json.loads(mission_file.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-
-def summarize_mission_dir(path: Path) -> dict[str, Any]:
-    data = _load_mission_json(path)
-    runs = list(data.get("runs") or [])
-    latest_run = runs[-1] if runs else None
-    report = path / "REPORT.md"
-    logs = path / "logs"
-    return {
-        "id": data.get("id", path.name),
-        "name": path.name,
-        "title": data.get("title", path.name),
-        "template": data.get("template", ""),
-        "state": data.get("state", "unknown"),
-        "created_at": data.get("created_at", ""),
-        "started_at": data.get("started_at", ""),
-        "finished_at": data.get("finished_at", ""),
-        "runs_count": len(runs),
-        "latest_run": latest_run,
-        "report_exists": report.exists(),
-        "report_path": str(report) if report.exists() else None,
-        "log_count": len(list(logs.glob("step-*.json"))) if logs.exists() else 0,
-        "path": str(path),
-    }
+from arena.resources.mission_catalog import catalog_missions, extract_failed_steps, load_mission_json, mission_dir, summarize_mission_dir
 
 
 
 def get_mission_status(missions_dir: Path, name: str) -> dict[str, Any]:
     try:
-        path = _mission_dir(missions_dir, name)
+        path = mission_dir(missions_dir, name)
     except ValueError as exc:
         return {"ok": False, "error": str(exc), "status": 400}
     if not path.exists() or not path.is_dir():
@@ -80,7 +39,7 @@ def get_mission_history(missions_dir: Path, name: str) -> dict[str, Any]:
     if not status.get("ok"):
         return status
     path = Path(status["mission"]["path"])
-    data = _load_mission_json(path)
+    data = load_mission_json(path)
     logs_dir = path / "logs"
     step_logs = []
     if logs_dir.exists():
@@ -101,13 +60,12 @@ def infer_rerun_step(missions_dir: Path, name: str, *, failed_only: bool = False
     if not failed_only:
         return {"ok": True, "step": None, "mission": history["mission"]}
     latest = history.get("mission", {}).get("latest_run") or {}
-    results = list(latest.get("results") or [])
-    if not results:
+    failed_steps = extract_failed_steps(latest)
+    if not latest:
         return {"ok": False, "error": "no previous run results to infer failed step", "status": 409, "mission": history["mission"]}
-    for idx, result in enumerate(results, start=1):
-        if int(result.get("exit_code", 0) or 0) != 0:
-            return {"ok": True, "step": idx, "mission": history["mission"]}
+    if failed_steps:
+        return {"ok": True, "step": failed_steps[0]["step"], "mission": history["mission"]}
     return {"ok": False, "error": "latest run has no failed step", "status": 409, "mission": history["mission"]}
 
 
-__all__ = ["get_mission_history", "get_mission_report", "get_mission_status", "infer_rerun_step", "summarize_mission_dir"]
+__all__ = ["catalog_missions", "extract_failed_steps", "get_mission_history", "get_mission_report", "get_mission_status", "infer_rerun_step", "summarize_mission_dir"]

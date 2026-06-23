@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from arena.resources.mission_state import summarize_mission_dir
+from arena.resources.mission_catalog import summarize_mission_dir
 
 
 def list_missions(missions_dir: Path) -> list[dict[str, Any]]:

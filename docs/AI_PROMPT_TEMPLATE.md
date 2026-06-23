@@ -47,12 +47,14 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`GET /v1/mission/status?name=...`**: Read structured mission state, latest run info, and report/log availability.
 - **`GET /v1/mission/report?name=...`**: Read the generated mission report.
 - **`GET /v1/mission/history?name=...`**: Inspect mission run history and step-log summaries.
+- **`GET /v1/mission/catalog?q=&state=&template=&has_report=&limit=&offset=`**: Filter persisted missions by lifecycle metadata and get summary stats.
 - **`POST /v1/mission/compose`**: Turn a goal into a reusable planner-backed mission draft.
 - **`POST /v1/mission/propose`**: Run a bounded agentic proposal loop, reflect on it, and return a mission bundle with optional mission creation/run.
 - **`POST /v1/mission/create`**: Persist a mission draft into the local `missions/` directory.
 - **`POST /v1/mission/run`**: Run a persisted mission by mission id.
 - **`POST /v1/mission/rerun`**: Rerun a mission, optionally only the last failed step or a chosen step.
-- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`**: The same planning/agentic and mission-composition capabilities through MCP.
+- **`POST /v1/mission/recover`**: Build a recovery bundle for a persisted mission, with optional rerun and follow-up mission composition.
+- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`**: The same planning/agentic and mission-composition capabilities through MCP.
 
 ### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.
