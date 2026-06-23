@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-23
-Validated baseline: `v3.21.0`
+Validated baseline: `v3.22.0`
 
 This file is the planning source of truth.
 
@@ -9,11 +9,11 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.21.0`
-- Tests: `625 passed`
-- MCP tools: `62`
-- Route objects in aiohttp app: `333`
-- Distinct method/path routes excluding auto-HEAD: `223`
+- Version: `3.22.0`
+- Tests: `626 passed`
+- MCP tools: `67`
+- Route objects in aiohttp app: `340`
+- Distinct method/path routes excluding auto-HEAD: `228`
 
 ### Completed enough to count as done
 - `fs.*` toolkit core: read/write/list/edit/view/create/search/grep/tree/diff
@@ -25,8 +25,8 @@ This file is the planning source of truth.
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
-- mission composition and inspection v5 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`)
-- workspace dashboard surface v3 with profile context, planner, ReAct/reflection, notes, lessons, recent activity, and mission loop studio
+- mission composition and inspection v6 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`)
+- workspace dashboard surface v4 with profile context, planner, ReAct/reflection, notes, lessons, recent activity, mission loop studio, and schedule controls
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, non-interactive KDE/Wayland window control, and high-level text workflows
 - OpenAPI partial coverage
@@ -127,6 +127,7 @@ Status update:
 - mission catalog and mission recovery lifecycle surfaces landed in `v3.19.0`
 - mission follow-up and mission iteration loop surfaces landed in `v3.20.0`
 - mission lineage plus workspace mission loop studio landed in `v3.21.0`
+- mission family summaries and recurring mission schedules landed in `v3.22.0`
 
 ---
 

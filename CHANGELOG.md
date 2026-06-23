@@ -1,5 +1,31 @@
 # Changelog
 
+## v3.22.0 - 2026-06-23
+
+### Added
+- **Mission family surfaces** — added `GET /v1/mission/family` and MCP `mission.family`, so agents can inspect whole mission families rooted at a lineage chain, including branch summaries, leaves, and family-level stats.
+- **Mission schedules v1** — added `GET/POST/DELETE /v1/mission/schedules` plus `POST /v1/mission/schedules/tick`, and MCP tools `mission.schedules`, `mission.schedule_save`, `mission.schedule_delete`, and `mission.schedule_tick` for recurring mission orchestration.
+- **Workspace schedule/family controls** — the Workspace mission loop studio now includes family inspection plus schedule listing, saving, and ticking surfaces.
+
+### Improved
+- **Recurring orchestration now exists on top of mission lifecycle state** — agents can move from lineage/family inspection into recurring schedule definitions and due-run execution without rebuilding orchestration state manually.
+- **Mission families now expose branch-level summaries** — roots, members, leaves, branch paths, and family stats are available as first-class bridge data.
+- **Desktop maturity remains preserved** — this release does not touch the non-interactive KDE/Wayland focus/window-control path.
+
+### Tests
+- Added mission family, mission schedule, and mission lifecycle handler regressions.
+- Total: **626 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 626 tests.
+- Local `pytest --collect-only`: PASS, 626 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check dashboard/assets/26-workspace-v3.js`: PASS.
+- MCP tools: 67.
+- Distinct non-HEAD routes: 228.
+
 ## v3.21.0 - 2026-06-23
 
 ### Added

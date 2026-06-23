@@ -104,6 +104,7 @@ from arena.resources.listing import (  # noqa: E402,F401
     show_mission,
 )
 from arena.resources.handlers import make_resource_handlers  # noqa: E402,F401
+from arena.resources.mission_lifecycle_handlers import make_mission_lifecycle_handlers  # noqa: E402,F401
 from arena.resources.runtime import ResourceRuntimeContext, make_resource_runtime  # noqa: E402,F401
 from arena.resources.mission_loops import followup_mission_bundle, iterate_mission_bundle  # noqa: E402,F401
 from arena.resources.missions_orchestration import propose_mission_bundle, recover_mission_bundle  # noqa: E402,F401

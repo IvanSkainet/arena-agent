@@ -74,6 +74,21 @@ class ResourceHandlerContext:
 
 
 @dataclass(frozen=True)
+class MissionLifecycleHandlerContext:
+    """Dependencies for mission family/schedule lifecycle handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    mission_family_sync: Callable[[str], dict[str, Any]]
+    mission_schedules_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedule_save_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedule_delete_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedule_tick_sync: Callable[[dict[str, Any]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
 class PlannerHandlerContext:
     """Dependencies for planner API handlers."""
 
@@ -113,4 +128,4 @@ class MemoryHandlerContext:
     audit: Callable[[dict[str, Any]], None]
     utc_now: Callable[[], str]
 
-__all__ = ['TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'PlannerHandlerContext', 'AgenticHandlerContext', 'MemoryHandlerContext']
+__all__ = ['TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'MissionLifecycleHandlerContext', 'PlannerHandlerContext', 'AgenticHandlerContext', 'MemoryHandlerContext']

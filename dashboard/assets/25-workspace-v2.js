@@ -98,4 +98,5 @@ function loadWorkspacePanels() {
   loadWorkspaceLessons();
   loadWorkspaceActivity();
   if (typeof loadWorkspaceMissionLoops === "function") loadWorkspaceMissionLoops();
+  if (typeof loadWorkspaceMissionSchedules === "function") loadWorkspaceMissionSchedules();
 }

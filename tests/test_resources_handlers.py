@@ -65,7 +65,8 @@ def test_resource_handlers_factory_outputs():
 def test_unified_routes_use_extracted_resource_handlers():
     app = ub.make_app({"token": "test"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
-    for path in ["/v1/missions", "/v1/reports", "/v1/hooks", "/v1/agents", "/v1/subagents", "/v1/mission/show", "/v1/mission/status", "/v1/mission/report", "/v1/mission/history", "/v1/mission/lineage", "/v1/mission/catalog", "/v1/mission/templates"]:
+    for path in ["/v1/missions", "/v1/reports", "/v1/hooks", "/v1/agents", "/v1/subagents", "/v1/mission/show", "/v1/mission/status", "/v1/mission/report", "/v1/mission/history", "/v1/mission/lineage", "/v1/mission/family", "/v1/mission/catalog", "/v1/mission/schedules", "/v1/mission/templates"]:
         assert ("GET", path) in paths
-    for path in ["/v1/subagents/spawn", "/v1/mission/compose", "/v1/mission/propose", "/v1/mission/create", "/v1/mission/run", "/v1/mission/rerun", "/v1/mission/recover", "/v1/mission/followup", "/v1/mission/iterate"]:
+    for path in ["/v1/subagents/spawn", "/v1/mission/compose", "/v1/mission/propose", "/v1/mission/create", "/v1/mission/run", "/v1/mission/rerun", "/v1/mission/recover", "/v1/mission/followup", "/v1/mission/iterate", "/v1/mission/schedules", "/v1/mission/schedules/tick"]:
         assert ("POST", path) in paths
+    assert ("DELETE", "/v1/mission/schedules") in paths

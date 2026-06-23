@@ -51,6 +51,19 @@ async function loadWorkspaceMissionLineage() {
   }
 }
 
+async function loadWorkspaceMissionFamily() {
+  const missionId = _workspaceMissionId();
+  if (!missionId) return alert("Mission id required");
+  const box = _workspaceMissionLoopBox("workspaceMissionLineage");
+  box.textContent = "Loading mission family...";
+  try {
+    const result = await api("/v1/mission/family?name=" + encodeURIComponent(missionId));
+    box.textContent = JSON.stringify(result, null, 2);
+  } catch (e) {
+    box.textContent = "Error: " + (e.message || "unknown");
+  }
+}
+
 async function runWorkspaceMissionFollowup() {
   const missionId = _workspaceMissionId();
   if (!missionId) return alert("Mission id required");
@@ -107,6 +120,60 @@ async function runWorkspaceMissionIterate() {
     if (result.followup && result.followup.goal && !options.goal) document.getElementById("workspaceFollowupGoal").value = result.followup.goal;
     loadWorkspaceMissionLoops();
     loadWorkspaceMissionLineage();
+  } catch (e) {
+    box.textContent = "Error: " + (e.message || "unknown");
+  }
+}
+
+async function loadWorkspaceMissionSchedules() {
+  const box = _workspaceMissionLoopBox("workspaceMissionSchedules");
+  box.textContent = "Loading mission schedules...";
+  try {
+    const result = await api("/v1/mission/schedules?limit=12");
+    box.textContent = JSON.stringify(result, null, 2);
+  } catch (e) {
+    box.textContent = "Error: " + (e.message || "unknown");
+  }
+}
+
+async function saveWorkspaceMissionSchedule() {
+  const missionId = _workspaceMissionId();
+  if (!missionId) return alert("Mission id required");
+  const options = _workspaceMissionOptions();
+  const box = _workspaceMissionLoopBox("workspaceMissionSchedules");
+  box.textContent = "Saving mission schedule...";
+  try {
+    const result = await api("/v1/mission/schedules", {
+      method: "POST",
+      body: JSON.stringify({
+        mission_id: missionId,
+        action: document.getElementById("workspaceScheduleAction").value || "iterate",
+        every_minutes: parseInt(document.getElementById("workspaceScheduleMinutes").value || "60", 10),
+        notes: document.getElementById("workspaceNotes").value || "",
+        followup_goal: options.goal,
+        followup_title: options.title,
+        memory_profile: workspaceProfileValue(),
+        max_steps: parseInt(document.getElementById("workspaceMaxSteps").value || "6", 10),
+        max_iterations: parseInt(document.getElementById("workspaceMaxIterations").value || "4", 10),
+      }),
+    });
+    box.textContent = JSON.stringify(result, null, 2);
+    loadWorkspaceMissionSchedules();
+  } catch (e) {
+    box.textContent = "Error: " + (e.message || "unknown");
+  }
+}
+
+async function tickWorkspaceMissionSchedules() {
+  const box = _workspaceMissionLoopBox("workspaceMissionSchedules");
+  box.textContent = "Ticking mission schedules...";
+  try {
+    const result = await api("/v1/mission/schedules/tick", {
+      method: "POST",
+      body: JSON.stringify({limit: 5, timeout: 180}),
+    });
+    box.textContent = JSON.stringify(result, null, 2);
+    loadWorkspaceMissionLoops();
   } catch (e) {
     box.textContent = "Error: " + (e.message || "unknown");
   }

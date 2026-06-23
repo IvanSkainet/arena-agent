@@ -36,7 +36,9 @@
   <div class="row">
     <input id="workspaceMissionId" placeholder="Mission id / name" style="flex:2">
     <button onclick="loadWorkspaceMissionLineage()">Lineage</button>
+    <button onclick="loadWorkspaceMissionFamily()">Family</button>
     <button onclick="loadWorkspaceMissionLoops()">Recent Missions</button>
+    <button onclick="loadWorkspaceMissionSchedules()">Schedules</button>
   </div>
   <div class="row">
     <input id="workspaceFollowupGoal" placeholder="Optional follow-up goal override" style="flex:2">
@@ -49,8 +51,19 @@
     <button class="warning" onclick="runWorkspaceMissionFollowup()">Follow-up</button>
     <button class="success" onclick="runWorkspaceMissionIterate()">Iterate</button>
   </div>
+  <div class="row">
+    <select id="workspaceScheduleAction" style="width:180px">
+      <option value="iterate">iterate</option>
+      <option value="run">run</option>
+      <option value="rerun_failed">rerun_failed</option>
+    </select>
+    <input id="workspaceScheduleMinutes" type="number" min="1" value="60" style="width:110px">
+    <button onclick="saveWorkspaceMissionSchedule()">Save Schedule</button>
+    <button onclick="tickWorkspaceMissionSchedules()">Tick Due</button>
+  </div>
   <div id="workspaceMissionCatalog" class="output" style="display:block;min-height:90px">Loading mission catalog...</div>
   <div id="workspaceMissionLineage" class="output" style="display:block;min-height:90px;margin-top:8px">Mission lineage will appear here.</div>
+  <div id="workspaceMissionSchedules" class="output" style="display:block;min-height:90px;margin-top:8px">Mission schedules will appear here.</div>
   <div id="workspaceMissionLoopResult" class="output" style="display:none;margin-top:8px"></div>
 </div>
 

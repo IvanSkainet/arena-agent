@@ -8,7 +8,9 @@ from typing import Any
 
 from arena.resources.listing import list_agents, list_hooks, list_missions, list_reports, list_subagents, show_mission
 from arena.resources.mission_catalog import catalog_missions
+from arena.resources.mission_family import get_mission_family
 from arena.resources.mission_lineage import get_mission_lineage
+from arena.resources.mission_schedule_runtime import delete_mission_schedule_runtime, list_mission_schedules_runtime, save_mission_schedule_runtime
 from arena.resources.mission_state import get_mission_history, get_mission_report, get_mission_status
 from arena.resources.missions_manage import compose_mission_draft, create_mission_from_draft, list_mission_templates, rerun_mission, run_mission
 from arena.resources.subagents import spawn_subagent
@@ -40,7 +42,11 @@ class ResourceRuntime:
     mission_report_sync: Callable[[str], dict[str, Any]]
     mission_history_sync: Callable[[str], dict[str, Any]]
     mission_lineage_sync: Callable[[str], dict[str, Any]]
+    mission_family_sync: Callable[[str], dict[str, Any]]
     mission_catalog_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedules_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedule_save_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedule_delete_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_templates_sync: Callable[[], dict[str, Any]]
     mission_compose_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_create_sync: Callable[[dict[str, Any]], dict[str, Any]]
@@ -83,6 +89,9 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
     def _mission_lineage_sync(name: str) -> dict[str, Any]:
         return get_mission_lineage(ctx.missions_dir, name)
 
+    def _mission_family_sync(name: str) -> dict[str, Any]:
+        return get_mission_family(ctx.missions_dir, name)
+
     def _mission_catalog_sync(data: dict[str, Any]) -> dict[str, Any]:
         return catalog_missions(
             ctx.missions_dir,
@@ -93,6 +102,15 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
             limit=int(data.get("limit", 50) or 50),
             offset=int(data.get("offset", 0) or 0),
         )
+
+    def _mission_schedules_sync(data: dict[str, Any]) -> dict[str, Any]:
+        return list_mission_schedules_runtime(ctx.root_agent / "mission_schedules", data)
+
+    def _mission_schedule_save_sync(data: dict[str, Any]) -> dict[str, Any]:
+        return save_mission_schedule_runtime(ctx.root_agent / "mission_schedules", data)
+
+    def _mission_schedule_delete_sync(data: dict[str, Any]) -> dict[str, Any]:
+        return delete_mission_schedule_runtime(ctx.root_agent / "mission_schedules", data)
 
     def _mission_templates_sync() -> dict[str, Any]:
         return list_mission_templates()
@@ -112,4 +130,4 @@ def make_resource_runtime(ctx: ResourceRuntimeContext) -> ResourceRuntime:
     def _mission_rerun_sync(data: dict[str, Any]) -> dict[str, Any]:
         return rerun_mission(root_agent=ctx.root_agent, missions_dir=ctx.missions_dir, mission_id=str(data.get("mission_id", "") or data.get("id", "") or ""), failed_only=bool(data.get("failed_only", False)), step=int(data["step"]) if data.get("step") is not None else None, timeout=int(data.get("timeout", 180) or 180), subprocess_kwargs=ctx.subprocess_kwargs)
 
-    return ResourceRuntime(list_missions_sync=_list_missions_sync, list_reports_sync=_list_reports_sync, hooks_list_sync=_hooks_list_sync, agents_list_sync=_agents_list_sync, subagents_list_sync=_subagents_list_sync, subagents_spawn_sync=_subagents_spawn_sync, mission_show_sync=_mission_show_sync, mission_status_sync=_mission_status_sync, mission_report_sync=_mission_report_sync, mission_history_sync=_mission_history_sync, mission_lineage_sync=_mission_lineage_sync, mission_catalog_sync=_mission_catalog_sync, mission_templates_sync=_mission_templates_sync, mission_compose_sync=_mission_compose_sync, mission_create_sync=_mission_create_sync, mission_run_sync=_mission_run_sync, mission_rerun_sync=_mission_rerun_sync)
+    return ResourceRuntime(list_missions_sync=_list_missions_sync, list_reports_sync=_list_reports_sync, hooks_list_sync=_hooks_list_sync, agents_list_sync=_agents_list_sync, subagents_list_sync=_subagents_list_sync, subagents_spawn_sync=_subagents_spawn_sync, mission_show_sync=_mission_show_sync, mission_status_sync=_mission_status_sync, mission_report_sync=_mission_report_sync, mission_history_sync=_mission_history_sync, mission_lineage_sync=_mission_lineage_sync, mission_family_sync=_mission_family_sync, mission_catalog_sync=_mission_catalog_sync, mission_schedules_sync=_mission_schedules_sync, mission_schedule_save_sync=_mission_schedule_save_sync, mission_schedule_delete_sync=_mission_schedule_delete_sync, mission_templates_sync=_mission_templates_sync, mission_compose_sync=_mission_compose_sync, mission_create_sync=_mission_create_sync, mission_run_sync=_mission_run_sync, mission_rerun_sync=_mission_rerun_sync)

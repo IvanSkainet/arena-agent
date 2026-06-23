@@ -195,6 +195,7 @@ def test_mission_handlers_and_registry(tmp_path):
     assert "mission.report" in names
     assert "mission.history" in names
     assert "mission.lineage" in names
+    assert "mission.family" in names
     assert "mission.catalog" in names
     assert "mission.compose" in names
     assert "mission.propose" in names
@@ -204,6 +205,10 @@ def test_mission_handlers_and_registry(tmp_path):
     assert "mission.recover" in names
     assert "mission.followup" in names
     assert "mission.iterate" in names
+    assert "mission.schedules" in names
+    assert "mission.schedule_save" in names
+    assert "mission.schedule_delete" in names
+    assert "mission.schedule_tick" in names
     ctx2 = type("Ctx", (), {"app_config": staticmethod(lambda: {"port": 8765, "token": "t"})})()
     assert handle_mission_tool("not-mission", {}, ctx=ctx2) is None
 
@@ -221,8 +226,10 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     (success_dir / "logs").mkdir(parents=True)
     (success_dir / "mission.json").write_text(json.dumps({"id": "done-one", "title": "Done One", "template": "code-tdd", "state": "done", "draft": {"goal": "Ship feature"}, "runs": [{"ts": "later", "ok": True, "results": [{"cmd": "pytest", "exit_code": 0}]}], "created_at": "later"}), encoding="utf-8")
 
+    from arena.resources.mission_family import get_mission_family
     from arena.resources.mission_lineage import get_mission_lineage
     from arena.resources.mission_loops import followup_mission_bundle, iterate_mission_bundle
+    from arena.resources.mission_schedule_runtime import delete_mission_schedule_runtime, list_mission_schedules_runtime, save_mission_schedule_runtime, tick_mission_schedules_runtime
     from arena.resources.mission_state import catalog_missions, get_mission_history, get_mission_report, get_mission_status, infer_rerun_step
     from arena.resources.missions_manage import rerun_mission
 
@@ -295,6 +302,20 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     assert lineage["parent"]["id"] == "demo"
     assert lineage["root"]["id"] == "demo"
     assert lineage["stats"]["depth"] == 1
+    family = get_mission_family(missions_dir, "followup-child")
+    assert family["ok"] is True
+    assert family["stats"]["total"] >= 2
+    assert family["branches"][0]["path"][0] == "demo"
+
+    schedule_saved = save_mission_schedule_runtime(tmp_path / "mission_schedules", {"mission_id": "demo", "action": "iterate", "every_minutes": 5, "schedule_id": "demo-iterate"})
+    assert schedule_saved["ok"] is True
+    schedules_list = list_mission_schedules_runtime(tmp_path / "mission_schedules", {})
+    assert schedules_list["total"] == 1
+    ticked = tick_mission_schedules_runtime(tmp_path / "mission_schedules", {"schedule_id": "demo-iterate", "force": True}, run_sync=lambda data: {"ok": True, "mission_id": data["mission_id"]}, rerun_sync=lambda data: {"ok": True, "mission_id": data["mission_id"], "rerun": True}, iterate_sync=lambda data: {"ok": True, "mission_id": data["mission_id"], "mode": "recover_and_followup"})
+    assert ticked["ok"] is True
+    assert ticked["executed"] == 1
+    deleted_schedule = delete_mission_schedule_runtime(tmp_path / "mission_schedules", {"schedule_id": "demo-iterate"})
+    assert deleted_schedule["ok"] is True
 
     iteration = iterate_mission_bundle(
         missions_dir=missions_dir,

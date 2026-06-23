@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from arena.app_keys import APP_CFG
 from arena.wiring.env import RuntimeEnv
+from arena.wiring.mission_lifecycle_wiring import build_mission_lifecycle_registry
 from arena.wiring.mission_resource_wiring import build_resource_registry
 
 
@@ -146,6 +147,7 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
     registry.update({"_file_watch_handler_ctx": file_watch_handler_ctx, "_file_watch_handlers": file_watch_handlers})
 
     build_resource_registry(env, registry)
+    build_mission_lifecycle_registry(env, registry)
     return registry
 
 __all__ = ["build_tasks_skills_resources_registries"]

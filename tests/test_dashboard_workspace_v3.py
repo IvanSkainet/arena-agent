@@ -14,7 +14,11 @@ def test_workspace_v3_mission_loop_assets_exist_and_are_bootstrapped():
     assert 'workspaceMissionId' in body
     assert 'workspaceMissionCatalog' in body
     assert 'workspaceMissionLineage' in body
+    assert 'workspaceMissionSchedules' in body
     assert 'workspaceMissionLoopResult' in body
     assert 'runWorkspaceMissionFollowup' in js
     assert 'runWorkspaceMissionIterate' in js
     assert 'loadWorkspaceMissionLineage' in js
+    assert 'loadWorkspaceMissionFamily' in js
+    assert 'saveWorkspaceMissionSchedule' in js
+    assert 'tickWorkspaceMissionSchedules' in js

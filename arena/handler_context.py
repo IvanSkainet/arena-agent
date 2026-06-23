@@ -29,6 +29,7 @@ from arena.contexts import (
     TaskHandlerContext,
     SkillHandlerContext,
     ResourceHandlerContext,
+    MissionLifecycleHandlerContext,
     PlannerHandlerContext,
     AgenticHandlerContext,
     MemoryHandlerContext,
@@ -49,7 +50,7 @@ from arena.contexts import (
     McpHandlerContext,
 )
 
-__all__ = ['HandlerContext', 'PublicHandlerContext', 'FileHandlerContext', 'ExecHandlerContext', 'GatewayHandlerContext', 'GuiHandlerContext', 'ServiceHandlerContext', 'DesktopHandlerContext', 'ControlLeaseHandlerContext', 'SystemHandlerContext', 'UserHandlerContext', 'AdminHandlerContext', 'BrowserFetchHandlerContext', 'BrowserBrowseHandlerContext', 'ProfileHandlerContext', 'CdpBasicHandlerContext', 'CdpDiagnosticHandlerContext', 'CdpSessionHandlerContext', 'CdpPageHandlerContext', 'CdpTabsHandlerContext', 'CdpCookiesHandlerContext', 'CdpNetworkHandlerContext', 'CdpInterceptHandlerContext', 'CdpAdvancedHandlerContext', 'TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'PlannerHandlerContext', 'AgenticHandlerContext', 'MemoryHandlerContext', 'ObservabilityHandlerContext', 'TracingHandlerContext', 'ApiV2HandlerContext', 'AlertsHandlerContext', 'RateLimitHandlerContext', 'RuntimeObservabilityHandlerContext', 'BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'EventHandlerContext', 'FileWatchHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']
+__all__ = ['HandlerContext', 'PublicHandlerContext', 'FileHandlerContext', 'ExecHandlerContext', 'GatewayHandlerContext', 'GuiHandlerContext', 'ServiceHandlerContext', 'DesktopHandlerContext', 'ControlLeaseHandlerContext', 'SystemHandlerContext', 'UserHandlerContext', 'AdminHandlerContext', 'BrowserFetchHandlerContext', 'BrowserBrowseHandlerContext', 'ProfileHandlerContext', 'CdpBasicHandlerContext', 'CdpDiagnosticHandlerContext', 'CdpSessionHandlerContext', 'CdpPageHandlerContext', 'CdpTabsHandlerContext', 'CdpCookiesHandlerContext', 'CdpNetworkHandlerContext', 'CdpInterceptHandlerContext', 'CdpAdvancedHandlerContext', 'TaskHandlerContext', 'SkillHandlerContext', 'ResourceHandlerContext', 'MissionLifecycleHandlerContext', 'PlannerHandlerContext', 'AgenticHandlerContext', 'MemoryHandlerContext', 'ObservabilityHandlerContext', 'TracingHandlerContext', 'ApiV2HandlerContext', 'AlertsHandlerContext', 'RateLimitHandlerContext', 'RuntimeObservabilityHandlerContext', 'BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'EventHandlerContext', 'FileWatchHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']
 
 for _name in __all__:
     try:

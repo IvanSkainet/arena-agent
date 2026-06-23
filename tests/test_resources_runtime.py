@@ -35,7 +35,11 @@ def test_resource_runtime_factory_outputs(tmp_path):
     assert callable(runtime.mission_report_sync)
     assert callable(runtime.mission_history_sync)
     assert callable(runtime.mission_lineage_sync)
+    assert callable(runtime.mission_family_sync)
     assert callable(runtime.mission_catalog_sync)
+    assert callable(runtime.mission_schedules_sync)
+    assert callable(runtime.mission_schedule_save_sync)
+    assert callable(runtime.mission_schedule_delete_sync)
     assert callable(runtime.mission_templates_sync)
     assert callable(runtime.mission_compose_sync)
     assert callable(runtime.mission_create_sync)
@@ -55,7 +59,11 @@ def test_unified_resource_runtime_bindings():
     assert ub._mission_report_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_history_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_lineage_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_family_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_catalog_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_schedules_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_schedule_save_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_schedule_delete_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_templates_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_compose_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_create_sync.__module__ == "arena.resources.runtime"
@@ -85,6 +93,9 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     lineage = runtime.mission_lineage_sync("demo-run")
     assert lineage["ok"] is True
     assert lineage["mission"]["name"] == "demo-run"
+    family = runtime.mission_family_sync("demo-run")
+    assert family["ok"] is True
+    assert family["root"]["name"] == "demo-run"
     catalog = runtime.mission_catalog_sync({"state": "done", "q": "Ship"})
     assert catalog["ok"] is True
     assert catalog["matched"] == 1
@@ -94,6 +105,15 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     assert runtime.hooks_list_sync() == {"ok": True, "count": 0, "hooks": []}
     assert runtime.agents_list_sync() == {"ok": True, "count": 0, "agents": []}
     assert runtime.subagents_list_sync() == {"ok": True, "count": 0, "subagents": []}
+    schedules = runtime.mission_schedules_sync({})
+    assert schedules["ok"] is True
+    assert schedules["total"] == 0
+    saved = runtime.mission_schedule_save_sync({"mission_id": "demo-run", "action": "iterate", "every_minutes": 15})
+    assert saved["ok"] is True
+    listed = runtime.mission_schedules_sync({})
+    assert listed["total"] == 1
+    deleted = runtime.mission_schedule_delete_sync({"schedule_id": saved["schedule"]["id"]})
+    assert deleted["ok"] is True
     assert runtime.mission_templates_sync()["count"] > 0
     composed = runtime.mission_compose_sync({"goal": "Fix a code bug in repo", "context": "pytest failing"})
     assert composed["ok"] is True
