@@ -26,6 +26,8 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/status?name={args.get('mission_id','') or args.get('name','')}", None, method="GET"), ensure_ascii=False))
     if name == "mission.report":
         return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/report?name={args.get('mission_id','') or args.get('name','')}", None, method="GET"), ensure_ascii=False))
+    if name == "mission.history":
+        return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/history?name={args.get('mission_id','') or args.get('name','')}", None, method="GET"), ensure_ascii=False))
     if name == "mission.compose":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/compose", args), ensure_ascii=False))
     if name == "mission.create":
@@ -34,4 +36,6 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/propose", args), ensure_ascii=False))
     if name == "mission.run":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/run", args), ensure_ascii=False))
+    if name == "mission.rerun":
+        return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/rerun", args), ensure_ascii=False))
     return None

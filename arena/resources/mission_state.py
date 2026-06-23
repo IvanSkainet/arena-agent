@@ -1,9 +1,10 @@
-"""Structured mission status/report inspection helpers."""
+"""Structured mission status/history/report inspection helpers."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 from typing import Any
+
 
 
 def _mission_dir(missions_dir: Path, name: str) -> Path:
@@ -13,14 +14,19 @@ def _mission_dir(missions_dir: Path, name: str) -> Path:
 
 
 
-def summarize_mission_dir(path: Path) -> dict[str, Any]:
+def _load_mission_json(path: Path) -> dict[str, Any]:
     mission_file = path / "mission.json"
-    data: dict[str, Any] = {}
-    if mission_file.exists():
-        try:
-            data = json.loads(mission_file.read_text(encoding="utf-8"))
-        except Exception:
-            data = {}
+    if not mission_file.exists():
+        return {}
+    try:
+        return json.loads(mission_file.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+
+def summarize_mission_dir(path: Path) -> dict[str, Any]:
+    data = _load_mission_json(path)
     runs = list(data.get("runs") or [])
     latest_run = runs[-1] if runs else None
     report = path / "REPORT.md"
@@ -68,4 +74,40 @@ def get_mission_report(missions_dir: Path, name: str) -> dict[str, Any]:
     return {"ok": True, "mission": status["mission"], "content": report_path.read_text(encoding="utf-8", errors="replace"), "path": str(report_path)}
 
 
-__all__ = ["get_mission_report", "get_mission_status", "summarize_mission_dir"]
+
+def get_mission_history(missions_dir: Path, name: str) -> dict[str, Any]:
+    status = get_mission_status(missions_dir, name)
+    if not status.get("ok"):
+        return status
+    path = Path(status["mission"]["path"])
+    data = _load_mission_json(path)
+    logs_dir = path / "logs"
+    step_logs = []
+    if logs_dir.exists():
+        for log_path in sorted(logs_dir.glob("step-*.json")):
+            try:
+                entry = json.loads(log_path.read_text(encoding="utf-8"))
+            except Exception:
+                entry = {"cmd": "", "exit_code": None}
+            step_logs.append({"name": log_path.stem, "path": str(log_path), "cmd": entry.get("cmd", ""), "exit_code": entry.get("exit_code")})
+    return {"ok": True, "mission": status["mission"], "runs": list(data.get("runs") or []), "step_logs": step_logs}
+
+
+
+def infer_rerun_step(missions_dir: Path, name: str, *, failed_only: bool = False) -> dict[str, Any]:
+    history = get_mission_history(missions_dir, name)
+    if not history.get("ok"):
+        return history
+    if not failed_only:
+        return {"ok": True, "step": None, "mission": history["mission"]}
+    latest = history.get("mission", {}).get("latest_run") or {}
+    results = list(latest.get("results") or [])
+    if not results:
+        return {"ok": False, "error": "no previous run results to infer failed step", "status": 409, "mission": history["mission"]}
+    for idx, result in enumerate(results, start=1):
+        if int(result.get("exit_code", 0) or 0) != 0:
+            return {"ok": True, "step": idx, "mission": history["mission"]}
+    return {"ok": False, "error": "latest run has no failed step", "status": 409, "mission": history["mission"]}
+
+
+__all__ = ["get_mission_history", "get_mission_report", "get_mission_status", "infer_rerun_step", "summarize_mission_dir"]

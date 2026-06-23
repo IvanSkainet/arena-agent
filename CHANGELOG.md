@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.18.0 - 2026-06-22
+
+### Added
+- **Mission lifecycle/inspection v2** — added `GET /v1/mission/history` and `POST /v1/mission/rerun`, plus MCP `mission.history` and `mission.rerun`, so missions can be inspected and iterated instead of only composed and launched.
+
+### Improved
+- **Mission artifacts are now first-class runtime objects** — persisted missions expose structured status, report retrieval, run history, step-log summaries, and rerun flows.
+- **Deeper agent loops keep getting more practical** — agents can now compose a mission, run it, inspect outcomes, and rerun the failed step or the whole mission through bridge-native surfaces.
+- **The post-desktop roadmap block is maturing** — mission composition has moved beyond initial CRUD and proposal flows into real lifecycle management.
+
+### Tests
+- Added mission history/rerun regressions.
+- Total: **624 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 624 tests.
+- Local `pytest --collect-only`: PASS, 624 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+
 ## v3.17.0 - 2026-06-22
 
 ### Added

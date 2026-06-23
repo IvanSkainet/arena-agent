@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from arena.resources.mission_state import infer_rerun_step
 from arena.missions_cli.templates import TEMPLATES_DATA
 
 _TEMPLATE_HINTS = {
@@ -106,4 +107,18 @@ def run_mission(*, root_agent: Path, mission_id: str, step: int | None = None, t
     return {"ok": cp.returncode == 0, "mission_id": mission_id, "step": step, "exit_code": cp.returncode, "stdout": cp.stdout[-12000:], "stderr": cp.stderr[-8000:]}
 
 
-__all__ = ["compose_mission_draft", "create_mission_from_draft", "infer_mission_template", "list_mission_templates", "run_mission"]
+def rerun_mission(*, root_agent: Path, missions_dir: Path, mission_id: str, failed_only: bool = False, step: int | None = None, timeout: int = 180, subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    mission_id = str(mission_id or "").strip()
+    if not mission_id:
+        return {"ok": False, "error": "missing mission_id", "status": 400}
+    inferred = infer_rerun_step(missions_dir, mission_id, failed_only=failed_only)
+    if not inferred.get("ok") and step is None:
+        return inferred
+    effective_step = step if step is not None else inferred.get("step")
+    result = run_mission(root_agent=root_agent, mission_id=mission_id, step=effective_step, timeout=timeout, subprocess_kwargs=subprocess_kwargs)
+    result["rerun"] = True
+    result["failed_only"] = bool(failed_only)
+    return result
+
+
+__all__ = ["compose_mission_draft", "create_mission_from_draft", "infer_mission_template", "list_mission_templates", "rerun_mission", "run_mission"]

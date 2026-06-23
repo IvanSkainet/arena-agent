@@ -173,9 +173,10 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
         "_hooks_list_sync": rr.hooks_list_sync, "_agents_list_sync": rr.agents_list_sync,
         "_subagents_list_sync": rr.subagents_list_sync, "_subagents_spawn_sync": rr.subagents_spawn_sync,
         "_mission_show_sync": rr.mission_show_sync, "_mission_status_sync": rr.mission_status_sync,
-        "_mission_report_sync": rr.mission_report_sync, "_mission_templates_sync": rr.mission_templates_sync,
-        "_mission_compose_sync": rr.mission_compose_sync, "_mission_propose_sync": _mission_propose_sync,
-        "_mission_create_sync": rr.mission_create_sync, "_mission_run_sync": rr.mission_run_sync,
+        "_mission_report_sync": rr.mission_report_sync, "_mission_history_sync": rr.mission_history_sync,
+        "_mission_templates_sync": rr.mission_templates_sync, "_mission_compose_sync": rr.mission_compose_sync,
+        "_mission_propose_sync": _mission_propose_sync, "_mission_create_sync": rr.mission_create_sync,
+        "_mission_run_sync": rr.mission_run_sync, "_mission_rerun_sync": rr.mission_rerun_sync,
     })
     resource_handler_ctx = env.ResourceHandlerContext(
         require_auth=env.require_auth, record_request=env._record_request, cors_json_response=env._cors_json_response,
@@ -183,12 +184,13 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
         hooks_list_sync=registry["_hooks_list_sync"], agents_list_sync=registry["_agents_list_sync"],
         subagents_list_sync=registry["_subagents_list_sync"], mission_show_sync=registry["_mission_show_sync"],
         mission_status_sync=registry["_mission_status_sync"], mission_report_sync=registry["_mission_report_sync"],
-        mission_templates_sync=registry["_mission_templates_sync"], mission_compose_sync=registry["_mission_compose_sync"],
-        mission_propose_sync=registry["_mission_propose_sync"], mission_create_sync=registry["_mission_create_sync"],
-        mission_run_sync=registry["_mission_run_sync"], subagent_spawn_sync=registry["_subagents_spawn_sync"], audit=env.audit,
+        mission_history_sync=registry["_mission_history_sync"], mission_templates_sync=registry["_mission_templates_sync"],
+        mission_compose_sync=registry["_mission_compose_sync"], mission_propose_sync=registry["_mission_propose_sync"],
+        mission_create_sync=registry["_mission_create_sync"], mission_run_sync=registry["_mission_run_sync"],
+        mission_rerun_sync=registry["_mission_rerun_sync"], subagent_spawn_sync=registry["_subagents_spawn_sync"], audit=env.audit,
     )
     resource_handlers = env.make_resource_handlers(resource_handler_ctx)
-    env.export_handler_attrs(registry, resource_handlers, {"handle_v1_missions": "missions", "handle_v1_reports": "reports", "handle_v1_hooks": "hooks", "handle_v1_agents": "agents", "handle_v1_subagents": "subagents", "handle_v1_subagents_spawn": "subagents_spawn", "handle_v1_mission_show": "mission_show", "handle_v1_mission_status": "mission_status", "handle_v1_mission_report": "mission_report", "handle_v1_mission_templates": "mission_templates", "handle_v1_mission_compose": "mission_compose", "handle_v1_mission_propose": "mission_propose", "handle_v1_mission_create": "mission_create", "handle_v1_mission_run": "mission_run"})
+    env.export_handler_attrs(registry, resource_handlers, {"handle_v1_missions": "missions", "handle_v1_reports": "reports", "handle_v1_hooks": "hooks", "handle_v1_agents": "agents", "handle_v1_subagents": "subagents", "handle_v1_subagents_spawn": "subagents_spawn", "handle_v1_mission_show": "mission_show", "handle_v1_mission_status": "mission_status", "handle_v1_mission_report": "mission_report", "handle_v1_mission_history": "mission_history", "handle_v1_mission_templates": "mission_templates", "handle_v1_mission_compose": "mission_compose", "handle_v1_mission_propose": "mission_propose", "handle_v1_mission_create": "mission_create", "handle_v1_mission_run": "mission_run", "handle_v1_mission_rerun": "mission_rerun"})
     registry.update({"_resource_handler_ctx": resource_handler_ctx, "_resource_handlers": resource_handlers})
     return registry
 

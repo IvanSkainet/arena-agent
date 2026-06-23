@@ -53,10 +53,12 @@ def build_memory_resource_browser_runtimes(g: MutableMapping[str, Any]) -> dict[
         "_list_reports_sync": resource_runtime.list_reports_sync,
         "_mission_status_sync": resource_runtime.mission_status_sync,
         "_mission_report_sync": resource_runtime.mission_report_sync,
+        "_mission_history_sync": resource_runtime.mission_history_sync,
         "_mission_templates_sync": resource_runtime.mission_templates_sync,
         "_mission_compose_sync": resource_runtime.mission_compose_sync,
         "_mission_create_sync": resource_runtime.mission_create_sync,
         "_mission_run_sync": resource_runtime.mission_run_sync,
+        "_mission_rerun_sync": resource_runtime.mission_rerun_sync,
     })
 
     browser_runtime_ctx = env.BrowserRuntimeContext(

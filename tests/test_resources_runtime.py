@@ -33,10 +33,12 @@ def test_resource_runtime_factory_outputs(tmp_path):
     assert callable(runtime.mission_show_sync)
     assert callable(runtime.mission_status_sync)
     assert callable(runtime.mission_report_sync)
+    assert callable(runtime.mission_history_sync)
     assert callable(runtime.mission_templates_sync)
     assert callable(runtime.mission_compose_sync)
     assert callable(runtime.mission_create_sync)
     assert callable(runtime.mission_run_sync)
+    assert callable(runtime.mission_rerun_sync)
 
 
 def test_unified_resource_runtime_bindings():
@@ -49,6 +51,7 @@ def test_unified_resource_runtime_bindings():
     assert ub._mission_show_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_status_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_report_sync.__module__ == "arena.resources.runtime"
+    assert ub._mission_history_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_templates_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_compose_sync.__module__ == "arena.resources.runtime"
     assert ub._mission_create_sync.__module__ == "arena.resources.runtime"
@@ -72,6 +75,9 @@ def test_resource_runtime_lists_and_shows(tmp_path):
     status = runtime.mission_status_sync("demo-run")
     assert status["ok"] is True
     assert status["mission"]["name"] == "demo-run"
+    history = runtime.mission_history_sync("demo-run")
+    assert history["ok"] is True
+    assert history["mission"]["name"] == "demo-run"
     assert runtime.mission_report_sync("demo-run")["ok"] is False
     assert runtime.list_reports_sync()[0]["name"] == "report.txt"
     assert runtime.hooks_list_sync() == {"ok": True, "count": 0, "hooks": []}
