@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.26.0
+### 🆕 What's new in v3.27.0
 
-- **Chat extension side panel landed** — the extension scaffold now has a richer panel for bridge status and execution history, not only a popup.
-- **ChatGPT adapter path is stronger** — the adapter scaffold now includes composer-aware insertion helpers, with a better ChatGPT/ChatGPT.com path plus generic fallback insertion.
-- **Detection/debug UX is better** — detections, previews, and executions are now recorded as structured history entries, and detected blocks can open the side panel directly.
-- **The browser-chat layer keeps getting more real** — Arena now has backend execution surfaces, popup configuration, side-panel UX, and the first stronger adapter-aware insertion path.
+- **Extension history replay landed** — the side panel can now replay saved preview/execute payloads from structured history for debugging and repeated execution.
+- **Insert & Submit flow landed** — detected `arena-tool` blocks can now insert results and try to submit them through adapter-aware composer/button helpers.
+- **The extension is becoming usable as a daily bridge UI** — popup config, side panel, structured history, replay actions, and stronger ChatGPT-oriented insertion are now all present together.
+- **This keeps moving Arena beyond tool-aware chats only** — the browser-chat path is becoming a practical local execution layer for ordinary web chats.
 - **633 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

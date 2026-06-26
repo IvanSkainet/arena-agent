@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.27.0 - 2026-06-26
+
+### Added
+- **Extension history replay controls** — the browser chat extension side panel can now replay saved preview/execute items from structured history.
+- **Insert & Submit workflow** — the content script now exposes an `Insert & Submit` action that uses adapter-aware composer and submit-button discovery before falling back to generic insertion behavior.
+
+### Improved
+- **Side panel is now more than passive status text** — it can refresh state, clear history, and replay stored tool payloads for debugging and repeated execution.
+- **ChatGPT-focused adapter behavior is more practical** — the adapter layer now includes submit-button selectors and stronger composer-aware helpers for ChatGPT/ChatGPT.com.
+- **Browser-chat execution remains bridge-native** — these replay/debug improvements still build on the local Arena bridge rather than introducing a separate executor layer.
+
+### Tests
+- Expanded chat extension scaffold regressions for replay controls, side-panel actions, and insert-and-submit adapter helpers.
+- Total: **633 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 633 tests.
+- Local `pytest --collect-only`: PASS, 633 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check chat_extension/background.js`: PASS.
+- Local `node --check chat_extension/adapters.js`: PASS.
+- Local `node --check chat_extension/content.js`: PASS.
+- Local `node --check chat_extension/popup.js`: PASS.
+- Local `node --check chat_extension/sidepanel.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 232.
+
 ## v3.26.0 - 2026-06-26
 
 ### Added

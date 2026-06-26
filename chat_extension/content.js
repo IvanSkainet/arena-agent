@@ -67,22 +67,23 @@ function mountControls(host, payload, adapterName) {
   const key = hash(host.textContent + JSON.stringify(payload));
   if (processed.has(key)) return;
   processed.add(key);
-  chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapterName, fingerprint: key}});
+  chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapterName, fingerprint: key, payload: buildRequest(payload, adapterName)}});
   let lastExecutionText = '';
   const bar = document.createElement('div');
   bar.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:6px 0;';
   const status = document.createElement('span');
   status.style.cssText = 'font-size:12px;color:#888;';
   status.textContent = `Arena tool block detected (${adapterName})`;
+  const request = buildRequest(payload, adapterName);
   bar.appendChild(status);
   bar.appendChild(makeButton('Preview', async () => {
     status.textContent = 'Previewing...';
-    const result = await chrome.runtime.sendMessage({type: 'arena.preview', body: buildRequest(payload, adapterName)});
+    const result = await chrome.runtime.sendMessage({type: 'arena.preview', body: request});
     status.textContent = result?.ok ? `Preview: ${result.calls?.length || 0} call(s), approval=${!!result.policy?.requires_approval}` : `Preview error: ${result?.error || 'unknown'}`;
   }));
   bar.appendChild(makeButton('Run', async () => {
     status.textContent = 'Running...';
-    const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...buildRequest(payload, adapterName), mode: {approve: true}}});
+    const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {approve: true}}});
     if (result?.ok) {
       lastExecutionText = resultToText(result);
       status.textContent = `Executed ${result.calls?.length || 0} call(s)`;
@@ -98,6 +99,15 @@ function mountControls(host, payload, adapterName) {
     const adapter = typeof getArenaAdapter === 'function' ? getArenaAdapter() : {name: adapterName};
     const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(`\n${lastExecutionText}\n`, adapter)) || genericInsertIntoActiveField(`\n${lastExecutionText}\n`);
     status.textContent = ok ? 'Inserted into input.' : 'Could not insert; copy instead.';
+  }));
+  bar.appendChild(makeButton('Insert & Submit', async () => {
+    if (!lastExecutionText) {
+      status.textContent = 'No result yet. Run first.';
+      return;
+    }
+    const adapter = typeof getArenaAdapter === 'function' ? getArenaAdapter() : {name: adapterName};
+    const state = (typeof arenaInsertAndSubmit === 'function' && arenaInsertAndSubmit(`\n${lastExecutionText}\n`, adapter)) || {ok: false, inserted: false, submitted: false};
+    status.textContent = state.ok ? (state.submitted ? 'Inserted and submitted.' : 'Inserted, but submit button not found.') : 'Insert & submit failed.';
   }));
   bar.appendChild(makeButton('Copy Result', async () => {
     if (!lastExecutionText) {

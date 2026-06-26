@@ -8,18 +8,21 @@ const ARENA_ADAPTERS = [
       'main article',
     ],
     composerSelectors: ['#prompt-textarea', 'textarea[placeholder*="Message"]', 'div#prompt-textarea[contenteditable="true"]'],
+    submitSelectors: ['button[data-testid="send-button"]', 'button[aria-label*="Send"]', 'button svg[viewBox][aria-hidden="true"]'],
   },
   {
     name: 'claude',
     hosts: ['claude.ai'],
     messageSelectors: ['article', '[data-test-render-count]', 'main article'],
     composerSelectors: ['div[contenteditable="true"]', 'textarea'],
+    submitSelectors: ['button[aria-label*="Send"]', 'button[type="submit"]'],
   },
   {
     name: 'generic',
     hosts: [],
     messageSelectors: ['article', 'main', 'section', 'pre', 'code'],
     composerSelectors: ['textarea', 'input[type="text"]', '[contenteditable="true"]'],
+    submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]'],
   },
 ];
 
@@ -55,6 +58,17 @@ function arenaFindComposer(adapter = getArenaAdapter()) {
   return null;
 }
 
+function arenaFindSubmitButton(adapter = getArenaAdapter()) {
+  for (const selector of adapter.submitSelectors || []) {
+    const node = document.querySelector(selector);
+    if (!node) continue;
+    if (node.tagName === 'BUTTON') return node;
+    const button = node.closest('button');
+    if (button) return button;
+  }
+  return null;
+}
+
 function arenaInsertResult(text, adapter = getArenaAdapter()) {
   const target = arenaFindComposer(adapter);
   if (!target) return false;
@@ -75,4 +89,13 @@ function arenaInsertResult(text, adapter = getArenaAdapter()) {
     return true;
   }
   return false;
+}
+
+function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
+  const inserted = arenaInsertResult(text, adapter);
+  if (!inserted) return {ok: false, inserted: false, submitted: false};
+  const submit = arenaFindSubmitButton(adapter);
+  if (!submit) return {ok: true, inserted: true, submitted: false};
+  submit.click();
+  return {ok: true, inserted: true, submitted: true};
 }

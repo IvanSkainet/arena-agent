@@ -58,10 +58,18 @@ async function openPanel() {
   status.textContent = result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`;
 }
 
+async function clearHistory() {
+  const status = document.getElementById('statusBox');
+  const result = await send('arena.clearHistory');
+  status.textContent = result.ok ? 'History cleared.' : `Error: ${result.error || 'unknown'}`;
+  await loadHistory();
+}
+
 document.getElementById('saveBtn').addEventListener('click', saveConfig);
 document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policyBtn').addEventListener('click', loadPolicies);
 document.getElementById('panelBtn').addEventListener('click', openPanel);
+document.getElementById('clearBtn').addEventListener('click', clearHistory);
 
 loadConfig().then(loadHistory).catch((error) => {
   document.getElementById('statusBox').textContent = String(error);

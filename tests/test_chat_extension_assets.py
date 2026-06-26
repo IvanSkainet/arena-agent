@@ -27,13 +27,18 @@ def test_chat_extension_scaffold_exists():
     assert "arena.execute" in background
     assert "arena.testConnection" in background
     assert "arena.openSidePanel" in background
+    assert "arena.replayHistory" in background
+    assert "arena.clearHistory" in background
     assert "```arena-tool" in content
     assert "Insert Result" in content
+    assert "Insert & Submit" in content
     assert "Panel" in content
     assert "saveBtn" in popup_html
     assert "panelBtn" in popup_html
+    assert "clearBtn" in popup_html
     assert "arena.getConfig" in popup
     assert "refreshBtn" in sidepanel_html
-    assert "loadHistory" in sidepanel
-    assert "arenaInsertResult" in adapters
+    assert "clearBtn" in sidepanel_html
+    assert "runHistoryAction" in sidepanel
+    assert "arenaInsertAndSubmit" in adapters
     assert "/v1/extension/execute" in readme

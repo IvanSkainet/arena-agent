@@ -3,7 +3,7 @@ const DEFAULTS = {
   bridgeToken: '',
 };
 const HISTORY_KEY = 'arenaHistory';
-const HISTORY_LIMIT = 50;
+const HISTORY_LIMIT = 80;
 
 async function getConfig() {
   const data = await chrome.storage.sync.get(DEFAULTS);
@@ -22,6 +22,11 @@ async function setConfig(data) {
 async function getHistory() {
   const data = await chrome.storage.local.get({[HISTORY_KEY]: []});
   return {ok: true, items: data[HISTORY_KEY] || []};
+}
+
+async function clearHistory() {
+  await chrome.storage.local.set({[HISTORY_KEY]: []});
+  return {ok: true};
 }
 
 async function pushHistory(kind, detail) {
@@ -62,6 +67,17 @@ async function openSidePanel() {
   return {ok: true, tabId: tab.id};
 }
 
+async function replayHistory(index, mode = 'execute') {
+  const current = await getHistory();
+  const item = (current.items || [])[index];
+  if (!item) return {ok: false, error: 'history item not found'};
+  if (!item.payload) return {ok: false, error: 'history item has no payload'};
+  if (mode === 'preview') {
+    return bridgeFetch('/v1/extension/preview', {method: 'POST', body: item.payload});
+  }
+  return bridgeFetch('/v1/extension/execute', {method: 'POST', body: {...item.payload, mode: {...(item.payload.mode || {}), approve: true}}});
+}
+
 chrome.runtime.onInstalled.addListener(async () => {
   const cfg = await chrome.storage.sync.get(DEFAULTS);
   await chrome.storage.sync.set({...DEFAULTS, ...cfg});
@@ -74,20 +90,32 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'arena.getConfig') return sendResponse(await getConfig());
     if (message?.type === 'arena.saveConfig') return sendResponse(await setConfig(message.body || {}));
     if (message?.type === 'arena.getHistory') return sendResponse(await getHistory());
+    if (message?.type === 'arena.clearHistory') return sendResponse(await clearHistory());
     if (message?.type === 'arena.testConnection') return sendResponse(await testConnection());
     if (message?.type === 'arena.openSidePanel') return sendResponse(await openSidePanel());
+    if (message?.type === 'arena.replayHistory') return sendResponse(await replayHistory(message.body?.index, message.body?.mode));
     if (message?.type === 'arena.detected') {
       await pushHistory('detected', message.body || {detail: 'arena-tool block'});
       return sendResponse({ok: true});
     }
     if (message?.type === 'arena.preview') {
       const result = await bridgeFetch('/v1/extension/preview', {method: 'POST', body: message.body});
-      await pushHistory('preview', {detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`, site: message.body?.site?.origin || '', ok: !!result.ok});
+      await pushHistory('preview', {
+        detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`,
+        site: message.body?.site?.origin || '',
+        ok: !!result.ok,
+        payload: message.body,
+      });
       return sendResponse(result);
     }
     if (message?.type === 'arena.execute') {
       const result = await bridgeFetch('/v1/extension/execute', {method: 'POST', body: message.body});
-      await pushHistory('execute', {detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`, site: message.body?.site?.origin || '', ok: !!result.ok});
+      await pushHistory('execute', {
+        detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`,
+        site: message.body?.site?.origin || '',
+        ok: !!result.ok,
+        payload: message.body,
+      });
       return sendResponse(result);
     }
     if (message?.type === 'arena.policies') return sendResponse(await bridgeFetch('/v1/extension/policies'));
