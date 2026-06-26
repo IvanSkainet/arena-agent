@@ -29,14 +29,20 @@ function resultErrorText(result) {
 }
 function controlsHost(node) {
   if (!node) return document.body;
-  if (node.tagName === 'CODE') return node.closest('pre') || node;
-  return node;
+  return node.tagName === 'CODE' ? (node.closest('pre') || node) : node;
 }
 function attachControls(host, bar) {
   const tag = String(host?.tagName || '').toUpperCase();
   bar.style.width = `${Math.max(280, Math.min(host.getBoundingClientRect?.().width || 680, 900))}px`;
   if ((tag === 'PRE' || tag === 'CODE') && host.parentNode) host.insertAdjacentElement('afterend', bar);
   else host.appendChild(bar);
+}
+function cleanupStaleControls() {
+  document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((node) => node.remove());
+  document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => {
+    node.dataset.arenaToolControlsMounted = '';
+  });
+  mountedControls.clear();
 }
 function removeOldControls(keepFingerprint) {
   mountedControls.forEach((item, key) => {
@@ -59,6 +65,12 @@ function latestVisibleFingerprint() {
 function pruneToLatestVisible() {
   const key = latestVisibleFingerprint();
   if (key) removeOldControls(key);
+}
+function enforceControlsMode() {
+  chrome.runtime.sendMessage({type: 'arena.getConfig'}, (cfg) => {
+    const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
+    if (modes.controlsLatestOnly) pruneToLatestVisible();
+  });
 }
 function buildRequest(payload, adapterName, fingerprint) {
   return {
@@ -120,7 +132,7 @@ function mountControls(host, payload, adapter) {
     const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(`\n${lastExecutionText}\n`, adapter) : {ok: false, inserted: false, submitted: false};
     status.textContent = state.ok ? (state.submitted ? 'Inserted and submitted.' : 'Inserted, but submit button not found.') : 'Insert & submit failed.';
   }));
-  bar.appendChild(makeButton('Copy Result', async () => {
+  bar.appendChild(makeButton('Copy', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
     try {
       await navigator.clipboard.writeText(lastExecutionText);
@@ -131,12 +143,10 @@ function mountControls(host, payload, adapter) {
     const result = await chrome.runtime.sendMessage({type: 'arena.openSidePanel'});
     status.textContent = result?.ok ? 'Opened side panel.' : `Panel error: ${result?.error || 'unknown'}`;
   }));
+  bar.appendChild(makeButton('×', () => { bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); }));
   attachControls(host, bar);
   mountedControls.set(fingerprint, {host, bar});
-  chrome.runtime.sendMessage({type: 'arena.getConfig'}, (cfg) => {
-    const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
-    if (modes.controlsLatestOnly) setTimeout(pruneToLatestVisible, 0);
-  });
+  setTimeout(enforceControlsMode, 0);
   runAutoModes(request, adapter, status, (text) => { lastExecutionText = text; });
 }
 async function runAutoModes(request, adapter, status, setResultText) {
@@ -172,6 +182,7 @@ function scan() {
     const blocks = parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || '')));
     blocks.forEach((entry) => mountControls(host, entry.payload, state.adapter));
   });
+  enforceControlsMode();
 }
 function scheduleScan() {
   if (scanTimer) return;
@@ -180,6 +191,10 @@ function scheduleScan() {
     scan();
   }, 250);
 }
+chrome.runtime.onMessage.addListener((message) => {
+  if (message?.type === 'arena.controlsModeChanged') setTimeout(enforceControlsMode, 0);
+});
+cleanupStaleControls();
 const obs = new MutationObserver(() => scheduleScan());
 obs.observe(document.documentElement, {childList: true, subtree: true, characterData: true});
 scan();

@@ -72,6 +72,13 @@ async function loadHistory() {
   return true;
 }
 
+async function notifyActiveTabControlsMode() {
+  try {
+    const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, {type: 'arena.controlsModeChanged'}, () => void chrome.runtime.lastError);
+  } catch {}
+}
+
 async function saveConfig() {
   statusText('Saving...');
   const payload = {
@@ -92,6 +99,7 @@ async function saveConfig() {
   document.getElementById('bridgeUrl').value = verify.bridgeUrl || '';
   document.getElementById('bridgeToken').value = verify.bridgeToken || '';
   statusText(`Saved. Modes: ${arenaModeSummary(verify.modes)}`);
+  await notifyActiveTabControlsMode();
 }
 
 async function testConnection() {

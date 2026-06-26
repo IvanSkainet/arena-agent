@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.41.0 - 2026-06-26
+
+### Fixed
+- **Latest-only stale controls** — content script now cleans orphaned toolbars from previous loads and enforces latest-only mode on every scan.
+- **Live mode switching** — saving popup settings notifies the active tab so controls mode changes apply immediately without requiring a page refresh.
+
+### Improved
+- **Toolbar polish** — result copy is shortened to `Copy`, and each toolbar has a compact close action for manual cleanup.
+
+### Tests
+- Expanded extension regressions for stale toolbar cleanup and live controls-mode notifications.
+
 ## v3.40.0 - 2026-06-26
 
 ### Improved

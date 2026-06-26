@@ -46,10 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.40.0
+### 🆕 What's new in v3.41.0
 
-- **Better latest-only controls** — the extension keeps the visually lowest visible toolbar rather than the last block mounted by AI Studio.
-- **Cleaner toolbar UI** — compact pill buttons, primary Run action, shorter status, and user-facing `Send` label.
+- **Latest-only cleanup** — stale/orphan toolbars are removed and latest-only mode is enforced on every scan.
+- **Live settings apply** — saving popup settings notifies the active AI Studio tab immediately, without requiring a refresh.
+- **Toolbar polish** — shorter `Copy` label plus a compact close action.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
