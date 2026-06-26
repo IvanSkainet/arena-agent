@@ -37,48 +37,38 @@ function attachControls(host, bar) {
   if ((tag === 'PRE' || tag === 'CODE') && host.parentNode) host.insertAdjacentElement('afterend', bar);
   else host.appendChild(bar);
 }
-function cleanupStaleControls() {
-  document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((node) => node.remove());
-  document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => {
-    node.dataset.arenaToolControlsMounted = '';
+function cleanupStaleControls(keepHost = null) {
+  document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((bar) => {
+    if (keepHost && (bar.previousElementSibling === keepHost || keepHost.contains(bar))) return;
+    bar.remove();
   });
-  mountedControls.clear();
+  document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { if (node !== keepHost) node.dataset.arenaToolControlsMounted = ''; });
+  mountedControls.forEach((item, key) => { if (item.host !== keepHost) mountedControls.delete(key); });
 }
-function removeOldControls(keepFingerprint) {
-  mountedControls.forEach((item, key) => {
-    if (key === keepFingerprint) return;
-    item.bar?.remove();
-    if (item.host?.dataset) item.host.dataset.arenaToolControlsMounted = '';
-    mountedControls.delete(key);
-  });
-}
-function latestVisibleFingerprint() {
+function latestVisibleCandidate(candidates) {
   let best = null;
-  mountedControls.forEach((item, key) => {
-    const rect = item.host?.getBoundingClientRect?.() || item.bar?.getBoundingClientRect?.();
-    if (!rect || rect.bottom < 0 || rect.top > window.innerHeight) return;
-    const score = rect.top + rect.bottom;
-    if (!best || score > best.score) best = {key, score};
+  candidates.forEach((item) => {
+    const rect = item.host?.getBoundingClientRect?.();
+    const visible = rect && rect.bottom >= 0 && rect.top <= window.innerHeight;
+    const score = rect ? (visible ? 100000 : 0) + rect.top + rect.bottom : 0;
+    if (!best || score > best.score) best = {...item, score};
   });
-  return best?.key || '';
+  return best;
 }
-function pruneToLatestVisible() {
-  const key = latestVisibleFingerprint();
-  if (key) removeOldControls(key);
+function hostHasToolbar(host) {
+  return !!(host?.dataset?.arenaToolControlsMounted === '1' && (host.nextElementSibling?.dataset?.arenaToolControls === '1' || host.querySelector?.('[data-arena-tool-controls="1"]')));
 }
 function enforceControlsMode() {
   chrome.runtime.sendMessage({type: 'arena.getConfig'}, (cfg) => {
     const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
-    if (modes.controlsLatestOnly) pruneToLatestVisible();
+    if (!modes.controlsLatestOnly) return;
+    const hosts = [...document.querySelectorAll('[data-arena-tool-controls-mounted="1"]')];
+    const latest = latestVisibleCandidate(hosts.map((host) => ({host})))?.host || null;
+    cleanupStaleControls(latest);
   });
 }
 function buildRequest(payload, adapterName, fingerprint) {
-  return {
-    site: {origin: location.origin, url: location.href, adapter: adapterName},
-    message: {fingerprint},
-    payload,
-    mode: {},
-  };
+  return {site: {origin: location.origin, url: location.href, adapter: adapterName}, message: {fingerprint}, payload, mode: {}};
 }
 function genericInsertIntoActiveField(text) {
   const active = document.activeElement;
@@ -89,10 +79,7 @@ function genericInsertIntoActiveField(text) {
     active.dispatchEvent(new Event('input', {bubbles: true}));
     return true;
   }
-  if (active && active.isContentEditable) {
-    document.execCommand('insertText', false, text);
-    return true;
-  }
+  if (active && active.isContentEditable) { document.execCommand('insertText', false, text); return true; }
   return false;
 }
 function mountControls(host, payload, adapter) {
@@ -174,25 +161,29 @@ async function runAutoModes(request, adapter, status, setResultText) {
   status.textContent = state.ok ? (state.submitted ? 'Auto inserted and submitted.' : 'Auto inserted result.') : 'Auto insert failed.';
 }
 function scan() {
-  const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
-  state.nodes.forEach((node) => {
-    const host = controlsHost(node);
-    if (host.dataset?.arenaToolControlsMounted === '1') return;
-    if (host.querySelector?.('[data-arena-tool-controls="1"]')) return;
-    const blocks = parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || '')));
-    blocks.forEach((entry) => mountControls(host, entry.payload, state.adapter));
+  chrome.runtime.sendMessage({type: 'arena.getConfig'}, (cfg) => {
+    const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
+    const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
+    const candidates = [];
+    state.nodes.forEach((node) => {
+      const host = controlsHost(node);
+      parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || ''))).forEach((entry) => candidates.push({host, entry}));
+    });
+    const selected = modes.controlsLatestOnly ? [latestVisibleCandidate(candidates)].filter(Boolean) : candidates;
+    if (modes.controlsLatestOnly && selected[0]) cleanupStaleControls(selected[0].host);
+    selected.forEach(({host, entry}) => {
+      if (hostHasToolbar(host)) return;
+      mountControls(host, entry.payload, state.adapter);
+    });
+    if (modes.controlsLatestOnly) enforceControlsMode();
   });
-  enforceControlsMode();
 }
 function scheduleScan() {
   if (scanTimer) return;
-  scanTimer = setTimeout(() => {
-    scanTimer = null;
-    scan();
-  }, 250);
+  scanTimer = setTimeout(() => { scanTimer = null; scan(); }, 250);
 }
 chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === 'arena.controlsModeChanged') setTimeout(enforceControlsMode, 0);
+  if (message?.type === 'arena.controlsModeChanged') setTimeout(scan, 0);
 });
 cleanupStaleControls();
 const obs = new MutationObserver(() => scheduleScan());

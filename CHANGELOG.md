@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.42.0 - 2026-06-26
+
+### Fixed
+- **Latest-only reload behavior** — when latest-only mode is already enabled at page load, the content script now selects the visually latest candidate before mounting controls instead of mounting all controls and pruning afterward.
+- **Initial scan cleanup** — stale toolbars are cleared around the selected host during latest-only scans, reducing duplicate controls after AI Studio reloads or virtualized history remounts.
+
+### Tests
+- Expanded extension asset regressions for pre-mount latest-only candidate selection.
+
 ## v3.41.0 - 2026-06-26
 
 ### Fixed
