@@ -148,14 +148,16 @@ function arenaInsertResult(text, adapter = getArenaAdapter()) {
   return false;
 }
 
-function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
+async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
   const inserted = arenaInsertResult(text, adapter);
   if (!inserted) return {ok: false, inserted: false, submitted: false};
-  const submit = arenaFindSubmitButton(adapter);
-  if (!submit) return {ok: true, inserted: true, submitted: false};
-  if (submit.disabled || submit.getAttribute('aria-disabled') === 'true') {
-    return {ok: true, inserted: true, submitted: false};
+  for (let i = 0; i < 10; i++) {
+    await new Promise((resolve) => setTimeout(resolve, i ? 120 : 250));
+    const submit = arenaFindSubmitButton(adapter);
+    if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
+      submit.click();
+      return {ok: true, inserted: true, submitted: true};
+    }
   }
-  submit.click();
-  return {ok: true, inserted: true, submitted: true};
+  return {ok: true, inserted: true, submitted: false};
 }

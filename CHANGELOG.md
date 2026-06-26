@@ -1,5 +1,20 @@
 # Changelog
 
+## v3.39.0 - 2026-06-26
+
+### Fixed
+- **Controls placement runtime bug** — content script now actually uses the `attachControls()` placement helper, so AI Studio controls are inserted after rendered code blocks instead of appended into arbitrary containers.
+- **Insert & Submit timing** — submit now waits briefly and retries while AI Studio enables the send button after insertion.
+
+### Added
+- **Controls visibility mode** — popup settings now include `Show controls only for latest visible block`, allowing users to keep only the newest visible toolbar or keep controls on all visible blocks.
+
+### Improved
+- **Inline toolbar styling** — controls now size to the detected code block width and use a cleaner compact dark toolbar style.
+
+### Tests
+- Expanded extension regressions for latest-only controls mode, async insert-and-submit, and real `attachControls()` usage.
+
 ## v3.38.0 - 2026-06-26
 
 ### Fixed

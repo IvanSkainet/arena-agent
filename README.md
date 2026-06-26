@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.38.0
+### 🆕 What's new in v3.39.0
 
-- **AI Studio layout regression fix** — rendered JSONL controls now attach to concrete `pre` / `code` blocks after pruning ancestor containers.
-- **Repeated blocks are handled separately** — identical JSONL blocks in different responses no longer collapse into one processed fingerprint.
-- **Clear Bridge URL errors** — `127.0.0.1:8765` is normalized to `http://127.0.0.1:8765`, and fetch failures show real errors instead of `unknown`.
+- **AI Studio controls placement** — content script now actually uses the after-code-block placement helper instead of appending controls into arbitrary containers.
+- **Latest-only controls mode** — popup includes a switch to show controls only for the latest visible tool block or keep all visible controls.
+- **More reliable Insert & Submit** — submit waits/retries while the chat composer enables its send button after insertion.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

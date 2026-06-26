@@ -26,6 +26,7 @@ function currentModes() {
     autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
     autoInsertResult: document.getElementById('autoInsertResult').checked,
     autoSubmitResult: document.getElementById('autoSubmitResult').checked,
+    controlsLatestOnly: document.getElementById('controlsLatestOnly').checked,
   };
 }
 
@@ -53,7 +54,7 @@ async function loadConfig() {
   document.getElementById('bridgeUrl').value = cfg.bridgeUrl || '';
   document.getElementById('bridgeToken').value = cfg.bridgeToken || '';
   const modes = cfg.modes || {};
-  ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult'].forEach((id) => {
+  ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult', 'controlsLatestOnly'].forEach((id) => {
     document.getElementById(id).checked = !!modes[id];
   });
   statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
