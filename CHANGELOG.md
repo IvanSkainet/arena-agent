@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.35.0 - 2026-06-26
+
+### Fixed
+- **Rendered/raw JSONL code blocks** — the browser chat extension now detects MCP SuperAssistant-style `function_call_start` / `function_call_end` JSONL even when AI Studio renders it as a pretty code block without literal triple backticks in the DOM.
+
+### Improved
+- **AI Studio selectors** — Gemini / Google AI Studio scanning now includes rendered `pre`, `code`, and code-like nodes so copied JSONL instructions can produce inline Arena controls on real chat pages.
+- **Parser fallback** — JSONL parsing now accepts raw inline JSONL text after fenced `arena-tool`, `json`, and `jsonl` formats are checked.
+
+### Tests
+- Expanded extension asset and adapter-flow regressions for raw JSONL detection and AI Studio rendered-code selectors.
+
 ## v3.34.0 - 2026-06-26
 
 ### Fixed

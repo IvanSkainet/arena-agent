@@ -16,7 +16,7 @@ const ARENA_SITE_ADAPTERS = [
   {
     name: 'gemini',
     hosts: ['gemini.google.com', 'aistudio.google.com'],
-    messageSelectors: ['message-content', 'model-response', 'main article', 'main'],
+    messageSelectors: ['message-content', 'model-response', 'pre', 'code', '[class*=\"code\"]', 'main article', 'main'],
     composerSelectors: ['rich-textarea div[contenteditable="true"]', 'textarea', '[contenteditable="true"]'],
     submitSelectors: ['button[aria-label*="Send"]', 'button[aria-label*="Run"]', 'button[type="submit"]'],
   },

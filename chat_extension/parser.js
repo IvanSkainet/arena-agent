@@ -58,13 +58,18 @@ function arenaPayloadFromJson(text) {
 
 function parseArenaBlocks(text) {
   const out = [];
+  const source = String(text || '');
   ARENA_BLOCK_PATTERNS.forEach(({kind, re}) => {
     re.lastIndex = 0;
-    for (const match of String(text || '').matchAll(re)) {
+    for (const match of source.matchAll(re)) {
       const body = match[1];
       const payload = kind === 'arena-tool' || kind === 'json' ? arenaPayloadFromJson(body) : arenaPayloadFromJsonl(body);
       if (payload) out.push({raw: match[0], payload, kind});
     }
   });
+  if (!out.length && source.includes('function_call_start') && source.includes('function_call_end')) {
+    const payload = arenaPayloadFromJsonl(source) || arenaPayloadFromJson(source);
+    if (payload) out.push({raw: source, payload, kind: 'jsonl-inline'});
+  }
   return out;
 }

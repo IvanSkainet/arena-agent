@@ -46,11 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.34.0
+### 🆕 What's new in v3.35.0
 
-- **JSONL detection fix** — the browser extension now treats MCP SuperAssistant-style fenced `jsonl` / `json` function-call blocks as executable candidates instead of filtering them out before parsing.
-- **AI Studio JSONL flow is unblocked** — copied JSONL instructions should now lead to visible inline extension controls when the model emits `function_call_start` / `function_call_end` blocks.
+- **Rendered AI Studio JSONL detection** — the browser extension now catches MCP SuperAssistant-style `function_call_start` / `function_call_end` blocks even when Google AI Studio displays them as pretty `Jsonl` code blocks without literal triple backticks.
+- **Stronger Gemini / AI Studio scanning** — rendered `pre`, `code`, and code-like nodes are scanned so inline Arena controls can appear next to real model output.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
+
 
 ---
 

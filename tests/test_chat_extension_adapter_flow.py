@@ -26,6 +26,11 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'chat.deepseek.com' in adapter_sites
     assert 'chat.qwen.ai' in adapter_sites
     assert 'arenaPayloadFromJsonl' in parser
+    assert "kind: 'jsonl-inline'" in parser
+    assert "text.includes('function_call_start')" in adapters
+    assert "'pre'" in adapter_sites
+    assert "'code'" in adapter_sites
+    assert "[class*=\\\"code\\\"]" in adapter_sites
     assert 'arenaInsertAndSubmit' in adapters
     assert 'scheduleScan' in content
     assert 'data-arena-tool-controls' in content
@@ -37,6 +42,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.9.2`.' in readme
+    assert 'Current scaffold extension version: `0.9.3`.' in readme
     assert 'Insert & Submit' in readme
     assert 'side panel UI' in readme

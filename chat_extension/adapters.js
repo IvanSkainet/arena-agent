@@ -17,7 +17,8 @@ function arenaHasToolBlock(node) {
   const text = arenaNodeText(node);
   return /```arena-tool\s*[\s\S]*?```/m.test(text)
     || /```jsonl\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
-    || /```json\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text);
+    || /```json\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
+    || (text.includes('function_call_start') && text.includes('function_call_end'));
 }
 
 function arenaHasArenaToolBlock(node) {
