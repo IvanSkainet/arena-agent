@@ -1,5 +1,6 @@
 const BLOCK_RE = /```arena-tool\s*([\s\S]*?)```/g;
 const processed = new Set();
+let scanTimer = null;
 
 function hash(text) {
   let h = 0;
@@ -38,10 +39,10 @@ function makeButton(label, onClick) {
   return btn;
 }
 
-function buildRequest(payload, adapterName) {
+function buildRequest(payload, adapterName, fingerprint) {
   return {
     site: {origin: location.origin, url: location.href, adapter: adapterName},
-    message: {fingerprint: hash(location.href + JSON.stringify(payload))},
+    message: {fingerprint},
     payload,
     mode: {},
   };
@@ -63,18 +64,19 @@ function genericInsertIntoActiveField(text) {
   return false;
 }
 
-function mountControls(host, payload, adapterName) {
-  const key = hash(host.textContent + JSON.stringify(payload));
-  if (processed.has(key)) return;
-  processed.add(key);
-  chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapterName, fingerprint: key, payload: buildRequest(payload, adapterName)}});
+function mountControls(host, payload, adapter) {
+  const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
+  if (processed.has(fingerprint)) return;
+  processed.add(fingerprint);
+  const request = buildRequest(payload, adapter.name, fingerprint);
+  chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapter.name, fingerprint, payload: request}});
   let lastExecutionText = '';
   const bar = document.createElement('div');
+  bar.dataset.arenaToolControls = '1';
   bar.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:6px 0;';
   const status = document.createElement('span');
   status.style.cssText = 'font-size:12px;color:#888;';
-  status.textContent = `Arena tool block detected (${adapterName})`;
-  const request = buildRequest(payload, adapterName);
+  status.textContent = `Arena tool block detected (${adapter.name})`;
   bar.appendChild(status);
   bar.appendChild(makeButton('Preview', async () => {
     status.textContent = 'Previewing...';
@@ -96,7 +98,6 @@ function mountControls(host, payload, adapterName) {
       status.textContent = 'No result yet. Run first.';
       return;
     }
-    const adapter = typeof getArenaAdapter === 'function' ? getArenaAdapter() : {name: adapterName};
     const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(`\n${lastExecutionText}\n`, adapter)) || genericInsertIntoActiveField(`\n${lastExecutionText}\n`);
     status.textContent = ok ? 'Inserted into input.' : 'Could not insert; copy instead.';
   }));
@@ -105,7 +106,6 @@ function mountControls(host, payload, adapterName) {
       status.textContent = 'No result yet. Run first.';
       return;
     }
-    const adapter = typeof getArenaAdapter === 'function' ? getArenaAdapter() : {name: adapterName};
     const state = (typeof arenaInsertAndSubmit === 'function' && arenaInsertAndSubmit(`\n${lastExecutionText}\n`, adapter)) || {ok: false, inserted: false, submitted: false};
     status.textContent = state.ok ? (state.submitted ? 'Inserted and submitted.' : 'Inserted, but submit button not found.') : 'Insert & submit failed.';
   }));
@@ -131,11 +131,20 @@ function mountControls(host, payload, adapterName) {
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
   state.nodes.forEach((node) => {
-    const blocks = parseArenaBlocks(node.textContent || '');
-    blocks.forEach((entry) => mountControls(node, entry.payload, state.adapter.name));
+    if (node.querySelector?.('[data-arena-tool-controls="1"]')) return;
+    const blocks = parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || '')));
+    blocks.forEach((entry) => mountControls(node, entry.payload, state.adapter));
   });
 }
 
-const obs = new MutationObserver(() => scan());
+function scheduleScan() {
+  if (scanTimer) return;
+  scanTimer = setTimeout(() => {
+    scanTimer = null;
+    scan();
+  }, 250);
+}
+
+const obs = new MutationObserver(() => scheduleScan());
 obs.observe(document.documentElement, {childList: true, subtree: true, characterData: true});
 scan();

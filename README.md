@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.27.0
+### 🆕 What's new in v3.28.0
 
-- **Extension history replay landed** — the side panel can now replay saved preview/execute payloads from structured history for debugging and repeated execution.
-- **Insert & Submit flow landed** — detected `arena-tool` blocks can now insert results and try to submit them through adapter-aware composer/button helpers.
-- **The extension is becoming usable as a daily bridge UI** — popup config, side panel, structured history, replay actions, and stronger ChatGPT-oriented insertion are now all present together.
-- **This keeps moving Arena beyond tool-aware chats only** — the browser-chat path is becoming a practical local execution layer for ordinary web chats.
-- **633 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **ChatGPT-oriented adapter path is stronger** — the extension now fingerprints assistant messages, filters candidate nodes earlier, and uses a more reliable ChatGPT/ChatGPT.com detection path.
+- **Insert & Submit is more real now** — adapter-aware submit-button discovery is wired into the extension flow instead of only generic insertion.
+- **Extension replay/debug loop is stronger** — popup, side panel, structured history, replay actions, and throttled detection now form a more practical browser-chat workflow.
+- **The browser-chat path keeps hardening without splitting the architecture** — execution still goes through Arena's local bridge, but the extension UX is much closer to something usable daily.
+- **635 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

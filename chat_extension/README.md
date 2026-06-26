@@ -1,7 +1,7 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.3.0`.
+Current scaffold extension version: `0.5.0`.
 
 ## What it does today
 - injects a generic content script into web pages
@@ -54,8 +54,7 @@ The extension reads config from `chrome.storage.sync`:
 ```
 
 ## Next planned steps
-- per-site adapters
-- side panel
-- settings page
-- result insertion strategies
-- better dedupe and execution history
+- per-site adapters beyond ChatGPT/Claude scaffolding
+- richer side panel filters and payload inspection
+- stronger result insertion strategies
+- eventual native messaging hardening if needed

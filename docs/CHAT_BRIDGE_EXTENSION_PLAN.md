@@ -1,7 +1,7 @@
 # Arena Chat Bridge Extension — Project Plan
 
 Date: 2026-06-26
-Status: active implementation — Phase 1 bridge foundation, side-panel UX, and replay/debug controls in progress
+Status: active implementation — Phase 1 bridge foundation plus stronger ChatGPT-oriented extension UX in progress
 Owner: Arena Unified Bridge
 
 ---

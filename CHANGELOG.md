@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.28.0 - 2026-06-26
+
+### Added
+- **ChatGPT-oriented detection helpers** — the extension now fingerprints assistant messages, filters candidate nodes by `arena-tool` presence, and limits detection to more relevant assistant-side containers.
+- **Insert & Submit adapter path** — the adapter layer now includes submit-button discovery and adapter-aware insert-and-submit helpers, with a stronger first path for ChatGPT/ChatGPT.com.
+- **Extension replay/debug controls expanded** — side-panel history actions and richer structured history flows are now part of the extension scaffold instead of a passive log-only view.
+
+### Improved
+- **Detection is less noisy on large chat DOMs** — the content script now throttles scans, filters nodes earlier, and avoids re-instrumenting already-handled assistant blocks.
+- **Chat extension UX is more practical for repeated workflows** — popup + side panel + replay + insert/submit now form a more realistic loop for browser-chat execution.
+- **Browser-chat execution remains bridge-native** — all of this still runs through the local Arena bridge rather than a separate local executor process.
+
+### Tests
+- Added chat extension adapter-flow regressions and expanded asset checks.
+- Total: **635 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 635 tests.
+- Local `pytest --collect-only`: PASS, 635 tests collected.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check chat_extension/background.js`: PASS.
+- Local `node --check chat_extension/adapters.js`: PASS.
+- Local `node --check chat_extension/content.js`: PASS.
+- Local `node --check chat_extension/popup.js`: PASS.
+- Local `node --check chat_extension/sidepanel.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 232.
+
 ## v3.27.0 - 2026-06-26
 
 ### Added

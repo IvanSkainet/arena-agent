@@ -35,19 +35,51 @@ function getArenaAdapter() {
   return ARENA_ADAPTERS.find((adapter) => adapter.hosts.includes(host)) || ARENA_ADAPTERS[ARENA_ADAPTERS.length - 1];
 }
 
+function arenaNodeText(node) {
+  return String(node?.innerText || node?.textContent || '').trim();
+}
+
+function arenaHasArenaToolBlock(node) {
+  return /```arena-tool\s*[\s\S]*?```/m.test(arenaNodeText(node));
+}
+
+function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
+  if (!node) return false;
+  if (adapter.name === 'chatgpt') {
+    if (node.getAttribute('data-message-author-role') === 'assistant') return true;
+    const parent = node.closest('[data-message-author-role="assistant"]');
+    return !!parent;
+  }
+  return true;
+}
+
+function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
+  const base = [
+    adapter.name,
+    node?.getAttribute?.('data-testid') || '',
+    node?.getAttribute?.('data-message-author-role') || '',
+    arenaNodeText(node).slice(0, 200),
+    JSON.stringify(payload || {}),
+  ].join('|');
+  let h = 0;
+  for (let i = 0; i < base.length; i++) h = ((h << 5) - h + base.charCodeAt(i)) | 0;
+  return `arena_msg_${Math.abs(h)}`;
+}
+
 function arenaCandidateNodes() {
   const adapter = getArenaAdapter();
   const seen = new Set();
   const nodes = [];
   adapter.messageSelectors.forEach((selector) => {
     document.querySelectorAll(selector).forEach((node) => {
-      if (!seen.has(node)) {
-        seen.add(node);
-        nodes.push(node);
-      }
+      if (seen.has(node)) return;
+      seen.add(node);
+      if (!arenaIsAssistantNode(node, adapter)) return;
+      if (!arenaHasArenaToolBlock(node)) return;
+      nodes.push(node);
     });
   });
-  return {adapter, nodes};
+  return {adapter, nodes: nodes.slice(-3)};
 }
 
 function arenaFindComposer(adapter = getArenaAdapter()) {
@@ -96,6 +128,9 @@ function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
   if (!inserted) return {ok: false, inserted: false, submitted: false};
   const submit = arenaFindSubmitButton(adapter);
   if (!submit) return {ok: true, inserted: true, submitted: false};
+  if (submit.disabled || submit.getAttribute('aria-disabled') === 'true') {
+    return {ok: true, inserted: true, submitted: false};
+  }
   submit.click();
   return {ok: true, inserted: true, submitted: true};
 }
