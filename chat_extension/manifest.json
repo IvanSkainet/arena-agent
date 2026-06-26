@@ -1,9 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Arena Chat Bridge MVP",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Detects arena-tool blocks in web chats and executes them through a local Arena Unified Bridge.",
-  "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "sidePanel",
+    "tabs"
+  ],
   "host_permissions": [
     "http://127.0.0.1:8765/*",
     "http://localhost:8765/*",
@@ -15,7 +21,14 @@
     "https://grok.com/*",
     "https://www.perplexity.ai/*",
     "https://perplexity.ai/*",
-    "https://openrouter.ai/*"
+    "https://openrouter.ai/*",
+    "https://chat.deepseek.com/*",
+    "https://t3.chat/*",
+    "https://github.com/copilot/*",
+    "https://chat.mistral.ai/*",
+    "https://kimi.com/*",
+    "https://chat.qwen.ai/*",
+    "https://chat.z.ai/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -28,8 +41,16 @@
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["adapters.js", "content.js"],
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "adapter_sites.js",
+        "parser.js",
+        "adapters.js",
+        "settings.js",
+        "content.js"
+      ],
       "run_at": "document_idle"
     }
   ]

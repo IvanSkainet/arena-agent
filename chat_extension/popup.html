@@ -14,6 +14,13 @@
       <input id="bridgeUrl" placeholder="http://127.0.0.1:8765">
       <label>Bridge Token</label>
       <input id="bridgeToken" type="password" placeholder="Bearer token">
+      <fieldset>
+        <legend>Execution modes</legend>
+        <label><input id="autoPreview" type="checkbox"> Auto preview detected blocks</label>
+        <label><input id="autoExecuteSafe" type="checkbox"> Auto execute safe calls on trusted sites</label>
+        <label><input id="autoInsertResult" type="checkbox"> Auto insert successful results</label>
+        <label><input id="autoSubmitResult" type="checkbox"> Auto submit after insert</label>
+      </fieldset>
       <div class="row">
         <button id="saveBtn">Save</button>
         <button id="testBtn">Test</button>
@@ -28,6 +35,7 @@
       <pre id="historyBox">No history yet.</pre>
     </section>
   </main>
+  <script src="settings.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

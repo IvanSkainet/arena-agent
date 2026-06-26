@@ -1,4 +1,3 @@
-const BLOCK_RE = /```arena-tool\s*([\s\S]*?)```/g;
 const processed = new Set();
 let scanTimer = null;
 
@@ -6,16 +5,6 @@ function hash(text) {
   let h = 0;
   for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
   return `arena_${Math.abs(h)}`;
-}
-
-function parseArenaBlocks(text) {
-  const out = [];
-  for (const match of text.matchAll(BLOCK_RE)) {
-    try {
-      out.push({raw: match[0], payload: JSON.parse(match[1])});
-    } catch {}
-  }
-  return out;
 }
 
 function resultToText(result) {
@@ -126,7 +115,40 @@ function mountControls(host, payload, adapter) {
     status.textContent = result?.ok ? 'Opened side panel.' : `Panel error: ${result?.error || 'unknown'}`;
   }));
   host.appendChild(bar);
+  runAutoModes(request, adapter, status, (text) => { lastExecutionText = text; });
 }
+
+async function runAutoModes(request, adapter, status, setResultText) {
+  const cfg = await chrome.runtime.sendMessage({type: 'arena.getConfig'});
+  const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
+  if (!modes.autoPreview && !modes.autoExecuteSafe) return;
+  status.textContent = modes.autoExecuteSafe ? 'Auto previewing before safe execution...' : 'Auto previewing...';
+  const preview = await chrome.runtime.sendMessage({type: 'arena.preview', body: request});
+  if (!preview?.ok) {
+    status.textContent = `Auto preview error: ${preview?.error || 'unknown'}`;
+    return;
+  }
+  if (!modes.autoExecuteSafe || !preview.policy?.can_auto_run) {
+    status.textContent = `Preview ready: approval=${!!preview.policy?.requires_approval}`;
+    return;
+  }
+  status.textContent = 'Auto executing safe call(s)...';
+  const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {}}});
+  if (!result?.ok) {
+    status.textContent = `Auto run error: ${result?.error || 'unknown'}`;
+    return;
+  }
+  const text = resultToText(result);
+  setResultText(text);
+  status.textContent = `Auto executed ${result.calls?.length || 0} call(s)`;
+  if (!modes.autoInsertResult || !text) return;
+  const insertText = `\n${text}\n`;
+  const state = modes.autoSubmitResult && typeof arenaInsertAndSubmit === 'function'
+    ? arenaInsertAndSubmit(insertText, adapter)
+    : {ok: (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText)};
+  status.textContent = state.ok ? (state.submitted ? 'Auto inserted and submitted.' : 'Auto inserted result.') : 'Auto insert failed.';
+}
+
 
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};

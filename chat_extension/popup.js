@@ -21,6 +21,10 @@ async function loadConfig() {
   const cfg = await send('arena.getConfig');
   document.getElementById('bridgeUrl').value = cfg.bridgeUrl || '';
   document.getElementById('bridgeToken').value = cfg.bridgeToken || '';
+  const modes = cfg.modes || {};
+  ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult'].forEach((id) => {
+    document.getElementById(id).checked = !!modes[id];
+  });
 }
 
 async function loadHistory() {
@@ -34,8 +38,14 @@ async function saveConfig() {
   const result = await send('arena.saveConfig', {
     bridgeUrl: document.getElementById('bridgeUrl').value.trim(),
     bridgeToken: document.getElementById('bridgeToken').value.trim(),
+    modes: {
+      autoPreview: document.getElementById('autoPreview').checked,
+      autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
+      autoInsertResult: document.getElementById('autoInsertResult').checked,
+      autoSubmitResult: document.getElementById('autoSubmitResult').checked,
+    },
   });
-  status.textContent = result.ok ? 'Saved.' : `Error: ${result.error || 'unknown'}`;
+  status.textContent = result.ok ? `Saved. Modes: ${arenaModeSummary(result.config?.modes)}` : `Error: ${result.error || 'unknown'}`;
 }
 
 async function testConnection() {

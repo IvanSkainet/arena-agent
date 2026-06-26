@@ -1,12 +1,12 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.7.0`.
+Current scaffold extension version: `0.8.0`.
 
 ## What it does today
 - injects a generic content script into web pages
-- uses a small adapter registry for ChatGPT / Claude / generic fallback
-- detects fenced `arena-tool` blocks
+- uses a small adapter registry for ChatGPT, Claude, Gemini, Perplexity, Grok, OpenRouter, DeepSeek, Kimi, Qwen, and generic fallback
+- detects fenced `arena-tool` blocks and MCP SuperAssistant-style fenced `jsonl` function-call blocks
 - shows **Preview**, **Run**, **Insert Result**, **Insert & Submit**, **Copy Result**, and **Panel** controls
 - provides a popup UI for bridge URL/token config, connection testing, policy viewing, side panel opening, clearing history, and recent execution history
 - provides a side panel UI for richer history/debug viewing with replay actions, payload inspection, and simple filtering
@@ -35,7 +35,7 @@ The extension reads config from `chrome.storage.sync`:
 3. Click **Load unpacked**
 4. Select the `chat_extension/` directory
 
-## Expected payload format
+## Expected payload formats
 
 ```text
 ```arena-tool
@@ -53,7 +53,22 @@ The extension reads config from `chrome.storage.sync`:
 ```
 ```
 
+## MCP SuperAssistant-style JSONL compatibility
+
+The MVP parser also accepts a compatible JSONL block:
+
+```text
+```jsonl
+{"type":"function_call_start","name":"mission.lineage","call_id":"1"}
+{"type":"parameter","key":"mission_id","value":"demo"}
+{"type":"function_call_end","call_id":"1"}
+```
+```
+
+It is normalized into the canonical Arena payload before preview/execute.
+
 ## Next planned steps
+- popup settings for auto-execute / auto-insert / auto-submit modes
 - stronger Claude-specific adapter behavior
 - richer payload/result inspection UI
 - better cross-site composer strategies

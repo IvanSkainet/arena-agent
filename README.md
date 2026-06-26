@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.30.0
+### 🆕 What's new in v3.31.0
 
-- **Side-panel result inspection landed** — the browser chat extension can now inspect stored execution results separately from payloads.
-- **History filtering is stronger** — the side panel now filters by kind, site, and adapter, making multi-site debugging more practical.
-- **ChatGPT-oriented adapter flow is tighter** — latest-candidate helpers, node-id extraction, and stricter assistant filtering improve large-chat behavior without changing the bridge-side protocol.
-- **The extension debug loop keeps getting stronger** — payload inspection, result inspection, copy actions, replay, and filtering now work together in one browser surface.
-- **637 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **MCP SuperAssistant-style JSONL compatibility foundation** — the browser chat extension can now detect fenced `jsonl` function-call blocks and normalize them into Arena tool payloads.
+- **Expanded chat adapter coverage** — first site-registry coverage for Gemini / AI Studio, Perplexity, Grok, OpenRouter, DeepSeek, Kimi, Qwen, and generic fallback flows.
+- **Execution mode settings** — popup toggles for auto-preview, safe auto-execute, auto-insert, and auto-submit are now available, while manual confirmation remains the default.
+- **Bridge-native execution remains the core** — compatibility inputs still execute through Arena `/v1/extension/*` policy and audit layers, not a separate local executor.
+- Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

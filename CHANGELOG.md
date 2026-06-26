@@ -1,5 +1,23 @@
 # Changelog
 
+## v3.31.0 - 2026-06-26
+
+### Added
+- **MCP SuperAssistant-style JSONL compatibility foundation** — the browser chat extension now detects fenced `jsonl` function-call blocks and normalizes them into canonical Arena `arena-tool` payloads before preview/execute.
+- **Expanded chat adapter site registry** — split site definitions into a modular registry and added first-class host coverage for Gemini / AI Studio, Perplexity, Grok, OpenRouter, DeepSeek, Kimi, Qwen, and generic fallback flows.
+- **Extension execution mode settings** — the popup now exposes auto-preview, safe auto-execute, auto-insert, and auto-submit toggles, while defaulting to manual confirmation.
+
+### Improved
+- **Browser-chat execution parity path is clearer** — Arena keeps bridge-native execution while accepting MCP SuperAssistant-compatible JSONL as an input format.
+- **Extension code remains modular** — parser, site registry, settings, adapter helpers, and content flow are split to stay under project modularity guardrails.
+
+### Tests
+- Expanded chat extension scaffold and adapter-flow regressions for JSONL parsing, expanded site coverage, and execution mode settings.
+
+### Validation
+- Local targeted `pytest -q tests/test_chat_extension_assets.py tests/test_chat_extension_adapter_flow.py tests/test_chat_extension_sidepanel_flow.py tests/test_extension_bridge.py tests/test_project_modularity.py`: PASS, 17 tests.
+- Local `node --check` for chat extension JavaScript assets: PASS.
+
 ## v3.30.0 - 2026-06-26
 
 ### Added

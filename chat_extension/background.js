@@ -1,19 +1,38 @@
 const DEFAULTS = {
   bridgeUrl: 'http://127.0.0.1:8765',
   bridgeToken: '',
+  modes: (typeof ARENA_MODE_DEFAULTS !== 'undefined' ? ARENA_MODE_DEFAULTS : {
+    autoPreview: false,
+    autoExecuteSafe: false,
+    autoInsertResult: false,
+    autoSubmitResult: false,
+  }),
 };
 const HISTORY_KEY = 'arenaHistory';
 const HISTORY_LIMIT = 160;
 
+function normalizeModes(data) {
+  const input = data || {};
+  return {
+    autoPreview: !!input.autoPreview,
+    autoExecuteSafe: !!input.autoExecuteSafe,
+    autoInsertResult: !!input.autoInsertResult,
+    autoSubmitResult: !!input.autoSubmitResult,
+  };
+}
+
 async function getConfig() {
   const data = await chrome.storage.sync.get(DEFAULTS);
-  return {...DEFAULTS, ...data};
+  const merged = {...DEFAULTS, ...data};
+  merged.modes = normalizeModes(merged.modes);
+  return merged;
 }
 
 async function setConfig(data) {
   const next = {
     bridgeUrl: String(data?.bridgeUrl || DEFAULTS.bridgeUrl).trim() || DEFAULTS.bridgeUrl,
     bridgeToken: String(data?.bridgeToken || '').trim(),
+    modes: normalizeModes(data?.modes),
   };
   await chrome.storage.sync.set(next);
   return {ok: true, config: next};

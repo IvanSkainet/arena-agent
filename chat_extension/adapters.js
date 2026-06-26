@@ -1,30 +1,4 @@
-const ARENA_ADAPTERS = [
-  {
-    name: 'chatgpt',
-    hosts: ['chat.openai.com', 'chatgpt.com'],
-    messageSelectors: [
-      '[data-message-author-role="assistant"]',
-      'article[data-testid^="conversation-turn-"]',
-      'main article',
-    ],
-    composerSelectors: ['#prompt-textarea', 'textarea[placeholder*="Message"]', 'div#prompt-textarea[contenteditable="true"]'],
-    submitSelectors: ['button[data-testid="send-button"]', 'button[aria-label*="Send"]', 'button svg[viewBox][aria-hidden="true"]'],
-  },
-  {
-    name: 'claude',
-    hosts: ['claude.ai'],
-    messageSelectors: ['article', '[data-test-render-count]', 'main article'],
-    composerSelectors: ['div[contenteditable="true"]', 'textarea'],
-    submitSelectors: ['button[aria-label*="Send"]', 'button[type="submit"]'],
-  },
-  {
-    name: 'generic',
-    hosts: [],
-    messageSelectors: ['article', 'main', 'section', 'pre', 'code'],
-    composerSelectors: ['textarea', 'input[type="text"]', '[contenteditable="true"]'],
-    submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]'],
-  },
-];
+const ARENA_ADAPTERS = (typeof ARENA_SITE_ADAPTERS !== 'undefined' ? ARENA_SITE_ADAPTERS : []);
 
 function arenaHost() {
   return (location.hostname || '').toLowerCase();
