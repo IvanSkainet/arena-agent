@@ -7,10 +7,26 @@ function renderStatus(data) {
   box.textContent = JSON.stringify(data, null, 2);
 }
 
+function renderPayload(item) {
+  const box = document.getElementById('payloadBox');
+  if (!item || !item.payload) {
+    box.textContent = 'Select a history entry to inspect its payload.';
+    return;
+  }
+  box.textContent = JSON.stringify(item.payload, null, 2);
+}
+
 async function runHistoryAction(index, mode) {
   const result = await send('arena.replayHistory', {index, mode});
   renderStatus(result);
   await loadHistory();
+}
+
+function makeActionButton(label, onClick) {
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  btn.addEventListener('click', onClick);
+  return btn;
 }
 
 function renderHistory(items) {
@@ -31,25 +47,28 @@ function renderHistory(items) {
     detail.style.cssText = 'font-size:12px;color:#f8fafc;margin-bottom:6px;white-space:pre-wrap;';
     row.appendChild(meta);
     row.appendChild(detail);
+    const actions = document.createElement('div');
+    actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+    actions.appendChild(makeActionButton('Inspect', () => renderPayload(item)));
     if (item.payload) {
-      const actions = document.createElement('div');
-      actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
-      const preview = document.createElement('button');
-      preview.textContent = 'Replay Preview';
-      preview.addEventListener('click', () => runHistoryAction(index, 'preview'));
-      const execute = document.createElement('button');
-      execute.textContent = 'Replay Execute';
-      execute.addEventListener('click', () => runHistoryAction(index, 'execute'));
-      actions.appendChild(preview);
-      actions.appendChild(execute);
-      row.appendChild(actions);
+      actions.appendChild(makeActionButton('Replay Preview', () => runHistoryAction(index, 'preview')));
+      actions.appendChild(makeActionButton('Replay Execute', () => runHistoryAction(index, 'execute')));
+      actions.appendChild(makeActionButton('Copy Payload', async () => {
+        await navigator.clipboard.writeText(JSON.stringify(item.payload, null, 2));
+        renderStatus({ok: true, copied: true, kind: item.kind});
+      }));
     }
+    row.appendChild(actions);
     box.appendChild(row);
   });
 }
 
 async function loadHistory() {
-  const result = await send('arena.getHistory');
+  const result = await send('arena.getHistory', {
+    kind: document.getElementById('kindFilter').value,
+    site: document.getElementById('siteFilter').value.trim(),
+    limit: 100,
+  });
   renderHistory(result.items || []);
 }
 
@@ -67,6 +86,7 @@ async function loadPolicies() {
 
 async function clearHistory() {
   await send('arena.clearHistory');
+  renderPayload(null);
   await loadHistory();
 }
 
@@ -79,6 +99,7 @@ document.getElementById('refreshBtn').addEventListener('click', refreshAll);
 document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policiesBtn').addEventListener('click', loadPolicies);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
+document.getElementById('applyFilterBtn').addEventListener('click', loadHistory);
 refreshAll().catch((error) => {
   renderStatus({ok: false, error: String(error)});
 });

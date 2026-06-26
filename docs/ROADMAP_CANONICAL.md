@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-26
-Validated baseline: `v3.28.0`
+Validated baseline: `v3.29.0`
 
 This file is the planning source of truth.
 
@@ -9,8 +9,8 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.27.0`
-- Tests: `633 passed`
+- Version: `3.29.0`
+- Tests: `637 passed`
 - MCP tools: `68`
 - Route objects in aiohttp app: `346`
 - Distinct method/path routes excluding auto-HEAD: `232`
@@ -135,6 +135,7 @@ Status update:
 - browser chat extension phase-3 side-panel/history/adapter insertion improvements landed in `v3.26.0`
 - browser chat extension phase-4 replay/debug/insert-and-submit improvements landed in `v3.27.0`
 - browser chat extension phase-5 stronger ChatGPT detection and throttled scan improvements landed in `v3.28.0`
+- browser chat extension phase-6 side-panel payload inspection and replay/debug improvements landed in `v3.29.0`
 
 ---
 

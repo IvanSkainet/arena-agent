@@ -19,8 +19,25 @@
       <pre id="statusBox">Loading...</pre>
     </section>
     <section>
+      <h2>History filters</h2>
+      <div class="row">
+        <select id="kindFilter">
+          <option value="">all kinds</option>
+          <option value="detected">detected</option>
+          <option value="preview">preview</option>
+          <option value="execute">execute</option>
+        </select>
+        <input id="siteFilter" placeholder="filter by site">
+        <button id="applyFilterBtn">Apply</button>
+      </div>
+    </section>
+    <section>
       <h2>Recent detections / executions</h2>
-      <pre id="historyBox">No history yet.</pre>
+      <div id="historyBox">No history yet.</div>
+    </section>
+    <section>
+      <h2>Selected payload</h2>
+      <pre id="payloadBox">Select a history entry to inspect its payload.</pre>
     </section>
   </main>
   <script src="sidepanel.js"></script>

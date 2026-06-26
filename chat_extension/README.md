@@ -1,7 +1,7 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.5.0`.
+Current scaffold extension version: `0.6.0`.
 
 ## What it does today
 - injects a generic content script into web pages
@@ -9,7 +9,7 @@ Current scaffold extension version: `0.5.0`.
 - detects fenced `arena-tool` blocks
 - shows **Preview**, **Run**, **Insert Result**, **Insert & Submit**, **Copy Result**, and **Panel** controls
 - provides a popup UI for bridge URL/token config, connection testing, policy viewing, side panel opening, clearing history, and recent execution history
-- provides a side panel UI for richer history/debug viewing with replay actions
+- provides a side panel UI for richer history/debug viewing with replay actions, payload inspection, and simple filtering
 - sends requests to a local Arena bridge via:
   - `GET /v1/extension/policies`
   - `POST /v1/extension/preview`
@@ -17,7 +17,7 @@ Current scaffold extension version: `0.5.0`.
 
 ## What it does not do yet
 - site-specific high-fidelity composer insertion for every supported chat
-- rich execution history filtering and search
+- rich execution history search beyond basic filters
 - per-site auto-run policy controls in the extension UI
 - native messaging hardening
 
@@ -54,7 +54,7 @@ The extension reads config from `chrome.storage.sync`:
 ```
 
 ## Next planned steps
-- per-site adapters beyond ChatGPT/Claude scaffolding
-- richer side panel filters and payload inspection
-- stronger result insertion strategies
+- stronger Claude-specific adapter behavior
+- richer payload/result inspection UI
+- better cross-site composer strategies
 - eventual native messaging hardening if needed

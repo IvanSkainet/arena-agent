@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arena Chat Bridge MVP",
-  "version": "0.4.0",
+  "version": "0.6.0",
   "description": "Detects arena-tool blocks in web chats and executes them through a local Arena Unified Bridge.",
   "permissions": ["storage", "activeTab", "scripting", "sidePanel", "tabs"],
   "host_permissions": [

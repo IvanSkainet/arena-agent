@@ -3,7 +3,7 @@ const DEFAULTS = {
   bridgeToken: '',
 };
 const HISTORY_KEY = 'arenaHistory';
-const HISTORY_LIMIT = 80;
+const HISTORY_LIMIT = 120;
 
 async function getConfig() {
   const data = await chrome.storage.sync.get(DEFAULTS);
@@ -19,9 +19,25 @@ async function setConfig(data) {
   return {ok: true, config: next};
 }
 
-async function getHistory() {
+async function getHistory(filters = {}) {
   const data = await chrome.storage.local.get({[HISTORY_KEY]: []});
-  return {ok: true, items: data[HISTORY_KEY] || []};
+  const items = data[HISTORY_KEY] || [];
+  const kind = String(filters.kind || '').trim();
+  const site = String(filters.site || '').trim().toLowerCase();
+  const limit = Math.max(1, Math.min(200, parseInt(filters.limit || items.length || 1, 10)));
+  const filtered = items.filter((item) => {
+    if (kind && item.kind !== kind) return false;
+    if (site && !String(item.site || '').toLowerCase().includes(site)) return false;
+    return true;
+  });
+  return {ok: true, items: filtered.slice(0, limit), total: items.length, filtered: filtered.length};
+}
+
+async function getHistoryItem(index) {
+  const current = await getHistory();
+  const item = (current.items || [])[index];
+  if (!item) return {ok: false, error: 'history item not found'};
+  return {ok: true, item};
 }
 
 async function clearHistory() {
@@ -68,9 +84,9 @@ async function openSidePanel() {
 }
 
 async function replayHistory(index, mode = 'execute') {
-  const current = await getHistory();
-  const item = (current.items || [])[index];
-  if (!item) return {ok: false, error: 'history item not found'};
+  const itemResult = await getHistoryItem(index);
+  if (!itemResult.ok) return itemResult;
+  const item = itemResult.item;
   if (!item.payload) return {ok: false, error: 'history item has no payload'};
   if (mode === 'preview') {
     return bridgeFetch('/v1/extension/preview', {method: 'POST', body: item.payload});
@@ -89,7 +105,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     if (message?.type === 'arena.getConfig') return sendResponse(await getConfig());
     if (message?.type === 'arena.saveConfig') return sendResponse(await setConfig(message.body || {}));
-    if (message?.type === 'arena.getHistory') return sendResponse(await getHistory());
+    if (message?.type === 'arena.getHistory') return sendResponse(await getHistory(message.body || {}));
+    if (message?.type === 'arena.getHistoryItem') return sendResponse(await getHistoryItem(message.body?.index));
     if (message?.type === 'arena.clearHistory') return sendResponse(await clearHistory());
     if (message?.type === 'arena.testConnection') return sendResponse(await testConnection());
     if (message?.type === 'arena.openSidePanel') return sendResponse(await openSidePanel());
@@ -103,6 +120,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       await pushHistory('preview', {
         detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`,
         site: message.body?.site?.origin || '',
+        adapter: message.body?.site?.adapter || '',
+        fingerprint: message.body?.message?.fingerprint || '',
         ok: !!result.ok,
         payload: message.body,
       });
@@ -113,6 +132,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       await pushHistory('execute', {
         detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`,
         site: message.body?.site?.origin || '',
+        adapter: message.body?.site?.adapter || '',
+        fingerprint: message.body?.message?.fingerprint || '',
         ok: !!result.ok,
         payload: message.body,
       });
