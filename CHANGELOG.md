@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.34.0 - 2026-06-26
+
+### Fixed
+- **JSONL detection pre-filter** — the browser chat extension adapter layer now treats MCP SuperAssistant-style fenced `jsonl` / `json` function-call blocks as executable candidates instead of filtering them out before the parser can run.
+
+### Improved
+- **AI Studio JSONL workflow** — models that follow the copied JSONL instructions should now trigger inline extension controls when they emit `function_call_start` / `function_call_end` blocks.
+
+### Tests
+- Expanded adapter-flow regressions to cover JSONL/function-call candidate detection.
+
 ## v3.33.0 - 2026-06-26
 
 ### Fixed

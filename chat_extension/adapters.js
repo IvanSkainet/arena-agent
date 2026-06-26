@@ -13,8 +13,15 @@ function arenaNodeText(node) {
   return String(node?.innerText || node?.textContent || '').trim();
 }
 
+function arenaHasToolBlock(node) {
+  const text = arenaNodeText(node);
+  return /```arena-tool\s*[\s\S]*?```/m.test(text)
+    || /```jsonl\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
+    || /```json\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text);
+}
+
 function arenaHasArenaToolBlock(node) {
-  return /```arena-tool\s*[\s\S]*?```/m.test(arenaNodeText(node));
+  return arenaHasToolBlock(node);
 }
 
 function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
@@ -62,7 +69,7 @@ function arenaCandidateNodes() {
       if (seen.has(node)) return;
       seen.add(node);
       if (!arenaIsAssistantNode(node, adapter)) return;
-      if (!arenaHasArenaToolBlock(node)) return;
+      if (!arenaHasToolBlock(node)) return;
       nodes.push(node);
     });
   });

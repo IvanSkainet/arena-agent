@@ -46,11 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.33.0
+### 🆕 What's new in v3.34.0
 
-- **Browser extension popup reliability fix** — bridge URL/token saving now uses callback-compatible runtime messaging and explicit error handling instead of getting stuck on `Loading...`.
-- **Save verification** — popup saves are immediately reloaded from extension storage so users can see whether config persisted.
-- **Clearer diagnostics** — config/history load failures now show actionable errors in the popup.
+- **JSONL detection fix** — the browser extension now treats MCP SuperAssistant-style fenced `jsonl` / `json` function-call blocks as executable candidates instead of filtering them out before parsing.
+- **AI Studio JSONL flow is unblocked** — copied JSONL instructions should now lead to visible inline extension controls when the model emits `function_call_start` / `function_call_end` blocks.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
