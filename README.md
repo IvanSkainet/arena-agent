@@ -46,11 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.39.0
+### 🆕 What's new in v3.40.0
 
-- **AI Studio controls placement** — content script now actually uses the after-code-block placement helper instead of appending controls into arbitrary containers.
-- **Latest-only controls mode** — popup includes a switch to show controls only for the latest visible tool block or keep all visible controls.
-- **More reliable Insert & Submit** — submit waits/retries while the chat composer enables its send button after insertion.
+- **Better latest-only controls** — the extension keeps the visually lowest visible toolbar rather than the last block mounted by AI Studio.
+- **Cleaner toolbar UI** — compact pill buttons, primary Run action, shorter status, and user-facing `Send` label.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

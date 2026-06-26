@@ -37,6 +37,7 @@ def test_chat_extension_adapter_helpers_exist():
     assert "'code'" in adapter_sites
     assert "[class*=\\\"code\\\"]" in adapter_sites
     assert 'arenaInsertAndSubmit' in adapters
+    assert 'Send' in content
     assert 'scheduleScan' in content
     assert 'data-arena-tool-controls' in content
     assert 'arenaToolControlsMounted' in content
@@ -52,6 +53,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.9.7`.' in readme
-    assert 'Insert & Submit' in readme
+    assert 'Current scaffold extension version: `0.9.8`.' in readme
+    assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

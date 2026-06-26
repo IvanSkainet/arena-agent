@@ -1,5 +1,14 @@
 # Changelog
 
+## v3.40.0 - 2026-06-26
+
+### Improved
+- **Latest-only controls mode** — the chat extension now keeps the visually lowest visible toolbar instead of the last toolbar mounted by AI Studio's virtualized DOM lifecycle.
+- **Toolbar polish** — inline controls use a compact product-style toolbar with pill buttons, a primary Run action, shorter status text, and `Send` instead of the debug-like `Insert & Submit` label.
+
+### Tests
+- Expanded extension asset regressions for visual latest-only pruning and polished toolbar labels.
+
 ## v3.39.0 - 2026-06-26
 
 ### Fixed

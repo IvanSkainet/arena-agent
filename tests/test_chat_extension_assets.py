@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.9.7"
+    assert manifest["version"] == "0.9.8"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -37,8 +37,8 @@ def test_chat_extension_scaffold_exists():
     assert "```arena-tool" in parser
     assert "```jsonl" in parser
     assert "function_call_start" in parser
-    assert "Insert Result" in content
-    assert "Insert & Submit" in content
+    assert "Insert" in content
+    assert "Send" in content
     assert "Panel" in content
     assert "saveBtn" in popup_html
     assert "autoExecuteSafe" in popup_html
@@ -60,6 +60,9 @@ def test_chat_extension_scaffold_exists():
     assert "attachControls(host, bar)" in content
     assert "mountedControls" in content
     assert "removeOldControls" in content
+    assert "latestVisibleFingerprint" in content
+    assert "pruneToLatestVisible" in content
+    assert "Arena ·" in content
     assert "controlsHost" in content
     assert "arenaCandidateHost" in adapters
     assert "arenaPruneAncestorCandidates" in adapters
