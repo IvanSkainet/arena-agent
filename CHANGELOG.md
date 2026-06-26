@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.43.0 - 2026-06-26
+
+### Changed
+- **Latest-only mode is now floating** — when `Show controls only for latest visible block` is enabled, the extension renders one fixed toolbar for the latest detected block instead of inserting inline controls into AI Studio's virtualized chat DOM.
+
+### Fixed
+- **Latest-only duplicate/strange layout** — floating latest controls avoid duplicate inline toolbars and layout drift caused by AI Studio history virtualization.
+
+### Tests
+- Expanded extension asset regressions for floating latest-only toolbar behavior.
+
 ## v3.42.0 - 2026-06-26
 
 ### Fixed
