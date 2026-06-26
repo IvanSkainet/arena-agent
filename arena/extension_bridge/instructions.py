@@ -4,7 +4,8 @@ from __future__ import annotations
 from typing import Any
 
 SAFE_EXAMPLES = [
-    ("mission.lineage", {"mission_id": "demo"}),
+    ("sys.status", {}),
+    ("mission.catalog", {"limit": 5}),
     ("memory.recall", {"q": "project notes", "top": 5}),
     ("browser.read", {"url": "https://example.com"}),
 ]
@@ -54,7 +55,7 @@ def extension_instructions(fmt: str = "arena", style: str = "full") -> dict[str,
     ]
     if style == "full":
         parts.extend([
-            "Useful safe tools include mission.lineage, mission.family, mission.history, memory.recall, browser.read, browser.search, fs.view, fs.grep, and sys.status.",
+            "Useful safe tools include sys.status, mission.catalog, mission.lineage, mission.family, mission.history, memory.recall, browser.read, browser.search, fs.view, and fs.grep.",
             "Risky tools such as exec, fs.write, fs.edit, mission.run, mission.iterate, desktop.*, skill.run, and subagent.spawn require explicit user approval.",
             "Every call must include a tool name and an arguments object. Use one block for a batch of related calls.",
         ])

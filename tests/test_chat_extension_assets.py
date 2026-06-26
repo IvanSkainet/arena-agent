@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.9.4"
+    assert manifest["version"] == "0.9.5"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -55,6 +55,8 @@ def test_chat_extension_scaffold_exists():
     assert "chrome.tabs.create" in background
     assert "resultErrorText" in content
     assert "attachControls" in content
+    assert "controlsHost" in content
+    assert "querySelector?.('pre, code')" in content
     assert "Config load error" in popup
     assert "Saved, but verify failed" in popup
     assert "refreshBtn" in sidepanel_html

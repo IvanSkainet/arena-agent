@@ -113,6 +113,14 @@ def test_extension_handlers_and_routes():
     execute_data = json.loads(execute_resp.text)
     assert execute_data["ok"] is True
 
+    runtime_fail = make_extension_bridge_runtime(ExtensionBridgeRuntimeContext(
+        call_tool=lambda name, args: {"content": [{"type": "text", "text": json.dumps({"ok": False, "error": "missing", "status": 404})}]},
+        audit=lambda item: None,
+    ))
+    failed = runtime_fail.execute_sync({"site": {"origin": "https://chat.openai.com"}, "payload": {"bridge": "arena", "version": 1, "calls": [{"tool": "mission.lineage", "arguments": {"mission_id": "demo"}}]}, "mode": {"approve": True}})
+    assert failed["ok"] is False
+    assert failed["calls"][0]["result"]["parsed"]["error"] == "missing"
+
     app = ub.make_app({"token": "test"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     assert ("GET", "/v1/extension/policies") in paths

@@ -108,13 +108,11 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
         all_ok = True
         for call in preview["calls"]:
             raw = ctx.call_tool(call["tool"], call["arguments"])
-            ok = not bool(raw.get("isError", False))
+            result = _normalize_call_tool_result(raw)
+            parsed = result.get("parsed") if isinstance(result.get("parsed"), dict) else {}
+            ok = not bool(raw.get("isError", False)) and parsed.get("ok") is not False
             executed.append({
-                "id": call["id"],
-                "tool": call["tool"],
-                "ok": ok,
-                "risk": call["risk"],
-                "result": _normalize_call_tool_result(raw),
+                "id": call["id"], "tool": call["tool"], "ok": ok, "risk": call["risk"], "result": result,
             })
             all_ok = all_ok and ok
         ctx.audit({

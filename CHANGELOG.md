@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.37.0 - 2026-06-26
+
+### Fixed
+- **Mission HTTP error bodies** — MCP mission tools now preserve JSON error bodies from bridge endpoints, so `mission.lineage` on a missing mission returns structured `mission not found` data instead of a bare `HTTPError`.
+- **Tool-call success semantics** — extension execution now treats parsed tool results with `ok: false` as failed calls while keeping the structured result available for copy/insert.
+- **AI Studio control placement** — nested selector matches now converge to the nearest rendered `pre` / `code` block before mounting controls, reducing duplicate detections and misplaced buttons.
+
+### Improved
+- **Stable smoke instructions** — copied extension instructions now use `sys.status` as the default JSONL/Arena example because it works on empty installations; mission tools remain listed for real mission IDs.
+
+### Tests
+- Expanded backend and extension regressions for structured HTTP errors, stable smoke instructions, and rendered code-block placement.
+
 ## v3.36.0 - 2026-06-26
 
 ### Fixed

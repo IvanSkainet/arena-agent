@@ -37,7 +37,9 @@ function resultErrorText(result) {
 function controlsHost(node) {
   if (!node) return document.body;
   if (node.tagName === 'CODE') return node.closest('pre') || node;
-  return node;
+  if (node.tagName === 'PRE') return node;
+  const code = node.querySelector?.('pre, code');
+  return code ? controlsHost(code) : node;
 }
 
 function attachControls(host, bar) {
@@ -73,12 +75,10 @@ function genericInsertIntoActiveField(text) {
 
 function mountControls(host, payload, adapter) {
   host = controlsHost(host);
-  const baseFingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
-  const fingerprint = host.dataset.arenaToolFingerprint || baseFingerprint;
+  const fingerprint = host.dataset.arenaToolFingerprint || (typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload)));
   if (processed.has(fingerprint) || host.dataset.arenaToolControlsMounted === '1') return;
   processed.add(fingerprint);
-  host.dataset.arenaToolControlsMounted = '1';
-  host.dataset.arenaToolFingerprint = fingerprint;
+  host.dataset.arenaToolControlsMounted = '1'; host.dataset.arenaToolFingerprint = fingerprint;
   const request = buildRequest(payload, adapter.name, fingerprint);
   chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapter.name, fingerprint, payload: request}});
   let lastExecutionText = '';

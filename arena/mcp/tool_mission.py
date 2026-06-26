@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 from urllib.parse import quote, urlencode
@@ -16,8 +17,19 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, metho
     token = cfg.get("token", "")
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method=method)
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return json.loads(resp.read().decode("utf-8", "replace"))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8", "replace"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")
+        try:
+            parsed = json.loads(body)
+        except Exception:
+            parsed = {"ok": False, "error": body or str(e)}
+        parsed.setdefault("ok", False)
+        parsed.setdefault("status", e.code)
+        parsed.setdefault("error", str(e))
+        return parsed
 
 
 

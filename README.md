@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.36.0
+### 🆕 What's new in v3.37.0
 
-- **Readable execution failures** — extension history and inline controls now show failed tool-call output instead of `error: unknown`.
-- **Cleaner AI Studio controls** — controls are attached after rendered `Jsonl` code blocks rather than inside the code-block UI.
-- **Panel fallback** — if Chrome blocks `sidePanel.open()`, the side panel opens as a normal extension tab.
+- **Stable chat-extension smoke test** — copied Arena/JSONL instructions now default to `sys.status`, which works even on empty installations.
+- **Structured mission errors** — mission tools preserve JSON 404 bodies such as `mission not found` instead of returning a bare `HTTPError`.
+- **Cleaner AI Studio placement** — duplicate/nested rendered-code matches converge to the nearest `pre` / `code` block before controls are mounted.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
