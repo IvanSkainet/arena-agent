@@ -83,7 +83,7 @@ def extension_policy_snapshot(site: dict | None = None) -> dict:
                 "bridge": "arena",
                 "version": 1,
                 "calls": [
-                    {"id": "call_1", "tool": "mission.lineage", "arguments": {"mission_id": "demo"}}
+                    {"id": "call_1", "tool": "sys.status", "arguments": {}}
                 ],
             }
         },

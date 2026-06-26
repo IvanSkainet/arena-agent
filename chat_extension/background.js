@@ -10,7 +10,6 @@ const DEFAULTS = {
 };
 const HISTORY_KEY = 'arenaHistory';
 const HISTORY_LIMIT = 160;
-
 function normalizeModes(data) {
   const input = data || {};
   return {
@@ -20,24 +19,26 @@ function normalizeModes(data) {
     autoSubmitResult: !!input.autoSubmitResult,
   };
 }
-
+function normalizeBridgeUrl(value) {
+  let url = String(value || DEFAULTS.bridgeUrl).trim() || DEFAULTS.bridgeUrl;
+  if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
+  return url.replace(/\/+$/, '');
+}
 async function getConfig() {
   const data = await chrome.storage.sync.get(DEFAULTS);
   const merged = {...DEFAULTS, ...data};
   merged.modes = normalizeModes(merged.modes);
   return merged;
 }
-
 async function setConfig(data) {
   const next = {
-    bridgeUrl: String(data?.bridgeUrl || DEFAULTS.bridgeUrl).trim() || DEFAULTS.bridgeUrl,
+    bridgeUrl: normalizeBridgeUrl(data?.bridgeUrl),
     bridgeToken: String(data?.bridgeToken || '').trim(),
     modes: normalizeModes(data?.modes),
   };
   await chrome.storage.sync.set(next);
   return {ok: true, config: next};
 }
-
 async function getHistory(filters = {}) {
   const data = await chrome.storage.local.get({[HISTORY_KEY]: []});
   const items = data[HISTORY_KEY] || [];
@@ -53,19 +54,16 @@ async function getHistory(filters = {}) {
   });
   return {ok: true, items: filtered.slice(0, limit), total: items.length, filtered: filtered.length};
 }
-
 async function getHistoryItem(index) {
   const current = await getHistory();
   const item = (current.items || [])[index];
   if (!item) return {ok: false, error: 'history item not found'};
   return {ok: true, item};
 }
-
 async function clearHistory() {
   await chrome.storage.local.set({[HISTORY_KEY]: []});
   return {ok: true};
 }
-
 function compactResult(result) {
   if (!result || typeof result !== 'object') return null;
   const summary = {ok: !!result.ok};
@@ -77,7 +75,6 @@ function compactResult(result) {
   if (result.preview) summary.preview = result.preview;
   return summary;
 }
-
 function describeBridgeResult(result) {
   if (!result) return 'empty response';
   if (result.error) return String(result.error);
@@ -85,37 +82,31 @@ function describeBridgeResult(result) {
   const parsed = failed?.result?.parsed;
   return parsed?.error || parsed?.message || (failed?.result?.text ? String(failed.result.text).slice(0, 220) : '') || result.summary || (result.status ? `HTTP ${result.status}` : 'unknown');
 }
-
 async function pushHistory(kind, detail) {
   const current = await getHistory();
   const entry = typeof detail === 'string' ? {detail} : (detail || {});
   const items = [{at: new Date().toISOString(), kind, ...entry}, ...(current.items || [])].slice(0, HISTORY_LIMIT);
   await chrome.storage.local.set({[HISTORY_KEY]: items});
 }
-
 async function bridgeFetch(path, {method = 'GET', body} = {}) {
   const cfg = await getConfig();
   const headers = {'Content-Type': 'application/json'};
   if (cfg.bridgeToken) headers.Authorization = `Bearer ${cfg.bridgeToken}`;
-  const res = await fetch(`${cfg.bridgeUrl}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await res.text();
-  let parsed;
-  try { parsed = JSON.parse(text); } catch { parsed = {ok: false, raw: text}; }
-  if (!res.ok) return {ok: false, status: res.status, ...parsed};
-  return parsed;
+  try {
+    const base = normalizeBridgeUrl(cfg.bridgeUrl);
+    const res = await fetch(`${base}${path}`, {method, headers, body: body ? JSON.stringify(body) : undefined});
+    const text = await res.text();
+    let parsed; try { parsed = JSON.parse(text); } catch { parsed = {ok: false, error: text || `HTTP ${res.status}`, raw: text}; }
+    if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, ...parsed};
+    return parsed;
+  } catch (error) { return {ok: false, error: String(error)}; }
 }
-
 async function testConnection() {
   const version = await bridgeFetch('/v1/version');
   if (!version.ok) return version;
   const policies = await bridgeFetch('/v1/extension/policies');
   return {ok: !!policies.ok, version, policies};
 }
-
 async function openSidePanel() {
   const url = chrome.runtime.getURL('sidepanel.html');
   try {
@@ -129,10 +120,8 @@ async function openSidePanel() {
     return {ok: true, tabId: tab?.id, mode: 'tab', warning: String(error)};
   }
   if (!chrome.tabs?.create) return {ok: false, error: 'side panel api unavailable'};
-  const tab = await chrome.tabs.create({url, active: true});
-  return {ok: true, tabId: tab?.id, mode: 'tab'};
+  const tab = await chrome.tabs.create({url, active: true}); return {ok: true, tabId: tab?.id, mode: 'tab'};
 }
-
 async function replayHistory(index, mode = 'execute') {
   const itemResult = await getHistoryItem(index);
   if (!itemResult.ok) return itemResult;
@@ -141,13 +130,11 @@ async function replayHistory(index, mode = 'execute') {
   if (mode === 'preview') return bridgeFetch('/v1/extension/preview', {method: 'POST', body: item.payload});
   return bridgeFetch('/v1/extension/execute', {method: 'POST', body: {...item.payload, mode: {...(item.payload.mode || {}), approve: true}}});
 }
-
 chrome.runtime.onInstalled.addListener(async () => {
   const cfg = await chrome.storage.sync.get(DEFAULTS); await chrome.storage.sync.set({...DEFAULTS, ...cfg});
   const local = await chrome.storage.local.get({[HISTORY_KEY]: []});
   if (!Array.isArray(local[HISTORY_KEY])) await chrome.storage.local.set({[HISTORY_KEY]: []});
 });
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
     if (message?.type === 'arena.getConfig') return sendResponse(await getConfig());

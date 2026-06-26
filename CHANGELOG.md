@@ -1,5 +1,16 @@
 # Changelog
 
+## v3.38.0 - 2026-06-26
+
+### Fixed
+- **AI Studio rendered-block regression** — candidate scanning now normalizes `code` nodes to their nearest `pre` and prunes ancestor containers, so controls attach to concrete rendered JSONL blocks instead of drifting into large page containers.
+- **Repeated identical tool blocks** — message fingerprints now include a compact DOM path, preventing identical JSONL payloads in separate AI Studio responses from being collapsed as already processed.
+- **Bridge URL diagnostics** — extension bridge URLs are normalized when users enter `127.0.0.1:8765` without a scheme, and fetch/HTTP failures now surface concrete errors instead of `unknown`.
+- **Policy smoke example** — extension policy examples now use stable `sys.status` instead of `mission.lineage demo` on empty installs.
+
+### Tests
+- Expanded extension asset and adapter regressions for rendered-code host pruning, DOM-path fingerprints, URL normalization, and `sys.status` policy examples.
+
 ## v3.37.0 - 2026-06-26
 
 ### Fixed

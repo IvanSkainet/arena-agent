@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.37.0
+### 🆕 What's new in v3.38.0
 
-- **Stable chat-extension smoke test** — copied Arena/JSONL instructions now default to `sys.status`, which works even on empty installations.
-- **Structured mission errors** — mission tools preserve JSON 404 bodies such as `mission not found` instead of returning a bare `HTTPError`.
-- **Cleaner AI Studio placement** — duplicate/nested rendered-code matches converge to the nearest `pre` / `code` block before controls are mounted.
+- **AI Studio layout regression fix** — rendered JSONL controls now attach to concrete `pre` / `code` blocks after pruning ancestor containers.
+- **Repeated blocks are handled separately** — identical JSONL blocks in different responses no longer collapse into one processed fingerprint.
+- **Clear Bridge URL errors** — `127.0.0.1:8765` is normalized to `http://127.0.0.1:8765`, and fetch failures show real errors instead of `unknown`.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

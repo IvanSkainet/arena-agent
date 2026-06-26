@@ -25,6 +25,29 @@ function arenaHasArenaToolBlock(node) {
   return arenaHasToolBlock(node);
 }
 
+function arenaNodePath(node) {
+  const parts = [];
+  let cur = node;
+  for (let depth = 0; cur && depth < 6; depth++) {
+    const parent = cur.parentElement;
+    const siblings = parent ? Array.from(parent.children).filter((child) => child.tagName === cur.tagName) : [];
+    const idx = siblings.indexOf(cur);
+    parts.unshift(`${cur.tagName || 'NODE'}:${idx}`);
+    cur = parent;
+  }
+  return parts.join('/');
+}
+
+function arenaCandidateHost(node) {
+  if (!node) return node;
+  if (node.tagName === 'CODE') return node.closest('pre') || node;
+  return node;
+}
+
+function arenaPruneAncestorCandidates(nodes) {
+  return nodes.filter((node) => !nodes.some((other) => other !== node && node.contains(other)));
+}
+
 function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
   if (!node) return '';
   return [
@@ -32,6 +55,7 @@ function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
     node.getAttribute?.('data-testid') || '',
     node.getAttribute?.('data-message-author-role') || '',
     node.id || '',
+    arenaNodePath(node),
     arenaNodeText(node).slice(0, 80),
   ].join('|');
 }
@@ -66,7 +90,8 @@ function arenaCandidateNodes() {
   const seen = new Set();
   const nodes = [];
   adapter.messageSelectors.forEach((selector) => {
-    document.querySelectorAll(selector).forEach((node) => {
+    document.querySelectorAll(selector).forEach((rawNode) => {
+      const node = arenaCandidateHost(rawNode);
       if (seen.has(node)) return;
       seen.add(node);
       if (!arenaIsAssistantNode(node, adapter)) return;
@@ -74,7 +99,7 @@ function arenaCandidateNodes() {
       nodes.push(node);
     });
   });
-  return {adapter, nodes: nodes.slice(-5)};
+  return {adapter, nodes: arenaPruneAncestorCandidates(nodes).slice(-5)};
 }
 
 function arenaLatestCandidateNodes() {

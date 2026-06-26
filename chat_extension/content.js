@@ -37,9 +37,7 @@ function resultErrorText(result) {
 function controlsHost(node) {
   if (!node) return document.body;
   if (node.tagName === 'CODE') return node.closest('pre') || node;
-  if (node.tagName === 'PRE') return node;
-  const code = node.querySelector?.('pre, code');
-  return code ? controlsHost(code) : node;
+  return node;
 }
 
 function attachControls(host, bar) {
