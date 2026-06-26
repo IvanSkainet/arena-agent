@@ -73,6 +73,19 @@ class GrpcHandlerContext:
 
 
 @dataclass(frozen=True)
+class ExtensionBridgeHandlerContext:
+    """Dependencies for browser chat extension bridge handlers."""
+
+    require_auth: Callable[[web.Request], web.Response | None]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., web.Response]
+    executor: Executor
+    policies_sync: Callable[[dict[str, Any] | None], dict[str, Any]]
+    preview_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    execute_sync: Callable[[dict[str, Any]], dict[str, Any]]
+
+
+@dataclass(frozen=True)
 class EventHandlerContext:
     """Dependencies for realtime event WebSocket handlers."""
 
@@ -119,4 +132,4 @@ class McpHandlerContext:
     handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
     log_error: Callable[..., None]
 
-__all__ = ['BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'EventHandlerContext', 'FileWatchHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']
+__all__ = ['BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'ExtensionBridgeHandlerContext', 'EventHandlerContext', 'FileWatchHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']

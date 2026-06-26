@@ -46,13 +46,13 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.23.0
+### 🆕 What's new in v3.24.0
 
-- **Automatic mission schedule worker landed** — Arena now has background recurring mission execution on top of family, lineage, catalog, recovery, follow-up, iteration, history, report, create, run, and rerun.
-- **Recurring mission orchestration is now bridge-managed** — agents can inspect schedule worker state, define recurring schedules, and rely on a background worker instead of only manual tick calls.
-- **Workspace mission loop studio is deeper again** — the Workspace tab can now inspect schedule state alongside family and schedule surfaces.
-- **The mission/orchestration block keeps deepening** — the bridge is moving from “can define recurring mission families” toward “can operate recurring agentic mission loops.”
-- **629 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Chat bridge extension backend foundation landed** — Arena now has browser-extension-facing execution surfaces on top of the existing bridge core.
+- **New extension endpoints** — `GET /v1/extension/policies`, `POST /v1/extension/preview`, and `POST /v1/extension/execute` let a browser extension validate, classify, and execute structured Arena tool blocks from ordinary chat websites.
+- **Browser extension MVP scaffold added** — the repository now contains a first `chat_extension/` prototype with generic fenced-block detection for `arena-tool` payloads and localhost bridge execution.
+- **The product now has a path beyond native tool-supporting chats** — Arena is moving toward becoming a universal local execution layer for ordinary browser chats, not only environments with built-in MCP or code execution.
+- **633 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -562,6 +562,9 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `POST` | `/v1/mission/schedules` | Create or update a recurring mission schedule |
 | `DELETE` | `/v1/mission/schedules` | Delete a recurring mission schedule by id |
 | `POST` | `/v1/mission/schedules/tick` | Manually execute due mission schedules |
+| `GET` | `/v1/extension/policies` | Read browser chat extension execution policies, risk classes, and payload examples |
+| `POST` | `/v1/extension/preview` | Validate and classify a structured `arena-tool` payload before execution |
+| `POST` | `/v1/extension/execute` | Execute an approved `arena-tool` payload through the local bridge |
 
 ### MCP Protocol
 

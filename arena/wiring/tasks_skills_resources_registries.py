@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 from arena.app_keys import APP_CFG
 from arena.wiring.env import RuntimeEnv
+from arena.wiring.extension_bridge_wiring import build_extension_bridge_registry
 from arena.wiring.mission_lifecycle_wiring import build_mission_lifecycle_registry
 from arena.wiring.mission_resource_wiring import build_resource_registry
 
@@ -148,6 +149,7 @@ def build_tasks_skills_resources_registries(g: MutableMapping[str, Any]) -> dict
 
     build_resource_registry(env, registry)
     build_mission_lifecycle_registry(env, registry)
+    build_extension_bridge_registry(env, registry)
     return registry
 
 __all__ = ["build_tasks_skills_resources_registries"]

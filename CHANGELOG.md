@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.24.0 - 2026-06-26
+
+### Added
+- **Browser chat extension bridge endpoints** — added `GET /v1/extension/policies`, `POST /v1/extension/preview`, and `POST /v1/extension/execute` for extension-facing validation and execution of structured Arena tool payloads.
+- **Extension execution policy layer** — added site policy snapshots, tool risk classification, approval gating, and normalized batched tool execution for browser-originated tool blocks.
+- **Browser extension MVP scaffold** — added `chat_extension/` with a Manifest V3 prototype, generic `arena-tool` fenced-block detector, localhost bridge calls, and a lightweight background/content-script flow.
+
+### Improved
+- **Arena can now grow beyond chats with native MCP/code execution** — the bridge has a first execution protocol layer specifically for ordinary browser chats.
+- **The extension roadmap now has concrete code, not just planning** — `docs/CHAT_BRIDGE_EXTENSION_PLAN.md` is no longer just aspirational; Phase 1 bridge groundwork is implemented.
+- **Desktop maturity remains preserved** — this release does not touch the non-interactive KDE/Wayland focus/window-control path.
+
+### Tests
+- Added extension bridge regressions and browser extension scaffold checks.
+- Total: **633 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 633 tests.
+- Local `pytest --collect-only`: PASS, 633 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check dashboard/assets/26-workspace-v3.js`: PASS.
+- Local `node --check chat_extension/background.js`: PASS.
+- Local `node --check chat_extension/content.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 232.
+
 ## v3.23.0 - 2026-06-23
 
 ### Added

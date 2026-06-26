@@ -95,6 +95,8 @@ from arena.browser.cdp.runtime import (  # noqa: E402,F401
     cdp_watcher_active as _cdp_watcher_active,
 )
 from arena.browser.cdp.active_tab import cdp_active_tab as _cdp_active_tab_impl  # noqa: E402,F401
+from arena.extension_bridge.handlers import make_extension_bridge_handlers  # noqa: E402,F401
+from arena.extension_bridge.runtime import ExtensionBridgeRuntimeContext, make_extension_bridge_runtime  # noqa: E402,F401
 from arena.resources.listing import (  # noqa: E402,F401
     list_agents,
     list_hooks,

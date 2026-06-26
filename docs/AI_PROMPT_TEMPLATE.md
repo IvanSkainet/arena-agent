@@ -65,7 +65,12 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/mission/schedules/tick`**: Manually execute due mission schedules.
 - **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_state`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`**: The same planning/agentic and mission-composition capabilities through MCP.
 
-### 5. Background Tasks & Queue
+### 5. Browser Chat Extension Bridge
+- **`GET /v1/extension/policies`**: Read extension execution policy defaults, site trust rules, and payload examples.
+- **`POST /v1/extension/preview`**: Validate a structured `arena-tool` payload, classify tool risk, and learn whether approval is required before running it from a browser extension.
+- **`POST /v1/extension/execute`**: Execute an approved `arena-tool` payload through the bridge with batched call handling and audit logging.
+
+### 6. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.
 - **`GET /v1/tasks`**: Check statuses (`inbox`, `running`, `done`, `failed`).
 
