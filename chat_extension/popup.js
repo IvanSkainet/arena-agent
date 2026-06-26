@@ -62,6 +62,19 @@ async function loadPolicies() {
   status.textContent = JSON.stringify(result, null, 2);
 }
 
+
+async function copyInstructions(format) {
+  const status = document.getElementById('statusBox');
+  status.textContent = `Loading ${format} instructions...`;
+  const result = await send('arena.instructions', {format, style: 'full'});
+  if (!result.ok) {
+    status.textContent = `Instructions error: ${result.error || 'unknown'}`;
+    return;
+  }
+  await navigator.clipboard.writeText(result.text || '');
+  status.textContent = `Copied ${format} instructions (${(result.text || '').length} chars).`;
+}
+
 async function openPanel() {
   const status = document.getElementById('statusBox');
   const result = await send('arena.openSidePanel');
@@ -78,6 +91,8 @@ async function clearHistory() {
 document.getElementById('saveBtn').addEventListener('click', saveConfig);
 document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policyBtn').addEventListener('click', loadPolicies);
+document.getElementById('arenaInstructionsBtn').addEventListener('click', () => copyInstructions('arena'));
+document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => copyInstructions('jsonl'));
 document.getElementById('panelBtn').addEventListener('click', openPanel);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
 

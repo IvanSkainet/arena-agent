@@ -180,6 +180,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return sendResponse(result);
     }
     if (message?.type === 'arena.policies') return sendResponse(await bridgeFetch('/v1/extension/policies'));
+    if (message?.type === 'arena.instructions') {
+      const fmt = encodeURIComponent(message.body?.format || 'arena');
+      const style = encodeURIComponent(message.body?.style || 'full');
+      return sendResponse(await bridgeFetch(`/v1/extension/instructions?format=${fmt}&style=${style}`));
+    }
     return sendResponse({ok: false, error: 'unknown message type'});
   })().catch((error) => sendResponse({ok: false, error: String(error)}));
   return true;

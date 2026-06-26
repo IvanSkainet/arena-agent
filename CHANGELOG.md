@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.32.0 - 2026-06-26
+
+### Added
+- **Extension instruction generator endpoint** — added `GET /v1/extension/instructions?format=arena|jsonl|both&style=full|short` so chat sites can receive stable Arena tool-use instructions without hand-written prompts.
+- **Popup instruction copy actions** — the browser chat extension popup now includes Copy Arena Instructions and Copy JSONL Instructions actions for quick setup in AI Studio, ChatGPT, Kimi, Qwen, and other web chats.
+
+### Improved
+- **End-to-end chat workflow is more practical** — users can now configure the extension, copy the right prompt, ask the AI to emit a tool block, run it through Arena, and insert the result back into the chat.
+- **MCP SuperAssistant parity path is stronger** — JSONL-compatible instructions explicitly tell the model to emit `function_call_start` / `parameter` / `function_call_end` blocks and wait for extension-provided results.
+
+### Tests
+- Added extension instruction runtime and route regressions plus popup asset coverage for instruction copy actions.
+
 ## v3.31.0 - 2026-06-26
 
 ### Added

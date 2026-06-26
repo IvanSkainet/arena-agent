@@ -49,6 +49,7 @@ def register_domain_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_delete("/v1/mission/schedules", h["handle_v1_mission_schedules"])
     app.router.add_post("/v1/mission/schedules/tick", h["handle_v1_mission_schedules_tick"])
     app.router.add_get("/v1/extension/policies", h["handle_v1_extension_policies"])
+    app.router.add_get("/v1/extension/instructions", h["handle_v1_extension_instructions"])
     app.router.add_post("/v1/extension/preview", h["handle_v1_extension_preview"])
     app.router.add_post("/v1/extension/execute", h["handle_v1_extension_execute"])
     app.router.add_get("/v1/metrics", h["handle_v1_metrics"])

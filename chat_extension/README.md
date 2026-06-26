@@ -1,17 +1,18 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.8.0`.
+Current scaffold extension version: `0.9.0`.
 
 ## What it does today
 - injects a generic content script into web pages
 - uses a small adapter registry for ChatGPT, Claude, Gemini, Perplexity, Grok, OpenRouter, DeepSeek, Kimi, Qwen, and generic fallback
 - detects fenced `arena-tool` blocks and MCP SuperAssistant-style fenced `jsonl` function-call blocks
 - shows **Preview**, **Run**, **Insert Result**, **Insert & Submit**, **Copy Result**, and **Panel** controls
-- provides a popup UI for bridge URL/token config, connection testing, policy viewing, side panel opening, clearing history, and recent execution history
+- provides a popup UI for bridge URL/token config, connection testing, instruction copying, policy viewing, side panel opening, clearing history, and recent execution history
 - provides a side panel UI for richer history/debug viewing with replay actions, payload inspection, and simple filtering
 - sends requests to a local Arena bridge via:
   - `GET /v1/extension/policies`
+  - `GET /v1/extension/instructions`
   - `POST /v1/extension/preview`
   - `POST /v1/extension/execute`
 
@@ -68,7 +69,7 @@ The MVP parser also accepts a compatible JSONL block:
 It is normalized into the canonical Arena payload before preview/execute.
 
 ## Next planned steps
-- popup settings for auto-execute / auto-insert / auto-submit modes
+- live AI Studio smoke tests for copy-instructions → JSONL block → execute → insert
 - stronger Claude-specific adapter behavior
 - richer payload/result inspection UI
 - better cross-site composer strategies

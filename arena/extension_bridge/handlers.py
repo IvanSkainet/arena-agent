@@ -14,6 +14,7 @@ class ExtensionBridgeHandlers:
     policies: object
     preview: object
     execute: object
+    instructions: object
 
 
 
@@ -42,13 +43,23 @@ def make_extension_bridge_handlers(ctx: ExtensionBridgeHandlerContext) -> Extens
         result = await loop.run_in_executor(ctx.executor, ctx.policies_sync, {})
         return ctx.cors_json_response(result)
 
+    async def handle_instructions(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        data = {"format": request.query.get("format", "arena"), "style": request.query.get("style", "full")}
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.instructions_sync, data)
+        return ctx.cors_json_response(result)
+
     async def handle_preview(request: web.Request) -> web.Response:
         return await _post_json(ctx.preview_sync, request)
 
     async def handle_execute(request: web.Request) -> web.Response:
         return await _post_json(ctx.execute_sync, request)
 
-    return ExtensionBridgeHandlers(policies=handle_policies, preview=handle_preview, execute=handle_execute)
+    return ExtensionBridgeHandlers(policies=handle_policies, preview=handle_preview, execute=handle_execute, instructions=handle_instructions)
 
 
 __all__ = ["ExtensionBridgeHandlers", "make_extension_bridge_handlers"]

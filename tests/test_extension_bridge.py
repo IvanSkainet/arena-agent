@@ -62,6 +62,17 @@ def test_extension_execute_requires_approval_for_dangerous_call():
 
 
 
+def test_extension_instructions_runtime():
+    runtime, _seen = _runtime()
+    arena = runtime.instructions_sync({"format": "arena", "style": "full"})
+    assert arena["ok"] is True
+    assert "```arena-tool" in arena["text"]
+    assert "Do not invent tool results" in arena["text"]
+    jsonl = runtime.instructions_sync({"format": "jsonl", "style": "full"})
+    assert "```jsonl" in jsonl["text"]
+    assert "function_call_start" in jsonl["text"]
+
+
 def test_extension_handlers_and_routes():
     runtime, _seen = _runtime()
     ctx = ExtensionBridgeHandlerContext(
@@ -72,6 +83,7 @@ def test_extension_handlers_and_routes():
         policies_sync=runtime.policies_sync,
         preview_sync=runtime.preview_sync,
         execute_sync=runtime.execute_sync,
+        instructions_sync=runtime.instructions_sync,
     )
     handlers = make_extension_bridge_handlers(ctx)
 
@@ -104,5 +116,6 @@ def test_extension_handlers_and_routes():
     app = ub.make_app({"token": "test"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
     assert ("GET", "/v1/extension/policies") in paths
+    assert ("GET", "/v1/extension/instructions") in paths
     assert ("POST", "/v1/extension/preview") in paths
     assert ("POST", "/v1/extension/execute") in paths

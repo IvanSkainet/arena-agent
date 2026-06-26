@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from arena.extension_bridge.instructions import extension_instructions
 from arena.extension_bridge.policy import classify_tool_risk, extension_policy_snapshot
 
 
@@ -20,6 +21,7 @@ class ExtensionBridgeRuntime:
     policies_sync: Callable[[dict[str, Any] | None], dict[str, Any]]
     preview_sync: Callable[[dict[str, Any]], dict[str, Any]]
     execute_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    instructions_sync: Callable[[dict[str, Any] | None], dict[str, Any]]
 
 
 
@@ -42,6 +44,10 @@ def _normalize_call_tool_result(result: dict[str, Any]) -> dict[str, Any]:
 def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> ExtensionBridgeRuntime:
     def policies_sync(site: dict[str, Any] | None = None) -> dict[str, Any]:
         return extension_policy_snapshot(site)
+
+    def instructions_sync(data: dict[str, Any] | None = None) -> dict[str, Any]:
+        data = data or {}
+        return extension_instructions(str(data.get("format", "arena")), str(data.get("style", "full")))
 
     def preview_sync(data: dict[str, Any]) -> dict[str, Any]:
         payload = data.get("payload")
@@ -123,7 +129,7 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
         })
         return {"ok": all_ok, "site": preview["site"], "calls": executed, "summary": f"{len(executed)} call(s) executed"}
 
-    return ExtensionBridgeRuntime(policies_sync=policies_sync, preview_sync=preview_sync, execute_sync=execute_sync)
+    return ExtensionBridgeRuntime(policies_sync=policies_sync, preview_sync=preview_sync, execute_sync=execute_sync, instructions_sync=instructions_sync)
 
 
 __all__ = ["ExtensionBridgeRuntime", "ExtensionBridgeRuntimeContext", "make_extension_bridge_runtime"]

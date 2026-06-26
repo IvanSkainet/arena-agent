@@ -83,6 +83,7 @@ class ExtensionBridgeHandlerContext:
     policies_sync: Callable[[dict[str, Any] | None], dict[str, Any]]
     preview_sync: Callable[[dict[str, Any]], dict[str, Any]]
     execute_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    instructions_sync: Callable[[dict[str, Any] | None], dict[str, Any]]
 
 
 @dataclass(frozen=True)

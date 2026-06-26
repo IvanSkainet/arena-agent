@@ -22,13 +22,15 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.8.0"
+    assert manifest["version"] == "0.9.0"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
     assert "arena.preview" in background
     assert "arena.execute" in background
     assert "arena.testConnection" in background
+    assert "arena.instructions" in background
+    assert "/v1/extension/instructions" in background
     assert "arena.openSidePanel" in background
     assert "arena.replayHistory" in background
     assert "arena.clearHistory" in background
@@ -42,9 +44,12 @@ def test_chat_extension_scaffold_exists():
     assert "autoExecuteSafe" in popup_html
     assert "autoSubmitResult" in popup_html
     assert "panelBtn" in popup_html
+    assert "arenaInstructionsBtn" in popup_html
+    assert "jsonlInstructionsBtn" in popup_html
     assert "clearBtn" in popup_html
     assert "arena.getConfig" in popup
     assert "arenaModeSummary" in popup
+    assert "copyInstructions" in popup
     assert "refreshBtn" in sidepanel_html
     assert "clearBtn" in sidepanel_html
     assert "runHistoryAction" in sidepanel

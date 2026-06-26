@@ -46,12 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.31.0
+### 🆕 What's new in v3.32.0
 
-- **MCP SuperAssistant-style JSONL compatibility foundation** — the browser chat extension can now detect fenced `jsonl` function-call blocks and normalize them into Arena tool payloads.
-- **Expanded chat adapter coverage** — first site-registry coverage for Gemini / AI Studio, Perplexity, Grok, OpenRouter, DeepSeek, Kimi, Qwen, and generic fallback flows.
-- **Execution mode settings** — popup toggles for auto-preview, safe auto-execute, auto-insert, and auto-submit are now available, while manual confirmation remains the default.
-- **Bridge-native execution remains the core** — compatibility inputs still execute through Arena `/v1/extension/*` policy and audit layers, not a separate local executor.
+- **Extension instruction generator endpoint** — `GET /v1/extension/instructions` returns stable Arena or JSONL tool-use prompts for ordinary web chats.
+- **Popup instruction copy actions** — copy Arena-native or MCP SuperAssistant-compatible JSONL instructions directly from the browser extension popup.
+- **End-to-end chat setup is more practical** — configure bridge URL/token, copy instructions into AI Studio/ChatGPT/Kimi/Qwen, let the AI emit a tool block, run it through Arena, and insert the result back.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
