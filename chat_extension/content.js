@@ -1,6 +1,5 @@
 const BLOCK_RE = /```arena-tool\s*([\s\S]*?)```/g;
 const processed = new Set();
-let lastExecutionText = '';
 
 function hash(text) {
   let h = 0;
@@ -48,7 +47,7 @@ function buildRequest(payload, adapterName) {
   };
 }
 
-function insertIntoActiveField(text) {
+function genericInsertIntoActiveField(text) {
   const active = document.activeElement;
   if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type === 'text'))) {
     const start = active.selectionStart ?? active.value.length;
@@ -68,6 +67,8 @@ function mountControls(host, payload, adapterName) {
   const key = hash(host.textContent + JSON.stringify(payload));
   if (processed.has(key)) return;
   processed.add(key);
+  chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapterName, fingerprint: key}});
+  let lastExecutionText = '';
   const bar = document.createElement('div');
   bar.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:6px 0;';
   const status = document.createElement('span');
@@ -94,8 +95,9 @@ function mountControls(host, payload, adapterName) {
       status.textContent = 'No result yet. Run first.';
       return;
     }
-    const ok = insertIntoActiveField(`\n${lastExecutionText}\n`);
-    status.textContent = ok ? 'Inserted into active field.' : 'Could not insert; copy instead.';
+    const adapter = typeof getArenaAdapter === 'function' ? getArenaAdapter() : {name: adapterName};
+    const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(`\n${lastExecutionText}\n`, adapter)) || genericInsertIntoActiveField(`\n${lastExecutionText}\n`);
+    status.textContent = ok ? 'Inserted into input.' : 'Could not insert; copy instead.';
   }));
   bar.appendChild(makeButton('Copy Result', async () => {
     if (!lastExecutionText) {
@@ -108,6 +110,10 @@ function mountControls(host, payload, adapterName) {
     } catch (e) {
       status.textContent = `Copy failed: ${e}`;
     }
+  }));
+  bar.appendChild(makeButton('Panel', async () => {
+    const result = await chrome.runtime.sendMessage({type: 'arena.openSidePanel'});
+    status.textContent = result?.ok ? 'Opened side panel.' : `Panel error: ${result?.error || 'unknown'}`;
   }));
   host.appendChild(bar);
 }

@@ -1,13 +1,15 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
+Current scaffold extension version: `0.2.0`.
 
 ## What it does today
 - injects a generic content script into web pages
 - uses a small adapter registry for ChatGPT / Claude / generic fallback
 - detects fenced `arena-tool` blocks
-- shows **Preview**, **Run**, **Insert Result**, and **Copy Result** controls
-- provides a popup UI for bridge URL/token config, connection testing, policy viewing, and recent execution history
+- shows **Preview**, **Run**, **Insert Result**, **Copy Result**, and **Panel** controls
+- provides a popup UI for bridge URL/token config, connection testing, policy viewing, side panel opening, and recent execution history
+- provides a side panel UI for richer history/debug viewing
 - sends requests to a local Arena bridge via:
   - `GET /v1/extension/policies`
   - `POST /v1/extension/preview`
@@ -15,10 +17,8 @@ This is an early browser-extension scaffold for the Arena Chat Bridge idea.
 
 ## What it does not do yet
 - site-specific high-fidelity composer insertion for every supported chat
-- side panel UI
-- options/settings page beyond the popup
 - rich execution history filtering
-- auto-run policies in the extension UI
+- per-site auto-run policy controls in the extension UI
 - native messaging hardening
 
 ## Local bridge expectations

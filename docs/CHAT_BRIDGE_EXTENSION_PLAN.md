@@ -1,7 +1,7 @@
 # Arena Chat Bridge Extension — Project Plan
 
 Date: 2026-06-26
-Status: active implementation — Phase 1 bridge foundation and MVP extension UX started
+Status: active implementation — Phase 1 bridge foundation, popup UX, and side-panel/adapters in progress
 Owner: Arena Unified Bridge
 
 ---

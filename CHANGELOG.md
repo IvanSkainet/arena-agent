@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.26.0 - 2026-06-26
+
+### Added
+- **Extension side panel scaffold** — added side-panel assets for richer bridge status and execution history viewing directly inside the browser extension.
+- **Adapter-aware insertion helpers** — the extension now includes composer-aware adapter utilities, with a first stronger ChatGPT/ChatGPT.com path and generic fallback insertion logic.
+
+### Improved
+- **Extension UX is deeper than a popup-only shell** — the popup can now open the side panel, while the background tracks detections, previews, and executions as structured history entries.
+- **Result handling is more practical in real chats** — the content script now supports adapter-aware insertion before falling back to generic active-field insertion, plus a side-panel shortcut from detected blocks.
+- **Browser-chat execution continues to stay bridge-native** — these UX improvements build directly on the local Arena bridge rather than introducing a separate executor layer.
+
+### Tests
+- Expanded chat extension scaffold regressions for side-panel assets, adapter helpers, and panel/open interactions.
+- Total: **633 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 633 tests.
+- Local `pytest --collect-only`: PASS, 633 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check chat_extension/background.js`: PASS.
+- Local `node --check chat_extension/adapters.js`: PASS.
+- Local `node --check chat_extension/content.js`: PASS.
+- Local `node --check chat_extension/popup.js`: PASS.
+- Local `node --check chat_extension/sidepanel.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 232.
+
 ## v3.25.0 - 2026-06-26
 
 ### Added

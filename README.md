@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.25.0
+### 🆕 What's new in v3.26.0
 
-- **Chat extension MVP is more usable now** — the browser extension scaffold now has a popup UI for bridge URL/token configuration, connection testing, policy viewing, and recent execution history.
-- **Generic adapter layer started** — the extension now has an adapter registry plus a better generic detection flow instead of one hard-coded detector path.
-- **Result handling is better** — after execution, the extension can now copy results and attempt insertion back into the active input field.
-- **The browser-chat direction is no longer just backend-only** — Arena now has both bridge-side extension execution surfaces and a minimally usable extension UX layer.
+- **Chat extension side panel landed** — the extension scaffold now has a richer panel for bridge status and execution history, not only a popup.
+- **ChatGPT adapter path is stronger** — the adapter scaffold now includes composer-aware insertion helpers, with a better ChatGPT/ChatGPT.com path plus generic fallback insertion.
+- **Detection/debug UX is better** — detections, previews, and executions are now recorded as structured history entries, and detected blocks can open the side panel directly.
+- **The browser-chat layer keeps getting more real** — Arena now has backend execution surfaces, popup configuration, side-panel UX, and the first stronger adapter-aware insertion path.
 - **633 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

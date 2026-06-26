@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arena Chat Bridge Panel</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Arena Chat Bridge Panel</h1>
+    <section>
+      <div class="row">
+        <button id="refreshBtn">Refresh</button>
+        <button id="testBtn">Test Bridge</button>
+        <button id="policiesBtn">Policies</button>
+      </div>
+      <pre id="statusBox">Loading...</pre>
+    </section>
+    <section>
+      <h2>Recent detections / executions</h2>
+      <pre id="historyBox">No history yet.</pre>
+    </section>
+  </main>
+  <script src="sidepanel.js"></script>
+</body>
+</html>

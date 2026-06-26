@@ -12,7 +12,8 @@ function renderHistory(items) {
     const ts = item.at || '';
     const kind = item.kind || 'event';
     const detail = item.detail || '';
-    return `[${ts}] ${kind}${detail ? ' — ' + detail : ''}`;
+    const site = item.site ? ` @ ${item.site}` : '';
+    return `[${ts}] ${kind}${site}${detail ? ' — ' + detail : ''}`;
   }).join('\n');
 }
 
@@ -51,9 +52,16 @@ async function loadPolicies() {
   status.textContent = JSON.stringify(result, null, 2);
 }
 
+async function openPanel() {
+  const status = document.getElementById('statusBox');
+  const result = await send('arena.openSidePanel');
+  status.textContent = result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`;
+}
+
 document.getElementById('saveBtn').addEventListener('click', saveConfig);
 document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policyBtn').addEventListener('click', loadPolicies);
+document.getElementById('panelBtn').addEventListener('click', openPanel);
 
 loadConfig().then(loadHistory).catch((error) => {
   document.getElementById('statusBox').textContent = String(error);
