@@ -1,5 +1,32 @@
-async function send(type, body) {
-  return chrome.runtime.sendMessage({type, body});
+function send(type, body) {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({type, body}, (response) => {
+        const err = chrome.runtime.lastError;
+        if (err) return resolve({ok: false, error: err.message || String(err)});
+        resolve(response || {ok: false, error: 'empty background response'});
+      });
+    } catch (error) {
+      resolve({ok: false, error: String(error)});
+    }
+  });
+}
+
+function statusText(text) {
+  document.getElementById('statusBox').textContent = text;
+}
+
+function statusJson(data) {
+  document.getElementById('statusBox').textContent = JSON.stringify(data, null, 2);
+}
+
+function currentModes() {
+  return {
+    autoPreview: document.getElementById('autoPreview').checked,
+    autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
+    autoInsertResult: document.getElementById('autoInsertResult').checked,
+    autoSubmitResult: document.getElementById('autoSubmitResult').checked,
+  };
 }
 
 function renderHistory(items) {
@@ -19,72 +46,84 @@ function renderHistory(items) {
 
 async function loadConfig() {
   const cfg = await send('arena.getConfig');
+  if (!cfg || cfg.ok === false) {
+    statusText(`Config load error: ${cfg?.error || 'unknown'}`);
+    return false;
+  }
   document.getElementById('bridgeUrl').value = cfg.bridgeUrl || '';
   document.getElementById('bridgeToken').value = cfg.bridgeToken || '';
   const modes = cfg.modes || {};
   ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult'].forEach((id) => {
     document.getElementById(id).checked = !!modes[id];
   });
+  statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
+  return true;
 }
 
 async function loadHistory() {
   const result = await send('arena.getHistory');
+  if (!result || result.ok === false) {
+    renderHistory([]);
+    statusText(`History load error: ${result?.error || 'unknown'}`);
+    return false;
+  }
   renderHistory(result.items || []);
+  return true;
 }
 
 async function saveConfig() {
-  const status = document.getElementById('statusBox');
-  status.textContent = 'Saving...';
-  const result = await send('arena.saveConfig', {
+  statusText('Saving...');
+  const payload = {
     bridgeUrl: document.getElementById('bridgeUrl').value.trim(),
     bridgeToken: document.getElementById('bridgeToken').value.trim(),
-    modes: {
-      autoPreview: document.getElementById('autoPreview').checked,
-      autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
-      autoInsertResult: document.getElementById('autoInsertResult').checked,
-      autoSubmitResult: document.getElementById('autoSubmitResult').checked,
-    },
-  });
-  status.textContent = result.ok ? `Saved. Modes: ${arenaModeSummary(result.config?.modes)}` : `Error: ${result.error || 'unknown'}`;
+    modes: currentModes(),
+  };
+  const result = await send('arena.saveConfig', payload);
+  if (!result?.ok) {
+    statusText(`Save error: ${result?.error || 'unknown'}`);
+    return;
+  }
+  const verify = await send('arena.getConfig');
+  if (!verify || verify.ok === false) {
+    statusText(`Saved, but verify failed: ${verify?.error || 'unknown'}`);
+    return;
+  }
+  document.getElementById('bridgeUrl').value = verify.bridgeUrl || '';
+  document.getElementById('bridgeToken').value = verify.bridgeToken || '';
+  statusText(`Saved. Modes: ${arenaModeSummary(verify.modes)}`);
 }
 
 async function testConnection() {
-  const status = document.getElementById('statusBox');
-  status.textContent = 'Testing bridge...';
+  statusText('Testing bridge...');
   const result = await send('arena.testConnection');
-  status.textContent = JSON.stringify(result, null, 2);
+  statusJson(result);
 }
 
 async function loadPolicies() {
-  const status = document.getElementById('statusBox');
-  status.textContent = 'Loading policies...';
+  statusText('Loading policies...');
   const result = await send('arena.policies');
-  status.textContent = JSON.stringify(result, null, 2);
+  statusJson(result);
 }
 
-
 async function copyInstructions(format) {
-  const status = document.getElementById('statusBox');
-  status.textContent = `Loading ${format} instructions...`;
+  statusText(`Loading ${format} instructions...`);
   const result = await send('arena.instructions', {format, style: 'full'});
   if (!result.ok) {
-    status.textContent = `Instructions error: ${result.error || 'unknown'}`;
+    statusText(`Instructions error: ${result.error || 'unknown'}`);
     return;
   }
   await navigator.clipboard.writeText(result.text || '');
-  status.textContent = `Copied ${format} instructions (${(result.text || '').length} chars).`;
+  statusText(`Copied ${format} instructions (${(result.text || '').length} chars).`);
 }
 
 async function openPanel() {
-  const status = document.getElementById('statusBox');
   const result = await send('arena.openSidePanel');
-  status.textContent = result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`;
+  statusText(result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`);
 }
 
 async function clearHistory() {
-  const status = document.getElementById('statusBox');
   const result = await send('arena.clearHistory');
-  status.textContent = result.ok ? 'History cleared.' : `Error: ${result.error || 'unknown'}`;
+  statusText(result.ok ? 'History cleared.' : `Error: ${result.error || 'unknown'}`);
   await loadHistory();
 }
 
@@ -96,6 +135,10 @@ document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => 
 document.getElementById('panelBtn').addEventListener('click', openPanel);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
 
-loadConfig().then(loadHistory).catch((error) => {
-  document.getElementById('statusBox').textContent = String(error);
+(async () => {
+  statusText('Loading config...');
+  const ok = await loadConfig();
+  if (ok) await loadHistory();
+})().catch((error) => {
+  statusText(`Popup error: ${String(error)}`);
 });

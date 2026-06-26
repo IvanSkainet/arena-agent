@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.33.0 - 2026-06-26
+
+### Fixed
+- **Popup save/load reliability** — the browser chat extension popup now uses callback-compatible runtime messaging with explicit `chrome.runtime.lastError` handling, avoiding indefinite `Loading...` states in browsers where promise-style `sendMessage` is unreliable.
+- **Configuration save verification** — saving bridge URL, token, and execution modes now immediately reloads stored config to confirm persistence and show a clear status.
+
+### Improved
+- **Popup diagnostics** — config/history load failures now render actionable error messages instead of leaving the popup stuck.
+
+### Tests
+- Expanded popup asset regressions for callback-compatible messaging and explicit save/load error states.
+
 ## v3.32.0 - 2026-06-26
 
 ### Added
