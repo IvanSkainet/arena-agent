@@ -1,5 +1,18 @@
 # Changelog
 
+## v3.36.0 - 2026-06-26
+
+### Fixed
+- **Execution error visibility** — the browser extension now surfaces failed tool-call results instead of showing `error: unknown` when the bridge returns `ok: false` with per-call output.
+- **Rendered code-block controls** — inline controls are attached after rendered `pre` / `code` blocks instead of being appended inside code-block UI.
+- **Panel fallback** — if Chrome refuses `sidePanel.open()` because of user-gesture restrictions, the extension opens `sidepanel.html` in a regular extension tab.
+
+### Improved
+- **Result handling** — failed executions with structured tool output can still be copied/inserted for diagnosis, such as `mission not found` responses.
+
+### Tests
+- Expanded extension asset regressions for error summarization and panel fallback behavior.
+
 ## v3.35.0 - 2026-06-26
 
 ### Fixed

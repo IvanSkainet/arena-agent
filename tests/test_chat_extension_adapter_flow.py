@@ -34,6 +34,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaInsertAndSubmit' in adapters
     assert 'scheduleScan' in content
     assert 'data-arena-tool-controls' in content
+    assert 'arenaToolControlsMounted' in content
+    assert 'insertAdjacentElement' in content
     assert 'MutationObserver' in content
     assert 'runAutoModes' in content
     assert 'autoExecuteSafe' in settings
@@ -42,6 +44,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.9.3`.' in readme
+    assert 'Current scaffold extension version: `0.9.4`.' in readme
     assert 'Insert & Submit' in readme
     assert 'side panel UI' in readme

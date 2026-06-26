@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.35.0
+### 🆕 What's new in v3.36.0
 
-- **Rendered AI Studio JSONL detection** — the browser extension now catches MCP SuperAssistant-style `function_call_start` / `function_call_end` blocks even when Google AI Studio displays them as pretty `Jsonl` code blocks without literal triple backticks.
-- **Stronger Gemini / AI Studio scanning** — rendered `pre`, `code`, and code-like nodes are scanned so inline Arena controls can appear next to real model output.
+- **Readable execution failures** — extension history and inline controls now show failed tool-call output instead of `error: unknown`.
+- **Cleaner AI Studio controls** — controls are attached after rendered `Jsonl` code blocks rather than inside the code-block UI.
+- **Panel fallback** — if Chrome blocks `sidePanel.open()`, the side panel opens as a normal extension tab.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
-
 
 ---
 

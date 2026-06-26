@@ -9,15 +9,13 @@ function hash(text) {
 
 function resultToText(result) {
   if (!result) return '';
-  if (Array.isArray(result.calls)) {
-    return result.calls.map((call) => {
-      const parsed = call?.result?.parsed;
-      if (parsed) return JSON.stringify(parsed, null, 2);
-      if (call?.result?.text) return String(call.result.text);
-      return JSON.stringify(call, null, 2);
-    }).join('\n\n');
-  }
-  return JSON.stringify(result, null, 2);
+  if (!Array.isArray(result.calls)) return JSON.stringify(result, null, 2);
+  return result.calls.map((call) => {
+    const parsed = call?.result?.parsed;
+    if (parsed) return JSON.stringify(parsed, null, 2);
+    if (call?.result?.text) return String(call.result.text);
+    return JSON.stringify(call, null, 2);
+  }).join('\n\n');
 }
 
 function makeButton(label, onClick) {
@@ -26,6 +24,26 @@ function makeButton(label, onClick) {
   btn.style.cssText = 'padding:4px 8px;font-size:12px;cursor:pointer;border-radius:6px;border:1px solid #888;background:#111;color:#fff;';
   btn.addEventListener('click', onClick);
   return btn;
+}
+
+function resultErrorText(result) {
+  if (!result) return 'empty response';
+  if (result.error) return String(result.error);
+  const failed = Array.isArray(result.calls) ? result.calls.find((call) => call && call.ok === false) : null;
+  const parsed = failed?.result?.parsed;
+  return parsed?.error || parsed?.message || (failed?.result?.text ? String(failed.result.text).slice(0, 220) : '') || result.summary || (result.status ? `HTTP ${result.status}` : 'unknown');
+}
+
+function controlsHost(node) {
+  if (!node) return document.body;
+  if (node.tagName === 'CODE') return node.closest('pre') || node;
+  return node;
+}
+
+function attachControls(host, bar) {
+  const tag = String(host?.tagName || '').toUpperCase();
+  if ((tag === 'PRE' || tag === 'CODE') && host.parentNode) host.insertAdjacentElement('afterend', bar);
+  else host.appendChild(bar);
 }
 
 function buildRequest(payload, adapterName, fingerprint) {
@@ -54,15 +72,19 @@ function genericInsertIntoActiveField(text) {
 }
 
 function mountControls(host, payload, adapter) {
-  const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
-  if (processed.has(fingerprint)) return;
+  host = controlsHost(host);
+  const baseFingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
+  const fingerprint = host.dataset.arenaToolFingerprint || baseFingerprint;
+  if (processed.has(fingerprint) || host.dataset.arenaToolControlsMounted === '1') return;
   processed.add(fingerprint);
+  host.dataset.arenaToolControlsMounted = '1';
+  host.dataset.arenaToolFingerprint = fingerprint;
   const request = buildRequest(payload, adapter.name, fingerprint);
   chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapter.name, fingerprint, payload: request}});
   let lastExecutionText = '';
   const bar = document.createElement('div');
   bar.dataset.arenaToolControls = '1';
-  bar.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:6px 0;';
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0;padding:6px 8px;border:1px solid rgba(148,163,184,.45);border-radius:8px;background:rgba(15,23,42,.92);max-width:100%;';
   const status = document.createElement('span');
   status.style.cssText = 'font-size:12px;color:#888;';
   status.textContent = `Arena tool block detected (${adapter.name})`;
@@ -70,16 +92,16 @@ function mountControls(host, payload, adapter) {
   bar.appendChild(makeButton('Preview', async () => {
     status.textContent = 'Previewing...';
     const result = await chrome.runtime.sendMessage({type: 'arena.preview', body: request});
-    status.textContent = result?.ok ? `Preview: ${result.calls?.length || 0} call(s), approval=${!!result.policy?.requires_approval}` : `Preview error: ${result?.error || 'unknown'}`;
+    status.textContent = result?.ok ? `Preview: ${result.calls?.length || 0} call(s), approval=${!!result.policy?.requires_approval}` : `Preview error: ${resultErrorText(result)}`;
   }));
   bar.appendChild(makeButton('Run', async () => {
     status.textContent = 'Running...';
     const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {approve: true}}});
+    if (Array.isArray(result?.calls)) lastExecutionText = resultToText(result);
     if (result?.ok) {
-      lastExecutionText = resultToText(result);
       status.textContent = `Executed ${result.calls?.length || 0} call(s)`;
     } else {
-      status.textContent = `Run error: ${result?.error || 'unknown'}`;
+      status.textContent = `Run error: ${resultErrorText(result)}`;
     }
   }));
   bar.appendChild(makeButton('Insert Result', async () => {
@@ -125,7 +147,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   status.textContent = modes.autoExecuteSafe ? 'Auto previewing before safe execution...' : 'Auto previewing...';
   const preview = await chrome.runtime.sendMessage({type: 'arena.preview', body: request});
   if (!preview?.ok) {
-    status.textContent = `Auto preview error: ${preview?.error || 'unknown'}`;
+    status.textContent = `Auto preview error: ${resultErrorText(preview)}`;
     return;
   }
   if (!modes.autoExecuteSafe || !preview.policy?.can_auto_run) {
@@ -135,7 +157,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   status.textContent = 'Auto executing safe call(s)...';
   const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {}}});
   if (!result?.ok) {
-    status.textContent = `Auto run error: ${result?.error || 'unknown'}`;
+    status.textContent = `Auto run error: ${resultErrorText(result)}`;
     return;
   }
   const text = resultToText(result);
@@ -153,9 +175,11 @@ async function runAutoModes(request, adapter, status, setResultText) {
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
   state.nodes.forEach((node) => {
-    if (node.querySelector?.('[data-arena-tool-controls="1"]')) return;
+    const host = controlsHost(node);
+    if (host.dataset?.arenaToolControlsMounted === '1') return;
+    if (host.querySelector?.('[data-arena-tool-controls="1"]')) return;
     const blocks = parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || '')));
-    blocks.forEach((entry) => mountControls(node, entry.payload, state.adapter));
+    blocks.forEach((entry) => mountControls(host, entry.payload, state.adapter));
   });
 }
 

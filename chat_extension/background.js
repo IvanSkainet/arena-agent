@@ -69,18 +69,21 @@ async function clearHistory() {
 function compactResult(result) {
   if (!result || typeof result !== 'object') return null;
   const summary = {ok: !!result.ok};
-  if (result.summary) summary.summary = result.summary;
-  if (Array.isArray(result.calls)) {
-    summary.calls = result.calls.map((call) => ({
-      id: call.id,
-      tool: call.tool,
-      ok: call.ok,
-      risk: call.risk,
-      result: call.result?.parsed || call.result?.text || call.result?.raw || null,
-    }));
-  }
+  ['error', 'status', 'summary'].forEach((key) => { if (result[key]) summary[key] = result[key]; });
+  if (Array.isArray(result.calls)) summary.calls = result.calls.map((call) => ({
+    id: call.id, tool: call.tool, ok: call.ok, risk: call.risk,
+    result: call.result?.parsed || call.result?.text || call.result?.raw || null,
+  }));
   if (result.preview) summary.preview = result.preview;
   return summary;
+}
+
+function describeBridgeResult(result) {
+  if (!result) return 'empty response';
+  if (result.error) return String(result.error);
+  const failed = Array.isArray(result.calls) ? result.calls.find((call) => call && call.ok === false) : null;
+  const parsed = failed?.result?.parsed;
+  return parsed?.error || parsed?.message || (failed?.result?.text ? String(failed.result.text).slice(0, 220) : '') || result.summary || (result.status ? `HTTP ${result.status}` : 'unknown');
 }
 
 async function pushHistory(kind, detail) {
@@ -114,11 +117,20 @@ async function testConnection() {
 }
 
 async function openSidePanel() {
-  if (!chrome.sidePanel?.open || !chrome.tabs?.query) return {ok: false, error: 'side panel api unavailable'};
-  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-  if (!tab?.id) return {ok: false, error: 'active tab not found'};
-  await chrome.sidePanel.open({tabId: tab.id});
-  return {ok: true, tabId: tab.id};
+  const url = chrome.runtime.getURL('sidepanel.html');
+  try {
+    if (chrome.sidePanel?.open && chrome.tabs?.query) {
+      const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+      if (tab?.id) { await chrome.sidePanel.open({tabId: tab.id}); return {ok: true, tabId: tab.id, mode: 'sidePanel'}; }
+    }
+  } catch (error) {
+    if (!chrome.tabs?.create) return {ok: false, error: String(error)};
+    const tab = await chrome.tabs.create({url, active: true});
+    return {ok: true, tabId: tab?.id, mode: 'tab', warning: String(error)};
+  }
+  if (!chrome.tabs?.create) return {ok: false, error: 'side panel api unavailable'};
+  const tab = await chrome.tabs.create({url, active: true});
+  return {ok: true, tabId: tab?.id, mode: 'tab'};
 }
 
 async function replayHistory(index, mode = 'execute') {
@@ -126,15 +138,12 @@ async function replayHistory(index, mode = 'execute') {
   if (!itemResult.ok) return itemResult;
   const item = itemResult.item;
   if (!item.payload) return {ok: false, error: 'history item has no payload'};
-  if (mode === 'preview') {
-    return bridgeFetch('/v1/extension/preview', {method: 'POST', body: item.payload});
-  }
+  if (mode === 'preview') return bridgeFetch('/v1/extension/preview', {method: 'POST', body: item.payload});
   return bridgeFetch('/v1/extension/execute', {method: 'POST', body: {...item.payload, mode: {...(item.payload.mode || {}), approve: true}}});
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const cfg = await chrome.storage.sync.get(DEFAULTS);
-  await chrome.storage.sync.set({...DEFAULTS, ...cfg});
+  const cfg = await chrome.storage.sync.get(DEFAULTS); await chrome.storage.sync.set({...DEFAULTS, ...cfg});
   const local = await chrome.storage.local.get({[HISTORY_KEY]: []});
   if (!Array.isArray(local[HISTORY_KEY])) await chrome.storage.local.set({[HISTORY_KEY]: []});
 });
@@ -156,7 +165,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'arena.preview') {
       const result = await bridgeFetch('/v1/extension/preview', {method: 'POST', body: message.body});
       await pushHistory('preview', {
-        detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`,
+        detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${describeBridgeResult(result)}`,
         site: message.body?.site?.origin || '',
         adapter: message.body?.site?.adapter || '',
         fingerprint: message.body?.message?.fingerprint || '',
@@ -169,7 +178,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'arena.execute') {
       const result = await bridgeFetch('/v1/extension/execute', {method: 'POST', body: message.body});
       await pushHistory('execute', {
-        detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${result.error || 'unknown'}`,
+        detail: result.ok ? `${result.calls?.length || 0} call(s)` : `error: ${describeBridgeResult(result)}`,
         site: message.body?.site?.origin || '',
         adapter: message.body?.site?.adapter || '',
         fingerprint: message.body?.message?.fingerprint || '',
