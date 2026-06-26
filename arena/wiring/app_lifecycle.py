@@ -29,6 +29,9 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
     def _get_shutdown_event():
         return g.get("_shutdown_event")
 
+    def _get_mission_schedule_loop():
+        return g.get("mission_schedule_loop")
+
     lifecycle_ctx = env.LifecycleContext(
         executor=env._EXECUTOR,
         slow_executor=env._SLOW_EXECUTOR,
@@ -36,6 +39,7 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         task_runner_loop=g["task_runner_loop"],
         log_cleanup_loop=g["_log_cleanup_loop"],
         file_watch_loop=g["file_watch_loop"],
+        get_mission_schedule_loop=_get_mission_schedule_loop,
         start_watchdog=env._start_watchdog,
         stop_watchdog=env._stop_watchdog,
         stop_cdp_watcher=env._stop_cdp_watcher,
@@ -52,6 +56,7 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         "_set_app_ref": _set_app_ref,
         "make_app": make_app,
         "_get_shutdown_event": _get_shutdown_event,
+        "_get_mission_schedule_loop": _get_mission_schedule_loop,
         "_lifecycle_ctx": lifecycle_ctx,
         "_lifecycle_runtime": lifecycle_runtime,
         "on_startup": lifecycle_runtime.on_startup,

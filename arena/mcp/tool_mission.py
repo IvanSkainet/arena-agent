@@ -59,6 +59,8 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         query = urlencode({k: v for k, v in {"action": args.get("action", ""), "enabled": args.get("enabled"), "due_only": args.get("due_only"), "limit": args.get("limit")}.items() if v not in (None, "")})
         suffix = f"?{query}" if query else ""
         return text_content(json.dumps(_bridge_call(ctx, f"/v1/mission/schedules{suffix}", None, method="GET"), ensure_ascii=False))
+    if name == "mission.schedule_state":
+        return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/schedules/state", None, method="GET"), ensure_ascii=False))
     if name == "mission.schedule_save":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/schedules", args), ensure_ascii=False))
     if name == "mission.schedule_delete":

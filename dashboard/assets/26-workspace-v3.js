@@ -129,8 +129,11 @@ async function loadWorkspaceMissionSchedules() {
   const box = _workspaceMissionLoopBox("workspaceMissionSchedules");
   box.textContent = "Loading mission schedules...";
   try {
-    const result = await api("/v1/mission/schedules?limit=12");
-    box.textContent = JSON.stringify(result, null, 2);
+    const [state, result] = await Promise.all([
+      api("/v1/mission/schedules/state"),
+      api("/v1/mission/schedules?limit=12"),
+    ]);
+    box.textContent = JSON.stringify({state, schedules: result}, null, 2);
   } catch (e) {
     box.textContent = "Error: " + (e.message || "unknown");
   }

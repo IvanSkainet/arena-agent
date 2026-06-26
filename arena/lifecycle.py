@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import web
-from arena.app_keys import APP_CFG, APP_TASK_RUNNER, APP_LOG_CLEANUP, APP_FILE_WATCH_LOOP
+from arena.app_keys import APP_CFG, APP_TASK_RUNNER, APP_LOG_CLEANUP, APP_FILE_WATCH_LOOP, APP_MISSION_SCHEDULE_LOOP
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ class LifecycleContext:
     task_runner_loop: Callable[[web.Application], Any]
     log_cleanup_loop: Callable[[web.Application], Any]
     file_watch_loop: Callable[[web.Application], Any]
+    get_mission_schedule_loop: Callable[[], Callable[[web.Application], Any] | None]
     start_watchdog: Callable[[], None]
     stop_watchdog: Callable[[], None]
     stop_cdp_watcher: Callable[[], None]
@@ -52,6 +53,9 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         app[APP_TASK_RUNNER] = asyncio.ensure_future(ctx.task_runner_loop(app))
         app[APP_LOG_CLEANUP] = asyncio.ensure_future(ctx.log_cleanup_loop(app))
         app[APP_FILE_WATCH_LOOP] = asyncio.ensure_future(ctx.file_watch_loop(app))
+        mission_schedule_loop = ctx.get_mission_schedule_loop()
+        if mission_schedule_loop is not None:
+            app[APP_MISSION_SCHEDULE_LOOP] = asyncio.ensure_future(mission_schedule_loop(app))
         ctx.start_watchdog()
 
         if shutil.which("ydotoold") and hasattr(os, "getuid") and not os.path.exists("/run/user/%d/.ydotool_socket" % os.getuid()):
@@ -89,6 +93,14 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             fw.cancel()
             try:
                 await fw
+            except asyncio.CancelledError:
+                pass
+
+        ms = app.get(APP_MISSION_SCHEDULE_LOOP)
+        if ms:
+            ms.cancel()
+            try:
+                await ms
             except asyncio.CancelledError:
                 pass
 

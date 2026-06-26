@@ -41,18 +41,18 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Public HTTPS in one click** | Tailscale Funnel integration — no port-forward, no DDNS, real Let's Encrypt cert |
 | **16-tab dashboard** | Overview, Workspace, Terminal, Memory, Recall, Missions, Browser, Reports, Tasks, Skills, Hooks, Agents, Control, Doctor, Audit, Settings |
 | **Deep system inventory** | Motherboard, BIOS, CPU per core, GPU/VRAM, RAM modules with vendor/part numbers, all disks, all network interfaces, runtimes, package managers, browsers, displays |
-| **Built-in AI tooling** | MCP server with 60+ tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
+| **Built-in AI tooling** | MCP server with 68 tools, BrowserAct integration, Superpowers skill repository (14 skills), Camoufox stealth browser |
 | **Disk-safe logging** | Multiple layers of log rotation and disk monitoring — no more disk fill surprises (see [Disk Safety](#-disk-safety-v210)) |
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.22.0
+### 🆕 What's new in v3.23.0
 
-- **Mission family surfaces landed** — Arena now has explicit mission family summaries and mission schedule surfaces on top of lineage, catalog, recovery, follow-up, iteration, history, report, create, run, and rerun.
-- **Persisted missions can now be grouped and orchestrated recurrently** — agents can inspect a whole mission family, define recurring schedules, and manually tick due schedules through REST and MCP.
-- **Workspace mission loop studio is deeper** — the Workspace tab can now inspect family state and drive mission schedules, not just lineage/follow-up/iterate flows.
-- **The mission/orchestration block keeps deepening** — the bridge is moving from “can manage mission chains” toward “can manage recurring mission families.”
-- **626 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Automatic mission schedule worker landed** — Arena now has background recurring mission execution on top of family, lineage, catalog, recovery, follow-up, iteration, history, report, create, run, and rerun.
+- **Recurring mission orchestration is now bridge-managed** — agents can inspect schedule worker state, define recurring schedules, and rely on a background worker instead of only manual tick calls.
+- **Workspace mission loop studio is deeper again** — the Workspace tab can now inspect schedule state alongside family and schedule surfaces.
+- **The mission/orchestration block keeps deepening** — the bridge is moving from “can define recurring mission families” toward “can operate recurring agentic mission loops.”
+- **629 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -550,6 +550,7 @@ Removes the service, scheduled task, and deletes all bridge files. Token and mem
 | `GET` | `/v1/mission/family?name=…` | Inspect the full mission family rooted at a mission chain, including members, leaves, and branch summaries |
 | `GET` | `/v1/mission/catalog?q=&state=&template=&has_report=&limit=&offset=` | Filter persisted missions by lifecycle metadata and return summary stats |
 | `GET` | `/v1/mission/schedules?action=&enabled=&due_only=&limit=` | List recurring mission schedules and due-state summaries |
+| `GET` | `/v1/mission/schedules/state` | Read recurring mission schedule worker state |
 | `POST` | `/v1/mission/compose` | Compose a planner-backed mission draft from a goal, context, and optional template |
 | `POST` | `/v1/mission/propose` | Run a bounded agentic proposal flow and return a mission bundle, with optional create/run |
 | `POST` | `/v1/mission/create` | Persist a composed mission draft into the local `missions/` directory |
@@ -606,7 +607,7 @@ The dashboard at `/gui` has **16 tabs** and works in any modern browser without 
 | Tab | What it does |
 |-----|--------------|
 | **Overview** | Bridge metrics, hardware diagnostics card, full inventory drawer, disk usage |
-| **Workspace** | Companion-style surface for active profile context, planner output, bounded ReAct runs, reflection, file watcher management, profile notes, important lessons, recent activity, and a mission loop studio for lineage / family / schedules / follow-up / iterate flows |
+| **Workspace** | Companion-style surface for active profile context, planner output, bounded ReAct runs, reflection, file watcher management, profile notes, important lessons, recent activity, and a mission loop studio for lineage / family / schedules / schedule-state / follow-up / iterate flows |
 | **Terminal** | Real shell session with slash-commands (`/shot`, `/read`, `/search`, ...) + arrow history |
 | **Memory** | List, search, add, delete key/value/tag facts |
 | **Recall** | Fuzzy TF-scored memory search and digest |

@@ -24,6 +24,7 @@ def test_mission_lifecycle_handlers_support_family_and_schedules():
         executor=ub._EXECUTOR,
         mission_family_sync=lambda name: {"ok": True, "root": {"id": name}, "members": [], "stats": {"total": 1}},
         mission_schedules_sync=lambda data: {"ok": True, "count": 1, "total": 1, "schedules": [{"id": "sched", "action": data.get("action", "iterate")}]},
+        mission_schedule_state_sync=lambda: {"ok": True, "worker": {"enabled": True, "total_ticks": 3}},
         mission_schedule_save_sync=lambda data: {"ok": True, "schedule": {"id": data.get("schedule_id", "sched"), "mission_id": data.get("mission_id", "demo")}},
         mission_schedule_delete_sync=lambda data: {"ok": True, "schedule_id": data.get("schedule_id", "sched")},
         mission_schedule_tick_sync=lambda data: {"ok": True, "executed": 1, "results": [{"schedule": {"id": data.get("schedule_id", "sched")}}]},
@@ -41,6 +42,12 @@ def test_mission_lifecycle_handlers_support_family_and_schedules():
     list_data = json.loads(list_resp.text)
     assert list_data["ok"] is True
     assert list_data["schedules"][0]["action"] == "iterate"
+
+    state_req = make_mocked_request("GET", "/v1/mission/schedules/state", headers={"Authorization": "Bearer t"})
+    state_resp = asyncio.run(handlers.mission_schedules_state(state_req))
+    state_data = json.loads(state_resp.text)
+    assert state_data["ok"] is True
+    assert state_data["worker"]["total_ticks"] == 3
 
     save_req = make_mocked_request("POST", "/v1/mission/schedules", headers={"Authorization": "Bearer t"})
 
@@ -74,3 +81,13 @@ def test_mission_lifecycle_handlers_support_family_and_schedules():
     tick_data = json.loads(tick_resp.text)
     assert tick_data["ok"] is True
     assert tick_data["executed"] == 1
+
+
+def test_unified_routes_include_mission_family_and_schedule_surfaces():
+    app = ub.make_app({"token": "test"})
+    paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
+    for path in ["/v1/mission/family", "/v1/mission/schedules", "/v1/mission/schedules/state"]:
+        assert ("GET", path) in paths
+    for path in ["/v1/mission/schedules", "/v1/mission/schedules/tick"]:
+        assert ("POST", path) in paths
+    assert ("DELETE", "/v1/mission/schedules") in paths

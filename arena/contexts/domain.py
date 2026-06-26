@@ -83,6 +83,7 @@ class MissionLifecycleHandlerContext:
     executor: Executor
     mission_family_sync: Callable[[str], dict[str, Any]]
     mission_schedules_sync: Callable[[dict[str, Any]], dict[str, Any]]
+    mission_schedule_state_sync: Callable[[], dict[str, Any]]
     mission_schedule_save_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_schedule_delete_sync: Callable[[dict[str, Any]], dict[str, Any]]
     mission_schedule_tick_sync: Callable[[dict[str, Any]], dict[str, Any]]

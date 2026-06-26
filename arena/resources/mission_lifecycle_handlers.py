@@ -14,6 +14,7 @@ from arena.handler_context import MissionLifecycleHandlerContext
 class MissionLifecycleHandlers:
     mission_family: object
     mission_schedules: object
+    mission_schedules_state: object
     mission_schedules_tick: object
 
 
@@ -70,6 +71,15 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
         status = int(result.pop("status", 200 if result.get("ok") else 400))
         return ctx.cors_json_response(result, status=status)
 
+    async def handle_v1_mission_schedules_state(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.mission_schedule_state_sync)
+        return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 400)))
+
     async def handle_v1_mission_schedules_tick(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -88,6 +98,7 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
     return MissionLifecycleHandlers(
         mission_family=handle_v1_mission_family,
         mission_schedules=handle_v1_mission_schedules,
+        mission_schedules_state=handle_v1_mission_schedules_state,
         mission_schedules_tick=handle_v1_mission_schedules_tick,
     )
 

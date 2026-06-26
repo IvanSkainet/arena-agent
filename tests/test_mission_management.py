@@ -206,6 +206,7 @@ def test_mission_handlers_and_registry(tmp_path):
     assert "mission.followup" in names
     assert "mission.iterate" in names
     assert "mission.schedules" in names
+    assert "mission.schedule_state" in names
     assert "mission.schedule_save" in names
     assert "mission.schedule_delete" in names
     assert "mission.schedule_tick" in names

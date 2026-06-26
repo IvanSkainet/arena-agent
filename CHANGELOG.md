@@ -1,5 +1,30 @@
 # Changelog
 
+## v3.23.0 - 2026-06-23
+
+### Added
+- **Automatic mission schedule worker** — added a background recurring mission scheduler that executes due mission schedules without requiring manual ticks.
+- **Schedule worker state surface** — added `GET /v1/mission/schedules/state` and MCP `mission.schedule_state`, exposing worker state, last tick, totals, and last execution status.
+
+### Improved
+- **Recurring mission orchestration is now bridge-managed** — schedule definitions are no longer just stored objects; the bridge now runs them in the background and tracks worker state.
+- **Workspace schedule view is richer** — the Workspace mission loop studio now loads both mission schedules and schedule worker state together.
+- **Desktop maturity remains preserved** — this release does not touch the non-interactive KDE/Wayland focus/window-control path.
+
+### Tests
+- Added mission schedule worker regressions and lifecycle coverage updates.
+- Total: **629 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 629 tests.
+- Local `pytest --collect-only`: PASS, 629 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check dashboard/assets/26-workspace-v3.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 229.
+
 ## v3.22.0 - 2026-06-23
 
 ### Added

@@ -51,6 +51,7 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`GET /v1/mission/family?name=...`**: Inspect a whole mission family, including leaves, branches, and family-level stats.
 - **`GET /v1/mission/catalog?q=&state=&template=&has_report=&limit=&offset=`**: Filter persisted missions by lifecycle metadata and get summary stats.
 - **`GET /v1/mission/schedules?action=&enabled=&due_only=&limit=`**: List recurring mission schedules and due-state summaries.
+- **`GET /v1/mission/schedules/state`**: Read the recurring mission schedule worker state.
 - **`POST /v1/mission/compose`**: Turn a goal into a reusable planner-backed mission draft.
 - **`POST /v1/mission/propose`**: Run a bounded agentic proposal loop, reflect on it, and return a mission bundle with optional mission creation/run.
 - **`POST /v1/mission/create`**: Persist a mission draft into the local `missions/` directory.
@@ -62,7 +63,7 @@ Always check `/health` or `GET /` to list all available endpoints if you need to
 - **`POST /v1/mission/schedules`**: Create or update a recurring mission schedule.
 - **`DELETE /v1/mission/schedules`**: Delete a recurring mission schedule by id.
 - **`POST /v1/mission/schedules/tick`**: Manually execute due mission schedules.
-- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`**: The same planning/agentic and mission-composition capabilities through MCP.
+- **MCP tools `plan.create`, `react.run`, `reflect.run`, `mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_state`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`**: The same planning/agentic and mission-composition capabilities through MCP.
 
 ### 5. Background Tasks & Queue
 - **`POST /v1/tasks`**: Queue long-running tasks: `{"cmd": "...", "title": "..."}`.

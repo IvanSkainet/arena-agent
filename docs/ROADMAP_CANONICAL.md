@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-23
-Validated baseline: `v3.22.0`
+Validated baseline: `v3.23.0`
 
 This file is the planning source of truth.
 
@@ -25,8 +25,8 @@ This file is the planning source of truth.
 - file watchers (`F5`) via `GET/POST/DELETE /v1/watch/files` and MCP `watch.files`
 - safe editor foundation (`F4`) via preview/apply/rollback flow for REST and MCP file edits
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
-- mission composition and inspection v6 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`)
-- workspace dashboard surface v4 with profile context, planner, ReAct/reflection, notes, lessons, recent activity, mission loop studio, and schedule controls
+- mission composition and inspection v7 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_state`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`)
+- workspace dashboard surface v5 with profile context, planner, ReAct/reflection, notes, lessons, recent activity, mission loop studio, schedule controls, and schedule worker state
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, non-interactive KDE/Wayland window control, and high-level text workflows
 - OpenAPI partial coverage
@@ -128,6 +128,7 @@ Status update:
 - mission follow-up and mission iteration loop surfaces landed in `v3.20.0`
 - mission lineage plus workspace mission loop studio landed in `v3.21.0`
 - mission family summaries and recurring mission schedules landed in `v3.22.0`
+- automatic mission schedule worker and schedule-state surfaces landed in `v3.23.0`
 
 ---
 
