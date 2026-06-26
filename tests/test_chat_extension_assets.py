@@ -12,10 +12,18 @@ def test_chat_extension_scaffold_exists():
     manifest = json.loads((base / "manifest.json").read_text(encoding="utf-8"))
     background = (base / "background.js").read_text(encoding="utf-8")
     content = (base / "content.js").read_text(encoding="utf-8")
+    popup = (base / "popup.js").read_text(encoding="utf-8")
+    popup_html = (base / "popup.html").read_text(encoding="utf-8")
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
+    assert manifest["action"]["default_popup"] == "popup.html"
+    assert manifest["content_scripts"][0]["js"][0] == "adapters.js"
     assert "arena.preview" in background
     assert "arena.execute" in background
+    assert "arena.testConnection" in background
     assert "```arena-tool" in content
+    assert "Insert Result" in content
+    assert "saveBtn" in popup_html
+    assert "arena.getConfig" in popup
     assert "/v1/extension/execute" in readme

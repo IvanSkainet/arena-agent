@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-26
-Validated baseline: `v3.24.0`
+Validated baseline: `v3.25.0`
 
 This file is the planning source of truth.
 
@@ -27,7 +27,7 @@ This file is the planning source of truth.
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
 - mission composition and inspection v7 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_state`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`)
 - workspace dashboard surface v5 with profile context, planner, ReAct/reflection, notes, lessons, recent activity, mission loop studio, schedule controls, and schedule worker state
-- browser chat extension phase-1 backend foundation plus MVP scaffold for ordinary chat websites
+- browser chat extension phase-2 MVP UX scaffold with popup config, connection testing, generic adapters, and result insertion
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, non-interactive KDE/Wayland window control, and high-level text workflows
 - OpenAPI partial coverage
@@ -131,6 +131,7 @@ Status update:
 - mission family summaries and recurring mission schedules landed in `v3.22.0`
 - automatic mission schedule worker and schedule-state surfaces landed in `v3.23.0`
 - browser chat extension phase-1 backend foundation and MVP scaffold landed in `v3.24.0`
+- browser chat extension phase-2 popup/config/adapter UX improvements landed in `v3.25.0`
 
 ---
 

@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.24.0
+### 🆕 What's new in v3.25.0
 
-- **Chat bridge extension backend foundation landed** — Arena now has browser-extension-facing execution surfaces on top of the existing bridge core.
-- **New extension endpoints** — `GET /v1/extension/policies`, `POST /v1/extension/preview`, and `POST /v1/extension/execute` let a browser extension validate, classify, and execute structured Arena tool blocks from ordinary chat websites.
-- **Browser extension MVP scaffold added** — the repository now contains a first `chat_extension/` prototype with generic fenced-block detection for `arena-tool` payloads and localhost bridge execution.
-- **The product now has a path beyond native tool-supporting chats** — Arena is moving toward becoming a universal local execution layer for ordinary browser chats, not only environments with built-in MCP or code execution.
+- **Chat extension MVP is more usable now** — the browser extension scaffold now has a popup UI for bridge URL/token configuration, connection testing, policy viewing, and recent execution history.
+- **Generic adapter layer started** — the extension now has an adapter registry plus a better generic detection flow instead of one hard-coded detector path.
+- **Result handling is better** — after execution, the extension can now copy results and attempt insertion back into the active input field.
+- **The browser-chat direction is no longer just backend-only** — Arena now has both bridge-side extension execution surfaces and a minimally usable extension UX layer.
 - **633 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

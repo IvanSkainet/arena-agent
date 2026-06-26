@@ -20,10 +20,13 @@
   "background": {
     "service_worker": "background.js"
   },
+  "action": {
+    "default_popup": "popup.html"
+  },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content.js"],
+      "js": ["adapters.js", "content.js"],
       "run_at": "document_idle"
     }
   ]

@@ -4,18 +4,20 @@ This is an early browser-extension scaffold for the Arena Chat Bridge idea.
 
 ## What it does today
 - injects a generic content script into web pages
+- uses a small adapter registry for ChatGPT / Claude / generic fallback
 - detects fenced `arena-tool` blocks
-- shows **Preview** and **Run** controls
+- shows **Preview**, **Run**, **Insert Result**, and **Copy Result** controls
+- provides a popup UI for bridge URL/token config, connection testing, policy viewing, and recent execution history
 - sends requests to a local Arena bridge via:
   - `GET /v1/extension/policies`
   - `POST /v1/extension/preview`
   - `POST /v1/extension/execute`
 
 ## What it does not do yet
-- site-specific adapters
-- reliable composer insertion
+- site-specific high-fidelity composer insertion for every supported chat
 - side panel UI
-- options/settings page
+- options/settings page beyond the popup
+- rich execution history filtering
 - auto-run policies in the extension UI
 - native messaging hardening
 

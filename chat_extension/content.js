@@ -1,5 +1,6 @@
 const BLOCK_RE = /```arena-tool\s*([\s\S]*?)```/g;
 const processed = new Set();
+let lastExecutionText = '';
 
 function hash(text) {
   let h = 0;
@@ -17,50 +18,105 @@ function parseArenaBlocks(text) {
   return out;
 }
 
+function resultToText(result) {
+  if (!result) return '';
+  if (Array.isArray(result.calls)) {
+    return result.calls.map((call) => {
+      const parsed = call?.result?.parsed;
+      if (parsed) return JSON.stringify(parsed, null, 2);
+      if (call?.result?.text) return String(call.result.text);
+      return JSON.stringify(call, null, 2);
+    }).join('\n\n');
+  }
+  return JSON.stringify(result, null, 2);
+}
+
 function makeButton(label, onClick) {
   const btn = document.createElement('button');
   btn.textContent = label;
-  btn.style.cssText = 'margin-left:8px;padding:4px 8px;font-size:12px;cursor:pointer;border-radius:6px;border:1px solid #888;background:#111;color:#fff;';
+  btn.style.cssText = 'padding:4px 8px;font-size:12px;cursor:pointer;border-radius:6px;border:1px solid #888;background:#111;color:#fff;';
   btn.addEventListener('click', onClick);
   return btn;
 }
 
-function buildRequest(payload) {
+function buildRequest(payload, adapterName) {
   return {
-    site: {origin: location.origin, url: location.href, adapter: 'generic'},
+    site: {origin: location.origin, url: location.href, adapter: adapterName},
     message: {fingerprint: hash(location.href + JSON.stringify(payload))},
     payload,
     mode: {},
   };
 }
 
-function mountControls(host, payload) {
+function insertIntoActiveField(text) {
+  const active = document.activeElement;
+  if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type === 'text'))) {
+    const start = active.selectionStart ?? active.value.length;
+    const end = active.selectionEnd ?? active.value.length;
+    active.value = `${active.value.slice(0, start)}${text}${active.value.slice(end)}`;
+    active.dispatchEvent(new Event('input', {bubbles: true}));
+    return true;
+  }
+  if (active && active.isContentEditable) {
+    document.execCommand('insertText', false, text);
+    return true;
+  }
+  return false;
+}
+
+function mountControls(host, payload, adapterName) {
   const key = hash(host.textContent + JSON.stringify(payload));
   if (processed.has(key)) return;
   processed.add(key);
   const bar = document.createElement('div');
-  bar.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:8px;';
+  bar.style.cssText = 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:6px 0;';
   const status = document.createElement('span');
   status.style.cssText = 'font-size:12px;color:#888;';
-  status.textContent = 'Arena tool block detected';
+  status.textContent = `Arena tool block detected (${adapterName})`;
   bar.appendChild(status);
   bar.appendChild(makeButton('Preview', async () => {
     status.textContent = 'Previewing...';
-    const result = await chrome.runtime.sendMessage({type: 'arena.preview', body: buildRequest(payload)});
+    const result = await chrome.runtime.sendMessage({type: 'arena.preview', body: buildRequest(payload, adapterName)});
     status.textContent = result?.ok ? `Preview: ${result.calls?.length || 0} call(s), approval=${!!result.policy?.requires_approval}` : `Preview error: ${result?.error || 'unknown'}`;
   }));
   bar.appendChild(makeButton('Run', async () => {
     status.textContent = 'Running...';
-    const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...buildRequest(payload), mode: {approve: true}}});
-    status.textContent = result?.ok ? `Executed ${result.calls?.length || 0} call(s)` : `Run error: ${result?.error || 'unknown'}`;
+    const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...buildRequest(payload, adapterName), mode: {approve: true}}});
+    if (result?.ok) {
+      lastExecutionText = resultToText(result);
+      status.textContent = `Executed ${result.calls?.length || 0} call(s)`;
+    } else {
+      status.textContent = `Run error: ${result?.error || 'unknown'}`;
+    }
+  }));
+  bar.appendChild(makeButton('Insert Result', async () => {
+    if (!lastExecutionText) {
+      status.textContent = 'No result yet. Run first.';
+      return;
+    }
+    const ok = insertIntoActiveField(`\n${lastExecutionText}\n`);
+    status.textContent = ok ? 'Inserted into active field.' : 'Could not insert; copy instead.';
+  }));
+  bar.appendChild(makeButton('Copy Result', async () => {
+    if (!lastExecutionText) {
+      status.textContent = 'No result yet. Run first.';
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lastExecutionText);
+      status.textContent = 'Result copied.';
+    } catch (e) {
+      status.textContent = `Copy failed: ${e}`;
+    }
   }));
   host.appendChild(bar);
 }
 
 function scan() {
-  document.querySelectorAll('pre, code, article, main').forEach((node) => {
+  const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
+  state.nodes.forEach((node) => {
     const blocks = parseArenaBlocks(node.textContent || '');
-    blocks.forEach((entry) => mountControls(node, entry.payload));
+    blocks.forEach((entry) => mountControls(node, entry.payload, state.adapter.name));
   });
 }
 

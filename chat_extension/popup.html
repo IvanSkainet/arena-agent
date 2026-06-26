@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arena Chat Bridge</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main>
+    <h1>Arena Chat Bridge</h1>
+    <section>
+      <label>Bridge URL</label>
+      <input id="bridgeUrl" placeholder="http://127.0.0.1:8765">
+      <label>Bridge Token</label>
+      <input id="bridgeToken" type="password" placeholder="Bearer token">
+      <div class="row">
+        <button id="saveBtn">Save</button>
+        <button id="testBtn">Test</button>
+        <button id="policyBtn">Policies</button>
+      </div>
+      <pre id="statusBox">Loading...</pre>
+    </section>
+    <section>
+      <h2>Recent executions</h2>
+      <pre id="historyBox">No history yet.</pre>
+    </section>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

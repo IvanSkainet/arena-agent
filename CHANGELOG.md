@@ -1,5 +1,33 @@
 # Changelog
 
+## v3.25.0 - 2026-06-26
+
+### Added
+- **Extension popup UI** — added popup assets for bridge URL/token configuration, connection testing, policy inspection, and recent extension execution history.
+- **Extension adapter scaffold** — added `chat_extension/adapters.js` with the first adapter registry and host-aware candidate node selection for ChatGPT, Claude, and generic fallback flows.
+
+### Improved
+- **Extension UX is now minimally usable without editing files by hand** — users can configure the local bridge and inspect connectivity directly from the extension popup.
+- **Result handling is more practical** — the content script now supports result copy and best-effort insertion back into active text inputs/contenteditable fields after execution.
+- **Browser-chat execution remains bridge-native** — the extension UX improvements build directly on the `v3.24.0` backend foundation without introducing a separate local executor layer.
+
+### Tests
+- Expanded chat extension scaffold regressions for popup/config/history/adapter assets.
+- Total: **633 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 633 tests.
+- Local `pytest --collect-only`: PASS, 633 tests collected.
+- Local `bash -n install.sh`: PASS.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check chat_extension/background.js`: PASS.
+- Local `node --check chat_extension/adapters.js`: PASS.
+- Local `node --check chat_extension/content.js`: PASS.
+- Local `node --check chat_extension/popup.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 232.
+
 ## v3.24.0 - 2026-06-26
 
 ### Added
