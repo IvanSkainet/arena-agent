@@ -46,12 +46,12 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.29.0
+### 🆕 What's new in v3.30.0
 
-- **Side-panel replay and payload inspection landed** — the browser chat extension can now inspect stored payloads, replay previews, and replay executions directly from side-panel history.
-- **ChatGPT-oriented detection is stronger** — assistant message fingerprinting and stricter candidate filtering reduce noise on large chat DOMs.
-- **The extension debug loop is more practical** — popup + side panel + history filters + payload inspection now form a stronger browser-chat workflow.
-- **This keeps moving Arena toward a real universal chat execution layer** — the extension is becoming useful not just for one-shot runs, but for repeated inspect/replay/debug loops.
+- **Side-panel result inspection landed** — the browser chat extension can now inspect stored execution results separately from payloads.
+- **History filtering is stronger** — the side panel now filters by kind, site, and adapter, making multi-site debugging more practical.
+- **ChatGPT-oriented adapter flow is tighter** — latest-candidate helpers, node-id extraction, and stricter assistant filtering improve large-chat behavior without changing the bridge-side protocol.
+- **The extension debug loop keeps getting stronger** — payload inspection, result inspection, copy actions, replay, and filtering now work together in one browser surface.
 - **637 tests pass**, no regressions. Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

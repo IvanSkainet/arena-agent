@@ -3,7 +3,7 @@ const DEFAULTS = {
   bridgeToken: '',
 };
 const HISTORY_KEY = 'arenaHistory';
-const HISTORY_LIMIT = 120;
+const HISTORY_LIMIT = 160;
 
 async function getConfig() {
   const data = await chrome.storage.sync.get(DEFAULTS);
@@ -24,10 +24,12 @@ async function getHistory(filters = {}) {
   const items = data[HISTORY_KEY] || [];
   const kind = String(filters.kind || '').trim();
   const site = String(filters.site || '').trim().toLowerCase();
+  const adapter = String(filters.adapter || '').trim().toLowerCase();
   const limit = Math.max(1, Math.min(200, parseInt(filters.limit || items.length || 1, 10)));
   const filtered = items.filter((item) => {
     if (kind && item.kind !== kind) return false;
     if (site && !String(item.site || '').toLowerCase().includes(site)) return false;
+    if (adapter && !String(item.adapter || '').toLowerCase().includes(adapter)) return false;
     return true;
   });
   return {ok: true, items: filtered.slice(0, limit), total: items.length, filtered: filtered.length};
@@ -43,6 +45,23 @@ async function getHistoryItem(index) {
 async function clearHistory() {
   await chrome.storage.local.set({[HISTORY_KEY]: []});
   return {ok: true};
+}
+
+function compactResult(result) {
+  if (!result || typeof result !== 'object') return null;
+  const summary = {ok: !!result.ok};
+  if (result.summary) summary.summary = result.summary;
+  if (Array.isArray(result.calls)) {
+    summary.calls = result.calls.map((call) => ({
+      id: call.id,
+      tool: call.tool,
+      ok: call.ok,
+      risk: call.risk,
+      result: call.result?.parsed || call.result?.text || call.result?.raw || null,
+    }));
+  }
+  if (result.preview) summary.preview = result.preview;
+  return summary;
 }
 
 async function pushHistory(kind, detail) {
@@ -124,6 +143,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         fingerprint: message.body?.message?.fingerprint || '',
         ok: !!result.ok,
         payload: message.body,
+        response: compactResult(result),
       });
       return sendResponse(result);
     }
@@ -136,6 +156,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         fingerprint: message.body?.message?.fingerprint || '',
         ok: !!result.ok,
         payload: message.body,
+        response: compactResult(result),
       });
       return sendResponse(result);
     }

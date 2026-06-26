@@ -1,7 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
 Date: 2026-06-26
-Validated baseline: `v3.29.0`
+Validated baseline: `v3.30.0`
 
 This file is the planning source of truth.
 
@@ -9,7 +9,7 @@ This file is the planning source of truth.
 
 ## 1. Current validated state
 
-- Version: `3.29.0`
+- Version: `3.30.0`
 - Tests: `637 passed`
 - MCP tools: `68`
 - Route objects in aiohttp app: `346`
@@ -27,7 +27,7 @@ This file is the planning source of truth.
 - bounded ReAct + reflection foundation (`A2` / `A3`) via `/v1/react`, `/v1/reflect`, `react.run`, and `reflect.run`
 - mission composition and inspection v7 via REST + MCP (`mission.templates`, `mission.status`, `mission.report`, `mission.history`, `mission.lineage`, `mission.family`, `mission.catalog`, `mission.compose`, `mission.propose`, `mission.create`, `mission.run`, `mission.rerun`, `mission.recover`, `mission.followup`, `mission.iterate`, `mission.schedules`, `mission.schedule_state`, `mission.schedule_save`, `mission.schedule_delete`, `mission.schedule_tick`)
 - workspace dashboard surface v5 with profile context, planner, ReAct/reflection, notes, lessons, recent activity, mission loop studio, schedule controls, and schedule worker state
-- browser chat extension phase-5 UX scaffold with popup config, side panel, replayable execution history, throttled detection, stronger ChatGPT-oriented adapters, and insert-and-submit flows
+- browser chat extension phase-7 UX scaffold with popup config, side panel, replayable execution history, payload/result inspection, throttled detection, stronger ChatGPT-oriented adapters, and insert-and-submit flows
 - desktop OCR + text-target detection (`D1`) via REST and MCP
 - `D2 / D3` desktop maturity: exact/phrase-first OCR ranking, click-by-text, OCR-to-window resolution, query-driven focus/window actions, display-aware placement, snap/tile placement, non-interactive KDE/Wayland window control, and high-level text workflows
 - OpenAPI partial coverage
@@ -136,6 +136,7 @@ Status update:
 - browser chat extension phase-4 replay/debug/insert-and-submit improvements landed in `v3.27.0`
 - browser chat extension phase-5 stronger ChatGPT detection and throttled scan improvements landed in `v3.28.0`
 - browser chat extension phase-6 side-panel payload inspection and replay/debug improvements landed in `v3.29.0`
+- browser chat extension phase-7 result inspection and adapter-filtered history improvements landed in `v3.30.0`
 
 ---
 

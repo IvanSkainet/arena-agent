@@ -11,10 +11,14 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     js = (ROOT / 'chat_extension' / 'sidepanel.js').read_text(encoding='utf-8')
     assert 'kindFilter' in html
     assert 'siteFilter' in html
+    assert 'adapterFilter' in html
     assert 'applyFilterBtn' in html
     assert 'payloadBox' in html
+    assert 'resultBox' in html
     assert 'renderPayload' in js
+    assert 'renderResult' in js
     assert 'Copy Payload' in js
+    assert 'Copy Result' in js
     assert 'arena.getHistory' in js
 
 
@@ -23,4 +27,5 @@ def test_background_supports_history_item_and_filters():
     assert 'getHistory(filters = {})' in bg
     assert 'getHistoryItem' in bg
     assert 'arena.getHistoryItem' in bg
-    assert 'site: message.body?.site?.origin' in bg
+    assert 'adapter: message.body?.site?.adapter' in bg
+    assert 'response: compactResult(result)' in bg

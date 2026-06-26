@@ -43,12 +43,27 @@ function arenaHasArenaToolBlock(node) {
   return /```arena-tool\s*[\s\S]*?```/m.test(arenaNodeText(node));
 }
 
+function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
+  if (!node) return '';
+  return [
+    adapter.name,
+    node.getAttribute?.('data-testid') || '',
+    node.getAttribute?.('data-message-author-role') || '',
+    node.id || '',
+    arenaNodeText(node).slice(0, 80),
+  ].join('|');
+}
+
 function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
   if (!node) return false;
   if (adapter.name === 'chatgpt') {
     if (node.getAttribute('data-message-author-role') === 'assistant') return true;
-    const parent = node.closest('[data-message-author-role="assistant"]');
-    return !!parent;
+    return !!node.closest('[data-message-author-role="assistant"]');
+  }
+  if (adapter.name === 'claude') {
+    if (node.isContentEditable) return false;
+    if (node.querySelector?.('[contenteditable="true"]')) return false;
+    return true;
   }
   return true;
 }
@@ -56,9 +71,7 @@ function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
 function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
   const base = [
     adapter.name,
-    node?.getAttribute?.('data-testid') || '',
-    node?.getAttribute?.('data-message-author-role') || '',
-    arenaNodeText(node).slice(0, 200),
+    arenaExtractNodeId(node, adapter),
     JSON.stringify(payload || {}),
   ].join('|');
   let h = 0;
@@ -79,7 +92,12 @@ function arenaCandidateNodes() {
       nodes.push(node);
     });
   });
-  return {adapter, nodes: nodes.slice(-3)};
+  return {adapter, nodes: nodes.slice(-5)};
+}
+
+function arenaLatestCandidateNodes() {
+  const state = arenaCandidateNodes();
+  return {adapter: state.adapter, nodes: state.nodes.slice(-2)};
 }
 
 function arenaFindComposer(adapter = getArenaAdapter()) {

@@ -1,5 +1,34 @@
 # Changelog
 
+## v3.30.0 - 2026-06-26
+
+### Added
+- **Side-panel result inspector** — the browser chat extension side panel can now inspect stored execution results separately from payloads.
+- **History filtering by adapter** — the side panel now filters history not only by kind/site but also by adapter, making multi-site debugging more practical.
+- **Richer history metadata** — preview and execute entries now persist adapter, fingerprint, payload, and compact response data for later inspection and replay.
+
+### Improved
+- **ChatGPT-oriented adapter flow is stronger again** — the adapter layer now exposes latest-candidate helpers, node-id extraction, and tighter assistant-container filtering for better large-chat behavior.
+- **Side-panel debugging loop is more complete** — payload inspection, result inspection, payload/result copy, filtering, replay, and clear-history controls now work together in one surface.
+- **Browser-chat execution remains bridge-native** — no separate executor was introduced; the extension still uses the local Arena bridge execution model.
+
+### Tests
+- Added side-panel flow regressions for payload/result inspection and adapter-filter behavior.
+- Total: **637 tests pass**.
+
+### Validation
+- Local `pytest -q`: PASS, 637 tests.
+- Local `pytest --collect-only`: PASS, 637 tests collected.
+- Local `python -m py_compile` across `arena/**/*.py`, `scripts/*.py`, `bin/agentctl`, `bin/bridge-curl`, `unified_bridge.py`, `_arena_helper.py`: PASS.
+- Local `ruff check . --select F821,F811`: PASS.
+- Local `node --check chat_extension/background.js`: PASS.
+- Local `node --check chat_extension/adapters.js`: PASS.
+- Local `node --check chat_extension/content.js`: PASS.
+- Local `node --check chat_extension/popup.js`: PASS.
+- Local `node --check chat_extension/sidepanel.js`: PASS.
+- MCP tools: 68.
+- Distinct non-HEAD routes: 232.
+
 ## v3.29.0 - 2026-06-26
 
 ### Added
