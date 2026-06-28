@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.62.0
+### 🆕 What's new in v3.63.0
 
-- **Insert strategy diagnostics**: extension settings now support `auto`, `nativeInsertText`, `paragraphFallback`, and `pasteOnly` strategies.
-- **Gemini speed A/B testing**: toolbar status reports strategy/timing like `via nativeInsertText in 42ms`.
-- **Manual and auto flows aligned**: auto insert/submit uses the same configured strategy.
+- **Verified insert diagnostics**: contenteditable strategies now check that the composer text actually changed before reporting success.
+- **Fixed false paste success**: `pasteOnly` no longer reports `Inserted` when Gemini ignores the synthetic paste event.
+- **Direct DOM text strategy**: added `directDomText` as a no-`execCommand` diagnostic path for slow Gemini rich-textarea insertion.
 
 ---
 

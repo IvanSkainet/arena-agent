@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.63.0 - 2026-06-28
+
+- Added verified contenteditable insert diagnostics: strategies now report success only when composer text actually changes.
+- Fixed the `pasteOnly` false-positive path that could report `Inserted` even when Gemini ignored the synthetic paste event.
+- Added a `directDomText` insert strategy to test a no-`execCommand` path for Gemini rich-textarea latency without creating a separate Gemini mode.
+
 ## v3.62.0 - 2026-06-28
 
 - Added an extension insert-strategy selector (`auto`, `nativeInsertText`, `paragraphFallback`, `pasteOnly`) for A/B testing Gemini and other contenteditable composers without site-specific modes.

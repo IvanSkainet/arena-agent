@@ -187,7 +187,16 @@ function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
 }
 function arenaNormalizeInsertStrategy(strategy) {
-  return ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly'].includes(strategy) ? strategy : 'auto';
+  return ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText'].includes(strategy) ? strategy : 'auto';
+}
+function arenaEditableText(target) {
+  return String(target?.textContent || '').replace(/\s+/g, ' ').trim();
+}
+function arenaEditableChanged(before, target, text) {
+  const after = arenaEditableText(target);
+  if (after === before) return false;
+  const marker = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return !marker || after.includes(marker) || after.length > before.length;
 }
 function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();
@@ -204,9 +213,7 @@ function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto')
     arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), method: 'value'});
     return true;
   }
-  if (target.isContentEditable) {
-    return arenaInsertIntoEditable(target, text, strategy);
-  }
+  if (target.isContentEditable) return arenaInsertIntoEditable(target, text, strategy);
   return false;
 }
 
@@ -230,18 +237,44 @@ function arenaPasteOnly(target, text) {
     return target.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, cancelable: true, clipboardData: dt})) !== false;
   } catch (_e) { return false; }
 }
+function arenaDirectDomText(target, text) {
+  const selection = window.getSelection?.();
+  let range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  if (!range || !target.contains(range.commonAncestorContainer)) {
+    range = document.createRange();
+    range.selectNodeContents(target);
+    range.collapse(false);
+  }
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  range.deleteContents();
+  const fragment = document.createDocumentFragment();
+  String(text).split('\n').forEach((line, index) => {
+    if (index) fragment.appendChild(document.createElement('br'));
+    if (line) fragment.appendChild(document.createTextNode(line));
+  });
+  range.insertNode(fragment);
+  range.collapse(false);
+  target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText', data: String(text)}));
+  target.dispatchEvent(new Event('change', {bubbles: true}));
+  return true;
+}
 function arenaInsertIntoEditable(target, text, strategy = 'auto') {
   const started = performance.now();
   const requested = arenaNormalizeInsertStrategy(strategy);
   const selected = requested === 'auto' ? 'nativeInsertText' : requested;
   arenaFocusComposer(target);
+  const before = arenaEditableText(target);
   let ok = false;
   if (selected === 'pasteOnly') ok = arenaPasteOnly(target, text);
   else if (selected === 'paragraphFallback') ok = arenaParagraphInsert(text);
-  else {
+  else if (selected === 'directDomText') {
+    try { ok = arenaDirectDomText(target, text); } catch (_e) { ok = false; }
+  } else {
     try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
-    if (!ok) { ok = arenaParagraphInsert(text); }
+    if (!ok) ok = arenaParagraphInsert(text);
   }
+  ok = ok && arenaEditableChanged(before, target, text);
   arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), strategy: selected, method: ok ? selected : 'failed'});
   return ok;
 }
