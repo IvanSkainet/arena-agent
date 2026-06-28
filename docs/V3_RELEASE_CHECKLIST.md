@@ -31,7 +31,7 @@ Expected:
 
 ```bash
 python dev/stress-test-v4.py \
-  --url https://cachyos-x8664.tail328f18.ts.net \
+  --url https://YOUR-MACHINE.tail-XXXXX.ts.net \
   --token <token> \
   --timeout 45 \
   --restart

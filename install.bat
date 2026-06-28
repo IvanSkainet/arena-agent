@@ -215,11 +215,11 @@ if defined CLOUDFLARED_BIN (
     goto :cloudflared_done
 )
 echo [INFO] cloudflared not found. It installs INSIDE the bridge directory.
-echo       Path: %BRIDGE_DIR%\cloudflared.exe - 40MB. Tailscale Funnel is the
+echo       Path: %BRIDGE_DIR%\cloudflared.exe - 50 MB. Tailscale Funnel is the
 echo       recommended option; cloudflared is an alternative for environments
 echo       where Tailscale cannot run.
 set "CF_CONFIRM="
-set /p "CF_CONFIRM=Download cloudflared.exe - 40MB - to bridge dir? [y/N]: "
+set /p "CF_CONFIRM=Download cloudflared.exe - 50 MB - to bridge dir? [y/N]: "
 if /I not "%CF_CONFIRM%"=="Y" (
     echo [INFO] cloudflared download skipped. Get it later from:
     echo        https://github.com/cloudflare/cloudflared/releases/latest

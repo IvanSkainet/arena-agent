@@ -1,8 +1,14 @@
 # Changelog
 
+## v3.61.0 - 2026-06-28
+
+- Removed the private Tailnet-specific extension permission that was accidentally added in v3.60.0.
+- Replaced it with generic public tunnel host permissions for Tailscale Funnel (`https://*.ts.net/*`) and Cloudflare Quick Tunnels (`https://*.trycloudflare.com/*`).
+- Corrected Cloudflared optional download documentation from ~40 MB to ~50 MB.
+
 ## v3.60.0 - 2026-06-28
 
-- Fixed extension `TypeError: Failed to fetch` for the live Tailnet bridge by adding `https://*.tail328f18.ts.net/*` to host permissions.
+- Fixed extension `TypeError: Failed to fetch` for public tunnel bridges by adding generic tunnel host permissions.
 - Improved background bridge fetch errors to include the target bridge URL/path, making permission/config failures easier to diagnose.
 - Kept local bridge permissions (`127.0.0.1`, `localhost`) unchanged.
 

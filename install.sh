@@ -429,7 +429,7 @@ else
 fi
 
 # --- 6a-bis: cloudflared (optional Cloudflare Quick Tunnel) ---
-# Not bundled in the repo (it's a ~40 MB binary). Fetched on demand here so the
+# Not bundled in the repo (it's a ~50 MB binary). Fetched on demand here so the
 # repository stays lightweight. The bridge looks for it on PATH first, then in
 # the install directory, so either source works.
 CF_BIN="$INSTALL_DIR/cloudflared"
@@ -458,7 +458,7 @@ else
             ;;
     esac
     if [ -n "$CF_URL" ]; then
-        if [ "${ARENA_ASSUME_YES:-}" = "1" ] || ask "Download cloudflared (~40 MB) for Cloudflare Quick Tunnels? (Tailscale is the recommended option)"; then
+        if [ "${ARENA_ASSUME_YES:-}" = "1" ] || ask "Download cloudflared (~50 MB) for Cloudflare Quick Tunnels? (Tailscale is the recommended option)"; then
             info "Downloading cloudflared for $UNAME_S/$UNAME_M ..."
             if command -v curl >/dev/null 2>&1; then
                 curl -fsSL "$CF_URL" -o "$CF_BIN" && chmod +x "$CF_BIN" && ok "cloudflared installed at $CF_BIN" || warn "cloudflared download failed (you can install it later)"

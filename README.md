@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.60.0
+### 🆕 What's new in v3.61.0
 
-- **Live Tailnet bridge fetch fixed**: extension host permissions now include `https://*.tail328f18.ts.net/*`.
-- **Better bridge fetch diagnostics**: `Failed to fetch` errors include the bridge URL/path.
-- **Local bridge support unchanged**: `127.0.0.1` and `localhost` permissions remain present.
+- **Public tunnel bridge fetch fixed generically**: extension host permissions now cover Tailscale Funnel (`https://*.ts.net/*`) and Cloudflare Quick Tunnels (`https://*.trycloudflare.com/*`).
+- **No private tailnet hardcoding**: removed the accidentally committed machine-specific Tailnet permission.
+- **Cloudflared size corrected**: installer/docs now describe the optional `cloudflared` download as ~50 MB, not ~40 MB.
 
 ---
 
@@ -123,7 +123,7 @@ The installer asks for explicit consent before installing each optional componen
 | Component | Where it installs | Required for | Consent prompt |
 |-----------|-------------------|--------------|----------------|
 | **Tailscale** | System package (`/usr/bin/tailscale` on Linux, `C:\Program Files\Tailscale` on Windows) | Recommended way to expose the bridge to the internet via Tailscale Funnel (real HTTPS, no port-forward) | Yes — installs via official script (Linux/macOS) or `winget` (Windows); requires sudo/admin |
-| **cloudflared** | Inside the bridge directory (`$INSTALL_DIR/cloudflared` or `%BRIDGE_DIR%\cloudflared.exe`) | Alternative to Tailscale Funnel (Cloudflare Quick Tunnels, no account needed) | Yes — downloads ~40MB |
+| **cloudflared** | Inside the bridge directory (`$INSTALL_DIR/cloudflared` or `%BRIDGE_DIR%\cloudflared.exe`) | Alternative to Tailscale Funnel (Cloudflare Quick Tunnels, no account needed) | Yes — downloads ~50 MB |
 | **SuperPowers** | Inside the bridge directory (`skills/superpowers/`) | 14-skill agentic framework (TDD, debugging, planning) | Yes — clones from GitHub |
 | **BrowserAct** | **Globally** via `uv tool` (in `~/.local/bin` or `%USERPROFILE%\.local\bin`, outside the bridge directory) | Browser automation CLI (browse, click, forms, CAPTCHAs) — the bridge calls `browser-act` via PATH | Yes — global install is required for it to work |
 | **Camoufox** | **System cache** (`~/.cache/camoufox` on Linux, `%LOCALAPPDATA%\camoufox` on Windows, outside the bridge directory) | Stealth browser engine for BrowserAct (~300MB download) | Yes — required by the camoufox Python package |
