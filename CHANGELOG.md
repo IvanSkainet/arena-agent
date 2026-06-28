@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.55.0 - 2026-06-28
+
+- Restored Claude message selectors to a broad reliable set so assistant tool blocks are detected again after the v3.53/v3.54 over-narrowing.
+- Added per-selector Scan Page diagnostics (selector_hits) reporting raw, assistant, and with-block matches so adapter issues can be debugged from real DOM instead of guesswork.
+
 ## v3.54.0 - 2026-06-28
 
 - Restored Claude control detection by filtering only user-message nodes instead of relying on a brittle font-claude-message class, so assistant tool blocks are detected again.

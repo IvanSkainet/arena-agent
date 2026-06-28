@@ -28,6 +28,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'font-claude-message' in adapter_sites
     assert 'requestIdleCallback' in content
     assert 'arenaHasComposerChild' in adapters
+    assert 'arenaSelectorDiagnostics' in adapters
+    assert 'selector_hits' in content
     assert 'user-message' in adapters
     assert 'grok.com' in adapter_sites
     assert 'openrouter.ai' in adapter_sites
@@ -74,6 +76,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.11.2`.' in readme
+    assert 'Current scaffold extension version: `0.11.3`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

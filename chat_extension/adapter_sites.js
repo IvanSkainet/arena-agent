@@ -9,7 +9,7 @@ const ARENA_SITE_ADAPTERS = [
   {
     name: 'claude',
     hosts: ['claude.ai'],
-    messageSelectors: ['div.font-claude-message', '[data-testid="message-content"]', 'article', '[data-test-render-count]', 'main article'],
+    messageSelectors: ['div.font-claude-message', '[data-test-render-count]', 'article', 'main article', 'main'],
     composerSelectors: ['div.ProseMirror[contenteditable="true"]', 'div[contenteditable="true"]', 'textarea'],
     submitSelectors: ['button[aria-label="Send message"]', 'button[aria-label*="Send"]', 'fieldset button[type="submit"]', 'button[type="submit"]'],
   },

@@ -177,7 +177,8 @@ function scanPageDiagnostics() {
     entries.forEach((entry) => (entry.payload?.calls || []).forEach((call) => tools.add(call.tool)));
     if (samples.length < 5) samples.push({index, tag: node.tagName || '', text: String(text).slice(0, 240), parsed: entries.length, tools: entries.flatMap((entry) => (entry.payload?.calls || []).map((call) => call.tool))});
   });
-  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], samples};
+  const selectorHits = typeof arenaSelectorDiagnostics === 'function' ? arenaSelectorDiagnostics() : [];
+  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
 }
 function scheduleScan() {
   if (scanTimer) return;

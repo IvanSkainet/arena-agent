@@ -133,6 +133,24 @@ function arenaCandidateNodes() {
   return {adapter, nodes: arenaPruneAncestorCandidates(nodes).slice(-5)};
 }
 
+function arenaSelectorDiagnostics() {
+  const adapter = getArenaAdapter();
+  return (adapter.messageSelectors || []).map((selector) => {
+    let raw = 0, assistant = 0, withBlock = 0;
+    try {
+      document.querySelectorAll(selector).forEach((rawNode) => {
+        const node = arenaCandidateHost(rawNode);
+        raw++;
+        if (!arenaIsAssistantNode(node, adapter)) return;
+        if (arenaIsComposerNode(node, adapter)) return;
+        assistant++;
+        if (arenaHasToolBlock(node, adapter)) withBlock++;
+      });
+    } catch (_e) {}
+    return {selector, raw, assistant, with_block: withBlock};
+  });
+}
+
 function arenaLatestCandidateNodes() {
   const state = arenaCandidateNodes();
   return {adapter: state.adapter, nodes: state.nodes.slice(-2)};
