@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.66.0 - 2026-06-28
+
+- Made the `auto` insert strategy adaptive for contenteditable composers: try verified `directDomPreWrap` first, then fall back to native `insertText` only when the fast path makes no composer change.
+- Improved settled verification by matching both normalized text and whitespace-free signatures, reducing false negatives for direct DOM strategies that alter line-break representation.
+- Kept the adaptive behavior generic and verification-gated instead of adding a Gemini-specific mode.
+
 ## v3.65.0 - 2026-06-28
 
 - Changed extension insertion to async settled verification: success is reported only after the composer still contains the inserted marker after a short delay.

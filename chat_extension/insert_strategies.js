@@ -15,19 +15,30 @@ function arenaComposerText(adapter = getArenaAdapter()) {
 function arenaEditableText(target) {
   return String(target?.textContent || target?.value || '').replace(/\s+/g, ' ').trim();
 }
-function arenaInsertMarker(text) {
-  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+function arenaNormalizeTextForVerify(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim();
+}
+function arenaCompactTextForVerify(text) {
+  return String(text || '').replace(/\s+/g, '');
+}
+function arenaInsertMarkers(text) {
+  const normalized = arenaNormalizeTextForVerify(text);
+  const compact = arenaCompactTextForVerify(text);
+  return {normalized: normalized.slice(0, 80), compact: compact.slice(0, 80)};
 }
 function arenaTextContainsInsert(text, inserted) {
-  const marker = arenaInsertMarker(inserted);
-  const haystack = String(text || '').replace(/\s+/g, ' ').trim();
-  return !!marker && haystack.includes(marker);
+  const markers = arenaInsertMarkers(inserted);
+  const normalized = arenaNormalizeTextForVerify(text);
+  const compact = arenaCompactTextForVerify(text);
+  return (!!markers.normalized && normalized.includes(markers.normalized))
+    || (!!markers.compact && compact.includes(markers.compact));
 }
 async function arenaVerifySettledInsert(adapter, before, text, delayMs = 180) {
   await arenaSleep(delayMs);
   const target = arenaFindComposer(adapter);
   const after = arenaEditableText(target);
-  return {settled: after !== before && arenaTextContainsInsert(after, text), verify_ms: delayMs};
+  const changed = after !== before;
+  return {changed, settled: changed && arenaTextContainsInsert(after, text), verify_ms: delayMs};
 }
 function arenaTextareaInsert(target, text) {
   const value = target.value || '';
@@ -108,6 +119,10 @@ function arenaTryEditableInsert(target, text, selected) {
   try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
   return ok || arenaParagraphInsert(text);
 }
+function arenaInsertPlan(target, requested) {
+  if (!target?.isContentEditable || requested !== 'auto') return [requested === 'auto' ? 'nativeInsertText' : requested];
+  return ['directDomPreWrap', 'nativeInsertText'];
+}
 async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();
   const target = arenaFindComposer(adapter);
@@ -116,27 +131,29 @@ async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = '
     return false;
   }
   const requested = arenaNormalizeInsertStrategy(strategy);
-  const selected = requested === 'auto' ? 'nativeInsertText' : requested;
   arenaFocusComposer(target);
-  const before = arenaEditableText(target);
-  let attempted = false;
-  try {
-    attempted = (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text'))
-      ? arenaTextareaInsert(target, text)
-      : (target.isContentEditable && arenaTryEditableInsert(target, text, selected));
-  } catch (_e) { attempted = false; }
-  const insertMs = Math.round(performance.now() - started);
-  const verify = attempted ? await arenaVerifySettledInsert(adapter, before, text) : {settled: false, verify_ms: 0};
-  const ok = !!(attempted && verify.settled);
-  arenaSetInsertTiming({
-    insert_ms: insertMs,
-    verify_ms: verify.verify_ms,
-    total_ms: Math.round(performance.now() - started),
-    strategy: selected,
-    method: ok ? selected : 'failed',
-    settled: !!verify.settled,
-  });
-  return ok;
+  const attempts = [];
+  for (const selected of arenaInsertPlan(target, requested)) {
+    const before = arenaEditableText(target);
+    let attempted = false;
+    try {
+      attempted = (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text'))
+        ? arenaTextareaInsert(target, text)
+        : (target.isContentEditable && arenaTryEditableInsert(target, text, selected));
+    } catch (_e) { attempted = false; }
+    const insertMs = Math.round(performance.now() - started);
+    const verify = attempted ? await arenaVerifySettledInsert(adapter, before, text) : {settled: false, verify_ms: 0};
+    const ok = !!(attempted && verify.settled);
+    attempts.push({strategy: selected, attempted: !!attempted, changed: !!verify.changed, settled: !!verify.settled, insert_ms: insertMs, verify_ms: verify.verify_ms});
+    if (ok) {
+      arenaSetInsertTiming({insert_ms: insertMs, verify_ms: verify.verify_ms, total_ms: Math.round(performance.now() - started), strategy: selected, requested_strategy: requested, method: selected, changed: true, settled: true, attempts});
+      return true;
+    }
+    if (requested === 'auto' && attempted && verify.changed) break;
+  }
+  const last = attempts[attempts.length - 1] || {strategy: requested, insert_ms: 0, verify_ms: 0, settled: false};
+  arenaSetInsertTiming({insert_ms: last.insert_ms, verify_ms: last.verify_ms, total_ms: Math.round(performance.now() - started), strategy: last.strategy, requested_strategy: requested, method: 'failed', changed: !!last.changed, settled: false, attempts});
+  return false;
 }
 
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy = 'auto') {

@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.65.0
+### 🆕 What's new in v3.66.0
 
-- **Settled insert verification**: Insert/Send now reports success only after the composer still contains the inserted marker after a short settle delay.
-- **Safer Send flow**: Insert & Submit will not click Send after an unverified or reverted insertion.
-- **Direct DOM pre-wrap diagnostic**: added `directDomPreWrap` to test fast multiline insertion without `execCommand` while preserving visual line breaks.
+- **Adaptive auto insert**: `auto` now tries the verified fast `directDomPreWrap` contenteditable path first, then falls back to native `insertText` only if the fast path makes no composer change.
+- **Better settled verification**: insertion checks now use both normalized text and whitespace-free signatures, reducing false negatives for DOM paths that alter whitespace.
+- **No Gemini-only mode**: the adaptive strategy is generic and verification-gated, so unsupported chats fall back safely.
 
 ---
 
