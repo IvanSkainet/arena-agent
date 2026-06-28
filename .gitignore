@@ -107,3 +107,7 @@ _agent_backups/
 _selfheal*.sh
 requests.jsonl
 *.pid
+
+bridge.log.1
+requests.jsonl.1
+reports/arena_kwin_windows_*.js
