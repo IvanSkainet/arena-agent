@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.52.0 - 2026-06-28
+
+- Added Claude (claude.ai) smoke support with assistant message, ProseMirror composer, and Send-button selectors.
+- Reduced Gemini input-detection lag by dropping characterData mutation observation and throttling page scans with requestIdleCallback, so streaming answers no longer trigger constant rescans.
+
 ## v3.51.0 - 2026-06-28
 
 - Fixed Gemini regressions from v3.50.0: result insertion now uses a single deterministic insertText path, removing the paste+fallback combo that caused duplicate insertion on Gemini and a false insert status that blocked Send.

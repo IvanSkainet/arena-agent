@@ -181,7 +181,11 @@ function scanPageDiagnostics() {
 }
 function scheduleScan() {
   if (scanTimer) return;
-  scanTimer = setTimeout(() => { scanTimer = null; scan(); }, 250);
+  const run = () => { scanTimer = null; scan(); };
+  scanTimer = setTimeout(() => {
+    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, {timeout: 800});
+    else run();
+  }, 500);
 }
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'arena.clearPageControls') { suppressCurrentControls(); cleanupStaleControls(); sendResponse?.({ok: true, dismissed: dismissedControls.size}); return true; }
@@ -192,5 +196,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 cleanupStaleControls();
 const obs = new MutationObserver(() => scheduleScan());
-obs.observe(document.documentElement, {childList: true, subtree: true, characterData: true});
+obs.observe(document.documentElement, {childList: true, subtree: true});
 scan();
