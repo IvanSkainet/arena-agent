@@ -19,15 +19,16 @@ def test_chat_extension_scaffold_exists():
     sidepanel = (base / "sidepanel.js").read_text(encoding="utf-8")
     sidepanel_html = (base / "sidepanel.html").read_text(encoding="utf-8")
     adapters = (base / "adapters.js").read_text(encoding="utf-8")
+    insert_strategies = (base / "insert_strategies.js").read_text(encoding="utf-8")
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.12.1"
+    assert manifest["version"] == "0.12.2"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
-    assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
+    assert manifest["content_scripts"][0]["js"][:5] == ["adapter_sites.js", "parser.js", "adapters.js", "insert_strategies.js", "settings.js"]
     assert "arena.preview" in background
     assert "arena.execute" in background
     assert "arena.testConnection" in background
@@ -49,6 +50,7 @@ def test_chat_extension_scaffold_exists():
     assert "autoSubmitResult" in popup_html
     assert "insertStrategy" in popup_html
     assert "directDomText" in popup_html
+    assert "directDomBlocks" in popup_html
     assert "pageControlsBtn" in popup_html
     assert "scanBtn" in popup_html
     assert "panelBtn" in popup_html
@@ -83,8 +85,8 @@ def test_chat_extension_scaffold_exists():
     assert "refreshBtn" in sidepanel_html
     assert "clearBtn" in sidepanel_html
     assert "runHistoryAction" in sidepanel
-    assert "arenaInsertAndSubmit" in adapters
-    assert "arenaInsertIntoEditable" in adapters
+    assert "arenaInsertAndSubmit" in insert_strategies
+    assert "arenaInsertIntoEditable" in insert_strategies
     assert "ARENA_SITE_ADAPTERS" in adapter_sites
     assert "chat.deepseek.com" in adapter_sites
     assert "kimi.com" in adapter_sites

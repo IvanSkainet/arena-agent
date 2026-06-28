@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.63.0
+### 🆕 What's new in v3.64.0
 
-- **Verified insert diagnostics**: contenteditable strategies now check that the composer text actually changed before reporting success.
-- **Fixed false paste success**: `pasteOnly` no longer reports `Inserted` when Gemini ignores the synthetic paste event.
-- **Direct DOM text strategy**: added `directDomText` as a no-`execCommand` diagnostic path for slow Gemini rich-textarea insertion.
+- **Direct DOM block insertion**: added `directDomBlocks`, a no-`execCommand` strategy that inserts one block per line instead of collapsing multiline text into plain text nodes.
+- **Gemini structure diagnostic**: compare `directDomText` vs `directDomBlocks` to keep the fast 1ms path while preserving multiline chat composer structure.
+- **Auto unchanged**: the default strategy remains conservative until the block-based path is confirmed across target chats.
 
 ---
 

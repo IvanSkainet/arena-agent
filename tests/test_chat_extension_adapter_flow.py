@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def test_chat_extension_adapter_helpers_exist():
     adapters = (ROOT / 'chat_extension' / 'adapters.js').read_text(encoding='utf-8')
+    insert_strategies = (ROOT / 'chat_extension' / 'insert_strategies.js').read_text(encoding='utf-8')
     adapter_sites = (ROOT / 'chat_extension' / 'adapter_sites.js').read_text(encoding='utf-8')
     parser = (ROOT / 'chat_extension' / 'parser.js').read_text(encoding='utf-8')
     content = (ROOT / 'chat_extension' / 'content.js').read_text(encoding='utf-8')
@@ -44,7 +45,7 @@ def test_chat_extension_adapter_helpers_exist():
     assert "'pre'" in adapter_sites
     assert "'code'" in adapter_sites
     assert "[class*=\\\"code\\\"]" in adapter_sites
-    assert 'arenaInsertAndSubmit' in adapters
+    assert 'arenaInsertAndSubmit' in insert_strategies
     assert 'Send' in content
     assert 'scheduleScan' in content
     assert 'scanPageDiagnostics' in content
@@ -58,19 +59,21 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'autoExecuteSafe' in settings
     assert 'autoSubmitResult' in settings
     assert 'insertStrategy' in settings
-    assert 'async function arenaInsertAndSubmit' in adapters
-    assert 'arenaInsertIntoEditable' in adapters
-    assert 'arenaFocusComposer' in adapters
-    assert 'arenaSetInsertTiming' in adapters
-    assert '__arenaLastInsertTiming' in adapters
-    assert 'arenaNormalizeInsertStrategy' in adapters
-    assert 'arenaPasteOnly' in adapters
-    assert 'arenaDirectDomText' in adapters
-    assert 'directDomText' in adapters
-    assert 'paragraphFallback' in adapters
-    assert "insertText" in adapters
-    assert "insertParagraph" in adapters
-    assert 'setTimeout' in adapters
+    assert 'async function arenaInsertAndSubmit' in insert_strategies
+    assert 'arenaInsertIntoEditable' in insert_strategies
+    assert 'arenaFocusComposer' in insert_strategies
+    assert 'arenaSetInsertTiming' in insert_strategies
+    assert '__arenaLastInsertTiming' in insert_strategies
+    assert 'arenaNormalizeInsertStrategy' in insert_strategies
+    assert 'arenaPasteOnly' in insert_strategies
+    assert 'arenaDirectDomText' in insert_strategies
+    assert 'directDomText' in insert_strategies
+    assert 'arenaDirectDomBlocks' in insert_strategies
+    assert 'directDomBlocks' in insert_strategies
+    assert 'paragraphFallback' in insert_strategies
+    assert "insertText" in insert_strategies
+    assert "insertParagraph" in insert_strategies
+    assert 'setTimeout' in insert_strategies
 
     assert 'arenaDetectionText' in adapters
     assert 'arenaIsComposerNode' in adapters
@@ -90,6 +93,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.12.1`.' in readme
+    assert 'Current scaffold extension version: `0.12.2`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

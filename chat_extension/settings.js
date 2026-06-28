@@ -8,7 +8,7 @@ const ARENA_MODE_DEFAULTS = {
 
 function arenaNormalizeModes(data) {
   const input = data || {};
-  const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText'];
+  const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks'];
   return {
     autoPreview: !!input.autoPreview,
     autoExecuteSafe: !!input.autoExecuteSafe,

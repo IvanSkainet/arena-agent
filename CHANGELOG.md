@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.64.0 - 2026-06-28
+
+- Added `directDomBlocks`, a no-`execCommand` insert strategy that writes one contenteditable block per line to preserve multiline composer structure.
+- Kept `directDomText` as the raw text-node diagnostic path after it proved the Gemini latency regression is in browser/site editing APIs rather than bridge execution.
+- Left `auto` unchanged until the block-based direct DOM strategy is confirmed reliable.
+
 ## v3.63.0 - 2026-06-28
 
 - Added verified contenteditable insert diagnostics: strategies now report success only when composer text actually changes.
