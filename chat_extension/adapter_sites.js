@@ -18,7 +18,7 @@ const ARENA_SITE_ADAPTERS = [
     hosts: ['gemini.google.com', 'aistudio.google.com'],
     messageSelectors: ['message-content', 'model-response', 'pre', 'code', '[class*=\"code\"]', 'main article', 'main'],
     composerSelectors: ['rich-textarea div[contenteditable="true"]', 'textarea', '[contenteditable="true"]'],
-    submitSelectors: ['button[aria-label*="Send"]', 'button[aria-label*="Run"]', 'button[type="submit"]'],
+    submitSelectors: ['button[aria-label*="Send"]', 'button[aria-label*="Send message"]', 'button.send-button', 'button[mattooltip*="Send"]', 'button[aria-label*="Run"]', 'button[type="submit"]'],
   },
   {
     name: 'perplexity',

@@ -169,19 +169,27 @@ function arenaInsertResult(text, adapter = getArenaAdapter()) {
   return false;
 }
 
+function arenaComposerText(adapter = getArenaAdapter()) {
+  const target = arenaFindComposer(adapter);
+  if (!target) return '';
+  return (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') ? (target.value || '') : (target.textContent || '');
+}
+
 function arenaInsertIntoEditable(target, text) {
   target.focus();
+  const before = target.textContent || '';
   try {
     const dt = new DataTransfer();
     dt.setData('text/plain', text);
-    if (target.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, cancelable: true, clipboardData: dt})) !== false) {
-      target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertFromPaste'}));
-      return true;
-    }
+    target.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, cancelable: true, clipboardData: dt}));
   } catch (_e) {}
-  String(text).split('\n').forEach((line, index) => { if (index) document.execCommand('insertParagraph'); if (line) document.execCommand('insertText', false, line); });
+  if ((target.textContent || '') !== before) return true;
+  String(text).split('\n').forEach((line, index) => {
+    if (index) document.execCommand('insertParagraph');
+    if (line) document.execCommand('insertText', false, line);
+  });
   target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
-  return true;
+  return (target.textContent || '') !== before;
 }
 
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {

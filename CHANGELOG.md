@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.50.0 - 2026-06-28
+
+- Fixed duplicate result insertion in ChatGPT by detecting whether the synthetic paste already changed the composer before running the per-line fallback.
+- Made contenteditable insertion report honest success based on actual composer content change instead of always returning true.
+- Added more Gemini submit-button selectors so Send can find the send control after insertion.
+- Raised the product-file modularity limit from 200 to 300 lines to keep helpers readable instead of artificially compressed.
+
 ## v3.49.0 - 2026-06-28
 
 - Fixed multiline result insertion into contenteditable composers (ChatGPT/Gemini) by dispatching a paste event with plain text, with a per-line insertParagraph fallback, so JSON keeps its structure instead of collapsing.

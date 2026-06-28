@@ -46,9 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.49.0
+### 🆕 What's new in v3.50.0
 
-- **Multiline insertion fixed** — results are pasted into ChatGPT/Gemini composers as real multi-line JSON instead of one collapsed line.
+- **No more duplicate inserts** — ChatGPT result insertion no longer pastes twice.
+- **Honest insert status** — insertion reports success only when the composer actually changed.
+- **Gemini Send works again** — added submit-button selectors for Gemini.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

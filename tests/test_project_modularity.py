@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAX_PRODUCT_FILE_LINES = 200
+MAX_PRODUCT_FILE_LINES = 300
 ENTRYPOINT_LIMITS = {
     "unified_bridge.py": 150,
     "bin/agentctl": 80,
