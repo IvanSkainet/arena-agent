@@ -186,7 +186,10 @@ function arenaFocusComposer(target) {
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
 }
-function arenaInsertResult(text, adapter = getArenaAdapter()) {
+function arenaNormalizeInsertStrategy(strategy) {
+  return ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly'].includes(strategy) ? strategy : 'auto';
+}
+function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();
   const target = arenaFindComposer(adapter);
   if (!target) return false;
@@ -202,7 +205,7 @@ function arenaInsertResult(text, adapter = getArenaAdapter()) {
     return true;
   }
   if (target.isContentEditable) {
-    return arenaInsertIntoEditable(target, text);
+    return arenaInsertIntoEditable(target, text, strategy);
   }
   return false;
 }
@@ -213,27 +216,39 @@ function arenaComposerText(adapter = getArenaAdapter()) {
   return (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') ? (target.value || '') : (target.textContent || '');
 }
 
-function arenaInsertIntoEditable(target, text) {
-  const started = performance.now();
-  arenaFocusComposer(target);
-  // Single deterministic path: native insertText with embedded newlines.
-  // Native insertText already fires composer input events; dispatching a second
-  // synthetic InputEvent made Gemini rich-textarea re-process the same update.
-  let ok = false;
-  try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
-  if (!ok) {
-    String(text).split('\n').forEach((line, index) => {
-      if (index) document.execCommand('insertParagraph');
-      if (line) document.execCommand('insertText', false, line);
-    });
-  }
-  arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), method: ok ? 'insertText' : 'paragraphFallback'});
+function arenaParagraphInsert(text) {
+  String(text).split('\n').forEach((line, index) => {
+    if (index) document.execCommand('insertParagraph');
+    if (line) document.execCommand('insertText', false, line);
+  });
   return true;
 }
-
-async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
+function arenaPasteOnly(target, text) {
+  try {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', String(text));
+    return target.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, cancelable: true, clipboardData: dt})) !== false;
+  } catch (_e) { return false; }
+}
+function arenaInsertIntoEditable(target, text, strategy = 'auto') {
   const started = performance.now();
-  const inserted = arenaInsertResult(text, adapter);
+  const requested = arenaNormalizeInsertStrategy(strategy);
+  const selected = requested === 'auto' ? 'nativeInsertText' : requested;
+  arenaFocusComposer(target);
+  let ok = false;
+  if (selected === 'pasteOnly') ok = arenaPasteOnly(target, text);
+  else if (selected === 'paragraphFallback') ok = arenaParagraphInsert(text);
+  else {
+    try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
+    if (!ok) { ok = arenaParagraphInsert(text); }
+  }
+  arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), strategy: selected, method: ok ? selected : 'failed'});
+  return ok;
+}
+
+async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy = 'auto') {
+  const started = performance.now();
+  const inserted = arenaInsertResult(text, adapter, strategy);
   if (!inserted) return {ok: false, inserted: false, submitted: false};
   const insertTiming = window.__arenaLastInsertTiming || {};
   const deadline = Date.now() + 1500;

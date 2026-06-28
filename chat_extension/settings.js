@@ -3,19 +3,24 @@ const ARENA_MODE_DEFAULTS = {
   autoExecuteSafe: false,
   autoInsertResult: false,
   autoSubmitResult: false,
+  insertStrategy: 'auto',
 };
 
 function arenaNormalizeModes(data) {
   const input = data || {};
+  const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly'];
   return {
     autoPreview: !!input.autoPreview,
     autoExecuteSafe: !!input.autoExecuteSafe,
     autoInsertResult: !!input.autoInsertResult,
     autoSubmitResult: !!input.autoSubmitResult,
+    insertStrategy: allowed.includes(input.insertStrategy) ? input.insertStrategy : 'auto',
   };
 }
 
 function arenaModeSummary(modes) {
-  const active = Object.entries(arenaNormalizeModes(modes)).filter((entry) => entry[1]).map((entry) => entry[0]);
+  const normalized = arenaNormalizeModes(modes);
+  const active = Object.entries(normalized).filter((entry) => entry[0] !== 'insertStrategy' && entry[1]).map((entry) => entry[0]);
+  if (normalized.insertStrategy !== 'auto') active.push(`insertStrategy=${normalized.insertStrategy}`);
   return active.length ? active.join(', ') : 'manual-confirm';
 }

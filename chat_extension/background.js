@@ -6,6 +6,7 @@ const DEFAULTS = {
     autoExecuteSafe: false,
     autoInsertResult: false,
     autoSubmitResult: false,
+    insertStrategy: 'auto',
   }),
 };
 const HISTORY_KEY = 'arenaHistory';
@@ -13,11 +14,13 @@ const HISTORY_LIMIT = 160;
 const DETECTED_DEDUPE_MS = 30000;
 function normalizeModes(data) {
   const input = data || {};
+  const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly'];
   return {
     autoPreview: !!input.autoPreview,
     autoExecuteSafe: !!input.autoExecuteSafe,
     autoInsertResult: !!input.autoInsertResult,
     autoSubmitResult: !!input.autoSubmitResult,
+    insertStrategy: allowed.includes(input.insertStrategy) ? input.insertStrategy : 'auto',
   };
 }
 function normalizeBridgeUrl(value) {

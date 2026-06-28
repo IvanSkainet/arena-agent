@@ -64,7 +64,7 @@ function hostHasToolbar(host) {
 function buildRequest(payload, adapterName, fingerprint) {
   return {site: {origin: location.origin, url: location.href, adapter: adapterName}, message: {fingerprint}, payload, mode: {}};
 }
-function genericInsertIntoActiveField(text) {
+function genericInsertIntoActiveField(text, strategy = 'auto') {
   const active = document.activeElement;
   if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type === 'text'))) {
     const start = active.selectionStart ?? active.value.length;
@@ -73,8 +73,19 @@ function genericInsertIntoActiveField(text) {
     active.dispatchEvent(new Event('input', {bubbles: true}));
     return true;
   }
-  if (active && active.isContentEditable) { return (typeof arenaInsertIntoEditable === 'function') ? arenaInsertIntoEditable(active, text) : (document.execCommand('insertText', false, text), true); }
+  if (active && active.isContentEditable) { return (typeof arenaInsertIntoEditable === 'function') ? arenaInsertIntoEditable(active, text, strategy) : (document.execCommand('insertText', false, text), true); }
   return false;
+}
+function timingSummary(timing) {
+  const strategy = timing?.strategy || timing?.method || 'unknown';
+  const ms = timing?.total_ms ?? timing?.insert_ms ?? '?';
+  return `via ${strategy} in ${ms}ms`;
+}
+async function currentInsertStrategy() {
+  try {
+    const cfg = await chrome.runtime.sendMessage({type: 'arena.getConfig'});
+    return cfg?.modes?.insertStrategy || 'auto';
+  } catch (_e) { return 'auto'; }
 }
 function previewSummary(result) {
   const calls = Array.isArray(result?.calls) ? result.calls : [];
@@ -113,14 +124,16 @@ function mountControls(host, payload, adapter) {
   bar.appendChild(makeButton('Insert', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
     const insertText = formatInsertText(lastExecutionText);
-    const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText);
+    const strategy = await currentInsertStrategy();
+    const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter, strategy)) || genericInsertIntoActiveField(insertText, strategy);
     const timing = window.__arenaLastInsertTiming || {};
-    status.textContent = ok ? `Inserted in ${timing.insert_ms ?? '?'}ms.` : 'Could not insert; copy instead.';
+    status.textContent = ok ? `Inserted ${timingSummary(timing)}.` : `Could not insert via ${strategy}; copy instead.`;
   }));
   bar.appendChild(makeButton('Send', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
-    const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(formatInsertText(lastExecutionText), adapter) : {ok: false, inserted: false, submitted: false};
-    status.textContent = state.ok ? (state.submitted ? `Inserted/submitted in ${state.total_ms ?? '?'}ms.` : `Inserted in ${state.insert_ms ?? '?'}ms, submit not found.`) : 'Insert & submit failed.';
+    const strategy = await currentInsertStrategy();
+    const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(formatInsertText(lastExecutionText), adapter, strategy) : {ok: false, inserted: false, submitted: false};
+    status.textContent = state.ok ? (state.submitted ? `Inserted/submitted ${timingSummary(state)}.` : `Inserted ${timingSummary(state)}, submit not found.`) : `Insert & submit failed via ${strategy}.`;
   }));
   bar.appendChild(makeButton('Copy', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
@@ -158,9 +171,9 @@ async function runAutoModes(request, adapter, status, setResultText) {
   if (!modes.autoInsertResult || !text) return;
   const insertText = formatInsertText(text);
   const state = modes.autoSubmitResult && typeof arenaInsertAndSubmit === 'function'
-    ? await arenaInsertAndSubmit(insertText, adapter)
-    : {ok: (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText)};
-  status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted in ${state.total_ms ?? '?'}ms.` : `Auto inserted in ${state.insert_ms ?? '?'}ms.`) : 'Auto insert failed.';
+    ? await arenaInsertAndSubmit(insertText, adapter, modes.insertStrategy || 'auto')
+    : {ok: (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter, modes.insertStrategy || 'auto')) || genericInsertIntoActiveField(insertText, modes.insertStrategy || 'auto'), ...(window.__arenaLastInsertTiming || {})};
+  status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted ${timingSummary(state)}.` : `Auto inserted ${timingSummary(state)}.`) : 'Auto insert failed.';
 }
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};

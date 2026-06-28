@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.61.0
+### 🆕 What's new in v3.62.0
 
-- **Public tunnel bridge fetch fixed generically**: extension host permissions now cover Tailscale Funnel (`https://*.ts.net/*`) and Cloudflare Quick Tunnels (`https://*.trycloudflare.com/*`).
-- **No private tailnet hardcoding**: removed the accidentally committed machine-specific Tailnet permission.
-- **Cloudflared size corrected**: installer/docs now describe the optional `cloudflared` download as ~50 MB, not ~40 MB.
+- **Insert strategy diagnostics**: extension settings now support `auto`, `nativeInsertText`, `paragraphFallback`, and `pasteOnly` strategies.
+- **Gemini speed A/B testing**: toolbar status reports strategy/timing like `via nativeInsertText in 42ms`.
+- **Manual and auto flows aligned**: auto insert/submit uses the same configured strategy.
 
 ---
 

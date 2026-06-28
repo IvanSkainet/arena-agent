@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.62.0 - 2026-06-28
+
+- Added an extension insert-strategy selector (`auto`, `nativeInsertText`, `paragraphFallback`, `pasteOnly`) for A/B testing Gemini and other contenteditable composers without site-specific modes.
+- Toolbar insert/send status now reports the selected strategy and timing (`via <strategy> in <ms>ms`) so latency can be compared without DevTools tracing.
+- Auto-insert/auto-submit uses the same configured strategy, keeping manual and automatic flows comparable.
+
 ## v3.61.0 - 2026-06-28
 
 - Removed the private Tailnet-specific extension permission that was accidentally added in v3.60.0.

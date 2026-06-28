@@ -26,6 +26,7 @@ function currentModes() {
     autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
     autoInsertResult: document.getElementById('autoInsertResult').checked,
     autoSubmitResult: document.getElementById('autoSubmitResult').checked,
+    insertStrategy: document.getElementById('insertStrategy').value || 'auto',
   };
 }
 
@@ -56,6 +57,7 @@ async function loadConfig() {
   ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult'].forEach((id) => {
     document.getElementById(id).checked = !!modes[id];
   });
+  document.getElementById('insertStrategy').value = modes.insertStrategy || 'auto';
   statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
   return true;
 }

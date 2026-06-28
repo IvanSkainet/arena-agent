@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.11.9"
+    assert manifest["version"] == "0.12.0"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -47,6 +47,7 @@ def test_chat_extension_scaffold_exists():
     assert "saveBtn" in popup_html
     assert "autoExecuteSafe" in popup_html
     assert "autoSubmitResult" in popup_html
+    assert "insertStrategy" in popup_html
     assert "pageControlsBtn" in popup_html
     assert "scanBtn" in popup_html
     assert "panelBtn" in popup_html
@@ -54,6 +55,7 @@ def test_chat_extension_scaffold_exists():
     assert "jsonlInstructionsBtn" in popup_html
     assert "clearBtn" in popup_html
     assert "arena.getConfig" in popup
+    assert "insertStrategy" in popup
     assert "arenaModeSummary" in popup
     assert "copyInstructions" in popup
     assert "chrome.runtime.lastError" in popup
