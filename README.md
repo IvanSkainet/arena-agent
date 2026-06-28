@@ -46,10 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.52.0
+### 🆕 What's new in v3.53.0
 
-- **Claude smoke support** — selectors for claude.ai messages, composer, and Send.
-- **Gemini responsiveness fix** — idle-throttled scanning, no more constant rescans during streaming.
+- **No duplicate Claude controls** — only assistant messages get controls, not quoted user instructions.
+- **Gemini responsiveness improved** — scanning avoids cloning large answer nodes unnecessarily.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

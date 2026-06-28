@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.53.0 - 2026-06-28
+
+- Fixed duplicate Claude controls by restricting detection to assistant messages (font-claude-message) and excluding user-message nodes that quote tool instructions.
+- Improved Gemini input responsiveness by skipping a full cloneNode of large answer nodes during scanning unless a composer child is actually nested inside.
+
 ## v3.52.0 - 2026-06-28
 
 - Added Claude (claude.ai) smoke support with assistant message, ProseMirror composer, and Send-button selectors.

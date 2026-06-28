@@ -13,9 +13,15 @@ function arenaNodeText(node) {
   return String(node?.innerText || node?.textContent || '').trim();
 }
 
+function arenaHasComposerChild(node, adapter) {
+  return (adapter.composerSelectors || []).some((selector) => {
+    try { return !!node.querySelector?.(selector); } catch (_e) { return false; }
+  });
+}
 function arenaDetectionText(node, adapter = getArenaAdapter()) {
   if (!node) return '';
   if (arenaIsComposerNode(node, adapter)) return '';
+  if (!arenaHasComposerChild(node, adapter)) return arenaNodeText(node);
   const clone = node.cloneNode(true);
   (adapter.composerSelectors || []).forEach((selector) => {
     try { clone.querySelectorAll(selector).forEach((child) => child.remove()); } catch (_e) {}
@@ -92,7 +98,10 @@ function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
   if (adapter.name === 'claude') {
     if (node.isContentEditable) return false;
     if (node.querySelector?.('[contenteditable="true"]')) return false;
-    return true;
+    if (node.closest?.('[data-testid="user-message"]')) return false;
+    if (node.matches?.('div.font-claude-message') || node.closest?.('div.font-claude-message')) return true;
+    if (node.querySelector?.('div.font-claude-message')) return true;
+    return false;
   }
   return true;
 }
