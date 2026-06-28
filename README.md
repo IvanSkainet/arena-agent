@@ -46,10 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.45.0
+### 🆕 What's new in v3.46.0
 
-- **Scan Page diagnostics** — the extension can inspect the active chat page and report adapter, candidates, parsed blocks, tools, controls, and snippets.
-- **Cross-site debugging foundation** — scan results are saved in history for side-panel inspection before Gemini/ChatGPT adapter expansion.
+- **Gemini Web detection stabilized** — composer/user-input JSONL is filtered out before controls mount.
+- **Controls remount after DOM churn** — Gemini re-renders can restore inline controls without duplicate history detections.
+- **Preview is clearer** — inline Preview now describes dry-run calls, tool names, and approval state.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

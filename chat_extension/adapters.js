@@ -13,8 +13,18 @@ function arenaNodeText(node) {
   return String(node?.innerText || node?.textContent || '').trim();
 }
 
-function arenaHasToolBlock(node) {
-  const text = arenaNodeText(node);
+function arenaDetectionText(node, adapter = getArenaAdapter()) {
+  if (!node) return '';
+  if (arenaIsComposerNode(node, adapter)) return '';
+  const clone = node.cloneNode(true);
+  (adapter.composerSelectors || []).forEach((selector) => {
+    try { clone.querySelectorAll(selector).forEach((child) => child.remove()); } catch (_e) {}
+  });
+  return arenaNodeText(clone);
+}
+
+function arenaHasToolBlock(node, adapter = getArenaAdapter()) {
+  const text = arenaDetectionText(node, adapter);
   return /```arena-tool\s*[\s\S]*?```/m.test(text)
     || /```jsonl\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
     || /```json\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
@@ -36,6 +46,19 @@ function arenaNodePath(node) {
     cur = parent;
   }
   return parts.join('/');
+}
+
+function arenaMatchesAny(node, selectors) {
+  return (selectors || []).some((selector) => {
+    try { return node?.matches?.(selector) || !!node?.closest?.(selector); } catch (_e) { return false; }
+  });
+}
+
+function arenaIsComposerNode(node, adapter = getArenaAdapter()) {
+  if (!node) return false;
+  if (arenaMatchesAny(node, adapter.composerSelectors)) return true;
+  if (node.isContentEditable && !node.closest?.('pre, code, message-content, model-response, article')) return true;
+  return false;
 }
 
 function arenaCandidateHost(node) {
@@ -95,7 +118,8 @@ function arenaCandidateNodes() {
       if (seen.has(node)) return;
       seen.add(node);
       if (!arenaIsAssistantNode(node, adapter)) return;
-      if (!arenaHasToolBlock(node)) return;
+      if (arenaIsComposerNode(node, adapter)) return;
+      if (!arenaHasToolBlock(node, adapter)) return;
       nodes.push(node);
     });
   });

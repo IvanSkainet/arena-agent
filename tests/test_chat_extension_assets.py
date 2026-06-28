@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.10.3"
+    assert manifest["version"] == "0.10.4"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -84,4 +84,7 @@ def test_chat_extension_scaffold_exists():
     assert "kimi.com" in adapter_sites
     assert "chat.qwen.ai" in adapter_sites
     assert "arenaMessageFingerprint" in adapters
+    assert "arenaDetectionText" in adapters
+    assert "arenaIsComposerNode" in adapters
+    assert "previewSummary" in content
     assert "/v1/extension/execute" in readme

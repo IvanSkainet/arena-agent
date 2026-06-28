@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.46.0 - 2026-06-28
+
+- Stabilized Gemini Web extension detection by filtering composer/user-input nodes before parsing tool blocks.
+- Added adapter-side detection text extraction that removes nested composer fields from broad candidates.
+- Made controls remount tolerant to Gemini DOM re-renders without duplicating history detections.
+- Clarified inline Preview status as a dry-run/approval summary with tool names.
+
 ## v3.45.0 - 2026-06-26
 
 ### Added

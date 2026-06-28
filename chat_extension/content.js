@@ -58,10 +58,16 @@ function genericInsertIntoActiveField(text) {
   if (active && active.isContentEditable) { document.execCommand('insertText', false, text); return true; }
   return false;
 }
+function previewSummary(result) {
+  const calls = Array.isArray(result?.calls) ? result.calls : [];
+  const tools = calls.map((call) => call.tool || call.name).filter(Boolean).slice(0, 3).join(', ');
+  return `Dry run: ${calls.length} call(s)${tools ? ` · ${tools}` : ''} · approval=${!!result?.policy?.requires_approval}`;
+}
 function mountControls(host, payload, adapter) {
   host = controlsHost(host);
   const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
-  if (processed.has(fingerprint) || host.dataset.arenaToolControlsMounted === '1') return;
+  const existing = mountedControls.get(fingerprint);
+  if ((existing?.bar?.isConnected) || hostHasToolbar(host)) return;
   const firstSeen = !processed.has(fingerprint);
   processed.add(fingerprint);
   host.dataset.arenaToolControlsMounted = '1'; host.dataset.arenaToolFingerprint = fingerprint;
@@ -78,7 +84,7 @@ function mountControls(host, payload, adapter) {
   bar.appendChild(makeButton('Preview', async () => {
     status.textContent = 'Previewing...';
     const result = await chrome.runtime.sendMessage({type: 'arena.preview', body: request});
-    status.textContent = result?.ok ? `Preview: ${result.calls?.length || 0} call(s), approval=${!!result.policy?.requires_approval}` : `Preview error: ${resultErrorText(result)}`;
+    status.textContent = result?.ok ? previewSummary(result) : `Preview error: ${resultErrorText(result)}`;
   }));
   bar.appendChild(makeButton('Run', async () => {
     status.textContent = 'Running...';
@@ -141,7 +147,7 @@ function scan() {
   state.nodes.forEach((node) => {
     const host = controlsHost(node);
     if (hostHasToolbar(host)) return;
-    parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || ''))).forEach((entry) => mountControls(host, entry.payload, state.adapter));
+    parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => mountControls(host, entry.payload, state.adapter));
   });
 }
 
@@ -151,7 +157,7 @@ function scanPageDiagnostics() {
   let parsedBlocks = 0;
   const tools = new Set();
   state.nodes.forEach((node, index) => {
-    const text = typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || '');
+    const text = typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || '');
     const entries = parseArenaBlocks(text);
     parsedBlocks += entries.length;
     entries.forEach((entry) => (entry.payload?.calls || []).forEach((call) => tools.add(call.tool)));
