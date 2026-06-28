@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.67.0
+### 🆕 What's new in v3.68.0
 
-- **Recommended Auto UX**: the popup now labels `Auto` as the recommended insert strategy and marks manual strategies as debug options.
-- **Clearer insert status**: toolbar messages now say when Auto internally used a concrete strategy such as `directDomPreWrap`.
-- **Actionable failures**: insert failures include a compact attempt summary so ignored, changed-but-unverified, and settled paths are easier to diagnose.
+- **Editor-aware Auto insert**: Auto now keeps ProseMirror-style editors on native `insertText` so ChatGPT and Claude preserve multiline structure.
+- **Gemini fast path scoped**: the fast `directDomPreWrap` path is limited to Gemini Web `rich-textarea`, where it is verified to preserve structure and speed.
+- **AI Studio protected**: AI Studio stays on native insertion instead of inheriting the Gemini Web fast path.
 
 ---
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.68.0 - 2026-06-28
+
+- Made Auto insertion editor-aware: ProseMirror-style contenteditable composers use native `insertText`, preserving ChatGPT and Claude multiline structure.
+- Scoped the fast `directDomPreWrap` path to Gemini Web `rich-textarea`, where smoke testing confirmed both speed and structure.
+- Kept AI Studio on native insertion even though it shares the Gemini adapter, avoiding a site-specific UI mode while respecting editor differences.
+
 ## v3.67.0 - 2026-06-28
 
 - Labeled `Auto` as the recommended insert strategy in the extension popup and marked manual strategies as debug options.

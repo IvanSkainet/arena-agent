@@ -119,9 +119,12 @@ function arenaTryEditableInsert(target, text, selected) {
   try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
   return ok || arenaParagraphInsert(text);
 }
+function arenaUsesRichTextareaFastPath(target) {
+  return arenaHost() === 'gemini.google.com' && !!target?.closest?.('rich-textarea');
+}
 function arenaInsertPlan(target, requested) {
   if (!target?.isContentEditable || requested !== 'auto') return [requested === 'auto' ? 'nativeInsertText' : requested];
-  return ['directDomPreWrap', 'nativeInsertText'];
+  return arenaUsesRichTextareaFastPath(target) ? ['directDomPreWrap', 'nativeInsertText'] : ['nativeInsertText'];
 }
 async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();

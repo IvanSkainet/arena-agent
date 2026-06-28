@@ -74,6 +74,9 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'directDomPreWrap' in insert_strategies
     assert 'arenaVerifySettledInsert' in insert_strategies
     assert 'arenaInsertPlan' in insert_strategies
+    assert 'arenaUsesRichTextareaFastPath' in insert_strategies
+    assert "arenaHost() === 'gemini.google.com'" in insert_strategies
+    assert "closest?.('rich-textarea')" in insert_strategies
     assert 'arenaCompactTextForVerify' in insert_strategies
     assert 'changed' in insert_strategies
     assert 'paragraphFallback' in insert_strategies
@@ -101,6 +104,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.12.5`.' in readme
+    assert 'Current scaffold extension version: `0.12.6`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme
