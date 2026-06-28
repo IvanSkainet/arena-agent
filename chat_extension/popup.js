@@ -140,7 +140,12 @@ async function openPanel() {
 
 async function clearPageControls() {
   await notifyActiveTab({type: 'arena.clearPageControls'});
-  statusText('Page controls dismissed until reload or new tool blocks.');
+  statusText('Page controls hidden. Reload, new chat, or Show Page Controls brings them back.');
+}
+
+async function showPageControls() {
+  await notifyActiveTab({type: 'arena.showPageControls'});
+  statusText('Page controls restored.');
 }
 
 async function clearHistory() {
@@ -157,6 +162,7 @@ document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => 
 document.getElementById('panelBtn').addEventListener('click', openPanel);
 document.getElementById('scanBtn').addEventListener('click', scanPage);
 document.getElementById('pageControlsBtn').addEventListener('click', clearPageControls);
+document.getElementById('showControlsBtn').addEventListener('click', showPageControls);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
 
 (async () => {

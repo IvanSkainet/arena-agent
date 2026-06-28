@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.48.0 - 2026-06-28
+
+- Fixed JSONL parsing for ChatGPT, which renders tool blocks on a single line with a glued language label and no newlines.
+- Made Clear Page Controls hide controls only for the current page life; reload or a new chat restores them, plus a new Show Page Controls action restores them without reload.
+- Inserted tool results as fenced code blocks so ChatGPT and other contenteditable composers keep JSON structure instead of collapsing to one line.
+
 ## v3.47.0 - 2026-06-28
 
 - Fixed inline close controls so `×` dismisses a detected block instead of being immediately remounted by the mutation observer.

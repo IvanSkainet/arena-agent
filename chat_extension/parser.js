@@ -4,13 +4,38 @@ const ARENA_BLOCK_PATTERNS = [
   {kind: 'json', re: /```json\s*([\s\S]*?)```/g},
 ];
 
+function arenaSplitJsonObjects(text) {
+  const out = [];
+  const src = String(text || '');
+  let depth = 0;
+  let start = -1;
+  let inStr = false;
+  let esc = false;
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    if (inStr) {
+      if (esc) { esc = false; }
+      else if (ch === '\\') { esc = true; }
+      else if (ch === '"') { inStr = false; }
+      continue;
+    }
+    if (ch === '"') { inStr = true; continue; }
+    if (ch === '{') { if (depth === 0) start = i; depth++; }
+    else if (ch === '}') { depth--; if (depth === 0 && start >= 0) { out.push(src.slice(start, i + 1)); start = -1; } }
+  }
+  return out;
+}
+
 function arenaParseJsonLines(text) {
+  const cleaned = String(text || '').replace(/^\s*(json|jsonl)\b/i, '');
   const rows = [];
-  String(text || '').split(/\r?\n/).forEach((line) => {
+  cleaned.split(/\r?\n/).forEach((line) => {
     const raw = line.trim();
     if (!raw) return;
-    try { rows.push(JSON.parse(raw)); } catch {}
+    try { rows.push(JSON.parse(raw)); return; } catch {}
+    arenaSplitJsonObjects(raw).forEach((chunk) => { try { rows.push(JSON.parse(chunk)); } catch {} });
   });
+  if (!rows.length) arenaSplitJsonObjects(cleaned).forEach((chunk) => { try { rows.push(JSON.parse(chunk)); } catch {} });
   return rows;
 }
 

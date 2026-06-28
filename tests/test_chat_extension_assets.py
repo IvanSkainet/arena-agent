@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.10.5"
+    assert manifest["version"] == "0.10.6"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -90,4 +90,9 @@ def test_chat_extension_scaffold_exists():
     assert "dismissedControls" in content
     assert "suppressCurrentControls" in content
     assert "dismissed_controls" in content
+    assert "arenaSplitJsonObjects" in parser
+    assert "showPageControls" in popup
+    assert "showControlsBtn" in popup_html
+    assert "arena.showPageControls" in content
+    assert "formatInsertText" in content
     assert "/v1/extension/execute" in readme

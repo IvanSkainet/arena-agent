@@ -7,6 +7,11 @@ function hash(text) {
   for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
   return `arena_${Math.abs(h)}`;
 }
+function formatInsertText(text) {
+  const body = String(text || '').trim();
+  if (!body) return '';
+  return `\n\n\`\`\`json\n${body}\n\`\`\`\n`;
+}
 function resultToText(result) {
   if (!result) return '';
   if (!Array.isArray(result.calls)) return JSON.stringify(result, null, 2);
@@ -102,12 +107,13 @@ function mountControls(host, payload, adapter) {
   }, true));
   bar.appendChild(makeButton('Insert', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
-    const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(`\n${lastExecutionText}\n`, adapter)) || genericInsertIntoActiveField(`\n${lastExecutionText}\n`);
+    const insertText = formatInsertText(lastExecutionText);
+    const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText);
     status.textContent = ok ? 'Inserted into input.' : 'Could not insert; copy instead.';
   }));
   bar.appendChild(makeButton('Send', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
-    const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(`\n${lastExecutionText}\n`, adapter) : {ok: false, inserted: false, submitted: false};
+    const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(formatInsertText(lastExecutionText), adapter) : {ok: false, inserted: false, submitted: false};
     status.textContent = state.ok ? (state.submitted ? 'Inserted and submitted.' : 'Inserted, but submit button not found.') : 'Insert & submit failed.';
   }));
   bar.appendChild(makeButton('Copy', async () => {
@@ -144,7 +150,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   setResultText(text);
   status.textContent = `Auto executed ${result.calls?.length || 0} call(s)`;
   if (!modes.autoInsertResult || !text) return;
-  const insertText = `\n${text}\n`;
+  const insertText = formatInsertText(text);
   const state = modes.autoSubmitResult && typeof arenaInsertAndSubmit === 'function'
     ? await arenaInsertAndSubmit(insertText, adapter)
     : {ok: (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText)};
@@ -179,6 +185,7 @@ function scheduleScan() {
 }
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'arena.clearPageControls') { suppressCurrentControls(); cleanupStaleControls(); sendResponse?.({ok: true, dismissed: dismissedControls.size}); return true; }
+  if (message?.type === 'arena.showPageControls') { dismissedControls.clear(); cleanupStaleControls(); setTimeout(scan, 0); sendResponse?.({ok: true}); return true; }
   if (message?.type === 'arena.controlsModeChanged') { setTimeout(scan, 0); sendResponse?.({ok: true}); return true; }
   if (message?.type === 'arena.scanPage') { sendResponse?.(scanPageDiagnostics()); return true; }
   return false;
