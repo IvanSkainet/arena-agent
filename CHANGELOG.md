@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.47.0 - 2026-06-28
+
+- Fixed inline close controls so `×` dismisses a detected block instead of being immediately remounted by the mutation observer.
+- Made `Clear Page Controls` suppress currently visible tool blocks until reload or new block fingerprints appear.
+- Added `dismissed_controls` to Scan Page diagnostics for clearer adapter debugging.
+
 ## v3.46.0 - 2026-06-28
 
 - Stabilized Gemini Web extension detection by filtering composer/user-input nodes before parsing tool blocks.

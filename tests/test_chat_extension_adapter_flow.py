@@ -56,10 +56,13 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaIsComposerNode' in adapters
     assert 'arenaMatchesAny' in adapters
     assert 'previewSummary' in content
+    assert 'dismissed_controls' in content
+    assert 'suppressCurrentControls' in content
+    assert 'dismissedControls' in content
 
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.10.4`.' in readme
+    assert 'Current scaffold extension version: `0.10.5`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

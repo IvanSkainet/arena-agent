@@ -140,7 +140,7 @@ async function openPanel() {
 
 async function clearPageControls() {
   await notifyActiveTab({type: 'arena.clearPageControls'});
-  statusText('Page controls cleared. New tool blocks will be detected again.');
+  statusText('Page controls dismissed until reload or new tool blocks.');
 }
 
 async function clearHistory() {

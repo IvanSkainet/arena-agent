@@ -1,5 +1,6 @@
 const processed = new Set();
 const mountedControls = new Map();
+const dismissedControls = new Set();
 let scanTimer = null;
 function hash(text) {
   let h = 0;
@@ -40,6 +41,13 @@ function cleanupStaleControls() {
   document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { node.dataset.arenaToolControlsMounted = ''; });
   mountedControls.clear();
 }
+function suppressCurrentControls() {
+  const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: []};
+  state.nodes.forEach((node) => parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => {
+    const host = controlsHost(node);
+    dismissedControls.add(typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, entry.payload, state.adapter) : hash((host.textContent || '') + JSON.stringify(entry.payload)));
+  }));
+}
 function hostHasToolbar(host) {
   return !!(host?.dataset?.arenaToolControlsMounted === '1' && (host.nextElementSibling?.dataset?.arenaToolControls === '1' || host.querySelector?.('[data-arena-tool-controls="1"]')));
 }
@@ -67,7 +75,7 @@ function mountControls(host, payload, adapter) {
   host = controlsHost(host);
   const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
   const existing = mountedControls.get(fingerprint);
-  if ((existing?.bar?.isConnected) || hostHasToolbar(host)) return;
+  if (dismissedControls.has(fingerprint) || (existing?.bar?.isConnected) || hostHasToolbar(host)) return;
   const firstSeen = !processed.has(fingerprint);
   processed.add(fingerprint);
   host.dataset.arenaToolControlsMounted = '1'; host.dataset.arenaToolFingerprint = fingerprint;
@@ -113,7 +121,7 @@ function mountControls(host, payload, adapter) {
     const result = await chrome.runtime.sendMessage({type: 'arena.openSidePanel'});
     status.textContent = result?.ok ? 'Opened side panel.' : `Panel error: ${result?.error || 'unknown'}`;
   }));
-  bar.appendChild(makeButton('×', () => { bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); }));
+  bar.appendChild(makeButton('×', () => { dismissedControls.add(fingerprint); bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); }));
   attachControls(host, bar);
   mountedControls.set(fingerprint, {host, bar});
   runAutoModes(request, adapter, status, (text) => { lastExecutionText = text; });
@@ -163,14 +171,14 @@ function scanPageDiagnostics() {
     entries.forEach((entry) => (entry.payload?.calls || []).forEach((call) => tools.add(call.tool)));
     if (samples.length < 5) samples.push({index, tag: node.tagName || '', text: String(text).slice(0, 240), parsed: entries.length, tools: entries.flatMap((entry) => (entry.payload?.calls || []).map((call) => call.tool))});
   });
-  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, tools: [...tools], samples};
+  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], samples};
 }
 function scheduleScan() {
   if (scanTimer) return;
   scanTimer = setTimeout(() => { scanTimer = null; scan(); }, 250);
 }
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === 'arena.clearPageControls') { cleanupStaleControls(); sendResponse?.({ok: true}); return true; }
+  if (message?.type === 'arena.clearPageControls') { suppressCurrentControls(); cleanupStaleControls(); sendResponse?.({ok: true, dismissed: dismissedControls.size}); return true; }
   if (message?.type === 'arena.controlsModeChanged') { setTimeout(scan, 0); sendResponse?.({ok: true}); return true; }
   if (message?.type === 'arena.scanPage') { sendResponse?.(scanPageDiagnostics()); return true; }
   return false;
