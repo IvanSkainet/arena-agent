@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.49.0 - 2026-06-28
+
+- Fixed multiline result insertion into contenteditable composers (ChatGPT/Gemini) by dispatching a paste event with plain text, with a per-line insertParagraph fallback, so JSON keeps its structure instead of collapsing.
+
 ## v3.48.0 - 2026-06-28
 
 - Fixed JSONL parsing for ChatGPT, which renders tool blocks on a single line with a glued language label and no newlines.

@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.10.6"
+    assert manifest["version"] == "0.10.7"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -79,6 +79,7 @@ def test_chat_extension_scaffold_exists():
     assert "clearBtn" in sidepanel_html
     assert "runHistoryAction" in sidepanel
     assert "arenaInsertAndSubmit" in adapters
+    assert "arenaInsertIntoEditable" in adapters
     assert "ARENA_SITE_ADAPTERS" in adapter_sites
     assert "chat.deepseek.com" in adapter_sites
     assert "kimi.com" in adapter_sites

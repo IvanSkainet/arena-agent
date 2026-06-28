@@ -68,7 +68,7 @@ function genericInsertIntoActiveField(text) {
     active.dispatchEvent(new Event('input', {bubbles: true}));
     return true;
   }
-  if (active && active.isContentEditable) { document.execCommand('insertText', false, text); return true; }
+  if (active && active.isContentEditable) { return (typeof arenaInsertIntoEditable === 'function') ? arenaInsertIntoEditable(active, text) : (document.execCommand('insertText', false, text), true); }
   return false;
 }
 function previewSummary(result) {

@@ -164,12 +164,24 @@ function arenaInsertResult(text, adapter = getArenaAdapter()) {
     return true;
   }
   if (target.isContentEditable) {
-    const current = target.textContent || '';
-    target.textContent = `${current}${text}`;
-    target.dispatchEvent(new InputEvent('input', {bubbles: true, data: text, inputType: 'insertText'}));
-    return true;
+    return arenaInsertIntoEditable(target, text);
   }
   return false;
+}
+
+function arenaInsertIntoEditable(target, text) {
+  target.focus();
+  try {
+    const dt = new DataTransfer();
+    dt.setData('text/plain', text);
+    if (target.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, cancelable: true, clipboardData: dt})) !== false) {
+      target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertFromPaste'}));
+      return true;
+    }
+  } catch (_e) {}
+  String(text).split('\n').forEach((line, index) => { if (index) document.execCommand('insertParagraph'); if (line) document.execCommand('insertText', false, line); });
+  target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
+  return true;
 }
 
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {

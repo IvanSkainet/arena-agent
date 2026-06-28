@@ -46,11 +46,9 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.48.0
+### 🆕 What's new in v3.49.0
 
-- **ChatGPT JSONL parsing fixed** — single-line glued tool blocks are now parsed.
-- **Clear Page Controls is reversible** — reload, new chat, or Show Page Controls restores hidden controls.
-- **Structured result insertion** — results are inserted as fenced code blocks so contenteditable composers keep JSON formatting.
+- **Multiline insertion fixed** — results are pasted into ChatGPT/Gemini composers as real multi-line JSON instead of one collapsed line.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
