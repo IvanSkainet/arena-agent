@@ -114,12 +114,13 @@ function mountControls(host, payload, adapter) {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
     const insertText = formatInsertText(lastExecutionText);
     const ok = (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText);
-    status.textContent = ok ? 'Inserted into input.' : 'Could not insert; copy instead.';
+    const timing = window.__arenaLastInsertTiming || {};
+    status.textContent = ok ? `Inserted in ${timing.insert_ms ?? '?'}ms.` : 'Could not insert; copy instead.';
   }));
   bar.appendChild(makeButton('Send', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
     const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(formatInsertText(lastExecutionText), adapter) : {ok: false, inserted: false, submitted: false};
-    status.textContent = state.ok ? (state.submitted ? 'Inserted and submitted.' : 'Inserted, but submit button not found.') : 'Insert & submit failed.';
+    status.textContent = state.ok ? (state.submitted ? `Inserted/submitted in ${state.total_ms ?? '?'}ms.` : `Inserted in ${state.insert_ms ?? '?'}ms, submit not found.`) : 'Insert & submit failed.';
   }));
   bar.appendChild(makeButton('Copy', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
@@ -159,7 +160,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   const state = modes.autoSubmitResult && typeof arenaInsertAndSubmit === 'function'
     ? await arenaInsertAndSubmit(insertText, adapter)
     : {ok: (typeof arenaInsertResult === 'function' && arenaInsertResult(insertText, adapter)) || genericInsertIntoActiveField(insertText)};
-  status.textContent = state.ok ? (state.submitted ? 'Auto inserted and submitted.' : 'Auto inserted result.') : 'Auto insert failed.';
+  status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted in ${state.total_ms ?? '?'}ms.` : `Auto inserted in ${state.insert_ms ?? '?'}ms.`) : 'Auto insert failed.';
 }
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};

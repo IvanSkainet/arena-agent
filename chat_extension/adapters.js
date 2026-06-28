@@ -183,7 +183,11 @@ function arenaFocusComposer(target) {
   try { target.focus({preventScroll: true}); } catch (_e) { target.focus(); }
 }
 
+function arenaSetInsertTiming(timing) {
+  window.__arenaLastInsertTiming = timing;
+}
 function arenaInsertResult(text, adapter = getArenaAdapter()) {
+  const started = performance.now();
   const target = arenaFindComposer(adapter);
   if (!target) return false;
   arenaFocusComposer(target);
@@ -194,6 +198,7 @@ function arenaInsertResult(text, adapter = getArenaAdapter()) {
     target.value = `${value.slice(0, start)}${text}${value.slice(end)}`;
     target.dispatchEvent(new Event('input', {bubbles: true}));
     target.dispatchEvent(new Event('change', {bubbles: true}));
+    arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), method: 'value'});
     return true;
   }
   if (target.isContentEditable) {
@@ -209,11 +214,11 @@ function arenaComposerText(adapter = getArenaAdapter()) {
 }
 
 function arenaInsertIntoEditable(target, text) {
+  const started = performance.now();
   arenaFocusComposer(target);
   // Single deterministic path: native insertText with embedded newlines.
-  // Modern contenteditable composers (ChatGPT ProseMirror, Gemini rich-textarea)
-  // honor a multiline insertText and build paragraphs themselves, so we avoid
-  // a paste+fallback combo that caused duplicate insertion and false status.
+  // Native insertText already fires composer input events; dispatching a second
+  // synthetic InputEvent made Gemini rich-textarea re-process the same update.
   let ok = false;
   try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
   if (!ok) {
@@ -222,21 +227,23 @@ function arenaInsertIntoEditable(target, text) {
       if (line) document.execCommand('insertText', false, line);
     });
   }
-  target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
+  arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), method: ok ? 'insertText' : 'paragraphFallback'});
   return true;
 }
 
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
+  const started = performance.now();
   const inserted = arenaInsertResult(text, adapter);
   if (!inserted) return {ok: false, inserted: false, submitted: false};
+  const insertTiming = window.__arenaLastInsertTiming || {};
   const deadline = Date.now() + 1500;
   while (Date.now() < deadline) {
     const submit = arenaFindSubmitButton(adapter);
     if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
       submit.click();
-      return {ok: true, inserted: true, submitted: true};
+      return {ok: true, inserted: true, submitted: true, ...insertTiming, total_ms: Math.round(performance.now() - started)};
     }
     await new Promise((resolve) => setTimeout(resolve, 40));
   }
-  return {ok: true, inserted: true, submitted: false};
+  return {ok: true, inserted: true, submitted: false, ...insertTiming, total_ms: Math.round(performance.now() - started)};
 }

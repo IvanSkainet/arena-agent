@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.58.0
+### 🆕 What's new in v3.59.0
 
-- **Detected history spam reduced**: repeated detections are deduplicated by fingerprint/site/adapter/detail.
-- **Repeat counts preserved**: duplicate detected rows update to `×N` instead of flooding popup/sidepanel history.
-- **Action history remains explicit**: `preview`, `execute`, and `scan` entries are not squashed.
+- **Gemini insert path trimmed again**: removed the duplicate synthetic `InputEvent` after native contenteditable `insertText`.
+- **Latency is now visible**: toolbar status reports `Inserted in Xms` / `Inserted/submitted in Xms`.
+- **Textarea/input behavior unchanged**: direct value writes still dispatch explicit `input/change` events.
 
 ---
 

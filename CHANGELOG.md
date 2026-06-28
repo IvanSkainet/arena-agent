@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.59.0 - 2026-06-28
+
+- Removed the extra synthetic `InputEvent` after native contenteditable `insertText`; Gemini rich-textarea already receives native input events and the duplicate event caused extra processing.
+- Added lightweight insert/send timings in toolbar status text (`Inserted in Xms`, `Inserted/submitted in Xms`) to make remaining latency visible without DevTools tracing.
+- Kept textarea/input manual events unchanged, because direct value assignment still needs explicit `input/change` notifications.
+
 ## v3.58.0 - 2026-06-28
 
 - Deduplicated noisy `detected` history entries in the extension background worker using fingerprint/site/adapter/detail within a short time window.
