@@ -1,7 +1,7 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.10.2`.
+Current scaffold extension version: `0.10.3`.
 
 ## What it does today
 - injects a generic content script into web pages
@@ -46,8 +46,8 @@ The extension reads config from `chrome.storage.sync`:
   "calls": [
     {
       "id": "call_1",
-      "tool": "mission.lineage",
-      "arguments": {"mission_id": "demo"}
+      "tool": "sys.status",
+      "arguments": {}
     }
   ]
 }
@@ -60,8 +60,7 @@ The MVP parser also accepts a compatible JSONL block:
 
 ```text
 ```jsonl
-{"type":"function_call_start","name":"mission.lineage","call_id":"1"}
-{"type":"parameter","key":"mission_id","value":"demo"}
+{"type":"function_call_start","name":"sys.status","call_id":"1"}
 {"type":"function_call_end","call_id":"1"}
 ```
 ```
@@ -69,8 +68,8 @@ The MVP parser also accepts a compatible JSONL block:
 It is normalized into the canonical Arena payload before preview/execute.
 
 ## Next planned steps
-- live AI Studio smoke tests for copy-instructions → JSONL block → execute → insert
+- Gemini Web and ChatGPT smoke tests using Scan Page diagnostics
 - stronger Claude-specific adapter behavior
-- richer payload/result inspection UI
+- richer payload/result inspection and page diagnostics UI
 - better cross-site composer strategies
 - eventual native messaging hardening if needed

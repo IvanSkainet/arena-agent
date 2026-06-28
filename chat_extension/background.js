@@ -61,8 +61,7 @@ async function getHistoryItem(index) {
   return {ok: true, item};
 }
 async function clearHistory() {
-  await chrome.storage.local.set({[HISTORY_KEY]: []});
-  return {ok: true};
+  await chrome.storage.local.set({[HISTORY_KEY]: []}); return {ok: true};
 }
 function compactResult(result) {
   if (!result || typeof result !== 'object') return null;
@@ -122,6 +121,19 @@ async function openSidePanel() {
   if (!chrome.tabs?.create) return {ok: false, error: 'side panel api unavailable'};
   const tab = await chrome.tabs.create({url, active: true}); return {ok: true, tabId: tab?.id, mode: 'tab'};
 }
+async function sendActiveTabMessage(message) {
+  if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return {ok: false, error: 'tabs api unavailable'};
+  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+  if (!tab?.id) return {ok: false, error: 'active tab not found'};
+  return new Promise((resolve) => chrome.tabs.sendMessage(tab.id, message, (response) => {
+    const err = chrome.runtime.lastError; resolve(err ? {ok: false, error: err.message || String(err)} : (response || {ok: false, error: 'empty content response'}));
+  }));
+}
+async function scanActivePage() {
+  const result = await sendActiveTabMessage({type: 'arena.scanPage'});
+  await pushHistory('scan', {detail: result.ok ? `${result.adapter || 'unknown'}: ${result.parsed_blocks || 0} block(s), ${result.candidate_nodes || 0} candidate(s)` : `error: ${result.error || 'unknown'}`, site: result.url || '', adapter: result.adapter || '', ok: !!result.ok, response: result});
+  return result;
+}
 async function replayHistory(index, mode = 'execute') {
   const itemResult = await getHistoryItem(index);
   if (!itemResult.ok) return itemResult;
@@ -145,6 +157,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'arena.testConnection') return sendResponse(await testConnection());
     if (message?.type === 'arena.openSidePanel') return sendResponse(await openSidePanel());
     if (message?.type === 'arena.replayHistory') return sendResponse(await replayHistory(message.body?.index, message.body?.mode));
+    if (message?.type === 'arena.scanPage') return sendResponse(await scanActivePage());
     if (message?.type === 'arena.detected') {
       await pushHistory('detected', message.body || {detail: 'arena-tool block'});
       return sendResponse({ok: true});

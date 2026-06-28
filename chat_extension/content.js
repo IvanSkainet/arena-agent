@@ -144,13 +144,30 @@ function scan() {
     parseArenaBlocks((typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || ''))).forEach((entry) => mountControls(host, entry.payload, state.adapter));
   });
 }
+
+function scanPageDiagnostics() {
+  const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
+  const samples = [];
+  let parsedBlocks = 0;
+  const tools = new Set();
+  state.nodes.forEach((node, index) => {
+    const text = typeof arenaNodeText === 'function' ? arenaNodeText(node) : (node.textContent || '');
+    const entries = parseArenaBlocks(text);
+    parsedBlocks += entries.length;
+    entries.forEach((entry) => (entry.payload?.calls || []).forEach((call) => tools.add(call.tool)));
+    if (samples.length < 5) samples.push({index, tag: node.tagName || '', text: String(text).slice(0, 240), parsed: entries.length, tools: entries.flatMap((entry) => (entry.payload?.calls || []).map((call) => call.tool))});
+  });
+  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, tools: [...tools], samples};
+}
 function scheduleScan() {
   if (scanTimer) return;
   scanTimer = setTimeout(() => { scanTimer = null; scan(); }, 250);
 }
-chrome.runtime.onMessage.addListener((message) => {
-  if (message?.type === 'arena.clearPageControls') { cleanupStaleControls(); return; }
-  if (message?.type === 'arena.controlsModeChanged') setTimeout(scan, 0);
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === 'arena.clearPageControls') { cleanupStaleControls(); sendResponse?.({ok: true}); return true; }
+  if (message?.type === 'arena.controlsModeChanged') { setTimeout(scan, 0); sendResponse?.({ok: true}); return true; }
+  if (message?.type === 'arena.scanPage') { sendResponse?.(scanPageDiagnostics()); return true; }
+  return false;
 });
 cleanupStaleControls();
 const obs = new MutationObserver(() => scheduleScan());

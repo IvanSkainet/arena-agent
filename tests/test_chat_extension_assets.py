@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.10.2"
+    assert manifest["version"] == "0.10.3"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -34,6 +34,8 @@ def test_chat_extension_scaffold_exists():
     assert "arena.openSidePanel" in background
     assert "arena.replayHistory" in background
     assert "arena.clearHistory" in background
+    assert "arena.scanPage" in background
+    assert "scanActivePage" in background
     assert "```arena-tool" in parser
     assert "```jsonl" in parser
     assert "function_call_start" in parser
@@ -44,6 +46,7 @@ def test_chat_extension_scaffold_exists():
     assert "autoExecuteSafe" in popup_html
     assert "autoSubmitResult" in popup_html
     assert "pageControlsBtn" in popup_html
+    assert "scanBtn" in popup_html
     assert "panelBtn" in popup_html
     assert "arenaInstructionsBtn" in popup_html
     assert "jsonlInstructionsBtn" in popup_html
@@ -61,11 +64,14 @@ def test_chat_extension_scaffold_exists():
     assert "mountedControls" in content
     assert "cleanupStaleControls" in content
     assert "arena.clearPageControls" in content
+    assert "scanPageDiagnostics" in content
+    assert "arena.scanPage" in content
     assert "Arena ·" in content
     assert "controlsHost" in content
     assert "arenaCandidateHost" in adapters
     assert "arenaPruneAncestorCandidates" in adapters
     assert "clearPageControls" in popup
+    assert "scanPage" in popup
     assert "notifyActiveTab" in popup
     assert "Config load error" in popup
     assert "Saved, but verify failed" in popup

@@ -124,6 +124,14 @@ async function copyInstructions(format) {
   statusText(`Copied ${format} instructions (${(result.text || '').length} chars).`);
 }
 
+
+async function scanPage() {
+  statusText('Scanning active page...');
+  const result = await send('arena.scanPage');
+  statusJson(result);
+  await loadHistory();
+}
+
 async function openPanel() {
   const result = await send('arena.openSidePanel');
   statusText(result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`);
@@ -147,6 +155,7 @@ document.getElementById('policyBtn').addEventListener('click', loadPolicies);
 document.getElementById('arenaInstructionsBtn').addEventListener('click', () => copyInstructions('arena'));
 document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => copyInstructions('jsonl'));
 document.getElementById('panelBtn').addEventListener('click', openPanel);
+document.getElementById('scanBtn').addEventListener('click', scanPage);
 document.getElementById('pageControlsBtn').addEventListener('click', clearPageControls);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
 

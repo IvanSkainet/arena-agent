@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.45.0 - 2026-06-26
+
+### Added
+- **Scan Page diagnostics** — popup can ask the active chat page for adapter, candidate node count, parsed tool block count, mounted controls, detected tools, and text snippets.
+- **Scan history entries** — Scan Page results are stored in extension history so adapter/debug state can be inspected in the side panel.
+
+### Improved
+- **Alpha example cleanup** — chat extension README examples now use stable `sys.status` instead of `mission.lineage demo` for empty installs.
+
+### Tests
+- Expanded extension asset and adapter regressions for Scan Page diagnostics.
+
 ## v3.44.0 - 2026-06-26
 
 ### Changed

@@ -46,10 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.44.0
+### 🆕 What's new in v3.45.0
 
-- **Simplified alpha UX** — inline controls are the primary workflow; unstable latest-only/floating mode is removed from the popup.
-- **Clear Page Controls** — users can manually clear inline toolbars from the current chat page.
+- **Scan Page diagnostics** — the extension can inspect the active chat page and report adapter, candidates, parsed blocks, tools, controls, and snippets.
+- **Cross-site debugging foundation** — scan results are saved in history for side-panel inspection before Gemini/ChatGPT adapter expansion.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---
