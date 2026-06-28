@@ -46,10 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.43.0
+### 🆕 What's new in v3.44.0
 
-- **Floating latest controls** — latest-only mode now uses one fixed toolbar for the latest detected block instead of inline controls in AI Studio history.
-- **Less virtualized-DOM weirdness** — avoids duplicate inline toolbars and layout drift in lazy-loaded chats.
+- **Simplified alpha UX** — inline controls are the primary workflow; unstable latest-only/floating mode is removed from the popup.
+- **Clear Page Controls** — users can manually clear inline toolbars from the current chat page.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

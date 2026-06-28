@@ -3,7 +3,6 @@ const ARENA_MODE_DEFAULTS = {
   autoExecuteSafe: false,
   autoInsertResult: false,
   autoSubmitResult: false,
-  controlsLatestOnly: false,
 };
 
 function arenaNormalizeModes(data) {
@@ -13,7 +12,6 @@ function arenaNormalizeModes(data) {
     autoExecuteSafe: !!input.autoExecuteSafe,
     autoInsertResult: !!input.autoInsertResult,
     autoSubmitResult: !!input.autoSubmitResult,
-    controlsLatestOnly: !!input.controlsLatestOnly,
   };
 }
 

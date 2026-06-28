@@ -1,5 +1,17 @@
 # Changelog
 
+## v3.44.0 - 2026-06-26
+
+### Changed
+- **Simplified alpha UX** — removed the unstable latest-only/floating toolbar path from the user-facing popup and kept inline controls as the primary alpha workflow.
+- **Manual page cleanup** — added `Clear Page Controls` so users can clear inline toolbars on the current chat page without relying on fragile virtualized-DOM heuristics.
+
+### Fixed
+- **Avoided confusing latest-only behavior** — AI Studio virtualization no longer drives a half-magic latest-only mode that could look inconsistent after reloads or history remounts.
+
+### Tests
+- Updated extension regressions for inline controls plus manual page cleanup.
+
 ## v3.43.0 - 2026-06-26
 
 ### Changed

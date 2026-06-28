@@ -17,7 +17,6 @@ function normalizeModes(data) {
     autoExecuteSafe: !!input.autoExecuteSafe,
     autoInsertResult: !!input.autoInsertResult,
     autoSubmitResult: !!input.autoSubmitResult,
-    controlsLatestOnly: !!input.controlsLatestOnly,
   };
 }
 function normalizeBridgeUrl(value) {

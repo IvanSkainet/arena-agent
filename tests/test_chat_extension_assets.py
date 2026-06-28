@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.10.1"
+    assert manifest["version"] == "0.10.2"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]
@@ -43,7 +43,7 @@ def test_chat_extension_scaffold_exists():
     assert "saveBtn" in popup_html
     assert "autoExecuteSafe" in popup_html
     assert "autoSubmitResult" in popup_html
-    assert "controlsLatestOnly" in popup_html
+    assert "pageControlsBtn" in popup_html
     assert "panelBtn" in popup_html
     assert "arenaInstructionsBtn" in popup_html
     assert "jsonlInstructionsBtn" in popup_html
@@ -59,17 +59,14 @@ def test_chat_extension_scaffold_exists():
     assert "resultErrorText" in content
     assert "attachControls(host, bar)" in content
     assert "mountedControls" in content
-    assert "data-arena-floating-controls" in content
-    assert "attachFloating" in content
-    assert "latestVisibleCandidate(candidates)" in content
-    assert "cleanupStaleControls();" in content
-    assert "arena.controlsModeChanged" in content
+    assert "cleanupStaleControls" in content
+    assert "arena.clearPageControls" in content
     assert "Arena ·" in content
     assert "controlsHost" in content
     assert "arenaCandidateHost" in adapters
     assert "arenaPruneAncestorCandidates" in adapters
-    assert "controlsLatestOnly" in popup
-    assert "notifyActiveTabControlsMode" in popup
+    assert "clearPageControls" in popup
+    assert "notifyActiveTab" in popup
     assert "Config load error" in popup
     assert "Saved, but verify failed" in popup
     assert "refreshBtn" in sidepanel_html

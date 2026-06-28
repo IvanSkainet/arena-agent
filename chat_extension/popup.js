@@ -26,7 +26,6 @@ function currentModes() {
     autoExecuteSafe: document.getElementById('autoExecuteSafe').checked,
     autoInsertResult: document.getElementById('autoInsertResult').checked,
     autoSubmitResult: document.getElementById('autoSubmitResult').checked,
-    controlsLatestOnly: document.getElementById('controlsLatestOnly').checked,
   };
 }
 
@@ -54,7 +53,7 @@ async function loadConfig() {
   document.getElementById('bridgeUrl').value = cfg.bridgeUrl || '';
   document.getElementById('bridgeToken').value = cfg.bridgeToken || '';
   const modes = cfg.modes || {};
-  ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult', 'controlsLatestOnly'].forEach((id) => {
+  ['autoPreview', 'autoExecuteSafe', 'autoInsertResult', 'autoSubmitResult'].forEach((id) => {
     document.getElementById(id).checked = !!modes[id];
   });
   statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
@@ -72,10 +71,10 @@ async function loadHistory() {
   return true;
 }
 
-async function notifyActiveTabControlsMode() {
+async function notifyActiveTab(message) {
   try {
     const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
-    if (tab?.id) chrome.tabs.sendMessage(tab.id, {type: 'arena.controlsModeChanged'}, () => void chrome.runtime.lastError);
+    if (tab?.id) chrome.tabs.sendMessage(tab.id, message, () => void chrome.runtime.lastError);
   } catch {}
 }
 
@@ -99,7 +98,7 @@ async function saveConfig() {
   document.getElementById('bridgeUrl').value = verify.bridgeUrl || '';
   document.getElementById('bridgeToken').value = verify.bridgeToken || '';
   statusText(`Saved. Modes: ${arenaModeSummary(verify.modes)}`);
-  await notifyActiveTabControlsMode();
+  await notifyActiveTab({type: 'arena.controlsModeChanged'});
 }
 
 async function testConnection() {
@@ -130,6 +129,12 @@ async function openPanel() {
   statusText(result.ok ? 'Opened side panel.' : `Panel error: ${result.error || 'unknown'}`);
 }
 
+
+async function clearPageControls() {
+  await notifyActiveTab({type: 'arena.clearPageControls'});
+  statusText('Page controls cleared. New tool blocks will be detected again.');
+}
+
 async function clearHistory() {
   const result = await send('arena.clearHistory');
   statusText(result.ok ? 'History cleared.' : `Error: ${result.error || 'unknown'}`);
@@ -142,6 +147,7 @@ document.getElementById('policyBtn').addEventListener('click', loadPolicies);
 document.getElementById('arenaInstructionsBtn').addEventListener('click', () => copyInstructions('arena'));
 document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => copyInstructions('jsonl'));
 document.getElementById('panelBtn').addEventListener('click', openPanel);
+document.getElementById('pageControlsBtn').addEventListener('click', clearPageControls);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
 
 (async () => {
