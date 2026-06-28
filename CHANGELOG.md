@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.65.0 - 2026-06-28
+
+- Changed extension insertion to async settled verification: success is reported only after the composer still contains the inserted marker after a short delay.
+- Prevented Insert & Submit from clicking Send when insertion is unverified, ignored, or reverted by the target chat UI.
+- Added `directDomPreWrap`, a fast no-`execCommand` diagnostic strategy for multiline contenteditable insertion using `white-space: pre-wrap`.
+
 ## v3.64.0 - 2026-06-28
 
 - Added `directDomBlocks`, a no-`execCommand` insert strategy that writes one contenteditable block per line to preserve multiline composer structure.

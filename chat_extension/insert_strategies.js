@@ -2,42 +2,42 @@ function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
 }
 function arenaNormalizeInsertStrategy(strategy) {
-  return ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks'].includes(strategy) ? strategy : 'auto';
+  return ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks', 'directDomPreWrap'].includes(strategy) ? strategy : 'auto';
 }
-function arenaEditableText(target) {
-  return String(target?.textContent || '').replace(/\s+/g, ' ').trim();
+function arenaSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
-function arenaEditableChanged(before, target, text) {
-  const after = arenaEditableText(target);
-  if (after === before) return false;
-  const marker = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
-  return !marker || after.includes(marker) || after.length > before.length;
-}
-function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
-  const started = performance.now();
-  const target = arenaFindComposer(adapter);
-  if (!target) return false;
-  arenaFocusComposer(target);
-  if (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text')) {
-    const value = target.value || '';
-    const start = target.selectionStart ?? value.length;
-    const end = target.selectionEnd ?? value.length;
-    target.value = `${value.slice(0, start)}${text}${value.slice(end)}`;
-    target.dispatchEvent(new Event('input', {bubbles: true}));
-    target.dispatchEvent(new Event('change', {bubbles: true}));
-    arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), method: 'value'});
-    return true;
-  }
-  if (target.isContentEditable) return arenaInsertIntoEditable(target, text, strategy);
-  return false;
-}
-
 function arenaComposerText(adapter = getArenaAdapter()) {
   const target = arenaFindComposer(adapter);
   if (!target) return '';
   return (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') ? (target.value || '') : (target.textContent || '');
 }
-
+function arenaEditableText(target) {
+  return String(target?.textContent || target?.value || '').replace(/\s+/g, ' ').trim();
+}
+function arenaInsertMarker(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+function arenaTextContainsInsert(text, inserted) {
+  const marker = arenaInsertMarker(inserted);
+  const haystack = String(text || '').replace(/\s+/g, ' ').trim();
+  return !!marker && haystack.includes(marker);
+}
+async function arenaVerifySettledInsert(adapter, before, text, delayMs = 180) {
+  await arenaSleep(delayMs);
+  const target = arenaFindComposer(adapter);
+  const after = arenaEditableText(target);
+  return {settled: after !== before && arenaTextContainsInsert(after, text), verify_ms: delayMs};
+}
+function arenaTextareaInsert(target, text) {
+  const value = target.value || '';
+  const start = target.selectionStart ?? value.length;
+  const end = target.selectionEnd ?? value.length;
+  target.value = `${value.slice(0, start)}${text}${value.slice(end)}`;
+  target.dispatchEvent(new Event('input', {bubbles: true}));
+  target.dispatchEvent(new Event('change', {bubbles: true}));
+  return true;
+}
 function arenaParagraphInsert(text) {
   String(text).split('\n').forEach((line, index) => {
     if (index) document.execCommand('insertParagraph');
@@ -89,33 +89,61 @@ function arenaDirectDomBlocks(target, text) {
   range.insertNode(fragment); range.collapse(false);
   return arenaFinishDirectDomInsert(target, text);
 }
-function arenaInsertIntoEditable(target, text, strategy = 'auto') {
+function arenaDirectDomPreWrap(target, text) {
+  const range = arenaEditableRange(target);
+  range.deleteContents();
+  const span = document.createElement('span');
+  span.style.whiteSpace = 'pre-wrap';
+  span.textContent = String(text);
+  range.insertNode(span); range.setStartAfter(span); range.collapse(true);
+  return arenaFinishDirectDomInsert(target, text);
+}
+function arenaTryEditableInsert(target, text, selected) {
+  if (selected === 'pasteOnly') return arenaPasteOnly(target, text);
+  if (selected === 'paragraphFallback') return arenaParagraphInsert(text);
+  if (selected === 'directDomText') return arenaDirectDomText(target, text);
+  if (selected === 'directDomBlocks') return arenaDirectDomBlocks(target, text);
+  if (selected === 'directDomPreWrap') return arenaDirectDomPreWrap(target, text);
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
+  return ok || arenaParagraphInsert(text);
+}
+async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();
+  const target = arenaFindComposer(adapter);
+  if (!target) {
+    arenaSetInsertTiming({insert_ms: 0, verify_ms: 0, strategy, method: 'failed', error: 'composer_not_found'});
+    return false;
+  }
   const requested = arenaNormalizeInsertStrategy(strategy);
   const selected = requested === 'auto' ? 'nativeInsertText' : requested;
   arenaFocusComposer(target);
   const before = arenaEditableText(target);
-  let ok = false;
-  if (selected === 'pasteOnly') ok = arenaPasteOnly(target, text);
-  else if (selected === 'paragraphFallback') ok = arenaParagraphInsert(text);
-  else if (selected === 'directDomText') {
-    try { ok = arenaDirectDomText(target, text); } catch (_e) { ok = false; }
-  } else if (selected === 'directDomBlocks') {
-    try { ok = arenaDirectDomBlocks(target, text); } catch (_e) { ok = false; }
-  } else {
-    try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
-    if (!ok) ok = arenaParagraphInsert(text);
-  }
-  ok = ok && arenaEditableChanged(before, target, text);
-  arenaSetInsertTiming({insert_ms: Math.round(performance.now() - started), strategy: selected, method: ok ? selected : 'failed'});
+  let attempted = false;
+  try {
+    attempted = (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text'))
+      ? arenaTextareaInsert(target, text)
+      : (target.isContentEditable && arenaTryEditableInsert(target, text, selected));
+  } catch (_e) { attempted = false; }
+  const insertMs = Math.round(performance.now() - started);
+  const verify = attempted ? await arenaVerifySettledInsert(adapter, before, text) : {settled: false, verify_ms: 0};
+  const ok = !!(attempted && verify.settled);
+  arenaSetInsertTiming({
+    insert_ms: insertMs,
+    verify_ms: verify.verify_ms,
+    total_ms: Math.round(performance.now() - started),
+    strategy: selected,
+    method: ok ? selected : 'failed',
+    settled: !!verify.settled,
+  });
   return ok;
 }
 
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();
-  const inserted = arenaInsertResult(text, adapter, strategy);
-  if (!inserted) return {ok: false, inserted: false, submitted: false};
+  const inserted = await arenaInsertResult(text, adapter, strategy);
   const insertTiming = window.__arenaLastInsertTiming || {};
+  if (!inserted) return {ok: false, inserted: false, submitted: false, ...insertTiming, total_ms: Math.round(performance.now() - started)};
   const deadline = Date.now() + 1500;
   while (Date.now() < deadline) {
     const submit = arenaFindSubmitButton(adapter);
@@ -123,7 +151,7 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
       submit.click();
       return {ok: true, inserted: true, submitted: true, ...insertTiming, total_ms: Math.round(performance.now() - started)};
     }
-    await new Promise((resolve) => setTimeout(resolve, 40));
+    await arenaSleep(40);
   }
   return {ok: true, inserted: true, submitted: false, ...insertTiming, total_ms: Math.round(performance.now() - started)};
 }

@@ -60,7 +60,7 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'autoSubmitResult' in settings
     assert 'insertStrategy' in settings
     assert 'async function arenaInsertAndSubmit' in insert_strategies
-    assert 'arenaInsertIntoEditable' in insert_strategies
+    assert 'arenaTryEditableInsert' in insert_strategies
     assert 'arenaFocusComposer' in insert_strategies
     assert 'arenaSetInsertTiming' in insert_strategies
     assert '__arenaLastInsertTiming' in insert_strategies
@@ -70,6 +70,9 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'directDomText' in insert_strategies
     assert 'arenaDirectDomBlocks' in insert_strategies
     assert 'directDomBlocks' in insert_strategies
+    assert 'arenaDirectDomPreWrap' in insert_strategies
+    assert 'directDomPreWrap' in insert_strategies
+    assert 'arenaVerifySettledInsert' in insert_strategies
     assert 'paragraphFallback' in insert_strategies
     assert "insertText" in insert_strategies
     assert "insertParagraph" in insert_strategies
@@ -93,6 +96,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.12.2`.' in readme
+    assert 'Current scaffold extension version: `0.12.3`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

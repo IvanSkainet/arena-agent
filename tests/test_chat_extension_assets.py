@@ -23,7 +23,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.12.2"
+    assert manifest["version"] == "0.12.3"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -51,6 +51,7 @@ def test_chat_extension_scaffold_exists():
     assert "insertStrategy" in popup_html
     assert "directDomText" in popup_html
     assert "directDomBlocks" in popup_html
+    assert "directDomPreWrap" in popup_html
     assert "pageControlsBtn" in popup_html
     assert "scanBtn" in popup_html
     assert "panelBtn" in popup_html
@@ -86,7 +87,7 @@ def test_chat_extension_scaffold_exists():
     assert "clearBtn" in sidepanel_html
     assert "runHistoryAction" in sidepanel
     assert "arenaInsertAndSubmit" in insert_strategies
-    assert "arenaInsertIntoEditable" in insert_strategies
+    assert "arenaTryEditableInsert" in insert_strategies
     assert "ARENA_SITE_ADAPTERS" in adapter_sites
     assert "chat.deepseek.com" in adapter_sites
     assert "kimi.com" in adapter_sites

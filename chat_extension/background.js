@@ -14,7 +14,7 @@ const HISTORY_LIMIT = 160;
 const DETECTED_DEDUPE_MS = 30000;
 function normalizeModes(data) {
   const input = data || {};
-  const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks'];
+  const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks', 'directDomPreWrap'];
   return {
     autoPreview: !!input.autoPreview,
     autoExecuteSafe: !!input.autoExecuteSafe,

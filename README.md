@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.64.0
+### 🆕 What's new in v3.65.0
 
-- **Direct DOM block insertion**: added `directDomBlocks`, a no-`execCommand` strategy that inserts one block per line instead of collapsing multiline text into plain text nodes.
-- **Gemini structure diagnostic**: compare `directDomText` vs `directDomBlocks` to keep the fast 1ms path while preserving multiline chat composer structure.
-- **Auto unchanged**: the default strategy remains conservative until the block-based path is confirmed across target chats.
+- **Settled insert verification**: Insert/Send now reports success only after the composer still contains the inserted marker after a short settle delay.
+- **Safer Send flow**: Insert & Submit will not click Send after an unverified or reverted insertion.
+- **Direct DOM pre-wrap diagnostic**: added `directDomPreWrap` to test fast multiline insertion without `execCommand` while preserving visual line breaks.
 
 ---
 
