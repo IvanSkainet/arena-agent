@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.59.0
+### 🆕 What's new in v3.60.0
 
-- **Gemini insert path trimmed again**: removed the duplicate synthetic `InputEvent` after native contenteditable `insertText`.
-- **Latency is now visible**: toolbar status reports `Inserted in Xms` / `Inserted/submitted in Xms`.
-- **Textarea/input behavior unchanged**: direct value writes still dispatch explicit `input/change` events.
+- **Live Tailnet bridge fetch fixed**: extension host permissions now include `https://*.tail328f18.ts.net/*`.
+- **Better bridge fetch diagnostics**: `Failed to fetch` errors include the bridge URL/path.
+- **Local bridge support unchanged**: `127.0.0.1` and `localhost` permissions remain present.
 
 ---
 

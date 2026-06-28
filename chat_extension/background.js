@@ -115,14 +115,17 @@ async function bridgeFetch(path, {method = 'GET', body} = {}) {
   const cfg = await getConfig();
   const headers = {'Content-Type': 'application/json'};
   if (cfg.bridgeToken) headers.Authorization = `Bearer ${cfg.bridgeToken}`;
+  const base = normalizeBridgeUrl(cfg.bridgeUrl);
+  const url = `${base}${path}`;
   try {
-    const base = normalizeBridgeUrl(cfg.bridgeUrl);
-    const res = await fetch(`${base}${path}`, {method, headers, body: body ? JSON.stringify(body) : undefined});
+    const res = await fetch(url, {method, headers, body: body ? JSON.stringify(body) : undefined});
     const text = await res.text();
     let parsed; try { parsed = JSON.parse(text); } catch { parsed = {ok: false, error: text || `HTTP ${res.status}`, raw: text}; }
-    if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, ...parsed};
+    if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, bridge_url: base, path, ...parsed};
     return parsed;
-  } catch (error) { return {ok: false, error: String(error)}; }
+  } catch (error) {
+    return {ok: false, error: `${String(error)} while fetching ${url}`, bridge_url: base, path};
+  }
 }
 async function testConnection() {
   const version = await bridgeFetch('/v1/version');

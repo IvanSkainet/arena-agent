@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.60.0 - 2026-06-28
+
+- Fixed extension `TypeError: Failed to fetch` for the live Tailnet bridge by adding `https://*.tail328f18.ts.net/*` to host permissions.
+- Improved background bridge fetch errors to include the target bridge URL/path, making permission/config failures easier to diagnose.
+- Kept local bridge permissions (`127.0.0.1`, `localhost`) unchanged.
+
 ## v3.59.0 - 2026-06-28
 
 - Removed the extra synthetic `InputEvent` after native contenteditable `insertText`; Gemini rich-textarea already receives native input events and the duplicate event caused extra processing.
