@@ -51,7 +51,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'autoSubmitResult' in settings
     assert 'async function arenaInsertAndSubmit' in adapters
     assert 'arenaInsertIntoEditable' in adapters
-    assert 'ClipboardEvent' in adapters
+    assert "insertText" in adapters
+    assert "insertParagraph" in adapters
     assert 'setTimeout' in adapters
 
     assert 'arenaDetectionText' in adapters
@@ -68,6 +69,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.10.8`.' in readme
+    assert 'Current scaffold extension version: `0.10.9`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.51.0 - 2026-06-28
+
+- Fixed Gemini regressions from v3.50.0: result insertion now uses a single deterministic insertText path, removing the paste+fallback combo that caused duplicate insertion on Gemini and a false insert status that blocked Send.
+- Send no longer depends on an instant synchronous text check, so submit works on composers that apply edits asynchronously (Gemini rich-textarea).
+
 ## v3.50.0 - 2026-06-28
 
 - Fixed duplicate result insertion in ChatGPT by detecting whether the synthetic paste already changed the composer before running the per-line fallback.

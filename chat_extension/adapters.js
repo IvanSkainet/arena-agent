@@ -177,26 +177,27 @@ function arenaComposerText(adapter = getArenaAdapter()) {
 
 function arenaInsertIntoEditable(target, text) {
   target.focus();
-  const before = target.textContent || '';
-  try {
-    const dt = new DataTransfer();
-    dt.setData('text/plain', text);
-    target.dispatchEvent(new ClipboardEvent('paste', {bubbles: true, cancelable: true, clipboardData: dt}));
-  } catch (_e) {}
-  if ((target.textContent || '') !== before) return true;
-  String(text).split('\n').forEach((line, index) => {
-    if (index) document.execCommand('insertParagraph');
-    if (line) document.execCommand('insertText', false, line);
-  });
+  // Single deterministic path: native insertText with embedded newlines.
+  // Modern contenteditable composers (ChatGPT ProseMirror, Gemini rich-textarea)
+  // honor a multiline insertText and build paragraphs themselves, so we avoid
+  // a paste+fallback combo that caused duplicate insertion and false status.
+  let ok = false;
+  try { ok = document.execCommand('insertText', false, String(text)); } catch (_e) { ok = false; }
+  if (!ok) {
+    String(text).split('\n').forEach((line, index) => {
+      if (index) document.execCommand('insertParagraph');
+      if (line) document.execCommand('insertText', false, line);
+    });
+  }
   target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'insertText'}));
-  return (target.textContent || '') !== before;
+  return true;
 }
 
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
   const inserted = arenaInsertResult(text, adapter);
   if (!inserted) return {ok: false, inserted: false, submitted: false};
-  for (let i = 0; i < 10; i++) {
-    await new Promise((resolve) => setTimeout(resolve, i ? 120 : 250));
+  for (let i = 0; i < 8; i++) {
+    await new Promise((resolve) => setTimeout(resolve, i ? 150 : 200));
     const submit = arenaFindSubmitButton(adapter);
     if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
       submit.click();
