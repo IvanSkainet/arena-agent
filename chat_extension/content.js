@@ -2,6 +2,7 @@ const ARENA_CONTENT_SCRIPT_VERSION = '0.12.7';
 const processed = new Set();
 const mountedControls = new Map();
 const dismissedControls = new Set();
+const detectedPayloads = new Set();
 let scanTimer = null;
 function arenaExtensionVersion() {
   try { return chrome.runtime.getManifest?.().version || ARENA_CONTENT_SCRIPT_VERSION; } catch (_e) { return ARENA_CONTENT_SCRIPT_VERSION; }
@@ -57,6 +58,7 @@ function cleanupStaleControls() {
   document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((bar) => bar.remove());
   document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { node.dataset.arenaToolControlsMounted = ''; });
   mountedControls.clear();
+  detectedPayloads.clear();
 }
 function suppressCurrentControls() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: []};
@@ -70,6 +72,13 @@ function hostHasToolbar(host) {
 }
 function buildRequest(payload, adapterName, fingerprint) {
   return {site: {origin: location.origin, url: location.href, adapter: adapterName}, message: {fingerprint}, payload, mode: {}};
+}
+function payloadTools(payload) {
+  return (payload?.calls || []).map((call) => call.tool).filter(Boolean);
+}
+function detectedDetail(payload, adapter) {
+  const tools = payloadTools(payload).slice(0, 4).join(', ');
+  return `detected ${tools || 'tool block'} on ${location.hostname}`;
 }
 function genericInsertIntoActiveField(text, strategy = 'auto') {
   const active = document.activeElement;
@@ -116,13 +125,15 @@ function previewSummary(result) {
 function mountControls(host, payload, adapter) {
   host = controlsHost(host);
   const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
+  const payloadFingerprint = typeof arenaPayloadFingerprint === 'function' ? arenaPayloadFingerprint(payload, adapter) : hash(JSON.stringify(payload || {}));
   const existing = mountedControls.get(fingerprint);
   if (dismissedControls.has(fingerprint) || (existing?.bar?.isConnected) || hostHasToolbar(host)) return;
   const firstSeen = !processed.has(fingerprint);
-  processed.add(fingerprint);
+  const firstPayloadSeen = !detectedPayloads.has(payloadFingerprint);
+  processed.add(fingerprint); detectedPayloads.add(payloadFingerprint);
   host.dataset.arenaToolControlsMounted = '1'; host.dataset.arenaToolFingerprint = fingerprint;
   const request = buildRequest(payload, adapter.name, fingerprint);
-  if (firstSeen) chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: `detected block on ${location.hostname}`, site: location.origin, adapter: adapter.name, fingerprint, payload: request}});
+  if (firstSeen && firstPayloadSeen) chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: detectedDetail(payload, adapter), site: location.origin, adapter: adapter.name, fingerprint, payload_fingerprint: payloadFingerprint, tools: payloadTools(payload), payload: request}});
   let lastExecutionText = '';
   const bar = document.createElement('div');
   bar.dataset.arenaToolControls = '1';

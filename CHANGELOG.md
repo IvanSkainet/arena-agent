@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.70.0 - 2026-06-28
+
+- Reduced extension detected-history noise by deduping detected events with a payload fingerprint instead of DOM position alone.
+- Added tool names and payload fingerprints to detected history entries for more useful popup/sidepanel rows.
+- Suppressed repeated page-level detected events for payloads that have already mounted controls during the current content-script lifetime.
+
 ## v3.69.0 - 2026-06-28
 
 - Added explicit manifest/content/insert-script version diagnostics to Scan Page output so stale content scripts are obvious after extension reloads.

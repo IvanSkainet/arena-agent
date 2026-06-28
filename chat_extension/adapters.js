@@ -105,15 +105,18 @@ function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
   return true;
 }
 
-function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
-  const base = [
-    adapter.name,
-    arenaExtractNodeId(node, adapter),
-    JSON.stringify(payload || {}),
-  ].join('|');
+function arenaStableHash(text, prefix = 'arena') {
   let h = 0;
-  for (let i = 0; i < base.length; i++) h = ((h << 5) - h + base.charCodeAt(i)) | 0;
-  return `arena_msg_${Math.abs(h)}`;
+  for (let i = 0; i < String(text || '').length; i++) h = ((h << 5) - h + String(text).charCodeAt(i)) | 0;
+  return `${prefix}_${Math.abs(h)}`;
+}
+function arenaPayloadFingerprint(payload, adapter = getArenaAdapter()) {
+  const calls = Array.isArray(payload?.calls) ? payload.calls.map((call) => ({id: call.id || '', tool: call.tool || '', arguments: call.arguments || {}})) : [];
+  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls}), 'arena_payload');
+}
+function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
+  const base = [adapter.name, arenaExtractNodeId(node, adapter), JSON.stringify(payload || {})].join('|');
+  return arenaStableHash(base, 'arena_msg');
 }
 
 function arenaCandidateNodes() {

@@ -23,7 +23,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.12.7"
+    assert manifest["version"] == "0.12.8"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -66,6 +66,7 @@ def test_chat_extension_scaffold_exists():
     assert "copyInstructions" in popup
     assert "chrome.runtime.lastError" in popup
     assert "describeBridgeResult" in background
+    assert "payload_fingerprint" in background
     assert "normalizeBridgeUrl" in background
     assert "http://${url}" in background
     assert "chrome.tabs.create" in background
@@ -99,10 +100,15 @@ def test_chat_extension_scaffold_exists():
     assert "kimi.com" in adapter_sites
     assert "chat.qwen.ai" in adapter_sites
     assert "arenaMessageFingerprint" in adapters
+    assert "arenaPayloadFingerprint" in adapters
+    assert "arenaStableHash" in adapters
     assert "arenaDetectionText" in adapters
     assert "arenaIsComposerNode" in adapters
     assert "previewSummary" in content
     assert "dismissedControls" in content
+    assert "detectedPayloads" in content
+    assert "payload_fingerprint" in content
+    assert "detectedDetail" in content
     assert "suppressCurrentControls" in content
     assert "dismissed_controls" in content
     assert "arenaSplitJsonObjects" in parser

@@ -18,6 +18,7 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'function_call_start' in adapters
     assert 'arenaIsAssistantNode' in adapters
     assert 'arenaMessageFingerprint' in adapters
+    assert 'arenaPayloadFingerprint' in adapters
     assert 'arenaLatestCandidateNodes' in adapters
     assert 'arenaExtractNodeId' in adapters
     assert 'arenaCandidateHost' in adapters
@@ -104,10 +105,12 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'currentInsertStrategy' in content
     assert 'suppressCurrentControls' in content
     assert 'dismissedControls' in content
+    assert 'detectedPayloads' in content
+    assert 'payload_fingerprint' in content
 
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.12.7`.' in readme
+    assert 'Current scaffold extension version: `0.12.8`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

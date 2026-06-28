@@ -86,10 +86,11 @@ function describeBridgeResult(result) {
   return parsed?.error || parsed?.message || (failed?.result?.text ? String(failed.result.text).slice(0, 220) : '') || result.summary || (result.status ? `HTTP ${result.status}` : 'unknown');
 }
 function detectedDedupeKey(entry) {
-  return [entry.fingerprint || '', entry.site || '', entry.adapter || '', entry.base_detail || entry.detail || ''].join('|');
+  return [entry.payload_fingerprint || entry.fingerprint || '', entry.site || '', entry.adapter || '', entry.base_detail || entry.detail || ''].join('|');
 }
 function detectedBaseDetail(entry) {
-  return String(entry.base_detail || entry.detail || 'detected block').replace(/ ×\d+$/, '');
+  const tools = Array.isArray(entry.tools) && entry.tools.length ? `detected ${entry.tools.slice(0, 4).join(', ')}` : '';
+  return String(entry.base_detail || entry.detail || tools || 'detected block').replace(/ ×\d+$/, '');
 }
 async function pushHistory(kind, detail) {
   const current = await getHistory();
