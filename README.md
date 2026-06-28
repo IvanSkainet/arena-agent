@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.66.0
+### 🆕 What's new in v3.67.0
 
-- **Adaptive auto insert**: `auto` now tries the verified fast `directDomPreWrap` contenteditable path first, then falls back to native `insertText` only if the fast path makes no composer change.
-- **Better settled verification**: insertion checks now use both normalized text and whitespace-free signatures, reducing false negatives for DOM paths that alter whitespace.
-- **No Gemini-only mode**: the adaptive strategy is generic and verification-gated, so unsupported chats fall back safely.
+- **Recommended Auto UX**: the popup now labels `Auto` as the recommended insert strategy and marks manual strategies as debug options.
+- **Clearer insert status**: toolbar messages now say when Auto internally used a concrete strategy such as `directDomPreWrap`.
+- **Actionable failures**: insert failures include a compact attempt summary so ignored, changed-but-unverified, and settled paths are easier to diagnose.
 
 ---
 

@@ -76,15 +76,24 @@ function genericInsertIntoActiveField(text, strategy = 'auto') {
   if (active && active.isContentEditable) { return (typeof arenaInsertIntoEditable === 'function') ? arenaInsertIntoEditable(active, text, strategy) : (document.execCommand('insertText', false, text), true); }
   return false;
 }
+function attemptsSummary(timing) {
+  const attempts = Array.isArray(timing?.attempts) ? timing.attempts : [];
+  if (!attempts.length) return '';
+  return ` Attempts: ${attempts.map((item) => `${item.strategy}:${item.settled ? 'ok' : (item.changed ? 'changed' : 'no-change')}`).join(', ')}.`;
+}
 function timingSummary(timing) {
   const strategy = timing?.strategy || timing?.method || 'unknown';
+  const requested = timing?.requested_strategy;
+  const prefix = requested === 'auto' && strategy !== 'auto' ? `Auto used ${strategy}` : `via ${strategy}`;
   const ms = timing?.total_ms ?? timing?.insert_ms ?? '?';
   const verify = timing?.verify_ms ? `, verified +${timing.verify_ms}ms` : '';
-  return `via ${strategy} in ${ms}ms${verify}`;
+  return `${prefix} in ${ms}ms${verify}`;
 }
 function insertFailureSummary(strategy, timing) {
+  const requested = timing?.requested_strategy || strategy;
   const settled = timing?.settled === false ? 'not settled in composer' : 'not inserted';
-  return `Could not insert via ${strategy}: ${settled}; copy instead.`;
+  const prefix = requested === 'auto' ? 'Auto insert failed' : `Could not insert via ${strategy}`;
+  return `${prefix}: ${settled}; copy instead.${attemptsSummary(timing)}`;
 }
 async function currentInsertStrategy() {
   try {
@@ -140,7 +149,7 @@ function mountControls(host, payload, adapter) {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
     const strategy = await currentInsertStrategy();
     const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(formatInsertText(lastExecutionText), adapter, strategy) : {ok: false, inserted: false, submitted: false};
-    status.textContent = state.ok ? (state.submitted ? `Inserted/submitted ${timingSummary(state)}.` : `Inserted ${timingSummary(state)}, submit not found.`) : `Insert & submit failed via ${strategy}.`;
+    status.textContent = state.ok ? (state.submitted ? `Inserted/submitted ${timingSummary(state)}.` : `Inserted ${timingSummary(state)}, submit not found.`) : `Insert & submit failed. ${insertFailureSummary(strategy, state)}`;
   }));
   bar.appendChild(makeButton('Copy', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
@@ -186,7 +195,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   } else {
     state = {ok: genericInsertIntoActiveField(insertText, modes.insertStrategy || 'auto')};
   }
-  status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted ${timingSummary(state)}.` : `Auto inserted ${timingSummary(state)}.`) : `Auto insert failed: ${state.settled === false ? 'not settled in composer' : 'not inserted'}.`;
+  status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted ${timingSummary(state)}.` : `Auto inserted ${timingSummary(state)}.`) : insertFailureSummary(modes.insertStrategy || 'auto', state);
 }
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};

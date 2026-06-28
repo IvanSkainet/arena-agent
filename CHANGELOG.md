@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.67.0 - 2026-06-28
+
+- Labeled `Auto` as the recommended insert strategy in the extension popup and marked manual strategies as debug options.
+- Updated toolbar timing text to report the concrete strategy selected by Auto, e.g. `Auto used directDomPreWrap in ...`.
+- Added compact attempt summaries to insert failure text for easier cross-site diagnostics.
+
 ## v3.66.0 - 2026-06-28
 
 - Made the `auto` insert strategy adaptive for contenteditable composers: try verified `directDomPreWrap` first, then fall back to native `insertText` only when the fast path makes no composer change.
