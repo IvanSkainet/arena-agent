@@ -29,3 +29,6 @@ def test_background_supports_history_item_and_filters():
     assert 'arena.getHistoryItem' in bg
     assert 'adapter: message.body?.site?.adapter' in bg
     assert 'response: compactResult(result)' in bg
+    assert 'DETECTED_DEDUPE_MS' in bg
+    assert 'detectedDedupeKey' in bg
+    assert '×${count}' in bg

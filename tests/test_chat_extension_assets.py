@@ -22,7 +22,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.11.5"
+    assert manifest["version"] == "0.11.6"
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
     assert manifest["content_scripts"][0]["js"][:4] == ["adapter_sites.js", "parser.js", "adapters.js", "settings.js"]

@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.57.0
+### 🆕 What's new in v3.58.0
 
-- **Gemini Insert/Send lag regression fixed**: toolbar clicks no longer steal focus from the chat composer.
-- **Composer focus is now guarded**: insertion only calls `focus()` when needed, avoiding expensive Gemini blur/focus churn.
-- **Shared insert path preserved**: the duplicate-safe `insertText` flow remains unchanged.
+- **Detected history spam reduced**: repeated detections are deduplicated by fingerprint/site/adapter/detail.
+- **Repeat counts preserved**: duplicate detected rows update to `×N` instead of flooding popup/sidepanel history.
+- **Action history remains explicit**: `preview`, `execute`, and `scan` entries are not squashed.
 
 ---
 

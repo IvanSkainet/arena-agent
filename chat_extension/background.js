@@ -10,6 +10,7 @@ const DEFAULTS = {
 };
 const HISTORY_KEY = 'arenaHistory';
 const HISTORY_LIMIT = 160;
+const DETECTED_DEDUPE_MS = 30000;
 function normalizeModes(data) {
   const input = data || {};
   return {
@@ -81,10 +82,33 @@ function describeBridgeResult(result) {
   const parsed = failed?.result?.parsed;
   return parsed?.error || parsed?.message || (failed?.result?.text ? String(failed.result.text).slice(0, 220) : '') || result.summary || (result.status ? `HTTP ${result.status}` : 'unknown');
 }
+function detectedDedupeKey(entry) {
+  return [entry.fingerprint || '', entry.site || '', entry.adapter || '', entry.base_detail || entry.detail || ''].join('|');
+}
+function detectedBaseDetail(entry) {
+  return String(entry.base_detail || entry.detail || 'detected block').replace(/ ×\d+$/, '');
+}
 async function pushHistory(kind, detail) {
   const current = await getHistory();
   const entry = typeof detail === 'string' ? {detail} : (detail || {});
-  const items = [{at: new Date().toISOString(), kind, ...entry}, ...(current.items || [])].slice(0, HISTORY_LIMIT);
+  const now = new Date().toISOString();
+  const existing = current.items || [];
+  if (kind === 'detected') {
+    entry.base_detail = detectedBaseDetail(entry);
+    const key = detectedDedupeKey(entry);
+    const index = existing.findIndex((item) => item.kind === 'detected'
+      && detectedDedupeKey(item) === key
+      && Date.parse(now) - Date.parse(item.at || 0) <= DETECTED_DEDUPE_MS);
+    if (index >= 0) {
+      const previous = existing[index];
+      const count = (parseInt(previous.count || 1, 10) || 1) + 1;
+      const updated = {...previous, ...entry, at: now, kind, count, detail: `${entry.base_detail} ×${count}`};
+      const items = [updated, ...existing.slice(0, index), ...existing.slice(index + 1)].slice(0, HISTORY_LIMIT);
+      await chrome.storage.local.set({[HISTORY_KEY]: items});
+      return;
+    }
+  }
+  const items = [{at: now, kind, ...entry}, ...existing].slice(0, HISTORY_LIMIT);
   await chrome.storage.local.set({[HISTORY_KEY]: items});
 }
 async function bridgeFetch(path, {method = 'GET', body} = {}) {

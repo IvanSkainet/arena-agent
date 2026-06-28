@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.58.0 - 2026-06-28
+
+- Deduplicated noisy `detected` history entries in the extension background worker using fingerprint/site/adapter/detail within a short time window.
+- Repeated detections now update the existing history row with a `×N` count instead of flooding popup/sidepanel history.
+- Kept `preview`, `execute`, and `scan` history entries unsquashed so real user actions and diagnostics remain explicit.
+
 ## v3.57.0 - 2026-06-28
 
 - Fixed the Gemini Insert/Send lag regression shown in DevTools trace: Arena toolbar buttons no longer steal focus from the chat composer on pointer/mouse down.
