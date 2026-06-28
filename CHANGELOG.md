@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.69.0 - 2026-06-28
+
+- Added explicit manifest/content/insert-script version diagnostics to Scan Page output so stale content scripts are obvious after extension reloads.
+- Added composer diagnostics (`rich_textarea`, `prose_mirror`, `auto_plan`) to explain why Auto chose a concrete insertion strategy.
+- Appended active extension/content-script version information to toolbar insert/send timing messages.
+
 ## v3.68.0 - 2026-06-28
 
 - Made Auto insertion editor-aware: ProseMirror-style contenteditable composers use native `insertText`, preserving ChatGPT and Claude multiline structure.

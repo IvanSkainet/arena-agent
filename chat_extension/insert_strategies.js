@@ -1,3 +1,6 @@
+function arenaInsertScriptVersion() {
+  return '0.12.7';
+}
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
 }
@@ -125,6 +128,22 @@ function arenaUsesRichTextareaFastPath(target) {
 function arenaInsertPlan(target, requested) {
   if (!target?.isContentEditable || requested !== 'auto') return [requested === 'auto' ? 'nativeInsertText' : requested];
   return arenaUsesRichTextareaFastPath(target) ? ['directDomPreWrap', 'nativeInsertText'] : ['nativeInsertText'];
+}
+function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
+  const target = arenaFindComposer(adapter);
+  if (!target) return {found: false, host: arenaHost(), adapter: adapter?.name || 'generic', auto_plan: []};
+  return {
+    found: true,
+    host: arenaHost(),
+    adapter: adapter?.name || 'generic',
+    tag: target.tagName || '',
+    contenteditable: !!target.isContentEditable,
+    rich_textarea: !!target.closest?.('rich-textarea'),
+    prose_mirror: !!target.closest?.('.ProseMirror') || target.classList?.contains('ProseMirror'),
+    aria_label: target.getAttribute?.('aria-label') || '',
+    role: target.getAttribute?.('role') || '',
+    auto_plan: arenaInsertPlan(target, 'auto'),
+  };
 }
 async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();

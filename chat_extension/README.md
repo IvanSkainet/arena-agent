@@ -1,7 +1,7 @@
 # Arena Chat Bridge MVP Extension
 
 This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.12.6`.
+Current scaffold extension version: `0.12.7`.
 
 ## What it does today
 - injects a generic content script into web pages

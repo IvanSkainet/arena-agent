@@ -49,6 +49,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'Send' in content
     assert 'scheduleScan' in content
     assert 'scanPageDiagnostics' in content
+    assert 'content_version' in content
+    assert 'composer' in content
     assert 'candidate_nodes' in content
     assert 'parsed_blocks' in content
     assert 'data-arena-tool-controls' in content
@@ -75,6 +77,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaVerifySettledInsert' in insert_strategies
     assert 'arenaInsertPlan' in insert_strategies
     assert 'arenaUsesRichTextareaFastPath' in insert_strategies
+    assert 'arenaComposerDiagnostics' in insert_strategies
+    assert 'arenaInsertScriptVersion' in insert_strategies
     assert "arenaHost() === 'gemini.google.com'" in insert_strategies
     assert "closest?.('rich-textarea')" in insert_strategies
     assert 'arenaCompactTextForVerify' in insert_strategies
@@ -104,6 +108,6 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current scaffold extension version: `0.12.6`.' in readme
+    assert 'Current scaffold extension version: `0.12.7`.' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

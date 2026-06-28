@@ -23,7 +23,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.12.6"
+    assert manifest["version"] == "0.12.7"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -75,6 +75,10 @@ def test_chat_extension_scaffold_exists():
     assert "cleanupStaleControls" in content
     assert "arena.clearPageControls" in content
     assert "scanPageDiagnostics" in content
+    assert "content_version" in content
+    assert "manifest_version" in content
+    assert "insert_script_version" in content
+    assert "versionSummary" in content
     assert "arena.scanPage" in content
     assert "Arena ·" in content
     assert "controlsHost" in content

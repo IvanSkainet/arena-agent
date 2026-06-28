@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.68.0
+### 🆕 What's new in v3.69.0
 
-- **Editor-aware Auto insert**: Auto now keeps ProseMirror-style editors on native `insertText` so ChatGPT and Claude preserve multiline structure.
-- **Gemini fast path scoped**: the fast `directDomPreWrap` path is limited to Gemini Web `rich-textarea`, where it is verified to preserve structure and speed.
-- **AI Studio protected**: AI Studio stays on native insertion instead of inheriting the Gemini Web fast path.
+- **Content-script version diagnostics**: Scan Page now reports manifest/content/insert-script versions so stale tab injections are visible after extension reloads.
+- **Composer diagnostics**: Scan Page includes composer kind and Auto insert plan (`rich_textarea`, `prose_mirror`, `auto_plan`).
+- **Insert status version tag**: toolbar insert/send messages include the active extension/content-script version.
 
 ---
 

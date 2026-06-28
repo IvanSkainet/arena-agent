@@ -1,7 +1,14 @@
+const ARENA_CONTENT_SCRIPT_VERSION = '0.12.7';
 const processed = new Set();
 const mountedControls = new Map();
 const dismissedControls = new Set();
 let scanTimer = null;
+function arenaExtensionVersion() {
+  try { return chrome.runtime.getManifest?.().version || ARENA_CONTENT_SCRIPT_VERSION; } catch (_e) { return ARENA_CONTENT_SCRIPT_VERSION; }
+}
+function versionSummary() {
+  return `ext ${arenaExtensionVersion()}/content ${ARENA_CONTENT_SCRIPT_VERSION}`;
+}
 function hash(text) {
   let h = 0;
   for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
@@ -87,7 +94,7 @@ function timingSummary(timing) {
   const prefix = requested === 'auto' && strategy !== 'auto' ? `Auto used ${strategy}` : `via ${strategy}`;
   const ms = timing?.total_ms ?? timing?.insert_ms ?? '?';
   const verify = timing?.verify_ms ? `, verified +${timing.verify_ms}ms` : '';
-  return `${prefix} in ${ms}ms${verify}`;
+  return `${prefix} in ${ms}ms${verify} · ${versionSummary()}`;
 }
 function insertFailureSummary(strategy, timing) {
   const requested = timing?.requested_strategy || strategy;
@@ -219,7 +226,8 @@ function scanPageDiagnostics() {
     if (samples.length < 5) samples.push({index, tag: node.tagName || '', text: String(text).slice(0, 240), parsed: entries.length, tools: entries.flatMap((entry) => (entry.payload?.calls || []).map((call) => call.tool))});
   });
   const selectorHits = typeof arenaSelectorDiagnostics === 'function' ? arenaSelectorDiagnostics() : [];
-  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
+  const composer = typeof arenaComposerDiagnostics === 'function' ? arenaComposerDiagnostics(state.adapter) : null;
+  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
 }
 function scheduleScan() {
   if (scanTimer) return;
