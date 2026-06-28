@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.56.0
+### 🆕 What's new in v3.57.0
 
-- **Claude detection stabilized from real Scan Page diagnostics**: `[data-test-render-count]` is now the only Claude message selector.
-- **Claude user echoes filtered**: quoted instruction blocks starting with `You said:` no longer mount false controls.
-- **Claude smoke target**: the known test page should show 3 assistant controls instead of 4 controls including the user quote.
+- **Gemini Insert/Send lag regression fixed**: toolbar clicks no longer steal focus from the chat composer.
+- **Composer focus is now guarded**: insertion only calls `focus()` when needed, avoiding expensive Gemini blur/focus churn.
+- **Shared insert path preserved**: the duplicate-safe `insertText` flow remains unchanged.
 
 ---
 

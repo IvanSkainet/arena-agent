@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.57.0 - 2026-06-28
+
+- Fixed the Gemini Insert/Send lag regression shown in DevTools trace: Arena toolbar buttons no longer steal focus from the chat composer on pointer/mouse down.
+- Added a guarded composer focus helper so insertion only focuses the composer when it is not already active, avoiding expensive Gemini blur/focus churn.
+- Kept the shared insert path unchanged (`insertText` first, paragraph fallback only if needed) so ChatGPT/Gemini duplicate-insert protections remain intact.
+
 ## v3.56.0 - 2026-06-28
 
 - Fixed Claude detection using the real Scan Page diagnostics: `[data-test-render-count]` is now the only Claude message selector.

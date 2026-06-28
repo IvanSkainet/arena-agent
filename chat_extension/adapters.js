@@ -176,10 +176,17 @@ function arenaFindSubmitButton(adapter = getArenaAdapter()) {
   return null;
 }
 
+function arenaFocusComposer(target) {
+  if (!target) return;
+  const active = document.activeElement;
+  if (active === target || target.contains?.(active)) return;
+  try { target.focus({preventScroll: true}); } catch (_e) { target.focus(); }
+}
+
 function arenaInsertResult(text, adapter = getArenaAdapter()) {
   const target = arenaFindComposer(adapter);
   if (!target) return false;
-  target.focus();
+  arenaFocusComposer(target);
   if (target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && target.type === 'text')) {
     const value = target.value || '';
     const start = target.selectionStart ?? value.length;
@@ -202,7 +209,7 @@ function arenaComposerText(adapter = getArenaAdapter()) {
 }
 
 function arenaInsertIntoEditable(target, text) {
-  target.focus();
+  arenaFocusComposer(target);
   // Single deterministic path: native insertText with embedded newlines.
   // Modern contenteditable composers (ChatGPT ProseMirror, Gemini rich-textarea)
   // honor a multiline insertText and build paragraphs themselves, so we avoid

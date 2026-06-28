@@ -23,6 +23,11 @@ function makeButton(label, onClick, primary = false) {
   const bg = primary ? '#2563eb' : 'rgba(15,23,42,.72)';
   const border = primary ? '#3b82f6' : 'rgba(148,163,184,.38)';
   btn.style.cssText = `padding:5px 10px;font-size:12px;cursor:pointer;border-radius:999px;border:1px solid ${border};background:${bg};color:#f8fafc;line-height:1.2;font-weight:600;`;
+  // Keep the chat composer focused while clicking Arena controls. Gemini in
+  // particular does expensive synchronous work on blur/focus churn, which made
+  // Insert/Send feel ~1s slower after controls became clickable toolbar buttons.
+  btn.addEventListener('pointerdown', (event) => event.preventDefault());
+  btn.addEventListener('mousedown', (event) => event.preventDefault());
   btn.addEventListener('click', onClick);
   return btn;
 }
