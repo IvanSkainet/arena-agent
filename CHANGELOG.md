@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.54.0 - 2026-06-28
+
+- Restored Claude control detection by filtering only user-message nodes instead of relying on a brittle font-claude-message class, so assistant tool blocks are detected again.
+- Reduced the perceived insert/submit lag on Gemini by replacing the coarse retry timers with a tight 40ms polling loop that clicks Send as soon as it becomes enabled.
+
 ## v3.53.0 - 2026-06-28
 
 - Fixed duplicate Claude controls by restricting detection to assistant messages (font-claude-message) and excluding user-message nodes that quote tool instructions.

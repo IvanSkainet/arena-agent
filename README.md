@@ -46,10 +46,10 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.53.0
+### 🆕 What's new in v3.54.0
 
-- **No duplicate Claude controls** — only assistant messages get controls, not quoted user instructions.
-- **Gemini responsiveness improved** — scanning avoids cloning large answer nodes unnecessarily.
+- **Claude detection restored** — assistant tool blocks are detected again (user messages still excluded).
+- **Faster Gemini Send** — tight polling clicks Send as soon as it is enabled, cutting the insert/submit lag.
 - Full history in [CHANGELOG.md](CHANGELOG.md).
 
 ---

@@ -98,10 +98,8 @@ function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
   if (adapter.name === 'claude') {
     if (node.isContentEditable) return false;
     if (node.querySelector?.('[contenteditable="true"]')) return false;
-    if (node.closest?.('[data-testid="user-message"]')) return false;
-    if (node.matches?.('div.font-claude-message') || node.closest?.('div.font-claude-message')) return true;
-    if (node.querySelector?.('div.font-claude-message')) return true;
-    return false;
+    if (node.closest?.('[data-testid="user-message"], [data-testid="user-message-content"]')) return false;
+    return true;
   }
   return true;
 }
@@ -205,13 +203,14 @@ function arenaInsertIntoEditable(target, text) {
 async function arenaInsertAndSubmit(text, adapter = getArenaAdapter()) {
   const inserted = arenaInsertResult(text, adapter);
   if (!inserted) return {ok: false, inserted: false, submitted: false};
-  for (let i = 0; i < 8; i++) {
-    await new Promise((resolve) => setTimeout(resolve, i ? 150 : 200));
+  const deadline = Date.now() + 1500;
+  while (Date.now() < deadline) {
     const submit = arenaFindSubmitButton(adapter);
     if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
       submit.click();
       return {ok: true, inserted: true, submitted: true};
     }
+    await new Promise((resolve) => setTimeout(resolve, 40));
   }
   return {ok: true, inserted: true, submitted: false};
 }
