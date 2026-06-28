@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.56.0 - 2026-06-28
+
+- Fixed Claude detection using the real Scan Page diagnostics: `[data-test-render-count]` is now the only Claude message selector.
+- Excluded Claude user echo blocks that start with `You said:`, so quoted Arena instructions no longer mount false controls.
+- Expected Claude smoke page result is now three mounted controls for the three assistant JSONL `sys.status` blocks instead of four including the user quote.
+
 ## v3.55.0 - 2026-06-28
 
 - Restored Claude message selectors to a broad reliable set so assistant tool blocks are detected again after the v3.53/v3.54 over-narrowing.

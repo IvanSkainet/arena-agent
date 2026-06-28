@@ -99,6 +99,7 @@ function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
     if (node.isContentEditable) return false;
     if (node.querySelector?.('[contenteditable="true"]')) return false;
     if (node.closest?.('[data-testid="user-message"], [data-testid="user-message-content"]')) return false;
+    if (arenaNodeText(node).startsWith('You said:')) return false;
     return true;
   }
   return true;

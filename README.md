@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.55.0
+### 🆕 What's new in v3.56.0
 
-- **Claude detection restored** with broad reliable selectors.
-- **Scan Page selector diagnostics** — per-selector match counts make adapter debugging data-driven.
-- Full history in [CHANGELOG.md](CHANGELOG.md).
+- **Claude detection stabilized from real Scan Page diagnostics**: `[data-test-render-count]` is now the only Claude message selector.
+- **Claude user echoes filtered**: quoted instruction blocks starting with `You said:` no longer mount false controls.
+- **Claude smoke target**: the known test page should show 3 assistant controls instead of 4 controls including the user quote.
 
 ---
 
