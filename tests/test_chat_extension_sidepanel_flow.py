@@ -19,7 +19,14 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'renderResult' in js
     assert 'Copy Payload' in js
     assert 'Copy Result' in js
+    css = (ROOT / 'chat_extension' / 'popup.css').read_text(encoding='utf-8')
     assert 'arena.getHistory' in js
+    assert 'renderCardHeader' in js
+    assert 'itemTools' in js
+    assert 'itemStatus' in js
+    assert 'shortUrl' in js
+    assert 'arena-history-card' in css
+    assert 'arena-badge' in css
 
 
 def test_background_supports_history_item_and_filters():

@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.71.0
+### 🆕 What's new in v3.72.0
 
-- **Quieter scan history**: repeated Scan Page results now aggregate into one row with a `×N` count instead of flooding sidepanel history.
-- **Shared history aggregation**: `detected` and `scan` now use the same short-window aggregation path, while `preview` and `execute` remain explicit.
-- **Cleaner sidepanel baseline**: repeated diagnostics are easier to inspect before the Command Center card UI lands.
+- **Sidepanel Command Center lite**: history now renders as compact cards with kind/status/count badges instead of a raw log list.
+- **Cleaner status area**: Test Bridge and Policies show concise summaries, with raw JSON still available in the selected result panel.
+- **Better card metadata**: sidepanel cards surface adapter, site, tools, and replay/copy actions where relevant.
 
 ---
 

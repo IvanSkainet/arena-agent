@@ -17,13 +17,14 @@ def test_chat_extension_scaffold_exists():
     popup = (base / "popup.js").read_text(encoding="utf-8")
     popup_html = (base / "popup.html").read_text(encoding="utf-8")
     sidepanel = (base / "sidepanel.js").read_text(encoding="utf-8")
+    popup_css = (base / "popup.css").read_text(encoding="utf-8")
     sidepanel_html = (base / "sidepanel.html").read_text(encoding="utf-8")
     adapters = (base / "adapters.js").read_text(encoding="utf-8")
     insert_strategies = (base / "insert_strategies.js").read_text(encoding="utf-8")
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.12.9"
+    assert manifest["version"] == "0.13.0"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -95,6 +96,8 @@ def test_chat_extension_scaffold_exists():
     assert "refreshBtn" in sidepanel_html
     assert "clearBtn" in sidepanel_html
     assert "runHistoryAction" in sidepanel
+    assert "renderCardHeader" in sidepanel
+    assert "arena-history-card" in popup_css
     assert "arenaInsertAndSubmit" in insert_strategies
     assert "arenaTryEditableInsert" in insert_strategies
     assert "ARENA_SITE_ADAPTERS" in adapter_sites

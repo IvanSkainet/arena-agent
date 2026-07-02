@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.72.0 - 2026-06-28
+
+- Converted sidepanel history rows into compact Command Center-style cards with kind/status/count badges.
+- Replaced the always-expanded status JSON with concise status summaries while keeping raw policy/test data inspectable in the result panel.
+- Added card metadata helpers for site, adapter, tools, and action availability.
+
 ## v3.71.0 - 2026-06-28
 
 - Aggregated repeated Scan Page history entries within the same short window, updating one row with a `×N` count instead of flooding the sidepanel.
