@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.75.0 - 2026-07-02
+
+- Made sidepanel lifecycle grouping conservative: repeated single-stage events remain regular cards instead of fake command lifecycles.
+- Removed duplicate status badges from grouped command cards.
+- Added live filter behavior for kind changes and debounced site/adapter inputs.
+
 ## v3.74.0 - 2026-07-02
 
 - Added sidepanel command lifecycle grouping for related `detected`, `preview`, and `execute` events.

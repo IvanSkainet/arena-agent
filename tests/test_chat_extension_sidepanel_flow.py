@@ -29,8 +29,12 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'versionDiagnostics' in js
     assert 'cardMetaParts' in js
     assert 'groupCommandHistory' in js
+    assert 'commandGroupFromEvents' in js
+    assert 'lifecycleKinds' in js
     assert 'lifecycleSummary' in js
     assert 'historyActionIndex' in js
+    assert 'scheduleFilterReload' in js
+    assert "getElementById('kindFilter').addEventListener('change', loadHistory)" in js
     assert "auto: ${composer.auto_plan.join(' → ')}" in js
     assert 'shortUrl' in js
     assert 'arena-history-card' in css

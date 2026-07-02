@@ -70,34 +70,40 @@ function lifecycleLabel(kind) {
   if (kind === 'execute') return 'executed';
   return kind || 'event';
 }
-function lifecycleSummary(events) {
+function lifecycleKinds(events) {
   const order = ['detected', 'preview', 'execute'];
-  const seen = new Map();
-  (events || []).forEach((event) => {
-    if (!seen.has(event.kind)) seen.set(event.kind, event);
-  });
-  return order.filter((kind) => seen.has(kind)).map((kind) => lifecycleLabel(kind)).join(' → ');
+  const kinds = new Set((events || []).map((event) => event.kind).filter(Boolean));
+  return order.filter((kind) => kinds.has(kind));
+}
+function lifecycleSummary(events) {
+  return lifecycleKinds(events).map((kind) => lifecycleLabel(kind)).join(' → ');
+}
+function latestEvent(events) {
+  return (events || []).reduce((latest, item) => ((Date.parse(item.at || 0) || 0) >= (Date.parse(latest?.at || 0) || 0) ? item : latest), null);
+}
+function commandGroupFromEvents(key, events) {
+  const kinds = lifecycleKinds(events);
+  if (kinds.length < 2) return null;
+  const latest = latestEvent(events) || events[0];
+  const lifecycle = kinds.map((kind) => lifecycleLabel(kind)).join(' → ');
+  return {...latest, group_key: key, events, lifecycle, event_count: events.length};
 }
 function groupCommandHistory(items) {
   const groups = new Map();
-  const output = [];
-  (items || []).forEach((item) => {
+  const positions = new Map();
+  const passthrough = [];
+  (items || []).forEach((item, index) => {
     const key = commandKey(item);
-    if (!key) { output.push(item); return; }
-    let group = groups.get(key);
-    if (!group) {
-      group = {...item, group_key: key, events: [], lifecycle: '', event_count: 0};
-      groups.set(key, group);
-      output.push(group);
-    }
-    group.events.push(item);
-    group.event_count = group.events.length;
-    group.lifecycle = lifecycleSummary(group.events);
-    if ((Date.parse(item.at || 0) || 0) >= (Date.parse(group.at || 0) || 0)) {
-      Object.assign(group, {...item, group_key: key, events: group.events, lifecycle: group.lifecycle, event_count: group.event_count});
-    }
+    if (!key) { passthrough.push({index, item}); return; }
+    if (!groups.has(key)) { groups.set(key, []); positions.set(key, index); }
+    groups.get(key).push(item);
   });
-  return output;
+  groups.forEach((events, key) => {
+    const group = commandGroupFromEvents(key, events);
+    if (group) passthrough.push({index: positions.get(key), item: group});
+    else events.forEach((item) => passthrough.push({index: item.history_index ?? positions.get(key), item}));
+  });
+  return passthrough.sort((a, b) => a.index - b.index).map((entry) => entry.item);
 }
 function historyActionIndex(item, fallbackIndex) {
   return Number.isInteger(item?.history_index) ? item.history_index : fallbackIndex;
@@ -140,11 +146,15 @@ function renderCardHeader(row, item) {
   header.className = 'arena-card-header';
   const left = document.createElement('div');
   left.className = 'arena-card-badges';
-  left.appendChild(badge(item.group_key ? 'command' : (item.kind || 'event'), item.ok === false ? 'error' : 'kind'));
-  left.appendChild(badge(itemStatus(item), item.ok === false ? 'error' : 'ok'));
-  if (item.lifecycle) left.appendChild(badge(item.lifecycle, 'flow'));
-  if (item.event_count > 1) left.appendChild(badge(`${item.event_count} events`, 'count'));
-  if (item.count) left.appendChild(badge(`×${item.count}`, 'count'));
+  if (item.group_key) {
+    left.appendChild(badge('command', item.ok === false ? 'error' : 'kind'));
+    if (item.lifecycle) left.appendChild(badge(item.lifecycle, 'flow'));
+    if (item.event_count > 1) left.appendChild(badge(`${item.event_count} events`, 'count'));
+  } else {
+    left.appendChild(badge(item.kind || 'event', item.ok === false ? 'error' : 'kind'));
+    left.appendChild(badge(itemStatus(item), item.ok === false ? 'error' : 'ok'));
+    if (item.count) left.appendChild(badge(`×${item.count}`, 'count'));
+  }
   const right = document.createElement('div');
   right.className = 'arena-card-time';
   right.textContent = item.at || '';
@@ -215,9 +225,20 @@ async function refreshAll() {
   renderStatus({loading: 'Refreshing...'});
   await Promise.all([loadHistory(), testConnection()]);
 }
+let filterTimer = null;
+function scheduleFilterReload() {
+  clearTimeout(filterTimer);
+  filterTimer = setTimeout(loadHistory, 180);
+}
 document.getElementById('refreshBtn').addEventListener('click', refreshAll);
 document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policiesBtn').addEventListener('click', loadPolicies);
 document.getElementById('clearBtn').addEventListener('click', clearHistory);
 document.getElementById('applyFilterBtn').addEventListener('click', loadHistory);
+document.getElementById('kindFilter').addEventListener('change', loadHistory);
+['siteFilter', 'adapterFilter'].forEach((id) => {
+  const input = document.getElementById(id);
+  input.addEventListener('input', scheduleFilterReload);
+  input.addEventListener('keydown', (event) => { if (event.key === 'Enter') loadHistory(); });
+});
 refreshAll().catch((error) => renderStatus({ok: false, error: String(error)}));

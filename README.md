@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.74.0
+### 🆕 What's new in v3.75.0
 
-- **Command lifecycle cards**: the sidepanel now groups related command events into one card showing `detected → previewed → executed` when no kind filter is active.
-- **Audit-safe replay indexes**: filtered/grouped history actions now use the original stored history index, so Replay Preview/Execute targets the correct payload.
-- **Flow badges**: command cards show lifecycle and event-count badges while raw per-event history remains available via kind filters.
+- **Conservative lifecycle grouping**: sidepanel command cards now group only real multi-stage flows, not repeated `detected` duplicates.
+- **Cleaner card badges**: grouped command cards show `command`, lifecycle, and event count without duplicate status badges.
+- **Filters feel live**: kind changes apply immediately, and site/adapter filters auto-refresh with debounce or Enter.
 
 ---
 
