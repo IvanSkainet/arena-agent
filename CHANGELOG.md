@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.79.0 - 2026-07-02
+
+- Aligned the `docs/` modularity guidance with the enforced limit: the docs said ~180-220 lines while `tests/test_project_modularity.py` enforces 300; updated MODULE_MAP.md, V3_MODULAR_ARCHITECTURE.md, and V3_RELEASE_CHECKLIST.md to reference the test as the source of truth.
+- Removed a stale hardcoded line count from V3_MODULAR_ARCHITECTURE.md (`unified_bridge.py` is no longer described as exactly 98 lines).
+- Added a clear "Historical document" banner to point-in-time audit/roadmap/plan docs so they are not mistaken for current documentation.
+
 ## v3.78.0 - 2026-07-02
 
 - Redesigned README.md and README.ru.md as scannable public landing pages: added a table of contents, a "Why" section, an ASCII flow diagram, and a capability table.

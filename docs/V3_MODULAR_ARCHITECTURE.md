@@ -5,7 +5,7 @@ large `unified_bridge.py` implementation with focused domain packages.
 
 ## Current status
 
-- `unified_bridge.py` is a thin compatibility/CLI entrypoint (98 lines).
+- `unified_bridge.py` is a thin compatibility/CLI entrypoint.
 - Public routes, handler globals and legacy `import unified_bridge as ub` usage
   remain available through compatibility import/wiring layers.
 - New development should happen in `arena/<domain>/...`, not in
@@ -73,8 +73,9 @@ arena/
 4. Put handler dependency dataclasses in `arena/contexts/*` and re-export via
    `arena/handler_context.py` if legacy import compatibility is needed.
 5. Keep handlers thin; put OS/subprocess/state logic in runtime/helper modules.
-6. Avoid new mini-monoliths: split files by natural boundaries before they grow
-   beyond roughly 180-220 lines, except pure templates/docs.
+6. Avoid new mini-monoliths: split files by natural boundaries. The enforced
+   limit lives in `tests/test_project_modularity.py` (currently 300 lines);
+   decompose growing modules instead of compressing logic to fit it.
 7. For meaningful changes, run:
 
 ```bash

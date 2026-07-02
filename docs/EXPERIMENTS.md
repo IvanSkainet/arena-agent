@@ -1,5 +1,7 @@
 # Arena Unified Bridge — Experiments
 
+> **📎 Historical document.** This is a point-in-time snapshot kept for context. For the current state, see the [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 Date: 2026-06-19
 
 This file is for ideas worth exploring but not safe enough to treat as core roadmap commitments.

@@ -1,5 +1,7 @@
 # Arena Unified Bridge — strategic position + canonical roadmap
 
+> **📎 Historical document.** This is a point-in-time snapshot kept for context. For the current state, see the [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 Date: 2026-06-19
 Baseline observed state in this workspace/live cycle: `v3.2.12`
 

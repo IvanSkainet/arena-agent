@@ -1,5 +1,7 @@
 # Arena Unified Bridge — Canonical Roadmap
 
+> **📎 Historical document.** This is a point-in-time snapshot kept for context. For the current state, see the [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 Date: 2026-06-26
 Validated baseline: `v3.30.0`
 

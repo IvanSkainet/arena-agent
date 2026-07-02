@@ -1,5 +1,7 @@
 # v3 Stable Release Checklist
 
+> **📎 Historical document.** This is a point-in-time snapshot kept for context. For the current state, see the [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 Use this checklist before promoting the modular bridge from alpha/beta/RC to a
 stable modular release line.
 
@@ -7,7 +9,7 @@ stable modular release line.
 
 - [ ] `unified_bridge.py` remains a thin compatibility/CLI entrypoint (`<= 150` lines preferred; hard limit `<= 200`).
 - [ ] No `arena/*` module imports `unified_bridge.py`.
-- [ ] No new runtime mini-monoliths above ~180-220 lines unless explicitly allowed.
+- [ ] No new runtime mini-monoliths above the `tests/test_project_modularity.py` limit (currently 300 lines).
 - [ ] `arena/route_registry/*` owns route registration by domain.
 - [ ] `arena/contexts/*` owns handler context dataclasses.
 - [ ] New feature work lives in focused `arena/<domain>/` modules.

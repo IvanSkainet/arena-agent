@@ -1,5 +1,7 @@
 # Mobile Support Roadmap (Post-v3.0.0)
 
+> **📎 Historical document.** This is a point-in-time snapshot kept for context. For the current state, see the [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 This document captures the planned Android/mobile direction for Arena Unified
 Bridge after the stable `v3.0.0` modular desktop release. Mobile support is a
 future expansion track and is **not** a blocker for the v3.0.0 stable release.

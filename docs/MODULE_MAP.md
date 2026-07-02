@@ -79,6 +79,8 @@ into the relevant `arena/<domain>/` package, not into `unified_bridge.py`.
 
 1. Do not add business logic to `unified_bridge.py`.
 2. Keep handlers thin; move IO/subprocess/state logic into runtime/helper modules.
-3. Avoid files above ~180-220 lines unless they are templates or declarative data.
+3. Keep product files under the modularity limit enforced by
+   `tests/test_project_modularity.py` (currently 300 lines). Prefer decomposing
+   a growing module along natural boundaries over compressing logic to fit.
 4. Preserve public route paths and legacy compatibility names unless a migration doc explicitly changes them.
 5. Run `pytest -q` and the v4 stress gate before release-impacting changes.

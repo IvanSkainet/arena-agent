@@ -1,5 +1,7 @@
 # v3 Modular Stabilization Audit
 
+> **📎 Historical document.** This is a point-in-time snapshot kept for context. For the current state, see the [README](../README.md) and [CHANGELOG](../CHANGELOG.md).
+
 Date: 2026-06-16
 Branch: `v3-modular-core`
 Baseline release candidate: `v3.1.0`
