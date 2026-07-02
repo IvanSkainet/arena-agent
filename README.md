@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.75.0
+### 🆕 What's new in v3.76.0
 
-- **Conservative lifecycle grouping**: sidepanel command cards now group only real multi-stage flows, not repeated `detected` duplicates.
-- **Cleaner card badges**: grouped command cards show `command`, lifecycle, and event count without duplicate status badges.
-- **Filters feel live**: kind changes apply immediately, and site/adapter filters auto-refresh with debounce or Enter.
+- **Insert/submit history events**: toolbar Insert and Send now record `insert` / `submit` events with timing and version diagnostics.
+- **Fuller command lifecycle**: sidepanel lifecycle cards can now show `detected → previewed → executed → inserted → submitted`.
+- **Insertion metadata in cards**: insert/submit cards surface strategy, total time, verification time, and active content/insert script versions.
 
 ---
 

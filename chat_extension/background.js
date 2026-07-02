@@ -200,6 +200,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       await pushHistory('detected', message.body || {detail: 'arena-tool block'});
       return sendResponse({ok: true});
     }
+    if (message?.type === 'arena.insertEvent') {
+      const body = message.body || {};
+      const kind = body.kind === 'submit' ? 'submit' : 'insert';
+      await pushHistory(kind, {
+        detail: body.detail || kind,
+        site: body.site || '',
+        adapter: body.adapter || '',
+        fingerprint: body.fingerprint || '',
+        ok: body.ok !== false,
+        payload: body.payload || null,
+        response: body.response || null,
+      });
+      return sendResponse({ok: true});
+    }
     if (message?.type === 'arena.preview') {
       const result = await bridgeFetch('/v1/extension/preview', {method: 'POST', body: message.body});
       await pushHistory('preview', {

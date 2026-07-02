@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.3';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.4';
 const processed = new Set();
 const mountedControls = new Map();
 const dismissedControls = new Set();
@@ -160,13 +160,15 @@ function mountControls(host, payload, adapter) {
     let ok = false;
     if (typeof arenaInsertResult === 'function') ok = await arenaInsertResult(insertText, adapter, strategy);
     else ok = genericInsertIntoActiveField(insertText, strategy);
-    const timing = window.__arenaLastInsertTiming || {};
+    const timing = {ok, ...(window.__arenaLastInsertTiming || {})};
+    await arenaRecordInsertEvent('insert', request, adapter, timing, 'manual');
     status.textContent = ok ? `Inserted ${timingSummary(timing)}.` : insertFailureSummary(strategy, timing);
   }));
   bar.appendChild(makeButton('Send', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
     const strategy = await currentInsertStrategy();
     const state = typeof arenaInsertAndSubmit === 'function' ? await arenaInsertAndSubmit(formatInsertText(lastExecutionText), adapter, strategy) : {ok: false, inserted: false, submitted: false};
+    await arenaRecordInsertEvent(state.submitted ? 'submit' : 'insert', request, adapter, state, 'manual');
     status.textContent = state.ok ? (state.submitted ? `Inserted/submitted ${timingSummary(state)}.` : `Inserted ${timingSummary(state)}, submit not found.`) : `Insert & submit failed. ${insertFailureSummary(strategy, state)}`;
   }));
   bar.appendChild(makeButton('Copy', async () => {
@@ -213,6 +215,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   } else {
     state = {ok: genericInsertIntoActiveField(insertText, modes.insertStrategy || 'auto')};
   }
+  await arenaRecordInsertEvent(state.submitted ? 'submit' : 'insert', request, adapter, state, 'auto');
   status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted ${timingSummary(state)}.` : `Auto inserted ${timingSummary(state)}.`) : insertFailureSummary(modes.insertStrategy || 'auto', state);
 }
 function scan() {

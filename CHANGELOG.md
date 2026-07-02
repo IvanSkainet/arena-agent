@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.76.0 - 2026-07-02
+
+- Added extension history events for toolbar Insert and Send actions.
+- Extended sidepanel command lifecycles with `insert` and `submit` stages.
+- Surfaced insertion strategy/timing/version diagnostics in sidepanel cards.
+
 ## v3.75.0 - 2026-07-02
 
 - Made sidepanel lifecycle grouping conservative: repeated single-stage events remain regular cards instead of fake command lifecycles.

@@ -16,6 +16,8 @@ function itemStatus(item) {
   if (item.kind === 'execute') return 'executed';
   if (item.kind === 'preview') return 'previewed';
   if (item.kind === 'scan') return item.response?.ok === false ? 'scan error' : 'scanned';
+  if (item.kind === 'insert') return item.ok === false ? 'insert error' : 'inserted';
+  if (item.kind === 'submit') return item.ok === false ? 'submit error' : 'submitted';
   return item.kind || 'event';
 }
 function scanDiagnostics(item) {
@@ -43,6 +45,16 @@ function versionDiagnostics(item) {
     res.insert_script_version ? `insert ${res.insert_script_version}` : '',
   ].filter(Boolean);
 }
+function insertionDiagnostics(item) {
+  if (item.kind !== 'insert' && item.kind !== 'submit') return [];
+  const res = item.response || {};
+  return [
+    res.strategy ? `strategy: ${res.strategy}` : '',
+    Number.isFinite(res.total_ms) ? `${res.total_ms}ms` : '',
+    Number.isFinite(res.verify_ms) ? `verify +${res.verify_ms}ms` : '',
+    res.submitted ? 'submitted' : '',
+  ].filter(Boolean);
+}
 function fingerprintDiagnostics(item) {
   const fp = item.payload_fingerprint || item.fingerprint;
   return fp ? [`fp ${String(fp).slice(0, 18)}`] : [];
@@ -54,6 +66,7 @@ function cardMetaParts(item) {
     shortUrl(item.site),
     tools ? `tools: ${tools}` : '',
     ...scanDiagnostics(item),
+    ...insertionDiagnostics(item),
     ...versionDiagnostics(item),
     ...fingerprintDiagnostics(item),
   ].filter(Boolean);
@@ -68,10 +81,12 @@ function lifecycleLabel(kind) {
   if (kind === 'detected') return 'detected';
   if (kind === 'preview') return 'previewed';
   if (kind === 'execute') return 'executed';
+  if (kind === 'insert') return 'inserted';
+  if (kind === 'submit') return 'submitted';
   return kind || 'event';
 }
 function lifecycleKinds(events) {
-  const order = ['detected', 'preview', 'execute'];
+  const order = ['detected', 'preview', 'execute', 'insert', 'submit'];
   const kinds = new Set((events || []).map((event) => event.kind).filter(Boolean));
   return order.filter((kind) => kinds.has(kind));
 }

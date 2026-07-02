@@ -21,15 +21,16 @@ def test_chat_extension_scaffold_exists():
     sidepanel_html = (base / "sidepanel.html").read_text(encoding="utf-8")
     adapters = (base / "adapters.js").read_text(encoding="utf-8")
     insert_strategies = (base / "insert_strategies.js").read_text(encoding="utf-8")
+    insert_history = (base / "insert_history.js").read_text(encoding="utf-8")
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.13.3"
+    assert manifest["version"] == "0.13.4"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
-    assert manifest["content_scripts"][0]["js"][:5] == ["adapter_sites.js", "parser.js", "adapters.js", "insert_strategies.js", "settings.js"]
+    assert manifest["content_scripts"][0]["js"][:6] == ["adapter_sites.js", "parser.js", "adapters.js", "insert_strategies.js", "settings.js", "insert_history.js"]
     assert "arena.preview" in background
     assert "arena.execute" in background
     assert "arena.testConnection" in background
@@ -99,6 +100,7 @@ def test_chat_extension_scaffold_exists():
     assert "renderCardHeader" in sidepanel
     assert "arena-history-card" in popup_css
     assert "arenaInsertAndSubmit" in insert_strategies
+    assert "arenaInsertEventTiming" in insert_history
     assert "arenaTryEditableInsert" in insert_strategies
     assert "ARENA_SITE_ADAPTERS" in adapter_sites
     assert "chat.deepseek.com" in adapter_sites
@@ -121,6 +123,8 @@ def test_chat_extension_scaffold_exists():
     assert "showControlsBtn" in popup_html
     assert "arena.showPageControls" in content
     assert "formatInsertText" in content
+    assert "arenaRecordInsertEvent" in content
+    assert "arena.insertEvent" in insert_history
     assert "attemptsSummary" in content
     assert "Auto used" in content
     assert "/v1/extension/execute" in readme

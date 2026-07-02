@@ -11,6 +11,8 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     js = (ROOT / 'chat_extension' / 'sidepanel.js').read_text(encoding='utf-8')
     assert 'kindFilter' in html
     assert '<option value="scan">scan</option>' in html
+    assert '<option value="insert">insert</option>' in html
+    assert '<option value="submit">submit</option>' in html
     assert 'siteFilter' in html
     assert 'adapterFilter' in html
     assert 'applyFilterBtn' in html
@@ -27,11 +29,13 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'itemStatus' in js
     assert 'scanDiagnostics' in js
     assert 'versionDiagnostics' in js
+    assert 'insertionDiagnostics' in js
     assert 'cardMetaParts' in js
     assert 'groupCommandHistory' in js
     assert 'commandGroupFromEvents' in js
     assert 'lifecycleKinds' in js
     assert 'lifecycleSummary' in js
+    assert "'detected', 'preview', 'execute', 'insert', 'submit'" in js
     assert 'historyActionIndex' in js
     assert 'scheduleFilterReload' in js
     assert "getElementById('kindFilter').addEventListener('change', loadHistory)" in js
@@ -48,6 +52,7 @@ def test_background_supports_history_item_and_filters():
     assert 'history_index: index' in bg
     assert 'getHistoryItem' in bg
     assert 'arena.getHistoryItem' in bg
+    assert 'arena.insertEvent' in bg
     assert 'adapter: message.body?.site?.adapter' in bg
     assert 'response: compactResult(result)' in bg
     assert 'while fetching ${url}' in bg
