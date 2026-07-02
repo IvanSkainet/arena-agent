@@ -28,15 +28,20 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'scanDiagnostics' in js
     assert 'versionDiagnostics' in js
     assert 'cardMetaParts' in js
+    assert 'groupCommandHistory' in js
+    assert 'lifecycleSummary' in js
+    assert 'historyActionIndex' in js
     assert "auto: ${composer.auto_plan.join(' → ')}" in js
     assert 'shortUrl' in js
     assert 'arena-history-card' in css
     assert 'arena-badge' in css
+    assert 'arena-badge-flow' in css
 
 
 def test_background_supports_history_item_and_filters():
     bg = (ROOT / 'chat_extension' / 'background.js').read_text(encoding='utf-8')
     assert 'getHistory(filters = {})' in bg
+    assert 'history_index: index' in bg
     assert 'getHistoryItem' in bg
     assert 'arena.getHistoryItem' in bg
     assert 'adapter: message.body?.site?.adapter' in bg

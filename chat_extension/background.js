@@ -50,7 +50,7 @@ async function getHistory(filters = {}) {
   const site = String(filters.site || '').trim().toLowerCase();
   const adapter = String(filters.adapter || '').trim().toLowerCase();
   const limit = Math.max(1, Math.min(200, parseInt(filters.limit || items.length || 1, 10)));
-  const filtered = items.filter((item) => {
+  const filtered = items.map((item, index) => ({...item, history_index: index})).filter((item) => {
     if (kind && item.kind !== kind) return false;
     if (site && !String(item.site || '').toLowerCase().includes(site)) return false;
     if (adapter && !String(item.adapter || '').toLowerCase().includes(adapter)) return false;

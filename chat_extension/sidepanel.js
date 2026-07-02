@@ -58,6 +58,50 @@ function cardMetaParts(item) {
     ...fingerprintDiagnostics(item),
   ].filter(Boolean);
 }
+function commandKey(item) {
+  if (!item || item.kind === 'scan') return '';
+  const payloadCalls = item.payload?.payload?.calls || item.payload?.calls || [];
+  const payloadSig = payloadCalls.length ? JSON.stringify(payloadCalls.map((call) => ({tool: call.tool || call.name || '', id: call.id || call.call_id || ''}))) : '';
+  return item.fingerprint || item.payload_fingerprint || payloadSig || '';
+}
+function lifecycleLabel(kind) {
+  if (kind === 'detected') return 'detected';
+  if (kind === 'preview') return 'previewed';
+  if (kind === 'execute') return 'executed';
+  return kind || 'event';
+}
+function lifecycleSummary(events) {
+  const order = ['detected', 'preview', 'execute'];
+  const seen = new Map();
+  (events || []).forEach((event) => {
+    if (!seen.has(event.kind)) seen.set(event.kind, event);
+  });
+  return order.filter((kind) => seen.has(kind)).map((kind) => lifecycleLabel(kind)).join(' → ');
+}
+function groupCommandHistory(items) {
+  const groups = new Map();
+  const output = [];
+  (items || []).forEach((item) => {
+    const key = commandKey(item);
+    if (!key) { output.push(item); return; }
+    let group = groups.get(key);
+    if (!group) {
+      group = {...item, group_key: key, events: [], lifecycle: '', event_count: 0};
+      groups.set(key, group);
+      output.push(group);
+    }
+    group.events.push(item);
+    group.event_count = group.events.length;
+    group.lifecycle = lifecycleSummary(group.events);
+    if ((Date.parse(item.at || 0) || 0) >= (Date.parse(group.at || 0) || 0)) {
+      Object.assign(group, {...item, group_key: key, events: group.events, lifecycle: group.lifecycle, event_count: group.event_count});
+    }
+  });
+  return output;
+}
+function historyActionIndex(item, fallbackIndex) {
+  return Number.isInteger(item?.history_index) ? item.history_index : fallbackIndex;
+}
 function badge(text, tone = 'neutral') {
   const span = document.createElement('span');
   span.className = `arena-badge arena-badge-${tone}`;
@@ -96,8 +140,10 @@ function renderCardHeader(row, item) {
   header.className = 'arena-card-header';
   const left = document.createElement('div');
   left.className = 'arena-card-badges';
-  left.appendChild(badge(item.kind || 'event', item.ok === false ? 'error' : 'kind'));
+  left.appendChild(badge(item.group_key ? 'command' : (item.kind || 'event'), item.ok === false ? 'error' : 'kind'));
   left.appendChild(badge(itemStatus(item), item.ok === false ? 'error' : 'ok'));
+  if (item.lifecycle) left.appendChild(badge(item.lifecycle, 'flow'));
+  if (item.event_count > 1) left.appendChild(badge(`${item.event_count} events`, 'count'));
   if (item.count) left.appendChild(badge(`×${item.count}`, 'count'));
   const right = document.createElement('div');
   right.className = 'arena-card-time';
@@ -107,14 +153,15 @@ function renderCardHeader(row, item) {
 function renderHistory(items) {
   const box = document.getElementById('historyBox');
   box.innerHTML = '';
-  if (!items || !items.length) { box.textContent = 'No history yet.'; return; }
-  items.forEach((item, index) => {
+  const visible = document.getElementById('kindFilter').value ? (items || []) : groupCommandHistory(items || []);
+  if (!visible.length) { box.textContent = 'No history yet.'; return; }
+  visible.forEach((item, index) => {
     const row = document.createElement('div');
     row.className = 'arena-history-card';
     renderCardHeader(row, item);
     const title = document.createElement('div');
     title.className = 'arena-card-title';
-    title.textContent = item.detail || '(no detail)';
+    title.textContent = item.group_key ? (item.detail || 'command lifecycle') : (item.detail || '(no detail)');
     row.appendChild(title);
     const meta = document.createElement('div');
     meta.className = 'arena-card-meta';
@@ -125,8 +172,9 @@ function renderHistory(items) {
     actions.appendChild(makeActionButton('Inspect Payload', () => renderPayload(item)));
     actions.appendChild(makeActionButton('Inspect Result', () => renderResult(item)));
     if (item.payload && (item.kind === 'preview' || item.kind === 'execute' || item.kind === 'detected')) {
-      actions.appendChild(makeActionButton('Replay Preview', () => runHistoryAction(index, 'preview')));
-      actions.appendChild(makeActionButton('Replay Execute', () => runHistoryAction(index, 'execute')));
+      const actionIndex = historyActionIndex(item, index);
+      actions.appendChild(makeActionButton('Replay Preview', () => runHistoryAction(actionIndex, 'preview')));
+      actions.appendChild(makeActionButton('Replay Execute', () => runHistoryAction(actionIndex, 'execute')));
       actions.appendChild(makeActionButton('Copy Payload', async () => {
         await navigator.clipboard.writeText(JSON.stringify(item.payload, null, 2));
         renderStatus({ok: true, copied: true, kind: item.kind});

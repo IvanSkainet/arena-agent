@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.74.0 - 2026-07-02
+
+- Added sidepanel command lifecycle grouping for related `detected`, `preview`, and `execute` events.
+- Preserved audit access by keeping raw per-kind filters and adding original `history_index` values for replay actions.
+- Added flow badges and regression coverage for grouped command cards.
+
 ## v3.73.0 - 2026-07-02
 
 - Added `scan` to the sidepanel history kind filter.

@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.73.0
+### 🆕 What's new in v3.74.0
 
-- **Scan is a first-class sidepanel filter**: the Command Center filter now includes `scan`, matching the aggregated Scan Page history entries.
-- **Scan diagnostics in cards**: scan cards now surface candidate/block/control counts, composer type, Auto insertion plan, and manifest/content/insert script versions without opening raw JSON.
-- **Faster stale-script checks**: sidepanel metadata makes extension reload issues visible directly in history cards.
+- **Command lifecycle cards**: the sidepanel now groups related command events into one card showing `detected → previewed → executed` when no kind filter is active.
+- **Audit-safe replay indexes**: filtered/grouped history actions now use the original stored history index, so Replay Preview/Execute targets the correct payload.
+- **Flow badges**: command cards show lifecycle and event-count badges while raw per-event history remains available via kind filters.
 
 ---
 
