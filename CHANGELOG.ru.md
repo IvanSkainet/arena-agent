@@ -2,6 +2,12 @@
 
 > 🌐 [English version](CHANGELOG.md)
 
+## v3.77.0 - 2026-07-02
+
+- README.md переписан как чистая публичная landing page; история релизов вынесена из основного README.
+- README.ru.md переписан как актуальная русская landing page с той же структурой.
+- CONTRIBUTING.md и chat_extension/README.md обновлены под текущий unified bridge и extension workflow.
+
 ## v3.1.6 — 2026-06-17
 
 ### Исправлено

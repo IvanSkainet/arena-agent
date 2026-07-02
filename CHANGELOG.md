@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.77.0 - 2026-07-02
+
+- Reworked README.md into a clean public landing page and moved release history out of the main README.
+- Reworked README.ru.md as the Russian public landing page with the same current structure.
+- Updated CONTRIBUTING.md and chat_extension/README.md to match the current unified bridge and extension workflow.
+
 ## v3.76.0 - 2026-07-02
 
 - Added extension history events for toolbar Insert and Send actions.

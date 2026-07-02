@@ -1,45 +1,75 @@
-# Arena Chat Bridge MVP Extension
+# Arena Chat Bridge Extension
 
-This is an early browser-extension scaffold for the Arena Chat Bridge idea.
-Current scaffold extension version: `0.13.4`.
+Current extension version: `0.13.4`.
 
-## What it does today
-- injects a generic content script into web pages
-- uses a small adapter registry for ChatGPT, Claude, Gemini, Perplexity, Grok, OpenRouter, DeepSeek, Kimi, Qwen, and generic fallback
-- detects fenced `arena-tool` blocks and MCP SuperAssistant-style fenced `jsonl` function-call blocks
-- shows **Preview**, **Run**, **Insert Result**, **Insert & Submit**, **Copy Result**, and **Panel** controls
-- keeps composer insertion strategies in `insert_strategies.js`
-- provides a popup UI for bridge URL/token config, connection testing, instruction copying, policy viewing, side panel opening, clearing history, and recent execution history
-- provides a side panel UI for richer history/debug viewing with replay actions, payload inspection, and simple filtering
-- sends requests to a local Arena bridge via:
-  - `GET /v1/extension/policies`
-  - `GET /v1/extension/instructions`
-  - `POST /v1/extension/preview`
-  - `POST /v1/extension/execute`
+Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
+It detects structured tool-call blocks in assistant messages, sends them to the
+local bridge for preview/execution, and can insert the result back into the chat
+composer.
 
-## What it does not do yet
-- site-specific high-fidelity composer insertion for every supported chat
-- rich execution history search beyond basic filters
-- per-site auto-run policy controls in the extension UI
-- native messaging hardening
+## Supported chat adapters
+
+Baseline adapters currently cover:
+
+- ChatGPT;
+- Claude;
+- Gemini Web;
+- Google AI Studio;
+- Grok;
+- Perplexity;
+- OpenRouter;
+- DeepSeek;
+- Kimi;
+- Qwen;
+- generic fallback.
+
+Adapters are intentionally conservative: detection and insertion should be
+verified with Scan Page diagnostics instead of guessing from site names alone.
+
+## Main features
+
+- detects fenced `arena-tool` payloads;
+- accepts MCP SuperAssistant-style fenced `jsonl` function-call blocks;
+- normalizes both formats into Arena's canonical extension payload;
+- provides toolbar actions: Preview, Run, Insert, Send, Copy, Panel;
+- supports multiple composer insertion strategies via `insert_strategies.js`;
+- records command history in popup/sidepanel;
+- side panel UI / Command Center shows detected/preview/execute/insert/submit lifecycle events;
+- Scan Page diagnostics expose adapter, selector hits, composer type, and active script versions.
 
 ## Local bridge expectations
-Default local bridge URL:
-- `http://127.0.0.1:8765`
 
-The extension reads config from `chrome.storage.sync`:
-- `bridgeUrl`
-- `bridgeToken`
-
-## Load for development
-1. Open Chrome/Chromium `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked**
-4. Select the `chat_extension/` directory
-
-## Expected payload formats
+Default bridge URL:
 
 ```text
+http://127.0.0.1:8765
+```
+
+The extension stores config in `chrome.storage.sync`:
+
+- `bridgeUrl`;
+- `bridgeToken`;
+- mode flags such as auto-preview/auto-execute/auto-insert;
+- insertion strategy.
+
+Bridge endpoints used by the extension:
+
+- `GET /v1/extension/policies`;
+- `GET /v1/extension/instructions`;
+- `POST /v1/extension/preview`;
+- `POST /v1/extension/execute`.
+
+## Load for development
+
+1. Open Chromium/Chrome `chrome://extensions`.
+2. Enable **Developer mode**.
+3. Click **Load unpacked**.
+4. Select the `chat_extension/` directory.
+5. After changing content scripts, reload the extension and refresh chat tabs.
+
+## Canonical payload format
+
+````text
 ```arena-tool
 {
   "bridge": "arena",
@@ -53,24 +83,37 @@ The extension reads config from `chrome.storage.sync`:
   ]
 }
 ```
-```
+````
 
-## MCP SuperAssistant-style JSONL compatibility
+## JSONL compatibility
 
-The MVP parser also accepts a compatible JSONL block:
-
-```text
+````text
 ```jsonl
 {"type":"function_call_start","name":"sys.status","call_id":"1"}
 {"type":"function_call_end","call_id":"1"}
 ```
-```
+````
 
-It is normalized into the canonical Arena payload before preview/execute.
+The parser normalizes this into the canonical Arena payload before preview or execution.
 
-## Next planned steps
-- Gemini Web and ChatGPT smoke tests using Scan Page diagnostics
-- stronger Claude-specific adapter behavior
-- richer payload/result inspection and page diagnostics UI
-- better cross-site composer strategies
-- eventual native messaging hardening if needed
+## Diagnostics checklist
+
+When debugging a site:
+
+1. Click **Scan Page** in the popup.
+2. Check `adapter`, `candidate_nodes`, `parsed_blocks`, and `selector_hits`.
+3. Check `composer.rich_textarea`, `composer.prose_mirror`, and `composer.auto_plan`.
+4. Confirm `manifest_version`, `content_version`, and `insert_script_version` match the loaded extension.
+5. If versions are stale, reload the extension and refresh the chat tab.
+
+## Important files
+
+- `manifest.json` — extension manifest and content-script order.
+- `adapter_sites.js` — site adapter registry.
+- `parser.js` — `arena-tool` and JSONL parser.
+- `adapters.js` — DOM detection/fingerprinting helpers.
+- `insert_strategies.js` — composer insertion strategies.
+- `insert_history.js` — insert/submit history event recording.
+- `content.js` — toolbar controls and page scanning.
+- `background.js` — bridge communication, config, policies, history.
+- `sidepanel.js` — Command Center history UI.
