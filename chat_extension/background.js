@@ -11,7 +11,7 @@ const DEFAULTS = {
 };
 const HISTORY_KEY = 'arenaHistory';
 const HISTORY_LIMIT = 160;
-const DETECTED_DEDUPE_MS = 30000;
+const HISTORY_AGGREGATE_MS = 30000;
 function normalizeModes(data) {
   const input = data || {};
   const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks', 'directDomPreWrap'];
@@ -85,24 +85,30 @@ function describeBridgeResult(result) {
   const parsed = failed?.result?.parsed;
   return parsed?.error || parsed?.message || (failed?.result?.text ? String(failed.result.text).slice(0, 220) : '') || result.summary || (result.status ? `HTTP ${result.status}` : 'unknown');
 }
-function detectedDedupeKey(entry) {
-  return [entry.payload_fingerprint || entry.fingerprint || '', entry.site || '', entry.adapter || '', entry.base_detail || entry.detail || ''].join('|');
-}
-function detectedBaseDetail(entry) {
+function historyBaseDetail(entry, kind = '') {
   const tools = Array.isArray(entry.tools) && entry.tools.length ? `detected ${entry.tools.slice(0, 4).join(', ')}` : '';
-  return String(entry.base_detail || entry.detail || tools || 'detected block').replace(/ ×\d+$/, '');
+  const fallback = kind === 'detected' ? 'detected block' : `${kind || 'event'} result`;
+  return String(entry.base_detail || entry.detail || tools || fallback).replace(/ ×\d+$/, '');
+}
+function historyAggregateKey(entry, kind = '') {
+  if (kind === 'detected') return [entry.payload_fingerprint || entry.fingerprint || '', entry.site || '', entry.adapter || '', entry.base_detail || entry.detail || ''].join('|');
+  if (kind === 'scan') return [entry.site || '', entry.adapter || '', entry.base_detail || entry.detail || '', entry.ok === false ? 'error' : 'ok'].join('|');
+  return '';
+}
+function isAggregatedHistoryKind(kind) {
+  return kind === 'detected' || kind === 'scan';
 }
 async function pushHistory(kind, detail) {
   const current = await getHistory();
   const entry = typeof detail === 'string' ? {detail} : (detail || {});
   const now = new Date().toISOString();
   const existing = current.items || [];
-  if (kind === 'detected') {
-    entry.base_detail = detectedBaseDetail(entry);
-    const key = detectedDedupeKey(entry);
-    const index = existing.findIndex((item) => item.kind === 'detected'
-      && detectedDedupeKey(item) === key
-      && Date.parse(now) - Date.parse(item.at || 0) <= DETECTED_DEDUPE_MS);
+  if (isAggregatedHistoryKind(kind)) {
+    entry.base_detail = historyBaseDetail(entry, kind);
+    const key = historyAggregateKey(entry, kind);
+    const index = existing.findIndex((item) => item.kind === kind
+      && historyAggregateKey(item, kind) === key
+      && Date.parse(now) - Date.parse(item.at || 0) <= HISTORY_AGGREGATE_MS);
     if (index >= 0) {
       const previous = existing[index];
       const count = (parseInt(previous.count || 1, 10) || 1) + 1;
@@ -162,7 +168,8 @@ async function sendActiveTabMessage(message) {
 }
 async function scanActivePage() {
   const result = await sendActiveTabMessage({type: 'arena.scanPage'});
-  await pushHistory('scan', {detail: result.ok ? `${result.adapter || 'unknown'}: ${result.parsed_blocks || 0} block(s), ${result.candidate_nodes || 0} candidate(s)` : `error: ${result.error || 'unknown'}`, site: result.url || '', adapter: result.adapter || '', ok: !!result.ok, response: result});
+  const detail = result.ok ? `${result.adapter || 'unknown'}: ${result.parsed_blocks || 0} block(s), ${result.candidate_nodes || 0} candidate(s)` : `error: ${result.error || 'unknown'}`;
+  await pushHistory('scan', {detail, base_detail: detail, site: result.url || '', adapter: result.adapter || '', ok: !!result.ok, response: result});
   return result;
 }
 async function replayHistory(index, mode = 'execute') {

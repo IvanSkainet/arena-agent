@@ -31,6 +31,8 @@ def test_background_supports_history_item_and_filters():
     assert 'response: compactResult(result)' in bg
     assert 'while fetching ${url}' in bg
     assert 'bridge_url: base' in bg
-    assert 'DETECTED_DEDUPE_MS' in bg
-    assert 'detectedDedupeKey' in bg
+    assert 'HISTORY_AGGREGATE_MS' in bg
+    assert 'historyAggregateKey' in bg
+    assert 'isAggregatedHistoryKind' in bg
+    assert "kind === 'scan'" in bg
     assert '×${count}' in bg

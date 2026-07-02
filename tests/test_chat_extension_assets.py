@@ -23,7 +23,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.12.8"
+    assert manifest["version"] == "0.12.9"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -67,6 +67,8 @@ def test_chat_extension_scaffold_exists():
     assert "chrome.runtime.lastError" in popup
     assert "describeBridgeResult" in background
     assert "payload_fingerprint" in background
+    assert "historyAggregateKey" in background
+    assert "HISTORY_AGGREGATE_MS" in background
     assert "normalizeBridgeUrl" in background
     assert "http://${url}" in background
     assert "chrome.tabs.create" in background

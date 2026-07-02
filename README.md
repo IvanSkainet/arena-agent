@@ -46,11 +46,11 @@ It exposes a single secure URL like `https://your-machine.tail-XXXXX.ts.net` (ov
 | **Zero external deps** | Only `aiohttp` (and optional `psutil`) — everything else is Python stdlib |
 | **One-click uninstall** | `uninstall.bat` / `uninstall.sh` — clean removal of services and files |
 
-### 🆕 What's new in v3.70.0
+### 🆕 What's new in v3.71.0
 
-- **Quieter detected history**: detected events now dedupe by payload fingerprint instead of DOM position, reducing repeated history noise from rescans.
-- **Tool-aware detected rows**: detected history details include tool names such as `sys.status`.
-- **Page-level detected suppression**: the content script avoids re-logging the same payload after controls are already mounted on the page.
+- **Quieter scan history**: repeated Scan Page results now aggregate into one row with a `×N` count instead of flooding sidepanel history.
+- **Shared history aggregation**: `detected` and `scan` now use the same short-window aggregation path, while `preview` and `execute` remain explicit.
+- **Cleaner sidepanel baseline**: repeated diagnostics are easier to inspect before the Command Center card UI lands.
 
 ---
 

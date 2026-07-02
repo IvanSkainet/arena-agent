@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.71.0 - 2026-06-28
+
+- Aggregated repeated Scan Page history entries within the same short window, updating one row with a `×N` count instead of flooding the sidepanel.
+- Replaced detected-only dedupe helpers with shared history aggregation helpers for `detected` and `scan` events.
+- Kept `preview` and `execute` history entries unaggregated so user actions remain auditable.
+
 ## v3.70.0 - 2026-06-28
 
 - Reduced extension detected-history noise by deduping detected events with a payload fingerprint instead of DOM position alone.

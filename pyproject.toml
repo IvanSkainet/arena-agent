@@ -1,6 +1,6 @@
 [project]
 name = "arena-unified-bridge"
-version = "3.70.0"
+version = "3.71.0"
 description = "Cross-platform local automation bridge for AI agents — one process, one port, modular Python architecture."
 readme = "README.md"
 requires-python = ">=3.10"
