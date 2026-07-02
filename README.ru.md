@@ -2,7 +2,10 @@
 
 # 🌉 Arena Unified Bridge
 
-**Локальный мост автоматизации для AI-агентов.**
+**Локальный мост автоматизации для AI-агентов — один процесс, один порт, полный контроль над вашей машиной.**
+
+Превратите любой AI-чат или агента в помощника, который умеет выполнять команды, читать и редактировать файлы, ходить в веб, запоминать факты и управлять рабочим столом — через единый token-authenticated сервис, который вы запускаете сами.
+
 Один процесс · Один порт · REST + MCP + browser extension · Windows / Linux / macOS
 
 **🌐 [English](README.md) · Русский**
@@ -16,46 +19,74 @@
 
 ---
 
-## Что это?
+## Содержание
 
-Arena Unified Bridge — локальный HTTP/MCP-сервер, через который AI-агенты могут работать с вашим компьютером через контролируемый token-authenticated интерфейс.
-
-Он даёт инструменты для:
-
-- выполнения shell-команд с guardrails;
-- чтения, поиска и точечного редактирования файлов;
-- browser fetch/read/search;
-- memory и recall;
-- очереди фоновых задач;
-- управления браузером через Chrome DevTools Protocol;
-- desktop automation там, где это поддерживается;
-- web dashboard на `/gui`;
-- browser extension, который соединяет обычные AI-чаты с локальным bridge.
-
-Типичный поток:
-
-```text
-AI chat / agent → Arena Chat Bridge Extension или MCP/REST → local Arena Unified Bridge → ваш компьютер
-```
-
-Проект local-first. Его можно держать только на `127.0.0.1`, а наружу открывать только явно — например через Tailscale Funnel или другой HTTPS tunnel.
+- [Зачем Arena Unified Bridge?](#зачем-arena-unified-bridge)
+- [Как это работает](#как-это-работает)
+- [Что он умеет](#что-он-умеет)
+- [Быстрый старт](#быстрый-старт)
+- [Browser extension: Arena Chat Bridge](#browser-extension-arena-chat-bridge)
+- [Optional components](#optional-components)
+- [Security model](#security-model)
+- [API overview](#api-overview)
+- [Development](#development)
+- [Карта документации](#карта-документации)
+- [License](#license)
 
 ---
 
-## Актуальные возможности
+## Зачем Arena Unified Bridge?
 
-| Область | Статус |
+Обычно связка «AI + ваш компьютер» — это зоопарк серверов: один под MCP, один под
+REST, один под управление браузером, один под web UI. Arena Unified Bridge
+складывает всё это в **один локальный процесс**, который вы запускаете один раз и
+на который направляете свои инструменты.
+
+- **Local-first.** Привяжите его к `127.0.0.1` — и ничего не покидает машину.
+  Наружу открывайте осознанно: через Tailscale Funnel или другой HTTPS tunnel,
+  только когда действительно нужен remote access.
+- **Не привязан к одному протоколу.** REST, MCP, WebSocket/SSE events и browser
+  extension общаются с одним и тем же runtime.
+- **Безопасность по умолчанию.** Bearer credential, ограничения путей, shell
+  safety patterns и явные risk-политики стоят между AI и вашим host.
+- **Работает с чатами, которыми вы уже пользуетесь.** Расширение позволяет
+  обычным диалогам ChatGPT / Claude / Gemini запускать реальные локальные tools.
+
+---
+
+## Как это работает
+
+```text
+┌─────────────────────┐     ┌──────────────────────────┐     ┌──────────────┐
+│  AI chat / agent    │     │  Arena Chat Bridge ext.  │     │ Arena Unified│
+│  ChatGPT · Claude   │ ──▶ │       или MCP / REST     │ ──▶ │    Bridge    │ ──▶  ваша машина
+│  Gemini · ваш CLI   │     │                          │     │ (local:8765) │
+└─────────────────────┘     └──────────────────────────┘     └──────────────┘
+       выдаёт                    ловит / форвардит                выполняет
+   structured tool block         tool call безопасно           guarded action
+```
+
+Ассистент выдаёт structured tool block, расширение (или MCP/REST-клиент)
+пересылает вызов в локальный bridge, bridge выполняет guarded action, а результат
+возвращается обратно — при желании прямо в composer чата.
+
+---
+
+## Что он умеет
+
+| Область | Возможность |
 | --- | --- |
-| Runtime | Один Python service, default `http://127.0.0.1:8765` |
-| Protocols | REST, MCP, WebSocket/SSE events, встроенный dashboard |
-| Browser extension | Detect structured tool blocks в ChatGPT, Claude, Gemini, AI Studio и других web chats |
-| Command Center | Sidepanel history с lifecycle cards: detected/preview/execute/insert/submit |
-| Security | Bearer token, path restrictions, command safety patterns, explicit policy checks |
-| Installers | Windows, Linux и macOS scripts; optional components только после подтверждения |
-| Public HTTPS | Рекомендуется Tailscale Funnel; Cloudflare Quick Tunnels — optional fallback |
-| Packaging | Release ZIP собирается из tracked files с проверками на sensitive files |
+| **Shell** | Guarded выполнение команд с safety patterns и блокировкой чтения секретов |
+| **Файлы** | Чтение, поиск и точечное редактирование с ограничением путей |
+| **Веб** | Fetch / read / search текста страниц для агента |
+| **Memory** | Постоянные факты плюс fuzzy recall |
+| **Задачи** | Очередь фоновых задач для долгих операций |
+| **Браузер** | Управление через Chrome DevTools Protocol |
+| **Desktop** | Скриншоты и input automation там, где поддерживается платформой |
+| **Dashboard** | Встроенный web UI на `/gui` |
+| **Extension** | Соединяет обычные AI-чаты с bridge через Command Center с lifecycle |
 
-История изменений вынесена в [CHANGELOG.ru.md](CHANGELOG.ru.md) и [CHANGELOG.md](CHANGELOG.md).
+Полная история изменений — в [CHANGELOG.ru.md](CHANGELOG.ru.md) и [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
@@ -63,13 +94,13 @@ AI chat / agent → Arena Chat Bridge Extension или MCP/REST → local Arena 
 
 ### 1. Скачать release
 
-Скачайте последний ZIP:
+Возьмите последний ZIP:
 
 ```text
 https://github.com/IvanSkainet/arena-agent/releases/latest
 ```
 
-Распакуйте в папку, например:
+Распакуйте в удобную папку:
 
 ```text
 C:\Users\You\arena-bridge        # Windows
@@ -78,33 +109,25 @@ C:\Users\You\arena-bridge        # Windows
 
 ### 2. Запустить installer
 
-Windows:
-
 ```cmd
+:: Windows
 install.bat
 ```
 
-Linux / macOS:
-
 ```bash
+# Linux / macOS
 chmod +x install.sh
 ./install.sh
 ```
 
-Installer создаёт локальный bearer credential в `token.txt`, готовит runtime directories и спрашивает перед установкой optional components.
+Installer создаёт локальный bearer credential в `token.txt`, готовит runtime
+directories и спрашивает перед установкой любого optional component.
 
 ### 3. Проверить bridge
 
-Health check:
-
 ```bash
-curl http://127.0.0.1:8765/health
-```
-
-Version endpoint:
-
-```bash
-curl http://127.0.0.1:8765/v1/version
+curl http://127.0.0.1:8765/health      # health check
+curl http://127.0.0.1:8765/v1/version  # версия + платформа
 ```
 
 Dashboard:
@@ -115,36 +138,26 @@ http://127.0.0.1:8765/gui
 
 ### 4. Передать AI URL и credential
 
-Для local tools и MCP clients:
-
 ```text
 Base URL: http://127.0.0.1:8765
 Auth:     Authorization: Bearer <credential из token.txt>
 ```
 
-Для remote access включайте HTTPS tunnel только осознанно. Рекомендуемый вариант — Tailscale Funnel: он даёт настоящий TLS hostname без port forwarding.
+Для remote access включайте HTTPS tunnel только осознанно. Рекомендуемый вариант —
+Tailscale Funnel: он даёт настоящий TLS hostname без port forwarding.
 
 ---
 
 ## Browser extension: Arena Chat Bridge
 
-Extension — Arena-native bridge для обычных web chats. Он видит structured tool blocks в ответах ассистента, делает preview/execute через local bridge и может вставлять результат обратно в composer.
+Расширение — это **Arena-native bridge для обычных web chats**. Оно видит
+structured tool blocks в ответах ассистента, делает preview/execute через local
+bridge и может вставлять результат обратно в composer.
 
-Baseline adapters:
+**Поддерживаемые adapters:** ChatGPT · Claude · Gemini Web · Google AI Studio ·
+Grok · Perplexity · OpenRouter · DeepSeek · Kimi · Qwen · generic fallback.
 
-- ChatGPT;
-- Claude;
-- Gemini Web;
-- Google AI Studio;
-- Grok;
-- Perplexity;
-- OpenRouter;
-- DeepSeek;
-- Kimi;
-- Qwen;
-- generic fallback.
-
-Canonical payload:
+**Canonical payload:**
 
 ````text
 ```arena-tool
@@ -160,7 +173,7 @@ Canonical payload:
 
 MCP SuperAssistant-style JSONL тоже поддерживается и нормализуется внутри.
 
-Загрузка extension для разработки:
+**Загрузка для разработки:**
 
 1. откройте `chrome://extensions`;
 2. включите **Developer mode**;
@@ -173,40 +186,39 @@ MCP SuperAssistant-style JSONL тоже поддерживается и норм
 
 ## Optional components
 
-Bridge работает локально на Python и `aiohttp`. Для некоторых функций нужны optional tools:
+Bridge работает локально на одном Python и `aiohttp`. Некоторым функциям нужны
+дополнительные tools — и ни один из них не ставится молча, installer всегда
+спрашивает подтверждение.
 
-| Component | Назначение | Поведение installer |
+| Component | Назначение | Примечание |
 | --- | --- | --- |
 | Tailscale | Рекомендуемый HTTPS exposure через Funnel | Optional, system-level install |
-| cloudflared | Cloudflare Quick Tunnel fallback | Optional download, около 50 MB |
+| cloudflared | Cloudflare Quick Tunnel fallback | Optional download, ~50 MB |
 | BrowserAct / browser helpers | Rich browser automation | Optional |
 | Camoufox | Stealth browser workflows | Optional |
 | ydotool / xdotool | Linux desktop input automation | Optional / platform-specific |
 | Tesseract | OCR для desktop/screenshot flows | Optional |
 
-Optional components не устанавливаются молча. Installer спрашивает подтверждение.
-
 ---
 
 ## Security model
 
-Arena Unified Bridge может выполнять сильные действия на host, поэтому security model сделана явной:
+Arena Unified Bridge может выполнять сильные действия на host, поэтому security
+model сделана явной:
 
-- любой non-local client должен использовать bearer credential из `token.txt`;
-- upload/download/edit paths ограничены;
+- любой non-local client аутентифицируется bearer credential из `token.txt`;
+- upload / download / edit paths ограничены;
 - опасные shell patterns и попытки чтения секретов блокируются;
-- desktop automation имеет pause/resume/revoke controls;
-- extension policies классифицируют tools по risk перед auto-execution;
+- desktop automation имеет pause / resume / revoke controls;
+- extension policies классифицируют каждый tool по risk перед auto-execution;
 - public exposure должен идти через HTTPS и private credential;
-- никогда не публикуйте credentials в issue, логах или незнакомом чате.
+- никогда не публикуйте credentials в незнакомом чате, логах или public issue.
 
-Если вы нашли security issue, сообщите приватно, а не через public issue.
+> Нашли security issue? Пожалуйста, сообщите приватно, а не через public issue.
 
 ---
 
 ## API overview
-
-Основные endpoints:
 
 | Method | Path | Назначение |
 | --- | --- | --- |
@@ -241,37 +253,34 @@ Targeted checks для extension work:
 
 ```bash
 pytest -q tests/test_chat_extension_assets.py tests/test_chat_extension_adapter_flow.py tests/test_chat_extension_sidepanel_flow.py tests/test_extension_bridge.py tests/test_project_modularity.py
-node --check chat_extension/background.js
-node --check chat_extension/content.js
-node --check chat_extension/parser.js
-node --check chat_extension/adapters.js
-node --check chat_extension/insert_strategies.js
-node --check chat_extension/insert_history.js
-node --check chat_extension/adapter_sites.js
-node --check chat_extension/popup.js
-node --check chat_extension/settings.js
-node --check chat_extension/sidepanel.js
+
+for f in background content parser adapters insert_strategies insert_history adapter_sites popup settings sidepanel; do
+  node --check "chat_extension/$f.js"
+done
 ```
 
-Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md).
-Release checklist: [RELEASE.md](RELEASE.md).
+Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [RELEASE.md](RELEASE.md).
 
 ---
 
-## Documentation map
+## Карта документации
 
-- [CHANGELOG.ru.md](CHANGELOG.ru.md) — история изменений на русском.
-- [CHANGELOG.md](CHANGELOG.md) — release history на английском.
-- [RELEASE.md](RELEASE.md) — packaging/publishing checklist.
-- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — integration notes.
-- [docs/MODULE_MAP.md](docs/MODULE_MAP.md) — codebase/module map.
-- [docs/V3_MODULAR_ARCHITECTURE.md](docs/V3_MODULAR_ARCHITECTURE.md) — modular architecture notes.
-- [chat_extension/README.md](chat_extension/README.md) — browser extension details.
+| Документ | Что внутри |
+| --- | --- |
+| [CHANGELOG.ru.md](CHANGELOG.ru.md) | История изменений на русском |
+| [CHANGELOG.md](CHANGELOG.md) | Release history на английском |
+| [RELEASE.md](RELEASE.md) | Packaging / publishing checklist |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, тесты, workflow |
+| [chat_extension/README.md](chat_extension/README.md) | Browser extension details |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Integration notes |
+| [docs/MODULE_MAP.md](docs/MODULE_MAP.md) | Codebase / module map |
+| [docs/V3_MODULAR_ARCHITECTURE.md](docs/V3_MODULAR_ARCHITECTURE.md) | Modular architecture notes |
 
-Часть файлов в `docs/` — design notes или historical audits. README и CHANGELOG — публичные входные точки.
+Часть файлов в `docs/` — design notes или historical audits. README и CHANGELOG —
+публичные входные точки.
 
 ---
 
 ## License
 
-MIT. См. [LICENSE](LICENSE).
+MIT — см. [LICENSE](LICENSE).

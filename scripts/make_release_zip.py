@@ -6,11 +6,11 @@ Usage:
 
 Examples:
     python3 scripts/make_release_zip.py                  # auto-detect from arena/constants.py
-    python3 scripts/make_release_zip.py 3.1.6
-    python3 scripts/make_release_zip.py 3.1.6 /tmp/arena-agent-v3.1.6.zip
+    python3 scripts/make_release_zip.py 3.77.0
+    python3 scripts/make_release_zip.py 3.77.0 /tmp/arena-agent-v3.77.0.zip
 
 The output zip contains an `arena-bridge/` prefix matching the layout
-established in v3.1.0+. Excludes development-only and runtime-state files
+established for the current release layout. Excludes development-only and runtime-state files
 (see RELEASE.md for the full exclusion list).
 """
 from __future__ import annotations

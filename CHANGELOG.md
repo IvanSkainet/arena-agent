@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.78.0 - 2026-07-02
+
+- Redesigned README.md and README.ru.md as scannable public landing pages: added a table of contents, a "Why" section, an ASCII flow diagram, and a capability table.
+- Rewrote RELEASE.md to match the current release flow (removed stale v3.1.x wording, added the extension version-bump checklist and the CHANGELOG.ru.md step).
+- Rebuilt CHANGELOG.ru.md so the Russian history covers the extension era instead of jumping from v3.77 straight to v3.1.6.
+- Refreshed scripts/make_release_zip.py docstring examples to the current version.
+
 ## v3.77.0 - 2026-07-02
 
 - Reworked README.md into a clean public landing page and moved release history out of the main README.

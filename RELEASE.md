@@ -1,32 +1,34 @@
 # Release Process
 
 This document describes how to cut a new Arena Unified Bridge release. It is
-aimed at maintainers; end users should read the [Quick Start](README.md#-quick-start)
+aimed at maintainers; end users should read the [Quick Start](README.md#quick-start)
 instead.
 
 ## TL;DR
 
 ```bash
-# 0) Make sure you are on master with a clean tree
-cd ~/Документы/arena-agent-v3-git
+# 0) Be on master with a clean tree
+cd arena-bridge
 git checkout master
 git pull --ff-only
 git status -sb    # must be clean
 
-# 1) Run the test suite (must be 100% green)
+# 1) Run the checks (must be green)
 python -m pytest tests/ -q
 bash -n install.sh
 python -m py_compile arena/**/*.py
+# Extension work also runs the targeted JS/asset checks (see README "Development").
 
-# 2) Bump version in three places:
-#    - arena/constants.py       (VERSION = "x.y.z")
-#    - pyproject.toml           (version = "x.y.z")
-#    - CHANGELOG.md             (prepend "## vX.Y.Z — YYYY-MM-DD" entry)
-python3 -c 'p="arena/constants.py"; t=open(p).read(); t=t.replace("VERSION = \"OLD\"", "VERSION = \"NEW\""); open(p,"w").write(t)'
-# (repeat for pyproject.toml and CHANGELOG.md)
+# 2) Bump the version:
+#    - arena/constants.py            (VERSION = "x.y.z")
+#    - pyproject.toml                (version = "x.y.z")
+#    - CHANGELOG.md                  (prepend "## vX.Y.Z — YYYY-MM-DD")
+#    - CHANGELOG.ru.md               (prepend the matching Russian entry)
+#    If the extension runtime changed, also bump chat_extension/manifest.json
+#    and the content/insert script versions (see below).
 
-# 3) Commit the bump
-git add arena/constants.py pyproject.toml CHANGELOG.md
+# 3) Commit the bump (list files explicitly — never `git add -A`)
+git add arena/constants.py pyproject.toml CHANGELOG.md CHANGELOG.ru.md
 git commit -m "vX.Y.Z: <short release summary>"
 
 # 4) Tag the release (annotated)
@@ -36,97 +38,105 @@ git tag -a vX.Y.Z -m "vX.Y.Z: <short release summary>"
 git push origin master
 git push origin vX.Y.Z
 
-# 6) Build the release zip (see "Building the release zip" below)
-python3 scripts/make_release_zip.py    # produces /tmp/arena-agent-vX.Y.Z.zip
+# 6) Build the release zip (version auto-detected from arena/constants.py)
+python3 scripts/make_release_zip.py            # -> /tmp/arena-agent-vX.Y.Z.zip
 
 # 7) Create the GitHub Release with TWO assets (the second is critical!)
-#    Use a temporary/untracked notes file (for example under /tmp) — do not
-#    keep per-release scratch notes like release_vXXXX.md in the repository.
+#    Use a temporary/untracked notes file (e.g. under /tmp) — do not keep
+#    per-release scratch notes in the repository.
 gh release create vX.Y.Z \
     --title "vX.Y.Z — <summary>" \
     --notes-file <path-to-release-notes.md> \
     --latest
 
-# 7a) Upload the versioned zip (matches historical convention)
+# 7a) Versioned zip (historical convention / explicit pinning)
 gh release upload vX.Y.Z /tmp/arena-agent-vX.Y.Z.zip --clobber
 
-# 7b) Upload the unversioned alias (REQUIRED for README install instructions)
+# 7b) Unversioned alias (REQUIRED by the README one-liner URL)
 cp /tmp/arena-agent-vX.Y.Z.zip /tmp/arena-agent.zip
 gh release upload vX.Y.Z /tmp/arena-agent.zip --clobber
 
-# 8) Update the production install
-cd ~/arena-bridge
+# 8) Update the running install and verify
 git pull --ff-only
-python3 _arena_helper.py version    # must show the new version
-systemctl --user restart arena-bridge.service
+python3 _arena_helper.py version                # must show the new version
+systemctl --user restart arena-bridge.service   # if running as a service
 sleep 3
-curl -sk https://<your-tailscale-url>/health    # must show the new version
+curl -s http://127.0.0.1:8765/health            # must report the new version
 ```
 
 ## Why two zip assets?
 
-The README's "Quick Start" one-liner downloads from:
+The README's quick-start one-liner can download from:
 
 ```
 https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip
 ```
 
-GitHub's `releases/latest/download/` URL serves the asset **by exact name**.
-If only `arena-agent-v3.1.6.zip` exists, that URL 404s and the install
-instructions break.
+GitHub's `releases/latest/download/` URL serves an asset **by exact name**. If
+only `arena-agent-vX.Y.Z.zip` exists, that URL 404s and the install instruction
+breaks. So each release ships two byte-identical assets:
 
-To keep both happy:
-- **`arena-agent-vX.Y.Z.zip`** — for historical convention and explicit pinning.
-- **`arena-agent.zip`** — for the README's version-agnostic one-liner.
+- **`arena-agent-vX.Y.Z.zip`** — historical convention and explicit pinning.
+- **`arena-agent.zip`** — the version-agnostic alias the README relies on.
 
-Both files are byte-identical (same content, just different names).
+## What goes into the release zip
 
-## What to put in the release zip
+`scripts/make_release_zip.py` builds a runnable bridge that a user can extract and
+`install.sh` / `install.bat` from. It MUST include:
 
-The zip must contain a runnable bridge that a user can extract and `install.sh`
-/ `install.bat` from. Specifically it MUST include:
-- `unified_bridge.py`, `_arena_helper.py`
-- `arena/` (the full package)
-- `bin/`, `scripts/` (CLI wrappers)
-- `dashboard/` (the web UI assets)
-- `install.sh`, `install.bat`, `uninstall.sh`, `uninstall.bat`
-- `start.bat`, `stop.bat`, `status.bat`, `regenerate_token.{sh,bat}` (Windows helpers)
-- `pyproject.toml`, `requirements.txt`
-- `README.md`, `CHANGELOG.md`, `LICENSE`, `AGENTS.md`, `CONTRIBUTING.md`
-- `docs/` (architecture and navigation docs for AI maintainers)
-- `.gitignore`, `.editorconfig`
+- `unified_bridge.py`, `_arena_helper.py`;
+- `arena/` (the full package);
+- `bin/`, `scripts/` (CLI wrappers);
+- `dashboard/` (web UI assets);
+- `chat_extension/` (the browser extension);
+- installers and Windows helpers (`install.*`, `uninstall.*`, `start.bat`, etc.);
+- `pyproject.toml`, `requirements.txt`;
+- `README.md`, `README.ru.md`, `CHANGELOG.md`, `CHANGELOG.ru.md`, `LICENSE`,
+  `CONTRIBUTING.md`, `AGENTS.md`;
+- `docs/` (architecture and navigation notes).
 
-It MUST NOT include (excluded by `scripts/make_release_zip.py`):
-- `tests/` (development-only)
-- `.github/` (CI workflows)
-- `dev/` (development scripts)
-- `.git/`, `__pycache__/`, `*.pyc`, `.pytest_cache/`
-- runtime state: `token.txt`, `audit.jsonl`, `bridge.log`, `queue/{running,done,failed}/*`,
-  `memory/{facts,history}.jsonl`, `memory/sessions/`, `missions/*`, `reports/*`
-- `backups/`, `logs/`
-- editor config: `.vscode/`, `.idea/`
+It MUST NOT include (excluded automatically by the script):
+
+- `tests/`, `.github/`, `dev/`, `.git/`;
+- caches (`__pycache__/`, `*.pyc`, `.pytest_cache/`, `.mypy_cache/`, `node_modules/`);
+- runtime state: `token.txt`, `audit.jsonl`, `bridge.log`, `requests.jsonl`,
+  `queue/{running,done,failed}/*`, `memory/{facts,history}.jsonl`,
+  `memory/sessions/`, `missions/*`, `reports/*`;
+- `backups/`, `logs/`, editor config (`.vscode/`, `.idea/`).
 
 ## Where the version lives
 
-The canonical version is in `arena/constants.py`:
+The canonical version is `VERSION` in `arena/constants.py`. It is read at runtime
+by `_arena_helper.py version`, which the installers and the `/v1/version` endpoint
+use. The same string MUST also appear in:
 
-```python
-VERSION = "3.1.6"
-```
-
-It is read at runtime by `_arena_helper.py version`, which the installers and
-`/v1/version` endpoint use. The same string MUST also appear in:
-- `pyproject.toml` → `version = "3.1.6"` (for `pip install` metadata, if anyone
-  ever packages this)
-- The git tag `v3.1.6` (annotated)
+- `pyproject.toml` → `version = "x.y.z"`;
+- the annotated git tag `vX.Y.Z`;
+- the top `CHANGELOG.md` and `CHANGELOG.ru.md` entries.
 
 The README's version badge is dynamic
 (`shields.io/github/v/release/IvanSkainet/arena-agent`) and auto-updates when a
-new release is published — do NOT edit it manually.
+release is published — do NOT edit it manually.
+
+## Extension version bumps
+
+The browser extension has its own version, independent of the bridge. Bump it
+**only** when the extension runtime actually changes. When you do:
+
+- `chat_extension/manifest.json` → `"version"`;
+- `chat_extension/README.md` → `Current extension version: ...`;
+- `tests/test_chat_extension_assets.py` and
+  `tests/test_chat_extension_adapter_flow.py` (asserted version strings);
+- if content scripts changed:
+  - `chat_extension/content.js` → `ARENA_CONTENT_SCRIPT_VERSION`;
+  - `chat_extension/insert_strategies.js` → `arenaInsertScriptVersion()`.
+
+If only docs or bridge code changed, leave the extension version as-is.
 
 ## CHANGELOG format
 
-Each release gets a section at the top of `CHANGELOG.md`:
+Each release gets a section at the top of `CHANGELOG.md` (and a matching one in
+`CHANGELOG.ru.md`):
 
 ```markdown
 ## vX.Y.Z — YYYY-MM-DD
@@ -134,61 +144,43 @@ Each release gets a section at the top of `CHANGELOG.md`:
 ### Fixed
 - <bullet>
 
-### Refactored
-- <bullet>
-
-### Tests
-- <bullet>
-
 ### Documentation
 - <bullet>
 
 ### Validation
-- Local `pytest -q`: PASS, N tests.
-- Local `bash -n install.sh`: PASS.
-- Bridge `/v1/doctor`: 10/10.
+- Targeted tests: PASS.
+- JS syntax checks: PASS.
+- `python -m py_compile ...`: PASS.
 ```
 
-Use the same sub-headers as the previous release; omit a section if it has no
-entries for this release.
+Omit a sub-section if it has no entries for this release.
 
 ## Pre-release checklist
 
-Before tagging, verify:
-- [ ] `python -m pytest tests/ -q` — 100% pass, no skips for non-environmental reasons
-- [ ] `bash -n install.sh` — syntax OK
-- [ ] `python -m py_compile arena/**/*.py` — no syntax errors
-- [ ] No `TODO` / `FIXME` introduced in this release's diff (pre-existing ones are fine)
-- [ ] `arena/constants.py` `VERSION` matches `pyproject.toml` `version`
-- [ ] `CHANGELOG.md` has a new entry at the top with today's date
-- [ ] `webhooks.json` is `{urls: [], events: ["*"]}` (empty default)
-- [ ] Working tree is clean (`git status -sb` shows nothing)
-- [ ] On `master` branch, up to date with `origin/master`
+- [ ] Targeted tests pass (`python -m pytest tests/ -q`, or the extension subset).
+- [ ] `bash -n install.sh` — syntax OK.
+- [ ] `python -m py_compile` on changed files — no syntax errors.
+- [ ] `arena/constants.py` `VERSION` matches `pyproject.toml` `version`.
+- [ ] `CHANGELOG.md` and `CHANGELOG.ru.md` have a new top entry with today's date.
+- [ ] No private tunnel hostnames leaked into tracked files.
+- [ ] Working tree clean, on `master`, up to date with `origin/master`.
 
 ## Post-release checklist
 
-After the GitHub release is published:
-- [ ] Production install updated: `cd ~/arena-bridge && git pull --ff-only`
-- [ ] Bridge restarted: `systemctl --user restart arena-bridge.service`
-- [ ] `/health` reports the new version
-- [ ] `/v1/doctor` returns 10/10
-- [ ] Both zip assets are visible on the release page
-- [ ] The README's one-liner URL works: `curl -sIL
-      https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip`
-      returns HTTP 200
-- [ ] The versioned URL works: `curl -sIL
-      https://github.com/IvanSkainet/arena-agent/releases/download/vX.Y.Z/arena-agent-vX.Y.Z.zip`
-      returns HTTP 200
+- [ ] Running install updated (`git pull --ff-only`, restart if a service).
+- [ ] `/health` and `/v1/version` report the new version.
+- [ ] Both zip assets are visible on the release page.
+- [ ] The alias URL works:
+      `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip`
+      returns HTTP 200.
+- [ ] The versioned URL works:
+      `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/download/vX.Y.Z/arena-agent-vX.Y.Z.zip`
+      returns HTTP 200.
 
 ## Why not a GitHub Action?
 
-Today the release is cut manually because:
-1. The bridge is also installed on the maintainer's machine — pulling a fresh
-   tag locally is part of validating it.
-2. The release zip excludes runtime state that only makes sense to exclude
-   from a working tree, not from a CI checkout.
-3. The two-zip-asset trick (versioned + unversioned) is easier to control
-   from a local script than from a workflow.
-
-A GitHub Action that auto-builds the zip on tag push is a future improvement.
-For now, this document is the source of truth.
+Today the release is cut manually because the bridge is also installed on the
+maintainer's machine — pulling a fresh tag locally is part of validating it — and
+the two-zip-asset trick is easier to control from a local script. A tag-triggered
+build workflow is a possible future improvement; for now, this document is the
+source of truth.
