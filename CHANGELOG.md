@@ -1,5 +1,11 @@
 # Changelog
 
+## v3.73.0 - 2026-07-02
+
+- Added `scan` to the sidepanel history kind filter.
+- Surfaced Scan Page diagnostics directly in Command Center cards: candidate/block/control counts, composer type, Auto insertion plan, and manifest/content/insert script versions.
+- Added sidepanel regression coverage for scan filtering and diagnostic card metadata.
+
 ## v3.72.0 - 2026-06-28
 
 - Converted sidepanel history rows into compact Command Center-style cards with kind/status/count badges.

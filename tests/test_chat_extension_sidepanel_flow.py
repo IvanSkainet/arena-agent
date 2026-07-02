@@ -10,6 +10,7 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     html = (ROOT / 'chat_extension' / 'sidepanel.html').read_text(encoding='utf-8')
     js = (ROOT / 'chat_extension' / 'sidepanel.js').read_text(encoding='utf-8')
     assert 'kindFilter' in html
+    assert '<option value="scan">scan</option>' in html
     assert 'siteFilter' in html
     assert 'adapterFilter' in html
     assert 'applyFilterBtn' in html
@@ -24,6 +25,10 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'renderCardHeader' in js
     assert 'itemTools' in js
     assert 'itemStatus' in js
+    assert 'scanDiagnostics' in js
+    assert 'versionDiagnostics' in js
+    assert 'cardMetaParts' in js
+    assert "auto: ${composer.auto_plan.join(' → ')}" in js
     assert 'shortUrl' in js
     assert 'arena-history-card' in css
     assert 'arena-badge' in css

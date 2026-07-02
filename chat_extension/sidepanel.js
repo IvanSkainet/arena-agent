@@ -15,7 +15,48 @@ function itemStatus(item) {
   if (item.ok === false) return 'error';
   if (item.kind === 'execute') return 'executed';
   if (item.kind === 'preview') return 'previewed';
+  if (item.kind === 'scan') return item.response?.ok === false ? 'scan error' : 'scanned';
   return item.kind || 'event';
+}
+function scanDiagnostics(item) {
+  if (item.kind !== 'scan' || !item.response) return [];
+  const res = item.response || {};
+  const parts = [];
+  if (Number.isFinite(res.candidate_nodes)) parts.push(`${res.candidate_nodes} candidates`);
+  if (Number.isFinite(res.parsed_blocks)) parts.push(`${res.parsed_blocks} blocks`);
+  if (Number.isFinite(res.mounted_controls)) parts.push(`${res.mounted_controls} controls`);
+  const composer = res.composer || {};
+  if (composer.found) {
+    const editor = composer.rich_textarea ? 'rich-textarea' : (composer.prose_mirror ? 'ProseMirror' : (composer.contenteditable ? 'contenteditable' : composer.tag));
+    if (editor) parts.push(`composer: ${editor}`);
+    if (Array.isArray(composer.auto_plan) && composer.auto_plan.length) parts.push(`auto: ${composer.auto_plan.join(' → ')}`);
+  } else if (composer && composer.found === false) {
+    parts.push('composer: not found');
+  }
+  return parts;
+}
+function versionDiagnostics(item) {
+  const res = item.response || {};
+  return [
+    res.manifest_version ? `manifest ${res.manifest_version}` : '',
+    res.content_version ? `content ${res.content_version}` : '',
+    res.insert_script_version ? `insert ${res.insert_script_version}` : '',
+  ].filter(Boolean);
+}
+function fingerprintDiagnostics(item) {
+  const fp = item.payload_fingerprint || item.fingerprint;
+  return fp ? [`fp ${String(fp).slice(0, 18)}`] : [];
+}
+function cardMetaParts(item) {
+  const tools = itemTools(item).join(', ');
+  return [
+    item.adapter || '',
+    shortUrl(item.site),
+    tools ? `tools: ${tools}` : '',
+    ...scanDiagnostics(item),
+    ...versionDiagnostics(item),
+    ...fingerprintDiagnostics(item),
+  ].filter(Boolean);
 }
 function badge(text, tone = 'neutral') {
   const span = document.createElement('span');
@@ -77,8 +118,7 @@ function renderHistory(items) {
     row.appendChild(title);
     const meta = document.createElement('div');
     meta.className = 'arena-card-meta';
-    const tools = itemTools(item).join(', ');
-    meta.textContent = [item.adapter || '', shortUrl(item.site), tools ? `tools: ${tools}` : ''].filter(Boolean).join(' · ');
+    meta.textContent = cardMetaParts(item).join(' · ');
     row.appendChild(meta);
     const actions = document.createElement('div');
     actions.className = 'arena-card-actions';
