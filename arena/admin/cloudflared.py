@@ -29,28 +29,50 @@ def _cloudflared_monitor_thread(proc: subprocess.Popen, port: int) -> None:
             CLOUDFLARED_STATE["url"] = match.group(0)
 
 
+def _system_candidates() -> list[str]:
+    """Platform-specific well-known install locations for cloudflared."""
+    system = platform.system()
+    if system == "Windows":
+        return [
+            r"C:\Program Files\cloudflared\cloudflared.exe",
+            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
+        ]
+    if system == "Darwin":
+        # Homebrew (Intel + Apple Silicon).
+        return [
+            "/usr/local/bin/cloudflared",
+            "/opt/homebrew/bin/cloudflared",
+        ]
+    # Linux / *BSD: /usr/bin covered by PATH; /snap/bin sometimes not.
+    return [
+        "/usr/local/bin/cloudflared",
+        "/snap/bin/cloudflared",
+    ]
+
+
 def _resolve_cloudflared_with_source(root_agent: Path) -> tuple[str | None, str]:
     """Resolve cloudflared binary and determine its source.
-    
+
     Returns:
         (path, source) where source is "system", "bundled", or "not_found"
     """
-    # 1. System-first: check PATH
-    system_cf = which_windows_or_path(
-        "cloudflared",
-        [
-            r"C:\Program Files\cloudflared\cloudflared.exe",
-            r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
-        ],
-    )
+    # 1. System-first: check PATH.
+    system_cf = which_windows_or_path("cloudflared", _system_candidates())
     if system_cf:
         return system_cf, "system"
-    
-    # 2. Bundled: check local directory
+
+    # 2. Fallback for non-Windows platforms whose PATH omits the well-known
+    # install locations (some GUI-launched services do not inherit user PATH).
+    import os
+    for candidate in _system_candidates():
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate, "system"
+
+    # 3. Bundled: check local directory.
     local_cf = Path(root_agent) / ("cloudflared.exe" if platform.system() == "Windows" else "cloudflared")
     if local_cf.exists():
         return str(local_cf), "bundled"
-    
+
     return None, "not_found"
 
 
@@ -79,18 +101,47 @@ def _get_cloudflared_version(cf_path: str) -> str | None:
 
 
 def _get_update_hint(source: str, version: str | None) -> str:
-    """Get update instructions based on source."""
+    """Get update instructions tailored to install source + platform."""
+    system = platform.system()
     if source == "system":
-        if platform.system() == "Linux":
-            return "Update via package manager: sudo apt update && sudo apt upgrade cloudflared (or pacman -Syu cloudflared)"
-        elif platform.system() == "Darwin":
-            return "Update via Homebrew: brew upgrade cloudflared"
-        else:
-            return "Download latest from https://github.com/cloudflare/cloudflared/releases"
-    elif source == "bundled":
-        return "Bundled version managed by Arena. Run: python3 scripts/update_bundled_tools.py cloudflared"
-    else:
-        return "Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+        if system == "Linux":
+            return (
+                "Update via your package manager, e.g. "
+                "`sudo apt update && sudo apt upgrade cloudflared` "
+                "or `sudo pacman -Syu cloudflared`."
+            )
+        if system == "Darwin":
+            return "Update via Homebrew: `brew upgrade cloudflared`."
+        if system == "Windows":
+            return (
+                "Update via `winget upgrade Cloudflare.cloudflared` "
+                "or `scoop update cloudflared`. "
+                "Or download the latest MSI from "
+                "https://github.com/cloudflare/cloudflared/releases"
+            )
+        return "Download latest from https://github.com/cloudflare/cloudflared/releases"
+    if source == "bundled":
+        return (
+            "Bundled binary managed by Arena. "
+            "Run: `python3 scripts/update_bundled_tools.py cloudflared`"
+        )
+    # not_found
+    if system == "Windows":
+        return (
+            "Install cloudflared: `winget install --id Cloudflare.cloudflared` "
+            "or `scoop install cloudflared`. "
+            "Docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+        )
+    if system == "Darwin":
+        return (
+            "Install cloudflared: `brew install cloudflared`. "
+            "Docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+        )
+    return (
+        "Install cloudflared, e.g. `sudo pacman -S cloudflared` on Arch, "
+        "or `sudo apt install cloudflared` on Debian/Ubuntu. "
+        "Docs: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+    )
 
 
 def _terminate_cloudflared(timeout: int = 5) -> None:
