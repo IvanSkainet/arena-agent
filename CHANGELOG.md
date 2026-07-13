@@ -1,5 +1,82 @@
 # Changelog
 
+## v3.81.2 - 2026-07-13
+
+Cross-platform ZeroTier hardening + Dashboard Tunnels card wired up
+properly + polished onboarding for users who do not yet know how to
+"start" ZeroTier. Bumps pyproject.toml (which had silently stayed at
+3.79.0 for three prior releases) into sync with arena/constants.py.
+
+### Fixed
+
+- **Dashboard: Tunnels & Remote Access card now actually refreshes.**
+  Two bugs made the card look dead:
+  * the ZeroTier Join/Leave POST clobbered the `Authorization: Bearer`
+    header by passing its own `headers` field to `api()`, so requests
+    silently 401'd;
+  * initial auto-refresh only fired inside a `DOMContentLoaded` listener,
+    but the module loads AFTER that event has already fired, so it never
+    ran. Rewrote as an IIFE that piggybacks on `refreshSettings()` (the
+    real Settings-tab hook) and starts a 5-second auto-refresh loop while
+    the Settings tab is visible.
+- **Dashboard ZeroTier onboarding.** When ZeroTier is not installed, the
+  card now prints platform-specific install commands
+  (`winget install ZeroTier.ZeroTierOne` / `brew install --cask
+  zerotier-one` / `sudo pacman -S zerotier-one`) plus the download URL.
+  When ZeroTier is installed but no networks are joined, it prints a
+  four-step guide (create a free network at my.zerotier.com → paste
+  nwid → click Join → authorize the node). No more "installed=true but
+  what do I do next" dead end.
+- **Client-side nwid validation.** The dashboard rejects malformed
+  network IDs (must be 16 hex characters) with a friendly `alert()`
+  before the network call even happens.
+- **Server-side nwid validation.** `zerotier_network_action()` now
+  refuses non-hex or wrong-length IDs at the API layer with a clear
+  400-style error, and normalises case + trims whitespace so paste from
+  the ZT dashboard just works. Previously the CLI happily accepted
+  `join 0000000000000000` and produced a permanent junk row in
+  `listnetworks`.
+- **Windows subprocess spawns no longer flash a console window.**
+  `_run_cli()` now sets `CREATE_NO_WINDOW` on Windows only. On Linux and
+  macOS the flag stays absent. Without it every 5-second Dashboard
+  refresh (× multiple CLI candidates) would pop a black CMD window for a
+  fraction of a second, both annoying and easy to mistake for malware.
+- **`/v1/zerotier/network/{action}` accepts nwid from anywhere.**
+  Previously the handler read query only on GET and JSON body only on
+  POST. Now every POST also honours `?network_id=…` in the URL,
+  `application/x-www-form-urlencoded` bodies, and JSON bodies without a
+  Content-Type header — matching what browsers, curl, and any HTTP
+  client actually send.
+- **Windows CLI discovery covers zerotier-cli.exe.** The installer
+  registers a `.bat` shim, but the underlying binary is also present as
+  `zerotier-cli.exe` in the same folder; both are now tried on Windows.
+- **Optional sudo wrapper is gated to Linux only.** Never considered on
+  Windows or macOS. On Linux it stays as a fallback for hosts that keep
+  `authtoken.secret` at the default 640 permissions.
+
+### Changed
+
+- **`pyproject.toml` version → 3.81.2.** Fixes a silent drift: the file
+  had stayed at 3.79.0 through releases 3.80.0, 3.81.0, and 3.81.1
+  because previous release scripts only bumped `arena/constants.py`.
+- **Modularity limit for `arena/` runtime modules raised 500 → 600.**
+  `arena/admin/zerotier.py` is now 533 lines (cross-platform token
+  discovery + HTTP + CLI + validation + Windows subprocess flags is
+  irreducibly wordy) and readability beats squeezing. Product-file
+  limit stays 700.
+
+### Documentation
+
+- `AGENTS.md` and `docs/MODULE_MAP.md` reflect the new 600-line runtime
+  limit.
+
+### Test suite
+
+702 passed (was 690). New coverage: 12 additional ZeroTier tests
+(multiple IPs, null IP, cli_source classification for wrapper/direct on
+every OS, Windows-only creationflags, absolute token paths, host-matches-
+platform, plus 5 nwid-validation tests).
+
 ## v3.81.1 - 2026-07-13
 
 Third-pass fixes discovered after v3.81.0 shipped. Every fix restores

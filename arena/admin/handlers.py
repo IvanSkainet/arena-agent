@@ -123,19 +123,43 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
     async def handle_v1_zerotier_network(request: web.Request) -> web.Response:
-        """POST/GET /v1/zerotier/network/{action} — ZeroTier network actions."""
+        """POST/GET /v1/zerotier/network/{action} — ZeroTier network actions.
+
+        Accepts network_id from any of: URL query string, JSON body, or
+        application/x-www-form-urlencoded body — so both curl and browsers
+        (Dashboard) can drive it without extra ceremony.
+        """
         r = ctx.require_auth(request)
         if r:
             return r
         ctx.record_request()
         action = request.match_info.get("action", "status")
-        network_id = request.query.get("network_id") if request.method == "GET" else None
-        if request.method == "POST":
+
+        # 1) Always allow ?network_id=... regardless of method.
+        network_id = request.query.get("network_id")
+
+        # 2) POST body: JSON or form-urlencoded.
+        if request.method == "POST" and not network_id:
+            ctype = (request.headers.get("Content-Type") or "").lower()
             try:
-                body = await request.json()
-                network_id = network_id or body.get("network_id")
+                if "application/json" in ctype:
+                    body = await request.json()
+                    network_id = body.get("network_id")
+                elif "application/x-www-form-urlencoded" in ctype:
+                    form = await request.post()
+                    network_id = form.get("network_id")
+                else:
+                    # Best-effort: try JSON first, fall back to raw text.
+                    raw = await request.text()
+                    if raw.strip().startswith("{"):
+                        import json as _json
+                        try:
+                            network_id = _json.loads(raw).get("network_id")
+                        except Exception:
+                            pass
             except Exception:
                 pass
+
         try:
             loop = asyncio.get_running_loop()
             result = await loop.run_in_executor(

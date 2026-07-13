@@ -35,6 +35,13 @@ from typing import Any
 HTTP_API = "http://127.0.0.1:9993"
 HTTP_TIMEOUT = 3.0
 
+# On Windows, hide the console window when we spawn zerotier-cli.bat/.exe.
+# Without this flag every 5-second Dashboard auto-refresh would pop a CMD
+# flash for a fraction of a second — annoying and looks like malware.
+_SUBPROCESS_KWARGS: dict[str, Any] = {}
+if platform.system().lower() == "windows":
+    _SUBPROCESS_KWARGS["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+
 
 # ---------------------------------------------------------------------------
 # Auth-token discovery (per-platform)
@@ -187,27 +194,32 @@ def _cli_candidates() -> list[str]:
     if system == "windows":
         program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
         program_files_x86 = os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)")
-        paths += [
-            os.path.join(program_files, "ZeroTier", "One", "zerotier-cli.bat"),
-            os.path.join(program_files_x86, "ZeroTier", "One", "zerotier-cli.bat"),
-        ]
+        # The .bat is what the installer registers; .exe is the same tool
+        # available directly. Both work with the same argument set.
+        for base in (program_files, program_files_x86):
+            for name in ("zerotier-cli.bat", "zerotier-cli.exe"):
+                paths.append(os.path.join(base, "ZeroTier", "One", name))
     elif system == "darwin":
         paths += [
             "/usr/local/bin/zerotier-cli",
             "/opt/homebrew/bin/zerotier-cli",
             "/Applications/ZeroTier One.app/Contents/MacOS/zerotier-cli",
         ]
-    else:
+    else:  # Linux / *BSD
         paths += [
             "/usr/sbin/zerotier-cli",
             "/usr/bin/zerotier-cli",
             "/usr/local/bin/zerotier-cli",
         ]
-        # Optional Linux sudo wrapper — accepted, not preferred.
-        paths += [
-            "/usr/local/bin/zerotier-cli-wrapper",
-            "/usr/bin/zerotier-cli-wrapper",
-        ]
+        # Optional sudo wrapper — only tried on Linux, only after the
+        # direct binaries. If the user installed a NOPASSWD wrapper to
+        # sidestep the default 640 permissions on authtoken.secret, we
+        # accept it. Never a wrapper on Windows or macOS.
+        if system == "linux":
+            paths += [
+                "/usr/local/bin/zerotier-cli-wrapper",
+                "/usr/bin/zerotier-cli-wrapper",
+            ]
 
     seen: set[str] = set()
     out: list[str] = []
@@ -230,6 +242,7 @@ def _run_cli(cli: str, args: list[str], timeout: int = 10) -> subprocess.Complet
         capture_output=True,
         text=True,
         timeout=timeout,
+        **_SUBPROCESS_KWARGS,
     )
 
 
@@ -408,6 +421,26 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
         return {"ok": False, "error": "action must be join|leave|status"}
     if action in ("join", "leave") and not network_id:
         return {"ok": False, "error": f"network_id required for {action}"}
+
+    # Validate nwid format before doing anything — ZeroTier network IDs are
+    # always 16 hex characters. Without this check we happily forward
+    # "0000000000000000" or "not-a-real-id" to the CLI which then joins a
+    # bogus placeholder network and creates a permanent junk row in
+    # `zerotier-cli listnetworks`.
+    if action in ("join", "leave") and network_id:
+        import re as _re
+        clean = network_id.strip().lower()
+        if not _re.fullmatch(r"[0-9a-f]{16}", clean):
+            return {
+                "ok": False,
+                "error": (
+                    f"network_id must be exactly 16 hex characters "
+                    f"(got {network_id!r}, length {len(network_id)})"
+                ),
+                "action": action,
+                "network_id": network_id,
+            }
+        network_id = clean
 
     # HTTP path first.
     token, token_path = _read_token()

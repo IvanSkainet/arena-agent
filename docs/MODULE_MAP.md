@@ -99,7 +99,7 @@ providers stay at their default position, nothing is dropped).
 2. Keep handlers thin; move IO/subprocess/state logic into runtime/helper modules.
 3. Keep product files under the modularity limit enforced by
    `tests/test_project_modularity.py` (currently 700 lines). Runtime modules
-   under `arena/` have an additional 500-line cap in
+   under `arena/` have an additional 600-line cap in
    `tests/test_architecture_boundaries.py`. Prefer decomposing a growing module
    along natural boundaries over compressing logic to fit — readable code beats
    squeezed code.

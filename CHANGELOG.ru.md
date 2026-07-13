@@ -6,6 +6,79 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.81.2 — 2026-07-13
+
+Кросс-платформенная закалка ZeroTier + правильно подключённая карточка
+Tunnels в Dashboard + понятный onboarding для тех, кто не знает как
+"запустить" ZeroTier. Bump `pyproject.toml` (три релиза подряд она
+молча оставалась на 3.79.0) до `arena/constants.py`.
+
+### Исправлено
+
+- **Dashboard: карточка Tunnels & Remote Access теперь реально
+  обновляется.** Два бага делали её мёртвой:
+  * ZeroTier Join/Leave POST перезатирал `Authorization: Bearer` header,
+    передавая свой `headers` в `api()`, и запросы молча 401'ились;
+  * первичный auto-refresh запускался внутри listener'а
+    `DOMContentLoaded`, но модуль грузится ПОСЛЕ этого события, так что
+    никогда не срабатывал. Переписал как IIFE, который хукается на
+    `refreshSettings()` (реальный вход в Settings-tab) и запускает
+    5-секундный auto-refresh пока Settings-tab открыт.
+- **Dashboard onboarding для ZeroTier.** Если ZeroTier не установлен —
+  карточка показывает готовые команды под платформу
+  (`winget install ZeroTier.ZeroTierOne` / `brew install --cask
+  zerotier-one` / `sudo pacman -S zerotier-one`) плюс download URL.
+  Если ZeroTier установлен но сети не подключены — печатает 4-шаговый
+  гайд (создать free network на my.zerotier.com → вставить nwid →
+  Join → авторизовать node). Больше нет тупика "installed=true, но что
+  делать дальше".
+- **Валидация nwid на клиенте.** Dashboard отбивает некорректные ID
+  (должно быть ровно 16 hex-символов) через дружелюбный `alert()` до
+  самого сетевого вызова.
+- **Валидация nwid на сервере.** `zerotier_network_action()` теперь
+  отказывается принимать не-hex или не-16-символьные ID на API-уровне
+  с чётким сообщением, нормализует регистр и обрезает whitespace, так
+  что paste с ZT dashboard просто работает. Раньше CLI спокойно принимал
+  `join 0000000000000000` и создавал вечный мусорный row в `listnetworks`.
+- **Спавн subprocess на Windows больше не флешит консольным окном.**
+  `_run_cli()` теперь ставит `CREATE_NO_WINDOW` только на Windows. На
+  Linux и macOS флаг отсутствует. Без этого каждый 5-секундный
+  Dashboard-refresh (×N CLI-кандидатов) вспыхивал бы чёрным CMD-окошком
+  на долю секунды — и раздражает, и легко принять за malware.
+- **`/v1/zerotier/network/{action}` принимает nwid откуда угодно.**
+  Раньше handler читал query только на GET и JSON body только на POST.
+  Теперь любой POST также принимает `?network_id=…` в URL,
+  `application/x-www-form-urlencoded` bodies и JSON без Content-Type —
+  как реально отправляют браузеры, curl и любой HTTP-клиент.
+- **Windows: `zerotier-cli.exe` тоже пробуется.** Installer регистрирует
+  `.bat` shim, но `zerotier-cli.exe` в той же папке — тот же
+  инструмент, теперь оба ищутся на Windows.
+- **Опциональный sudo wrapper — только на Linux.** Никогда не
+  рассматривается на Windows/macOS. На Linux остаётся как fallback для
+  хостов с дефолтными 640 permissions на `authtoken.secret`.
+
+### Изменено
+
+- **`pyproject.toml` version → 3.81.2.** Исправление тихого drift: файл
+  оставался на 3.79.0 через релизы 3.80.0, 3.81.0 и 3.81.1, потому что
+  прежние release-скрипты трогали только `arena/constants.py`.
+- **Modularity limit для `arena/` runtime поднят 500 → 600.**
+  `arena/admin/zerotier.py` теперь 533 строки (cross-platform token
+  discovery + HTTP + CLI + validation + Windows subprocess flags
+  неразрешимо многословны) — читаемость важнее сжатия. Лимит
+  product-файлов остаётся 700.
+
+### Документация
+
+- `AGENTS.md` и `docs/MODULE_MAP.md` отражают новый лимит 600 строк.
+
+### Тесты
+
+702 passed (было 690). Новое покрытие: 12 дополнительных тестов для
+ZeroTier (multiple IPs, null IP, cli_source classification для
+wrapper/direct на каждой OS, Windows-only creationflags, absolute token
+paths, host-matches-platform, плюс 5 тестов валидации nwid).
+
 ## v3.81.1 — 2026-07-13
 
 Fix-релиз третьего прохода после v3.81.0.

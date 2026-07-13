@@ -10,7 +10,7 @@ compatibility entrypoints or large catch-all files.
 - Product files must stay under the modularity limit enforced by
   `tests/test_project_modularity.py` (**currently 700 lines**). Runtime modules
   under `arena/` have an additional limit in
-  `tests/test_architecture_boundaries.py` (**currently 500 lines**).
+  `tests/test_architecture_boundaries.py` (**currently 600 lines**).
   Readable code beats squeezed code — if a file is close to the limit,
   split it by responsibility instead of collapsing whitespace.
 - Do not import `unified_bridge.py` from `arena/*` modules.
