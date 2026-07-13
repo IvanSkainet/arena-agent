@@ -1,8 +1,9 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.21';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.22';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
 const mountedSemanticOwners = new Map();
+const executionResults = new Map();
 const dismissedControls = new Set();
 const detectedPayloads = new Set();
 let scanTimer = null;
@@ -54,6 +55,7 @@ function cleanupStaleControls() {
   mountedControls.clear();
   mountedPayloadSemantics.clear();
   mountedSemanticOwners.clear();
+  executionResults.clear();
   detectedPayloads.clear();
 }
 function pruneMountedControls() {
@@ -151,13 +153,13 @@ function mountControls(host, payload, adapter) {
   host.dataset.arenaToolControlsMounted = '1'; host.dataset.arenaToolFingerprint = fingerprint;
   const request = buildRequest(payload, adapter.name, fingerprint);
   if (firstSeen && firstPayloadSeen) chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: detectedDetail(payload, adapter), site: location.origin, adapter: adapter.name, fingerprint, payload_fingerprint: semanticFingerprint, payload_instance_fingerprint: payloadFingerprint, tools: payloadTools(payload), payload: request}});
-  let lastExecutionText = '';
+  let lastExecutionText = executionResults.get(semanticFingerprint) || '';
   const bar = document.createElement('div');
   bar.dataset.arenaToolControls = '1';
   bar.style.cssText = 'display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin:8px 0 12px 0;padding:7px 9px;border:1px solid rgba(148,163,184,.34);border-radius:12px;background:rgba(15,23,42,.92);box-shadow:0 6px 18px rgba(15,23,42,.18);box-sizing:border-box;max-width:100%;clear:both;backdrop-filter:blur(8px);';
   const status = document.createElement('span');
   status.style.cssText = 'font-size:12px;color:#bfdbfe;font-weight:700;margin-right:2px;';
-  status.textContent = `Arena · ${adapter.name}`;
+  status.textContent = lastExecutionText ? `Arena · ${adapter.name} · result ready` : `Arena · ${adapter.name}`;
   bar.appendChild(status);
   bar.appendChild(makeButton('Preview', async () => {
     status.textContent = 'Previewing...';
@@ -167,7 +169,10 @@ function mountControls(host, payload, adapter) {
   bar.appendChild(makeButton('Run', async () => {
     status.textContent = 'Running...';
     const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {approve: true}}});
-    if (Array.isArray(result?.calls)) lastExecutionText = resultToText(result);
+    if (Array.isArray(result?.calls)) {
+      lastExecutionText = resultToText(result);
+      if (lastExecutionText) executionResults.set(semanticFingerprint, lastExecutionText);
+    }
     status.textContent = result?.ok ? `Executed ${result.calls?.length || 0} call(s)` : `Run error: ${resultErrorText(result)}`;
   }, true));
   bar.appendChild(makeButton('Insert', async () => {
@@ -203,9 +208,9 @@ function mountControls(host, payload, adapter) {
   attachControls(host, bar);
   mountedControls.set(fingerprint, {host, bar, semanticFingerprint});
   mountedSemanticOwners.set(semanticFingerprint, fingerprint);
-  runAutoModes(request, adapter, status, (text) => { lastExecutionText = text; });
+  runAutoModes(request, adapter, status, semanticFingerprint, (text) => { lastExecutionText = text; });
 }
-async function runAutoModes(request, adapter, status, setResultText) {
+async function runAutoModes(request, adapter, status, semanticFingerprint, setResultText) {
   const cfg = await chrome.runtime.sendMessage({type: 'arena.getConfig'});
   const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
   if (!modes.autoPreview && !modes.autoExecuteSafe) return;
@@ -220,6 +225,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {}}});
   if (!result?.ok) { status.textContent = `Auto run error: ${resultErrorText(result)}`; return; }
   const text = resultToText(result);
+  if (text) executionResults.set(semanticFingerprint, text);
   setResultText(text);
   status.textContent = `Auto executed ${result.calls?.length || 0} call(s)`;
   if (!modes.autoInsertResult || !text) return;

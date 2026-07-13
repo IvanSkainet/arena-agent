@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.13.21"
+    assert manifest["version"] == "0.13.22"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -125,6 +125,7 @@ def test_chat_extension_scaffold_exists():
     assert "dismissedControls" in content
     assert "mountedPayloadSemantics" in content
     assert "mountedSemanticOwners" in content
+    assert "executionResults" in content
     assert "detectedPayloads" in content
     assert "payload_fingerprint" in content
     assert "detectedDetail" in content
