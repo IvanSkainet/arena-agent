@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.24';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.25';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -242,9 +242,13 @@ async function runAutoModes(request, adapter, status, semanticFingerprint, setRe
   await arenaRecordInsertEvent(state.submitted ? 'submit' : 'insert', request, adapter, state, 'auto');
   status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted ${timingSummary(state)}.` : `Auto inserted ${timingSummary(state)}.`) : insertFailureSummary(modes.insertStrategy || 'auto', state);
 }
+let _lastCandidateCount = -1;
 function scan() {
   pruneMountedControls();
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
+  // Fast path: if same candidate count and all have toolbars, skip parseArenaBlocks
+  if (state.nodes.length === _lastCandidateCount && state.nodes.every((node) => hostHasToolbar(controlsHost(node)))) return;
+  _lastCandidateCount = state.nodes.length;
   state.nodes.forEach((node) => { const host = controlsHost(node); if (!hostHasToolbar(host)) parseArenaBlocks(typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || '')).forEach((entry) => mountControls(host, entry.payload, state.adapter)); });
 }
 
@@ -290,7 +294,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 cleanupStaleControls();
 const obs = new MutationObserver((mutations) => {
   const relevant = mutations.some((m) => !m.target?.closest?.('[data-arena-tool-controls]') && (m.addedNodes?.length || m.removedNodes?.length));
-  if (relevant) scheduleScan();
+  if (relevant) { if (typeof arenaInvalidateCandidateCache === 'function') arenaInvalidateCandidateCache(); scheduleScan(); }
 });
 obs.observe(document.documentElement, {childList: true, subtree: true});
 scan();

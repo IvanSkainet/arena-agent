@@ -4,9 +4,11 @@ function arenaHost() {
   return (location.hostname || '').toLowerCase();
 }
 
+let _cachedAdapter = null;
 function getArenaAdapter() {
-  const host = arenaHost();
-  return ARENA_ADAPTERS.find((adapter) => adapter.hosts.includes(host)) || ARENA_ADAPTERS[ARENA_ADAPTERS.length - 1];
+  if (_cachedAdapter) return _cachedAdapter;
+  _cachedAdapter = ARENA_ADAPTERS.find((a) => a.hosts.includes(arenaHost())) || ARENA_ADAPTERS[ARENA_ADAPTERS.length - 1];
+  return _cachedAdapter;
 }
 
 function arenaNodeText(node) {
@@ -14,9 +16,7 @@ function arenaNodeText(node) {
 }
 
 function arenaHasComposerChild(node, adapter) {
-  return (adapter.composerSelectors || []).some((selector) => {
-    try { return !!node.querySelector?.(selector); } catch (_e) { return false; }
-  });
+  return (adapter.composerSelectors || []).some((s) => { try { return !!node.querySelector?.(s); } catch (_e) { return false; } });
 }
 function arenaDetectionText(node, adapter = getArenaAdapter()) {
   if (!node) return '';
@@ -29,12 +29,10 @@ function arenaDetectionText(node, adapter = getArenaAdapter()) {
   return arenaNodeText(clone);
 }
 
+const ARENA_TOOL_RE = /```(?:arena-tool|jsonl?)[\s\S]*?(?:function_call_start|arena_tool)[\s\S]*?```/m;
 function arenaHasToolBlock(node, adapter = getArenaAdapter()) {
   const text = arenaDetectionText(node, adapter);
-  return /```arena-tool\s*[\s\S]*?```/m.test(text)
-    || /```jsonl\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
-    || /```json\s*[\s\S]*?function_call_start[\s\S]*?function_call_end[\s\S]*?```/m.test(text)
-    || (text.includes('function_call_start') && text.includes('function_call_end'));
+  return ARENA_TOOL_RE.test(text) || (text.includes('function_call_start') && text.includes('function_call_end'));
 }
 
 function arenaHasArenaToolBlock(node) {
@@ -42,22 +40,13 @@ function arenaHasArenaToolBlock(node) {
 }
 
 function arenaNodePath(node) {
-  const parts = [];
-  let cur = node;
-  for (let depth = 0; cur && depth < 6; depth++) {
-    const parent = cur.parentElement;
-    const siblings = parent ? Array.from(parent.children).filter((child) => child.tagName === cur.tagName) : [];
-    const idx = siblings.indexOf(cur);
-    parts.unshift(`${cur.tagName || 'NODE'}:${idx}`);
-    cur = parent;
-  }
+  const parts = []; let cur = node;
+  for (let d = 0; cur && d < 6; d++) { const p = cur.parentElement; const s = p ? Array.from(p.children).filter((c) => c.tagName === cur.tagName) : []; parts.unshift(`${cur.tagName || 'NODE'}:${s.indexOf(cur)}`); cur = p; }
   return parts.join('/');
 }
 
 function arenaMatchesAny(node, selectors) {
-  return (selectors || []).some((selector) => {
-    try { return node?.matches?.(selector) || !!node?.closest?.(selector); } catch (_e) { return false; }
-  });
+  return (selectors || []).some((s) => { try { return node?.matches?.(s) || !!node?.closest?.(s); } catch (_e) { return false; } });
 }
 
 function arenaIsComposerNode(node, adapter = getArenaAdapter()) {
@@ -79,29 +68,13 @@ function arenaPruneAncestorCandidates(nodes) {
 
 function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
   if (!node) return '';
-  return [
-    adapter.name,
-    node.getAttribute?.('data-testid') || '',
-    node.getAttribute?.('data-message-author-role') || '',
-    node.id || '',
-    arenaNodePath(node),
-    arenaNodeText(node).slice(0, 80),
-  ].join('|');
+  return [adapter.name, node.getAttribute?.('data-testid') || '', node.getAttribute?.('data-message-author-role') || '', node.id || '', arenaNodePath(node), arenaNodeText(node).slice(0, 80)].join('|');
 }
 
 function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
   if (!node) return false;
-  if (adapter.name === 'chatgpt') {
-    if (node.getAttribute('data-message-author-role') === 'assistant') return true;
-    return !!node.closest('[data-message-author-role="assistant"]');
-  }
-  if (adapter.name === 'claude') {
-    if (node.isContentEditable) return false;
-    if (node.querySelector?.('[contenteditable="true"]')) return false;
-    if (node.closest?.('[data-testid="user-message"], [data-testid="user-message-content"]')) return false;
-    if (arenaNodeText(node).startsWith('You said:')) return false;
-    return true;
-  }
+  if (adapter.name === 'chatgpt') return node.getAttribute('data-message-author-role') === 'assistant' || !!node.closest('[data-message-author-role="assistant"]');
+  if (adapter.name === 'claude') return !node.isContentEditable && !node.querySelector?.('[contenteditable="true"]') && !node.closest?.('[data-testid="user-message"], [data-testid="user-message-content"]') && !arenaNodeText(node).startsWith('You said:');
   return true;
 }
 
@@ -120,7 +93,11 @@ function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
   return arenaStableHash([adapter.name, arenaExtractNodeId(node, adapter), JSON.stringify(payload || {})].join('|'), 'arena_msg');
 }
 
+let _cachedCandidateState = null;
+let _candidateCacheDirty = true;
+function arenaInvalidateCandidateCache() { _candidateCacheDirty = true; }
 function arenaCandidateNodes() {
+  if (!_candidateCacheDirty && _cachedCandidateState) return _cachedCandidateState;
   const adapter = getArenaAdapter();
   const seen = new Set();
   const nodes = [];
@@ -135,7 +112,9 @@ function arenaCandidateNodes() {
       nodes.push(node);
     });
   });
-  return {adapter, nodes: arenaPruneAncestorCandidates(nodes).slice(-5)};
+  _cachedCandidateState = {adapter, nodes: arenaPruneAncestorCandidates(nodes).slice(-5)};
+  _candidateCacheDirty = false;
+  return _cachedCandidateState;
 }
 
 function arenaSelectorDiagnostics() {
