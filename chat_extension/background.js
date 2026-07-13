@@ -23,9 +23,22 @@ function normalizeModes(data) {
   };
 }
 function normalizeBridgeUrl(value) {
-  let url = String(value || DEFAULTS.bridgeUrl).trim() || DEFAULTS.bridgeUrl;
+  let url = String(value || SYNC_DEFAULTS.bridgeUrl).trim() || SYNC_DEFAULTS.bridgeUrl;
   if (!/^https?:\/\//i.test(url)) url = `http://${url}`;
   return url.replace(/\/+$/, '');
+}
+function bridgeFallbackBase(base) {
+  if (/^http:\/\/(127\.0\.0\.1|localhost):8765$/i.test(base)) return '';
+  if (/\.ts\.net$/i.test(new URL(base).hostname) || /\.trycloudflare\.com$/i.test(new URL(base).hostname)) return 'http://127.0.0.1:8765';
+  return '';
+}
+async function bridgeFetchOnce(base, path, headers, method, body) {
+  const url = `${base}${path}`;
+  const res = await fetch(url, {method, headers, body: body ? JSON.stringify(body) : undefined});
+  const text = await res.text();
+  let parsed; try { parsed = JSON.parse(text); } catch { parsed = {ok: false, error: text || `HTTP ${res.status}`, raw: text}; }
+  if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, bridge_url: base, path, ...parsed};
+  return {...parsed, bridge_url: base};
 }
 async function getConfig() {
   const [syncData, localData] = await Promise.all([
@@ -137,15 +150,17 @@ async function bridgeFetch(path, {method = 'GET', body} = {}) {
   const headers = {'Content-Type': 'application/json'};
   if (cfg.bridgeToken) headers.Authorization = `Bearer ${cfg.bridgeToken}`;
   const base = normalizeBridgeUrl(cfg.bridgeUrl);
-  const url = `${base}${path}`;
   try {
-    const res = await fetch(url, {method, headers, body: body ? JSON.stringify(body) : undefined});
-    const text = await res.text();
-    let parsed; try { parsed = JSON.parse(text); } catch { parsed = {ok: false, error: text || `HTTP ${res.status}`, raw: text}; }
-    if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, bridge_url: base, path, ...parsed};
-    return parsed;
+    return await bridgeFetchOnce(base, path, headers, method, body);
   } catch (error) {
-    return {ok: false, error: `${String(error)} while fetching ${url}`, bridge_url: base, path};
+    const fallback = bridgeFallbackBase(base);
+    if (fallback) {
+      try {
+        const result = await bridgeFetchOnce(fallback, path, headers, method, body);
+        return {...result, bridge_url_primary: base, bridge_url_fallback: fallback};
+      } catch (_fallbackError) {}
+    }
+    return {ok: false, error: `${String(error)} while fetching ${base}${path}`, bridge_url: base, bridge_url_fallback: fallback || '', path};
   }
 }
 async function testConnection() {

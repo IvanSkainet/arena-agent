@@ -60,8 +60,11 @@ def test_background_supports_history_item_and_filters():
     assert 'arena.insertEvent' in bg
     assert 'adapter: message.body?.site?.adapter' in bg
     assert 'response: compactResult(result)' in bg
-    assert 'while fetching ${url}' in bg
+    assert 'while fetching ${base}${path}' in bg
     assert 'bridge_url: base' in bg
+    assert 'bridge_url_fallback' in bg
+    assert 'bridgeFallbackBase' in bg
+    assert 'bridgeFetchOnce' in bg
     assert 'chrome.storage.local.get({bridgeToken: ' in bg
     assert 'chrome.storage.local.set({bridgeToken})' in bg
     assert "chrome.storage.sync.remove('bridgeToken')" in bg

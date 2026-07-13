@@ -1,6 +1,6 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.13.6`.
+Current extension version: `0.13.7`.
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the
@@ -49,6 +49,9 @@ The extension stores config in two places:
 
 - `chrome.storage.sync` for `bridgeUrl`, mode flags, and insertion strategy;
 - `chrome.storage.local` for `bridgeToken` so the secret stays device-local.
+
+If the bridge URL points at a Tailnet / tunnel hostname and the fetch fails locally,
+the extension retries against `http://127.0.0.1:8765` before surfacing a network error.
 
 Bridge endpoints used by the extension:
 

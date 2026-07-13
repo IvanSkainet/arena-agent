@@ -31,6 +31,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaSubmitCandidates' in adapters
     assert 'arenaSubmitButtonSelection' in adapters
     assert 'chatgpt.com' in adapter_sites
+    assert 'button[type="submit"]' in adapter_sites
+    assert 'Отправ' in adapter_sites
     assert 'gemini.google.com' in adapter_sites
     assert 'claude.ai' in adapter_sites
     assert "messageSelectors: ['[data-test-render-count]']" in adapter_sites
@@ -122,8 +124,9 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.6`.' in readme
+    assert 'Current extension version: `0.13.7`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
+    assert '127.0.0.1:8765' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme
     assert 'side panel UI' in readme

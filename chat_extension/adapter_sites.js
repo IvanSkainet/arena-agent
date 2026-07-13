@@ -4,7 +4,7 @@ const ARENA_SITE_ADAPTERS = [
     hosts: ['chat.openai.com', 'chatgpt.com'],
     messageSelectors: ['[data-message-author-role="assistant"]', 'article[data-testid^="conversation-turn-"]', 'main article'],
     composerSelectors: ['#prompt-textarea', 'textarea[placeholder*="Message"]', 'div#prompt-textarea[contenteditable="true"]'],
-    submitSelectors: ['button[data-testid="send-button"]', 'button[aria-label*="Send"]', 'button svg[viewBox][aria-hidden="true"]'],
+    submitSelectors: ['button[data-testid="send-button"]', 'button[data-testid*="send"]', 'form button[type="submit"]', 'button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]', 'button svg[viewBox][aria-hidden="true"]'],
   },
   {
     name: 'claude',
