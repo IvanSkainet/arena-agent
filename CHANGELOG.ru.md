@@ -6,6 +6,81 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.81.0 — 2026-07-13
+
+Кросс-платформенный спринт по удалённому доступу и интеграции CLI-инструментов.
+Всё в этом релизе спроектировано так, чтобы одинаково работать на Windows,
+macOS и Linux — без sudo-обёрток и платформозависимых костылей по умолчанию.
+
+### Ключевое
+
+- **Единый фасад туннелей.** Новый API `/v1/tunnels/{status,active,start,stop}`
+  рассматривает Tailscale, Cloudflared и ZeroTier как единый пул провайдеров
+  с настраиваемым приоритетом (env `ARENA_TUNNEL_PRIORITY`, по умолчанию
+  `tailscale,cloudflared,zerotier`). Bridge остаётся доступен через первый
+  здоровый провайдер — падение одного больше не роняет весь Bridge.
+- **ZeroTier переписан кросс-платформенно.** Приоритет — локальный HTTP API
+  ZeroTier (127.0.0.1:9993) с platform-aware поиском auth-токена (Windows
+  `%PROGRAMDATA%`, macOS `/Library/Application Support`, Linux
+  `/var/lib/zerotier-one`). Fallback на `zerotier-cli` из PATH или well-known
+  путей. sudo-обёртка больше не требуется по умолчанию.
+- **BrowserAct интегрирован.** Новый `arena/admin/browseract.py` показывает
+  install / version / update-hint. Новый кросс-платформенный
+  `skills/browseract/run.py` заменяет bash-only `run.sh`, сохраняя те же
+  subcommand'ы. `install.sh` / `install.bat` уже умели ставить
+  `browser-act-cli` через `uv tool install`.
+- **Cloudflared кросс-платформенные подсказки.** `_get_update_hint()` теперь
+  выдаёт готовые к копированию команды под платформу + источник установки:
+  `winget`/`scoop` на Windows, `brew` на macOS, `apt`/`pacman` на Linux.
+- **Dashboard: карточка Tunnels & Remote Access.** Вкладка Settings теперь
+  показывает все три провайдера с заголовком "Active endpoint", кнопками
+  Start all / Stop all и панелью управления ZeroTier-сетями (join/leave по
+  nwid, список подключённых сетей, install/permission hints inline).
+- **Superpowers консолидированы.** `tools/superpowers/` удалён;
+  `skills/superpowers/` теперь — прямой upstream mirror
+  [obra/superpowers][obra] для обоих потребителей (Bridge через `/v1/skills`,
+  `install.sh` и standalone IDE-плагинов). Больше нет расхождения форка.
+- **Лимиты модульности подняты.** `MAX_PRODUCT_FILE_LINES` 300 → 700,
+  `MAX_RUNTIME_LINES` 220 → 500. Читаемый код важнее сжатого (политика
+  проекта). Extension `content.js` / `adapters.js` / `insert_strategies.js`
+  распрямлены из single-line-per-function обратно в нормальное форматирование.
+
+### Добавлено
+
+- `arena/admin/tunnels.py` — единый multi-provider фасад.
+- `arena/admin/browseract.py` — кросс-платформенный статус BrowserAct CLI.
+- `skills/browseract/run.py` — Python-обёртка, работающая на Win/Mac/Linux.
+- `dashboard/assets/29-tunnels.js` + обновлённый
+  `dashboard/assets/body-15-settings.html` — новая карточка Tunnels.
+- `docs/SUPERPOWERS.md` — переписан под one-directory модель.
+- `scripts/sync_superpowers_from_upstream.sh` — упрощённый sync-скрипт.
+- Тесты: `test_tunnels.py` (14), расширенный `test_zerotier.py` (5 → 11),
+  `test_browseract.py` (11), расширенный `test_cloudflared.py` (5 → 7).
+
+### Изменено
+
+- `arena/admin/zerotier.py` — полная переработка; HTTP API приоритет,
+  CLI как fallback, structured контракт (`installed`, `backend`,
+  `cli_source`, `platform`, `hint`, `assignedAddresses`).
+- `arena/admin/cloudflared.py` — подсказки под платформу + источник;
+  дополнительные пути для macOS/Linux Homebrew/snap.
+- `arena/capabilities.py` — `/v1/capabilities.network` показывает все
+  поля ZeroTier; `.browser` — поля BrowserAct.
+- Extension файлы — восстановлено читаемое форматирование, без изменения
+  поведения; тот же v0.13.27.
+
+### Удалено
+
+- `tools/superpowers/` — консолидирован в `skills/superpowers/`.
+- Форкнутые Arena-версии skill-файлов — заменены upstream-версиями.
+
+### Тесты
+
+688 passed (было 655), 456 warnings. Новое покрытие: 14 tunnels + 6
+ZeroTier + 11 BrowserAct + 2 cloudflared.
+
+[obra]: https://github.com/obra/superpowers
+
 ## v3.80.0 — 2026-07-13
 
 ### Extension v0.13.23 — Тайминги и кеширование конфига

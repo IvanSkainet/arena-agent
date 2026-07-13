@@ -1,5 +1,128 @@
 # Changelog
 
+## v3.81.0 - 2026-07-13
+
+Cross-platform remote-access and CLI-tool integration sprint. Everything
+in this release is designed to work identically on Windows, macOS, and
+Linux — no sudo wrappers or platform-specific hacks required by default.
+
+### Highlights
+
+- **Unified tunnels facade.** New `/v1/tunnels/{status,active,start,stop}`
+  API treats Tailscale, Cloudflared, and ZeroTier as one pool of remote
+  providers with a configurable priority (`ARENA_TUNNEL_PRIORITY` env
+  var, default `tailscale,cloudflared,zerotier`). The Bridge stays
+  reachable through the first healthy provider — a single outage no
+  longer takes it offline.
+- **ZeroTier rewritten cross-platform.** Prefers the ZeroTier local
+  HTTP API (127.0.0.1:9993) with platform-aware authtoken discovery
+  (Windows `%PROGRAMDATA%`, macOS `/Library/Application Support`, Linux
+  `/var/lib/zerotier-one`). Falls back to `zerotier-cli` from PATH or
+  well-known install locations. No sudo wrapper required in the default
+  path.
+- **BrowserAct integrated.** New `arena/admin/browseract.py` reports
+  install / version / update-hint. New cross-platform `skills/browseract/run.py`
+  replaces the bash-only `run.sh` while keeping the same subcommand
+  surface. `install.sh` / `install.bat` already knew how to install
+  `browser-act-cli` via `uv tool install`.
+- **Cloudflared cross-platform hints.** `_get_update_hint()` now emits
+  copy-pasteable commands per platform + source: `winget` / `scoop` on
+  Windows, `brew` on macOS, `apt` / `pacman` on Linux. `_system_candidates()`
+  probes Homebrew (Intel + Apple Silicon) and `/snap/bin` on non-Windows
+  hosts as well.
+- **Dashboard: Tunnels & Remote Access card.** Settings tab now shows
+  all three providers side-by-side with a "Active endpoint" header, a
+  Start/Stop-all pair of buttons, and a ZeroTier network management
+  panel (join/leave by nwid, list of joined networks, install/permission
+  hints inline).
+- **Superpowers consolidated.** `tools/superpowers/` deleted;
+  `skills/superpowers/` is now a straight upstream mirror of
+  [obra/superpowers][obra] serving both the Arena Bridge (`/v1/skills`,
+  `install.sh`) and standalone IDE plugin consumers. No more fork drift.
+- **Modularity limits raised.** `MAX_PRODUCT_FILE_LINES` 300 → 700,
+  `MAX_RUNTIME_LINES` 220 → 500. Prefer readable code over squeezed code
+  (project policy). Extension `content.js` / `adapters.js` /
+  `insert_strategies.js` were expanded from single-line-per-function
+  style back to standard formatting.
+
+### Added
+
+- `arena/admin/tunnels.py` — unified multi-provider facade
+  (`tunnels_status`, `tunnels_active`, `tunnels_start`, `tunnels_stop`).
+- `arena/admin/browseract.py` — cross-platform BrowserAct CLI status.
+- `skills/browseract/run.py` — pure-Python entrypoint that works on
+  Windows, macOS and Linux with the same subcommand surface as the
+  legacy `run.sh` (which is now a shim delegating to `run.py`).
+- `dashboard/assets/29-tunnels.js` and updated
+  `dashboard/assets/body-15-settings.html` — the new unified Tunnels
+  card.
+- `docs/SUPERPOWERS.md` — rewritten to document the one-directory model.
+- `scripts/sync_superpowers_from_upstream.sh` — simplified sync script,
+  always targeting `skills/superpowers/`.
+- `tests/test_tunnels.py` (14 tests), extended `tests/test_zerotier.py`
+  (5 → 11 tests), `tests/test_browseract.py` (11 tests), extended
+  `tests/test_cloudflared.py` (5 → 7 tests).
+
+### Changed
+
+- `arena/admin/zerotier.py` — full rewrite: HTTP API preferred, CLI as
+  fallback, platform-aware token/binary discovery, structured contract
+  (`installed`, `backend`, `cli_source`, `platform`, `hint`,
+  `assignedAddresses`, `portDeviceName`).
+- `arena/admin/cloudflared.py` — install/update hints tailored per
+  platform + install source; extra fallback paths for macOS/Linux
+  Homebrew/snap installs.
+- `arena/capabilities.py` — `/v1/capabilities.network` now reports every
+  ZeroTier field (backend, cli_source, node_id, version, active
+  networks); `.browser` reports `browseract_installed` / `_version` /
+  `_cli_source` / `_update_hint`.
+- Extension `chat_extension/{content,adapters,insert_strategies}.js`
+  reformatted from squeezed one-liners into readable blocks with
+  section comments. No behaviour change; same v0.13.27.
+
+### Removed
+
+- `tools/superpowers/` — consolidated into `skills/superpowers/`.
+- Arena-flavoured skill files under `skills/superpowers/skills/` that
+  were forks of upstream (`using-arena-superpowers/SKILL.md`,
+  `using-feature-branches/SKILL.md`) — replaced by the corresponding
+  upstream files (`using-superpowers`, `using-git-worktrees`).
+
+### Wiring
+
+- `arena/contexts/platform.py`, `arena/wiring/platform.py`,
+  `arena/wiring/system_public_admin_registries.py`,
+  `arena/wiring/bridge_runtime.py`,
+  `arena/route_registry/core.py`,
+  `arena/admin/sync_factories.py`,
+  `arena/runtime_deps/core.py`,
+  `arena/admin/__init__.py`,
+  `arena/admin/runtime.py`,
+  `arena/admin/handlers.py` — new sync callables + handlers +
+  registered routes for `/v1/tunnels/*`. `AdminHandlerContext` gains
+  five optional callables (all default to `None` so old integrations
+  keep working).
+
+### Compatibility
+
+- `/v1/tailscale/funnel/*`, `/v1/cloudflared/tunnel/*`,
+  `/v1/zerotier/status`, `/v1/zerotier/network/{action}` remain fully
+  backward compatible. `/v1/tunnels/*` is additive.
+- The old Linux sudo wrapper (`/usr/local/bin/zerotier-cli-wrapper`) is
+  still recognised as one CLI candidate — nothing breaks for existing
+  installs.
+- Extension `chat_extension` stays at v0.13.27; only formatting changed.
+
+### Tests
+
+688 passed (previous baseline 655), 456 warnings. New coverage:
+- 14 tests for the tunnels facade
+- 6 new ZeroTier tests
+- 11 new BrowserAct tests
+- 2 additional cloudflared cross-platform hint tests
+
+[obra]: https://github.com/obra/superpowers
+
 ## v3.80.0 - 2026-07-13
 
 ### Extension v0.13.23 - Performance telemetry and config caching
