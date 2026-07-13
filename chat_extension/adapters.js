@@ -187,20 +187,28 @@ function arenaScoreComposerCandidate(node, active = document.activeElement) {
   return score;
 }
 
+let _cachedComposerResult = null;
+let _cachedComposerAt = 0;
+function arenaInvalidateComposerCache() { _cachedComposerResult = null; }
 function arenaComposerSelection(adapter = getArenaAdapter()) {
+  const now = Date.now();
+  if (_cachedComposerResult && _cachedComposerResult.target?.isConnected && (now - _cachedComposerAt) < 2000) return _cachedComposerResult;
   const cached = window.__arenaLastComposerTarget;
   const ranked = arenaComposerCandidates(adapter)
     .map((item) => ({...item, score: arenaScoreComposerCandidate(item.node)}))
     .sort((a, b) => b.score - a.score);
   const selected = ranked[0] || null;
   if (selected?.node) window.__arenaLastComposerTarget = selected.node;
-  return {
+  const result = {
     target: selected?.node || null,
     candidates: ranked.length,
     selected_selector: selected?.selector || '',
     active_match: !!selected?.node && (selected.node === document.activeElement || selected.node.contains?.(document.activeElement)),
     cached_match: !!selected?.node && selected.node === cached,
   };
+  _cachedComposerResult = result;
+  _cachedComposerAt = now;
+  return result;
 }
 
 function arenaFindComposer(adapter = getArenaAdapter()) {

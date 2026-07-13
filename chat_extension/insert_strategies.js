@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.26';
+  return '0.13.27';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -222,6 +222,7 @@ async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = '
     arenaSetInsertTiming({insert_ms: 0, verify_ms: 0, strategy, method: 'failed', error: 'composer_not_found', composer_candidates: composerInfo.candidates || 0, composer_selector: composerInfo.selected_selector || ''});
     return false;
   }
+  window.__arenaLastInsertTarget = target;
   const requested = arenaNormalizeInsertStrategy(strategy);
   arenaFocusComposer(target);
   const attempts = [];
