@@ -49,6 +49,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'chat.qwen.ai' in adapter_sites
     assert 't3.chat' in adapter_sites
     assert 'chat.z.ai' in adapter_sites
+    assert '[class*="message"]' in adapter_sites
+    assert '[class*="markdown"]' in adapter_sites
     assert 'arenaPayloadFromJsonl' in parser
     assert 'sys.status' in (ROOT / 'arena' / 'extension_bridge' / 'instructions.py').read_text(encoding='utf-8')
     assert 'sys.status' in (ROOT / 'arena' / 'extension_bridge' / 'policy.py').read_text(encoding='utf-8')
@@ -136,6 +138,7 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'suppressCurrentControls' in content
     assert 'dismissedControls' in content
     assert 'mountedPayloadSemantics' in content
+    assert 'mountedSemanticOwners' in content
     assert 'detectedPayloads' in content
     assert 'payload_instance_fingerprint' in content
     assert 'payload_fingerprint' in content
@@ -143,7 +146,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.18`.' in readme
+    assert 'Current extension version: `0.13.19`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme

@@ -72,7 +72,7 @@ const ARENA_SITE_ADAPTERS = [
   {
     name: 'zai',
     hosts: ['chat.z.ai'],
-    messageSelectors: ['main article', 'main [data-testid]', 'main', 'pre', 'code'],
+    messageSelectors: ['main article', 'main [data-testid]', 'main', 'section', '[class*="message"]', '[class*="markdown"]', 'pre', 'code'],
     composerSelectors: ['textarea', '[contenteditable="true"]'],
     submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
   },

@@ -1,21 +1,16 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.18';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.19';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
+const mountedSemanticOwners = new Map();
 const dismissedControls = new Set();
 const detectedPayloads = new Set();
 let scanTimer = null;
 function arenaExtensionVersion() {
   try { return chrome.runtime.getManifest?.().version || ARENA_CONTENT_SCRIPT_VERSION; } catch (_e) { return ARENA_CONTENT_SCRIPT_VERSION; }
 }
-function versionSummary() {
-  return `ext ${arenaExtensionVersion()}/content ${ARENA_CONTENT_SCRIPT_VERSION}`;
-}
-function hash(text) {
-  let h = 0;
-  for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
-  return `arena_${Math.abs(h)}`;
-}
+function versionSummary() { return `ext ${arenaExtensionVersion()}/content ${ARENA_CONTENT_SCRIPT_VERSION}`; }
+function hash(text) { let h = 0; for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0; return `arena_${Math.abs(h)}`; }
 function formatInsertText(text) {
   const body = String(text || '').trim();
   if (!body) return '';
@@ -32,9 +27,7 @@ function makeButton(label, onClick, primary = false) {
   const bg = primary ? '#2563eb' : 'rgba(15,23,42,.72)';
   const border = primary ? '#3b82f6' : 'rgba(148,163,184,.38)';
   btn.style.cssText = `padding:5px 10px;font-size:12px;cursor:pointer;border-radius:999px;border:1px solid ${border};background:${bg};color:#f8fafc;line-height:1.2;font-weight:600;`;
-  // Keep the chat composer focused while clicking Arena controls. Gemini in
-  // particular does expensive synchronous work on blur/focus churn, which made
-  // Insert/Send feel ~1s slower after controls became clickable toolbar buttons.
+  // Keep the composer focused; blur/focus churn slows some chat UIs.
   btn.addEventListener('pointerdown', (event) => event.preventDefault());
   btn.addEventListener('mousedown', (event) => event.preventDefault());
   btn.addEventListener('click', onClick);
@@ -60,7 +53,19 @@ function cleanupStaleControls() {
   document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { node.dataset.arenaToolControlsMounted = ''; });
   mountedControls.clear();
   mountedPayloadSemantics.clear();
+  mountedSemanticOwners.clear();
   detectedPayloads.clear();
+}
+function pruneMountedControls() {
+  [...mountedControls.entries()].forEach(([fingerprint, info]) => {
+    if (info?.bar?.isConnected && info?.host?.isConnected) return;
+    if (info?.host?.dataset) info.host.dataset.arenaToolControlsMounted = '';
+    mountedControls.delete(fingerprint);
+    if (info?.semanticFingerprint) {
+      mountedPayloadSemantics.delete(info.semanticFingerprint);
+      mountedSemanticOwners.delete(info.semanticFingerprint);
+    }
+  });
 }
 function suppressCurrentControls() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: []};
@@ -77,9 +82,7 @@ function hostHasToolbar(host) {
 function buildRequest(payload, adapterName, fingerprint) {
   return {site: {origin: location.origin, url: location.href, adapter: adapterName}, message: {fingerprint}, payload, mode: {}};
 }
-function payloadTools(payload) {
-  return (payload?.calls || []).map((call) => call.tool).filter(Boolean);
-}
+function payloadTools(payload) { return (payload?.calls || []).map((call) => call.tool).filter(Boolean); }
 function detectedDetail(payload, adapter) {
   const tools = payloadTools(payload).slice(0, 4).join(', ');
   return `detected ${tools || 'tool block'} on ${location.hostname}`;
@@ -131,6 +134,17 @@ function mountControls(host, payload, adapter) {
   const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
   const payloadFingerprint = typeof arenaPayloadFingerprint === 'function' ? arenaPayloadFingerprint(payload, adapter) : hash(JSON.stringify(payload || {}));
   const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(payload, adapter) : payloadFingerprint;
+  const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
+  if (semanticOwner && semanticOwner !== fingerprint) {
+    const previous = mountedControls.get(semanticOwner);
+    if (previous?.host !== host) {
+      previous?.bar?.remove();
+      if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
+      mountedControls.delete(semanticOwner);
+      mountedPayloadSemantics.delete(semanticFingerprint);
+      mountedSemanticOwners.delete(semanticFingerprint);
+    }
+  }
   const existing = mountedControls.get(fingerprint);
   if (dismissedControls.has(fingerprint) || dismissedControls.has(semanticFingerprint) || mountedPayloadSemantics.has(semanticFingerprint) || (existing?.bar?.isConnected) || hostHasToolbar(host)) return;
   const firstSeen = !processed.has(fingerprint);
@@ -187,9 +201,10 @@ function mountControls(host, payload, adapter) {
     const result = await chrome.runtime.sendMessage({type: 'arena.openSidePanel'});
     status.textContent = result?.ok ? 'Opened side panel.' : `Panel error: ${result?.error || 'unknown'}`;
   }));
-  bar.appendChild(makeButton('×', () => { dismissedControls.add(fingerprint); dismissedControls.add(semanticFingerprint); bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); mountedPayloadSemantics.delete(semanticFingerprint); }));
+  bar.appendChild(makeButton('×', () => { dismissedControls.add(fingerprint); dismissedControls.add(semanticFingerprint); bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); mountedPayloadSemantics.delete(semanticFingerprint); mountedSemanticOwners.delete(semanticFingerprint); }));
   attachControls(host, bar);
   mountedControls.set(fingerprint, {host, bar, semanticFingerprint});
+  mountedSemanticOwners.set(semanticFingerprint, fingerprint);
   runAutoModes(request, adapter, status, (text) => { lastExecutionText = text; });
 }
 async function runAutoModes(request, adapter, status, setResultText) {
@@ -224,6 +239,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
   status.textContent = state.ok ? (state.submitted ? `Auto inserted/submitted ${timingSummary(state)}.` : `Auto inserted ${timingSummary(state)}.`) : insertFailureSummary(modes.insertStrategy || 'auto', state);
 }
 function scan() {
+  pruneMountedControls();
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
   [...state.nodes].reverse().forEach((node) => {
     const host = controlsHost(node);
