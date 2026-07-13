@@ -48,6 +48,10 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     update(build_hardware_exec_registries(g))
     update(build_memory_resource_browser_runtimes(g))
     update({
+        "_zerotier_status_sync": g["make_zerotier_status_sync"](
+            zerotier_status_fn=g["_zerotier_status_runtime"],
+            subprocess_kwargs_fn=g["_subprocess_kwargs"],
+        ),
         "_capabilities_sync": g["make_capabilities_sync"](
             build_capabilities_fn=g["build_capabilities"],
             version=g["VERSION"],
@@ -56,6 +60,10 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
             detect_desktop_env=g["_detect_desktop_env"],
             service_info_sync=g["_service_info_sync"],
             sys_svc_sync=g["_sys_svc_sync"],
+            zerotier_status_sync=g["make_zerotier_status_sync"](
+                zerotier_status_fn=g["_zerotier_status_runtime"],
+                subprocess_kwargs_fn=g["_subprocess_kwargs"],
+            ),
         ),
         "_sys_funnel_sync": g["make_sys_funnel_sync"](
             sys_funnel_status_fn=g["_sys_funnel_status_runtime"],

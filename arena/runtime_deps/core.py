@@ -84,7 +84,9 @@ from arena.admin.sync_factories import (  # noqa: E402,F401
     make_tailscale_funnel_action_sync,
     make_token_path,
     make_token_regen_sync,
+    make_zerotier_status_sync,
 )
+from arena.admin.zerotier import zerotier_status as _zerotier_status_runtime  # noqa: E402,F401
 from arena.admin.runtime import (  # noqa: E402,F401
     CLOUDFLARED_STATE as _CLOUDFLARED_STATE,
     cloudflared_funnel_action as _cloudflared_funnel_action_runtime,

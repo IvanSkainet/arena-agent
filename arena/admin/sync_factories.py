@@ -34,6 +34,17 @@ def make_tailscale_funnel_action_sync(*, tailscale_funnel_action_fn: Callable[..
     return _tailscale_funnel_action_sync
 
 
+def make_zerotier_status_sync(
+    *,
+    zerotier_status_fn: Callable[..., dict[str, Any]],
+    subprocess_kwargs_fn: Callable[[], dict[str, Any]],
+):
+    def _zerotier_status_sync() -> dict[str, Any]:
+        return zerotier_status_fn(subprocess_kwargs=subprocess_kwargs_fn)
+
+    return _zerotier_status_sync
+
+
 def make_cloudflared_funnel_action_sync(
     *,
     cloudflared_funnel_action_fn: Callable[..., dict[str, Any]],

@@ -25,6 +25,7 @@ def build_capabilities(
     desktop_env: dict[str, Any] | None,
     service_info_fn: Callable[[], dict[str, Any]],
     sys_svc_fn: Callable[[], dict[str, Any]],
+    zerotier_status_fn: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a machine-readable capability map for agents."""
     env = desktop_env or {}
@@ -126,4 +127,24 @@ def build_capabilities(
         }
     except Exception:
         pass
+
+    # ZeroTier as a backup remote-access provider.
+    if zerotier_status_fn is not None:
+        try:
+            zt = zerotier_status_fn() or {}
+            zt_info = zt.get("zerotier") or {}
+            networks = zt.get("networks") or []
+            caps.setdefault("network", {})
+            caps["network"].update({
+                "zerotier_installed": zt.get("cli_source") in ("wrapper", "direct"),
+                "zerotier_cli_source": zt.get("cli_source"),
+                "zerotier_connected": bool(zt_info.get("connected")),
+                "zerotier_node_id": zt_info.get("node_id"),
+                "zerotier_version": zt_info.get("version"),
+                "zerotier_active_networks": sum(1 for n in networks if n.get("active")),
+                "zerotier_hint": "Use /v1/zerotier/status for full state; /v1/zerotier/network/{join,leave,status} to manage",
+            })
+        except Exception as e:
+            caps.setdefault("network", {})["zerotier_error"] = str(e)[:200]
+
     return caps

@@ -13,6 +13,7 @@ def make_capabilities_sync(
     detect_desktop_env: Callable[[], dict[str, Any]],
     service_info_sync: Callable[[], dict[str, Any]],
     sys_svc_sync: Callable[[], dict[str, Any]],
+    zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
 ) -> Callable[[], dict[str, Any]]:
     def _capabilities_sync() -> dict[str, Any]:
         """Machine-readable capability map for agents."""
@@ -23,6 +24,7 @@ def make_capabilities_sync(
             desktop_env=detect_desktop_env(),
             service_info_fn=service_info_sync,
             sys_svc_fn=sys_svc_sync,
+            zerotier_status_fn=zerotier_status_sync,
         )
 
     return _capabilities_sync
