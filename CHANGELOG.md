@@ -1,5 +1,27 @@
 # Changelog
 
+## v3.81.3 - 2026-07-13
+
+Patch release: fix `zerotier-cli listnetworks` parser for networks
+without a name.
+
+### Fixed
+
+- **`_parse_listnetworks` correctly handles empty-name networks.** Right
+  after `zerotier-cli join <nwid>`, before the controller authorises
+  the node, the network row has an empty `name` column, which
+  `line.split()` collapses — shifting every subsequent column left by
+  one and making `mac` land on `status`, `status` land on `type`, etc.
+  The parser now sanity-checks the fifth token against a MAC-address
+  pattern and falls back to a shifted layout if `name` was actually
+  empty, so `status`, `type`, `portDeviceName`, and IPs all end up in
+  the right fields.
+
+### Test suite
+
+704 passed (was 702). New: 2 parser regression tests (empty-name row
+layout + `_looks_like_mac` sanity assertions).
+
 ## v3.81.2 - 2026-07-13
 
 Cross-platform ZeroTier hardening + Dashboard Tunnels card wired up

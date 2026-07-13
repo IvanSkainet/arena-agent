@@ -246,7 +246,30 @@ def _run_cli(cli: str, args: list[str], timeout: int = 10) -> subprocess.Complet
     )
 
 
+_MAC_RE = _re_compile_mac = None  # lazy
+
+
+def _looks_like_mac(token: str) -> bool:
+    """Return True if `token` is an EUI-48 MAC in the form xx:xx:xx:xx:xx:xx."""
+    global _MAC_RE
+    if _MAC_RE is None:
+        import re as _re
+        _MAC_RE = _re.compile(r"^[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}$")
+    return bool(_MAC_RE.match(token))
+
+
 def _parse_listnetworks(out: str) -> list[dict[str, Any]]:
+    """Parse the multi-column output of `zerotier-cli listnetworks`.
+
+    Real-world format is space-separated but the `name` column can be
+    empty for networks that have not yet received configuration (e.g.
+    right after `zerotier-cli join <nwid>` before the controller
+    authorises the node). A `line.split()` collapses runs of whitespace,
+    which silently drops the empty name and shifts every subsequent
+    column left by one. To detect and repair that, we look at the fifth
+    token — if it does not look like a MAC address, the `name` field was
+    empty and we back off to a five-column layout.
+    """
     networks: list[dict[str, Any]] = []
     for line in (out or "").strip().splitlines():
         line = line.strip()
@@ -258,24 +281,43 @@ def _parse_listnetworks(out: str) -> list[dict[str, Any]]:
         # Header row has literal <placeholder> tokens.
         if parts[2].startswith("<") or parts[3].startswith("<"):
             continue
-        status = parts[5]
-        # CLI format:
-        # 200 listnetworks <nwid> <name> <mac> <status> <type> <dev> <ip1,ip2,...>
+
+        # Detect the "empty name" case: expected layout is
+        # [200, listnetworks, nwid, name, mac, status, type, dev, ips]
+        # but if `name` was empty the shift makes parts[4] land on `status`
+        # ("REQUESTING_CONFIGURATION", "OK", "ACCESS_DENIED", ...) instead
+        # of a MAC address.
+        name_missing = not _looks_like_mac(parts[4])
+        if name_missing:
+            name = ""
+            mac = ""
+            status = parts[4]
+            net_type = parts[5] if len(parts) > 5 else ""
+            dev = parts[6] if len(parts) > 6 else ""
+            ips_raw = parts[7] if len(parts) > 7 else ""
+        else:
+            name = parts[3]
+            mac = parts[4]
+            status = parts[5]
+            net_type = parts[6] if len(parts) > 6 else ""
+            dev = parts[7] if len(parts) > 7 else ""
+            ips_raw = parts[8] if len(parts) > 8 else ""
+
         assigned: list[str] = []
-        if len(parts) > 8:
-            # ZeroTier CLI joins multiple IPs with commas.
-            for ip in parts[8].split(","):
+        if ips_raw:
+            for ip in ips_raw.split(","):
                 ip = ip.strip()
                 if ip and ip != "-":
                     assigned.append(ip)
+
         networks.append({
             "id": parts[2],
             "nwid": parts[2],
-            "name": parts[3],
-            "mac": parts[4],
+            "name": name,
+            "mac": mac,
             "status": status,
-            "type": parts[6] if len(parts) > 6 else "",
-            "portDeviceName": parts[7] if len(parts) > 7 else "",
+            "type": net_type,
+            "portDeviceName": dev,
             "assignedAddresses": assigned,
             "active": status.upper() == "OK",
         })

@@ -131,6 +131,42 @@ def test_parse_listnetworks_skips_null_ip():
     assert nets[0]["active"] is False
 
 
+def test_parse_listnetworks_handles_empty_name():
+    """Right after `join`, before the controller authorises the node, the
+    network has no name — `line.split()` would collapse the double space
+    and shift every column left by one. The parser must detect that (by
+    noticing the fifth token is not a MAC) and fall back to a shifted
+    layout so `mac` / `status` / `type` all end up in the right place."""
+    # Note the double space between nwid and mac — that is where the
+    # empty name would have been.
+    sample = "200 listnetworks 0000000000000000  02:fc:5c:25:6e:08 REQUESTING_CONFIGURATION PRIVATE ztaaaaaaaa -\n"
+    nets = _parse_listnetworks(sample)
+    assert len(nets) == 1
+    n = nets[0]
+    assert n["nwid"] == "0000000000000000"
+    assert n["name"] == ""
+    assert n["mac"] == ""
+    assert n["status"] == "REQUESTING_CONFIGURATION"
+    assert n["type"] == "PRIVATE"
+    assert n["portDeviceName"] == "ztaaaaaaaa"
+    assert n["assignedAddresses"] == []
+    assert n["active"] is False
+
+
+def test_looks_like_mac_recognises_valid_and_rejects_status_strings():
+    """MAC detection must not confuse `REQUESTING_CONFIGURATION` or `OK`
+    for an EUI-48. That is the whole point of the empty-name repair."""
+    from arena.admin.zerotier import _looks_like_mac
+    assert _looks_like_mac("02:fc:5c:25:6e:08") is True
+    assert _looks_like_mac("EE:aa:BB:cc:DD:11") is True
+    assert _looks_like_mac("REQUESTING_CONFIGURATION") is False
+    assert _looks_like_mac("OK") is False
+    assert _looks_like_mac("PRIVATE") is False
+    assert _looks_like_mac("") is False
+    assert _looks_like_mac("02:fc:5c:25:6e") is False   # too short
+    assert _looks_like_mac("02fc5c256e08") is False     # no separators
+
+
 def test_cli_source_classifies_sudo_wrapper():
     """The optional Linux sudo wrapper is recognised as a distinct source."""
     from arena.admin.zerotier import _cli_source
