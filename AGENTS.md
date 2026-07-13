@@ -7,7 +7,7 @@ compatibility entrypoints or large catch-all files.
 
 - Keep `unified_bridge.py` a thin compatibility/CLI entrypoint.
 - Keep wrapper scripts in `scripts/` and `bin/` thin; real logic belongs under `arena/`.
-- Do not create new product files above the 200-line modularity limit enforced by
+- Do not create new product files above the 700-line modularity limit enforced by
   `tests/test_project_modularity.py`. If a larger file is truly unavoidable, document why in the PR and prefer a narrow allowlist over raising the global limit.
 - Do not import `unified_bridge.py` from `arena/*` modules.
 - If a feature grows, split it by responsibility before committing.

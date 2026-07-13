@@ -1,494 +1,279 @@
+---
+name: subagent-driven-development
+description: Use when executing implementation plans with independent tasks in the current session
+---
+
 # Subagent-Driven Development
 
-> **Parallel Execution Skill** — Break implementation plans into subagent tasks, spawn them via the bridge API, and manage two-stage review. Continuous execution without unnecessary pauses.
+Execute plan by dispatching fresh subagent per task, with two-stage review after each: spec compliance review first, then code quality review.
 
-## Purpose
+**Why subagents:** You delegate tasks to specialized agents with isolated context. By precisely crafting their instructions and context, you ensure they stay focused and succeed at their task. They should never inherit your session's context or history — you construct exactly what they need. This also preserves your own context for coordination work.
 
-For large implementation plans, executing steps sequentially is slow. This skill governs the parallelization of work via the arena-agent bridge's subagent system. Each subagent gets a precise, self-contained task with all the context it needs. A two-stage review ensures both spec compliance and code quality.
+**Core principle:** Fresh subagent per task + two-stage review (spec then quality) = high quality, fast iteration
 
----
+**Continuous execution:** Do not pause to check in with your human partner between tasks. Execute all tasks from the plan without stopping. The only reasons to stop are: BLOCKED status you cannot resolve, ambiguity that genuinely prevents progress, or all tasks complete. "Should I continue?" prompts and progress summaries waste their time — they asked you to execute the plan, so execute it.
 
-## Iron Laws
+## When to Use
 
-1. **EACH SUBAGENT GETS FULL CONTEXT** — Never assume a subagent "knows" the project. Include all relevant code, design docs, and constraints in the task description.
-2. **TWO-STAGE REVIEW IS MANDATORY** — Every subagent's output is reviewed for (1) spec compliance, then (2) code quality. No merging without both passes.
-3. **CONTINUOUS EXECUTION** — Don't pause between tasks waiting for permission. Spawn the next task as soon as the current one is ready. Only stop for BLOCKED status.
-4. **NO ORPHANED SUBAGENTS** — Track every spawned subagent. Know its status at all times. Clean up when done.
-5. **SPEC COMPLIANCE > CODE ELEGANCE** — If a subagent's output matches the spec but the code could be "better," it passes review. Refactoring is a separate task.
+```dot
+digraph when_to_use {
+    "Have implementation plan?" [shape=diamond];
+    "Tasks mostly independent?" [shape=diamond];
+    "Stay in this session?" [shape=diamond];
+    "subagent-driven-development" [shape=box];
+    "executing-plans" [shape=box];
+    "Manual execution or brainstorm first" [shape=box];
 
----
-
-## When to Use Subagent-Driven Development
-
-### ✅ Use When:
-- Plan has 5+ steps
-- Steps can be partitioned into independent groups
-- Multiple files need changes that don't depend on each other
-- The project is in a known-good state (39/39 stress tests pass)
-
-### ❌ Don't Use When:
-- Plan has <5 steps (use `executing-plans` instead)
-- Steps are highly sequential (each depends on the previous)
-- The project is in a broken state (fix it first)
-- Ivan explicitly requests inline execution
-
----
-
-## Subagent Lifecycle
-
-```
-┌───────────────────┐
-│  Plan Decomposed   │
-│  into Tasks        │
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐
-│  Task Queue       │
-│  (priority order) │
-└─────────┬─────────┘
-          │
-          ▼
-┌───────────────────┐     ┌───────────────────┐
-│  Spawn Subagent 1 │     │  Spawn Subagent 2 │  ← parallel
-│  POST /v1/        │     │  POST /v1/        │
-│  subagents/spawn  │     │  subagents/spawn  │
-└─────────┬─────────┘     └─────────┬─────────┘
-          │                         │
-          ▼                         ▼
-┌───────────────────┐     ┌───────────────────┐
-│  Subagent works   │     │  Subagent works   │
-│  on Task 1        │     │  on Task 2        │
-└─────────┬─────────┘     └─────────┬─────────┘
-          │                         │
-          ▼                         ▼
-┌───────────────────┐     ┌───────────────────┐
-│  Status: DONE /   │     │  Status: DONE /   │
-│  DONE_WITH_       │     │  BLOCKED /        │
-│  CONCERNS /       │     │  NEEDS_CONTEXT    │
-│  BLOCKED          │     │                   │
-└─────────┬─────────┘     └─────────┬─────────┘
-          │                         │
-          ▼                         ▼
-┌───────────────────────────────────────────────┐
-│              Two-Stage Review                 │
-│  Stage 1: Spec Compliance                     │
-│  Stage 2: Code Quality                        │
-└──────────────────────┬────────────────────────┘
-                       │
-                ┌──────┼──────┐
-                │      │      │
-             Pass   Concerns  Fail
-                │      │      │
-                ▼      ▼      ▼
-             Merge  Address  Rework
-                    concerns  task
-```
-
----
-
-## Spawning Subagents
-
-### API Call
-
-```python
-POST /v1/subagents/spawn
-{
-  "task_id": "reconnect-001",
-  "name": "Implement ReconnectHandler class",
-  "description": "<full task description - see template below>",
-  "context": {
-    "design_doc": "docs/specs/2025-03-15-websocket-reconnect-design.md",
-    "plan_doc": "docs/plans/2025-03-15-websocket-reconnect.md",
-    "relevant_files": ["bridge/connection.py", "bridge/reconnect.py"],
-    "constraints": ["Must work on Windows/Linux/macOS", "UTF-8 and CP1251 handling"]
-  },
-  "model": "default"  # or specific model hint
+    "Have implementation plan?" -> "Tasks mostly independent?" [label="yes"];
+    "Have implementation plan?" -> "Manual execution or brainstorm first" [label="no"];
+    "Tasks mostly independent?" -> "Stay in this session?" [label="yes"];
+    "Tasks mostly independent?" -> "Manual execution or brainstorm first" [label="no - tightly coupled"];
+    "Stay in this session?" -> "subagent-driven-development" [label="yes"];
+    "Stay in this session?" -> "executing-plans" [label="no - parallel session"];
 }
 ```
 
-### Response
+**vs. Executing Plans (parallel session):**
+- Same session (no context switch)
+- Fresh subagent per task (no context pollution)
+- Two-stage review after each task: spec compliance first, then code quality
+- Faster iteration (no human-in-loop between tasks)
 
-```json
-{
-  "subagent_id": "sa-20250315-001",
-  "task_id": "reconnect-001",
-  "status": "running",
-  "created_at": "2025-03-15T14:30:22Z"
+## The Process
+
+```dot
+digraph process {
+    rankdir=TB;
+
+    subgraph cluster_per_task {
+        label="Per Task";
+        "Dispatch implementer subagent (./implementer-prompt.md)" [shape=box];
+        "Implementer subagent asks questions?" [shape=diamond];
+        "Answer questions, provide context" [shape=box];
+        "Implementer subagent implements, tests, commits, self-reviews" [shape=box];
+        "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [shape=box];
+        "Spec reviewer subagent confirms code matches spec?" [shape=diamond];
+        "Implementer subagent fixes spec gaps" [shape=box];
+        "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [shape=box];
+        "Code quality reviewer subagent approves?" [shape=diamond];
+        "Implementer subagent fixes quality issues" [shape=box];
+        "Mark task complete in TodoWrite" [shape=box];
+    }
+
+    "Read plan, extract all tasks with full text, note context, create TodoWrite" [shape=box];
+    "More tasks remain?" [shape=diamond];
+    "Dispatch final code reviewer subagent for entire implementation" [shape=box];
+    "Use superpowers:finishing-a-development-branch" [shape=box style=filled fillcolor=lightgreen];
+
+    "Read plan, extract all tasks with full text, note context, create TodoWrite" -> "Dispatch implementer subagent (./implementer-prompt.md)";
+    "Dispatch implementer subagent (./implementer-prompt.md)" -> "Implementer subagent asks questions?";
+    "Implementer subagent asks questions?" -> "Answer questions, provide context" [label="yes"];
+    "Answer questions, provide context" -> "Dispatch implementer subagent (./implementer-prompt.md)";
+    "Implementer subagent asks questions?" -> "Implementer subagent implements, tests, commits, self-reviews" [label="no"];
+    "Implementer subagent implements, tests, commits, self-reviews" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)";
+    "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" -> "Spec reviewer subagent confirms code matches spec?";
+    "Spec reviewer subagent confirms code matches spec?" -> "Implementer subagent fixes spec gaps" [label="no"];
+    "Implementer subagent fixes spec gaps" -> "Dispatch spec reviewer subagent (./spec-reviewer-prompt.md)" [label="re-review"];
+    "Spec reviewer subagent confirms code matches spec?" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="yes"];
+    "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" -> "Code quality reviewer subagent approves?";
+    "Code quality reviewer subagent approves?" -> "Implementer subagent fixes quality issues" [label="no"];
+    "Implementer subagent fixes quality issues" -> "Dispatch code quality reviewer subagent (./code-quality-reviewer-prompt.md)" [label="re-review"];
+    "Code quality reviewer subagent approves?" -> "Mark task complete in TodoWrite" [label="yes"];
+    "Mark task complete in TodoWrite" -> "More tasks remain?";
+    "More tasks remain?" -> "Dispatch implementer subagent (./implementer-prompt.md)" [label="yes"];
+    "More tasks remain?" -> "Dispatch final code reviewer subagent for entire implementation" [label="no"];
+    "Dispatch final code reviewer subagent for entire implementation" -> "Use superpowers:finishing-a-development-branch";
 }
 ```
 
----
+## Model Selection
 
-## Task Description Template
+Use the least powerful model that can handle each role to conserve cost and increase speed.
 
-Every task description must include these sections:
+**Mechanical implementation tasks** (isolated functions, clear specs, 1-2 files): use a fast, cheap model. Most implementation tasks are mechanical when the plan is well-specified.
 
-```markdown
-# Task: <Title>
+**Integration and judgment tasks** (multi-file coordination, pattern matching, debugging): use a standard model.
 
-## Objective
-<1-2 sentences: what this task accomplishes>
+**Architecture, design, and review tasks**: use the most capable available model.
 
-## Context
-<Why this task exists, what part of the design/plan it fulfills>
+**Task complexity signals:**
+- Touches 1-2 files with a complete spec → cheap model
+- Touches multiple files with integration concerns → standard model
+- Requires design judgment or broad codebase understanding → most capable model
 
-## Design Reference
-<Relevant sections from the approved design doc>
-- Paste the exact design requirements this task addresses
+## Handling Implementer Status
 
-## Files to Create/Modify
-- `path/to/file.py` — <what to create or change>
-- `path/to/test_file.py` — <tests to write>
+Implementer subagents report one of four statuses. Handle each appropriately:
 
-## Exact Code
-<Full, exact code from the plan step. No placeholders.>
+**DONE:** Proceed to spec compliance review.
 
-## Constraints
-- <Cross-platform requirement>
-- <Encoding requirement>
-- <API compatibility requirement>
-- <Performance requirement>
+**DONE_WITH_CONCERNS:** The implementer completed the work but flagged doubts. Read the concerns before proceeding. If the concerns are about correctness or scope, address them before review. If they're observations (e.g., "this file is getting large"), note them and proceed to review.
 
-## Verification
-1. Run: `python -m pytest tests/test_x.py::test_y -v`
-   Expected: PASSED
-2. Run: `python -c "<verification snippet>"`
-   Expected: <expected output>
+**NEEDS_CONTEXT:** The implementer needs information that wasn't provided. Provide the missing context and re-dispatch.
 
-## Definition of Done
-- [ ] All code written exactly as specified
-- [ ] All verification commands pass
-- [ ] No new lint warnings
-- [ ] Code follows project conventions
+**BLOCKED:** The implementer cannot complete the task. Assess the blocker:
+1. If it's a context problem, provide more context and re-dispatch with the same model
+2. If the task requires more reasoning, re-dispatch with a more capable model
+3. If the task is too large, break it into smaller pieces
+4. If the plan itself is wrong, escalate to the human
 
-## Status Reporting
-When complete, report one of:
-- DONE — All verification passed, no concerns
-- DONE_WITH_CONCERNS — Verification passed but <describe concerns>
-- NEEDS_CONTEXT — Cannot proceed without <describe what's needed>
-- BLOCKED — Cannot proceed because <describe blocker>
-```
+**Never** ignore an escalation or force the same model to retry without changes. If the implementer said it's stuck, something needs to change.
 
----
+## Prompt Templates
 
-## Task Decomposition Strategy
+- `./implementer-prompt.md` - Dispatch implementer subagent
+- `./spec-reviewer-prompt.md` - Dispatch spec compliance reviewer subagent
+- `./code-quality-reviewer-prompt.md` - Dispatch code quality reviewer subagent
 
-### Step 1: Identify Dependencies
-
-From the plan, build a dependency graph:
+## Example Workflow
 
 ```
-Step 1: Create ReconnectHandler class
-    ↓
-Step 2: Add backoff calculation (depends on Step 1)
-    ↓
-Step 3: Integrate with ConnectionManager (depends on Step 1)
-    ↓
-Step 4: Add tests (depends on Steps 2, 3)
-    ↓
-Step 5: Update configuration (depends on Step 4)
+You: I'm using Subagent-Driven Development to execute this plan.
+
+[Read plan file once: docs/superpowers/plans/feature-plan.md]
+[Extract all 5 tasks with full text and context]
+[Create TodoWrite with all tasks]
+
+Task 1: Hook installation script
+
+[Get Task 1 text and context (already extracted)]
+[Dispatch implementation subagent with full task text + context]
+
+Implementer: "Before I begin - should the hook be installed at user or system level?"
+
+You: "User level (~/.config/superpowers/hooks/)"
+
+Implementer: "Got it. Implementing now..."
+[Later] Implementer:
+  - Implemented install-hook command
+  - Added tests, 5/5 passing
+  - Self-review: Found I missed --force flag, added it
+  - Committed
+
+[Dispatch spec compliance reviewer]
+Spec reviewer: ✅ Spec compliant - all requirements met, nothing extra
+
+[Get git SHAs, dispatch code quality reviewer]
+Code reviewer: Strengths: Good test coverage, clean. Issues: None. Approved.
+
+[Mark Task 1 complete]
+
+Task 2: Recovery modes
+
+[Get Task 2 text and context (already extracted)]
+[Dispatch implementation subagent with full task text + context]
+
+Implementer: [No questions, proceeds]
+Implementer:
+  - Added verify/repair modes
+  - 8/8 tests passing
+  - Self-review: All good
+  - Committed
+
+[Dispatch spec compliance reviewer]
+Spec reviewer: ❌ Issues:
+  - Missing: Progress reporting (spec says "report every 100 items")
+  - Extra: Added --json flag (not requested)
+
+[Implementer fixes issues]
+Implementer: Removed --json flag, added progress reporting
+
+[Spec reviewer reviews again]
+Spec reviewer: ✅ Spec compliant now
+
+[Dispatch code quality reviewer]
+Code reviewer: Strengths: Solid. Issues (Important): Magic number (100)
+
+[Implementer fixes]
+Implementer: Extracted PROGRESS_INTERVAL constant
+
+[Code reviewer reviews again]
+Code reviewer: ✅ Approved
+
+[Mark Task 2 complete]
+
+...
+
+[After all tasks]
+[Dispatch final code-reviewer]
+Final reviewer: All requirements met, ready to merge
+
+Done!
 ```
 
-### Step 2: Group Independent Tasks
-
-Tasks with no dependencies between them can run in parallel:
-
-```
-Group A (parallel): Step 1
-Group B (parallel): Step 2, Step 3 (both depend on Step 1, but not on each other)
-Group C (sequential): Step 4 (depends on Group B)
-Group D (sequential): Step 5 (depends on Step 4)
-```
-
-### Step 3: Assign Priorities
-
-- **High priority**: Tasks on the critical path (blocking other tasks)
-- **Medium priority**: Tasks that are independent but important
-- **Low priority**: Tasks that can be done anytime (docs, cleanup)
-
-### Step 4: Sequence Execution
-
-```
-1. Spawn all Group A tasks
-2. Wait for Group A completion
-3. Review Group A outputs
-4. Spawn all Group B tasks
-5. Wait for Group B completion
-6. Review Group B outputs
-7. ... continue until all tasks done
-```
-
-**Continuous execution**: As soon as a task in Group A finishes and passes review, if Group B tasks only depend on that specific task, spawn them immediately — don't wait for all of Group A.
-
----
-
-## Two-Stage Review
-
-### Stage 1: Spec Compliance
-
-**Question**: Does the output match the specification?
-
-Check:
-- [ ] All files mentioned in the task were created/modified
-- [ ] The exact code from the spec was implemented (no deviations)
-- [ ] All verification commands pass
-- [ ] All Definition of Done items are met
-- [ ] No extra features were added (scope creep check)
-
-**If spec compliance fails** → Return to subagent for rework with specific feedback.
-
-### Stage 2: Code Quality
-
-**Question**: Is the code well-written and maintainable?
-
-Check:
-- [ ] Follows project naming conventions
-- [ ] Includes docstrings where appropriate
-- [ ] Error handling is comprehensive
-- [ ] Cross-platform considerations addressed
-- [ ] No obvious performance issues
-- [ ] No security vulnerabilities
-- [ ] Logging is appropriate (not too verbose, not silent)
-
-**If quality fails** → Note concerns. If they're minor, merge and create a cleanup task. If major, return for rework.
-
----
-
-## Handling Subagent Statuses
-
-### DONE
-The subagent completed all work and all verifications pass.
-
-**Action**:
-1. Run two-stage review
-2. If both stages pass → Merge the changes
-3. Update memory: `POST /v1/memory` with completion status
-4. Check if this unblocks any dependent tasks → spawn them
-
-### DONE_WITH_CONCERNS
-The subagent completed work and verifications pass, but has concerns.
-
-**Action**:
-1. Read the concerns carefully
-2. Run two-stage review
-3. Assess whether concerns are:
-   - **Informational** (noted for awareness) → Merge, note concerns in memory
-   - **Minor issues** (small quality nits) → Merge, create cleanup task
-   - **Significant risks** → Do not merge, address concerns first
-4. Never ignore concerns without explicit assessment
-
-### NEEDS_CONTEXT
-The subagent cannot proceed because it lacks information.
-
-**Action**:
-1. Identify what context is needed
-2. Provide the context via `POST /v1/subagents/{id}/context`
-3. Resume the subagent
-4. If you cannot provide the context → Ask Ivan
-
-### BLOCKED
-The subagent cannot proceed due to an external blocker.
-
-**Action**:
-1. Identify the blocker
-2. Is it a dependency on another task? → Wait for that task to complete
-3. Is it a technical issue? → Invoke `systematic-debugging`
-4. Is it a design issue? → Invoke `brainstorming` (may need design revision)
-5. If unresolvable → Ask Ivan
-
----
-
-## Model Selection Guidance
-
-Different tasks benefit from different model capabilities:
-
-| Task Type | Recommended Model | Rationale |
-|---|---|---|
-| Well-specified code implementation | `default` / `fast` | Clear spec, straightforward execution |
-| Complex algorithm design | `reasoning` | Needs deeper logical analysis |
-| Code review / quality check | `default` | Balanced speed and thoroughness |
-| Documentation writing | `fast` | Language generation is straightforward |
-| Debugging / investigation | `reasoning` | Requires careful analysis and hypothesis testing |
-| Cross-platform edge cases | `reasoning` | Needs to think through OS-specific behavior |
-
-**Note**: Model selection is a hint, not a guarantee. The bridge may route to whatever model is available. Always provide complete context regardless of model choice.
-
----
-
-## Subagent Prompt Templates
-
-### Implementer Prompt
-
-```markdown
-You are an implementer subagent for the arena-agent bridge project.
-
-YOUR TASK: {task_description}
-
-CONTEXT:
-- Design doc: {design_doc_summary}
-- Plan step: {plan_step_details}
-- Relevant existing code: {code_snippets}
-
-CONSTRAINTS:
-- Follow the exact specification. No creative deviations.
-- Use Python with pathlib.Path for all file operations.
-- Handle UTF-8 and CP1251 encoding for Russian Windows.
-- Run verification commands after implementation.
-- Report status as DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, or BLOCKED.
-
-VERIFICATION:
-{verification_commands}
-
-DEFINITION OF DONE:
-{dod_items}
-```
-
-### Reviewer Prompt
-
-```markdown
-You are a reviewer subagent for the arena-agent bridge project.
-
-YOUR TASK: Review the output of subagent {subagent_id} for task {task_id}.
-
-REVIEW STAGES:
-
-Stage 1 - Spec Compliance:
-{spec_checklist}
-
-Stage 2 - Code Quality:
-{quality_checklist}
-
-OUTPUT FORMAT:
-- Stage 1: PASS / FAIL (with specific issues)
-- Stage 2: PASS / CONCERNS / FAIL (with specific issues)
-- Overall: MERGE / REWORK / BLOCKED
-- Specific feedback for the implementer (if any)
-```
-
----
-
-## Continuous Execution Protocol
-
-The key principle: **keep the pipeline full**.
-
-```
-Timeline:
-─────────────────────────────────────────────────────────►
-
-Task 1: [spawn][work][done][review]──[merge]
-Task 2: [spawn][work][done][review]──[merge]
-Task 3:       [spawn][work][done][review]──[merge]
-Task 4:             [spawn][work][done][review]──[merge]
-                   ↑
-            As soon as Task 1's review passes,
-            if Task 3 only depends on Task 1, spawn it.
-```
-
-**Rules**:
-1. Spawn a task as soon as its dependencies are satisfied
-2. Don't wait for Ivan's permission between tasks (the plan is already approved)
-3. DO wait for Ivan if a task returns BLOCKED
-4. DO pause for Ivan if review fails (design/spec issue)
-5. After all tasks complete, run full stress test suite
-
----
-
-## Convergence and Integration
-
-After all subagent tasks are complete:
-
-### 1. Integration Check
-```python
-POST /v1/exec {"command": "python stress_test.py"}
-```
-Expected: 39/39 PASSED
-
-### 2. Cross-Task Consistency
-- Verify that tasks didn't create conflicting changes
-- Check for duplicate code or missed integration points
-- Run `GET /v1/doctor` for overall health
-
-### 3. Single Commit
-```python
-POST /v1/exec {"command": "git add -A && git commit -m \"feat: <feature description>\n\n<detail>\n\nRefs: docs/specs/YYYY-MM-DD-topic-design.md\""}
-```
-
-Or, if tasks touched separate concerns, consider one commit per logical group.
-
----
-
-## Error Handling
-
-### Subagent Produces Wrong Code
-1. Identify the specific deviation from spec
-2. Provide precise feedback: what's wrong, what it should be
-3. Re-spawn or continue with a correction task
-
-### Subagent Times Out
-1. Check subagent status via API
-2. If truly stuck, kill and re-spawn with clearer instructions
-3. If the task itself is too large, split it and re-assign
-
-### Merge Conflicts
-1. Multiple subagents modifying the same file → shouldn't happen (decomposition should prevent this)
-2. If it does happen: manual resolution, then re-run stress tests
-3. Adjust task decomposition to prevent recurrence
-
----
-
-## Anti-Patterns
-
-### ❌ "The Subagent Should Know the Project"
-```
-No. Subagents start with zero context. You must provide ALL relevant
-information in the task description. If you assume knowledge, the
-subagent will make incorrect assumptions.
-```
-
-### ❌ "I'll Skip the Review — It Looks Fine"
-```
-Two-stage review is mandatory. "Looks fine" is not a review. Run through
-the checklist. Catch issues before they're merged.
-```
-
-### ❌ "Let Me Wait for All Tasks to Finish Before Reviewing"
-```
-No. Review each task as it completes. This catches issues early and
-allows dependent tasks to start sooner. Continuous execution.
-```
-
-### ❌ "One Giant Task for the Whole Plan"
-```
-No. Decompose into the smallest possible independent units. Smaller
-tasks are faster, easier to review, and less likely to go wrong.
-```
-
----
-
-## Integration with Other Skills
-
-| Before This Skill | Required Output |
-|---|---|
-| `brainstorming` | Approved design document |
-| `writing-plans` | Approved implementation plan |
-
-| After This Skill | Trigger |
-|---|---|
-| `executing-plans` | Ivan prefers sequential execution |
-| `systematic-debugging` | Subagent returns BLOCKED due to technical issue |
-| `test-driven-development` | Integration tests needed after merge |
-
----
-
-## Summary
-
-| Principle | Rule |
-|---|---|
-| **Full context** | Every subagent gets complete, self-contained task descriptions |
-| **Two-stage review** | Spec compliance first, then code quality |
-| **Continuous execution** | Keep the pipeline full; don't pause unnecessarily |
-| **Status handling** | DONE → review; CONCERNS → assess; BLOCKED → escalate; NEEDS_CONTEXT → provide |
-| **Dependency management** | Spawn tasks as soon as dependencies are satisfied |
-| **Convergence** | Full stress test after all tasks merge |
-| **No orphans** | Track every subagent; know every status |
+## Advantages
+
+**vs. Manual execution:**
+- Subagents follow TDD naturally
+- Fresh context per task (no confusion)
+- Parallel-safe (subagents don't interfere)
+- Subagent can ask questions (before AND during work)
+
+**vs. Executing Plans:**
+- Same session (no handoff)
+- Continuous progress (no waiting)
+- Review checkpoints automatic
+
+**Efficiency gains:**
+- No file reading overhead (controller provides full text)
+- Controller curates exactly what context is needed
+- Subagent gets complete information upfront
+- Questions surfaced before work begins (not after)
+
+**Quality gates:**
+- Self-review catches issues before handoff
+- Two-stage review: spec compliance, then code quality
+- Review loops ensure fixes actually work
+- Spec compliance prevents over/under-building
+- Code quality ensures implementation is well-built
+
+**Cost:**
+- More subagent invocations (implementer + 2 reviewers per task)
+- Controller does more prep work (extracting all tasks upfront)
+- Review loops add iterations
+- But catches issues early (cheaper than debugging later)
+
+## Red Flags
+
+**Never:**
+- Start implementation on main/master branch without explicit user consent
+- Skip reviews (spec compliance OR code quality)
+- Proceed with unfixed issues
+- Dispatch multiple implementation subagents in parallel (conflicts)
+- Make subagent read plan file (provide full text instead)
+- Skip scene-setting context (subagent needs to understand where task fits)
+- Ignore subagent questions (answer before letting them proceed)
+- Accept "close enough" on spec compliance (spec reviewer found issues = not done)
+- Skip review loops (reviewer found issues = implementer fixes = review again)
+- Let implementer self-review replace actual review (both are needed)
+- **Start code quality review before spec compliance is ✅** (wrong order)
+- Move to next task while either review has open issues
+
+**If subagent asks questions:**
+- Answer clearly and completely
+- Provide additional context if needed
+- Don't rush them into implementation
+
+**If reviewer finds issues:**
+- Implementer (same subagent) fixes them
+- Reviewer reviews again
+- Repeat until approved
+- Don't skip the re-review
+
+**If subagent fails task:**
+- Dispatch fix subagent with specific instructions
+- Don't try to fix manually (context pollution)
+
+## Integration
+
+**Required workflow skills:**
+- **superpowers:using-git-worktrees** - Ensures isolated workspace (creates one or verifies existing)
+- **superpowers:writing-plans** - Creates the plan this skill executes
+- **superpowers:requesting-code-review** - Code review template for reviewer subagents
+- **superpowers:finishing-a-development-branch** - Complete development after all tasks
+
+**Subagents should use:**
+- **superpowers:test-driven-development** - Subagents follow TDD for each task
+
+**Alternative workflow:**
+- **superpowers:executing-plans** - Use for parallel session instead of same-session execution

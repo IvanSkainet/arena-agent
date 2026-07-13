@@ -1,31 +1,32 @@
 #!/usr/bin/env bash
-# sync_superpowers_from_upstream.sh — refresh vendored copies from obra/superpowers.
+# sync_superpowers_from_upstream.sh — refresh skills/superpowers/ from upstream.
+#
+# We ship a single vendored copy of obra/superpowers at skills/superpowers/
+# (see docs/SUPERPOWERS.md). This script keeps it in sync with the upstream
+# main branch. Preserves any repo-local metadata files we do not want to
+# clobber (.gitattributes/.gitignore intentionally left alone).
 #
 # Modes:
-#   --check           Show diff summary only (default)
-#   --apply           Actually rsync into the target
-#   --into PATH       Target dir (default: tools/superpowers)
-#   --skills-only     Only sync the skills/ subdirectory (safer for Arena fork)
-#
-# The script clones upstream into a temp dir, then rsyncs. Local
-# .gitattributes and .gitignore are preserved. When targeting the Arena
-# fork (skills/superpowers/skills/) --skills-only is enforced.
+#   --check   Show a diff summary but do not touch anything (default)
+#   --apply   Actually rsync upstream into skills/superpowers/
+#   --branch NAME  Track a different upstream branch (default: main)
+#   --url URL      Override the upstream repository URL
+#   -h|--help
 set -euo pipefail
 
 UPSTREAM_URL="https://github.com/obra/superpowers.git"
 UPSTREAM_BRANCH="main"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TARGET="tools/superpowers"
+TARGET="skills/superpowers"
 MODE="check"
-SKILLS_ONLY=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --check)        MODE="check"; shift ;;
-    --apply)        MODE="apply"; shift ;;
-    --into)         TARGET="$2"; shift 2 ;;
-    --skills-only)  SKILLS_ONLY=1; shift ;;
+    --check)  MODE="check"; shift ;;
+    --apply)  MODE="apply"; shift ;;
+    --branch) UPSTREAM_BRANCH="$2"; shift 2 ;;
+    --url)    UPSTREAM_URL="$2"; shift 2 ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -33,24 +34,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Safety: never overwrite the whole Arena fork wholesale.
-case "$TARGET" in
-  skills/superpowers*|*/skills/superpowers*)
-    if [[ $SKILLS_ONLY -eq 0 ]]; then
-      echo "!! Refusing to sync entire Arena fork ($TARGET) without --skills-only." >&2
-      echo "   Arena fork carries hand-tuned SKILL.md text; run:" >&2
-      echo "     $0 --into $TARGET --skills-only [--apply]" >&2
-      exit 3
-    fi
-    ;;
-esac
-
-if ! command -v rsync >/dev/null 2>&1; then
-  echo "rsync required" >&2; exit 2
-fi
-if ! command -v git >/dev/null 2>&1; then
-  echo "git required" >&2; exit 2
-fi
+command -v git   >/dev/null 2>&1 || { echo "git required" >&2; exit 2; }
+command -v rsync >/dev/null 2>&1 || { echo "rsync required" >&2; exit 2; }
 
 FULL_TARGET="$REPO_ROOT/$TARGET"
 if [[ ! -d "$FULL_TARGET" ]]; then
@@ -61,26 +46,17 @@ fi
 SCRATCH="$(mktemp -d -t superpowers-sync-XXXXXX)"
 trap 'rm -rf "$SCRATCH"' EXIT
 
-echo ">> Cloning $UPSTREAM_URL ($UPSTREAM_BRANCH) into scratch..."
+echo ">> Cloning $UPSTREAM_URL ($UPSTREAM_BRANCH) ..."
 git clone --depth 1 --branch "$UPSTREAM_BRANCH" "$UPSTREAM_URL" "$SCRATCH/upstream" >/dev/null 2>&1
 
 UPSTREAM_REV="$(git -C "$SCRATCH/upstream" rev-parse --short HEAD)"
 echo ">> Upstream at $UPSTREAM_REV"
 
-SRC="$SCRATCH/upstream"
-if [[ $SKILLS_ONLY -eq 1 ]]; then
-  SRC="$SCRATCH/upstream/skills"
-  if [[ ! -d "$SRC" ]]; then
-    echo "upstream has no skills/ dir?" >&2; exit 2
-  fi
-fi
-
-# Compute diff summary
 echo
-echo ">> Diff summary ($MODE mode) into $TARGET"
-DIFF_OUT="$(diff -qr "$SRC" "$FULL_TARGET" 2>/dev/null || true)"
+echo ">> Diff summary ($MODE mode) for $TARGET"
+DIFF_OUT="$(diff -qr "$SCRATCH/upstream" "$FULL_TARGET" 2>/dev/null || true)"
 if [[ -z "$DIFF_OUT" ]]; then
-  echo "   No differences. Vendored copy is up to date."
+  echo "   No differences. $TARGET is at upstream $UPSTREAM_REV."
   exit 0
 fi
 echo "$DIFF_OUT" | sed 's/^/   /'
@@ -91,18 +67,14 @@ if [[ "$MODE" != "apply" ]]; then
   exit 0
 fi
 
-# Preserve local repo-management files
+# We preserve repo-management files so downstream policies stay intact.
 EXCLUDES=(
   --exclude='.git'
-  --exclude='.gitattributes'
-  --exclude='.gitignore'
   --exclude='node_modules'
-  --exclude='CHANGELOG.md'
-  --exclude='RELEASE-NOTES.md'
 )
 
 echo
 echo ">> rsync --delete-after ..."
-rsync -a --delete-after "${EXCLUDES[@]}" "$SRC"/ "$FULL_TARGET"/
+rsync -a --delete-after "${EXCLUDES[@]}" "$SCRATCH/upstream"/ "$FULL_TARGET"/
 echo ">> Done. Review with: git -C $REPO_ROOT diff -- $TARGET"
 echo ">> Upstream rev: $UPSTREAM_REV"

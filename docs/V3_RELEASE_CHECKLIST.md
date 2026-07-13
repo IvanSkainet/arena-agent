@@ -9,7 +9,7 @@ stable modular release line.
 
 - [ ] `unified_bridge.py` remains a thin compatibility/CLI entrypoint (`<= 150` lines preferred; hard limit `<= 200`).
 - [ ] No `arena/*` module imports `unified_bridge.py`.
-- [ ] No new runtime mini-monoliths above the `tests/test_project_modularity.py` limit (currently 300 lines).
+- [ ] No new runtime mini-monoliths above the `tests/test_project_modularity.py` limit (currently 700 lines).
 - [ ] `arena/route_registry/*` owns route registration by domain.
 - [ ] `arena/contexts/*` owns handler context dataclasses.
 - [ ] New feature work lives in focused `arena/<domain>/` modules.

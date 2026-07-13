@@ -4,55 +4,99 @@ function arenaHost() {
   return (location.hostname || '').toLowerCase();
 }
 
+// ---------------------------------------------------------------------------
+// Adapter selection (memoised: hostname does not change within a page).
+// ---------------------------------------------------------------------------
 let _cachedAdapter = null;
+
 function getArenaAdapter() {
   if (_cachedAdapter) return _cachedAdapter;
-  _cachedAdapter = ARENA_ADAPTERS.find((a) => a.hosts.includes(arenaHost())) || ARENA_ADAPTERS[ARENA_ADAPTERS.length - 1];
+  _cachedAdapter = ARENA_ADAPTERS.find((a) => a.hosts.includes(arenaHost()))
+    || ARENA_ADAPTERS[ARENA_ADAPTERS.length - 1];
   return _cachedAdapter;
 }
 
+// ---------------------------------------------------------------------------
+// Text extraction
+// ---------------------------------------------------------------------------
 function arenaNodeText(node) {
   return String(node?.innerText || node?.textContent || '').trim();
 }
 
 function arenaHasComposerChild(node, adapter) {
-  return (adapter.composerSelectors || []).some((s) => { try { return !!node.querySelector?.(s); } catch (_e) { return false; } });
+  return (adapter.composerSelectors || []).some((s) => {
+    try {
+      return !!node.querySelector?.(s);
+    } catch (_e) {
+      return false;
+    }
+  });
 }
+
 function arenaDetectionText(node, adapter = getArenaAdapter()) {
   if (!node) return '';
   if (arenaIsComposerNode(node, adapter)) return '';
   if (!arenaHasComposerChild(node, adapter)) return arenaNodeText(node);
+
+  // Composer widgets can nest inside a message node (e.g. quoted replies).
+  // Clone the node and strip composers before extracting text.
   const clone = node.cloneNode(true);
   (adapter.composerSelectors || []).forEach((selector) => {
-    try { clone.querySelectorAll(selector).forEach((child) => child.remove()); } catch (_e) {}
+    try {
+      clone.querySelectorAll(selector).forEach((child) => child.remove());
+    } catch (_e) { /* invalid selector — ignore */ }
   });
   return arenaNodeText(clone);
 }
 
+// ---------------------------------------------------------------------------
+// Arena tool-block detection
+// ---------------------------------------------------------------------------
 const ARENA_TOOL_RE = /```(?:arena-tool|jsonl?)[\s\S]*?(?:function_call_start|arena_tool)[\s\S]*?```/m;
+
 function arenaHasToolBlock(node, adapter = getArenaAdapter()) {
   const text = arenaDetectionText(node, adapter);
-  return ARENA_TOOL_RE.test(text) || (text.includes('function_call_start') && text.includes('function_call_end'));
+  if (ARENA_TOOL_RE.test(text)) return true;
+  return text.includes('function_call_start') && text.includes('function_call_end');
 }
 
 function arenaHasArenaToolBlock(node) {
   return arenaHasToolBlock(node);
 }
 
+// ---------------------------------------------------------------------------
+// Node path (for fingerprinting)
+// ---------------------------------------------------------------------------
 function arenaNodePath(node) {
-  const parts = []; let cur = node;
-  for (let d = 0; cur && d < 6; d++) { const p = cur.parentElement; const s = p ? Array.from(p.children).filter((c) => c.tagName === cur.tagName) : []; parts.unshift(`${cur.tagName || 'NODE'}:${s.indexOf(cur)}`); cur = p; }
+  const parts = [];
+  let cur = node;
+  for (let depth = 0; cur && depth < 6; depth++) {
+    const parent = cur.parentElement;
+    const siblings = parent
+      ? Array.from(parent.children).filter((c) => c.tagName === cur.tagName)
+      : [];
+    parts.unshift(`${cur.tagName || 'NODE'}:${siblings.indexOf(cur)}`);
+    cur = parent;
+  }
   return parts.join('/');
 }
 
 function arenaMatchesAny(node, selectors) {
-  return (selectors || []).some((s) => { try { return node?.matches?.(s) || !!node?.closest?.(s); } catch (_e) { return false; } });
+  return (selectors || []).some((s) => {
+    try {
+      return node?.matches?.(s) || !!node?.closest?.(s);
+    } catch (_e) {
+      return false;
+    }
+  });
 }
 
 function arenaIsComposerNode(node, adapter = getArenaAdapter()) {
   if (!node) return false;
   if (arenaMatchesAny(node, adapter.composerSelectors)) return true;
-  if (node.isContentEditable && !node.closest?.('pre, code, message-content, model-response, article')) return true;
+  if (node.isContentEditable && !node.closest?.('pre, code, message-content, model-response, article')) {
+    return true;
+  }
   return false;
 }
 
@@ -68,34 +112,83 @@ function arenaPruneAncestorCandidates(nodes) {
 
 function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
   if (!node) return '';
-  return [adapter.name, node.getAttribute?.('data-testid') || '', node.getAttribute?.('data-message-author-role') || '', node.id || '', arenaNodePath(node), arenaNodeText(node).slice(0, 80)].join('|');
+  return [
+    adapter.name,
+    node.getAttribute?.('data-testid') || '',
+    node.getAttribute?.('data-message-author-role') || '',
+    node.id || '',
+    arenaNodePath(node),
+    arenaNodeText(node).slice(0, 80),
+  ].join('|');
 }
 
+// Recognise assistant-authored messages so we do not attach toolbars to the
+// user's own composer bubble or historical user turns.
 function arenaIsAssistantNode(node, adapter = getArenaAdapter()) {
   if (!node) return false;
-  if (adapter.name === 'chatgpt') return node.getAttribute('data-message-author-role') === 'assistant' || !!node.closest('[data-message-author-role="assistant"]');
-  if (adapter.name === 'claude') return !node.isContentEditable && !node.querySelector?.('[contenteditable="true"]') && !node.closest?.('[data-testid="user-message"], [data-testid="user-message-content"]') && !arenaNodeText(node).startsWith('You said:');
+  if (adapter.name === 'chatgpt') {
+    return node.getAttribute('data-message-author-role') === 'assistant'
+      || !!node.closest('[data-message-author-role="assistant"]');
+  }
+  if (adapter.name === 'claude') {
+    if (node.isContentEditable) return false;
+    if (node.querySelector?.('[contenteditable="true"]')) return false;
+    if (node.closest?.('[data-testid="user-message"], [data-testid="user-message-content"]')) return false;
+    if (arenaNodeText(node).startsWith('You said:')) return false;
+    return true;
+  }
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Fingerprints
+// ---------------------------------------------------------------------------
 function arenaStableHash(text, prefix = 'arena') {
   let h = 0;
-  for (let i = 0; i < String(text || '').length; i++) h = ((h << 5) - h + String(text).charCodeAt(i)) | 0;
+  const s = String(text || '');
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
   return `${prefix}_${Math.abs(h)}`;
 }
+
 function arenaPayloadFingerprint(payload, adapter = getArenaAdapter()) {
-  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls: Array.isArray(payload?.calls) ? payload.calls.map((call) => ({id: call.id || '', tool: call.tool || '', arguments: call.arguments || {}})) : []}), 'arena_payload');
-}
-function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter()) {
-  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls: Array.isArray(payload?.calls) ? payload.calls.map((call) => ({tool: call.tool || '', arguments: call.arguments || {}})) : []}), 'arena_payload_sem');
-}
-function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
-  return arenaStableHash([adapter.name, arenaExtractNodeId(node, adapter), JSON.stringify(payload || {})].join('|'), 'arena_msg');
+  const calls = Array.isArray(payload?.calls)
+    ? payload.calls.map((call) => ({
+        id: call.id || '',
+        tool: call.tool || '',
+        arguments: call.arguments || {},
+      }))
+    : [];
+  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls}), 'arena_payload');
 }
 
+function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter()) {
+  // Semantic fingerprint deliberately drops per-instance call.id so that the
+  // same tool call re-detected across DOM churn does not remount toolbars.
+  const calls = Array.isArray(payload?.calls)
+    ? payload.calls.map((call) => ({tool: call.tool || '', arguments: call.arguments || {}}))
+    : [];
+  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls}), 'arena_payload_sem');
+}
+
+function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
+  return arenaStableHash(
+    [adapter.name, arenaExtractNodeId(node, adapter), JSON.stringify(payload || {})].join('|'),
+    'arena_msg',
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Candidate-node cache — the scan hot path. Invalidated by MutationObserver.
+// ---------------------------------------------------------------------------
 let _cachedCandidateState = null;
 let _candidateCacheDirty = true;
-function arenaInvalidateCandidateCache() { _candidateCacheDirty = true; }
+
+function arenaInvalidateCandidateCache() {
+  _candidateCacheDirty = true;
+}
+
 function arenaCandidateNodes() {
   if (!_candidateCacheDirty && _cachedCandidateState) return _cachedCandidateState;
   const adapter = getArenaAdapter();
@@ -112,11 +205,17 @@ function arenaCandidateNodes() {
       nodes.push(node);
     });
   });
-  _cachedCandidateState = {adapter, nodes: arenaPruneAncestorCandidates(nodes).slice(-5)};
+  _cachedCandidateState = {
+    adapter,
+    nodes: arenaPruneAncestorCandidates(nodes).slice(-5),
+  };
   _candidateCacheDirty = false;
   return _cachedCandidateState;
 }
 
+// ---------------------------------------------------------------------------
+// Diagnostics (used by the side panel "Scan page" button)
+// ---------------------------------------------------------------------------
 function arenaSelectorDiagnostics() {
   const adapter = getArenaAdapter();
   return (adapter.messageSelectors || []).map((selector) => {
@@ -130,7 +229,7 @@ function arenaSelectorDiagnostics() {
         assistant++;
         if (arenaHasToolBlock(node, adapter)) withBlock++;
       });
-    } catch (_e) {}
+    } catch (_e) { /* invalid selector */ }
     return {selector, raw, assistant, with_block: withBlock};
   });
 }
@@ -140,6 +239,9 @@ function arenaLatestCandidateNodes() {
   return {adapter: state.adapter, nodes: state.nodes.slice(-2)};
 }
 
+// ---------------------------------------------------------------------------
+// Composer discovery
+// ---------------------------------------------------------------------------
 function arenaElementVisible(node) {
   if (!node?.isConnected) return false;
   const style = window.getComputedStyle?.(node);
@@ -155,7 +257,7 @@ function arenaResolveComposerNode(node, adapter = getArenaAdapter()) {
     try {
       const match = node.closest?.(selector);
       if (match) return match;
-    } catch (_e) {}
+    } catch (_e) { /* invalid selector */ }
   }
   if (node.isContentEditable && !node.closest?.('pre, code')) return node;
   return null;
@@ -173,7 +275,9 @@ function arenaComposerCandidates(adapter = getArenaAdapter()) {
   push(document.activeElement, 'activeElement');
   push(window.__arenaLastComposerTarget, 'cachedComposer');
   for (const selector of adapter.composerSelectors || []) {
-    try { document.querySelectorAll(selector).forEach((node) => push(node, selector)); } catch (_e) {}
+    try {
+      document.querySelectorAll(selector).forEach((node) => push(node, selector));
+    } catch (_e) { /* invalid selector */ }
   }
   return candidates;
 }
@@ -189,21 +293,34 @@ function arenaScoreComposerCandidate(node, active = document.activeElement) {
 
 let _cachedComposerResult = null;
 let _cachedComposerAt = 0;
-function arenaInvalidateComposerCache() { _cachedComposerResult = null; }
+
+function arenaInvalidateComposerCache() {
+  _cachedComposerResult = null;
+}
+
 function arenaComposerSelection(adapter = getArenaAdapter()) {
   const now = Date.now();
-  if (_cachedComposerResult && _cachedComposerResult.target?.isConnected && (now - _cachedComposerAt) < 2000) return _cachedComposerResult;
+  if (_cachedComposerResult
+      && _cachedComposerResult.target?.isConnected
+      && (now - _cachedComposerAt) < 2000) {
+    return _cachedComposerResult;
+  }
+
   const cached = window.__arenaLastComposerTarget;
   const ranked = arenaComposerCandidates(adapter)
     .map((item) => ({...item, score: arenaScoreComposerCandidate(item.node)}))
     .sort((a, b) => b.score - a.score);
   const selected = ranked[0] || null;
   if (selected?.node) window.__arenaLastComposerTarget = selected.node;
+
   const result = {
     target: selected?.node || null,
     candidates: ranked.length,
     selected_selector: selected?.selector || '',
-    active_match: !!selected?.node && (selected.node === document.activeElement || selected.node.contains?.(document.activeElement)),
+    active_match: !!selected?.node && (
+      selected.node === document.activeElement
+      || selected.node.contains?.(document.activeElement)
+    ),
     cached_match: !!selected?.node && selected.node === cached,
   };
   _cachedComposerResult = result;
@@ -215,9 +332,13 @@ function arenaFindComposer(adapter = getArenaAdapter()) {
   return arenaComposerSelection(adapter).target;
 }
 
+// ---------------------------------------------------------------------------
+// Submit-button discovery
+// ---------------------------------------------------------------------------
 function arenaButtonFromNode(node) {
   if (!node) return null;
-  return node.tagName === 'BUTTON' ? node : (node.closest?.('button') || null);
+  if (node.tagName === 'BUTTON') return node;
+  return node.closest?.('button') || null;
 }
 
 function arenaSubmitCandidates(adapter = getArenaAdapter()) {
@@ -231,23 +352,28 @@ function arenaSubmitCandidates(adapter = getArenaAdapter()) {
         seen.add(button);
         candidates.push({button, selector});
       });
-    } catch (_e) {}
+    } catch (_e) { /* invalid selector */ }
   }
   return candidates;
 }
 
 function arenaDistanceBetweenRects(a, b) {
-  const ax = a.left + (a.width / 2), ay = a.top + (a.height / 2);
-  const bx = b.left + (b.width / 2), by = b.top + (b.height / 2);
+  const ax = a.left + (a.width / 2);
+  const ay = a.top + (a.height / 2);
+  const bx = b.left + (b.width / 2);
+  const by = b.top + (b.height / 2);
   return Math.hypot(ax - bx, ay - by);
 }
 
 function arenaSubmitButtonSelection(adapter = getArenaAdapter(), composer = arenaFindComposer(adapter)) {
   const formRoot = composer?.closest?.('form');
   const fieldsetRoot = composer?.closest?.('fieldset');
-  const scopeRoot = formRoot || fieldsetRoot || composer?.closest?.('[role="form"], main, section, article, [role="dialog"]');
+  const scopeRoot = formRoot
+    || fieldsetRoot
+    || composer?.closest?.('[role="form"], main, section, article, [role="dialog"]');
   const composerRect = composer?.getBoundingClientRect?.();
   const scopeButtons = Array.from((scopeRoot || document).querySelectorAll?.('button') || []);
+
   const ranked = arenaSubmitCandidates(adapter)
     .map((item) => {
       let score = 0;
@@ -264,6 +390,7 @@ function arenaSubmitButtonSelection(adapter = getArenaAdapter(), composer = aren
     })
     .sort((a, b) => b.score - a.score);
   const selected = ranked[0] || null;
+
   return {
     button: selected?.button || null,
     candidates: ranked.length,
@@ -283,5 +410,9 @@ function arenaFocusComposer(target) {
   window.__arenaLastComposerTarget = target;
   const active = document.activeElement;
   if (active === target || target.contains?.(active)) return;
-  try { target.focus({preventScroll: true}); } catch (_e) { target.focus(); }
+  try {
+    target.focus({preventScroll: true});
+  } catch (_e) {
+    target.focus();
+  }
 }

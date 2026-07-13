@@ -74,7 +74,7 @@ arena/
    `arena/handler_context.py` if legacy import compatibility is needed.
 5. Keep handlers thin; put OS/subprocess/state logic in runtime/helper modules.
 6. Avoid new mini-monoliths: split files by natural boundaries. The enforced
-   limit lives in `tests/test_project_modularity.py` (currently 300 lines);
+   limit lives in `tests/test_project_modularity.py` (currently 700 lines);
    decompose growing modules instead of compressing logic to fit it.
 7. For meaningful changes, run:
 

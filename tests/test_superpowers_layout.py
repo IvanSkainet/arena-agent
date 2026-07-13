@@ -1,65 +1,78 @@
-"""Guardrails for the two vendored superpowers copies.
+"""Guardrails for the unified superpowers vendored copy.
 
-See docs/SUPERPOWERS.md for the intent behind having both directories.
-These tests protect that layout so refactors do not silently delete one
-of them or drift them into pure duplicates.
+See docs/SUPERPOWERS.md for the intent: one directory (skills/superpowers/)
+serves both the Arena Bridge and standalone IDE plugin consumers, tracking
+upstream obra/superpowers verbatim.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
-ARENA_DIR = REPO / "skills" / "superpowers" / "skills"
-UPSTREAM_DIR = REPO / "tools" / "superpowers"
+SUPERPOWERS = REPO / "skills" / "superpowers"
+SKILLS = SUPERPOWERS / "skills"
 
 
-def test_both_superpowers_dirs_exist():
-    assert ARENA_DIR.is_dir(), (
-        f"skills/superpowers/skills/ missing — required by install.sh, "
-        f"stress-test-v3.sh, and /v1/skills."
-    )
-    assert UPSTREAM_DIR.is_dir(), (
-        "tools/superpowers/ missing — required by the standalone plugin "
-        "(Claude Code / Codex / Cursor / Gemini)."
+def test_superpowers_directory_exists():
+    assert SUPERPOWERS.is_dir(), (
+        f"skills/superpowers/ missing — required by install.sh, "
+        f"stress-test-v3.sh, /v1/skills, and every IDE plugin manifest."
     )
 
 
-def test_arena_fork_has_arena_only_skills():
-    """The Arena fork must retain the Arena-specific skills."""
-    required = {"using-arena-superpowers", "using-feature-branches"}
-    have = {p.name for p in ARENA_DIR.iterdir() if p.is_dir()}
-    missing = required - have
-    assert not missing, f"Arena fork lost Arena-only skills: {missing}"
-
-
-def test_upstream_copy_has_plugin_manifests():
-    """tools/superpowers/ must ship plugin manifests for IDEs."""
-    required_files = [
-        UPSTREAM_DIR / ".claude-plugin" / "plugin.json",
-        UPSTREAM_DIR / "gemini-extension.json",
-        UPSTREAM_DIR / "package.json",
-        UPSTREAM_DIR / "LICENSE",
-    ]
-    for f in required_files:
-        assert f.is_file(), f"tools/superpowers/ missing plugin manifest: {f.relative_to(REPO)}"
-
-
-def test_upstream_and_arena_share_core_skills():
-    """Sanity: both dirs implement the shared core skill set."""
-    shared = {
+def test_upstream_skills_present():
+    """All upstream skills must be under skills/superpowers/skills/."""
+    required = {
         "brainstorming",
+        "dispatching-parallel-agents",
         "executing-plans",
+        "finishing-a-development-branch",
+        "receiving-code-review",
+        "requesting-code-review",
+        "subagent-driven-development",
+        "systematic-debugging",
         "test-driven-development",
+        "using-git-worktrees",
+        "using-superpowers",
         "verification-before-completion",
         "writing-plans",
         "writing-skills",
     }
-    arena_skills = {p.name for p in ARENA_DIR.iterdir() if p.is_dir()}
-    upstream_skills = {p.name for p in (UPSTREAM_DIR / "skills").iterdir() if p.is_dir()}
-    missing_arena = shared - arena_skills
-    missing_upstream = shared - upstream_skills
-    assert not missing_arena, f"Arena fork missing core skills: {missing_arena}"
-    assert not missing_upstream, f"Upstream copy missing core skills: {missing_upstream}"
+    have = {p.name for p in SKILLS.iterdir() if p.is_dir()}
+    missing = required - have
+    assert not missing, f"Upstream skills missing: {missing}"
+
+
+def test_ide_plugin_manifests_present():
+    """IDE plugin manifests must live inside skills/superpowers/."""
+    required_files = [
+        SUPERPOWERS / ".claude-plugin" / "plugin.json",
+        SUPERPOWERS / ".codex-plugin" / "plugin.json",
+        SUPERPOWERS / ".cursor-plugin" / "plugin.json",
+        SUPERPOWERS / "gemini-extension.json",
+        SUPERPOWERS / "package.json",
+        SUPERPOWERS / "LICENSE",
+    ]
+    missing = [f.relative_to(REPO) for f in required_files if not f.is_file()]
+    assert not missing, f"Plugin manifests missing: {missing}"
+
+
+def test_no_arena_fork_directory_leaks_back():
+    """Guard against re-introducing the old Arena fork layout."""
+    arena_only_skills = ["using-arena-superpowers", "using-feature-branches"]
+    for name in arena_only_skills:
+        assert not (SKILLS / name).exists(), (
+            f"Arena-only fork skill re-appeared: {name}. See docs/SUPERPOWERS.md — "
+            f"we no longer maintain an Arena fork inside skills/superpowers/."
+        )
+
+
+def test_no_duplicate_tools_superpowers():
+    """tools/superpowers/ must not come back — it was consolidated into skills/."""
+    assert not (REPO / "tools" / "superpowers").exists(), (
+        "tools/superpowers/ re-appeared. That directory was removed to eliminate "
+        "the split with skills/superpowers/. Do not re-vendor upstream twice."
+    )
 
 
 def test_sync_script_exists_and_executable():
@@ -69,10 +82,11 @@ def test_sync_script_exists_and_executable():
     assert os.access(script, os.X_OK), "sync script must be executable (chmod +x)"
 
 
-def test_superpowers_doc_exists():
+def test_superpowers_doc_exists_and_reflects_unified_layout():
     doc = REPO / "docs" / "SUPERPOWERS.md"
-    assert doc.is_file(), "docs/SUPERPOWERS.md missing — layout must be documented"
+    assert doc.is_file(), "docs/SUPERPOWERS.md missing"
     content = doc.read_text()
-    assert "skills/superpowers/skills/" in content
-    assert "tools/superpowers/" in content
-    assert "Update flow" in content or "update flow" in content.lower()
+    assert "skills/superpowers/" in content
+    # Doc must explicitly state the one-directory model.
+    assert "one" in content.lower() or "single" in content.lower()
+    assert "upstream" in content.lower()
