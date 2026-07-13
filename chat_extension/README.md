@@ -1,6 +1,6 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.13.11`.
+Current extension version: `0.13.12`.
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the

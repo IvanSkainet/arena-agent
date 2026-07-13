@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.11';
+  return '0.13.12';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -154,6 +154,7 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
   const composerText = arenaEditableText(target);
   const scopeRoot = target?.closest?.('form') || target?.closest?.('fieldset') || target?.closest?.('[role="form"], main, section, article, [role="dialog"]') || document;
   const submitScopeSamples = Array.from(scopeRoot.querySelectorAll?.('button') || []).slice(0, 5).map(arenaButtonDiagnosticSample);
+  const submitSelectedSample = submitInfo.button ? arenaButtonDiagnosticSample(submitInfo.button) : null;
   const submitExpectedAfterText = !submitInfo.button && !composerText && submitInfo.scope_buttons > 0;
   const submitPhase = submitInfo.button ? 'ready' : (submitExpectedAfterText ? 'awaiting-text' : (submitInfo.scope_buttons ? 'buttons-present-no-submit-match' : 'no-buttons'));
   const submitNote = submitInfo.button ? '' : (submitExpectedAfterText
@@ -182,6 +183,7 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     submit_scope_buttons: submitInfo.scope_buttons || 0,
     submit_scope_visible_buttons: submitInfo.visible_scope_buttons || 0,
     submit_scope_samples: submitScopeSamples,
+    submit_selected_sample: submitSelectedSample,
     submit_expected_after_text: submitExpectedAfterText,
     submit_phase: submitPhase,
     submit_note: submitNote,
