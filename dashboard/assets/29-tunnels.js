@@ -190,9 +190,10 @@ function renderZtOnboarding(p) {
   } else if (!(p.networks || []).length) {
     parts.push(
       "ZeroTier is installed and running. To use it as a backup remote provider:\n"
-      + "  1. Create a free network at https://my.zerotier.com/network (you'll get a 16-char nwid).\n"
+      + "  1. Create a free network at https://central.zerotier.com (16-char nwid).\n"
+      + "     (If you have older networks made before Dec 2025, log in via https://my.zerotier.com — legacy site.)\n"
       + "  2. Paste that nwid into the input above and click Join.\n"
-      + "  3. Authorize this node on the my.zerotier.com dashboard.\n"
+      + "  3. Authorize this node on the ZeroTier Central dashboard.\n"
       + "  4. Once authorized, this Bridge will get a ZT IP and appear as an available provider."
     );
   } else if (p.hint) {
@@ -244,7 +245,7 @@ async function ztNetworkAction(action) {
     return;
   }
   if (nwid && !/^[0-9a-fA-F]{16}$/.test(nwid)) {
-    alert("Network ID must be exactly 16 hex characters (get one at https://my.zerotier.com/network).");
+    alert("Network ID must be exactly 16 hex characters (get one at https://central.zerotier.com).");
     return;
   }
   try {

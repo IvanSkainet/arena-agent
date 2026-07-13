@@ -1,5 +1,26 @@
 # Changelog
 
+## v3.81.5 - 2026-07-13
+
+Follow-up to v3.81.4: point the ZeroTier onboarding UI at the correct
+dashboard.
+
+### Fixed
+
+- **ZeroTier onboarding link updated to `central.zerotier.com`.**
+  ZeroTier moved their web dashboard from `my.zerotier.com` to
+  `central.zerotier.com` in early December 2025. `my.zerotier.com` is
+  still reachable as the "legacy site" (older networks live there), but
+  a brand-new user landing on it either sees an unresponsive page or
+  an empty account with no networks. The Dashboard's ZeroTier
+  onboarding hint and the `alert()` inside the nwid validator now send
+  users to Central by default and mention the legacy URL only as a
+  footnote for users who created networks before the migration.
+
+### Test suite
+
+706 passed (unchanged; UI-only patch).
+
 ## v3.81.4 - 2026-07-13
 
 Polish pass: real bugs the user hit in the Dashboard once they tried to
