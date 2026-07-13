@@ -157,7 +157,11 @@ Omit a sub-section if it has no entries for this release.
 
 ## Pre-release checklist
 
-- [ ] Targeted tests pass (`python -m pytest tests/ -q`, or the extension subset).
+- [ ] Full test suite passes (`python -m pytest -q`) — currently the
+      baseline is **690 passed** on `master`.
+- [ ] Targeted extension checks pass (see README "Development").
+- [ ] Targeted remote-access checks pass:
+      `pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py tests/test_browseract.py tests/test_superpowers_layout.py`.
 - [ ] `bash -n install.sh` — syntax OK.
 - [ ] `python -m py_compile` on changed files — no syntax errors.
 - [ ] `arena/constants.py` `VERSION` matches `pyproject.toml` `version`.
@@ -169,6 +173,10 @@ Omit a sub-section if it has no entries for this release.
 
 - [ ] Running install updated (`git pull --ff-only`, restart if a service).
 - [ ] `/health` and `/v1/version` report the new version.
+- [ ] `/v1/tunnels/status` reports every configured provider with the correct
+      `installed` flag (regression guard for the v3.81.1 fix).
+- [ ] `/v1/skills` contains no bogus category entries like `superpowers/assets`
+      (regression guard for the v3.81.1 fix).
 - [ ] Both zip assets are visible on the release page.
 - [ ] The alias URL works:
       `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/latest/download/arena-agent.zip`

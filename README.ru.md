@@ -26,6 +26,7 @@
 - [Что он умеет](#что-он-умеет)
 - [Быстрый старт](#быстрый-старт)
 - [Browser extension: Arena Chat Bridge](#browser-extension-arena-chat-bridge)
+- [Провайдеры удалённого доступа](#провайдеры-удалённого-доступа)
 - [Optional components](#optional-components)
 - [Security model](#security-model)
 - [API overview](#api-overview)
@@ -81,12 +82,16 @@ REST, один под управление браузером, один под w
 | **Веб** | Fetch / read / search текста страниц для агента |
 | **Memory** | Постоянные факты плюс fuzzy recall |
 | **Задачи** | Очередь фоновых задач для долгих операций |
-| **Браузер** | Управление через Chrome DevTools Protocol |
+| **Браузер** | Управление через Chrome DevTools Protocol, плюс stealth-сценарии через [BrowserAct](#optional-components) |
 | **Desktop** | Скриншоты и input automation там, где поддерживается платформой |
-| **Dashboard** | Встроенный web UI на `/gui` |
+| **Dashboard** | Встроенный web UI на `/gui` с карточкой **Tunnels & Remote Access** для управления всеми провайдерами сразу |
 | **Extension** | Соединяет обычные AI-чаты с bridge через Command Center с lifecycle |
+| **Remote access** | Единый [`/v1/tunnels/*` фасад](#провайдеры-удалённого-доступа): Tailscale, Cloudflare Quick Tunnel и ZeroTier как один пул с автоматическим failover |
+| **Skills** | Автоматическое обнаружение skill-пакетов (Arena core + upstream [`superpowers`][obra] + [`browseract`](#optional-components)) через `/v1/skills` |
 
 Полная история изменений — в [CHANGELOG.ru.md](CHANGELOG.ru.md) и [CHANGELOG.md](CHANGELOG.md).
+
+[obra]: https://github.com/obra/superpowers
 
 ---
 
@@ -184,20 +189,63 @@ MCP SuperAssistant-style JSONL тоже поддерживается и норм
 
 ---
 
+## Провайдеры удалённого доступа
+
+Arena Unified Bridge относится к **Tailscale**, **Cloudflared** и **ZeroTier**
+как к одному пулу провайдеров удалённого доступа с настраиваемым приоритетом и
+автоматическим failover. Если первичный туннель отваливается — Bridge остаётся
+доступным через следующий здоровый провайдер, и падение одного не роняет весь
+Bridge.
+
+```bash
+# Полная картина по всем провайдерам (installed, active, public URL, cli source, hints)
+curl -sH "Authorization: Bearer $(cat ~/arena-bridge/token.txt)" \
+  http://127.0.0.1:8765/v1/tunnels/status | jq
+
+# Куда клиенту стучаться прямо сейчас
+curl -sH "Authorization: Bearer $(cat ~/arena-bridge/token.txt)" \
+  http://127.0.0.1:8765/v1/tunnels/active
+
+# Поднять провайдеров по приоритету, остановиться на первом здоровом
+curl -sH "Authorization: Bearer $(cat ~/arena-bridge/token.txt)" \
+  -X POST http://127.0.0.1:8765/v1/tunnels/start
+```
+
+По умолчанию приоритет — `tailscale > cloudflared > zerotier`; можно переопределить
+через `ARENA_TUNNEL_PRIORITY=cloudflared,zerotier` (провайдеры, не указанные в
+env, добавляются в конец с их default-позиции).
+
+Каждый провайдер работает из коробки на Windows, macOS и Linux — без sudo-обёрток
+и платформозависимых хаков по умолчанию. ZeroTier обнаруживается через локальный
+HTTP API на `127.0.0.1:9993` с fallback на `zerotier-cli` из PATH, Program Files,
+`/Library/Application Support/`, `/usr/sbin/` и т.д. Install/update-подсказки
+Cloudflared подстроены под платформу (`winget`/`scoop`/`brew`/`pacman`/`apt`).
+
+Карточка **Settings → Tunnels & Remote Access** в dashboard даёт тот же фасад с
+кнопками Start-all / Stop-all и панелью управления ZeroTier-сетями (join/leave
+по nwid, список подключённых сетей, install/permission hints inline).
+
+---
+
 ## Optional components
 
 Bridge работает локально на одном Python и `aiohttp`. Некоторым функциям нужны
 дополнительные tools — и ни один из них не ставится молча, installer всегда
 спрашивает подтверждение.
 
-| Component | Назначение | Примечание |
+| Компонент | Назначение | Установка |
 | --- | --- | --- |
-| Tailscale | Рекомендуемый HTTPS exposure через Funnel | Optional, system-level install |
-| cloudflared | Cloudflare Quick Tunnel fallback | Optional download, ~50 MB |
-| BrowserAct / browser helpers | Rich browser automation | Optional |
-| Camoufox | Stealth browser workflows | Optional |
-| ydotool / xdotool | Linux desktop input automation | Optional / platform-specific |
-| Tesseract | OCR для desktop/screenshot flows | Optional |
+| **Tailscale** | Zero-config HTTPS exposure через Funnel | System-level: <https://tailscale.com/download> |
+| **cloudflared** | Cloudflare Quick Tunnel fallback | `winget install Cloudflare.cloudflared` / `brew install cloudflared` / `pacman -S cloudflared` |
+| **ZeroTier** | Приватная overlay-сеть как backup-провайдер | System-level: <https://www.zerotier.com/download/> |
+| **BrowserAct** | Stealth-CLI для браузерной автоматизации (Arena `skills/browseract/`) | `uv tool install browser-act-cli --python 3.12` |
+| **Camoufox** | Anti-fingerprinting Firefox для BrowserAct | Автоматически ставится с `browser-act-cli` |
+| **ydotool / xdotool** | Linux desktop input automation | `pacman -S ydotool` или `apt install xdotool` |
+| **Tesseract** | OCR для desktop/screenshot flows | `pacman -S tesseract` / `brew install tesseract` |
+
+Installer детектит что уже установлено, предлагает поставить остальное, статус
+показывается через `/v1/capabilities`. Удаление любого компонента никогда не
+ломает Bridge — каждая optional-фича degrades gracefully.
 
 ---
 
@@ -220,20 +268,48 @@ model сделана явной:
 
 ## API overview
 
+Ядро:
+
 | Method | Path | Назначение |
 | --- | --- | --- |
-| `GET` | `/health` | health check без auth |
-| `GET` | `/v1/version` | версия и platform info |
-| `GET` | `/v1/status` | статус bridge |
-| `POST` | `/v1/exec` | guarded shell execution |
-| `GET/POST` | `/v1/tasks` | очередь фоновых задач |
-| `GET/POST/DELETE` | `/v1/memory` | memory facts |
-| `GET` | `/v1/recall` | fuzzy memory recall |
-| `GET` | `/v1/browser/read` | fetch/extract текста web page |
-| `GET` | `/v1/desktop/screenshot` | desktop screenshot, где поддерживается |
-| `GET` | `/v1/extension/policies` | extension policy metadata |
-| `POST` | `/v1/extension/preview` | dry-run extension tool calls |
-| `POST` | `/v1/extension/execute` | execute approved extension tool calls |
+| `GET` | `/health` | Health check без auth |
+| `GET` | `/v1/version` | Версия и platform info |
+| `GET` | `/v1/info` | Runtime info bridge |
+| `GET` | `/v1/status` | Статус bridge |
+| `GET` | `/v1/capabilities` | Machine-readable карта возможностей (агенты опираются на неё) |
+
+Runtime-инструменты:
+
+| Method | Path | Назначение |
+| --- | --- | --- |
+| `POST` | `/v1/exec` | Guarded shell execution |
+| `GET/POST` | `/v1/tasks` | Очередь фоновых задач |
+| `GET/POST/DELETE` | `/v1/memory` | Memory facts |
+| `GET` | `/v1/recall` | Fuzzy memory recall |
+| `GET` | `/v1/browser/read` | Fetch/extract текста web page |
+| `GET` | `/v1/desktop/screenshot` | Desktop screenshot, где поддерживается |
+| `GET` | `/v1/skills` | Список обнаруженных skill-пакетов |
+
+Extension bridge:
+
+| Method | Path | Назначение |
+| --- | --- | --- |
+| `GET` | `/v1/extension/policies` | Extension policy metadata |
+| `POST` | `/v1/extension/preview` | Dry-run extension tool calls |
+| `POST` | `/v1/extension/execute` | Execute approved extension tool calls |
+
+Удалённый доступ / туннели:
+
+| Method | Path | Назначение |
+| --- | --- | --- |
+| `GET` | `/v1/tunnels/status` | Все провайдеры + suggested active endpoint |
+| `GET` | `/v1/tunnels/active` | Только текущий доступный endpoint |
+| `POST` | `/v1/tunnels/start` | Запуск провайдеров по приоритету (stop on first healthy) |
+| `POST` | `/v1/tunnels/stop` | Остановка туннелей, запущенных bridge (ZeroTier не трогает) |
+| `GET/POST` | `/v1/tailscale/funnel/{action}` | Tailscale Funnel primitives |
+| `GET/POST` | `/v1/cloudflared/tunnel/{action}` | Cloudflare Quick Tunnel primitives |
+| `GET` | `/v1/zerotier/status` | Полный snapshot ZeroTier (backend, networks, hints) |
+| `GET/POST` | `/v1/zerotier/network/{action}` | Join / leave / status networks |
 
 Полная surface модульная; смотрите dashboard, route tests и [`docs/`](docs/).
 
@@ -259,6 +335,13 @@ for f in background content parser adapters insert_strategies insert_history ada
 done
 ```
 
+Targeted checks для работы над удалённым доступом / провайдерами:
+
+```bash
+pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py \
+          tests/test_browseract.py tests/test_superpowers_layout.py
+```
+
 Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [RELEASE.md](RELEASE.md).
 
 ---
@@ -267,14 +350,16 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Документ | Что внутри |
 | --- | --- |
-| [CHANGELOG.ru.md](CHANGELOG.ru.md) | История изменений на русском |
-| [CHANGELOG.md](CHANGELOG.md) | Release history на английском |
+| [CHANGELOG.ru.md](CHANGELOG.ru.md) · [en](CHANGELOG.md) | История изменений |
 | [RELEASE.md](RELEASE.md) | Packaging / publishing checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, тесты, workflow |
+| [AGENTS.md](AGENTS.md) | Жёсткие правила для AI-мейнтейнеров |
 | [chat_extension/README.md](chat_extension/README.md) | Browser extension details |
-| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Integration notes |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Интеграции — Tailscale / cloudflared / ZeroTier / MCP |
+| [docs/SUPERPOWERS.md](docs/SUPERPOWERS.md) | Superpowers vendored copy: layout + update flow |
 | [docs/MODULE_MAP.md](docs/MODULE_MAP.md) | Codebase / module map |
 | [docs/V3_MODULAR_ARCHITECTURE.md](docs/V3_MODULAR_ARCHITECTURE.md) | Modular architecture notes |
+| [docs/AI_CODEBASE_NAVIGATION.md](docs/AI_CODEBASE_NAVIGATION.md) | Навигация по коду для AI-мейнтейнеров |
 
 Часть файлов в `docs/` — design notes или historical audits. README и CHANGELOG —
 публичные входные точки.

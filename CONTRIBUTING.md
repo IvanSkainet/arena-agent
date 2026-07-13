@@ -35,16 +35,24 @@ Targeted checks for browser-extension work:
 
 ```bash
 pytest -q tests/test_chat_extension_assets.py tests/test_chat_extension_adapter_flow.py tests/test_chat_extension_sidepanel_flow.py tests/test_extension_bridge.py tests/test_project_modularity.py
-node --check chat_extension/background.js
-node --check chat_extension/content.js
-node --check chat_extension/parser.js
-node --check chat_extension/adapters.js
-node --check chat_extension/insert_strategies.js
-node --check chat_extension/insert_history.js
-node --check chat_extension/adapter_sites.js
-node --check chat_extension/popup.js
-node --check chat_extension/settings.js
-node --check chat_extension/sidepanel.js
+for f in background content parser adapters insert_strategies insert_history adapter_sites popup settings sidepanel; do
+  node --check "chat_extension/$f.js"
+done
+```
+
+Targeted checks for remote-access / provider work (tunnels facade, ZeroTier,
+Cloudflared, BrowserAct, Superpowers layout):
+
+```bash
+pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py \
+          tests/test_browseract.py tests/test_superpowers_layout.py
+```
+
+Installer smoke (both must be syntax-clean before touching a release):
+
+```bash
+bash -n install.sh
+# On Windows the equivalent is: cmd /c "call install.bat /?" — smoke only, does not install.
 ```
 
 Python syntax smoke:
@@ -110,7 +118,13 @@ Be especially careful with changes touching:
 - file upload/download/edit path checks;
 - desktop automation pause/resume/revoke controls;
 - extension auto-execution policy;
-- release packaging exclusions.
+- release packaging exclusions;
+- installer pip strategies (`install.sh` / `install.bat`) — never silently
+  swallow `pip install` failures; always **verify** `import aiohttp` after
+  the last strategy runs;
+- tunnel-provider modules (`arena/admin/{tunnels,tailscale,cloudflared,zerotier}.py`) —
+  never invoke `sudo` directly, keep platform detection explicit, degrade
+  gracefully on hosts where a provider is absent.
 
 Report security issues privately instead of opening a public issue.
 

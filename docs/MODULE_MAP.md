@@ -69,18 +69,41 @@ into the relevant `arena/<domain>/` package, not into `unified_bridge.py`.
 | Webhooks | `arena/observability/webhooks.py` |
 | Alerts/watchdog | `arena/observability/alerts.py`, `arena/watchdog/*` |
 | OpenTelemetry-style tracing | `arena/observability/tracing*.py` |
-| Admin tunnels/token | `arena/admin/*` |
+| Admin tunnels/token | `arena/admin/*` (`tunnels.py` = unified facade; `tailscale.py`, `cloudflared.py`, `zerotier.py`, `browseract.py`, `token.py`) |
 | TLS | `arena/tls/handlers.py` |
 | Sandbox | `arena/sandbox/*` |
 | Cluster/HA | `arena/cluster/*` |
 | gRPC-style interface | `arena/grpc/*` |
+
+## Remote access / tunnels — the multi-provider facade
+
+| Need to change... | Start here |
+|---|---|
+| Tunnels priority / failover logic | `arena/admin/tunnels.py` (`tunnels_status`, `tunnels_active`, `tunnels_start`, `tunnels_stop`) |
+| Tailscale Funnel primitives | `arena/admin/tailscale.py` |
+| Cloudflare Quick Tunnel primitives + install/update hints | `arena/admin/cloudflared.py` |
+| ZeroTier discovery (HTTP API + CLI fallback, cross-platform) | `arena/admin/zerotier.py` |
+| BrowserAct CLI status / update hints | `arena/admin/browseract.py` |
+| Sync-callable factories that wire the above into handlers | `arena/admin/sync_factories.py` |
+| Wiring the sync callables into `AdminHandlerContext` | `arena/wiring/bridge_runtime.py`, `arena/wiring/platform.py`, `arena/wiring/system_public_admin_registries.py` |
+| Route registration `/v1/tunnels/*`, `/v1/zerotier/*`, `/v1/cloudflared/*`, `/v1/tailscale/*` | `arena/route_registry/core.py` |
+| Capabilities map fields for `.network` / `.browser` | `arena/capabilities.py`, `arena/service/capabilities.py` |
+| Dashboard Tunnels & Remote Access card | `dashboard/assets/29-tunnels.js`, `dashboard/assets/body-15-settings.html` |
+
+**Priority override:** set `ARENA_TUNNEL_PRIORITY=cloudflared,zerotier` (unmentioned
+providers stay at their default position, nothing is dropped).
 
 ## Development rules
 
 1. Do not add business logic to `unified_bridge.py`.
 2. Keep handlers thin; move IO/subprocess/state logic into runtime/helper modules.
 3. Keep product files under the modularity limit enforced by
-   `tests/test_project_modularity.py` (currently 700 lines). Prefer decomposing
-   a growing module along natural boundaries over compressing logic to fit.
+   `tests/test_project_modularity.py` (currently 700 lines). Runtime modules
+   under `arena/` have an additional 500-line cap in
+   `tests/test_architecture_boundaries.py`. Prefer decomposing a growing module
+   along natural boundaries over compressing logic to fit — readable code beats
+   squeezed code.
 4. Preserve public route paths and legacy compatibility names unless a migration doc explicitly changes them.
-5. Run `pytest -q` and the v4 stress gate before release-impacting changes.
+5. Provider modules in `arena/admin/` must be cross-platform: `platform.system()`
+   branches, no Linux-only assumptions, never invoke `sudo` directly.
+6. Run `pytest -q` and the v4 stress gate before release-impacting changes.
