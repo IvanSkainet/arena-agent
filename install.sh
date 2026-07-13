@@ -176,12 +176,37 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         fi
     fi
 elif [ -f "$SCRIPT_DIR/unified_bridge.py" ] && [ -d "$SCRIPT_DIR/arena" ]; then
+    # Safety: refuse to silently downgrade the installed bridge just because
+    # the user ran install.sh from an old extracted zip. Compare local source
+    # version to installed version, and require explicit confirmation for a
+    # downgrade.
+    if [ -f "$INSTALL_DIR/arena/constants.py" ] && [ -f "$SCRIPT_DIR/arena/constants.py" ] && [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
+        LOCAL_SRC_VER="$(grep -oE 'VERSION\s*=\s*\"[^\"]+\"' "$SCRIPT_DIR/arena/constants.py" | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+        INSTALLED_VER="$(grep -oE 'VERSION\s*=\s*\"[^\"]+\"' "$INSTALL_DIR/arena/constants.py" | sed -E 's/.*\"([^\"]+)\".*/\1/')"
+        if [ -n "$LOCAL_SRC_VER" ] && [ -n "$INSTALLED_VER" ] && [ "$LOCAL_SRC_VER" != "$INSTALLED_VER" ]; then
+            # Sort versions; if newest != local source, this is a downgrade.
+            NEWEST="$(printf '%s\n%s\n' "$LOCAL_SRC_VER" "$INSTALLED_VER" | sort -V | tail -1)"
+            if [ "$NEWEST" = "$INSTALLED_VER" ] && [ "$NEWEST" != "$LOCAL_SRC_VER" ]; then
+                warn "Local source is v$LOCAL_SRC_VER but $INSTALL_DIR already has v$INSTALLED_VER."
+                warn "Running install from $SCRIPT_DIR would DOWNGRADE the installed bridge."
+                warn "This usually means you launched install.sh from an old extracted zip."
+                if [ "${ARENA_ASSUME_YES:-}" != "1" ] && [ "${ARENA_ALLOW_DOWNGRADE:-}" != "1" ]; then
+                    if ! ask "Really downgrade $INSTALLED_VER -> $LOCAL_SRC_VER?"; then
+                        err "Aborted to protect $INSTALL_DIR. To install from GitHub instead:"
+                        err "  cd \"$INSTALL_DIR\" && git pull && bash ./install.sh"
+                        err "Or run the installer from anywhere OUTSIDE $SCRIPT_DIR to use GitHub."
+                        exit 1
+                    fi
+                fi
+            fi
+        fi
+    fi
     info "Installing from local source: $SCRIPT_DIR -> $INSTALL_DIR"
     mkdir -p "$INSTALL_DIR"
     if command -v rsync >/dev/null 2>&1; then
-        rsync -a           --exclude '.git' --exclude '__pycache__' --exclude '.pytest_cache'           --exclude 'token.txt' --exclude 'audit.jsonl' --exclude 'requests.jsonl' --exclude 'bridge.log'           --exclude 'queue/running/' --exclude 'queue/done/' --exclude 'queue/failed/'           "$SCRIPT_DIR/" "$INSTALL_DIR/"
+        rsync -a           --exclude '.git' --exclude '__pycache__' --exclude '.pytest_cache'           --exclude 'token.txt' --exclude 'audit.jsonl' --exclude 'requests.jsonl' --exclude 'bridge.log'           --exclude 'queue/running/' --exclude 'queue/done/' --exclude 'queue/failed/' --exclude '.venv/'           "$SCRIPT_DIR/" "$INSTALL_DIR/"
     else
-        (cd "$SCRIPT_DIR" && tar --exclude='.git' --exclude='__pycache__' --exclude='.pytest_cache' -cf - .) | (cd "$INSTALL_DIR" && tar -xf -)
+        (cd "$SCRIPT_DIR" && tar --exclude='.git' --exclude='__pycache__' --exclude='.pytest_cache' --exclude='.venv' -cf - .) | (cd "$INSTALL_DIR" && tar -xf -)
     fi
     cd "$INSTALL_DIR"
 else
@@ -228,14 +253,73 @@ fi
 PYVER=$("$PY" --version 2>&1 | cut -d' ' -f2)
 ok "Python $PYVER found"
 
-# --- Step 3: Install dependencies ---
+# --- Step 3: Install dependencies (cross-platform, PEP 668 aware) ---
 info "Installing Python dependencies..."
-if [ -f "$INSTALL_DIR/requirements.txt" ]; then
-    "$PY" -m pip install -r "$INSTALL_DIR/requirements.txt" --quiet 2>/dev/null || true
-else
-    "$PY" -m pip install aiohttp psutil websockets --quiet 2>/dev/null || true
+REQ_FILE="$INSTALL_DIR/requirements.txt"
+if [ ! -f "$REQ_FILE" ]; then
+    # Emergency inline list so we can still bootstrap without the checked-in file.
+    REQ_FILE=""
 fi
-ok "Python packages ready"
+
+# Try installation strategies in order; keep the first one that succeeds. We
+# never silently swallow errors here — after the loop we verify the import
+# actually works and refuse to declare success otherwise.
+pip_install_attempt() {
+    local label="$1"; shift
+    info "  trying: $label"
+    if [ -n "$REQ_FILE" ]; then
+        "$PY" -m pip install -r "$REQ_FILE" "$@" 2>&1 | tail -3
+    else
+        "$PY" -m pip install aiohttp psutil websockets "$@" 2>&1 | tail -3
+    fi
+    return "${PIPESTATUS[0]}"
+}
+
+DEPS_OK=""
+# 1) Plain user install (works in venvs and on most non-Debian/Arch hosts).
+if pip_install_attempt "pip install" --quiet; then
+    DEPS_OK="plain"
+fi
+# 2) --user (Windows-style, or when the interpreter is system-managed but user site is writable).
+if [ -z "$DEPS_OK" ] && pip_install_attempt "pip install --user" --quiet --user; then
+    DEPS_OK="user"
+fi
+# 3) PEP 668 override — needed on Arch/CachyOS, Debian 12+, Ubuntu 23.10+, Fedora 39+.
+if [ -z "$DEPS_OK" ] && pip_install_attempt "pip install --user --break-system-packages" --quiet --user --break-system-packages; then
+    DEPS_OK="pep668"
+fi
+# 4) Last resort: create a project-local venv and install into it. This changes
+#    which Python we call for the rest of the installer.
+if [ -z "$DEPS_OK" ]; then
+    warn "System pip refused all install strategies; falling back to a project-local venv"
+    VENV_DIR="$INSTALL_DIR/.venv"
+    "$PY" -m venv "$VENV_DIR" 2>&1 | tail -3 || { err "venv creation failed"; exit 1; }
+    VENV_PY="$VENV_DIR/bin/python"
+    [ -x "$VENV_PY" ] || VENV_PY="$VENV_DIR/Scripts/python"   # Windows-shaped venv, if any
+    if [ ! -x "$VENV_PY" ]; then
+        err "venv was created but no python found under $VENV_DIR"
+        exit 1
+    fi
+    if [ -n "$REQ_FILE" ]; then
+        "$VENV_PY" -m pip install --quiet -r "$REQ_FILE" 2>&1 | tail -3 || { err "venv pip install failed"; exit 1; }
+    else
+        "$VENV_PY" -m pip install --quiet aiohttp psutil websockets 2>&1 | tail -3 || { err "venv pip install failed"; exit 1; }
+    fi
+    PY="$VENV_PY"
+    DEPS_OK="venv:$VENV_DIR"
+    ok "Using project venv: $VENV_DIR"
+fi
+
+# Verify the import actually works — the previous installer silently ignored
+# pip failures and told users everything was fine even when the bridge could
+# not start. We refuse to lie now.
+if ! "$PY" -c "import aiohttp, sys; print('aiohttp', aiohttp.__version__)" >/dev/null 2>&1; then
+    err "Python packages installed but 'import aiohttp' still fails with $PY"
+    err "Try manually:  $PY -m pip install --user --break-system-packages -r $INSTALL_DIR/requirements.txt"
+    err "Or create a venv:  $PY -m venv $INSTALL_DIR/.venv && $INSTALL_DIR/.venv/bin/python -m pip install -r $INSTALL_DIR/requirements.txt"
+    exit 1
+fi
+ok "Python packages ready (via: $DEPS_OK)"
 
 # --- Step 4: Create subdirectories (all inside INSTALL_DIR) ---
 info "Creating directory structure..."

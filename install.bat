@@ -102,18 +102,76 @@ if /I not "%ARENA_BG_CONFIRM%"=="Y" (
 :transparency_ok
 
 REM ============================================================
-REM Step 2: Install Python dependencies
+REM Step 2: Install Python dependencies (PEP 668 aware, verified)
 REM ============================================================
 echo.
 echo [2/6] Installing Python dependencies...
-if exist "%BRIDGE_DIR%\requirements.txt" (
-    %PYTHON% -m pip install --quiet -r "%BRIDGE_DIR%\requirements.txt" 2>nul
-    if errorlevel 1 %PYTHON% -m pip install --quiet --user -r "%BRIDGE_DIR%\requirements.txt" 2>nul
+set "REQ_FILE=%BRIDGE_DIR%\requirements.txt"
+if not exist "%REQ_FILE%" set "REQ_FILE="
+
+set "DEPS_OK="
+
+REM 1) Try plain install.
+if defined REQ_FILE (
+    %PYTHON% -m pip install -r "%REQ_FILE%"
 ) else (
-    %PYTHON% -m pip install --quiet aiohttp psutil 2>nul
-    if errorlevel 1 %PYTHON% -m pip install --quiet --user aiohttp psutil 2>nul
+    %PYTHON% -m pip install aiohttp psutil websockets
 )
-echo       Done.
+if not errorlevel 1 set "DEPS_OK=plain"
+
+REM 2) --user (writable per-user site).
+if not defined DEPS_OK (
+    if defined REQ_FILE (
+        %PYTHON% -m pip install --user -r "%REQ_FILE%"
+    ) else (
+        %PYTHON% -m pip install --user aiohttp psutil websockets
+    )
+    if not errorlevel 1 set "DEPS_OK=user"
+)
+
+REM 3) PEP 668 override (mostly for Cygwin/MSYS Python on Windows, harmless otherwise).
+if not defined DEPS_OK (
+    if defined REQ_FILE (
+        %PYTHON% -m pip install --user --break-system-packages -r "%REQ_FILE%"
+    ) else (
+        %PYTHON% -m pip install --user --break-system-packages aiohttp psutil websockets
+    )
+    if not errorlevel 1 set "DEPS_OK=pep668"
+)
+
+REM 4) Project-local venv fallback.
+if not defined DEPS_OK (
+    echo       [WARN] pip refused every strategy; falling back to a project venv
+    %PYTHON% -m venv "%BRIDGE_DIR%\.venv"
+    if errorlevel 1 (
+        echo       [ERR] venv creation failed
+        goto :end
+    )
+    set "PYTHON=%BRIDGE_DIR%\.venv\Scripts\python.exe"
+    if defined REQ_FILE (
+        %PYTHON% -m pip install -r "%REQ_FILE%"
+    ) else (
+        %PYTHON% -m pip install aiohttp psutil websockets
+    )
+    if errorlevel 1 (
+        echo       [ERR] venv pip install failed
+        goto :end
+    )
+    set "DEPS_OK=venv:%BRIDGE_DIR%\.venv"
+)
+
+REM Verify the import actually works before pretending everything is fine.
+%PYTHON% -c "import aiohttp, sys; print('aiohttp', aiohttp.__version__)"
+if errorlevel 1 (
+    echo       [ERR] Python packages installed but 'import aiohttp' still fails
+    echo       Try manually:
+    echo         %PYTHON% -m pip install --user -r "%REQ_FILE%"
+    echo       Or create a venv:
+    echo         %PYTHON% -m venv "%BRIDGE_DIR%\.venv"
+    echo         "%BRIDGE_DIR%\.venv\Scripts\python.exe" -m pip install -r "%REQ_FILE%"
+    goto :end
+)
+echo       Done. (via: %DEPS_OK%)
 
 REM ============================================================
 REM Step 3: Create directories + token
