@@ -98,6 +98,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'submit_scope_visible_buttons' in insert_strategies
     assert 'submit_scope_samples' in insert_strategies
     assert 'arenaButtonDiagnosticSample' in insert_strategies
+    assert 'submit_expected_after_text' in insert_strategies
+    assert 'submit_phase' in insert_strategies
     assert 'submit_note' in insert_strategies
     assert 'arenaInsertScriptVersion' in insert_strategies
     assert "arenaHost() === 'gemini.google.com'" in insert_strategies
@@ -131,7 +133,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.9`.' in readme
+    assert 'Current extension version: `0.13.10`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme
