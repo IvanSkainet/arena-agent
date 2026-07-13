@@ -66,6 +66,8 @@ def test_background_supports_history_item_and_filters():
     assert 'arena.insertEvent' in bg
     assert 'adapter: message.body?.site?.adapter' in bg
     assert 'response: compactResult(result)' in bg
+    assert 'scanHistoryDetail' in bg
+    assert 'diagnostic_summary' in bg
     assert 'while fetching ${base}${path}' in bg
     assert 'bridge_url: base' in bg
     assert 'bridge_url_fallback' in bg

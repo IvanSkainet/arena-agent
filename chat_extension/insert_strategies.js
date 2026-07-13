@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.16';
+  return '0.13.17';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -163,7 +163,7 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
       ? (submitExpectedAfterText ? 'awaiting-text' : 'disabled')
       : (submitExpectedAfterText ? 'awaiting-text' : (submitInfo.scope_buttons ? 'buttons-present-no-submit-match' : 'no-buttons')));
   const submitNote = submitEnabled ? '' : (submitExpectedAfterText
-    ? 'submit is present but disabled until the composer has content'
+    ? (submitSelectedSample ? 'submit is present but disabled until the composer has content' : 'submit may appear only after the composer has content')
     : (submitSelectedSample
       ? 'submit button detected but currently disabled'
       : (submitInfo.scope_buttons ? 'buttons exist in scope, but none matched submit selectors' : 'no submit buttons currently rendered in composer scope')));

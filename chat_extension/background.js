@@ -192,9 +192,16 @@ async function sendActiveTabMessage(message) {
     const err = chrome.runtime.lastError; resolve(err ? {ok: false, error: err.message || String(err)} : (response || {ok: false, error: 'empty content response'}));
   }));
 }
+function scanHistoryDetail(result) {
+  if (!result?.ok) return `error: ${result?.error || 'unknown'}`;
+  const summary = String(result.diagnostic_summary || '').trim();
+  const tools = Array.isArray(result.tools) && result.tools.length ? `tools=${result.tools.join(', ')}` : '';
+  const base = summary || `${result.parsed_blocks || 0} block(s), ${result.candidate_nodes || 0} candidate(s)`;
+  return `${result.adapter || 'unknown'}: ${tools ? `${base} · ${tools}` : base}`;
+}
 async function scanActivePage() {
   const result = await sendActiveTabMessage({type: 'arena.scanPage'});
-  const detail = result.ok ? `${result.adapter || 'unknown'}: ${result.parsed_blocks || 0} block(s), ${result.candidate_nodes || 0} candidate(s)` : `error: ${result.error || 'unknown'}`;
+  const detail = scanHistoryDetail(result);
   await pushHistory('scan', {detail, base_detail: detail, site: result.url || '', adapter: result.adapter || '', ok: !!result.ok, response: result});
   return result;
 }
