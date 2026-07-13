@@ -47,6 +47,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'openrouter.ai' in adapter_sites
     assert 'chat.deepseek.com' in adapter_sites
     assert 'chat.qwen.ai' in adapter_sites
+    assert 't3.chat' in adapter_sites
+    assert 'chat.z.ai' in adapter_sites
     assert 'arenaPayloadFromJsonl' in parser
     assert 'sys.status' in (ROOT / 'arena' / 'extension_bridge' / 'instructions.py').read_text(encoding='utf-8')
     assert 'sys.status' in (ROOT / 'arena' / 'extension_bridge' / 'policy.py').read_text(encoding='utf-8')
@@ -141,7 +143,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.17`.' in readme
+    assert 'Current extension version: `0.13.18`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme

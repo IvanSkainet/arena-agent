@@ -63,6 +63,20 @@ const ARENA_SITE_ADAPTERS = [
     submitSelectors: ['button[aria-label*="Send"]', 'button[type="submit"]'],
   },
   {
+    name: 't3chat',
+    hosts: ['t3.chat'],
+    messageSelectors: ['main article', 'main [data-testid]', 'main', 'pre', 'code'],
+    composerSelectors: ['textarea', '[contenteditable="true"]'],
+    submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
+  },
+  {
+    name: 'zai',
+    hosts: ['chat.z.ai'],
+    messageSelectors: ['main article', 'main [data-testid]', 'main', 'pre', 'code'],
+    composerSelectors: ['textarea', '[contenteditable="true"]'],
+    submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
+  },
+  {
     name: 'generic',
     hosts: [],
     messageSelectors: ['article', 'main', 'section', 'pre', 'code'],

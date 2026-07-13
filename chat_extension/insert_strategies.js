@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.17';
+  return '0.13.18';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
