@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.12';
+  return '0.13.13';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -155,11 +155,18 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
   const scopeRoot = target?.closest?.('form') || target?.closest?.('fieldset') || target?.closest?.('[role="form"], main, section, article, [role="dialog"]') || document;
   const submitScopeSamples = Array.from(scopeRoot.querySelectorAll?.('button') || []).slice(0, 5).map(arenaButtonDiagnosticSample);
   const submitSelectedSample = submitInfo.button ? arenaButtonDiagnosticSample(submitInfo.button) : null;
-  const submitExpectedAfterText = !submitInfo.button && !composerText && submitInfo.scope_buttons > 0;
-  const submitPhase = submitInfo.button ? 'ready' : (submitExpectedAfterText ? 'awaiting-text' : (submitInfo.scope_buttons ? 'buttons-present-no-submit-match' : 'no-buttons'));
-  const submitNote = submitInfo.button ? '' : (submitExpectedAfterText
-    ? 'submit may appear only after composer has content'
-    : (submitInfo.scope_buttons ? 'buttons exist in scope, but none matched submit selectors' : 'no submit buttons currently rendered in composer scope'));
+  const submitEnabled = !!submitInfo.button && !submitSelectedSample?.disabled;
+  const submitExpectedAfterText = (!composerText && submitInfo.scope_buttons > 0 && !submitEnabled);
+  const submitPhase = submitEnabled
+    ? 'ready'
+    : (submitSelectedSample
+      ? (submitExpectedAfterText ? 'awaiting-text' : 'disabled')
+      : (submitExpectedAfterText ? 'awaiting-text' : (submitInfo.scope_buttons ? 'buttons-present-no-submit-match' : 'no-buttons')));
+  const submitNote = submitEnabled ? '' : (submitExpectedAfterText
+    ? 'submit is present but disabled until the composer has content'
+    : (submitSelectedSample
+      ? 'submit button detected but currently disabled'
+      : (submitInfo.scope_buttons ? 'buttons exist in scope, but none matched submit selectors' : 'no submit buttons currently rendered in composer scope')));
   return {
     found: true,
     host: arenaHost(),
@@ -184,6 +191,7 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     submit_scope_visible_buttons: submitInfo.visible_scope_buttons || 0,
     submit_scope_samples: submitScopeSamples,
     submit_selected_sample: submitSelectedSample,
+    submit_enabled: submitEnabled,
     submit_expected_after_text: submitExpectedAfterText,
     submit_phase: submitPhase,
     submit_note: submitNote,
