@@ -74,3 +74,40 @@ def test_token_regenerate_writes_single_target(tmp_path):
 def test_tunnel_invalid_actions(tmp_path):
     assert tailscale_funnel_action("bad", 8765)["ok"] is False
     assert cloudflared_funnel_action("bad", 8765, root_agent=tmp_path, subprocess_kwargs=ub._subprocess_kwargs)["ok"] is False
+
+
+def test_tailscale_funnel_action_bad_never_omits_error():
+    """Every failure path from tailscale_funnel_action must set `error`
+    so the Dashboard alert can render a useful message instead of `?`."""
+    for bogus in ("bad", "", None, "STOP"):
+        r = tailscale_funnel_action(bogus, 8765)
+        if not r.get("ok"):
+            assert r.get("error"), f"missing error for action={bogus!r}: {r}"
+
+
+def test_tailscale_funnel_action_stop_uses_new_syntax():
+    """Regression guard: the modern Tailscale funnel-stop path (>=1.60)
+    must never revert to the legacy `--https=443 off` command which only
+    ever targeted port 443. Checks the actual argv, not source text (so
+    documentation comments explaining the old syntax do not trigger it)."""
+    import inspect
+    from arena.admin import tailscale as _ts
+    src = inspect.getsource(_ts.tailscale_funnel_action)
+
+    # Strip comment lines before scanning: mentioning the legacy form in a
+    # docstring or `# ...` explainer is not the same as actually calling it.
+    code_only = "\n".join(
+        line for line in src.splitlines()
+        if not line.strip().startswith("#")
+    )
+    # Also strip the docstring block (naive but sufficient here).
+    import re as _re
+    code_only = _re.sub(r'"""[\s\S]*?"""', "", code_only)
+
+    assert "--https=443" not in code_only, (
+        "tailscale_funnel_action still calls the legacy --https=443 stop "
+        "syntax; it only ever targeted port 443. See v3.81.4 release notes."
+    )
+    # And the modern paths must all be present as actual argv fragments.
+    assert '"off"' in src or "'off'" in src
+    assert '"serve"' in src or "'serve'" in src, "should include `serve reset` fallback"

@@ -6,6 +6,62 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.81.4 — 2026-07-13
+
+Полировка: реальные баги, на которые пользователь наткнулся в Dashboard,
+когда попробовал работать без Tailscale. Убраны Tailscale-only
+предположения из Overview / Doctor / stop-действий, плюс убран
+попавший в UI-placeholder приватный network ID.
+
+### Исправлено
+
+- **Overview "Network Status" стал provider-agnostic.** Раньше был
+  захардкожен на `Tailscale Funnel` + `Public URL` из
+  `/v1/sys/funnel`. Переписан на `Active Provider` + `Public URL` +
+  список по всем провайдерам, теперь читает `/v1/tunnels/status`.
+  Карточка корректно показывает "ZeroTier · http://10.x.y.z:8765" когда
+  Tailscale упал. Старые DOM-ID `#tsFunnelStatus` / `#tsFunnelUrl`
+  оставлены скрытыми для обратной совместимости.
+- **Doctor tab стал provider-agnostic.** Панель `Tailscale Funnel`
+  заменена на `Remote Access` со списком всех настроенных провайдеров
+  (active/connected/installed/not installed) и текущим активным
+  endpoint. Service Status теперь также показывает Cloudflared +
+  ZeroTier рядом с Tailscale — `/v1/sys/svc` (backend Doctor'а)
+  покрывает весь tunnels-pool, а не только один провайдер.
+- **`/v1/tailscale/funnel/stop` реально останавливает funnel на порту
+  8765.** Раньше вызывалась `tailscale funnel --https=443 off`, которая
+  только для порта 443. Теперь пробует
+  `tailscale funnel --bg <port> off`, затем `funnel off`, затем
+  `serve reset` как последний fallback — что-то из этого всегда работает
+  на любой Tailscale ≥ 1.60.
+- **Сообщения об ошибках туннелей в Dashboard больше не буквально
+  "?".** Когда `tsFunnelToggle` / `cfFunnelToggle` получали
+  `{ok: false}` без поля `error`, alert показывал `"Error: ?"`.
+  Питоновский side теперь всегда заполняет `error` при failure, а JS
+  fallback'ит на `stderr` / `stdout` / exit code — alert всегда
+  показывает что-то полезное.
+- **Приватный network ID убран из UI.** Placeholder в поле ZeroTier
+  "Join" на вкладке Settings содержал реальный live network ID из
+  аккаунта maintainer'а (`cf719fd5...`). Заменён на очевидно
+  синтетический пример (`abcdef0123456789`) плюс ссылка на
+  `my.zerotier.com/network`, где взять реальный. Тот же ID был в
+  client-side validation `alert()` — тоже заменён.
+
+### Добавлено
+
+- `arena/service/status.py::_sys_svc_sync()` теперь включает
+  `cloudflared` и `zerotier` рядом с `tailscale`. Обе — компактные
+  snapshot'ы (installed / active / connected / node_id /
+  active_networks) с молчаливой деградацией — никогда не raise'ит.
+- Регрессионные тесты:
+  * `tailscale_funnel_action` никогда не опускает `error` при failure;
+  * source `tailscale_funnel_action` больше не содержит legacy
+    `--https=443` синтаксис для stop.
+
+### Тесты
+
+706 passed (было 704). Два новых теста admin handlers.
+
 ## v3.81.3 — 2026-07-13
 
 Патч: исправлен парсер `zerotier-cli listnetworks` для сетей без

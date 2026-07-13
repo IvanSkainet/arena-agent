@@ -47,31 +47,52 @@ async function refreshOverview() {
         overviewMetrics.requests = status.metrics.total_requests || overviewMetrics.requests;
         overviewMetrics.execs = status.metrics.exec_count || overviewMetrics.execs;
       }
-      // Tailscale funnel status (v1.6.4: fetch real data from /v1/sys/funnel)
+      // Network Status — provider-agnostic. Reads /v1/tunnels/status which
+      // covers Tailscale, Cloudflared, and ZeroTier as one pool with
+      // automatic failover, and reports whichever provider is currently
+      // giving clients a reachable URL. Never assume it will be Tailscale.
       try {
-        const fn = await api("/v1/sys/funnel");
-        const badge = document.getElementById("tsFunnelStatus");
-        const urlEl = document.getElementById("tsFunnelUrl");
-        if (fn && fn.ok) {
-          const active = !!(fn.funnel && fn.funnel.active);
-          if (badge) {
-            badge.className = "badge " + (active ? "ok" : "fail");
-            badge.textContent = active ? "Active" : "Inactive";
+        const tun = await api("/v1/tunnels/status");
+        const activeBadge = document.getElementById("netActiveProvider");
+        const urlEl = document.getElementById("netActiveUrl");
+        const listEl = document.getElementById("netProvidersList");
+        if (tun && tun.ok) {
+          const active = tun.active || null;
+          if (activeBadge) {
+            if (active && active.provider) {
+              activeBadge.className = "badge ok";
+              activeBadge.textContent = active.provider;
+            } else {
+              activeBadge.className = "badge fail";
+              activeBadge.textContent = "none";
+            }
           }
           if (urlEl) {
-            if (fn.funnel?.url) {
+            if (active && active.public_url) {
               urlEl.innerHTML = "";
               const a = document.createElement("a");
-              a.href = fn.funnel.url; a.target = "_blank";
-              a.textContent = fn.funnel.url;
+              a.href = active.public_url;
+              a.target = "_blank";
+              a.textContent = active.public_url;
               urlEl.appendChild(a);
             } else {
               urlEl.textContent = "—";
             }
           }
-        } else if (badge) {
-          badge.className = "badge gray";
-          badge.textContent = "Unknown";
+          if (listEl) {
+            const parts = (tun.providers || []).map((p) => {
+              let mark = "·";
+              if (p.active) mark = "✓";
+              else if (p.installed) mark = "○";
+              else mark = "✗";
+              return mark + " " + p.provider;
+            });
+            listEl.textContent = parts.length ? parts.join("   ") : "—";
+          }
+        } else {
+          if (activeBadge) { activeBadge.className = "badge gray"; activeBadge.textContent = "Unknown"; }
+          if (urlEl) urlEl.textContent = "—";
+          if (listEl) listEl.textContent = "—";
         }
       } catch (e) { /* ignore */ }
     }

@@ -102,13 +102,31 @@ async function saveWebhooks() {
   }
 }
 
+function _humanTunnelError(result) {
+  if (!result) return "empty response";
+  // The API returns `error`, but some paths return `stderr` / `stdout` /
+  // `exit_code` instead — show whatever is available in priority order so
+  // the alert is never a bare "?".
+  const parts = [];
+  if (result.error) parts.push(String(result.error));
+  const stderr = String(result.stderr || "").trim();
+  const stdout = String(result.stdout || "").trim();
+  if (stderr) parts.push(stderr);
+  else if (stdout) parts.push(stdout);
+  if (typeof result.exit_code === "number" && result.exit_code !== 0) {
+    parts.push("(exit " + result.exit_code + ")");
+  }
+  return parts.join(" — ") || "unknown error";
+}
+
 async function tsFunnelToggle(action) {
   try {
     const result = await api("/v1/tailscale/funnel/" + action, {method: "POST"});
-    if (result.ok) {
+    if (result && result.ok) {
       refreshOverview();
+      if (typeof tunnelsRefresh === "function") tunnelsRefresh();
     } else {
-      alert("Error: " + (result.error||"?"));
+      alert("Tailscale funnel " + action + " failed:\n" + _humanTunnelError(result));
     }
   } catch(e) {
     alert("Error toggling Tailscale funnel: " + (e.message||"Unknown error"));
@@ -118,10 +136,11 @@ async function tsFunnelToggle(action) {
 async function cfFunnelToggle(action) {
   try {
     const result = await api("/v1/cloudflared/tunnel/" + action, {method: "POST"});
-    if (result.ok) {
+    if (result && result.ok) {
       refreshOverview();
+      if (typeof tunnelsRefresh === "function") tunnelsRefresh();
     } else {
-      alert("Error: " + (result.error||"?"));
+      alert("Cloudflare tunnel " + action + " failed:\n" + _humanTunnelError(result));
     }
   } catch(e) {
     alert("Error toggling Cloudflare tunnel: " + (e.message||"Unknown error"));

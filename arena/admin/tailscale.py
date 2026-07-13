@@ -60,18 +60,62 @@ def tailscale_funnel_action(action: str, port: int) -> dict[str, Any]:
 
     if action == "start":
         try:
-            result = subprocess.run([ts, "funnel", "--bg", str(port)], capture_output=True, text=True, timeout=15)
-            return {"ok": result.returncode == 0, "action": "start", "port": port,
-                    "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.returncode}
+            result = subprocess.run(
+                [ts, "funnel", "--bg", str(port)],
+                capture_output=True, text=True, timeout=15,
+            )
+            return {
+                "ok": result.returncode == 0,
+                "action": "start",
+                "port": port,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.returncode,
+                # Populate `error` for the frontend so a red pill actually
+                # says something instead of "Error: ?".
+                "error": (result.stderr or result.stdout or f"tailscale exited with {result.returncode}").strip()
+                if result.returncode != 0 else None,
+            }
         except Exception as e:
             return {"ok": False, "error": str(e)}
     if action == "stop":
-        try:
-            result = subprocess.run([ts, "funnel", "--https=443", "off"], capture_output=True, text=True, timeout=15)
-            return {"ok": result.returncode == 0, "action": "stop",
-                    "stdout": result.stdout, "stderr": result.stderr, "exit_code": result.returncode}
-        except Exception as e:
-            return {"ok": False, "error": str(e)}
+        # Modern Tailscale (1.60+) removes a funnel with `funnel --bg <port> off`.
+        # Old syntax (`funnel --https=443 off`) only targeted port 443 and did
+        # not stop a funnel on any other port. We try the modern form first
+        # and fall back to `serve reset` which nukes every funnel + serve
+        # rule for the current node — that always works.
+        attempts = [
+            [ts, "funnel", "--bg", str(port), "off"],
+            [ts, "funnel", "off"],
+            [ts, "serve", "reset"],
+        ]
+        last_stdout = ""
+        last_stderr = ""
+        last_rc = -1
+        for cmd in attempts:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+                last_stdout, last_stderr, last_rc = r.stdout, r.stderr, r.returncode
+                if r.returncode == 0:
+                    return {
+                        "ok": True,
+                        "action": "stop",
+                        "cmd": " ".join(cmd[1:]),
+                        "stdout": r.stdout,
+                        "stderr": r.stderr,
+                        "exit_code": r.returncode,
+                    }
+            except Exception as e:
+                last_stderr = str(e)
+        return {
+            "ok": False,
+            "action": "stop",
+            "stdout": last_stdout,
+            "stderr": last_stderr,
+            "exit_code": last_rc,
+            "error": (last_stderr or last_stdout or f"tailscale exited with {last_rc}").strip()
+                     or "tailscale funnel stop failed (no error message)",
+        }
 
     try:
         result = subprocess.run([ts, "funnel", "status"], capture_output=True, text=True, timeout=10)

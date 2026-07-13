@@ -109,6 +109,52 @@ def _tailscale_status() -> dict[str, Any]:
     return tailscale
 
 
+def _cloudflared_status_short() -> dict:
+    """Compact cloudflared status for /v1/sys/svc — never raise."""
+    try:
+        from arena.admin.cloudflared import (
+            CLOUDFLARED_STATE,
+            _get_cloudflared_version,
+            _resolve_cloudflared_with_source,
+        )
+        from pathlib import Path as _Path
+        root = _Path(os.environ.get("ARENA_AGENT_HOME") or _Path.home() / "arena-bridge")
+        cf_path, source = _resolve_cloudflared_with_source(root)
+        installed = cf_path is not None
+        version = _get_cloudflared_version(cf_path) if cf_path else None
+        proc = CLOUDFLARED_STATE.get("proc")
+        active = proc is not None and proc.poll() is None
+        return {
+            "installed": installed,
+            "source": source,
+            "version": version,
+            "active": active,
+            "url": CLOUDFLARED_STATE.get("url") or "",
+        }
+    except Exception as e:
+        return {"installed": False, "error": str(e)[:200]}
+
+
+def _zerotier_status_short() -> dict:
+    """Compact ZeroTier status for /v1/sys/svc — never raise."""
+    try:
+        from arena.admin.zerotier import zerotier_status
+        snap = zerotier_status()
+        zt = snap.get("zerotier") or {}
+        networks = snap.get("networks") or []
+        return {
+            "installed": bool(snap.get("installed")),
+            "backend": snap.get("backend"),
+            "cli_source": snap.get("cli_source"),
+            "connected": bool(zt.get("connected")),
+            "node_id": zt.get("node_id"),
+            "version": zt.get("version"),
+            "active_networks": sum(1 for n in networks if n.get("active")),
+        }
+    except Exception as e:
+        return {"installed": False, "error": str(e)[:200]}
+
+
 def _sys_svc_sync() -> dict:
     """Synchronous helper to check service status."""
     result: dict[str, Any] = {"ok": True}
@@ -121,5 +167,8 @@ def _sys_svc_sync() -> dict:
 
     bridge_procs = _bridge_processes()
     result["bridge_processes"] = {"count": len(bridge_procs), "details": bridge_procs[:10]}
+    # Remote-access providers — all optional, all silently degrade.
     result["tailscale"] = _tailscale_status()
+    result["cloudflared"] = _cloudflared_status_short()
+    result["zerotier"] = _zerotier_status_short()
     return result

@@ -6,7 +6,9 @@ async function runDoctor() {
   const svcEl = document.getElementById("serviceStatus");
   svcEl.innerHTML = "<span class='spinner'></span>";
   const tsEl = document.getElementById("doctorTailscale");
-  tsEl.innerHTML = "<span class='spinner'></span>";
+  if (tsEl) tsEl.innerHTML = "<span class='spinner'></span>";
+  const raEl = document.getElementById("doctorRemoteAccess");
+  if (raEl) raEl.innerHTML = "<span class='spinner'></span>";
 
   try {
     const result = await api("/v1/doctor");
@@ -56,6 +58,19 @@ async function runDoctor() {
         if (svc.tailscale) {
           items.push(["Tailscale", svc.tailscale.connected, svc.tailscale.error || "connected"]);
         }
+        // Also surface Cloudflared + ZeroTier so Doctor covers every
+        // remote-access provider, not just Tailscale. These fields may
+        // be absent on older bridges — hence the `if (svc.xxx)` guards.
+        if (svc.cloudflared) {
+          items.push(["Cloudflared",
+                      !!svc.cloudflared.installed,
+                      svc.cloudflared.error || (svc.cloudflared.active ? "tunnel active" : (svc.cloudflared.installed ? "installed, tunnel idle" : "not installed"))]);
+        }
+        if (svc.zerotier) {
+          items.push(["ZeroTier",
+                      !!(svc.zerotier.installed || svc.zerotier.connected),
+                      svc.zerotier.error || (svc.zerotier.connected ? ("node " + (svc.zerotier.node_id || "?")) : (svc.zerotier.installed ? "installed" : "not installed"))]);
+        }
         items.forEach(([name, ok, detail]) => {
           const div = document.createElement("div");
           div.className = "row";
@@ -79,59 +94,82 @@ async function runDoctor() {
       svcEl.textContent = "Service info error: " + (e.message || e);
     }
 
-    // Tailscale Funnel — fetch /v1/sys/funnel directly (v1.6.4)
-    try {
-      const fn = await api("/v1/sys/funnel");
-      if (fn && fn.ok) {
-        tsEl.innerHTML = "";
-        const wrap = document.createElement("div");
-        wrap.style.cssText = "display:flex;flex-direction:column;gap:6px";
+    // Remote access — provider-agnostic. Shows every configured tunnel
+    // provider (Tailscale, Cloudflared, ZeroTier) with its installed /
+    // connected / active state, and highlights whichever one is currently
+    // giving clients a reachable URL. Never assumes Tailscale.
+    const target = raEl || tsEl;
+    if (target) {
+      try {
+        const tun = await api("/v1/tunnels/status");
+        target.innerHTML = "";
+        if (!tun || !tun.ok) {
+          target.textContent = "Remote-access info not available";
+        } else {
+          const wrap = document.createElement("div");
+          wrap.style.cssText = "display:flex;flex-direction:column;gap:8px";
 
-        // 1. Funnel active badge
-        const row1 = document.createElement("div");
-        row1.className = "row";
-        const fb = document.createElement("span");
-        fb.className = "badge " + (fn.funnel?.active ? "ok" : "fail");
-        fb.textContent = fn.funnel?.active ? "Funnel: ACTIVE" : "Funnel: inactive";
-        row1.appendChild(fb);
-        if (fn.funnel?.url) {
-          const u = document.createElement("a");
-          u.href = fn.funnel.url; u.target = "_blank";
-          u.className = "mono"; u.style.cssText = "font-size:12px;margin-left:8px";
-          u.textContent = fn.funnel.url;
-          row1.appendChild(u);
+          // Active endpoint row.
+          const activeRow = document.createElement("div");
+          activeRow.className = "row";
+          const ab = document.createElement("span");
+          if (tun.active && tun.active.provider) {
+            ab.className = "badge ok";
+            ab.textContent = "Active: " + tun.active.provider;
+          } else {
+            ab.className = "badge fail";
+            ab.textContent = "No active tunnel";
+          }
+          activeRow.appendChild(ab);
+          if (tun.active?.public_url) {
+            const u = document.createElement("a");
+            u.href = tun.active.public_url;
+            u.target = "_blank";
+            u.className = "mono";
+            u.style.cssText = "font-size:12px;margin-left:8px";
+            u.textContent = tun.active.public_url;
+            activeRow.appendChild(u);
+          }
+          wrap.appendChild(activeRow);
+
+          // Per-provider rows.
+          for (const p of (tun.providers || [])) {
+            const row = document.createElement("div");
+            row.className = "row";
+            row.style.cssText = "gap:6px";
+
+            const nameLbl = document.createElement("span");
+            nameLbl.style.cssText = "font-size:12px;font-weight:600;width:100px";
+            nameLbl.textContent = p.provider;
+            row.appendChild(nameLbl);
+
+            const state = document.createElement("span");
+            let label = "off";
+            let cls = "gray";
+            if (!p.installed) { label = "not installed"; cls = "gray"; }
+            else if (p.active) { label = "active"; cls = "ok"; }
+            else if (p.connected) { label = "connected"; cls = "warn"; }
+            else { label = "installed"; cls = "gray"; }
+            state.className = "badge " + cls;
+            state.textContent = label;
+            row.appendChild(state);
+
+            if (p.public_url) {
+              const u = document.createElement("a");
+              u.href = p.public_url; u.target = "_blank";
+              u.className = "mono";
+              u.style.cssText = "font-size:11px;margin-left:6px";
+              u.textContent = p.public_url;
+              row.appendChild(u);
+            }
+            wrap.appendChild(row);
+          }
+
+          target.appendChild(wrap);
         }
-        wrap.appendChild(row1);
-
-        // 2. Tailscale connected badge
-        const row2 = document.createElement("div");
-        row2.className = "row";
-        const tb = document.createElement("span");
-        tb.className = "badge " + (fn.tailscale?.connected ? "ok" : "fail");
-        tb.textContent = fn.tailscale?.connected ? "Tailscale: connected" : "Tailscale: down";
-        row2.appendChild(tb);
-        wrap.appendChild(row2);
-
-        // 3. Raw status (collapsible)
-        if (fn.tailscale?.status || fn.funnel?.status) {
-          const det = document.createElement("details");
-          det.style.cssText = "margin-top:6px";
-          const sum = document.createElement("summary");
-          sum.style.cssText = "cursor:pointer;font-size:11px;color:var(--text2)";
-          sum.textContent = "Raw output";
-          det.appendChild(sum);
-          const pre = document.createElement("pre");
-          pre.style.cssText = "margin:6px 0 0;font-size:11px;background:var(--bg2);padding:6px;white-space:pre-wrap";
-          pre.textContent = (fn.tailscale?.status || "") + "\n\n" + (fn.funnel?.status || "");
-          det.appendChild(pre);
-          wrap.appendChild(det);
-        }
-        tsEl.appendChild(wrap);
-      } else {
-        tsEl.textContent = "Tailscale info not available";
+      } catch (e) {
+        target.textContent = "Remote-access info error: " + (e.message || e);
       }
-    } catch (e) {
-      tsEl.textContent = "Funnel info error: " + (e.message || e);
     }
 
     // Doctor results

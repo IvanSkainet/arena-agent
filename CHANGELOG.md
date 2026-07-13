@@ -1,5 +1,62 @@
 # Changelog
 
+## v3.81.4 - 2026-07-13
+
+Polish pass: real bugs the user hit in the Dashboard once they tried to
+run without Tailscale. Fixes a set of Tailscale-only assumptions across
+Overview / Doctor / Stop-tunnel actions, plus a leaked private network
+ID in a UI placeholder.
+
+### Fixed
+
+- **Overview "Network Status" is provider-agnostic.** Previously
+  hardcoded to `Tailscale Funnel` + `Public URL` fed from
+  `/v1/sys/funnel`. Rewritten to `Active Provider` + `Public URL` +
+  per-provider status list, fed from `/v1/tunnels/status`. Now the card
+  correctly says "ZeroTier · http://10.x.y.z:8765" when Tailscale is
+  down. Legacy `#tsFunnelStatus` / `#tsFunnelUrl` DOM IDs are kept
+  hidden for backward compatibility with any plugin that still reads
+  them.
+- **Doctor tab is provider-agnostic.** The `Tailscale Funnel` panel is
+  replaced by `Remote Access` which lists every configured provider
+  (active/connected/installed/not installed) plus the currently active
+  endpoint. Service Status now also reports Cloudflared + ZeroTier
+  alongside Tailscale, so `/v1/sys/svc` (Doctor backend) covers the
+  whole tunnels pool instead of just one provider.
+- **`/v1/tailscale/funnel/stop` actually stops a funnel on port 8765.**
+  Previously called `tailscale funnel --https=443 off`, which only ever
+  targeted port 443. Now attempts the modern
+  `tailscale funnel --bg <port> off`, then `funnel off`, then
+  `serve reset` as a last resort — one of them always works on any
+  Tailscale ≥ 1.60.
+- **Dashboard tunnel error messages are no longer literally "?".** When
+  `tsFunnelToggle` / `cfFunnelToggle` got a `{ok: false}` response with
+  no `error` field it displayed `"Error: ?"`. The Python side now
+  always populates `error` on failure, and the JS side falls back to
+  `stderr` / `stdout` / exit code so the alert always shows something
+  actionable.
+- **Leaked private network ID removed from UI.** The placeholder text
+  in the ZeroTier "Join" input on the Settings tab was a real live
+  network ID from the maintainer's own account (`cf719fd5...`). Replaced
+  with an obviously-synthetic example (`abcdef0123456789`) plus a link
+  to `my.zerotier.com/network` for how to get a real one. Also fixed
+  the client-side validation `alert()` that quoted the same real ID.
+
+### Added
+
+- `arena/service/status.py::_sys_svc_sync()` now includes
+  `cloudflared` and `zerotier` status alongside `tailscale`. Both are
+  compact snapshots (installed / active / connected / node_id /
+  active_networks) with silent error degradation — never raises.
+- Regression tests:
+  * `tailscale_funnel_action` never omits `error` on failure;
+  * `tailscale_funnel_action` source no longer contains the legacy
+    `--https=443` stop syntax.
+
+### Test suite
+
+706 passed (was 704). Two new admin-handler tests.
+
 ## v3.81.3 - 2026-07-13
 
 Patch release: fix `zerotier-cli listnetworks` parser for networks

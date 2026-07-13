@@ -244,7 +244,7 @@ async function ztNetworkAction(action) {
     return;
   }
   if (nwid && !/^[0-9a-fA-F]{16}$/.test(nwid)) {
-    alert("Network ID must be exactly 16 hex characters (e.g. cf719fd54099e1c1).");
+    alert("Network ID must be exactly 16 hex characters (get one at https://my.zerotier.com/network).");
     return;
   }
   try {
