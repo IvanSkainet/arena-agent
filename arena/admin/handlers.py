@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from aiohttp import web
 from arena.app_keys import APP_CFG
 
-from arena.admin.runtime import cloudflared_funnel_action, sys_funnel_status, tailscale_funnel_action, token_regenerate
+from arena.admin.runtime import cloudflared_funnel_action, sys_funnel_status, tailscale_funnel_action, token_regenerate, zerotier_status, zerotier_network_action
 from arena.handler_context import AdminHandlerContext
 
 
@@ -18,6 +18,8 @@ class AdminHandlers:
     token_regenerate: object
     tailscale_funnel: object
     cloudflared_tunnel: object
+    zerotier_status: object
+    zerotier_network: object
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
@@ -98,9 +100,56 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_v1_zerotier_status(request: web.Request) -> web.Response:
+        """GET /v1/zerotier/status — ZeroTier status."""
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                ctx.executor,
+                functools.partial(zerotier_status, subprocess_kwargs=ctx.subprocess_kwargs)
+            )
+            return ctx.cors_json_response(result)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_v1_zerotier_network(request: web.Request) -> web.Response:
+        """POST/GET /v1/zerotier/network/{action} — ZeroTier network actions."""
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        action = request.match_info.get("action", "status")
+        network_id = request.query.get("network_id") if request.method == "GET" else None
+        if request.method == "POST":
+            try:
+                body = await request.json()
+                network_id = network_id or body.get("network_id")
+            except Exception:
+                pass
+        try:
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                ctx.executor,
+                zerotier_network_action,
+                action,
+                network_id
+            )
+            ctx.audit({"type": "zerotier_network", "action": action, "ok": result.get("ok")})
+            return ctx.cors_json_response(result)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+
     return AdminHandlers(
         sys_funnel=handle_v1_sys_funnel,
         token_regenerate=handle_v1_token_regenerate,
         tailscale_funnel=handle_v1_tailscale_funnel,
         cloudflared_tunnel=handle_v1_cloudflared_tunnel,
+        zerotier_status=handle_v1_zerotier_status,
+        zerotier_network=handle_v1_zerotier_network,
     )

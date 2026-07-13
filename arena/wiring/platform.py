@@ -117,4 +117,6 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_token_regenerate": handlers.token_regenerate,
         "handle_v1_tailscale_funnel": handlers.tailscale_funnel,
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
+        "handle_v1_zerotier_status": handlers.zerotier_status,
+        "handle_v1_zerotier_network": handlers.zerotier_network,
     }
