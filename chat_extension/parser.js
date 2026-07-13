@@ -80,10 +80,16 @@ function arenaPayloadFromJson(text) {
   } catch {}
   return null;
 }
+function arenaLooksLikeBridgeInstructions(text) {
+  const source = String(text || '');
+  return source.includes('You can request local tool execution through the Arena Chat Bridge browser extension.')
+    || source.includes('Only emit a tool block when you need the local Arena bridge to run a tool.');
+}
 
 function parseArenaBlocks(text) {
   const out = [];
   const source = String(text || '');
+  if (arenaLooksLikeBridgeInstructions(source)) return out;
   ARENA_BLOCK_PATTERNS.forEach(({kind, re}) => {
     re.lastIndex = 0;
     for (const match of source.matchAll(re)) {

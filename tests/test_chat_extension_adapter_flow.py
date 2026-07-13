@@ -52,6 +52,7 @@ def test_chat_extension_adapter_helpers_exist():
     assert '[class*="message"]' in adapter_sites
     assert '[class*="markdown"]' in adapter_sites
     assert 'arenaPayloadFromJsonl' in parser
+    assert 'arenaLooksLikeBridgeInstructions' in parser
     assert 'sys.status' in (ROOT / 'arena' / 'extension_bridge' / 'instructions.py').read_text(encoding='utf-8')
     assert 'sys.status' in (ROOT / 'arena' / 'extension_bridge' / 'policy.py').read_text(encoding='utf-8')
     assert "kind: 'jsonl-inline'" in parser
@@ -146,7 +147,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.19`.' in readme
+    assert 'Current extension version: `0.13.20`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme
