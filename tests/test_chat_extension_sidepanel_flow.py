@@ -62,6 +62,9 @@ def test_background_supports_history_item_and_filters():
     assert 'response: compactResult(result)' in bg
     assert 'while fetching ${url}' in bg
     assert 'bridge_url: base' in bg
+    assert 'chrome.storage.local.get({bridgeToken: ' in bg
+    assert 'chrome.storage.local.set({bridgeToken})' in bg
+    assert "chrome.storage.sync.remove('bridgeToken')" in bg
     assert 'HISTORY_AGGREGATE_MS' in bg
     assert 'historyAggregateKey' in bg
     assert 'isAggregatedHistoryKind' in bg

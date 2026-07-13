@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.13.4"
+    assert manifest["version"] == "0.13.5"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -73,6 +73,8 @@ def test_chat_extension_scaffold_exists():
     assert "HISTORY_AGGREGATE_MS" in background
     assert "normalizeBridgeUrl" in background
     assert "http://${url}" in background
+    assert "chrome.storage.local.set({bridgeToken})" in background
+    assert "chrome.storage.sync.remove('bridgeToken')" in background
     assert "chrome.tabs.create" in background
     assert "resultErrorText" in content
     assert "attachControls(host, bar)" in content

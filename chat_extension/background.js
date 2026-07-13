@@ -1,6 +1,8 @@
-const DEFAULTS = {
+const HISTORY_KEY = 'arenaHistory';
+const HISTORY_LIMIT = 160;
+const HISTORY_AGGREGATE_MS = 30000;
+const SYNC_DEFAULTS = {
   bridgeUrl: 'http://127.0.0.1:8765',
-  bridgeToken: '',
   modes: (typeof ARENA_MODE_DEFAULTS !== 'undefined' ? ARENA_MODE_DEFAULTS : {
     autoPreview: false,
     autoExecuteSafe: false,
@@ -9,9 +11,6 @@ const DEFAULTS = {
     insertStrategy: 'auto',
   }),
 };
-const HISTORY_KEY = 'arenaHistory';
-const HISTORY_LIMIT = 160;
-const HISTORY_AGGREGATE_MS = 30000;
 function normalizeModes(data) {
   const input = data || {};
   const allowed = ['auto', 'nativeInsertText', 'paragraphFallback', 'pasteOnly', 'directDomText', 'directDomBlocks', 'directDomPreWrap'];
@@ -29,10 +28,18 @@ function normalizeBridgeUrl(value) {
   return url.replace(/\/+$/, '');
 }
 async function getConfig() {
-  const data = await chrome.storage.sync.get(DEFAULTS);
-  const merged = {...DEFAULTS, ...data};
-  merged.modes = normalizeModes(merged.modes);
-  return merged;
+  const [syncData, localData] = await Promise.all([
+    chrome.storage.sync.get({...SYNC_DEFAULTS, bridgeToken: ''}),
+    chrome.storage.local.get({bridgeToken: ''}),
+  ]);
+  const bridgeToken = String(localData.bridgeToken || syncData.bridgeToken || '').trim();
+  if (!localData.bridgeToken && bridgeToken) await chrome.storage.local.set({bridgeToken});
+  if (syncData.bridgeToken) await chrome.storage.sync.remove('bridgeToken');
+  return {
+    bridgeUrl: normalizeBridgeUrl(syncData.bridgeUrl),
+    bridgeToken,
+    modes: normalizeModes(syncData.modes),
+  };
 }
 async function setConfig(data) {
   const next = {
@@ -40,7 +47,11 @@ async function setConfig(data) {
     bridgeToken: String(data?.bridgeToken || '').trim(),
     modes: normalizeModes(data?.modes),
   };
-  await chrome.storage.sync.set(next);
+  await Promise.all([
+    chrome.storage.sync.set({bridgeUrl: next.bridgeUrl, modes: next.modes}),
+    chrome.storage.local.set({bridgeToken: next.bridgeToken}),
+    chrome.storage.sync.remove('bridgeToken'),
+  ]);
   return {ok: true, config: next};
 }
 async function getHistory(filters = {}) {
@@ -181,8 +192,9 @@ async function replayHistory(index, mode = 'execute') {
   return bridgeFetch('/v1/extension/execute', {method: 'POST', body: {...item.payload, mode: {...(item.payload.mode || {}), approve: true}}});
 }
 chrome.runtime.onInstalled.addListener(async () => {
-  const cfg = await chrome.storage.sync.get(DEFAULTS); await chrome.storage.sync.set({...DEFAULTS, ...cfg});
-  const local = await chrome.storage.local.get({[HISTORY_KEY]: []});
+  const cfg = await getConfig();
+  await chrome.storage.sync.set({bridgeUrl: cfg.bridgeUrl, modes: cfg.modes});
+  const local = await chrome.storage.local.get({[HISTORY_KEY]: [], bridgeToken: cfg.bridgeToken});
   if (!Array.isArray(local[HISTORY_KEY])) await chrome.storage.local.set({[HISTORY_KEY]: []});
 });
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
