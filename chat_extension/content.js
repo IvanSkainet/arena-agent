@@ -1,6 +1,7 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.13';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.14';
 const processed = new Set();
 const mountedControls = new Map();
+const mountedPayloadSemantics = new Set();
 const dismissedControls = new Set();
 const detectedPayloads = new Set();
 let scanTimer = null;
@@ -58,13 +59,16 @@ function cleanupStaleControls() {
   document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((bar) => bar.remove());
   document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { node.dataset.arenaToolControlsMounted = ''; });
   mountedControls.clear();
+  mountedPayloadSemantics.clear();
   detectedPayloads.clear();
 }
 function suppressCurrentControls() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: []};
-  state.nodes.forEach((node) => parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => {
+  [...state.nodes].reverse().forEach((node) => parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => {
     const host = controlsHost(node);
+    const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter) : hash(JSON.stringify(entry.payload || {}));
     dismissedControls.add(typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, entry.payload, state.adapter) : hash((host.textContent || '') + JSON.stringify(entry.payload)));
+    dismissedControls.add(semanticFingerprint);
   }));
 }
 function hostHasToolbar(host) {
@@ -126,14 +130,15 @@ function mountControls(host, payload, adapter) {
   host = controlsHost(host);
   const fingerprint = typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, payload, adapter) : hash((host.textContent || '') + JSON.stringify(payload));
   const payloadFingerprint = typeof arenaPayloadFingerprint === 'function' ? arenaPayloadFingerprint(payload, adapter) : hash(JSON.stringify(payload || {}));
+  const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(payload, adapter) : payloadFingerprint;
   const existing = mountedControls.get(fingerprint);
-  if (dismissedControls.has(fingerprint) || (existing?.bar?.isConnected) || hostHasToolbar(host)) return;
+  if (dismissedControls.has(fingerprint) || dismissedControls.has(semanticFingerprint) || mountedPayloadSemantics.has(semanticFingerprint) || (existing?.bar?.isConnected) || hostHasToolbar(host)) return;
   const firstSeen = !processed.has(fingerprint);
-  const firstPayloadSeen = !detectedPayloads.has(payloadFingerprint);
-  processed.add(fingerprint); detectedPayloads.add(payloadFingerprint);
+  const firstPayloadSeen = !detectedPayloads.has(semanticFingerprint);
+  processed.add(fingerprint); detectedPayloads.add(semanticFingerprint); mountedPayloadSemantics.add(semanticFingerprint);
   host.dataset.arenaToolControlsMounted = '1'; host.dataset.arenaToolFingerprint = fingerprint;
   const request = buildRequest(payload, adapter.name, fingerprint);
-  if (firstSeen && firstPayloadSeen) chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: detectedDetail(payload, adapter), site: location.origin, adapter: adapter.name, fingerprint, payload_fingerprint: payloadFingerprint, tools: payloadTools(payload), payload: request}});
+  if (firstSeen && firstPayloadSeen) chrome.runtime.sendMessage({type: 'arena.detected', body: {detail: detectedDetail(payload, adapter), site: location.origin, adapter: adapter.name, fingerprint, payload_fingerprint: semanticFingerprint, payload_instance_fingerprint: payloadFingerprint, tools: payloadTools(payload), payload: request}});
   let lastExecutionText = '';
   const bar = document.createElement('div');
   bar.dataset.arenaToolControls = '1';
@@ -182,9 +187,9 @@ function mountControls(host, payload, adapter) {
     const result = await chrome.runtime.sendMessage({type: 'arena.openSidePanel'});
     status.textContent = result?.ok ? 'Opened side panel.' : `Panel error: ${result?.error || 'unknown'}`;
   }));
-  bar.appendChild(makeButton('×', () => { dismissedControls.add(fingerprint); bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); }));
+  bar.appendChild(makeButton('×', () => { dismissedControls.add(fingerprint); dismissedControls.add(semanticFingerprint); bar.remove(); host.dataset.arenaToolControlsMounted = ''; mountedControls.delete(fingerprint); mountedPayloadSemantics.delete(semanticFingerprint); }));
   attachControls(host, bar);
-  mountedControls.set(fingerprint, {host, bar});
+  mountedControls.set(fingerprint, {host, bar, semanticFingerprint});
   runAutoModes(request, adapter, status, (text) => { lastExecutionText = text; });
 }
 async function runAutoModes(request, adapter, status, setResultText) {
@@ -220,7 +225,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
 }
 function scan() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
-  state.nodes.forEach((node) => {
+  [...state.nodes].reverse().forEach((node) => {
     const host = controlsHost(node);
     if (hostHasToolbar(host)) return;
     parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => mountControls(host, entry.payload, state.adapter));

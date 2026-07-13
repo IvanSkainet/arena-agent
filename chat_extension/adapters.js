@@ -111,12 +111,13 @@ function arenaStableHash(text, prefix = 'arena') {
   return `${prefix}_${Math.abs(h)}`;
 }
 function arenaPayloadFingerprint(payload, adapter = getArenaAdapter()) {
-  const calls = Array.isArray(payload?.calls) ? payload.calls.map((call) => ({id: call.id || '', tool: call.tool || '', arguments: call.arguments || {}})) : [];
-  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls}), 'arena_payload');
+  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls: Array.isArray(payload?.calls) ? payload.calls.map((call) => ({id: call.id || '', tool: call.tool || '', arguments: call.arguments || {}})) : []}), 'arena_payload');
+}
+function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter()) {
+  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls: Array.isArray(payload?.calls) ? payload.calls.map((call) => ({tool: call.tool || '', arguments: call.arguments || {}})) : []}), 'arena_payload_sem');
 }
 function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
-  const base = [adapter.name, arenaExtractNodeId(node, adapter), JSON.stringify(payload || {})].join('|');
-  return arenaStableHash(base, 'arena_msg');
+  return arenaStableHash([adapter.name, arenaExtractNodeId(node, adapter), JSON.stringify(payload || {})].join('|'), 'arena_msg');
 }
 
 function arenaCandidateNodes() {
