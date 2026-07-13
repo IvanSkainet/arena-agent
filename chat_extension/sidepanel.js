@@ -29,6 +29,7 @@ function scanDiagnostics(item) {
   if (Number.isFinite(res.semantic_unique_blocks)) parts.push(`${res.semantic_unique_blocks} unique`);
   if (Number.isFinite(res.semantic_duplicate_blocks) && res.semantic_duplicate_blocks > 0) parts.push(`${res.semantic_duplicate_blocks} duplicates`);
   if (Number.isFinite(res.mounted_controls)) parts.push(`${res.mounted_controls} controls`);
+  if (res.diagnostic_summary) parts.push(res.diagnostic_summary);
   const composer = res.composer || {};
   if (composer.found) {
     const editor = composer.rich_textarea ? 'rich-textarea' : (composer.prose_mirror ? 'ProseMirror' : (composer.contenteditable ? 'contenteditable' : composer.tag));

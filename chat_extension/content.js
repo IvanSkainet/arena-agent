@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.15';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.16';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -251,7 +251,13 @@ function scanPageDiagnostics() {
   });
   const selectorHits = typeof arenaSelectorDiagnostics === 'function' ? arenaSelectorDiagnostics() : [];
   const composer = typeof arenaComposerDiagnostics === 'function' ? arenaComposerDiagnostics(state.adapter) : null;
-  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, semantic_unique_blocks: semanticFingerprints.size, semantic_duplicate_blocks: Math.max(0, parsedBlocks - semanticFingerprints.size), mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
+  const semanticDuplicateBlocks = Math.max(0, parsedBlocks - semanticFingerprints.size);
+  const diagnosticSummary = [
+    semanticFingerprints.size ? `${semanticFingerprints.size} unique block(s)` : '',
+    semanticDuplicateBlocks ? `+${semanticDuplicateBlocks} duplicate(s)` : '',
+    composer?.submit_phase ? `submit ${composer.submit_phase}` : '',
+  ].filter(Boolean).join(' · ');
+  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, semantic_unique_blocks: semanticFingerprints.size, semantic_duplicate_blocks: semanticDuplicateBlocks, diagnostic_summary: diagnosticSummary, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
 }
 function scheduleScan() {
   if (scanTimer) return;

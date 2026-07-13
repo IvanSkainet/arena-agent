@@ -29,6 +29,7 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'itemStatus' in js
     assert 'scanDiagnostics' in js
     assert 'semantic_unique_blocks' in js
+    assert 'diagnostic_summary' in js
     assert 'duplicates' in js
     assert 'bridgeDiagnostics' in js
     assert 'versionDiagnostics' in js
