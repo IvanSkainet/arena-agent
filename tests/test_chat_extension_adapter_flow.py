@@ -89,9 +89,14 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaComposerDiagnostics' in insert_strategies
     assert 'composer_candidates' in insert_strategies
     assert 'composer_selector' in insert_strategies
+    assert 'text_length' in insert_strategies
+    assert 'has_text' in insert_strategies
     assert 'submit_candidates' in insert_strategies
     assert 'submit_selector' in insert_strategies
     assert 'submit_scope' in insert_strategies
+    assert 'submit_scope_buttons' in insert_strategies
+    assert 'submit_scope_visible_buttons' in insert_strategies
+    assert 'submit_note' in insert_strategies
     assert 'arenaInsertScriptVersion' in insert_strategies
     assert "arenaHost() === 'gemini.google.com'" in insert_strategies
     assert "closest?.('rich-textarea')" in insert_strategies
@@ -124,7 +129,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.7`.' in readme
+    assert 'Current extension version: `0.13.8`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme

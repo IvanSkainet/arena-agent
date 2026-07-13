@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.7';
+  return '0.13.8';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -140,7 +140,11 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     selected_selector: composerInfo.selected_selector || '',
     auto_plan: [],
   };
-  const submitInfo = typeof arenaSubmitButtonSelection === 'function' ? arenaSubmitButtonSelection(adapter, target) : {button: arenaFindSubmitButton(adapter, target), candidates: 0, selected_selector: '', scope: 'global'};
+  const submitInfo = typeof arenaSubmitButtonSelection === 'function' ? arenaSubmitButtonSelection(adapter, target) : {button: arenaFindSubmitButton(adapter, target), candidates: 0, selected_selector: '', scope: 'global', scope_buttons: 0, visible_scope_buttons: 0};
+  const composerText = arenaEditableText(target);
+  const submitNote = submitInfo.button ? '' : (!composerText
+    ? 'submit may appear only after composer has content'
+    : (submitInfo.scope_buttons ? 'buttons exist in scope, but none matched submit selectors' : 'no submit buttons currently rendered in composer scope'));
   return {
     found: true,
     host: arenaHost(),
@@ -151,6 +155,8 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     prose_mirror: !!target.closest?.('.ProseMirror') || target.classList?.contains('ProseMirror'),
     aria_label: target.getAttribute?.('aria-label') || '',
     role: target.getAttribute?.('role') || '',
+    text_length: composerText.length,
+    has_text: !!composerText,
     candidates: composerInfo.candidates || 0,
     selected_selector: composerInfo.selected_selector || '',
     active_match: !!composerInfo.active_match,
@@ -159,6 +165,9 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     submit_candidates: submitInfo.candidates || 0,
     submit_selector: submitInfo.selected_selector || '',
     submit_scope: submitInfo.scope || 'global',
+    submit_scope_buttons: submitInfo.scope_buttons || 0,
+    submit_scope_visible_buttons: submitInfo.visible_scope_buttons || 0,
+    submit_note: submitNote,
     auto_plan: arenaInsertPlan(target, 'auto'),
   };
 }

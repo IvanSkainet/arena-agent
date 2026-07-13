@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.13.7"
+    assert manifest["version"] == "0.13.8"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -96,6 +96,8 @@ def test_chat_extension_scaffold_exists():
     assert "arenaPruneAncestorCandidates" in adapters
     assert "arenaComposerSelection" in adapters
     assert "arenaSubmitButtonSelection" in adapters
+    assert "scope_buttons" in adapters
+    assert "visible_scope_buttons" in adapters
     assert "clearPageControls" in popup
     assert "scanPage" in popup
     assert "notifyActiveTab" in popup

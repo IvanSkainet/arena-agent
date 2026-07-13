@@ -259,6 +259,7 @@ function arenaSubmitButtonSelection(adapter = getArenaAdapter(), composer = aren
   const fieldsetRoot = composer?.closest?.('fieldset');
   const scopeRoot = formRoot || fieldsetRoot || composer?.closest?.('[role="form"], main, section, article, [role="dialog"]');
   const composerRect = composer?.getBoundingClientRect?.();
+  const scopeButtons = Array.from((scopeRoot || document).querySelectorAll?.('button') || []);
   const ranked = arenaSubmitCandidates(adapter)
     .map((item) => {
       let score = 0;
@@ -280,6 +281,8 @@ function arenaSubmitButtonSelection(adapter = getArenaAdapter(), composer = aren
     candidates: ranked.length,
     selected_selector: selected?.selector || '',
     scope: formRoot ? 'form' : (fieldsetRoot ? 'fieldset' : (scopeRoot ? 'container' : 'global')),
+    scope_buttons: scopeButtons.length,
+    visible_scope_buttons: scopeButtons.filter((button) => arenaElementVisible(button)).length,
   };
 }
 
