@@ -32,10 +32,16 @@ function scanDiagnostics(item) {
     const editor = composer.rich_textarea ? 'rich-textarea' : (composer.prose_mirror ? 'ProseMirror' : (composer.contenteditable ? 'contenteditable' : composer.tag));
     if (editor) parts.push(`composer: ${editor}`);
     if (Array.isArray(composer.auto_plan) && composer.auto_plan.length) parts.push(`auto: ${composer.auto_plan.join(' → ')}`);
+    if (composer.submit_phase) parts.push(`submit: ${composer.submit_phase}`);
+    if (composer.submit_expected_after_text) parts.push('submit after text');
   } else if (composer && composer.found === false) {
     parts.push('composer: not found');
   }
   return parts;
+}
+function bridgeDiagnostics(item) {
+  const res = item.response || {};
+  return [res.bridge_url ? `bridge: ${shortUrl(res.bridge_url)}` : '', res.bridge_url_fallback ? 'bridge fallback' : ''].filter(Boolean);
 }
 function versionDiagnostics(item) {
   const res = item.response || {};
@@ -67,6 +73,7 @@ function cardMetaParts(item) {
     tools ? `tools: ${tools}` : '',
     ...scanDiagnostics(item),
     ...insertionDiagnostics(item),
+    ...bridgeDiagnostics(item),
     ...versionDiagnostics(item),
     ...fingerprintDiagnostics(item),
   ].filter(Boolean);

@@ -28,6 +28,7 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'itemTools' in js
     assert 'itemStatus' in js
     assert 'scanDiagnostics' in js
+    assert 'bridgeDiagnostics' in js
     assert 'versionDiagnostics' in js
     assert 'insertionDiagnostics' in js
     assert 'cardMetaParts' in js
@@ -45,6 +46,8 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'scheduleFilterReload' in js
     assert "getElementById('kindFilter').addEventListener('change', loadHistory)" in js
     assert "auto: ${composer.auto_plan.join(' → ')}" in js
+    assert 'submit after text' in js
+    assert 'bridge fallback' in js
     assert 'shortUrl' in js
     assert 'arena-history-card' in css
     assert 'arena-badge' in css
