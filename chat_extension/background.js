@@ -40,7 +40,9 @@ async function bridgeFetchOnce(base, path, headers, method, body) {
   if (!res.ok) return {ok: false, status: res.status, error: parsed.error || parsed.raw || `HTTP ${res.status}`, bridge_url: base, path, ...parsed};
   return {...parsed, bridge_url: base};
 }
+let _cachedConfig = null;
 async function getConfig() {
+  if (_cachedConfig) return _cachedConfig;
   const [syncData, localData] = await Promise.all([
     chrome.storage.sync.get({...SYNC_DEFAULTS, bridgeToken: ''}),
     chrome.storage.local.get({bridgeToken: ''}),
@@ -48,12 +50,17 @@ async function getConfig() {
   const bridgeToken = String(localData.bridgeToken || syncData.bridgeToken || '').trim();
   if (!localData.bridgeToken && bridgeToken) await chrome.storage.local.set({bridgeToken});
   if (syncData.bridgeToken) await chrome.storage.sync.remove('bridgeToken');
-  return {
+  _cachedConfig = {
     bridgeUrl: normalizeBridgeUrl(syncData.bridgeUrl),
     bridgeToken,
     modes: normalizeModes(syncData.modes),
   };
+  return _cachedConfig;
 }
+function invalidateConfigCache() { _cachedConfig = null; }
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'sync' || area === 'local') invalidateConfigCache();
+});
 async function setConfig(data) {
   const next = {
     bridgeUrl: normalizeBridgeUrl(data?.bridgeUrl),
@@ -65,6 +72,7 @@ async function setConfig(data) {
     chrome.storage.local.set({bridgeToken: next.bridgeToken}),
     chrome.storage.sync.remove('bridgeToken'),
   ]);
+  invalidateConfigCache();
   return {ok: true, config: next};
 }
 async function getHistory(filters = {}) {
@@ -146,21 +154,23 @@ async function pushHistory(kind, detail) {
   await chrome.storage.local.set({[HISTORY_KEY]: items});
 }
 async function bridgeFetch(path, {method = 'GET', body} = {}) {
+  const started = Date.now();
   const cfg = await getConfig();
   const headers = {'Content-Type': 'application/json'};
   if (cfg.bridgeToken) headers.Authorization = `Bearer ${cfg.bridgeToken}`;
   const base = normalizeBridgeUrl(cfg.bridgeUrl);
   try {
-    return await bridgeFetchOnce(base, path, headers, method, body);
+    const result = await bridgeFetchOnce(base, path, headers, method, body);
+    return {...result, bridge_ms: Date.now() - started};
   } catch (error) {
     const fallback = bridgeFallbackBase(base);
     if (fallback) {
       try {
         const result = await bridgeFetchOnce(fallback, path, headers, method, body);
-        return {...result, bridge_url_primary: base, bridge_url_fallback: fallback};
+        return {...result, bridge_url_primary: base, bridge_url_fallback: fallback, bridge_ms: Date.now() - started};
       } catch (_fallbackError) {}
     }
-    return {ok: false, error: `${String(error)} while fetching ${base}${path}`, bridge_url: base, bridge_url_fallback: fallback || '', path};
+    return {ok: false, error: `${String(error)} while fetching ${base}${path}`, bridge_url: base, bridge_url_fallback: fallback || '', path, bridge_ms: Date.now() - started};
   }
 }
 async function testConnection() {

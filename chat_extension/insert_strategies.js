@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.22';
+  return '0.13.23';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -36,12 +36,28 @@ function arenaTextContainsInsert(text, inserted) {
   return (!!markers.normalized && normalized.includes(markers.normalized))
     || (!!markers.compact && compact.includes(markers.compact));
 }
-async function arenaVerifySettledInsert(adapter, before, text, target = null, delayMs = 180) {
-  await arenaSleep(delayMs);
+async function arenaVerifySettledInsert(adapter, before, text, target = null, maxDelayMs = 180) {
+  // Adaptive: check early at 30ms, 80ms, then at maxDelay
+  const checkPoints = [30, 80, maxDelayMs];
+  let elapsed = 0;
+  for (let i = 0; i < checkPoints.length; i++) {
+    const waitMs = (i === 0) ? checkPoints[0] : (checkPoints[i] - checkPoints[i - 1]);
+    await arenaSleep(waitMs);
+    elapsed += waitMs;
+    const current = target?.isConnected ? target : arenaFindComposer(adapter);
+    const after = arenaEditableText(current);
+    const changed = after !== before;
+    if (changed && arenaTextContainsInsert(after, text)) {
+      return {changed: true, settled: true, verify_ms: elapsed};
+    }
+    if (i === checkPoints.length - 1) {
+      return {changed, settled: changed && arenaTextContainsInsert(after, text), verify_ms: elapsed};
+    }
+  }
   const current = target?.isConnected ? target : arenaFindComposer(adapter);
   const after = arenaEditableText(current);
   const changed = after !== before;
-  return {changed, settled: changed && arenaTextContainsInsert(after, text), verify_ms: delayMs};
+  return {changed, settled: changed && arenaTextContainsInsert(after, text), verify_ms: elapsed};
 }
 function arenaTextareaInsert(target, text) {
   const value = target.value || '';
@@ -240,14 +256,20 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
   const composerInfo = typeof arenaComposerSelection === 'function' ? arenaComposerSelection(adapter) : {target: arenaFindComposer(adapter)};
   const deadline = Date.now() + 1500;
   let submitInfo = {button: null, candidates: 0, selected_selector: '', scope: 'global'};
+  // Adaptive polling: 20ms, 20ms, 40ms, 40ms, 80ms, 80ms...
+  const pollDelays = [20, 20, 40, 40, 80, 80, 100, 100];
+  let pollIndex = 0;
   while (Date.now() < deadline) {
     submitInfo = typeof arenaSubmitButtonSelection === 'function' ? arenaSubmitButtonSelection(adapter, composerInfo.target) : {button: arenaFindSubmitButton(adapter, composerInfo.target), candidates: 0, selected_selector: '', scope: 'global'};
     const submit = submitInfo.button;
     if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
       submit.click();
-      return {ok: true, inserted: true, submitted: true, ...insertTiming, submit_candidates: submitInfo.candidates || 0, submit_selector: submitInfo.selected_selector || '', submit_scope: submitInfo.scope || 'global', total_ms: Math.round(performance.now() - started)};
+      const submitWaitMs = Math.round(performance.now() - started) - (insertTiming.total_ms || 0);
+      return {ok: true, inserted: true, submitted: true, ...insertTiming, submit_wait_ms: submitWaitMs, submit_candidates: submitInfo.candidates || 0, submit_selector: submitInfo.selected_selector || '', submit_scope: submitInfo.scope || 'global', total_ms: Math.round(performance.now() - started)};
     }
-    await arenaSleep(40);
+    const delay = pollDelays[Math.min(pollIndex, pollDelays.length - 1)];
+    pollIndex++;
+    await arenaSleep(delay);
   }
-  return {ok: true, inserted: true, submitted: false, ...insertTiming, submit_candidates: submitInfo.candidates || 0, submit_selector: submitInfo.selected_selector || '', submit_scope: submitInfo.scope || 'global', total_ms: Math.round(performance.now() - started)};
+  return {ok: true, inserted: true, submitted: false, ...insertTiming, submit_wait_ms: 1500, submit_candidates: submitInfo.candidates || 0, submit_selector: submitInfo.selected_selector || '', submit_scope: submitInfo.scope || 'global', total_ms: Math.round(performance.now() - started)};
 }

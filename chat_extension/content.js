@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.22';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.23';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -7,6 +7,14 @@ const executionResults = new Map();
 const dismissedControls = new Set();
 const detectedPayloads = new Set();
 let scanTimer = null;
+let _contentConfigCache = null, _contentConfigCacheAt = 0;
+async function getCachedConfig() {
+  const now = Date.now();
+  if (_contentConfigCache && (now - _contentConfigCacheAt) < 5000) return _contentConfigCache;
+  try { _contentConfigCache = await chrome.runtime.sendMessage({type: 'arena.getConfig'}); _contentConfigCacheAt = now; } catch (_e) {}
+  return _contentConfigCache || {};
+}
+try { chrome.storage.onChanged.addListener((_c, area) => { if (area === 'sync' || area === 'local') _contentConfigCache = null; }); } catch (_e) {}
 function arenaExtensionVersion() {
   try { return chrome.runtime.getManifest?.().version || ARENA_CONTENT_SCRIPT_VERSION; } catch (_e) { return ARENA_CONTENT_SCRIPT_VERSION; }
 }
@@ -52,30 +60,22 @@ function attachControls(host, bar) {
 function cleanupStaleControls() {
   document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((bar) => bar.remove());
   document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { node.dataset.arenaToolControlsMounted = ''; });
-  mountedControls.clear();
-  mountedPayloadSemantics.clear();
-  mountedSemanticOwners.clear();
-  executionResults.clear();
-  detectedPayloads.clear();
+  mountedControls.clear(); mountedPayloadSemantics.clear(); mountedSemanticOwners.clear(); executionResults.clear(); detectedPayloads.clear();
 }
 function pruneMountedControls() {
   [...mountedControls.entries()].forEach(([fingerprint, info]) => {
     if (info?.bar?.isConnected && info?.host?.isConnected) return;
     if (info?.host?.dataset) info.host.dataset.arenaToolControlsMounted = '';
     mountedControls.delete(fingerprint);
-    if (info?.semanticFingerprint) {
-      mountedPayloadSemantics.delete(info.semanticFingerprint);
-      mountedSemanticOwners.delete(info.semanticFingerprint);
-    }
+    if (info?.semanticFingerprint) { mountedPayloadSemantics.delete(info.semanticFingerprint); mountedSemanticOwners.delete(info.semanticFingerprint); }
   });
 }
 function suppressCurrentControls() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: []};
   state.nodes.forEach((node) => parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => {
     const host = controlsHost(node);
-    const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter) : hash(JSON.stringify(entry.payload || {}));
     dismissedControls.add(typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, entry.payload, state.adapter) : hash((host.textContent || '') + JSON.stringify(entry.payload)));
-    dismissedControls.add(semanticFingerprint);
+    dismissedControls.add(typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter) : hash(JSON.stringify(entry.payload || {})));
   }));
 }
 function hostHasToolbar(host) {
@@ -85,10 +85,7 @@ function buildRequest(payload, adapterName, fingerprint) {
   return {site: {origin: location.origin, url: location.href, adapter: adapterName}, message: {fingerprint}, payload, mode: {}};
 }
 function payloadTools(payload) { return (payload?.calls || []).map((call) => call.tool).filter(Boolean); }
-function detectedDetail(payload, adapter) {
-  const tools = payloadTools(payload).slice(0, 4).join(', ');
-  return `detected ${tools || 'tool block'} on ${location.hostname}`;
-}
+function detectedDetail(payload, adapter) { return `detected ${payloadTools(payload).slice(0, 4).join(', ') || 'tool block'} on ${location.hostname}`; }
 function genericInsertIntoActiveField(text, strategy = 'auto') {
   const active = document.activeElement;
   if (active && (active.tagName === 'TEXTAREA' || (active.tagName === 'INPUT' && active.type === 'text'))) {
@@ -112,7 +109,8 @@ function timingSummary(timing) {
   const prefix = requested === 'auto' && strategy !== 'auto' ? `Auto used ${strategy}` : `via ${strategy}`;
   const ms = timing?.total_ms ?? timing?.insert_ms ?? '?';
   const verify = timing?.verify_ms ? `, verified +${timing.verify_ms}ms` : '';
-  return `${prefix} in ${ms}ms${verify} · ${versionSummary()}`;
+  const bridge = timing?.bridge_ms ? ` · bridge ${timing.bridge_ms}ms` : '';
+  return `${prefix} in ${ms}ms${verify}${bridge} · ${versionSummary()}`;
 }
 function insertFailureSummary(strategy, timing) {
   const requested = timing?.requested_strategy || strategy;
@@ -121,10 +119,8 @@ function insertFailureSummary(strategy, timing) {
   return `${prefix}: ${settled}; copy instead.${attemptsSummary(timing)}`;
 }
 async function currentInsertStrategy() {
-  try {
-    const cfg = await chrome.runtime.sendMessage({type: 'arena.getConfig'});
-    return cfg?.modes?.insertStrategy || 'auto';
-  } catch (_e) { return 'auto'; }
+  const cfg = await getCachedConfig();
+  return cfg?.modes?.insertStrategy || 'auto';
 }
 function previewSummary(result) {
   const calls = Array.isArray(result?.calls) ? result.calls : [];
@@ -168,12 +164,16 @@ function mountControls(host, payload, adapter) {
   }));
   bar.appendChild(makeButton('Run', async () => {
     status.textContent = 'Running...';
+    const runStarted = performance.now();
     const result = await chrome.runtime.sendMessage({type: 'arena.execute', body: {...request, mode: {approve: true}}});
+    const runMs = Math.round(performance.now() - runStarted);
+    const bridgeMs = result?.bridge_ms || 0;
     if (Array.isArray(result?.calls)) {
       lastExecutionText = resultToText(result);
       if (lastExecutionText) executionResults.set(semanticFingerprint, lastExecutionText);
     }
-    status.textContent = result?.ok ? `Executed ${result.calls?.length || 0} call(s)` : `Run error: ${resultErrorText(result)}`;
+    const timing = result?.ok ? ` in ${runMs}ms` : '';
+    status.textContent = result?.ok ? `Executed ${result.calls?.length || 0} call(s)${timing}` : `Run error: ${resultErrorText(result)}`;
   }, true));
   bar.appendChild(makeButton('Insert', async () => {
     if (!lastExecutionText) { status.textContent = 'No result yet. Run first.'; return; }
@@ -211,7 +211,7 @@ function mountControls(host, payload, adapter) {
   runAutoModes(request, adapter, status, semanticFingerprint, (text) => { lastExecutionText = text; });
 }
 async function runAutoModes(request, adapter, status, semanticFingerprint, setResultText) {
-  const cfg = await chrome.runtime.sendMessage({type: 'arena.getConfig'});
+  const cfg = await getCachedConfig();
   const modes = typeof arenaNormalizeModes === 'function' ? arenaNormalizeModes(cfg?.modes) : (cfg?.modes || {});
   if (!modes.autoPreview && !modes.autoExecuteSafe) return;
   status.textContent = modes.autoExecuteSafe ? 'Auto previewing before safe execution...' : 'Auto previewing...';
@@ -245,11 +245,7 @@ async function runAutoModes(request, adapter, status, semanticFingerprint, setRe
 function scan() {
   pruneMountedControls();
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
-  state.nodes.forEach((node) => {
-    const host = controlsHost(node);
-    if (hostHasToolbar(host)) return;
-    parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => mountControls(host, entry.payload, state.adapter));
-  });
+  state.nodes.forEach((node) => { const host = controlsHost(node); if (!hostHasToolbar(host)) parseArenaBlocks(typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || '')).forEach((entry) => mountControls(host, entry.payload, state.adapter)); });
 }
 
 function scanPageDiagnostics() {
@@ -272,20 +268,13 @@ function scanPageDiagnostics() {
   const selectorHits = typeof arenaSelectorDiagnostics === 'function' ? arenaSelectorDiagnostics() : [];
   const composer = typeof arenaComposerDiagnostics === 'function' ? arenaComposerDiagnostics(state.adapter) : null;
   const semanticDuplicateBlocks = Math.max(0, parsedBlocks - semanticFingerprints.size);
-  const diagnosticSummary = [
-    semanticFingerprints.size ? `${semanticFingerprints.size} unique block(s)` : '',
-    semanticDuplicateBlocks ? `+${semanticDuplicateBlocks} duplicate(s)` : '',
-    composer?.submit_phase ? `submit ${composer.submit_phase}` : '',
-  ].filter(Boolean).join(' · ');
+  const diagnosticSummary = [semanticFingerprints.size ? `${semanticFingerprints.size} unique block(s)` : '', semanticDuplicateBlocks ? `+${semanticDuplicateBlocks} duplicate(s)` : '', composer?.submit_phase ? `submit ${composer.submit_phase}` : ''].filter(Boolean).join(' · ');
   return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, semantic_unique_blocks: semanticFingerprints.size, semantic_duplicate_blocks: semanticDuplicateBlocks, diagnostic_summary: diagnosticSummary, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
 }
 function scheduleScan() {
   if (scanTimer) return;
   const run = () => { scanTimer = null; scan(); };
-  scanTimer = setTimeout(() => {
-    if (typeof requestIdleCallback === 'function') requestIdleCallback(run, {timeout: 800});
-    else run();
-  }, 500);
+  scanTimer = setTimeout(() => { typeof requestIdleCallback === 'function' ? requestIdleCallback(run, {timeout: 800}) : run(); }, 500);
 }
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'arena.clearPageControls') { suppressCurrentControls(); cleanupStaleControls(); sendResponse?.({ok: true, dismissed: dismissedControls.size}); return true; }
