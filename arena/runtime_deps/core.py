@@ -79,6 +79,7 @@ from arena.exec.runner import (  # noqa: E402,F401
 )
 from arena.exec.handlers import make_exec_handlers  # noqa: E402,F401
 from arena.admin.sync_factories import (  # noqa: E402,F401
+    make_browseract_status_sync,
     make_cloudflared_status_sync,
     make_cloudflared_funnel_action_sync,
     make_sys_funnel_sync,
@@ -88,6 +89,7 @@ from arena.admin.sync_factories import (  # noqa: E402,F401
     make_zerotier_status_sync,
 )
 from arena.admin.zerotier import zerotier_status as _zerotier_status_runtime  # noqa: E402,F401
+from arena.admin.browseract import browseract_status as _browseract_status_runtime  # noqa: E402,F401
 from arena.admin.runtime import (  # noqa: E402,F401
     CLOUDFLARED_STATE as _CLOUDFLARED_STATE,
     cloudflared_funnel_action as _cloudflared_funnel_action_runtime,

@@ -12,6 +12,8 @@ from arena.admin.runtime import (
     tunnels_active,
     tunnels_start,
     tunnels_stop,
+    browseract_status,
+    browseract_doctor,
 )
 from arena.admin.handlers import AdminHandlers, make_admin_handlers
 
@@ -27,6 +29,8 @@ __all__ = [
     "tunnels_active",
     "tunnels_start",
     "tunnels_stop",
+    "browseract_status",
+    "browseract_doctor",
     "AdminHandlers",
     "make_admin_handlers",
 ]

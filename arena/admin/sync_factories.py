@@ -45,6 +45,17 @@ def make_zerotier_status_sync(
     return _zerotier_status_sync
 
 
+def make_browseract_status_sync(
+    *,
+    browseract_status_fn: Callable[..., dict[str, Any]],
+    subprocess_kwargs_fn: Callable[[], dict[str, Any]],
+):
+    def _browseract_status_sync() -> dict[str, Any]:
+        return browseract_status_fn(subprocess_kwargs=subprocess_kwargs_fn)
+
+    return _browseract_status_sync
+
+
 def make_cloudflared_status_sync(
     *,
     cloudflared_funnel_action_fn: Callable[..., dict[str, Any]],

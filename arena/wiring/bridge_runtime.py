@@ -63,6 +63,10 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
                 zerotier_status_fn=g["_zerotier_status_runtime"],
                 subprocess_kwargs_fn=g["_subprocess_kwargs"],
             ),
+            browseract_status_sync=g["make_browseract_status_sync"](
+                browseract_status_fn=g["_browseract_status_runtime"],
+                subprocess_kwargs_fn=g["_subprocess_kwargs"],
+            ),
         ),
         "_sys_funnel_sync": g["make_sys_funnel_sync"](
             sys_funnel_status_fn=g["_sys_funnel_status_runtime"],
@@ -84,6 +88,10 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
         "_cloudflared_status_sync": g["make_cloudflared_status_sync"](
             cloudflared_funnel_action_fn=g["_cloudflared_funnel_action_runtime"],
             root_agent=g["ROOT_AGENT"],
+            subprocess_kwargs_fn=g["_subprocess_kwargs"],
+        ),
+        "_browseract_status_sync": g["make_browseract_status_sync"](
+            browseract_status_fn=g["_browseract_status_runtime"],
             subprocess_kwargs_fn=g["_subprocess_kwargs"],
         ),
     })

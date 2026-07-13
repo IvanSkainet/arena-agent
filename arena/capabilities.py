@@ -26,6 +26,7 @@ def build_capabilities(
     service_info_fn: Callable[[], dict[str, Any]],
     sys_svc_fn: Callable[[], dict[str, Any]],
     zerotier_status_fn: Callable[[], dict[str, Any]] | None = None,
+    browseract_status_fn: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a machine-readable capability map for agents."""
     env = desktop_env or {}
@@ -127,6 +128,20 @@ def build_capabilities(
         }
     except Exception:
         pass
+
+    # BrowserAct stealth-browser CLI (skills/browseract).
+    if browseract_status_fn is not None:
+        try:
+            ba = browseract_status_fn() or {}
+            caps["browser"].update({
+                "browseract_installed": bool(ba.get("installed")),
+                "browseract_version": ba.get("version"),
+                "browseract_cli_source": ba.get("cli_source"),
+                "browseract_cli_path": ba.get("cli_path"),
+                "browseract_update_hint": ba.get("update_hint") or ba.get("hint"),
+            })
+        except Exception as e:
+            caps["browser"]["browseract_error"] = str(e)[:200]
 
     # ZeroTier as a backup remote-access provider.
     if zerotier_status_fn is not None:
