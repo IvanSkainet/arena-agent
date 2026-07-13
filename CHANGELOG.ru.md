@@ -6,6 +6,56 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.81.1 — 2026-07-13
+
+Fix-релиз третьего прохода после v3.81.0.
+
+### Исправлено
+
+- **installer: PEP 668 aware + verify import.** Старый installer молча
+  глотал ошибки `pip install` на любой managed-Python системе (Arch,
+  Debian 12+, Ubuntu 23.10+, Fedora 39+) и печатал "OK Python packages
+  ready", а systemd потом падал с `ModuleNotFoundError`. `install.sh` и
+  `install.bat` теперь пробуют 4 стратегии подряд (plain → `--user` →
+  `--user --break-system-packages` → project-local venv) и **проверяют**
+  `import aiohttp` через тот же интерпретатор, который передадут в
+  systemd. Если импорт всё ещё не работает — installer аварийно
+  прерывается с готовой командой восстановления, а не врёт "OK". Если
+  сработала 4-я стратегия, `PY` переопределяется на venv-python и
+  systemd unit подхватит его автоматически. Коммит `b5f83e7`.
+- **installer: защита от downgrade.** Запуск `bash install.sh` из папки
+  со старым распакованным zip'ом (например `~/Загрузки/arena-bridge/`)
+  раньше молча rsync'ал старую копию поверх установленного Bridge.
+  Теперь installer сравнивает `arena/constants.py::VERSION` в source vs
+  installed и отказывается делать downgrade без явного "y" (или
+  `ARENA_ALLOW_DOWNGRADE=1`).
+- **skills: `/v1/skills` больше не показывает не-skill директории.**
+  Консолидация Superpowers привела к тому, что в `skills/superpowers/`
+  оказалась полная upstream раскладка: `assets/`, `hooks/`, `scripts/`,
+  `.claude-plugin/` рядом с `skills/`. Registry раньше интерпретировал
+  каждую соседнюю директорию как "skill" — из-за этого в API появлялись
+  фиктивные записи вроде `superpowers/assets`. Теперь скан-логика
+  сначала проверяет наличие marker-файла (SKILL.md / manifest.json /
+  run.sh / run.py), а если в категории есть вложенная `skills/`, — она
+  итерируется отдельно. Все 14 upstream superpower skills теперь видны
+  правильно, плюс `browseract` и Arena core-категории.
+- **tunnels: `installed` для Tailscale теперь выводится из состояния.**
+  `sys_funnel_status` не всегда возвращает флаг `installed`, из-за чего
+  `_tailscale_snapshot` рапортовал `installed: false` даже когда funnel
+  URL был активен. Теперь snapshot выводит installed из любого
+  наблюдаемого состояния (connected/active/status). Добавлено 2 теста.
+- **zerotier: `zerotier_network_action` перебирает всех кандидатов CLI.**
+  Раньше принимался первый результат, даже если exit code != 0 — из-за
+  этого на Linux с default `/usr/bin/zerotier-cli` (rc=2, "authtoken not
+  readable") sudo-wrapper `/usr/local/bin/zerotier-cli-wrapper` никогда
+  не пробовался. Теперь цикл сохраняет последний failing payload и
+  переходит к следующему, возвращая успех от того binary, который
+  реально работает.
+
+### Тесты
+
+690 passed (было 688), +2 регрессионных теста для tailscale inference.
+
 ## v3.81.0 — 2026-07-13
 
 Кросс-платформенный спринт по удалённому доступу и интеграции CLI-инструментов.

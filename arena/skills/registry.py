@@ -66,8 +66,48 @@ def scan_skills(skills_dir: Path) -> dict[str, Any]:
         if any((path / filename).exists() for filename in direct_skill_files):
             skills.append(parse_skill_folder(skills_dir, path, is_third_party=False))
         else:
+            # Category directory. Iterate its children, but only accept a
+            # child as a "skill" if it actually looks like one — otherwise
+            # sibling directories such as assets/, hooks/, scripts/, and
+            # IDE plugin manifest folders (.claude-plugin/, .codex-plugin/,
+            # .cursor-plugin/) leak into /v1/skills as bogus entries. This
+            # matters for vendored packages that ship a plugin next to their
+            # skill set (e.g. skills/superpowers/ from obra/superpowers).
             for sub in sorted(path.iterdir()):
-                if sub.is_dir() and not sub.name.startswith("."):
+                if not sub.is_dir() or sub.name.startswith("."):
+                    continue
+                child_skill_files = [
+                    "manifest.json",
+                    "SKILL.md",
+                    "run.sh",
+                    "run.py",
+                    f"{sub.name}.py",
+                    f"{sub.name}.sh",
+                ]
+                if any((sub / filename).exists() for filename in child_skill_files):
                     skills.append(parse_skill_folder(skills_dir, sub, is_third_party=False, category=path.name))
+                    continue
+                # Nested "skills/" folder is a convention for vendored
+                # packages that bundle their own skill set inside a plugin
+                # layout (upstream obra/superpowers does this: the actual
+                # skills live at superpowers/skills/<name>/SKILL.md, next to
+                # non-skill dirs like superpowers/assets/, /hooks/, etc.).
+                if sub.name == "skills" and sub.is_dir():
+                    for leaf in sorted(sub.iterdir()):
+                        if not leaf.is_dir() or leaf.name.startswith("."):
+                            continue
+                        leaf_marker_files = [
+                            "manifest.json",
+                            "SKILL.md",
+                            "run.sh",
+                            "run.py",
+                            f"{leaf.name}.py",
+                            f"{leaf.name}.sh",
+                        ]
+                        if any((leaf / filename).exists() for filename in leaf_marker_files):
+                            skills.append(parse_skill_folder(
+                                skills_dir, leaf, is_third_party=False,
+                                category=path.name,
+                            ))
 
     return {"ok": True, "count": len(skills), "skills": skills}

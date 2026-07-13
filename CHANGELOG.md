@@ -1,5 +1,63 @@
 # Changelog
 
+## v3.81.1 - 2026-07-13
+
+Third-pass fixes discovered after v3.81.0 shipped. Every fix restores
+a contract that regressed either from the v3.81.0 changes themselves
+(skills scan) or was pre-existing but only surfaced once the fresh
+install was verified end-to-end on the maintainer's Arch/CachyOS box.
+
+### Fixed
+
+- **installer: PEP 668 aware, verifies import.** The old installer
+  silently swallowed `pip install` failures on any managed Python
+  environment (Arch/CachyOS, Debian 12+, Ubuntu 23.10+, Fedora 39+) and
+  cheerfully declared "OK Python packages ready" while systemd then
+  failed on `ModuleNotFoundError: No module named 'aiohttp'`. `install.sh`
+  and `install.bat` now try four strategies in order — plain →
+  `--user` → `--user --break-system-packages` → project-local venv — and
+  **verify** `import aiohttp` with the very interpreter systemd will
+  spawn. If the import still fails the installer aborts with a
+  copy-pasteable recovery command instead of pretending everything is
+  fine. When strategy 4 kicks in, `PY` is reassigned to the venv python
+  so the systemd unit picks it up automatically. Fix in commit `b5f83e7`.
+- **installer: downgrade guard.** Running `bash install.sh` from a
+  directory that contains a stale extracted zip (e.g.
+  `~/Downloads/arena-bridge/` from months ago) silently rsynced that old
+  copy over the installed Bridge. The installer now compares
+  `arena/constants.py::VERSION` from source vs installed and refuses to
+  downgrade without an explicit "y" (or `ARENA_ALLOW_DOWNGRADE=1`).
+- **skills: `/v1/skills` no longer lists non-skill directories.** The
+  Superpowers consolidation replaced the flat Arena fork with the full
+  upstream layout, which ships `assets/`, `hooks/`, `scripts/`,
+  `.claude-plugin/` next to the actual `skills/` folder. The registry
+  used to interpret every sibling directory as a "skill", producing
+  bogus entries like `superpowers/assets`. Now the scanner treats a
+  category directory as a real skill only if it contains a marker file
+  (SKILL.md / manifest.json / run.sh / run.py) and, when a category
+  contains a nested `skills/` subdirectory, iterates that subdirectory
+  instead. `/v1/skills` now returns the 14 upstream superpower skills
+  correctly plus `browseract` and the four Arena core categories.
+- **tunnels: `installed` field for Tailscale is now inferred from state.**
+  `sys_funnel_status` never emitted an explicit `installed` flag, so
+  `_tailscale_snapshot` reported `installed: false` even while Tailscale
+  was actively serving a Funnel URL. The snapshot now infers installed
+  from any observable state (connected, active, status/funnel string).
+  Two new regression tests cover both directions.
+- **zerotier: `zerotier_network_action` cycles through CLI candidates.**
+  Previously it accepted the first candidate's result even if the exit
+  code was non-zero, so on Linux hosts where the default
+  `/usr/bin/zerotier-cli` fails with "authtoken.secret not readable" the
+  wrapper installed at `/usr/local/bin/zerotier-cli-wrapper` was never
+  tried. Now the action loop retains the last failing payload and moves
+  on to the next candidate, returning success from whichever binary
+  actually works (or a hint-augmented failure if none do).
+
+### Test suite
+
+690 passed (previous baseline 688). New coverage: 2 tests in
+`test_tunnels.py` for the tailscale `installed` inference logic.
+
 ## v3.81.0 - 2026-07-13
 
 Cross-platform remote-access and CLI-tool integration sprint. Everything

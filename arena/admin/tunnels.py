@@ -72,11 +72,23 @@ def _tailscale_snapshot(sys_funnel_status_sync: Callable[[], dict[str, Any]] | N
     ts = raw.get("tailscale") or {}
     funnel = raw.get("funnel") or {}
     public_url = funnel.get("url") or (ts.get("public_url") if isinstance(ts, dict) else None)
+    connected = bool(ts.get("connected"))
+    active = bool(funnel.get("active")) or bool(public_url)
+    # sys_funnel_status does not always emit an explicit "installed" flag,
+    # so infer it: if the underlying call succeeded and reports any state
+    # (connected / active / a status string) then tailscale is present.
+    installed = (
+        bool(ts.get("installed"))
+        or connected
+        or active
+        or bool(ts.get("status"))
+        or bool(funnel.get("status"))
+    )
     return {
         "provider": "tailscale",
-        "installed": bool(ts.get("installed")),
-        "connected": bool(ts.get("connected")),
-        "active": bool(funnel.get("active")) or bool(public_url),
+        "installed": installed,
+        "connected": connected,
+        "active": active,
         "public_url": public_url,
         "public_kind": "https",
         "manageable": True,

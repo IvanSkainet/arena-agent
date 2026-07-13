@@ -242,3 +242,38 @@ def test_provider_callable_exceptions_do_not_crash_status():
     )
     ts = [p for p in snap["providers"] if p["provider"] == "tailscale"][0]
     assert "simulated failure" in ts.get("error", "")
+
+
+def test_tailscale_installed_inferred_from_status_string():
+    """sys_funnel_status doesn't always emit 'installed', so infer it from state."""
+    def ts_status_only():
+        return {
+            "ok": True,
+            "tailscale": {"connected": True, "status": "100.66.158.48   host  user@  linux  -"},
+            "funnel": {"active": True, "url": "https://host.example.ts.net"},
+        }
+
+    snap = tunnels_status(
+        sys_funnel_status_sync=ts_status_only,
+        cloudflared_status_sync=_stub_cf_off,
+        zerotier_status_sync=_stub_zt_off,
+    )
+    ts = [p for p in snap["providers"] if p["provider"] == "tailscale"][0]
+    assert ts["installed"] is True, "installed must be inferred even without explicit flag"
+    assert ts["active"] is True
+    assert ts["public_url"] == "https://host.example.ts.net"
+
+
+def test_tailscale_installed_false_when_no_state():
+    """If sys_funnel_status returns empty, tailscale is genuinely not present."""
+    def ts_empty():
+        return {"ok": True, "tailscale": {}, "funnel": {}}
+
+    snap = tunnels_status(
+        sys_funnel_status_sync=ts_empty,
+        cloudflared_status_sync=_stub_cf_off,
+        zerotier_status_sync=_stub_zt_off,
+    )
+    ts = [p for p in snap["providers"] if p["provider"] == "tailscale"][0]
+    assert ts["installed"] is False
+    assert ts["active"] is False

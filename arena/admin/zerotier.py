@@ -449,12 +449,20 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
     else:
         last_http_error = "no readable authtoken"
 
-    # CLI fallback.
+    # CLI fallback. Try each candidate; a non-zero exit (typically
+    # "authtoken.secret not found or readable") means this binary is not
+    # useable for the current process — move on to the next (usually the
+    # sudo wrapper on Linux, or a Program Files fallback on Windows).
+    last_payload: dict[str, Any] | None = None
+    args_by_action = {
+        "join": ["join", network_id],
+        "leave": ["leave", network_id],
+        "status": ["listnetworks"],
+    }
     for cli in _cli_candidates():
-        args = {"join": ["join", network_id], "leave": ["leave", network_id], "status": ["listnetworks"]}[action]
         try:
-            proc = _run_cli(cli, args, timeout=15)
-        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            proc = _run_cli(cli, args_by_action[action], timeout=15)
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             continue
         payload = {
             "ok": proc.returncode == 0,
@@ -470,7 +478,18 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
         if action == "status":
             payload["networks"] = _parse_listnetworks(proc.stdout or "") if proc.returncode == 0 else []
             payload["active_count"] = sum(1 for n in payload["networks"] if n["active"])
-        return payload
+        if payload["ok"]:
+            return payload
+        # Keep the most detailed failure so we can return it if every
+        # candidate fails.
+        last_payload = payload
+
+    if last_payload is not None:
+        last_payload["hint"] = _permission_hint(
+            (last_payload.get("stderr") or last_payload.get("stdout") or "").strip()[:200]
+            or f"cli exit={last_payload.get('exit_code')}"
+        )
+        return last_payload
 
     return {
         "ok": False,
