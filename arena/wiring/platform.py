@@ -95,6 +95,11 @@ class AdminWiringContext:
     default_token_file: Any
     root_agent: Any
     subprocess_kwargs: Callable[[], dict[str, Any]]
+    sys_funnel_status_sync: Any = None
+    cloudflared_status_sync: Any = None
+    zerotier_status_sync: Any = None
+    tailscale_funnel_action_sync: Any = None
+    cloudflared_funnel_action_sync: Any = None
 
 
 def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any]]:
@@ -110,6 +115,11 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         default_token_file=ctx.default_token_file,
         root_agent=ctx.root_agent,
         subprocess_kwargs=ctx.subprocess_kwargs,
+        sys_funnel_status_sync=ctx.sys_funnel_status_sync,
+        cloudflared_status_sync=ctx.cloudflared_status_sync,
+        zerotier_status_sync=ctx.zerotier_status_sync,
+        tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
+        cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
     )
     handlers = make_admin_handlers(admin_ctx)
     return {
@@ -119,4 +129,8 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
         "handle_v1_zerotier_status": handlers.zerotier_status,
         "handle_v1_zerotier_network": handlers.zerotier_network,
+        "handle_v1_tunnels_status": handlers.tunnels_status,
+        "handle_v1_tunnels_active": handlers.tunnels_active,
+        "handle_v1_tunnels_start": handlers.tunnels_start,
+        "handle_v1_tunnels_stop": handlers.tunnels_stop,
     }

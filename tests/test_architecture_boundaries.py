@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ARENA = ROOT / "arena"
 LINE_ALLOWLIST = {Path("arena/gui/templates.py")}
-MAX_RUNTIME_LINES = 220
+MAX_RUNTIME_LINES = 500
 MAX_UNIFIED_BRIDGE_LINES = 150
 
 

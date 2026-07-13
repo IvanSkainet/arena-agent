@@ -102,5 +102,10 @@ class AdminHandlerContext:
     default_token_file: Any
     root_agent: Any
     subprocess_kwargs: Callable[[], dict[str, Any]]
+    sys_funnel_status_sync: Any = None
+    cloudflared_status_sync: Any = None
+    zerotier_status_sync: Any = None
+    tailscale_funnel_action_sync: Any = None
+    cloudflared_funnel_action_sync: Any = None
 
 __all__ = ['ServiceHandlerContext', 'DesktopHandlerContext', 'ControlLeaseHandlerContext', 'SystemHandlerContext', 'UserHandlerContext', 'AdminHandlerContext']

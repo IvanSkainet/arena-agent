@@ -44,7 +44,6 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
     update(build_auth_runtime(g))
     update(build_early_handler_registries(g))
     update(build_system_helpers(g))
-    update(build_system_public_admin_registries(g))
     update(build_hardware_exec_registries(g))
     update(build_memory_resource_browser_runtimes(g))
     update({
@@ -82,7 +81,13 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
             root_agent=g["ROOT_AGENT"],
             subprocess_kwargs_fn=g["_subprocess_kwargs"],
         ),
+        "_cloudflared_status_sync": g["make_cloudflared_status_sync"](
+            cloudflared_funnel_action_fn=g["_cloudflared_funnel_action_runtime"],
+            root_agent=g["ROOT_AGENT"],
+            subprocess_kwargs_fn=g["_subprocess_kwargs"],
+        ),
     })
+    update(build_system_public_admin_registries(g))
     update(build_service_browser_registries(g))
     update(build_cdp_registries(g))
     update(build_desktop_registries(g))

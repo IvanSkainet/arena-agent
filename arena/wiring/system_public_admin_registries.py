@@ -35,6 +35,11 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
         default_token_file=env.TOKEN_FILE,
         root_agent=env.ROOT_AGENT,
         subprocess_kwargs=env._subprocess_kwargs,
+        sys_funnel_status_sync=env._sys_funnel_sync,
+        cloudflared_status_sync=env._cloudflared_status_sync,
+        zerotier_status_sync=env._zerotier_status_sync,
+        tailscale_funnel_action_sync=env._tailscale_funnel_action_sync,
+        cloudflared_funnel_action_sync=env._cloudflared_funnel_action_sync,
     ))
     registry.update(_admin_handler_registry)
 

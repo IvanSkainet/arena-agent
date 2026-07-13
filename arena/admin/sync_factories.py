@@ -45,6 +45,22 @@ def make_zerotier_status_sync(
     return _zerotier_status_sync
 
 
+def make_cloudflared_status_sync(
+    *,
+    cloudflared_funnel_action_fn: Callable[..., dict[str, Any]],
+    root_agent: Path,
+    subprocess_kwargs_fn: Callable[[], dict[str, Any]],
+):
+    def _cloudflared_status_sync() -> dict[str, Any]:
+        return cloudflared_funnel_action_fn(
+            "status", 0,
+            root_agent=root_agent,
+            subprocess_kwargs=subprocess_kwargs_fn,
+        )
+
+    return _cloudflared_status_sync
+
+
 def make_cloudflared_funnel_action_sync(
     *,
     cloudflared_funnel_action_fn: Callable[..., dict[str, Any]],

@@ -136,13 +136,15 @@ def build_capabilities(
             networks = zt.get("networks") or []
             caps.setdefault("network", {})
             caps["network"].update({
-                "zerotier_installed": zt.get("cli_source") in ("wrapper", "direct"),
+                "zerotier_installed": bool(zt.get("installed")),
+                "zerotier_backend": zt.get("backend"),
                 "zerotier_cli_source": zt.get("cli_source"),
                 "zerotier_connected": bool(zt_info.get("connected")),
                 "zerotier_node_id": zt_info.get("node_id"),
                 "zerotier_version": zt_info.get("version"),
                 "zerotier_active_networks": sum(1 for n in networks if n.get("active")),
-                "zerotier_hint": "Use /v1/zerotier/status for full state; /v1/zerotier/network/{join,leave,status} to manage",
+                "zerotier_hint": zt.get("hint")
+                    or "Use /v1/zerotier/status for full state; /v1/zerotier/network/{join,leave,status} to manage",
             })
         except Exception as e:
             caps.setdefault("network", {})["zerotier_error"] = str(e)[:200]
