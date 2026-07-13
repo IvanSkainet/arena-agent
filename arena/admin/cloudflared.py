@@ -1,4 +1,4 @@
-"""Cloudflared quick tunnel admin runtime helpers."""
+"""Cloudflared tunnel admin runtime helpers with system-first strategy."""
 from __future__ import annotations
 
 import platform
@@ -29,19 +29,68 @@ def _cloudflared_monitor_thread(proc: subprocess.Popen, port: int) -> None:
             CLOUDFLARED_STATE["url"] = match.group(0)
 
 
-def _resolve_cloudflared(root_agent: Path) -> str | None:
-    cf = which_windows_or_path(
+def _resolve_cloudflared_with_source(root_agent: Path) -> tuple[str | None, str]:
+    """Resolve cloudflared binary and determine its source.
+    
+    Returns:
+        (path, source) where source is "system", "bundled", or "not_found"
+    """
+    # 1. System-first: check PATH
+    system_cf = which_windows_or_path(
         "cloudflared",
         [
             r"C:\Program Files\cloudflared\cloudflared.exe",
             r"C:\Program Files (x86)\cloudflared\cloudflared.exe",
         ],
     )
-    if not cf:
-        local_cf = Path(root_agent) / ("cloudflared.exe" if platform.system() == "Windows" else "cloudflared")
-        if local_cf.exists():
-            cf = str(local_cf)
+    if system_cf:
+        return system_cf, "system"
+    
+    # 2. Bundled: check local directory
+    local_cf = Path(root_agent) / ("cloudflared.exe" if platform.system() == "Windows" else "cloudflared")
+    if local_cf.exists():
+        return str(local_cf), "bundled"
+    
+    return None, "not_found"
+
+
+def _resolve_cloudflared(root_agent: Path) -> str | None:
+    """Legacy resolver for backward compatibility."""
+    cf, _ = _resolve_cloudflared_with_source(root_agent)
     return cf
+
+
+def _get_cloudflared_version(cf_path: str) -> str | None:
+    """Get cloudflared version string."""
+    try:
+        result = subprocess.run(
+            [cf_path, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        # Output: "cloudflared version 2026.7.1 (built 20260710-02:54:19)"
+        match = re.search(r"version\s+([\d.]+)", result.stdout)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _get_update_hint(source: str, version: str | None) -> str:
+    """Get update instructions based on source."""
+    if source == "system":
+        if platform.system() == "Linux":
+            return "Update via package manager: sudo apt update && sudo apt upgrade cloudflared (or pacman -Syu cloudflared)"
+        elif platform.system() == "Darwin":
+            return "Update via Homebrew: brew upgrade cloudflared"
+        else:
+            return "Download latest from https://github.com/cloudflare/cloudflared/releases"
+    elif source == "bundled":
+        return "Bundled version managed by Arena. Run: python3 scripts/update_bundled_tools.py cloudflared"
+    else:
+        return "Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
 
 
 def _terminate_cloudflared(timeout: int = 5) -> None:
@@ -98,10 +147,11 @@ def cloudflared_funnel_action(
     if action not in ("start", "stop", "status"):
         return {"ok": False, "error": "action must be start|stop|status"}
 
-    cf = _resolve_cloudflared(root_agent)
+    cf, source = _resolve_cloudflared_with_source(root_agent)
+    
     if action == "start":
         if not cf:
-            return {"ok": False, "error": "cloudflared binary not found"}
+            return {"ok": False, "error": "cloudflared binary not found", "update_hint": _get_update_hint(source, None)}
         return _start_cloudflared(cf, port, subprocess_kwargs=subprocess_kwargs)
 
     if action == "stop":
@@ -110,14 +160,24 @@ def cloudflared_funnel_action(
         CLOUDFLARED_STATE["url"] = ""
         return {"ok": True, "action": "stop"}
 
+    # action == "status"
     proc = CLOUDFLARED_STATE["proc"]
     running = proc is not None and proc.poll() is None
     installed = cf is not None
-    return {
+    version = _get_cloudflared_version(cf) if cf else None
+    
+    result = {
         "ok": True,
         "action": "status",
         "installed": installed,
+        "source": source,
+        "version": version,
         "active": running,
         "url": CLOUDFLARED_STATE["url"],
         "log": CLOUDFLARED_STATE["log"] if running else [],
     }
+    
+    if installed:
+        result["update_hint"] = _get_update_hint(source, version)
+    
+    return result
