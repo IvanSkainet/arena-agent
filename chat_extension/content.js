@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.25';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.26';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -172,7 +172,7 @@ function mountControls(host, payload, adapter) {
       lastExecutionText = resultToText(result);
       if (lastExecutionText) executionResults.set(semanticFingerprint, lastExecutionText);
     }
-    const timing = result?.ok ? ` in ${runMs}ms` : '';
+    const timing = result?.ok ? (bridgeMs > 0 ? ` in ${runMs}ms (bridge ${bridgeMs}ms)` : ` in ${runMs}ms`) : '';
     status.textContent = result?.ok ? `Executed ${result.calls?.length || 0} call(s)${timing}` : `Run error: ${resultErrorText(result)}`;
   }, true));
   bar.appendChild(makeButton('Insert', async () => {
