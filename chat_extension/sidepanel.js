@@ -123,6 +123,26 @@ function groupCommandHistory(items) {
 function historyActionIndex(item, fallbackIndex) {
   return Number.isInteger(item?.history_index) ? item.history_index : fallbackIndex;
 }
+function groupEvents(item) {
+  return Array.isArray(item?.events) ? item.events : [item].filter(Boolean);
+}
+function latestMatchingEvent(item, predicate) {
+  return latestEvent(groupEvents(item).filter((event) => predicate(event)));
+}
+function payloadSourceItem(item) {
+  return latestMatchingEvent(item, (event) => !!event?.payload) || item;
+}
+function resultSourceItem(item) {
+  return latestMatchingEvent(item, (event) => event?.kind === 'execute' && !!event?.response)
+    || latestMatchingEvent(item, (event) => !!event?.response)
+    || item;
+}
+function finalResultItem(item) {
+  return latestMatchingEvent(item, (event) => !!event?.response) || item;
+}
+function replaySourceItem(item) {
+  return latestMatchingEvent(item, (event) => !!event?.payload && ['detected', 'preview', 'execute'].includes(event.kind));
+}
 function badge(text, tone = 'neutral') {
   const span = document.createElement('span');
   span.className = `arena-badge arena-badge-${tone}`;
@@ -194,20 +214,27 @@ function renderHistory(items) {
     row.appendChild(meta);
     const actions = document.createElement('div');
     actions.className = 'arena-card-actions';
-    actions.appendChild(makeActionButton('Inspect Payload', () => renderPayload(item)));
-    actions.appendChild(makeActionButton('Inspect Result', () => renderResult(item)));
-    if (item.payload && (item.kind === 'preview' || item.kind === 'execute' || item.kind === 'detected')) {
-      const actionIndex = historyActionIndex(item, index);
+    const payloadItem = payloadSourceItem(item);
+    const resultItem = resultSourceItem(item);
+    const latestResult = finalResultItem(item);
+    const replayItem = replaySourceItem(item);
+    actions.appendChild(makeActionButton('Inspect Payload', () => renderPayload(payloadItem)));
+    actions.appendChild(makeActionButton('Inspect Result', () => renderResult(resultItem)));
+    if (item.group_key && latestResult?.response && latestResult !== resultItem) {
+      actions.appendChild(makeActionButton('Inspect Final Result', () => renderResult(latestResult)));
+    }
+    if (replayItem?.payload) {
+      const actionIndex = historyActionIndex(replayItem, index);
       actions.appendChild(makeActionButton('Replay Preview', () => runHistoryAction(actionIndex, 'preview')));
       actions.appendChild(makeActionButton('Replay Execute', () => runHistoryAction(actionIndex, 'execute')));
       actions.appendChild(makeActionButton('Copy Payload', async () => {
-        await navigator.clipboard.writeText(JSON.stringify(item.payload, null, 2));
-        renderStatus({ok: true, copied: true, kind: item.kind});
+        await navigator.clipboard.writeText(JSON.stringify(replayItem.payload, null, 2));
+        renderStatus({ok: true, copied: true, kind: replayItem.kind});
       }));
     }
-    if (item.response) actions.appendChild(makeActionButton('Copy Result', async () => {
-      await navigator.clipboard.writeText(JSON.stringify(item.response, null, 2));
-      renderStatus({ok: true, copied: true, result: true, kind: item.kind});
+    if (resultItem?.response) actions.appendChild(makeActionButton('Copy Result', async () => {
+      await navigator.clipboard.writeText(JSON.stringify(resultItem.response, null, 2));
+      renderStatus({ok: true, copied: true, result: true, kind: resultItem.kind});
     }));
     row.appendChild(actions);
     box.appendChild(row);

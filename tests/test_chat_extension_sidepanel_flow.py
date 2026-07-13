@@ -37,6 +37,11 @@ def test_sidepanel_supports_filters_and_payload_inspection():
     assert 'lifecycleSummary' in js
     assert "'detected', 'preview', 'execute', 'insert', 'submit'" in js
     assert 'historyActionIndex' in js
+    assert 'payloadSourceItem' in js
+    assert 'resultSourceItem' in js
+    assert 'finalResultItem' in js
+    assert 'replaySourceItem' in js
+    assert 'Inspect Final Result' in js
     assert 'scheduleFilterReload' in js
     assert "getElementById('kindFilter').addEventListener('change', loadHistory)" in js
     assert "auto: ${composer.auto_plan.join(' → ')}" in js
