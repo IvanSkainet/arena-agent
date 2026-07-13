@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.14';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.15';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -237,16 +237,21 @@ function scanPageDiagnostics() {
   const samples = [];
   let parsedBlocks = 0;
   const tools = new Set();
+  const semanticFingerprints = new Set();
   state.nodes.forEach((node, index) => {
     const text = typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || '');
     const entries = parseArenaBlocks(text);
     parsedBlocks += entries.length;
-    entries.forEach((entry) => (entry.payload?.calls || []).forEach((call) => tools.add(call.tool)));
+    entries.forEach((entry) => {
+      (entry.payload?.calls || []).forEach((call) => tools.add(call.tool));
+      const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter) : hash(JSON.stringify(entry.payload || {}));
+      semanticFingerprints.add(semanticFingerprint);
+    });
     if (samples.length < 5) samples.push({index, tag: node.tagName || '', text: String(text).slice(0, 240), parsed: entries.length, tools: entries.flatMap((entry) => (entry.payload?.calls || []).map((call) => call.tool))});
   });
   const selectorHits = typeof arenaSelectorDiagnostics === 'function' ? arenaSelectorDiagnostics() : [];
   const composer = typeof arenaComposerDiagnostics === 'function' ? arenaComposerDiagnostics(state.adapter) : null;
-  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
+  return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, semantic_unique_blocks: semanticFingerprints.size, semantic_duplicate_blocks: Math.max(0, parsedBlocks - semanticFingerprints.size), mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
 }
 function scheduleScan() {
   if (scanTimer) return;

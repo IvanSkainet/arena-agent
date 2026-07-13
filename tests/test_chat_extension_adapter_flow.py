@@ -63,6 +63,8 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'composer' in content
     assert 'candidate_nodes' in content
     assert 'parsed_blocks' in content
+    assert 'semantic_unique_blocks' in content
+    assert 'semantic_duplicate_blocks' in content
     assert 'data-arena-tool-controls' in content
     assert 'arenaToolControlsMounted' in content
     assert 'insertAdjacentElement' in content
@@ -138,7 +140,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.14`.' in readme
+    assert 'Current extension version: `0.13.15`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme
