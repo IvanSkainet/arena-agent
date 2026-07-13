@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.23';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.24';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -271,10 +271,14 @@ function scanPageDiagnostics() {
   const diagnosticSummary = [semanticFingerprints.size ? `${semanticFingerprints.size} unique block(s)` : '', semanticDuplicateBlocks ? `+${semanticDuplicateBlocks} duplicate(s)` : '', composer?.submit_phase ? `submit ${composer.submit_phase}` : ''].filter(Boolean).join(' · ');
   return {ok: true, url: location.href, host: location.hostname, adapter: state.adapter?.name || 'generic', content_version: ARENA_CONTENT_SCRIPT_VERSION, manifest_version: arenaExtensionVersion(), insert_script_version: (typeof arenaInsertScriptVersion === 'function' ? arenaInsertScriptVersion() : 'unknown'), composer, candidate_nodes: state.nodes.length, parsed_blocks: parsedBlocks, semantic_unique_blocks: semanticFingerprints.size, semantic_duplicate_blocks: semanticDuplicateBlocks, diagnostic_summary: diagnosticSummary, mounted_controls: document.querySelectorAll('[data-arena-tool-controls="1"]').length, dismissed_controls: dismissedControls.size, tools: [...tools], selector_hits: selectorHits, samples};
 }
+let _lastScanAt = 0;
+const SCAN_THROTTLE_MS = 400;
 function scheduleScan() {
   if (scanTimer) return;
-  const run = () => { scanTimer = null; scan(); };
-  scanTimer = setTimeout(() => { typeof requestIdleCallback === 'function' ? requestIdleCallback(run, {timeout: 800}) : run(); }, 500);
+  const elapsed = Date.now() - _lastScanAt;
+  const delay = elapsed < SCAN_THROTTLE_MS ? (SCAN_THROTTLE_MS - elapsed) : 0;
+  const run = () => { scanTimer = null; _lastScanAt = Date.now(); scan(); };
+  scanTimer = setTimeout(() => { typeof requestIdleCallback === 'function' ? requestIdleCallback(run, {timeout: 600}) : run(); }, delay || 300);
 }
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'arena.clearPageControls') { suppressCurrentControls(); cleanupStaleControls(); sendResponse?.({ok: true, dismissed: dismissedControls.size}); return true; }
@@ -284,6 +288,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 cleanupStaleControls();
-const obs = new MutationObserver(() => scheduleScan());
+const obs = new MutationObserver((mutations) => {
+  const relevant = mutations.some((m) => !m.target?.closest?.('[data-arena-tool-controls]') && (m.addedNodes?.length || m.removedNodes?.length));
+  if (relevant) scheduleScan();
+});
 obs.observe(document.documentElement, {childList: true, subtree: true});
 scan();
