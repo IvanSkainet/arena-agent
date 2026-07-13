@@ -1,5 +1,43 @@
 # Changelog
 
+## v3.80.0 - 2026-07-13
+
+### Extension v0.13.23 - Performance telemetry and config caching
+
+- Added config cache in background.js (invalidated on storage changes) and content.js (5s TTL) to eliminate redundant chrome.storage reads on every bridge request.
+- Config cache in content.js avoids IPC round-trip for every Insert/Send click.
+- Adaptive verify delay in insert_strategies.js: checks at 30ms/80ms/180ms instead of always waiting 180ms (saves ~150ms on fast inserts).
+- Adaptive submit polling: 20ms/20ms/40ms/40ms/80ms ramp instead of flat 40ms for faster submit button detection.
+- Run button shows execution timing: "Executed N call(s) in Xms".
+- bridgeFetch returns bridge_ms (network round-trip to bridge) for diagnostics.
+- timingSummary includes bridge_ms when available.
+
+### Extension v0.13.24 - Scan throttling and mutation filtering
+
+- Scan throttling: minimum 400ms between scans, tracks lastScanAt to avoid redundant work.
+- MutationObserver filtering: skips mutations inside own toolbars to prevent feedback loops.
+- Reduces unnecessary scan() calls on SPA pages (Claude/ChatGPT/Gemini).
+
+### Extension v0.13.25 - Adapter and candidate node caching
+
+- getArenaAdapter() cached (host never changes within a page load).
+- arenaCandidateNodes() cached with invalidation on relevant mutations.
+- scan() fast path: skips parseArenaBlocks if candidate count unchanged and all have toolbars.
+- MutationObserver invalidates candidate cache on relevant mutations.
+- Reduces redundant querySelectorAll + text parsing on stable pages.
+
+### Extension v0.13.26 - Bridge timing split in Run status
+
+- Run button shows bridge_ms split: "Executed N call(s) in Xms (bridge Yms)".
+- Helps users see how much of Run time is bridge network vs MCP tool execution.
+
+### Extension v0.13.27 - Composer cache and insert stability
+
+- Composer selection cached (2s TTL with isConnected check) to reduce querySelectorAll variance.
+- Insert target cached in __arenaLastInsertTarget for reuse in subsequent InsertAndSubmit flow.
+- Adaptive submit polling v2: ramp-up delays (20/40/80/100ms) instead of flat intervals.
+- Reduces Insert timing variance from ~86ms to ~20ms range on average.
+
 ## v3.79.0 - 2026-07-02
 
 - Aligned the `docs/` modularity guidance with the enforced limit: the docs said ~180-220 lines while `tests/test_project_modularity.py` enforces 300; updated MODULE_MAP.md, V3_MODULAR_ARCHITECTURE.md, and V3_RELEASE_CHECKLIST.md to reference the test as the source of truth.

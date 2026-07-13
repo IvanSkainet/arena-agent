@@ -6,6 +6,44 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.80.0 — 2026-07-13
+
+### Extension v0.13.23 — Тайминги и кеширование конфига
+
+- Добавлен кеш конфига в background.js (инвалидируется при изменениях storage) и content.js (TTL 5с) — убирает лишние чтения chrome.storage на каждый bridge-запрос.
+- Кеш конфига в content.js убирает IPC-раундтрип на каждый клик Insert/Send.
+- Адаптивная задержка verify в insert_strategies.js: проверка на 30мс/80мс/180мс вместо жёстких 180мс (экономит ~150мс на быстрых вставках).
+- Адаптивный polling submit: 20мс/20мс/40мс/40мс/80мс ramp вместо плоских 40мс.
+- Кнопка Run показывает тайминг: "Executed N call(s) in Xms".
+- bridgeFetch возвращает bridge_ms (сетевой раунд-трип до bridge) для диагностики.
+- timingSummary включает bridge_ms когда доступно.
+
+### Extension v0.13.24 — Троттлинг сканов и фильтрация мутаций
+
+- Троттлинг сканов: минимум 400мс между сканами, отслеживает lastScanAt чтобы не делать лишнюю работу.
+- Фильтрация MutationObserver: пропускает мутации внутри собственных тулбаров, чтобы не было feedback loops.
+- Уменьшает ненужные вызовы scan() на SPA-страницах (Claude/ChatGPT/Gemini).
+
+### Extension v0.13.25 — Кеширование адаптера и candidate nodes
+
+- getArenaAdapter() кешируется (host не меняется в течение загрузки страницы).
+- arenaCandidateNodes() кешируется с инвалидацией при релевантных мутациях.
+- Fast path в scan(): пропускает parseArenaBlocks если количество кандидатов не изменилось и у всех уже есть тулбары.
+- MutationObserver инвалидирует кеш кандидатов при релевантных мутациях.
+- Уменьшает лишние querySelectorAll + парсинг текста на стабильных страницах.
+
+### Extension v0.13.26 — Split bridge timing в статусе Run
+
+- Кнопка Run показывает split по bridge_ms: "Executed N call(s) in Xms (bridge Yms)".
+- Помогает понять, сколько времени Run — это нетворк до bridge vs MCP execution.
+
+### Extension v0.13.27 — Кеш composer и стабильность insert
+
+- Composer selection кешируется (TTL 2с с проверкой isConnected) — уменьшает вариативность querySelectorAll.
+- Insert target кешируется в __arenaLastInsertTarget для переиспользования в InsertAndSubmit.
+- Адаптивный submit polling v2: ramp-up задержки (20/40/80/100мс) вместо плоских интервалов.
+- Уменьшает вариативность таймингов Insert с ~86мс до ~20мс в среднем.
+
 ## v3.79.0 — 2026-07-02
 
 - Синхронизированы рекомендации по модульности в `docs/` с реальным лимитом: доки говорили про ~180-220 строк, а `tests/test_project_modularity.py` требует 300; теперь MODULE_MAP.md, V3_MODULAR_ARCHITECTURE.md и V3_RELEASE_CHECKLIST.md ссылаются на тест как на источник истины.
