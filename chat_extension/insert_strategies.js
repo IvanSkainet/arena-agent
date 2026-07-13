@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.5';
+  return '0.13.6';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -36,10 +36,10 @@ function arenaTextContainsInsert(text, inserted) {
   return (!!markers.normalized && normalized.includes(markers.normalized))
     || (!!markers.compact && compact.includes(markers.compact));
 }
-async function arenaVerifySettledInsert(adapter, before, text, delayMs = 180) {
+async function arenaVerifySettledInsert(adapter, before, text, target = null, delayMs = 180) {
   await arenaSleep(delayMs);
-  const target = arenaFindComposer(adapter);
-  const after = arenaEditableText(target);
+  const current = target?.isConnected ? target : arenaFindComposer(adapter);
+  const after = arenaEditableText(current);
   const changed = after !== before;
   return {changed, settled: changed && arenaTextContainsInsert(after, text), verify_ms: delayMs};
 }
@@ -130,8 +130,17 @@ function arenaInsertPlan(target, requested) {
   return arenaUsesRichTextareaFastPath(target) ? ['directDomPreWrap', 'nativeInsertText'] : ['nativeInsertText'];
 }
 function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
-  const target = arenaFindComposer(adapter);
-  if (!target) return {found: false, host: arenaHost(), adapter: adapter?.name || 'generic', auto_plan: []};
+  const composerInfo = typeof arenaComposerSelection === 'function' ? arenaComposerSelection(adapter) : {target: arenaFindComposer(adapter), candidates: 0, selected_selector: ''};
+  const target = composerInfo.target;
+  if (!target) return {
+    found: false,
+    host: arenaHost(),
+    adapter: adapter?.name || 'generic',
+    candidates: composerInfo.candidates || 0,
+    selected_selector: composerInfo.selected_selector || '',
+    auto_plan: [],
+  };
+  const submitInfo = typeof arenaSubmitButtonSelection === 'function' ? arenaSubmitButtonSelection(adapter, target) : {button: arenaFindSubmitButton(adapter, target), candidates: 0, selected_selector: '', scope: 'global'};
   return {
     found: true,
     host: arenaHost(),
@@ -142,14 +151,23 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     prose_mirror: !!target.closest?.('.ProseMirror') || target.classList?.contains('ProseMirror'),
     aria_label: target.getAttribute?.('aria-label') || '',
     role: target.getAttribute?.('role') || '',
+    candidates: composerInfo.candidates || 0,
+    selected_selector: composerInfo.selected_selector || '',
+    active_match: !!composerInfo.active_match,
+    cached_match: !!composerInfo.cached_match,
+    submit_found: !!submitInfo.button,
+    submit_candidates: submitInfo.candidates || 0,
+    submit_selector: submitInfo.selected_selector || '',
+    submit_scope: submitInfo.scope || 'global',
     auto_plan: arenaInsertPlan(target, 'auto'),
   };
 }
 async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = 'auto') {
   const started = performance.now();
-  const target = arenaFindComposer(adapter);
+  const composerInfo = typeof arenaComposerSelection === 'function' ? arenaComposerSelection(adapter) : {target: arenaFindComposer(adapter), candidates: 0, selected_selector: ''};
+  const target = composerInfo.target;
   if (!target) {
-    arenaSetInsertTiming({insert_ms: 0, verify_ms: 0, strategy, method: 'failed', error: 'composer_not_found'});
+    arenaSetInsertTiming({insert_ms: 0, verify_ms: 0, strategy, method: 'failed', error: 'composer_not_found', composer_candidates: composerInfo.candidates || 0, composer_selector: composerInfo.selected_selector || ''});
     return false;
   }
   const requested = arenaNormalizeInsertStrategy(strategy);
@@ -164,17 +182,17 @@ async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = '
         : (target.isContentEditable && arenaTryEditableInsert(target, text, selected));
     } catch (_e) { attempted = false; }
     const insertMs = Math.round(performance.now() - started);
-    const verify = attempted ? await arenaVerifySettledInsert(adapter, before, text) : {settled: false, verify_ms: 0};
+    const verify = attempted ? await arenaVerifySettledInsert(adapter, before, text, target) : {settled: false, verify_ms: 0};
     const ok = !!(attempted && verify.settled);
     attempts.push({strategy: selected, attempted: !!attempted, changed: !!verify.changed, settled: !!verify.settled, insert_ms: insertMs, verify_ms: verify.verify_ms});
     if (ok) {
-      arenaSetInsertTiming({insert_ms: insertMs, verify_ms: verify.verify_ms, total_ms: Math.round(performance.now() - started), strategy: selected, requested_strategy: requested, method: selected, changed: true, settled: true, attempts});
+      arenaSetInsertTiming({insert_ms: insertMs, verify_ms: verify.verify_ms, total_ms: Math.round(performance.now() - started), strategy: selected, requested_strategy: requested, method: selected, changed: true, settled: true, attempts, composer_candidates: composerInfo.candidates || 0, composer_selector: composerInfo.selected_selector || ''});
       return true;
     }
     if (requested === 'auto' && attempted && verify.changed) break;
   }
   const last = attempts[attempts.length - 1] || {strategy: requested, insert_ms: 0, verify_ms: 0, settled: false};
-  arenaSetInsertTiming({insert_ms: last.insert_ms, verify_ms: last.verify_ms, total_ms: Math.round(performance.now() - started), strategy: last.strategy, requested_strategy: requested, method: 'failed', changed: !!last.changed, settled: false, attempts});
+  arenaSetInsertTiming({insert_ms: last.insert_ms, verify_ms: last.verify_ms, total_ms: Math.round(performance.now() - started), strategy: last.strategy, requested_strategy: requested, method: 'failed', changed: !!last.changed, settled: false, attempts, composer_candidates: composerInfo.candidates || 0, composer_selector: composerInfo.selected_selector || ''});
   return false;
 }
 
@@ -183,14 +201,17 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
   const inserted = await arenaInsertResult(text, adapter, strategy);
   const insertTiming = window.__arenaLastInsertTiming || {};
   if (!inserted) return {ok: false, inserted: false, submitted: false, ...insertTiming, total_ms: Math.round(performance.now() - started)};
+  const composerInfo = typeof arenaComposerSelection === 'function' ? arenaComposerSelection(adapter) : {target: arenaFindComposer(adapter)};
   const deadline = Date.now() + 1500;
+  let submitInfo = {button: null, candidates: 0, selected_selector: '', scope: 'global'};
   while (Date.now() < deadline) {
-    const submit = arenaFindSubmitButton(adapter);
+    submitInfo = typeof arenaSubmitButtonSelection === 'function' ? arenaSubmitButtonSelection(adapter, composerInfo.target) : {button: arenaFindSubmitButton(adapter, composerInfo.target), candidates: 0, selected_selector: '', scope: 'global'};
+    const submit = submitInfo.button;
     if (submit && !submit.disabled && submit.getAttribute('aria-disabled') !== 'true') {
       submit.click();
-      return {ok: true, inserted: true, submitted: true, ...insertTiming, total_ms: Math.round(performance.now() - started)};
+      return {ok: true, inserted: true, submitted: true, ...insertTiming, submit_candidates: submitInfo.candidates || 0, submit_selector: submitInfo.selected_selector || '', submit_scope: submitInfo.scope || 'global', total_ms: Math.round(performance.now() - started)};
     }
     await arenaSleep(40);
   }
-  return {ok: true, inserted: true, submitted: false, ...insertTiming, total_ms: Math.round(performance.now() - started)};
+  return {ok: true, inserted: true, submitted: false, ...insertTiming, submit_candidates: submitInfo.candidates || 0, submit_selector: submitInfo.selected_selector || '', submit_scope: submitInfo.scope || 'global', total_ms: Math.round(performance.now() - started)};
 }

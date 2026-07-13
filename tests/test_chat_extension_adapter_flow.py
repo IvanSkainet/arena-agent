@@ -24,6 +24,12 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaCandidateHost' in adapters
     assert 'arenaPruneAncestorCandidates' in adapters
     assert 'arenaNodePath' in adapters
+    assert 'arenaElementVisible' in adapters
+    assert 'arenaResolveComposerNode' in adapters
+    assert 'arenaComposerCandidates' in adapters
+    assert 'arenaComposerSelection' in adapters
+    assert 'arenaSubmitCandidates' in adapters
+    assert 'arenaSubmitButtonSelection' in adapters
     assert 'chatgpt.com' in adapter_sites
     assert 'gemini.google.com' in adapter_sites
     assert 'claude.ai' in adapter_sites
@@ -79,6 +85,11 @@ def test_chat_extension_adapter_helpers_exist():
     assert 'arenaInsertPlan' in insert_strategies
     assert 'arenaUsesRichTextareaFastPath' in insert_strategies
     assert 'arenaComposerDiagnostics' in insert_strategies
+    assert 'composer_candidates' in insert_strategies
+    assert 'composer_selector' in insert_strategies
+    assert 'submit_candidates' in insert_strategies
+    assert 'submit_selector' in insert_strategies
+    assert 'submit_scope' in insert_strategies
     assert 'arenaInsertScriptVersion' in insert_strategies
     assert "arenaHost() === 'gemini.google.com'" in insert_strategies
     assert "closest?.('rich-textarea')" in insert_strategies
@@ -111,7 +122,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.5`.' in readme
+    assert 'Current extension version: `0.13.6`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert 'Insert & Submit' in readme or 'Send' in readme

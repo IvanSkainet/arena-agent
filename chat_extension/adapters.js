@@ -160,27 +160,136 @@ function arenaLatestCandidateNodes() {
   return {adapter: state.adapter, nodes: state.nodes.slice(-2)};
 }
 
-function arenaFindComposer(adapter = getArenaAdapter()) {
+function arenaElementVisible(node) {
+  if (!node?.isConnected) return false;
+  const style = window.getComputedStyle?.(node);
+  if (!style || style.display === 'none' || style.visibility === 'hidden') return false;
+  const rect = node.getBoundingClientRect?.();
+  return !!rect && rect.width > 0 && rect.height > 0;
+}
+
+function arenaResolveComposerNode(node, adapter = getArenaAdapter()) {
+  if (!node) return null;
+  if (arenaMatchesAny(node, adapter.composerSelectors)) return node;
   for (const selector of adapter.composerSelectors || []) {
-    const node = document.querySelector(selector);
-    if (node) return node;
+    try {
+      const match = node.closest?.(selector);
+      if (match) return match;
+    } catch (_e) {}
   }
+  if (node.isContentEditable && !node.closest?.('pre, code')) return node;
   return null;
 }
 
-function arenaFindSubmitButton(adapter = getArenaAdapter()) {
-  for (const selector of adapter.submitSelectors || []) {
-    const node = document.querySelector(selector);
-    if (!node) continue;
-    if (node.tagName === 'BUTTON') return node;
-    const button = node.closest('button');
-    if (button) return button;
+function arenaComposerCandidates(adapter = getArenaAdapter()) {
+  const seen = new Set();
+  const candidates = [];
+  const push = (node, selector = '') => {
+    const target = arenaResolveComposerNode(node, adapter);
+    if (!target || seen.has(target)) return;
+    seen.add(target);
+    candidates.push({node: target, selector});
+  };
+  push(document.activeElement, 'activeElement');
+  push(window.__arenaLastComposerTarget, 'cachedComposer');
+  for (const selector of adapter.composerSelectors || []) {
+    try { document.querySelectorAll(selector).forEach((node) => push(node, selector)); } catch (_e) {}
   }
-  return null;
+  return candidates;
+}
+
+function arenaScoreComposerCandidate(node, active = document.activeElement) {
+  let score = 0;
+  if (node === active || node.contains?.(active)) score += 100;
+  if (node === window.__arenaLastComposerTarget) score += 35;
+  if (arenaElementVisible(node)) score += 20;
+  if (node.closest?.('form')) score += 5;
+  return score;
+}
+
+function arenaComposerSelection(adapter = getArenaAdapter()) {
+  const cached = window.__arenaLastComposerTarget;
+  const ranked = arenaComposerCandidates(adapter)
+    .map((item) => ({...item, score: arenaScoreComposerCandidate(item.node)}))
+    .sort((a, b) => b.score - a.score);
+  const selected = ranked[0] || null;
+  if (selected?.node) window.__arenaLastComposerTarget = selected.node;
+  return {
+    target: selected?.node || null,
+    candidates: ranked.length,
+    selected_selector: selected?.selector || '',
+    active_match: !!selected?.node && (selected.node === document.activeElement || selected.node.contains?.(document.activeElement)),
+    cached_match: !!selected?.node && selected.node === cached,
+  };
+}
+
+function arenaFindComposer(adapter = getArenaAdapter()) {
+  return arenaComposerSelection(adapter).target;
+}
+
+function arenaButtonFromNode(node) {
+  if (!node) return null;
+  return node.tagName === 'BUTTON' ? node : (node.closest?.('button') || null);
+}
+
+function arenaSubmitCandidates(adapter = getArenaAdapter()) {
+  const seen = new Set();
+  const candidates = [];
+  for (const selector of adapter.submitSelectors || []) {
+    try {
+      document.querySelectorAll(selector).forEach((node) => {
+        const button = arenaButtonFromNode(node);
+        if (!button || seen.has(button)) return;
+        seen.add(button);
+        candidates.push({button, selector});
+      });
+    } catch (_e) {}
+  }
+  return candidates;
+}
+
+function arenaDistanceBetweenRects(a, b) {
+  const ax = a.left + (a.width / 2), ay = a.top + (a.height / 2);
+  const bx = b.left + (b.width / 2), by = b.top + (b.height / 2);
+  return Math.hypot(ax - bx, ay - by);
+}
+
+function arenaSubmitButtonSelection(adapter = getArenaAdapter(), composer = arenaFindComposer(adapter)) {
+  const formRoot = composer?.closest?.('form');
+  const fieldsetRoot = composer?.closest?.('fieldset');
+  const scopeRoot = formRoot || fieldsetRoot || composer?.closest?.('[role="form"], main, section, article, [role="dialog"]');
+  const composerRect = composer?.getBoundingClientRect?.();
+  const ranked = arenaSubmitCandidates(adapter)
+    .map((item) => {
+      let score = 0;
+      if (arenaElementVisible(item.button)) score += 30;
+      if (item.button.disabled || item.button.getAttribute('aria-disabled') === 'true') score -= 50;
+      if (formRoot && formRoot.contains(item.button)) score += 60;
+      else if (fieldsetRoot && fieldsetRoot.contains(item.button)) score += 40;
+      else if (scopeRoot && scopeRoot.contains(item.button)) score += 20;
+      if (composerRect && arenaElementVisible(item.button)) {
+        const distance = arenaDistanceBetweenRects(composerRect, item.button.getBoundingClientRect());
+        score += Math.max(0, 25 - Math.min(25, distance / 40));
+      }
+      return {...item, score};
+    })
+    .sort((a, b) => b.score - a.score);
+  const selected = ranked[0] || null;
+  return {
+    button: selected?.button || null,
+    candidates: ranked.length,
+    selected_selector: selected?.selector || '',
+    scope: formRoot ? 'form' : (fieldsetRoot ? 'fieldset' : (scopeRoot ? 'container' : 'global')),
+  };
+}
+
+function arenaFindSubmitButton(adapter = getArenaAdapter(), composer = null) {
+  return arenaSubmitButtonSelection(adapter, composer || arenaFindComposer(adapter)).button;
 }
 
 function arenaFocusComposer(target) {
   if (!target) return;
+  window.__arenaLastComposerTarget = target;
   const active = document.activeElement;
   if (active === target || target.contains?.(active)) return;
   try { target.focus({preventScroll: true}); } catch (_e) { target.focus(); }
