@@ -1,5 +1,5 @@
 function arenaInsertScriptVersion() {
-  return '0.13.8';
+  return '0.13.9';
 }
 function arenaSetInsertTiming(timing) {
   window.__arenaLastInsertTiming = timing;
@@ -129,6 +129,16 @@ function arenaInsertPlan(target, requested) {
   if (!target?.isContentEditable || requested !== 'auto') return [requested === 'auto' ? 'nativeInsertText' : requested];
   return arenaUsesRichTextareaFastPath(target) ? ['directDomPreWrap', 'nativeInsertText'] : ['nativeInsertText'];
 }
+function arenaButtonDiagnosticSample(button) {
+  return {
+    text: String(button?.innerText || button?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 80),
+    aria_label: button?.getAttribute?.('aria-label') || '',
+    data_testid: button?.getAttribute?.('data-testid') || '',
+    type: button?.getAttribute?.('type') || '',
+    disabled: !!button?.disabled || button?.getAttribute?.('aria-disabled') === 'true',
+    visible: typeof arenaElementVisible === 'function' ? arenaElementVisible(button) : true,
+  };
+}
 function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
   const composerInfo = typeof arenaComposerSelection === 'function' ? arenaComposerSelection(adapter) : {target: arenaFindComposer(adapter), candidates: 0, selected_selector: ''};
   const target = composerInfo.target;
@@ -142,6 +152,8 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
   };
   const submitInfo = typeof arenaSubmitButtonSelection === 'function' ? arenaSubmitButtonSelection(adapter, target) : {button: arenaFindSubmitButton(adapter, target), candidates: 0, selected_selector: '', scope: 'global', scope_buttons: 0, visible_scope_buttons: 0};
   const composerText = arenaEditableText(target);
+  const scopeRoot = target?.closest?.('form') || target?.closest?.('fieldset') || target?.closest?.('[role="form"], main, section, article, [role="dialog"]') || document;
+  const submitScopeSamples = Array.from(scopeRoot.querySelectorAll?.('button') || []).slice(0, 5).map(arenaButtonDiagnosticSample);
   const submitNote = submitInfo.button ? '' : (!composerText
     ? 'submit may appear only after composer has content'
     : (submitInfo.scope_buttons ? 'buttons exist in scope, but none matched submit selectors' : 'no submit buttons currently rendered in composer scope'));
@@ -167,6 +179,7 @@ function arenaComposerDiagnostics(adapter = getArenaAdapter()) {
     submit_scope: submitInfo.scope || 'global',
     submit_scope_buttons: submitInfo.scope_buttons || 0,
     submit_scope_visible_buttons: submitInfo.visible_scope_buttons || 0,
+    submit_scope_samples: submitScopeSamples,
     submit_note: submitNote,
     auto_plan: arenaInsertPlan(target, 'auto'),
   };
