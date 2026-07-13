@@ -147,7 +147,7 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    assert 'Current extension version: `0.13.20`.' in readme
+    assert 'Current extension version: `0.13.21`.' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme

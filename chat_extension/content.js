@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.13.20';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.13.21';
 const processed = new Set();
 const mountedControls = new Map();
 const mountedPayloadSemantics = new Set();
@@ -69,7 +69,7 @@ function pruneMountedControls() {
 }
 function suppressCurrentControls() {
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: []};
-  [...state.nodes].reverse().forEach((node) => parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => {
+  state.nodes.forEach((node) => parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => {
     const host = controlsHost(node);
     const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function' ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter) : hash(JSON.stringify(entry.payload || {}));
     dismissedControls.add(typeof arenaMessageFingerprint === 'function' ? arenaMessageFingerprint(host, entry.payload, state.adapter) : hash((host.textContent || '') + JSON.stringify(entry.payload)));
@@ -137,13 +137,11 @@ function mountControls(host, payload, adapter) {
   const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
   if (semanticOwner && semanticOwner !== fingerprint) {
     const previous = mountedControls.get(semanticOwner);
-    if (previous?.host !== host) {
-      previous?.bar?.remove();
-      if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
-      mountedControls.delete(semanticOwner);
-      mountedPayloadSemantics.delete(semanticFingerprint);
-      mountedSemanticOwners.delete(semanticFingerprint);
-    }
+    previous?.bar?.remove();
+    if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
+    mountedControls.delete(semanticOwner);
+    mountedPayloadSemantics.delete(semanticFingerprint);
+    mountedSemanticOwners.delete(semanticFingerprint);
   }
   const existing = mountedControls.get(fingerprint);
   if (dismissedControls.has(fingerprint) || dismissedControls.has(semanticFingerprint) || mountedPayloadSemantics.has(semanticFingerprint) || (existing?.bar?.isConnected) || hostHasToolbar(host)) return;
@@ -241,7 +239,7 @@ async function runAutoModes(request, adapter, status, setResultText) {
 function scan() {
   pruneMountedControls();
   const state = typeof arenaCandidateNodes === 'function' ? arenaCandidateNodes() : {adapter: {name: 'generic'}, nodes: [document.body]};
-  [...state.nodes].reverse().forEach((node) => {
+  state.nodes.forEach((node) => {
     const host = controlsHost(node);
     if (hostHasToolbar(host)) return;
     parseArenaBlocks((typeof arenaDetectionText === 'function' ? arenaDetectionText(node, state.adapter) : (node.textContent || ''))).forEach((entry) => mountControls(host, entry.payload, state.adapter));
