@@ -314,3 +314,84 @@ def probe_sensor_summary(serial: str) -> dict[str, Any]:
     if count:
         return {"sensors": {"count": count}}
     return {}
+
+
+def probe_others(serial: str) -> dict[str, Any]:
+    """Grab the top-level system state that doesn't fit any of the
+    named categories — GPU driver, camera count, radio versions,
+    persist.* toggles, feature flags, and so on. Everything is
+    ro./persist. so it's read-only and safe.
+
+    Populates `others.{key: value}` where every key survived a
+    lightweight PII filter (ICCID/IMSI/MAC/serial not included).
+    """
+    out: dict[str, str] = {}
+    text = _sh(serial, ["getprop"], timeout=8)
+    if not text:
+        return {}
+
+    # These prop prefixes tend to be useful but are excluded from the
+    # dedicated probes above. We deliberately DON'T include gsm.sim.imsi,
+    # gsm.sim.iccid, ro.serialno.original, ril.serialno (already covered
+    # in probe_network's exclusion list).
+    interesting_prefixes = (
+        "ro.opengles.",       # GPU / GL driver
+        "ro.hardware.",       # subsystems (camera vendor, wifi chip)
+        "ro.vendor.",         # vendor-specific niceties
+        "ro.config.",         # UX config
+        "ro.telephony.",      # radio version bits (no numeric ids)
+        "ro.baseband",
+        "ro.miui.",           # MIUI feature flags
+        "ro.mi.",             # POCO / Xiaomi extras
+        "persist.sys.usb.",   # USB mode flags
+        "persist.vendor.usb.",
+        "persist.debug.",     # non-PII debug flags
+        "dalvik.vm.",         # ART/VM heap sizes
+        "ro.build.version.",  # patch level etc
+        "ro.crypto.",
+        "sys.usb.state",
+        "vendor.debug.",
+    )
+    # Values that are PII-ish or already covered elsewhere.
+    exclude_exact = {
+        "ro.serialno", "ro.boot.serialno", "gsm.sim.iccid", "gsm.sim.imsi",
+        "ril.serialnumber", "ro.ril.oem.imei", "ro.ril.oem.meid",
+    }
+
+    for line in text.splitlines():
+        if not line.startswith("["):
+            continue
+        try:
+            key_part, _, val_part = line.partition("]: [")
+            k = key_part.lstrip("[")
+            v = val_part.rstrip("]")
+        except Exception:
+            continue
+        if not k or not v:
+            continue
+        if k in exclude_exact:
+            continue
+        # imei / iccid / mac hint filter: skip 10+ digit runs and MAC-shaped values
+        if len(v) >= 10 and v.isdigit():
+            continue
+        if _looks_like_mac(v):
+            continue
+        # Match against prefix whitelist.
+        for p in interesting_prefixes:
+            if k.startswith(p):
+                # Truncate to keep the response manageable.
+                out[k] = v if len(v) <= 200 else v[:197] + "..."
+                break
+    if not out:
+        return {}
+    # Sort so the response is stable across probes (helps tests).
+    out_sorted = {k: out[k] for k in sorted(out)}
+    return {"others": out_sorted}
+
+
+def _looks_like_mac(v: str) -> bool:
+    """Detect strings that look like MAC addresses so we don't leak them."""
+    stripped = v.replace(":", "").replace("-", "")
+    if len(stripped) == 12 and all(c in "0123456789abcdefABCDEF" for c in stripped):
+        return True
+    return False

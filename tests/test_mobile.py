@@ -626,12 +626,34 @@ def test_gestures_allowlist_is_stable():
     from arena.mobile.gestures import allowed_gestures
     got = set(allowed_gestures())
     expected = {
-        "notifications", "quick_settings", "close_shade",
+        # HyperOS/MIUI split shade + stock Android equivalents (v3.83.4).
+        "notifications", "quick_settings", "shade_center", "shade_full",
+        "close_shade",
         "scroll_up", "scroll_down", "scroll_left", "scroll_right",
         "back_edge_left", "back_edge_right",
-        "home_gesture", "recents_gesture",
+        "home_gesture", "recents_gesture", "screenshot_gesture",
     }
     assert got == expected, f"gesture allowlist drift: {got ^ expected}"
+
+
+def test_gesture_recipes_pull_shade_from_correct_edges():
+    """HyperOS split-shade: notifications = top-LEFT, quick_settings =
+    top-RIGHT. If someone accidentally puts both at x=0.5 (which the
+    v3.83.1-3 code did), both buttons open the same middle shade.
+    Guard the recipe values so the bug doesn't return."""
+    from arena.mobile.gestures import _RECIPES
+    n_x1, n_y1, n_x2, n_y2, _ = _RECIPES["notifications"]
+    q_x1, q_y1, q_x2, q_y2, _ = _RECIPES["quick_settings"]
+    assert n_x1 < 0.4, "notifications must start on the LEFT half"
+    assert q_x1 > 0.6, "quick_settings must start on the RIGHT half"
+    assert n_y1 < 0.1 and n_y2 > 0.3, "notifications must be a downward pull"
+    assert q_y1 < 0.1 and q_y2 > 0.3, "quick_settings must be a downward pull"
+
+
+def test_gesture_recipes_close_shade_swipes_upwards():
+    from arena.mobile.gestures import _RECIPES
+    x1, y1, x2, y2, _ = _RECIPES["close_shade"]
+    assert y1 > 0.9 and y2 < 0.1, "close_shade must swipe from bottom to top"
 
 
 def test_gesture_rejects_unknown():

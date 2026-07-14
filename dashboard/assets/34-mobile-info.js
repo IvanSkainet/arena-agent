@@ -21,6 +21,7 @@ const MOBILE_INFO_SECTIONS = [
   {id: "security",  label: "Security"},
   {id: "developer", label: "Developer"},
   {id: "sensors",   label: "Sensors"},
+  {id: "others",    label: "Others"},
 ];
 
 const _MOBILE_INFO_LS_KEY = "arena.mobile.info.section.v1";
@@ -97,6 +98,7 @@ function mobileRenderInfoPanel() {
     security:  _mobileInfoSectionSecurity(i),
     developer: _mobileInfoSectionDeveloper(i),
     sensors:   _mobileInfoSectionSensors(_mobileSensorsCache),
+    others:    _mobileInfoSectionOthers(i),
   };
 
   el.innerHTML = "";
@@ -414,4 +416,18 @@ function _mobileFormatBattery(b) {
   else if (b.usb_powered === "true") parts.push("USB");
   else if (b.wireless_powered === "true") parts.push("wireless");
   return parts.join(" · ");
+}
+
+
+// Others: catch-all for the raw ro./persist./dalvik.vm./sys.usb.*
+// properties that survived the PII filter on the bridge side. Rendered
+// as a sorted table so the same device produces the same order across
+// refreshes.
+function _mobileInfoSectionOthers(i) {
+  if (!i.others || typeof i.others !== "object") return [];
+  const rows = [];
+  for (const key of Object.keys(i.others)) {
+    rows.push([key, i.others[key]]);
+  }
+  return rows;
 }

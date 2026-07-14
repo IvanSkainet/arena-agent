@@ -13,14 +13,16 @@ let _mobileScreenshotBusy = false;
 let _mobileScreenshotBlobUrl = null;
 let _mobileInfoCache = null;
 
-// Live-view state. `_mobileLiveOn` mirrors the checkbox, `_mobileLiveTimer`
-// holds the polling interval id so we can cancel on tab switch / device
-// change. `_mobileScreenshotGen` is a monotonically increasing counter —
-// every new user action bumps it, and the adaptive post-action refresh
-// series bails as soon as its saved generation is stale (so a rapid tap
-// doesn't stack three overlapping screenshot fetches).
-let _mobileLiveOn = false;
-let _mobileLiveTimer = null;
+// Screenshot pipeline state. `_mobileScreenshotGen` is a monotonically
+// increasing counter — every new user action bumps it, and the
+// adaptive post-action refresh series bails as soon as its saved
+// generation is stale (so a rapid tap doesn't stack three overlapping
+// screenshot fetches).
+//
+// The Live-view state lives in 31-mobile-screen.js
+// (`_mobileLivePendingTimeout`, `_mobileLivePausedByHidden`). The
+// v3.83.4 chain-based scheduler replaced the old setInterval timer;
+// this file no longer owns Live state.
 let _mobileScreenshotGen = 0;
 let _mobileLastSnapAt = 0;       // performance.now() at last successful snap
 let _mobileAgeTimer = null;      // refreshes the "N s ago" label
@@ -136,17 +138,14 @@ async function refreshMobile() {
     }
 
     // If the selected device disappeared, hide the actions card and
-    // stop the live-view poll (nothing to poll). The Live checkbox
-    // state is preserved so the poll resumes if the same phone is
+    // stop the live-view chain (nothing to poll). The Live checkbox
+    // state is preserved so the chain resumes if the same phone is
     // plugged back in.
     if (_mobileSelectedSerial && !devices.some((d) => d.serial === _mobileSelectedSerial)) {
       _mobileSelectedSerial = null;
       _mobileInfoCache = null;
       if (selectedCard) selectedCard.style.display = "none";
-      if (_mobileLiveTimer) {
-        clearInterval(_mobileLiveTimer);
-        _mobileLiveTimer = null;
-      }
+      if (typeof _mobileLiveClear === "function") _mobileLiveClear();
     }
   } catch (e) {
     console.warn("[mobile] refresh failed:", e);

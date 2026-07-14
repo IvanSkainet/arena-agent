@@ -6,6 +6,154 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.83.4 - 2026-07-14
+
+Mobile Phase 2 продолжение — **screenshot переписан для скорости**,
+**HyperOS split-shade жесты исправлены**, **Live-view переделан на
+цепочечный планировщик, больше не спамит `aborted`**, **детект
+FLAG_SECURE**, и новая секция **Others** в info-панели со всеми
+оставшимися ro./persist./dalvik.vm./sys.usb.* свойствами.
+
+### Fixed — Live-view больше не DDoS'ит сам себя aborted-запросами
+
+Планировщик v3.83.3 использовал `setInterval` + busy-guard +
+`AbortController`, отменявший собственного предшественника. На
+устройстве, где screenshot идёт дольше polling interval, это давало:
+
+  * Постоянный поток `AbortError` от каждого setInterval-тика,
+    который стрелял в летящий fetch.
+  * `" · aborted"` дописывалось к meta-строке при каждом AbortError —
+    без сброса, разрастаясь до сотен символов за минуту.
+  * Визуальный "DDoS" эффект на телефоне: несколько `/screenshot`
+    запросов в очереди одновременно, каждый гоняется со следующим.
+
+**Новый chain-based scheduler** (`_mobileLiveScheduleNextFrame`): один
+`setTimeout` ставится из `finally` блока `mobileScreenshot()` —
+следующий fetch стартует через N мс ПОСЛЕ завершения предыдущего,
+никогда параллельно. Если телефон делает 700 мс на кадр при 1 Hz Live,
+получишь один честный кадр каждые 1700 мс вместо пяти гонящихся
+частичных. Никакого спама `aborted`. Никаких самоотменённых запросов.
+
+Также убрана самоотмена в `mobileScreenshot()` (AbortController отменял
+собственного предшественника при каждом вызове — busy-guard уже
+предотвращал наложения, так что это был чистый overhead).
+
+### Fixed — Screenshot в 2× быстрее (raw framebuffer)
+
+`adb exec-out screencap` (без `-p`) возвращает framebuffer как
+12/16-байтный header + ARGB_8888 pixel buffer — Pillow'ский
+`frombuffer` декодит это без прохода через PNG-энкодер на устройстве.
+
+Замеры на POCO F7 Pro через Tailscale:
+  * v3.83.3 (`screencap -p` + PIL decode): **~2900 мс** capture +
+    ~350 мс encode = **~3.2 с** на стороне bridge.
+  * v3.83.4 (raw + `frombuffer`): **~1300 мс** capture + ~110 мс
+    encode = **~1.4 с** — **экономия 55% на кадр**.
+
+Весь round-trip (браузер → нарисованное изображение) упал с ~5-7 с
+до ~2.5-3 с. FPS на дефолтном 0.67 Hz Live поднялся с ~0.15 до
+стабильного ~0.4.
+
+PNG-source path оставлен как fallback для устройств с некорректным
+raw header (редко; старый Android <10 или fringe ROM). Автоматически
+переключается когда header validation не проходит.
+
+**Заголовки breakdown latency** на каждом `/screenshot` ответе — UI
+видит что именно тормозит:
+  * `X-Arena-Mobile-Capture-Mode`: `raw` или `png`
+  * `X-Arena-Mobile-Capture-Ms`: время внутри `adb exec-out screencap`
+  * `X-Arena-Mobile-Encode-Ms`: время внутри Pillow
+  * Meta-строка Dashboard теперь показывает `cap X + enc Y + net Z` —
+    видно, тормозит ли телефон, bridge, или Tailscale.
+
+### Fixed — HyperOS split-shade жесты бьют в правильные края
+
+На MIUI/HyperOS шторка уведомлений РАЗДЕЛЕНА: pull с верхнего LEFT
+открывает уведомления, pull с верхнего RIGHT открывает Quick Settings.
+Рецепты v3.83.1-3 стартовали оба с x=0.50, открывая одну и ту же
+центральную шторку для обеих кнопок на split-shade ROM.
+
+  * **`notifications`** — теперь `(0.15, 0.02) → (0.15, 0.60)` (верхний-левый).
+  * **`quick_settings`** — теперь `(0.85, 0.02) → (0.85, 0.60)` (верхний-правый).
+  * **`shade_center`** (новый) — top-center swipe для стоковой Android.
+  * **`shade_full`** (новый) — top-center ДЛИННЫЙ swipe, открывает
+    уведомления + QS за один жест на стоковой Android.
+  * **`close_shade`** — теперь стартует с `y=0.98` (было `0.90`) —
+    ловит настоящий нижний край на gesture-nav устройствах.
+  * **`screenshot_gesture`** (новый) — best-effort приближение
+    three-finger swipe для MIUI/HyperOS скриншотов.
+  * **Регрессионный тест** защищает рецепты, чтобы баг «обе кнопки
+    на x=0.50» никогда не вернулся.
+
+Метки кнопок Dashboard обновлены: "◤▼ Notifications (L)", "▼◥ Quick
+settings (R)", "▼ Shade (center)", "▼▼ Shade (full)" — маркер L/R
+говорит юзеру какой край использует каждая, очевидно когда у
+устройства split shade, а когда нет.
+
+### Added — Детект FLAG_SECURE
+
+Некоторые экраны Android (ввод пароля, банковские приложения, DRM
+видео) помечены `FLAG_SECURE` и `screencap` возвращает полностью
+чёрный кадр вместо реального контента. Без этого Dashboard просто
+показывает чёрный и выглядит сломанным.
+
+  * **`arena/mobile/screenshot._looks_secure_frame()`** сэмплит 20
+    пикселей по кадру; если max-min спред каналов <6, кадр помечен
+    как secure.
+  * **`X-Arena-Mobile-Secure-Frame: 1`** заголовок на таких ответах.
+  * **Баннер в Dashboard** появляется над скриншотом при детекте
+    secure-кадра: "🔒 Android пометил этот экран как secure
+    (FLAG_SECURE) — скриншот намеренно чёрный. Обычно на вводе пароля,
+    банковских приложениях, DRM видео. Действия (tap / swipe / key)
+    по-прежнему работают."
+  * Регрессионный тест проверяет, что детектор не даёт false-positive
+    на цветном градиенте (dark-mode UI иначе флажился).
+
+### Added — Секция Others в info-панели
+
+Новый `arena/mobile/devices_probes.probe_others(serial)` собирает
+свойства `ro./persist./dalvik.vm./sys.usb.state/vendor.debug.`, что
+не попадают в именованные секции. Каждый ключ проходит явный PII-фильтр
+(ICCID / IMSI / MAC / serialno / длинные числовые ID отбрасываются).
+Отсортировано алфавитно для стабильного рендера UI.
+
+  * **`info.others`** — dict разрешённых свойств (обычно 30-80 записей
+    на современном телефоне).
+  * **Новый tab** в info-панели Dashboard: **Others** — тот же табличный
+    layout, что и у других секций.
+  * **Privacy regression test** проверяет, что ни ICCID `8970199912...`,
+    ни IMSI `250991...`, ни MAC `aa:bb:cc:dd:ee:ff` не утекают в
+    ответ, даже если засеяны в фейковый getprop dump.
+
+### Test suite
+
+797 passed (+7 новых). Все в `tests/test_mobile_v83_3.py` (теперь 433
+строки):
+
+  * `test_screenshot_raw_header_parses_both_12_and_16_byte_variants`
+  * `test_screenshot_secure_frame_detector_flags_black_frame` (+
+    no-false-positive на градиенте)
+  * `test_screenshot_capture_returns_capture_and_encode_ms`
+  * `test_probe_others_filters_pii` (явный privacy-regress)
+  * `test_probe_others_stable_key_ordering`
+  * `test_gesture_recipes_pull_shade_from_correct_edges`
+  * `test_gesture_recipes_close_shade_swipes_upwards`
+
+Baseline gesture-allowlist тест обновлён под 4 новых жеста
+(`shade_center`, `shade_full`, `screenshot_gesture`, `back_edge_right`
+кнопка уже была в allowlist).
+
+### Follow-ups для v3.83.5
+
+- **UI-мастер для wireless ADB `pair` / `connect`**.
+- **Общий APK install** с `apksigner verify` + per-APK SHA-256
+  consent flow.
+- **Dashboard consent-диалог** для установщика ADBKeyboard + one-click
+  "Install helper" кнопка прямо из ошибки "route: blocked".
+- **`force_png_source=1` query param** для /screenshot endpoint —
+  тестеры смогут сравнивать raw и PNG пути прямо из браузера (сейчас
+  только через Python функцию).
+
 ## v3.83.3 - 2026-07-14
 
 Mobile Phase 2 продолжение — **живые данные сенсоров**, **info-панель

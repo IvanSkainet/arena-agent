@@ -143,6 +143,14 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
                 "X-Arena-Mobile-Source-Width": str(result.get("source_width") or result["width"]),
                 "X-Arena-Mobile-Source-Height": str(result.get("source_height") or result["height"]),
                 "X-Arena-Mobile-Downscaled": "1" if result.get("downscaled") else "0",
+                # v3.83.4: expose latency breakdown so the Dashboard
+                # meta line can show what actually dominates the frame
+                # (capture on device vs encode on bridge vs network
+                # round-trip).
+                "X-Arena-Mobile-Capture-Mode": str(result.get("capture_mode") or ""),
+                "X-Arena-Mobile-Capture-Ms": str(result.get("capture_ms") or 0),
+                "X-Arena-Mobile-Encode-Ms": str(result.get("encode_ms") or 0),
+                "X-Arena-Mobile-Secure-Frame": "1" if result.get("secure_frame") else "0",
             },
         )
 

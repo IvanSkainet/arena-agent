@@ -1,5 +1,159 @@
 # Changelog
 
+## v3.83.4 - 2026-07-14
+
+Mobile Phase 2 continued — **screenshot capture path rewritten for
+speed**, **HyperOS split-shade gestures fixed**, **Live-view rebuilt
+around a chain-based scheduler that no longer spams `aborted`**,
+**FLAG_SECURE detection**, and a new **Others** info section with
+every remaining ro./persist./dalvik.vm./sys.usb.* property that
+survived the PII filter.
+
+### Fixed — Live view no longer DDoSes itself with aborted requests
+
+The v3.83.3 scheduler used `setInterval` + a busy-guard + an
+`AbortController` that cancelled its own predecessor. On any device
+where the screenshot took longer than the polling interval this
+combination produced:
+
+  * A permanent stream of `AbortError` exceptions from every
+    setInterval tick that fired into an in-flight fetch.
+  * `" · aborted"` appended to the meta line by every AbortError —
+    with no reset, growing to hundreds of characters within a minute.
+  * A visual "DDoS" effect on the phone: several `/screenshot` requests
+    queued at once, each one racing the next.
+
+**New chain-based scheduler** (`_mobileLiveScheduleNextFrame`): a
+single `setTimeout` gets set from the `finally` block of
+`mobileScreenshot()` — the next fetch fires N ms AFTER the previous
+one completes, never during. If the phone takes 700 ms per frame at
+1 Hz Live, you get one honest frame every 1700 ms instead of five
+racing partial frames. No more `aborted` spam. No more self-cancelled
+requests.
+
+Also removed the self-cancellation in `mobileScreenshot()` itself
+(the AbortController was cancelling its own predecessor on every
+call — the busy-guard already prevented overlaps, so this was pure
+overhead).
+
+### Fixed — Screenshot 2× faster (raw framebuffer path)
+
+`adb exec-out screencap` (no `-p`) returns the framebuffer as a
+12/16-byte header + ARGB_8888 pixel buffer — Pillow's `frombuffer`
+decodes this without going through the on-device PNG encoder.
+
+Measured on POCO F7 Pro over Tailscale:
+  * v3.83.3 (`screencap -p` + PIL decode): **~2900 ms** capture +
+    ~350 ms encode = **~3.2 s** on the bridge side.
+  * v3.83.4 (raw + `frombuffer`): **~1300 ms** capture + ~110 ms
+    encode = **~1.4 s** — a **55% saving per frame**.
+
+The whole round-trip (from browser to painted image) dropped from
+~5-7 s to ~2.5-3 s. FPS at the default 0.67 Hz Live rate went from
+~0.15 to a steady ~0.4.
+
+PNG-source path kept as a fallback for devices that return a
+malformed raw header (rare; older Android <10 or fringe ROMs).
+Falls back automatically when the header validation fails.
+
+**Latency-breakdown headers** on every `/screenshot` response so the
+UI can pinpoint what's slow:
+  * `X-Arena-Mobile-Capture-Mode`: `raw` or `png`
+  * `X-Arena-Mobile-Capture-Ms`: time spent inside `adb exec-out
+    screencap`
+  * `X-Arena-Mobile-Encode-Ms`: time spent inside Pillow
+  * The Dashboard meta line now shows `cap X + enc Y + net Z` so the
+    user sees whether it's the phone, the bridge, or Tailscale that's
+    dominating.
+
+### Fixed — HyperOS split-shade gestures point at the correct edges
+
+On MIUI/HyperOS the notification shade is SPLIT: pulling from the
+top-LEFT opens notifications, pulling from the top-RIGHT opens Quick
+Settings. The v3.83.1-3 recipes started both from x=0.50, which
+opened the same middle shade for both buttons on split-shade ROMs.
+
+  * **`notifications`** — now `(0.15, 0.02) → (0.15, 0.60)` (top-left).
+  * **`quick_settings`** — now `(0.85, 0.02) → (0.85, 0.60)` (top-right).
+  * **`shade_center`** (new) — top-center swipe for stock Android.
+  * **`shade_full`** (new) — top-center LONG swipe that opens
+    notifications + QS in one pull on stock Android.
+  * **`close_shade`** — now starts at `y=0.98` (was `0.90`) so it
+    catches the actual bottom edge on gesture-nav devices.
+  * **`screenshot_gesture`** (new) — best-effort three-finger swipe
+    approximation for MIUI/HyperOS screenshots.
+  * **Regression test** guards the recipes so the "both buttons at
+    x=0.50" bug can never come back.
+
+Dashboard button labels updated: "◤▼ Notifications (L)", "▼◥ Quick
+settings (R)", "▼ Shade (center)", "▼▼ Shade (full)" — the L/R marker
+tells the user which edge each one uses so it's obvious when the
+device has a split shade vs when it doesn't.
+
+### Added — FLAG_SECURE detection
+
+Some Android screens (password entry, banking apps, DRM video) are
+marked `FLAG_SECURE` and `screencap` returns an all-black frame
+instead of the actual content. Without this the Dashboard just
+shows black and looks broken.
+
+  * **`arena/mobile/screenshot._looks_secure_frame()`** samples 20
+    pixels across the frame; if the max-min channel spread is <6,
+    the frame is flagged as secure.
+  * **`X-Arena-Mobile-Secure-Frame: 1`** header on those responses.
+  * **Dashboard banner** appears above the screenshot when a secure
+    frame is detected: "🔒 Android marked this screen as secure
+    (FLAG_SECURE) — the screenshot is intentionally black. Common on
+    password entry, banking apps, and DRM video. Actions (tap / swipe
+    / key) still work."
+  * Regression test asserts the detector doesn't false-positive on a
+    colourful gradient (dark-mode UIs would otherwise get flagged).
+
+### Added — Others info section
+
+New `arena/mobile/devices_probes.probe_others(serial)` collects the
+`ro./persist./dalvik.vm./sys.usb.state/vendor.debug.` properties that
+don't fit any of the named sections. Each key survives an explicit
+PII filter (ICCID / IMSI / MAC / serialno / long numeric ids are
+dropped). Sorted alphabetically for stable UI rendering.
+
+  * **`info.others`** — dict of allowed properties (typically 30-80
+    entries on a modern phone).
+  * **New tab** in the Dashboard info panel: **Others** — same table
+    layout as the other sections.
+  * **Privacy regression test** asserts none of ICCID `8970199912...`,
+    IMSI `250991...`, or MAC `aa:bb:cc:dd:ee:ff` leak into the
+    response even when seeded into a fake getprop dump.
+
+### Test suite
+
+797 passed (+7 new). All checked in `tests/test_mobile_v83_3.py`
+(now 433 lines):
+
+  * `test_screenshot_raw_header_parses_both_12_and_16_byte_variants`
+  * `test_screenshot_secure_frame_detector_flags_black_frame` (+
+    no-false-positive on gradient)
+  * `test_screenshot_capture_returns_capture_and_encode_ms`
+  * `test_probe_others_filters_pii` (explicit privacy regression)
+  * `test_probe_others_stable_key_ordering`
+  * `test_gesture_recipes_pull_shade_from_correct_edges`
+  * `test_gesture_recipes_close_shade_swipes_upwards`
+
+Baseline gesture-allowlist test updated to expect the 4 new gestures
+(`shade_center`, `shade_full`, `screenshot_gesture`, `back_edge_right`
+button was already in the allowlist).
+
+### Known follow-ups for v3.83.5
+
+- **Wireless ADB `pair` / `connect` UI wizard**.
+- **Generic APK install** with `apksigner verify` + per-APK
+  SHA-256 consent flow.
+- **Dashboard consent dialog** for the ADBKeyboard installer + a
+  one-click "Install helper" button from the "route: blocked" error.
+- **`force_png_source=1` query parameter** for the /screenshot
+  endpoint so testers can compare the raw and PNG paths side-by-side
+  from the browser (currently only settable from the Python function).
+
 ## v3.83.3 - 2026-07-14
 
 Mobile Phase 2 continued — **sensor readings live**, **sectioned

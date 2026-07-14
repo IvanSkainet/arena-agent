@@ -105,16 +105,14 @@ const _mobileFrameStamps = [];
 const _MOBILE_FPS_WINDOW = 8;
 
 // Abort controller for the in-flight screenshot fetch. When the user
-// takes another action (tap, key, gesture), we call this to cancel
-// the previous /screenshot request instead of letting two overlapping
-// fetches race. Tailscale round-trip for a 720px WebP is ~200-400ms,
-// so a rapid triple-tap without this would queue 3 stale frames and
-// display them one after another.
+// takes another action (device switch, tab hidden), we call this to
+// cancel the in-flight /screenshot request. Note: unlike v3.83.3 we
+// do NOT auto-abort our own predecessor from mobileScreenshot() —
+// the busy-guard ensures only one is in flight at a time, and
+// self-cancellation was producing a permanent AbortError stream.
+// (Live-view state — _mobileLivePendingTimeout, _mobileLivePausedByHidden —
+// lives lower in this file with the chain-based scheduler.)
 let _mobileFetchController = null;
-
-// True while the visibility hook has paused Live-view polling because
-// the tab is hidden. Resumed on `visibilitychange` -> visible.
-let _mobileLivePausedByHidden = false;
 
 async function _mobileBlobHash(blob) {
   // Fast path: use a small prefix. For 720×1600 WebP the compressed
@@ -142,11 +140,13 @@ async function mobileScreenshot() {
   const loading = document.getElementById("mobileScreenshotLoading");
   if (loading) loading.style.display = "";
 
-  // Cancel any previous in-flight fetch so a rapid action series
-  // doesn't stack pending frames on the Tailscale link.
-  if (_mobileFetchController) {
-    try { _mobileFetchController.abort(); } catch (_) {}
-  }
+  // Fresh AbortController per fetch so the caller can cancel this
+  // specific request (device switch, tab hidden) without racing
+  // against a future fetch. We do NOT cancel our own previous fetch
+  // here — the busy-guard above already ensures only one is in flight
+  // at a time. The v3.83.3 code cancelled its own predecessor via
+  // this controller, which combined with setInterval-based Live-view
+  // produced a permanent stream of AbortErrors.
   _mobileFetchController = new AbortController();
   const controller = _mobileFetchController;
 
@@ -178,17 +178,20 @@ async function mobileScreenshot() {
     }
     _mobileShownWidth = parseInt(resp.headers.get("X-Arena-Mobile-Width") || "0", 10);
     _mobileShownHeight = parseInt(resp.headers.get("X-Arena-Mobile-Height") || "0", 10);
-    // Rotation-aware native size — the frontend uses this (not the
-    // /info physical size) to translate CSS clicks back to phone
-    // coordinates. `screencap` follows rotation, so landscape gives
-    // us 3200x1440 here even though /info reports 1440x3200. Falls
-    // back to shown size if the bridge is older than v3.83.2.
     const srcW = parseInt(resp.headers.get("X-Arena-Mobile-Source-Width") || "0", 10);
     const srcH = parseInt(resp.headers.get("X-Arena-Mobile-Source-Height") || "0", 10);
     if (srcW > 0 && srcH > 0) {
       _mobileNativeWidth = srcW;
       _mobileNativeHeight = srcH;
     }
+    // v3.83.4: latency breakdown from the bridge so the meta line
+    // shows where time is actually spent (capture on device vs
+    // encode on bridge). Also expose the capture-mode ("raw"/"png")
+    // so it's obvious when the fast path is engaged.
+    const captureMs = parseInt(resp.headers.get("X-Arena-Mobile-Capture-Ms") || "0", 10);
+    const encodeMs  = parseInt(resp.headers.get("X-Arena-Mobile-Encode-Ms")  || "0", 10);
+    const captureMode = resp.headers.get("X-Arena-Mobile-Capture-Mode") || "";
+    const secureFrame = resp.headers.get("X-Arena-Mobile-Secure-Frame") === "1";
     const blob = await resp.blob();
 
     // Content-hash dedup: identical blob → keep the current <img>.
@@ -227,25 +230,47 @@ async function mobileScreenshot() {
       const dupeTag = isDupe
         ? " · dupe" + (_mobileConsecutiveDupes > 1 ? "×" + _mobileConsecutiveDupes : "")
         : "";
+      // Breakdown: elapsed = full round-trip; capture+encode = server
+      // side; network = elapsed - capture - encode. This lets the user
+      // see whether it's the phone, the bridge, or Tailscale that's slow.
+      const network = Math.max(0, elapsed - captureMs - encodeMs);
+      const breakdown = (captureMs || encodeMs)
+        ? " (cap " + captureMs + " + enc " + encodeMs + " + net " + network + ")"
+        : "";
+      const modeTag = captureMode ? " · " + captureMode : "";
       meta.textContent =
         _mobileShownWidth + "×" + _mobileShownHeight
-        + " · " + settings.format + " q" + settings.quality
+        + " · " + settings.format + " q" + settings.quality + modeTag
         + " · " + Math.round(blob.size / 1024) + " KB"
-        + " · " + elapsed + " ms" + fpsLabel + dupeTag;
+        + " · " + elapsed + " ms" + breakdown
+        + fpsLabel + dupeTag;
+    }
+    // Secure-screen banner — surface once, don't spam. FLAG_SECURE
+    // screens (password entry, banking apps) return a black frame
+    // that would otherwise look like a Live-view crash.
+    const secureBanner = document.getElementById("mobileSecureBanner");
+    if (secureBanner) {
+      secureBanner.style.display = secureFrame ? "" : "none";
     }
     _mobileUpdateAgeLabel();
   } catch (e) {
     // AbortError = intentional cancel from a follow-up action, not an
-    // error we want to surface to the user.
-    if (e && e.name === "AbortError") {
-      // Meta line: hint that we skipped one frame on purpose.
-      if (meta && meta.textContent) meta.textContent += " · aborted";
-    } else {
+    // error we want to surface to the user. Log to console only; the
+    // previous version appended " · aborted" to the meta line every
+    // time and never reset it, which grew into hundreds of characters
+    // during long Live sessions.
+    if (!(e && e.name === "AbortError")) {
       mobileShowError("Screenshot request failed", e && e.stack || String(e));
     }
   } finally {
     if (loading) loading.style.display = "none";
     _mobileScreenshotBusy = false;
+    // Live-view chain: schedule the next frame from the finally block
+    // instead of via setInterval. This means "next fetch fires N ms
+    // AFTER the previous one completes", not "every N ms regardless".
+    // Result: no more request pile-up on slow devices, no more spurious
+    // AbortErrors from setInterval firing into an in-flight fetch.
+    _mobileLiveScheduleNextFrame();
   }
 }
 
@@ -279,17 +304,15 @@ function _mobileRefreshBurst() {
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) {
-      if (_mobileLiveTimer) {
-        clearInterval(_mobileLiveTimer);
-        _mobileLiveTimer = null;
-        _mobileLivePausedByHidden = true;
-      }
+      // Cancel any pending Live-chain tick so we don't burn Tailnet
+      // bandwidth while the user is in another tab.
+      _mobileLiveClear();
+      _mobileLivePausedByHidden = true;
     } else if (_mobileLivePausedByHidden) {
       _mobileLivePausedByHidden = false;
-      // Re-apply the current settings (starts the timer if Live is on).
+      // Restart the Live chain — mobileLiveApply also fires an
+      // immediate first frame so the user sees fresh content on return.
       if (typeof mobileLiveApply === "function") mobileLiveApply();
-      // And do one immediate refresh so the user sees a current frame.
-      if (_mobileSelectedSerial) mobileScreenshot();
     }
   });
 }
@@ -303,49 +326,73 @@ function _mobileUpdateAgeLabel() {
   el.style.color = age <= 2 ? "#2b8a3e" : age <= 10 ? "#666" : "#c92a2a";
 }
 
-// Applies the current Live-view rate: stops any existing poll, starts
-// a new one if enabled. Called from settings changes and tab-switch.
-function mobileLiveApply() {
-  const settings = mobileScreenSettingsLoad();
-  if (_mobileLiveTimer) {
-    clearInterval(_mobileLiveTimer);
-    _mobileLiveTimer = null;
+// Chain-based Live view (v3.83.4).
+//
+// The v3.83.3 implementation used setInterval + a busy-guard + an
+// AbortController. On a slow connection this meant:
+//   * setInterval fires every N ms regardless of whether the previous
+//     fetch finished
+//   * busy-guard skips most ticks (they log " · aborted" appended to
+//     the meta line, which never got reset and grew forever)
+//   * the surviving tick would abort the in-flight fetch mid-decode,
+//     producing a real AbortError every cycle
+//
+// The new model: a single pending timeout that only gets scheduled
+// AFTER a frame completes. Live rate becomes "wait N ms between frames"
+// instead of "fire N ms after the previous fire". If the phone takes
+// 700 ms per frame at 1 Hz, we produce ~1 frame/1700 ms — honest — and
+// never queue a second request while the first is running.
+let _mobileLivePendingTimeout = null;
+let _mobileLivePausedByHidden = false;   // set by visibilitychange
+
+function _mobileLiveClear() {
+  if (_mobileLivePendingTimeout !== null) {
+    clearTimeout(_mobileLivePendingTimeout);
+    _mobileLivePendingTimeout = null;
   }
-  if (!(settings.live_hz > 0)) return;
+}
+
+function _mobileLiveScheduleNextFrame() {
+  _mobileLiveClear();
+  const settings = mobileScreenSettingsLoad();
+  if (!(settings.live_hz > 0)) return;              // Live off
+  if (!_mobileSelectedSerial) return;               // no device
   if (typeof document !== "undefined" && document.hidden) {
-    // Don't start polling into a hidden tab — visibilitychange will
-    // re-apply once we become visible again.
     _mobileLivePausedByHidden = true;
     return;
   }
+  const tab = document.getElementById("tab-mobile");
+  if (!tab || !tab.classList.contains("active")) return;
   const intervalMs = Math.max(200, Math.round(1000 / settings.live_hz));
-  // Warm-up: fire the first frame right away instead of waiting a full
-  // interval — a 1.5s Live rate should not delay the first paint by
-  // 1.5s when the toggle just got flipped.
-  if (_mobileSelectedSerial && !_mobileScreenshotBusy) {
-    _mobileFrameStamps.length = 0;
-    mobileScreenshot();
-  }
-  _mobileLiveTimer = setInterval(() => {
-    if (!_mobileSelectedSerial) return;
-    const tab = document.getElementById("tab-mobile");
-    if (!tab || !tab.classList.contains("active")) return;
-    // Skip only if the network round-trip is genuinely slower than the
-    // polling interval. If it's been more than 2× the interval since
-    // the last successful snap, the previous fetch is probably stuck —
-    // abort it so this tick can make progress.
-    if (_mobileScreenshotBusy) {
-      const stall = performance.now() - _mobileLastSnapAt;
-      if (stall > intervalMs * 2 && _mobileFetchController) {
-        try { _mobileFetchController.abort(); } catch (_) {}
-        _mobileScreenshotBusy = false;
-      } else {
-        return;
-      }
-    }
-    mobileScreenshot();
+  _mobileLivePendingTimeout = setTimeout(() => {
+    _mobileLivePendingTimeout = null;
+    if (!_mobileScreenshotBusy) mobileScreenshot();
+    else _mobileLiveScheduleNextFrame();  // recheck on the next tick
   }, intervalMs);
 }
+
+// Public entry point: enable/disable/rate change. Warms up with an
+// immediate first frame.
+function mobileLiveApply() {
+  _mobileLiveClear();
+  const settings = mobileScreenSettingsLoad();
+  if (!(settings.live_hz > 0)) return;
+  if (typeof document !== "undefined" && document.hidden) {
+    _mobileLivePausedByHidden = true;
+    return;
+  }
+  if (_mobileSelectedSerial && !_mobileScreenshotBusy) {
+    _mobileFrameStamps.length = 0;
+    mobileScreenshot();  // finally block will schedule the next
+  } else {
+    _mobileLiveScheduleNextFrame();
+  }
+}
+
+// Compat shim for other files that still call the setInterval-based
+// clearer. The name is kept so external references (e.g. selectMobileDevice
+// resetting Live on device change) don't need to be updated.
+let _mobileLiveTimer = null;  // unused now, kept for reference
 
 // Public toggle handler. Called from the checkbox onchange.
 function mobileToggleLive() {

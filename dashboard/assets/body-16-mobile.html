@@ -63,16 +63,24 @@
   For anything else, drag directly on the screenshot below.
 </div>
 <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:12px">
-  <button onclick="mobileGesture('notifications')">▼ Shade</button>
-  <button onclick="mobileGesture('quick_settings')">▼▼ Quick settings</button>
+  <button onclick="mobileGesture('notifications')"
+          title="Top-LEFT swipe down — notifications shade on HyperOS/MIUI split-shade layouts">◤▼ Notifications (L)</button>
+  <button onclick="mobileGesture('quick_settings')"
+          title="Top-RIGHT swipe down — Quick Settings on HyperOS/MIUI split-shade layouts">▼◥ Quick settings (R)</button>
+  <button onclick="mobileGesture('shade_center')"
+          title="Top-CENTER swipe down — full shade on stock Android (older Android or non-Xiaomi ROMs)">▼ Shade (center)</button>
+  <button onclick="mobileGesture('shade_full')"
+          title="Top-CENTER long swipe — notifications AND Quick Settings in one pull (stock Android)">▼▼ Shade (full)</button>
   <button onclick="mobileGesture('close_shade')">▲ Close shade</button>
   <button onclick="mobileGesture('scroll_up')">↑ Scroll up</button>
   <button onclick="mobileGesture('scroll_down')">↓ Scroll down</button>
   <button onclick="mobileGesture('scroll_left')">← Scroll left</button>
   <button onclick="mobileGesture('scroll_right')">Scroll right →</button>
   <button onclick="mobileGesture('back_edge_left')" title="Gesture-nav back from left edge">← Edge back</button>
+  <button onclick="mobileGesture('back_edge_right')" title="Gesture-nav back from right edge">Edge back →</button>
   <button onclick="mobileGesture('home_gesture')" title="Gesture-nav home swipe from bottom">▲ Home gesture</button>
   <button onclick="mobileGesture('recents_gesture')" title="Gesture-nav recents — swipe up + pause">▲⏸ Recents gesture</button>
+  <button onclick="mobileGesture('screenshot_gesture')" title="Three-finger swipe down (MIUI/HyperOS); best-effort as single-finger doesn't map perfectly. Fallback: PWR+VOL_DOWN combo.">📸 Screenshot</button>
 </div>
 
 <!-- ============================ Type text ============================ -->
@@ -165,6 +173,16 @@
     ⌨ Forward keyboard
   </label>
   <span id="mobileKbdStatus" class="mono" style="font-size:11px"></span>
+</div>
+
+<!-- FLAG_SECURE banner: some screens (password entry, banking apps,
+     DRM video) intentionally return a black frame to the screenshot
+     API. Without this note the Dashboard looks broken. -->
+<div id="mobileSecureBanner"
+     style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:rgba(255,193,7,.14);border:1px solid rgba(255,193,7,.4);border-radius:6px;font-size:12px;color:#856404">
+  🔒 Android marked this screen as secure (FLAG_SECURE) — the screenshot
+  is intentionally black. Common on password entry, banking apps, and
+  DRM video. Actions (tap / swipe / key) still work.
 </div>
 
 <!-- Screenshot canvas + SVG overlay + tooltip -->

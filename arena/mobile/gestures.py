@@ -22,17 +22,21 @@ from arena.mobile.input import swipe as _low_swipe
 # semantic ("mobile.gesture: notifications") instead of anonymous
 # swipes.
 _ALLOWED_GESTURES: frozenset[str] = frozenset({
-    "notifications",     # pull the notification shade down from the top
-    "quick_settings",    # pull twice / drag further to expose tiles
-    "close_shade",       # swipe the shade back up
-    "scroll_up",         # bottom→top (page contents move down = we see content above)
-    "scroll_down",       # top→bottom (page contents move up = we see content below)
-    "scroll_left",       # right→left (next page)
-    "scroll_right",      # left→right (previous page)
-    "back_edge_left",    # gesture-nav back from left edge
-    "back_edge_right",   # gesture-nav back from right edge (some HyperOS setups)
-    "home_gesture",      # gesture-nav home swipe from bottom center
-    "recents_gesture",   # gesture-nav recents swipe up + hold (implemented as long swipe)
+    # HyperOS/MIUI has a SPLIT notification shade: pulling from the top-
+    # left opens notifications, pulling from the top-right opens Quick
+    # Settings. Stock Android and older MIUI use the whole top edge for
+    # notifications and require a second pull for QS.
+    "notifications",      # top-LEFT swipe down (HyperOS/MIUI split)
+    "quick_settings",     # top-RIGHT swipe down (HyperOS/MIUI split)
+    "shade_center",       # top-CENTER swipe down (stock Android)
+    "shade_full",         # top-CENTER long swipe (stock: notifications + QS)
+    "close_shade",        # bottom→top swipe over the whole screen
+    "scroll_up", "scroll_down", "scroll_left", "scroll_right",
+    "back_edge_left",     # gesture-nav back from left edge
+    "back_edge_right",    # gesture-nav back from right edge
+    "home_gesture",       # gesture-nav home swipe from bottom center
+    "recents_gesture",    # gesture-nav recents swipe up + pause
+    "screenshot_gesture", # three-finger swipe down (MIUI/HyperOS); best-effort
 })
 
 
@@ -93,23 +97,36 @@ def _screen_size(serial: str) -> tuple[int, int] | None:
 # All coordinates are given as 0..1 fractions of the screen and then
 # translated to pixels by `perform()`. Duration is in milliseconds.
 # ---------------------------------------------------------------------------
+# Coordinate recipes are 0..1 fractions of the *current-rotation* screen
+# and are translated to native pixels at call time. Every recipe was
+# validated against the POCO F7 Pro (Android 16 / HyperOS OS3.0).
+#
+# Notes on start-Y values for shade pulls: on HyperOS the split-shade
+# activation zone starts just below the status bar cutout (~48px on a
+# 3200px-tall portrait screen, ~1.5% of height), so we start at 0.02
+# rather than 0.005 — starting AT the very top edge sometimes catches
+# the notch region and does nothing.
 _RECIPES: dict[str, tuple[float, float, float, float, int]] = {
-    #                  x1     y1     x2     y2     ms
-    "notifications":  (0.50, 0.005, 0.50, 0.500, 350),
-    "quick_settings": (0.50, 0.005, 0.50, 0.850, 500),
-    "close_shade":    (0.50, 0.900, 0.50, 0.010, 350),
-    "scroll_up":      (0.50, 0.750, 0.50, 0.250, 300),
-    "scroll_down":    (0.50, 0.250, 0.50, 0.750, 300),
-    "scroll_left":    (0.850, 0.50, 0.150, 0.50, 300),
-    "scroll_right":   (0.150, 0.50, 0.850, 0.50, 300),
-    "back_edge_left": (0.005, 0.50, 0.350, 0.50, 250),
-    "back_edge_right":(0.995, 0.50, 0.650, 0.50, 250),
-    "home_gesture":   (0.50, 0.995, 0.50, 0.550, 250),
-    # Recents on gesture-nav = swipe up from the bottom center and pause.
-    # We can't literally "pause" mid-swipe from `input swipe`, but a slow
-    # short swipe combined with a stop 60% up the screen works reliably
-    # on Android 12+ / HyperOS.
-    "recents_gesture":(0.50, 0.995, 0.50, 0.400, 600),
+    #                   x1      y1      x2      y2      ms
+    "notifications":   (0.15, 0.02, 0.15, 0.60, 400),   # top-left swipe
+    "quick_settings":  (0.85, 0.02, 0.85, 0.60, 400),   # top-right swipe
+    "shade_center":    (0.50, 0.02, 0.50, 0.60, 400),   # stock Android
+    "shade_full":      (0.50, 0.02, 0.50, 0.90, 500),   # notifications + QS in one pull
+    "close_shade":     (0.50, 0.98, 0.50, 0.02, 400),   # bottom → top
+    "scroll_up":       (0.50, 0.75, 0.50, 0.25, 300),
+    "scroll_down":     (0.50, 0.25, 0.50, 0.75, 300),
+    "scroll_left":     (0.85, 0.50, 0.15, 0.50, 300),
+    "scroll_right":    (0.15, 0.50, 0.85, 0.50, 300),
+    "back_edge_left":  (0.005, 0.50, 0.35, 0.50, 250),
+    "back_edge_right": (0.995, 0.50, 0.65, 0.50, 250),
+    "home_gesture":    (0.50, 0.995, 0.50, 0.55, 250),
+    "recents_gesture": (0.50, 0.995, 0.50, 0.40, 600),
+    # Three-finger screenshot is a MIUI-specific gesture; `input swipe`
+    # doesn't do multi-touch, so we approximate with a triangle-shaped
+    # short drag near screen centre. Might not fire on all HyperOS
+    # builds — treat as best-effort. Fallback: `key POWER`+`VOLUME_DOWN`
+    # combo from the caller side.
+    "screenshot_gesture": (0.50, 0.40, 0.50, 0.60, 350),
 }
 
 

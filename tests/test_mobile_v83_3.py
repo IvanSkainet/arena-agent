@@ -306,3 +306,128 @@ def test_mobile_handlers_dataclass_fields_v83_3():
                 "sensors", "scroll", "key_combo"}
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
     assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+
+
+# ---------------------------------------------------------------------------
+# v3.83.4 additions — raw screencap parser, FLAG_SECURE detector,
+# probe_others catch-all, and the chain-based Live-view scheduler shape.
+# ---------------------------------------------------------------------------
+def test_screenshot_raw_header_parses_both_12_and_16_byte_variants():
+    import struct
+    from arena.mobile.screenshot import _parse_raw_header
+    # 16-byte header (modern Android 10+): width, height, format,
+    # colorspace. 3200x1440 landscape POCO frame + RGBA.
+    header16 = struct.pack("<IIII", 3200, 1440, 1, 0) + b"\x00" * 32
+    got = _parse_raw_header(header16)
+    assert got == (3200, 1440, "RGBA", 4, 16)
+    # 12-byte header (older Android): width, height, format. Pad the
+    # 4-byte "colorspace" slot with an obviously-out-of-range value
+    # (99) so the 16-byte parser rejects it and falls through to the
+    # 12-byte path. This mirrors what a real legacy screencap emits —
+    # the bytes after the 12-byte header are pixel data, not a
+    # coincidentally-valid colorspace enum.
+    header12 = struct.pack("<III", 1080, 2400, 1) + b"\x63\x00\x00\x00" + b"\x00" * 32
+    got = _parse_raw_header(header12)
+    assert got == (1080, 2400, "RGBA", 4, 12)
+    # Garbage bytes — must return None so caller falls back to PNG.
+    assert _parse_raw_header(b"") is None
+    assert _parse_raw_header(b"\x00" * 30) is None
+
+
+def test_screenshot_secure_frame_detector_flags_black_frame():
+    try:
+        from PIL import Image
+    except Exception:
+        import pytest
+        pytest.skip("Pillow not installed")
+    from arena.mobile.screenshot import _looks_secure_frame
+    black = Image.new("RGB", (100, 200), color=(0, 0, 0))
+    assert _looks_secure_frame(black) is True
+    # A colourful gradient must NOT trip the detector (regression:
+    # earlier iterations with a naive avg-brightness check flagged
+    # real dark-mode UIs as secure).
+    grad = Image.new("RGB", (100, 200))
+    for x in range(100):
+        for y in range(200):
+            grad.putpixel((x, y), (x * 2, y % 256, (x + y) % 256))
+    assert _looks_secure_frame(grad) is False
+
+
+def test_screenshot_capture_returns_capture_and_encode_ms(monkeypatch):
+    """The new latency-breakdown fields must always be present so the
+    Dashboard can render its "cap X + enc Y + net Z" meta line without
+    conditional guards."""
+    try:
+        from PIL import Image  # noqa: F401
+    except Exception:
+        import pytest
+        pytest.skip("Pillow not installed")
+    from arena.mobile import screenshot as _s
+    import io as _io, struct as _st
+    from PIL import Image as _PI
+    # Build a synthetic PNG for the -p fallback path.
+    buf = _io.BytesIO()
+    _PI.new("RGB", (100, 200), color=(30, 60, 90)).save(buf, format="PNG")
+    class _R:
+        returncode = 0
+        stdout = buf.getvalue()
+        stderr = b""
+    monkeypatch.setattr(_s, "find_adb", lambda: "/usr/bin/adb")
+    monkeypatch.setattr(_s, "run", lambda *a, **kw: _R())
+    r = _s.capture("dummy", max_size=50, format="webp", quality=80,
+                   force_png_source=True)
+    assert r["ok"] is True
+    assert r["capture_mode"] == "png"
+    assert "capture_ms" in r and isinstance(r["capture_ms"], int)
+    assert "encode_ms" in r and isinstance(r["encode_ms"], int)
+
+
+def test_probe_others_filters_pii(monkeypatch):
+    """Bug regression: probe_others must NEVER emit ICCID/IMSI/MAC-shaped
+    values. Feeds a getprop dump seeded with three PII-looking strings
+    and asserts none of them appear in the output."""
+    from arena.mobile import devices_probes as _p
+    fake = (
+        "[ro.miui.ui.version.name]: [V816]\n"
+        "[ro.opengles.version]: [196610]\n"
+        "[ro.hardware.gpu]: [adreno]\n"
+        "[persist.sys.usb.config]: [mtp,adb]\n"
+        "[ro.build.version.security_patch]: [2026-06-01]\n"
+        "[ro.serialno]: [DEVICESERIAL123]\n"                    # must be excluded
+        "[gsm.sim.iccid]: [8970199912345678901]\n"              # must be excluded
+        "[wifi.interface.macaddr]: [aa:bb:cc:dd:ee:ff]\n"       # MAC — must be excluded
+        "[ril.pending.count]: [1234567890]\n"                   # 10+ digit — excluded
+    )
+    def _fake_sh(serial, args, timeout=5):
+        if args[:1] == ["getprop"]:
+            return fake
+        return ""
+    monkeypatch.setattr(_p, "_sh", _fake_sh)
+    r = _p.probe_others("dummy")
+    o = r["others"]
+    # Whitelisted keys must appear.
+    assert "ro.miui.ui.version.name" in o
+    assert "ro.opengles.version" in o
+    assert "ro.hardware.gpu" in o
+    assert "persist.sys.usb.config" in o
+    assert "ro.build.version.security_patch" in o
+    # Blacklisted must NOT appear anywhere in the output.
+    dumped = str(r)
+    assert "DEVICESERIAL123" not in dumped
+    assert "8970199912345678901" not in dumped
+    assert "aa:bb:cc:dd:ee:ff" not in dumped
+    assert "1234567890" not in dumped
+
+
+def test_probe_others_stable_key_ordering(monkeypatch):
+    from arena.mobile import devices_probes as _p
+    fake = (
+        "[ro.miui.foo]: [1]\n"
+        "[ro.opengles.version]: [2]\n"
+        "[dalvik.vm.heapsize]: [512m]\n"
+        "[persist.debug.a]: [b]\n"
+    )
+    monkeypatch.setattr(_p, "_sh",
+        lambda serial, args, timeout=5: fake if args[:1] == ["getprop"] else "")
+    keys = list(_p.probe_others("dummy")["others"].keys())
+    assert keys == sorted(keys), "others keys must be sorted for stable UI"

@@ -186,6 +186,10 @@ def device_info(serial: str) -> dict[str, Any]:
     info.update(_p.probe_developer_options(serial))
     info.update(_p.probe_encryption(serial))
     info.update(_p.probe_sensor_summary(serial))
+    # v3.83.4: catch-all `others` section — every remaining
+    # ro./persist./dalvik.vm./sys.usb.* property that survived the
+    # PII filter. Populates info["others"] as a stable-sorted dict.
+    info.update(_p.probe_others(serial))
 
     return info
 
