@@ -19,29 +19,49 @@ Notes on `input text` reliability (v3.82.2):
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from arena.mobile.adb import AdbNotFoundError, find_adb, run
 
 # `adb shell input keyevent` accepts either an integer keycode or the
-# textual name. The list is deliberately conservative — enough for
-# navigation and text entry, without exposing rebooting or power-off.
+# textual name. Kept conservative — enough for navigation, text entry
+# and a physical-keyboard-like experience from the Dashboard, without
+# exposing rebooting or power-off.
 _ALLOWED_KEYS: frozenset[str] = frozenset({
     # Navigation / system
-    "HOME", "BACK", "MENU", "APP_SWITCH", "RECENTS",
+    "HOME", "BACK", "MENU", "APP_SWITCH", "RECENTS", "NOTIFICATION",
     "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT", "DPAD_CENTER",
     "TAB", "ENTER", "ESCAPE", "SPACE",
     # Text editing
     "DEL", "FORWARD_DEL", "MOVE_HOME", "MOVE_END",
-    # Media / volume (harmless & useful)
+    "PAGE_UP", "PAGE_DOWN",
+    # Media / volume
     "VOLUME_UP", "VOLUME_DOWN", "VOLUME_MUTE",
     "MEDIA_PLAY", "MEDIA_PAUSE", "MEDIA_PLAY_PAUSE", "MEDIA_NEXT", "MEDIA_PREVIOUS",
     # Screen
     "WAKEUP", "SLEEP",
-    # Common letters/numbers can be sent via `input text` instead — we
-    # deliberately do not allow raw letter keycodes because agents that
-    # want to "type" should call the type endpoint (which is unicode-safe).
+    # Modifier / meta keys — useful for keyboard forwarding + key_combo
+    "SHIFT_LEFT", "SHIFT_RIGHT", "CTRL_LEFT", "CTRL_RIGHT",
+    "ALT_LEFT", "ALT_RIGHT", "META_LEFT", "META_RIGHT",
+    "CAPS_LOCK", "NUM_LOCK", "SCROLL_LOCK",
+    # Editor shortcuts as first-class keys (Android maps Ctrl+C etc, but
+    # some apps only listen for these direct codes).
+    "COPY", "PASTE", "CUT", "SELECT_ALL", "UNDO", "REDO", "SEARCH",
+    "ZOOM_IN", "ZOOM_OUT",
+    # Function keys
+    "F1", "F2", "F3", "F4", "F5", "F6",
+    "F7", "F8", "F9", "F10", "F11", "F12",
 })
+# Letters A-Z and digits 0-9 are allowed as-is so the Dashboard can
+# forward a physical-keyboard press through `key`. They aren't in the
+# frozenset above because adding 36 more entries would drown out the
+# semantic keys in error messages — instead we check the pattern.
+_LETTER_OR_DIGIT_RE = re.compile(r"^(?:[A-Z]|[0-9])$")
+
+# `input keycombination` (Android 12+) accepts two or more keycodes to
+# press together, e.g. Ctrl+A. Guarded by the same allowlist as `key`.
+_MAX_COMBO_KEYS = 4
 
 
 def _err(msg: str, **extra: Any) -> dict[str, Any]:
@@ -271,21 +291,37 @@ def _friendly_type_error(raw: str) -> str:
     return raw
 
 
+def _normalise_key(key_name: Any) -> tuple[str | None, str | None]:
+    """Return (upper, error) — upper is the accepted `KEYCODE_<X>` tail,
+    or None if `key_name` is invalid / not on the allowlist. Letters A-Z
+    and digits 0-9 are accepted without being enumerated in the frozenset
+    so error messages stay short."""
+    if not isinstance(key_name, str):
+        return None, "key must be a string"
+    upper = key_name.upper().replace("KEYCODE_", "").strip()
+    if not upper:
+        return None, "key must not be empty"
+    if upper in _ALLOWED_KEYS:
+        return upper, None
+    if _LETTER_OR_DIGIT_RE.match(upper):
+        return upper, None
+    return None, (
+        f"key {key_name!r} is not on the allowlist. "
+        f"Named keys: {sorted(_ALLOWED_KEYS)}; also A-Z and 0-9 are accepted."
+    )
+
+
 def key(serial: str, key_name: str) -> dict[str, Any]:
     """Send an Android key event via allowlist.
 
     `key_name` is the symbolic KEYCODE name without the `KEYCODE_` prefix
-    (e.g. `HOME`, `BACK`, `VOLUME_UP`). Only keys in the allowlist are
-    accepted so an agent cannot pass e.g. `POWER` to force a reboot.
+    (e.g. `HOME`, `BACK`, `VOLUME_UP`, `A`, `7`). Only allowlisted keys
+    or single letters/digits are accepted so an agent cannot pass e.g.
+    `POWER` to force a reboot.
     """
-    if not isinstance(key_name, str):
-        return _err("key must be a string")
-    upper = key_name.upper().replace("KEYCODE_", "").strip()
-    if upper not in _ALLOWED_KEYS:
-        return _err(
-            f"key {key_name!r} is not on the allowlist. "
-            f"Allowed: {sorted(_ALLOWED_KEYS)}"
-        )
+    upper, err = _normalise_key(key_name)
+    if err:
+        return _err(err)
     guard = _ensure_adb()
     if guard:
         return guard
@@ -303,4 +339,120 @@ def key(serial: str, key_name: str) -> dict[str, Any]:
         "stdout": r.stdout, "stderr": r.stderr,
         "exit_code": r.returncode,
         "error": None if ok else (r.stderr or f"input keyevent exit {r.returncode}").strip(),
+    }
+
+
+def key_combo(serial: str, keys: list[str]) -> dict[str, Any]:
+    """Press a combination of keys together (e.g. Ctrl+A → SELECT_ALL).
+
+    Uses `adb shell input keycombination` which fires all keys down,
+    then all keys up — matches how a physical keyboard emits shortcut
+    events. Requires 2..4 keys, each validated against the same
+    allowlist as `key()`.
+    """
+    if not isinstance(keys, list) or len(keys) < 2 or len(keys) > _MAX_COMBO_KEYS:
+        return _err(f"keys must be a list of 2..{_MAX_COMBO_KEYS} names")
+    codes: list[str] = []
+    for k in keys:
+        upper, err = _normalise_key(k)
+        if err:
+            return _err(err)
+        codes.append(f"KEYCODE_{upper}")
+    guard = _ensure_adb()
+    if guard:
+        return guard
+    try:
+        r = run(
+            ["shell", "input", "keyboard", "keycombination", *codes],
+            serial=serial, timeout=10,
+        )
+    except AdbNotFoundError as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"key_combo failed: {e}")
+    ok = r.returncode == 0
+    return {
+        "ok": ok, "action": "key_combo", "keys": codes,
+        "stdout": r.stdout, "stderr": r.stderr, "exit_code": r.returncode,
+        "error": None if ok else (r.stderr or f"keycombination exit {r.returncode}").strip(),
+    }
+
+
+def scroll(
+    serial: str,
+    x: int, y: int,
+    *,
+    vscroll: float = 0.0,
+    hscroll: float = 0.0,
+) -> dict[str, Any]:
+    """Emit a mouse-wheel event at (x, y).
+
+    Uses `adb shell input mouse scroll` with `--axis VSCROLL,N` /
+    `--axis HSCROLL,N`. Positive vscroll = scroll content up (like
+    a real wheel roll away from you). Coordinates are the current
+    rotation's native pixels — same convention as `tap` and `swipe`,
+    so the frontend can reuse the same click-to-native math for
+    wheel events over the screenshot.
+
+    Not every Android version accepts `mouse scroll`; when it doesn't,
+    the fallback is a short `input swipe` in the corresponding
+    direction. We prefer the native scroll because it lands as a
+    real MotionEvent.ACTION_SCROLL that scrollable views receive
+    without any timing tricks.
+    """
+    for name, val in (("x", x), ("y", y)):
+        if not isinstance(val, int):
+            return _err(f"{name} must be an integer")
+    if x < 0 or y < 0 or x > 100_000 or y > 100_000:
+        return _err(f"scroll coordinates out of range: ({x}, {y})")
+    if not (isinstance(vscroll, (int, float)) and isinstance(hscroll, (int, float))):
+        return _err("vscroll and hscroll must be numeric")
+    if vscroll == 0 and hscroll == 0:
+        return _err("at least one of vscroll / hscroll must be non-zero")
+    for name, val in (("vscroll", vscroll), ("hscroll", hscroll)):
+        if abs(val) > 100:
+            return _err(f"{name} out of range: {val} (max ±100)")
+
+    guard = _ensure_adb()
+    if guard:
+        return guard
+
+    args = ["shell", "input", "mouse", "scroll", str(x), str(y)]
+    if vscroll:
+        args += ["--axis", f"VSCROLL,{vscroll}"]
+    if hscroll:
+        args += ["--axis", f"HSCROLL,{hscroll}"]
+    try:
+        r = run(args, serial=serial, timeout=10)
+    except AdbNotFoundError as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"scroll failed: {e}")
+
+    # `input mouse scroll` returns 0 on modern Android, but on older
+    # versions (or ROMs that reject the mouse source) it exits 255
+    # with "Error: Unknown command". Auto-fall-back to a swipe so the
+    # caller still gets a visible scroll.
+    ok = r.returncode == 0
+    if not ok:
+        stderr = (r.stderr or "").strip()
+        if "unknown" in stderr.lower() or "not found" in stderr.lower() or r.returncode == 255:
+            # Simulate a wheel notch as a short swipe. 1 notch ≈ 300 px
+            # on a modern high-density display; scale by |vscroll|.
+            magnitude = int(abs(vscroll) * 300) or 300
+            direction = -1 if vscroll > 0 else 1  # positive vscroll = content up
+            fallback = swipe(
+                serial, x, y, x, y + direction * magnitude, duration_ms=180,
+            )
+            fallback = dict(fallback)
+            fallback["action"] = "scroll"
+            fallback["fallback"] = "swipe"
+            fallback["vscroll"] = vscroll
+            fallback["hscroll"] = hscroll
+            return fallback
+    return {
+        "ok": ok, "action": "scroll",
+        "x": x, "y": y, "vscroll": vscroll, "hscroll": hscroll,
+        "stdout": r.stdout, "stderr": r.stderr, "exit_code": r.returncode,
+        "error": None if ok else (r.stderr or f"scroll exit {r.returncode}").strip(),
     }

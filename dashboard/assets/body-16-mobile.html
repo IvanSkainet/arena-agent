@@ -116,7 +116,7 @@
     <span id="mobileQualityValue" class="mono" style="width:24px;text-align:right">82</span>
   </div>
   <div style="display:inline-flex;align-items:center;gap:4px">
-    <label for="mobileWidth" style="color:#666" title="Screenshot max width in pixels. 0 = native resolution.">Width</label>
+    <label for="mobileWidth" style="color:#666" title="Screenshot LONG side in pixels (works for both portrait and landscape orientations). 0 = native resolution.">Size</label>
     <select id="mobileWidth" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
       <option value="360">360 (fastest)</option>
       <option value="480">480</option>
@@ -156,14 +156,29 @@
   </span>
 </div>
 
+<!-- Direct-input toolbar: mouse wheel + physical keyboard -->
+<div class="row" style="gap:12px;margin-bottom:6px;align-items:center;font-size:11px;color:#666">
+  <span title="Roll the mouse wheel over the phone screen to scroll the phone. Works out of the box; no toggle needed.">🖱 Wheel over the phone screen scrolls the phone</span>
+  <label style="display:inline-flex;align-items:center;gap:4px;user-select:none;margin-left:auto"
+         title="When ON, keyboard shortcuts (Enter, arrows, letters, Ctrl+A, etc.) go to the phone instead of the browser. Click the phone screen once first to focus it.">
+    <input type="checkbox" id="mobileKbdToggle" onchange="mobileToggleKeyboard(this)">
+    ⌨ Forward keyboard
+  </label>
+  <span id="mobileKbdStatus" class="mono" style="font-size:11px"></span>
+</div>
+
 <!-- Screenshot canvas + SVG overlay + tooltip -->
-<div id="mobileScreenshotWrap" style="max-width:100%;position:relative">
+<div id="mobileScreenshotWrap" tabindex="0"
+     style="max-width:100%;position:relative;outline:none"
+     onclick="mobileFocusScreen()"
+     onkeydown="mobileKeyHandler(event)">
   <img id="mobileScreenshotImg"
        style="max-width:100%;height:auto;cursor:crosshair;border:1px solid #ccc;border-radius:6px;display:none;touch-action:none;user-select:none;-webkit-user-drag:none"
        onpointerdown="mobilePointerDown(event)"
        onpointermove="mobilePointerMove(event)"
        onpointerup="mobilePointerUp(event)"
        onpointercancel="mobilePointerCancel(event)"
+       onwheel="mobileWheelHandler(event)"
        ondragstart="return false"
        alt="phone screen">
   <svg id="mobileInspectorOverlay" preserveAspectRatio="none"

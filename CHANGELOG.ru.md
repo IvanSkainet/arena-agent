@@ -6,6 +6,168 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.83.3 - 2026-07-14
+
+Mobile Phase 2 продолжение — **живые данные сенсоров**, **info-панель
+с разделами Overview/Display/Hardware/Network/Storage/Security/Developer/
+Sensors**, **скроллинг мышью и физическая клавиатура** прямо со скриншота,
+и **landscape-aware ограничение размера скриншота**. Live-view теперь
+показывает реальный FPS и делает мгновенный первый кадр при включении.
+Всё проверено на POCO F7 Pro.
+
+### Added — Список сенсоров + последние значения
+
+- **Новый модуль `arena/mobile/sensors.py`** с `list_sensors(serial,
+  events_per_sensor=1)`. Парсит `dumpsys sensorservice` и возвращает:
+  * `sensors` — метаданные каждого сенсора (name, vendor, version,
+    type integer + friendly type name через таблицу из 42 типов,
+    min/max rate, потребление, wake-up, resolution, глубина FIFO,
+    режим триггера).
+  * `recent_events` — последние N событий каждого сенсора, что
+    публиковал что-то с загрузки. Значения снабжены именами каналов,
+    где Android-тип известен (`x/y/z` для акселерометра, `lux` для
+    света, `cm` для proximity, `bpm` для сердечного ритма и т.д.).
+  * Хвостовые нули автоматически обрезаются — 1-осевой датчик света
+    показывает `[6308]` вместо `[6308, 0, 0, …, 0]` из 16 колонок.
+- **Новый эндпоинт** `GET /v1/mobile/{serial}/sensors?events_per_sensor=N`.
+  Объявлен в `/v1/capabilities.mobile.endpoints`.
+- На POCO F7 Pro доступны живые значения 15+ сенсоров: raw данные
+  ambient light (`[17119, 2523, 1647, 1358]`), XYZ акселерометра,
+  grip posture, off-hand detection, SAR detector, driving detection
+  и другие.
+
+### Added — Info-панель с разделами
+
+- **Новый Dashboard-файл `34-mobile-info.js`** (417 строк) заменяет
+  плоскую таблицу v3.83.1 на tab-bar:
+  * **All** (по умолчанию — все непустые разделы с заголовками).
+  * **Overview** — имя устройства, Android + patch, HyperOS, power,
+    battery, UI mode, uptime, foreground activity.
+  * **Display** — physical/current размер, orientation + rotation,
+    DPI, активный + поддерживаемые refresh rates, HDR типы, радиус
+    скругления углов, locale + timezone.
+  * **Hardware** — CPU ABI list, hardware, board, bootloader, build
+    метаданные, fingerprint, kernel, RAM, swap.
+  * **Network** — оператор (без ICCID/IMSI), mobile type, SIM state,
+    mobile data on/off, роуминг, Wi-Fi state + IPv4.
+  * **Storage** — строка на каждый `df -h` mount (data, sdcard и т.д.).
+  * **Security** — SELinux, verified boot, шифрование ФС, флаги ADB,
+    текущий IME.
+  * **Developer** — developer options, stay-awake, USB debug security,
+    количество пакетов.
+  * **Sensors** — количество сенсоров + все живые показания,
+    отсортированы по типу; неактивные сенсоры перечислены отдельно с
+    вендором и max rate.
+- Выбор раздела сохраняется в `localStorage`
+  (`arena.mobile.info.section.v1`). Сенсоры загружаются лениво при
+  первом открытии Sensors или All — открытие вкладки Mobile остаётся
+  ~2 с, а не 4 с.
+- Каждый tab показывает счётчик (например `Storage · 2`,
+  `Sensors · 89`), чтобы было очевидно, где данные.
+
+### Added — Мышиный wheel над экраном телефона
+
+- **Новый эндпоинт** `POST /v1/mobile/{serial}/scroll` с
+  `{x, y, vscroll, hscroll}` (см. `arena/mobile/input.py::scroll`).
+  Использует `adb shell input mouse scroll --axis VSCROLL,N`; при
+  отказе устройства прозрачно откатывается на короткий swipe (старый
+  Android или ограниченный ROM).
+- **Dashboard: прокрутка колеса над скриншотом прокручивает телефон.**
+  Новый `35-mobile-input.js` нормализует браузерные `wheel` события
+  (pixel/line/page delta modes) в целые "notches", ограничивает
+  скорость ≥60 мс между отправками, транслирует указатель в
+  rotation-aware пиксели и шлёт `/scroll` в эту точку. Знак
+  инвертирован — прокрутка вниз в браузере двигает контент телефона
+  тоже вниз (как везде на десктопе).
+
+### Added — Физическая клавиатура
+
+- **Новый эндпоинт** `POST /v1/mobile/{serial}/key_combo` с
+  `{keys: ["CTRL_LEFT", "A"]}` — жмёт 2..4 keycode'а вместе через
+  `adb shell input keyboard keycombination`. Тот же allowlist, что
+  и у `/key`.
+- **`input.key()` теперь принимает одиночные буквы (A-Z) и цифры
+  (0-9)** напрямую. Раньше — только символические имена (HOME/BACK/…),
+  что было правильно для семантического агента, но не позволяло
+  форвардить нажатие физической клавиатуры. Буквы/цифры проверяются
+  паттерном (`^[A-Z]|[0-9]$`), а не перечислением — сообщения об
+  ошибках остаются короткими.
+- **19 новых именованных keycode'ов в allowlist**: `NOTIFICATION`,
+  `PAGE_UP`/`DOWN`, все модификаторы `SHIFT_/CTRL_/ALT_/META_` L/R,
+  `CAPS/NUM/SCROLL_LOCK`, `COPY`/`PASTE`/`CUT`/`SELECT_ALL`/`UNDO`/
+  `REDO`/`SEARCH`/`ZOOM_IN`/`ZOOM_OUT`, и `F1`–`F12`.
+- **Dashboard: opt-in переключатель "⌨ Forward keyboard"** в
+  toolbar'e Screen. При включении `keydown` события на (фокусном)
+  wrap'e скриншота транслируются в `/key` или `/key_combo` — chord'ы
+  типа Ctrl+A автоматически идут через `/key_combo`. По умолчанию
+  выключен, чтобы обычные браузерные шорткаты (Ctrl+F, Ctrl+T)
+  работали, когда открыта вкладка Mobile. `KeyboardEvent.code` →
+  Android KEYCODE map покрывает буквы/цифры/стрелки/F-клавиши/edit-keys.
+
+### Added — Landscape-aware `max_size` для скриншотов
+
+- **`arena/mobile/screenshot.py::capture(max_size=…)`** уменьшает по
+  ДЛИННОЙ стороне вместо ширины. Исправляет жалобу v3.83.2 на низкое
+  разрешение в landscape: `max_width=720` на 3200×1440 landscape
+  давал 720×324 (только 324 вертикальных пикселя реального контента),
+  а `max_size=720` даёт те же 720×324 в landscape И 324×720 в
+  portrait — длинная сторона всегда та, что вы задали.
+- **Старый `max_width` сохранён для обратной совместимости**, но
+  `max_size` побеждает если заданы оба. Dashboard по умолчанию шлёт
+  `max_size=720`.
+- **Старый localStorage `max_width` тихо мигрирован в `max_size`** —
+  пользователи не потеряют своё значение.
+- **Метка настроек Screen переименована** с "Width" на "Size" с
+  hover-tooltip'ом, объясняющим что это длинная сторона.
+
+### Changed — Live view: FPS meter + warm-up
+
+- **Meta-строка теперь показывает измеренный FPS** из скользящего
+  окна последних 8 таймстампов кадров. Пользователи жаловались, что
+  непонятно, что Live-view реально доставляет (cache-dedup и
+  busy-guard скрывают реальный throughput); теперь показано прямо
+  из `performance.now()`. Пример:
+  `720×324 · webp q82 · 68 KB · 240 ms · 0.67 fps · dupe×2`.
+- **Warm-up кадр** при включении Live: вместо ожидания полного
+  polling interval для первого кадра (1.5 с на дефолтных 0.67 Hz),
+  первый кадр вылетает сразу при переключении. FPS-окно также
+  очищается на warm-up — число отражает новый poll rate.
+
+### Test suite
+
+790 passed (+18 новых). Вынесены в `tests/test_mobile_v83_3.py`
+(308 строк), чтобы `tests/test_mobile.py` оставался читаемым:
+
+- **input.key**: 3 теста на принятие букв/цифр, новую поверхность
+  именованных клавиш (PAGE_UP, F1-F12, COPY/PASTE/CUT и т.д.),
+  сохранение отказа для POWER/REBOOT/CAMERA.
+- **input.key_combo**: 3 теста — границы длины (2..4), disallowed
+  keys по-прежнему отвергаются, adb guard.
+- **input.scroll**: 4 теста — тип координат, требование ненулевой
+  оси, лимит ±100, adb guard, и end-to-end monkeypatched тест,
+  проверяющий fallback на swipe при "unknown command".
+- **screenshot.max_size**: 2 теста — 3200×1440 landscape корректно
+  ужимается до 720×324 через `max_size=720`, и `max_size` побеждает
+  `max_width` при указании обоих.
+- **sensors**: 4 теста — парсинг списка сенсоров (accel/light/prox),
+  группировка recent-events с именованными каналами, adb guard,
+  границы `events_per_sensor`.
+- **handlers dataclass**: точная проверка перенесена в v83_3 тесты
+  (теперь 21 поле), заменена в основном файле на baseline subset.
+
+CI по-прежнему прогоняет `ruff --select F821,F811` (undefined /
+redefined name) — остаётся зелёным.
+
+### Follow-ups для v3.83.4
+
+- **UI-мастер для wireless ADB `pair` / `connect`** (нужен только
+  бекенд + Dashboard UI).
+- **Общий APK install** с `apksigner verify` + per-APK SHA-256
+  consent flow (форма как у ADBKeyboard installer).
+- **Dashboard consent-диалог** для установщика ADBKeyboard + one-click
+  кнопка "Install helper" прямо из ошибки "route: blocked" при
+  вводе не-ASCII текста.
+
 ## v3.83.2 - 2026-07-14
 
 Mobile Phase 2 продолжение — **корректная работа при повороте экрана

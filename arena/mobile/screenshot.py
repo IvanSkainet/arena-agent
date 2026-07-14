@@ -29,15 +29,19 @@ def capture(
     serial: str,
     *,
     max_width: int | None = None,
+    max_size: int | None = None,
     quality: int = 85,
     format: str = "png",
 ) -> dict[str, Any]:
     """Capture a screenshot from the device.
 
-    * `max_width` — if truthy (>0), downscale so width <= max_width
-      (preserves aspect ratio). Requires Pillow; when Pillow is not
-      installed the original PNG is returned unchanged. Pass 0 or None
-      to skip resizing entirely (native resolution).
+    * `max_size` — downscale so the LONG side <= max_size (preserves
+      aspect ratio). This is what you almost always want, because
+      `max_width` collapses to a tiny image the moment the phone
+      rotates to landscape (720px wide × 324px tall on a 3200×1440
+      landscape screen). Set to 0/None to skip resizing.
+    * `max_width` — legacy: downscale so WIDTH <= max_width. Kept for
+      backwards compat; `max_size` takes precedence when both are set.
     * `quality` — encoder quality (1-95 for JPEG, 1-100 for WebP).
       Ignored for PNG output.
     * `format` — "png" (default), "jpeg", or "webp". JPEG/WebP only take
@@ -45,8 +49,9 @@ def capture(
 
     Returns:
       {"ok": bool, "bytes": bytes, "mime": str, "width": int, "height": int,
-       "size_bytes": int, "downscaled": bool, "error": str | None,
-       "format": str, "quality": int | None}
+       "source_width": int, "source_height": int, "size_bytes": int,
+       "downscaled": bool, "error": str | None, "format": str,
+       "quality": int | None}
     """
     if find_adb() is None:
         from arena.mobile.adb import install_hint
@@ -92,7 +97,25 @@ def capture(
     }
 
     fmt = (format or "png").lower()
-    needs_resize = bool(max_width) and width and int(max_width) > 0 and width > int(max_width)
+    # Compute target dimensions. `max_size` (long side) has priority
+    # over `max_width` — a landscape phone at max_width=720 collapses
+    # to 720x324, unreadable; `max_size=720` gives 720x324 in landscape
+    # AND 324x720 in portrait, but at least the LONG side is 720. The
+    # right default for the Dashboard is `max_size` on the long side.
+    target_w = width
+    target_h = height
+    if max_size and int(max_size) > 0:
+        cap = int(max_size)
+        long_side = max(width, height)
+        if long_side > cap:
+            ratio = cap / long_side
+            target_w = max(1, int(round(width * ratio)))
+            target_h = max(1, int(round(height * ratio)))
+    elif max_width and int(max_width) > 0 and width > int(max_width):
+        cap = int(max_width)
+        target_w = cap
+        target_h = max(1, int(height * (cap / width)))
+    needs_resize = (target_w, target_h) != (width, height)
     needs_recode = fmt in ("jpeg", "webp")
     if not (needs_resize or needs_recode):
         return result
@@ -106,9 +129,7 @@ def capture(
     try:
         img = Image.open(io.BytesIO(png))
         if needs_resize:
-            new_w = int(max_width)
-            new_h = max(1, int(img.height * (new_w / img.width)))
-            img = img.resize((new_w, new_h), Image.LANCZOS)
+            img = img.resize((target_w, target_h), Image.LANCZOS)
             result["width"] = img.width
             result["height"] = img.height
             result["downscaled"] = True

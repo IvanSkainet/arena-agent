@@ -10,10 +10,14 @@
 // --- Screenshot settings (persisted in localStorage) --------------------
 const _MOBILE_LS_KEY = "arena.mobile.screen.settings.v1";
 
+// Screen settings persist in localStorage under this shape. v3.83.3
+// renamed `max_width` → `max_size` (long side) so landscape orientation
+// no longer collapses to a tiny image — see arena/mobile/screenshot.py
+// docstring. Old settings are migrated silently below.
 const MOBILE_SCREEN_DEFAULTS = {
   format: "webp",      // webp | jpeg | png
   quality: 82,         // 1..100 (WebP goes to 100, JPEG capped at 95)
-  max_width: 720,      // 0 = native resolution, no downscale
+  max_size: 720,       // 0 = native resolution, no downscale
   live_hz: 0.67,       // Hz — 0 = off. Default = one frame per 1.5s.
 };
 
@@ -22,6 +26,13 @@ function mobileScreenSettingsLoad() {
     const raw = localStorage.getItem(_MOBILE_LS_KEY);
     if (!raw) return {...MOBILE_SCREEN_DEFAULTS};
     const parsed = JSON.parse(raw);
+    // Migrate old key: v3.83.2 stored `max_width`, v3.83.3 uses
+    // `max_size` (long side). Silently promote so existing users
+    // don't lose their preferred image size.
+    if (parsed.max_width && !parsed.max_size) {
+      parsed.max_size = parsed.max_width;
+      delete parsed.max_width;
+    }
     return {...MOBILE_SCREEN_DEFAULTS, ...parsed};
   } catch (_) {
     return {...MOBILE_SCREEN_DEFAULTS};
@@ -48,7 +59,7 @@ function mobileScreenSettingsMount() {
   if (fmt) fmt.value = s.format;
   if (qual) qual.value = String(s.quality);
   if (qualLabel) qualLabel.textContent = String(s.quality);
-  if (width) width.value = String(s.max_width);
+  if (width) width.value = String(s.max_size);
   if (rate) rate.value = String(s.live_hz);
   if (live) live.checked = s.live_hz > 0;
 }
@@ -63,7 +74,7 @@ function mobileScreenSettingsFromUi() {
   const patch = {
     format: ["webp", "jpeg", "png"].includes(fmt) ? fmt : "webp",
     quality: Number.isFinite(qual) ? Math.max(1, Math.min(100, qual)) : 82,
-    max_width: Number.isFinite(width) ? Math.max(0, Math.min(4096, width)) : 720,
+    max_size: Number.isFinite(width) ? Math.max(0, Math.min(4096, width)) : 720,
     live_hz: (live && Number.isFinite(rate)) ? Math.max(0, Math.min(5, rate)) : 0,
   };
   mobileScreenSettingsSave(patch);
@@ -86,6 +97,12 @@ function mobileScreenSettingsFromUi() {
 
 let _mobileLastHash = null;
 let _mobileConsecutiveDupes = 0;
+// Rolling window of the last N frame-end timestamps so the meta line
+// can show a real measured FPS. Users complained they couldn't tell
+// what Live-view was actually delivering — cache + tap-guard hide the
+// actual throughput. This is that number, straight from performance.now().
+const _mobileFrameStamps = [];
+const _MOBILE_FPS_WINDOW = 8;
 
 // Abort controller for the in-flight screenshot fetch. When the user
 // takes another action (tap, key, gesture), we call this to cancel
@@ -136,7 +153,7 @@ async function mobileScreenshot() {
   const started = performance.now();
   try {
     const params = new URLSearchParams({
-      max_width: String(settings.max_width),
+      max_size: String(settings.max_size),
       quality: String(settings.quality),
       format: settings.format,
     });
@@ -193,6 +210,19 @@ async function mobileScreenshot() {
 
     const elapsed = Math.round(performance.now() - started);
     _mobileLastSnapAt = performance.now();
+    // Track FPS from the last N frames. Aborted / duped frames still
+    // count because they were real network round-trips.
+    _mobileFrameStamps.push(_mobileLastSnapAt);
+    if (_mobileFrameStamps.length > _MOBILE_FPS_WINDOW) _mobileFrameStamps.shift();
+    let fpsLabel = "";
+    if (_mobileFrameStamps.length >= 2) {
+      const span = _mobileFrameStamps[_mobileFrameStamps.length - 1]
+                 - _mobileFrameStamps[0];
+      if (span > 0) {
+        const fps = ((_mobileFrameStamps.length - 1) * 1000) / span;
+        fpsLabel = " · " + fps.toFixed(fps < 3 ? 2 : 1) + " fps";
+      }
+    }
     if (meta) {
       const dupeTag = isDupe
         ? " · dupe" + (_mobileConsecutiveDupes > 1 ? "×" + _mobileConsecutiveDupes : "")
@@ -201,7 +231,7 @@ async function mobileScreenshot() {
         _mobileShownWidth + "×" + _mobileShownHeight
         + " · " + settings.format + " q" + settings.quality
         + " · " + Math.round(blob.size / 1024) + " KB"
-        + " · " + elapsed + " ms" + dupeTag;
+        + " · " + elapsed + " ms" + fpsLabel + dupeTag;
     }
     _mobileUpdateAgeLabel();
   } catch (e) {
@@ -289,6 +319,13 @@ function mobileLiveApply() {
     return;
   }
   const intervalMs = Math.max(200, Math.round(1000 / settings.live_hz));
+  // Warm-up: fire the first frame right away instead of waiting a full
+  // interval — a 1.5s Live rate should not delay the first paint by
+  // 1.5s when the toggle just got flipped.
+  if (_mobileSelectedSerial && !_mobileScreenshotBusy) {
+    _mobileFrameStamps.length = 0;
+    mobileScreenshot();
+  }
   _mobileLiveTimer = setInterval(() => {
     if (!_mobileSelectedSerial) return;
     const tab = document.getElementById("tab-mobile");

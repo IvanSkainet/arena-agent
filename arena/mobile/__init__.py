@@ -28,8 +28,11 @@ from arena.mobile.helpers import (
 from arena.mobile.input import key, swipe, tap, type_text
 from arena.mobile.packages import list_packages
 from arena.mobile.screenshot import capture as capture_screenshot
+from arena.mobile.sensors import list_sensors
 from arena.mobile.shell import restricted_shell
 from arena.mobile.ui import dump_ui, tap_by
+# Re-export the new scroll + key_combo primitives added in v3.83.3.
+from arena.mobile.input import key_combo, scroll
 
 __all__ = [
     "AdbNotFoundError",
@@ -50,6 +53,9 @@ __all__ = [
     "perform_gesture",
     "dump_ui",
     "tap_by",
+    "list_sensors",
+    "scroll",
+    "key_combo",
     "ADBKEYBOARD_PACKAGE",
     "ADBKEYBOARD_SERVICE",
     "ADBKEYBOARD_SHA256",

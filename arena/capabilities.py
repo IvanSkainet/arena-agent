@@ -182,6 +182,7 @@ def build_capabilities(
                     "shell", "packages", "gesture", "ui", "tap_by",
                     "helpers/status", "helpers/install",
                     "ime", "ime/set", "ime/reset", "paste",
+                    "sensors", "scroll", "key_combo",
                 ],
                 "hint": m.get("hint"),
             }

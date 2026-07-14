@@ -179,4 +179,7 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_ime_set": handlers.ime_set,
         "handle_v1_mobile_ime_reset": handlers.ime_reset,
         "handle_v1_mobile_paste": handlers.paste,
+        "handle_v1_mobile_sensors": handlers.sensors,
+        "handle_v1_mobile_scroll": handlers.scroll,
+        "handle_v1_mobile_key_combo": handlers.key_combo,
     }

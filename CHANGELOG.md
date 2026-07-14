@@ -1,5 +1,170 @@
 # Changelog
 
+## v3.83.3 - 2026-07-14
+
+Mobile Phase 2 continued — **sensor readings live**, **sectioned
+device-info panel with Overview/Display/Hardware/Network/Storage/
+Security/Developer/Sensors tabs**, **mouse-wheel scrolling and
+physical-keyboard forwarding** over the screenshot, and a
+**landscape-aware screenshot cap**. Live-view now shows a real
+measured FPS and warms up immediately when toggled. All changes
+live-verified against the POCO F7 Pro.
+
+### Added — Sensor listing + last-value readout
+
+- **New `arena/mobile/sensors.py` module** with `list_sensors(serial,
+  events_per_sensor=1)`. Parses `dumpsys sensorservice` and returns:
+  * `sensors` — per-sensor metadata (name, vendor, version, type
+    integer + friendly type name via a 42-entry lookup table,
+    min/max rate, power draw, wake-up bit, resolution, FIFO depth,
+    trigger mode).
+  * `recent_events` — the last N events for each sensor that has
+    published anything since boot. Values come with channel names
+    where the Android type is known (`x/y/z` for accelerometer,
+    `lux` for light, `cm` for proximity, `bpm` for heart rate, etc.).
+  * Trailing all-zero padding floats are trimmed automatically so
+    a 1-axis light reading shows `[6308]` instead of `[6308, 0, 0,
+    …, 0]` for 16 columns.
+- **New endpoint** `GET /v1/mobile/{serial}/sensors?events_per_sensor=N`.
+  Advertised in `/v1/capabilities.mobile.endpoints`.
+- On the POCO F7 Pro this surfaces live values for 15+ sensors: the
+  raw ambient-light sensor readings (`[17119, 2523, 1647, 1358]`),
+  accelerometer XYZ, grip posture, off-hand detection, SAR detector,
+  driving detection, and more.
+
+### Added — Sectioned device-info panel
+
+- **New Dashboard file `34-mobile-info.js`** (417 lines) replaces the
+  v3.83.1 flat table with a tab bar:
+  * **All** (default — every non-empty section stacked with headings).
+  * **Overview** — device name, Android + patch, HyperOS, power,
+    battery, UI mode, uptime, foreground activity.
+  * **Display** — physical/current size, orientation + rotation, DPI,
+    active + supported refresh rates, HDR types, rounded corner
+    radius, locale + timezone.
+  * **Hardware** — CPU ABI list, hardware, board, bootloader, build
+    metadata, fingerprint, kernel, RAM, swap.
+  * **Network** — operator (masked), mobile type, SIM state, data
+    on/off, roaming, Wi-Fi state + IPv4.
+  * **Storage** — one row per `df -h` mount (data, sdcard, etc).
+  * **Security** — SELinux, verified boot, filesystem encryption,
+    ADB flags, current IME.
+  * **Developer** — developer options, stay-awake, USB debug security,
+    package counts.
+  * **Sensors** — sensor count + all live readings, sorted by type,
+    inactive sensors listed underneath with vendor + max rate.
+- Section choice persists in `localStorage`
+  (`arena.mobile.info.section.v1`). Sensors are fetched lazily on
+  first activation of the Sensors or All tab so opening the Mobile
+  tab is still ~2 s, not 4 s.
+- Every tab shows a counter suffix (e.g. `Storage · 2`, `Sensors · 89`)
+  so it's obvious where the data actually lives.
+
+### Added — Mouse wheel over the phone screen
+
+- **New endpoint** `POST /v1/mobile/{serial}/scroll` with
+  `{x, y, vscroll, hscroll}` (see `arena/mobile/input.py::scroll`).
+  Uses `adb shell input mouse scroll --axis VSCROLL,N`; falls back
+  transparently to a short swipe when the device rejects `mouse
+  scroll` (older Android or restricted ROM).
+- **Dashboard: rolling the wheel over the screenshot scrolls the
+  phone.** New `35-mobile-input.js` normalises browser `wheel` events
+  (pixel/line/page delta modes) into whole notches, throttles to
+  ≥60 ms between broadcasts, translates the pointer to native
+  rotation-aware pixels, and sends `/scroll` at that point.
+  Sign is flipped so a browser-scroll-down moves phone content down —
+  matches every desktop application's intuition.
+
+### Added — Physical-keyboard forwarding
+
+- **New endpoint** `POST /v1/mobile/{serial}/key_combo` with
+  `{keys: ["CTRL_LEFT", "A"]}` — presses the given 2..4 keycodes
+  together via `adb shell input keyboard keycombination`. Same
+  allowlist as `/key`.
+- **`input.key()` now accepts single letters (A-Z) and digits (0-9)**
+  directly. Previously locked to symbolic names (HOME/BACK/…) — that
+  design was correct when the only agent was a text-generator issuing
+  semantic commands, but it prevented forwarding a physical keyboard
+  press. Letters/digits are pattern-matched (`^[A-Z]|[0-9]$`) instead
+  of enumerated so error messages stay short.
+- **19 new named keycodes on the allowlist**: `NOTIFICATION`,
+  `PAGE_UP`/`DOWN`, all `SHIFT_/CTRL_/ALT_/META_` L/R modifiers,
+  `CAPS/NUM/SCROLL_LOCK`, `COPY`/`PASTE`/`CUT`/`SELECT_ALL`/`UNDO`/
+  `REDO`/`SEARCH`/`ZOOM_IN`/`ZOOM_OUT`, and `F1`–`F12`.
+- **Dashboard: opt-in "⌨ Forward keyboard" toggle** in the Screen
+  toolbar. When enabled, `keydown` events on the (focused) screenshot
+  wrap translate to `/key` or `/key_combo` — modifier chords like
+  Ctrl+A auto-route through `/key_combo`. The toggle is deliberately
+  off by default so ordinary browser shortcuts (Ctrl+F, Ctrl+T) still
+  work when the Mobile tab is open. `KeyboardEvent.code` → Android
+  KEYCODE map covers letters/digits/arrows/function keys/editor keys.
+
+### Added — Landscape-aware `max_size` for screenshots
+
+- **`arena/mobile/screenshot.py::capture(max_size=…)`** downscales by
+  the LONG side instead of the width. This fixes the v3.83.2 user
+  complaint that landscape mode felt lower-resolution: `max_width=720`
+  on a 3200×1440 landscape phone produced a 720×324 image (only 324
+  vertical pixels of real content), whereas `max_size=720` gives the
+  same 720×324 in landscape AND 324×720 in portrait — the LONG side
+  is always the value you set.
+- **Old `max_width` kept for backwards compat** but `max_size` wins
+  when both are set. Dashboard now sends `max_size=720` by default.
+- **Old localStorage `max_width` migrated silently to `max_size`** so
+  existing users don't lose their preferred image size.
+- **Screen settings label renamed** from "Width" to "Size" with a
+  hover tooltip explaining that it means the long side.
+
+### Changed — Live view: FPS meter + warm-up
+
+- **Meta line now shows a measured FPS** from a rolling window of the
+  last 8 frame timestamps. Users complained they couldn't tell what
+  Live-view was actually delivering (cache-dedup and busy-guard hide
+  the real throughput); this shows it straight from `performance.now()`.
+  Example line: `720×324 · webp q82 · 68 KB · 240 ms · 0.67 fps · dupe×2`.
+- **Warm-up frame** on Live toggle: instead of waiting a full polling
+  interval for the first frame (1.5 s at the default 0.67 Hz), the
+  first frame fires immediately when the toggle is flipped. FPS
+  window is also cleared on warm-up so the number reflects the new
+  poll rate.
+
+### Test suite
+
+790 passed (+18 new). Split off into `tests/test_mobile_v83_3.py`
+(308 lines) so `tests/test_mobile.py` stays under the readability
+budget:
+
+- **input.key**: 3 tests covering letter/digit acceptance, the new
+  named-key surface (PAGE_UP, F1-F12, COPY/PASTE/CUT etc.), and
+  continued rejection of POWER/REBOOT/CAMERA.
+- **input.key_combo**: 3 tests — length bounds (2..4), disallowed
+  keys still rejected, adb-not-installed guard.
+- **input.scroll**: 4 tests — coord type, non-zero axis requirement,
+  ±100 magnitude cap, adb guard, and an end-to-end monkeypatched test
+  that verifies the "unknown command" fallback to swipe fires.
+- **screenshot.max_size**: 2 tests — 3200×1440 landscape correctly
+  downscales to 720×324 via `max_size=720`, and `max_size` wins over
+  `max_width` when both are supplied.
+- **sensors**: 4 tests — sensor list parsing (accel/light/proximity),
+  recent-events grouping with channel-named readings, adb-not-installed
+  guard, and `events_per_sensor` bounds.
+- **handlers dataclass**: exact-field check moved to v83_3 tests
+  (21 fields expected now), replaced with a baseline subset check
+  in the main test file.
+
+CI still runs `ruff --select F821,F811` (undefined / redefined name)
+which stays green.
+
+### Known follow-ups for v3.83.4
+
+- **Wireless ADB `pair` / `connect` UI wizard** (only backend + Dashboard
+  UI missing).
+- **Generic APK install** with `apksigner verify` + per-APK SHA-256
+  consent flow (mirrors ADBKeyboard installer shape).
+- **Dashboard consent dialog** for the ADBKeyboard installer + a
+  one-click "Install helper" button surfaced from the "route: blocked"
+  error on non-ASCII type.
+
 ## v3.83.2 - 2026-07-14
 
 Mobile Phase 2 continued — **rotation awareness end-to-end**, **ADBKeyboard

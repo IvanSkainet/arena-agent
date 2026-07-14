@@ -225,12 +225,20 @@ async function selectMobileDevice(serial, label) {
   // Populate the settings inputs from localStorage and (re)apply any
   // Live-view poll. Safe to call every selection — mount is idempotent.
   if (typeof mobileScreenSettingsMount === "function") mobileScreenSettingsMount();
+  if (typeof mobileInfoResetCache === "function") mobileInfoResetCache();
   if (typeof mobileLiveApply === "function") mobileLiveApply();
   mobileClearError();
   // Load info first (blocks on physical size for coord scaling), then screenshot.
   await mobileLoadInfo();
   await mobileScreenshot();
-  mobileRenderInfoPanel();  // pretty summary alongside raw JSON
+  mobileRenderInfoPanel();  // sectioned summary alongside raw JSON
+  // If the user was on the Sensors tab from a previous device, kick
+  // off the /sensors fetch now so the new device's readings are
+  // fresh instead of stale-from-previous.
+  if (typeof mobileInfoShowSection === "function") {
+    const active = (typeof _mobileInfoActiveSection === "function") ? _mobileInfoActiveSection() : "all";
+    if (active === "sensors" || active === "all") mobileInfoShowSection(active);
+  }
   refreshMobile();
 }
 
@@ -257,191 +265,6 @@ async function mobileLoadInfo() {
 }
 
 // ---------------------------------------------------------------------------
-// Pretty device info panel — extracts the most useful fields out of the
-// raw /info JSON into a compact table. The full JSON stays available in
-// the collapsible <details> block for anyone wanting the full dump.
-// ---------------------------------------------------------------------------
-function mobileRenderInfoPanel() {
-  const el = document.getElementById("mobileInfoPanel");
-  if (!el || !_mobileInfoCache) return;
-  const i = _mobileInfoCache;
-
-  const rows = [];
-  const push = (label, value) => {
-    if (value === undefined || value === null || value === "") return;
-    rows.push([label, String(value)]);
-  };
-  const nameParts = [i.brand, i.manufacturer, i.model].filter(Boolean);
-  push("Device", nameParts.join(" · "));
-  push("Codename", i.device);
-  push("Android", (i.android_version ? "Android " + i.android_version : "")
-       + (i.android_sdk ? " · SDK " + i.android_sdk : "")
-       + (i.android_security_patch ? " · patch " + i.android_security_patch : ""));
-  push("HyperOS", i.hyperos_version || i.miui_version);
-  push("Build", (i.build_id || "") + (i.build_date ? " · " + i.build_date : ""));
-  push("CPU", (i.cpu_abi || "") + (i.hardware ? " · " + i.hardware : ""));
-  {
-    // Physical size (never rotates) + current size (does rotate) +
-    // orientation label. Prevents the "why doesn't tap work?" confusion
-    // when the phone is landscape.
-    const bits = [];
-    const phys = i.screen_size_override || i.screen_size_physical;
-    if (phys) bits.push(phys + " physical");
-    if (i.screen_size_current && i.screen_size_current !== phys) {
-      bits.push(i.screen_size_current + " current");
-    }
-    if (i.orientation) {
-      bits.push(i.orientation + (typeof i.rotation === "number" ? " (rot " + i.rotation + ")" : ""));
-    }
-    const dpi = i.density_override || i.density_physical;
-    if (dpi) bits.push(dpi + " dpi");
-    push("Screen", bits.join(" · "));
-  }
-  if (i.memory && i.memory.memtotal) {
-    push("RAM", i.memory.memavailable
-      ? i.memory.memavailable + " avail / " + i.memory.memtotal
-      : i.memory.memtotal);
-  }
-  if (Array.isArray(i.storage) && i.storage.length) {
-    const primary = i.storage[0];
-    push("Storage", (primary.avail || "?") + " free of " + (primary.size || "?")
-                    + " (" + (primary.use_pct || "?") + " used)");
-  }
-  if (i.battery) {
-    const parts = [];
-    if (i.battery.level && i.battery.scale) {
-      parts.push(Math.round(100 * parseInt(i.battery.level, 10) / parseInt(i.battery.scale, 10)) + "%");
-    } else if (i.battery.level) {
-      parts.push(i.battery.level + "%");
-    }
-    if (i.battery.temperature) {
-      const t = parseInt(i.battery.temperature, 10);
-      if (!Number.isNaN(t)) parts.push((t / 10).toFixed(1) + "°C");
-    }
-    const ac = i.battery.ac_powered === "true";
-    const usb = i.battery.usb_powered === "true";
-    const wl = i.battery.wireless_powered === "true";
-    if (ac) parts.push("AC");
-    else if (usb) parts.push("USB");
-    else if (wl) parts.push("wireless");
-    push("Battery", parts.join(" · "));
-  }
-  if (i.wifi) {
-    push("Wi-Fi", (i.wifi.state || "") + (i.wifi.ipv4 ? " · " + i.wifi.ipv4 : ""));
-  }
-  push("Locale", (i.locale_current || i.locale || "") + (i.timezone ? " · " + i.timezone : ""));
-  push("Uptime", i.uptime);
-  push("Foreground", i.foreground_activity);
-  push("Bootloader", i.bootloader);
-
-  // ------------------------------------------------------------------
-  // v3.83.1 extended fields — displayed only when the backend probe
-  // returned something. Each block is a compact one-liner.
-  // ------------------------------------------------------------------
-  if (i.display) {
-    const d = i.display;
-    const bits = [];
-    if (d.active_refresh_rate) bits.push(d.active_refresh_rate + " Hz");
-    if (Array.isArray(d.supported_refresh_rates))
-      bits.push("(" + d.supported_refresh_rates.join("/") + " Hz)");
-    if (Array.isArray(d.hdr_types) && d.hdr_types.length)
-      bits.push("HDR types: " + d.hdr_types.join(","));
-    if (d.rounded_corner_radius_px)
-      bits.push("corners r=" + d.rounded_corner_radius_px + "px");
-    push("Display", bits.join(" · "));
-  }
-  if (i.power) {
-    const bits = [];
-    if (typeof i.power.screen_on === "boolean") bits.push(i.power.screen_on ? "screen on" : "screen OFF");
-    if (i.power.wakefulness) bits.push(i.power.wakefulness);
-    if (i.power.charging === true) bits.push("charging");
-    if (i.power.low_power_mode === true) bits.push("low power");
-    push("Power", bits.join(" · "));
-  }
-  if (i.ui_mode) {
-    const u = i.ui_mode;
-    const bits = [];
-    if (u.night_mode) bits.push("theme: " + u.night_mode);
-    if (typeof u.airplane_mode === "boolean") bits.push("airplane: " + (u.airplane_mode ? "on" : "off"));
-    if (u.ringer_mode) bits.push("ringer: " + u.ringer_mode);
-    if (u.screen_off_timeout_sec) bits.push("timeout: " + u.screen_off_timeout_sec + "s");
-    if (typeof u.auto_rotate === "boolean") bits.push("auto-rotate: " + (u.auto_rotate ? "on" : "off"));
-    push("UI mode", bits.join(" · "));
-  }
-  if (i.network) {
-    const n = i.network;
-    const bits = [];
-    if (n.operator_alpha) bits.push(n.operator_alpha + (n.operator_iso ? " (" + n.operator_iso + ")" : ""));
-    if (n.mobile_type) bits.push(n.mobile_type);
-    if (n.sim_state) bits.push("SIM: " + n.sim_state);
-    if (typeof n.data_enabled === "boolean") bits.push("data: " + (n.data_enabled ? "on" : "off"));
-    if (n.roaming === true) bits.push("ROAMING");
-    push("Network", bits.join(" · "));
-  }
-  if (i.packages_count) {
-    const p = i.packages_count;
-    const bits = [];
-    if (p.user_installed !== undefined) bits.push(p.user_installed + " user");
-    if (p.system !== undefined) bits.push(p.system + " system");
-    if (p.disabled !== undefined && p.disabled > 0) bits.push(p.disabled + " disabled");
-    push("Packages", bits.join(" · "));
-  }
-  if (i.ime) {
-    const bits = [];
-    if (i.ime.current) bits.push(i.ime.current.split("/")[0]);
-    if (i.ime.enabled_count !== undefined)
-      bits.push(i.ime.enabled_count + " enabled / " + (i.ime.available_count || "?") + " available");
-    push("Keyboard", bits.join(" · "));
-  }
-  if (i.encryption) {
-    const bits = [];
-    if (i.encryption.state) bits.push(i.encryption.state);
-    if (i.encryption.type) bits.push("FS: " + i.encryption.type);
-    push("Encryption", bits.join(" · "));
-  }
-  if (i.selinux || i.verified_boot) {
-    const bits = [];
-    if (i.selinux) bits.push("SELinux: " + i.selinux);
-    if (i.verified_boot) bits.push("Verified boot: " + i.verified_boot);
-    push("Security", bits.join(" · "));
-  }
-  if (i.developer) {
-    const d = i.developer;
-    const flags = [];
-    if (d.adb_enabled === true) flags.push("adb");
-    if (d.developer_options_enabled === true) flags.push("dev-options");
-    if (d.adb_wifi_enabled === true) flags.push("adb-wifi");
-    if (d.install_from_unknown_sources === true) flags.push("unknown-sources");
-    if (d.stay_awake_while_charging) flags.push("stay-awake:" + d.stay_awake_while_charging);
-    push("Developer", flags.join(" · "));
-  }
-  if (i.sensors && i.sensors.count) {
-    push("Sensors", i.sensors.count + " reported by sensorservice");
-  }
-  if (i.kernel) {
-    // Trim to first 120 chars — the full string is a build-host banner.
-    push("Kernel", i.kernel.length > 120 ? i.kernel.slice(0, 117) + "…" : i.kernel);
-  }
-
-  el.innerHTML = "";
-  const table = document.createElement("table");
-  table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px";
-  for (const [k, v] of rows) {
-    const tr = document.createElement("tr");
-    const tdK = document.createElement("td");
-    tdK.style.cssText = "padding:3px 8px 3px 0;color:#666;white-space:nowrap;vertical-align:top;width:110px";
-    tdK.textContent = k;
-    const tdV = document.createElement("td");
-    tdV.style.cssText = "padding:3px 0;word-break:break-word";
-    tdV.className = "mono";
-    tdV.textContent = v;
-    tr.appendChild(tdK);
-    tr.appendChild(tdV);
-    table.appendChild(tr);
-  }
-  el.appendChild(table);
-}
-
 async function _mobileSendTap(x, y) {
   if (!_mobileSelectedSerial) return;
   mobileClearError();

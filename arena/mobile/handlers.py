@@ -19,6 +19,7 @@ from arena.mobile import helpers as _helpers
 from arena.mobile import input as _input
 from arena.mobile import packages as _packages
 from arena.mobile import screenshot as _screenshot
+from arena.mobile import sensors as _sensors
 from arena.mobile import shell as _shell
 from arena.mobile import ui as _ui
 
@@ -43,6 +44,9 @@ class MobileHandlers:
     ime_set: object
     ime_reset: object
     paste: object
+    sensors: object
+    scroll: object
+    key_combo: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -95,9 +99,11 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         if not serial:
             return _cors({"ok": False, "error": "serial required"}, status=400)
 
-        # Query params: max_width, quality, format (raw|json)
+        # Query params: max_width (legacy), max_size (long side, preferred),
+        # quality, format, wire (raw|json).
         try:
             max_width = int(request.query.get("max_width")) if request.query.get("max_width") else None
+            max_size = int(request.query.get("max_size")) if request.query.get("max_size") else None
             quality = int(request.query.get("quality", "85"))
         except ValueError as e:
             return _cors({"ok": False, "error": f"invalid query param: {e}"}, status=400)
@@ -109,6 +115,7 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
                 _screenshot.capture,
                 serial,
                 max_width=max_width,
+                max_size=max_size,
                 quality=quality,
                 format=fmt,
             )
@@ -422,6 +429,66 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_sensors(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        include_recent = request.query.get("include_recent_events", "1") not in ("0", "false", "False")
+        try:
+            events_per = int(request.query.get("events_per_sensor", "1"))
+        except ValueError:
+            events_per = 1
+        try:
+            res = await _run(
+                _sensors.list_sensors, serial,
+                include_recent_events=include_recent,
+                events_per_sensor=events_per,
+            )
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_scroll(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        try:
+            res = await _run(
+                _input.scroll, serial,
+                body.get("x"), body.get("y"),
+                vscroll=body.get("vscroll", 0), hscroll=body.get("hscroll", 0),
+            )
+            ctx.audit({"type": "mobile.scroll", "serial": serial,
+                       "vscroll": body.get("vscroll"), "hscroll": body.get("hscroll"),
+                       "ok": res.get("ok")})
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_key_combo(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        keys = body.get("keys") or []
+        try:
+            res = await _run(_input.key_combo, serial, keys)
+            ctx.audit({"type": "mobile.key_combo", "serial": serial,
+                       "keys": keys, "ok": res.get("ok")})
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
     async def handle_packages(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -463,4 +530,7 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         ime_set=handle_ime_set,
         ime_reset=handle_ime_reset,
         paste=handle_paste,
+        sensors=handle_sensors,
+        scroll=handle_scroll,
+        key_combo=handle_key_combo,
     )
