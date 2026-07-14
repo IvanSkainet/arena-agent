@@ -190,6 +190,7 @@ def build_capabilities(
                     "apk/upload",
                     "recording/sync", "recording/start", "recording/stop",
                     "recordings", "recording/purge",
+                    "mirror", "mirror/stats", "mirror/stop",
                 ],
                 "hint": m.get("hint"),
             }

@@ -47,6 +47,19 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
         xt = request.headers.get("X-Arena-Token", "")
         if xt and hmac.compare_digest(xt, token):
             return True
+        # v3.84.3: browsers can't set Authorization on a WebSocket
+        # upgrade, so accept the token as a query param too. Only used
+        # by /v1/mobile/{s}/mirror right now; other endpoints keep
+        # working via header as before. Guarded with getattr because
+        # some legacy test doubles don't carry a `query` attribute.
+        query = getattr(request, "query", None)
+        if query:
+            try:
+                qt = query.get("token", "")
+            except AttributeError:
+                qt = ""
+            if qt and hmac.compare_digest(qt, token):
+                return True
         is_authed, _ = check_auth_with_role(request)
         if is_authed:
             return True

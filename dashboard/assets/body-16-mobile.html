@@ -149,6 +149,38 @@
   Click to tap · drag to swipe · Home / Recents / Notification-shade buttons above for common actions.
 </div>
 
+<!-- Live mirror (v3.84.3). H.264 stream from screenrecord over WebSocket,
+     decoded in the browser via MediaSource Extensions. ~25 fps instead of
+     ~0.4 fps snapshotting. Buttons deliberately opt-in — it burns
+     bandwidth + battery. -->
+<details style="margin-bottom:8px" id="mobileMirrorDetails">
+  <summary style="cursor:pointer;font-size:13px;padding:6px 0">
+    🎥 Live mirror (H.264 stream, ~25 fps)
+    <span id="mobileMirrorStatus" style="color:#666;font-weight:400;font-size:11px;margin-left:8px"></span>
+  </summary>
+  <div class="row" style="gap:8px;margin:6px 0;align-items:center;font-size:12px;flex-wrap:wrap">
+    <button onclick="mobileMirrorStart()">▶ Start mirror</button>
+    <button onclick="mobileMirrorStop()">■ Stop</button>
+    <label style="color:#666">Size</label>
+    <select id="mobileMirrorSize" style="font-size:12px">
+      <option value="540x1200">540×1200 (light)</option>
+      <option value="720x1600" selected>720×1600 (default)</option>
+      <option value="1080x2400">1080×2400 (heavy)</option>
+    </select>
+    <label style="color:#666">Bit-rate</label>
+    <select id="mobileMirrorBitrate" style="font-size:12px">
+      <option value="1000000">1 Mbps</option>
+      <option value="2000000">2 Mbps</option>
+      <option value="4000000" selected>4 Mbps</option>
+      <option value="8000000">8 Mbps</option>
+    </select>
+    <span id="mobileMirrorMeta" class="mono" style="font-size:11px;color:#666;margin-left:auto"></span>
+  </div>
+  <video id="mobileMirrorVideo"
+         style="display:none;max-width:100%;background:#000;border:1px solid #ccc;border-radius:6px"
+         autoplay muted playsinline></video>
+</details>
+
 <!-- Screen settings row -->
 <div class="row" style="flex-wrap:wrap;gap:12px;padding:8px;background:rgba(0,0,0,.03);border-radius:6px;margin-bottom:8px;align-items:center;font-size:12px">
   <div style="display:inline-flex;align-items:center;gap:4px">

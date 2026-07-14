@@ -200,4 +200,7 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_record_list":   handlers.record_list,
         "handle_v1_mobile_record_pull":   handlers.record_pull,
         "handle_v1_mobile_record_purge":  handlers.record_purge,
+        "handle_v1_mobile_mirror_ws":     handlers.mirror_ws,
+        "handle_v1_mobile_mirror_stats":  handlers.mirror_stats,
+        "handle_v1_mobile_mirror_stop":   handlers.mirror_stop,
     }

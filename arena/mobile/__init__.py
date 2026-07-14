@@ -66,6 +66,12 @@ from arena.mobile.recording import (
     start_async as start_async_recording,
     stop_async as stop_async_recording,
 )
+# v3.84.3: live H.264 mirroring
+from arena.mobile.mirror import (
+    get_or_start as mirror_get_or_start,
+    stats as mirror_stats,
+    stop_all as mirror_stop_all,
+)
 
 __all__ = [
     "AdbNotFoundError",
@@ -125,6 +131,10 @@ __all__ = [
     "save_upload",
     "start_async_recording",
     "stop_async_recording",
+    # v3.84.3
+    "mirror_get_or_start",
+    "mirror_stats",
+    "mirror_stop_all",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

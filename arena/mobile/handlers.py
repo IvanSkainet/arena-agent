@@ -71,6 +71,10 @@ class MobileHandlers:
     record_list: object
     record_pull: object
     record_purge: object
+    # v3.84.3: live H.264 screen mirror over WebSocket
+    mirror_ws: object
+    mirror_stats: object
+    mirror_stop: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -556,6 +560,8 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
     _media = make_media_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
     from arena.mobile.handlers_recording import make_recording_handlers
     _rec = make_recording_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
+    from arena.mobile.mirror import make_mirror_handlers
+    _mir = make_mirror_handlers(ctx, cors=_cors)
 
 
     async def handle_packages(request: web.Request) -> web.Response:
@@ -612,4 +618,6 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         **{k: _rec[k] for k in (
             "record_sync", "record_start", "record_stop",
             "record_list", "record_pull", "record_purge")},
+        **{k: _mir[k] for k in (
+            "mirror_ws", "mirror_stats", "mirror_stop")},
     )

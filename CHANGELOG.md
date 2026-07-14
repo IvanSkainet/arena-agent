@@ -1,5 +1,143 @@
 # Changelog
 
+## v3.84.3 - 2026-07-14
+
+**Live H.264 screen mirror foundations** (WebSocket endpoint + MSE
+browser client + fragmented MP4 pipeline via ffmpeg), **auth query
+token** for browser WebSocket handshakes, and honest smoke findings
+about what actually works today vs what's beta.
+
+### Added — Live screen mirror (BETA)
+
+The v3.84.2 follow-up. Backend + frontend + smoke coverage all
+shipped, with a realistic caveat about the byte stream itself.
+
+**Endpoints (3)**:
+- `GET /v1/mobile/{s}/mirror` — WebSocket upgrade. Query params
+  `size=WxH` (default 720x1600), `bit_rate=int` (default 4M), `token`
+  for auth (see below). Emits an `__init__` control string every time
+  the pipeline restarts + binary fMP4 chunks for the video stream.
+- `GET /v1/mobile/mirror/stats` — read-only snapshot of every active
+  session with `serial`, `size`, `bit_rate`, `subscribers`,
+  `fragments_sent`, `bytes_sent`.
+- `POST /v1/mobile/{s}/mirror/stop` — force teardown of an active
+  pipeline (used by the Dashboard "■ Stop" button and by smoke
+  between sections).
+
+**Architecture** (`arena/mobile/mirror.py`, 353 lines):
+- One `MirrorSession` per phone serial. Multiple Dashboard tabs share
+  the same session — a second connect adds a subscriber, not a
+  second pipeline. Slow subscribers get dropped frames rather than
+  blocking the pipeline for everyone else (asyncio.Queue with
+  maxsize=32).
+- Pipeline: `adb exec-out screenrecord --output-format=h264` → Python
+  async pump → `ffmpeg -c:v copy -movflags empty_moov+separate_moof+
+  default_base_moof+frag_keyframe -f mp4 pipe:1`. No re-encoding,
+  just remuxing raw H.264 NAL units into fMP4 fragments that MSE
+  can play.
+- Screenrecord's 180s hard cap per invocation is handled by
+  auto-restarting the pipeline every `_SEGMENT_SECONDS = 170`; the
+  `__ARENA_INIT__` marker tells the browser to rebuild its
+  SourceBuffer for the fresh moov box.
+- Bridge shutdown calls `mirror.stop_all()` — every pipeline
+  torn down cleanly.
+
+**Frontend** (`dashboard/assets/38-mobile-mirror.js`, 217 lines):
+- MediaSource + SourceBuffer wrapping a `<video>` element.
+- Handles `__init__` reset (rebuilds SourceBuffer on segment change).
+- QuotaExceededError → trims the oldest buffered range instead of
+  crashing.
+- Live meta line: `KB · kbps · fps`.
+- "🎥 Live mirror" section in Selected-device with Start/Stop
+  buttons + size (540/720/1080) + bit-rate (1/2/4/8 Mbps) selectors.
+
+**BETA disclosure**: the WebSocket endpoint auth + upgrade + pipeline
+spawn + `__init__` control marker all work end-to-end on the
+maintainer's POCO F7 Pro (`smoke_mobile.py` verifies each). But the
+actual fMP4 byte stream to `<video>` is inconsistent — ffmpeg's
+pipe-fed mp4 muxer buffers heavily waiting for a full GOP boundary,
+and on a screen that isn't moving (Home screen, no animation) it
+can wait many seconds before emitting the first fragment. This is
+solvable with either a Python-side H.264 parser + custom fMP4
+muxer (bypass ffmpeg entirely) or with a bigger buffering rework
+of the ffmpeg flags. Both are v3.84.4 work.
+
+**What works today**: Dashboard button connects, "Live mirror"
+video area appears, pipeline starts on the phone, init marker
+arrives at the browser. **What doesn't yet**: consistent video
+playback in the `<video>` element on a static screen. On a screen
+with continuous animation (video, scrolling) the pipeline may emit
+enough data to render, but it's not reliable enough to promote out
+of BETA. Smoke asserts on the former only.
+
+### Added — Auth via `?token=` query parameter
+
+Browsers don't let JavaScript set headers on a WebSocket upgrade,
+so `Authorization: Bearer …` isn't an option for the mirror WS
+handshake. `arena/auth/runtime.check_auth` now accepts the token
+as a `?token=` query parameter as a third path (after Bearer
+header + X-Arena-Token header). Backwards-compatible with
+legacy test doubles that don't carry a `query` attribute.
+
+**Only used by /v1/mobile/{s}/mirror right now** — every other
+endpoint continues to authenticate via the header exactly as
+before.
+
+### Changed — Smoke ordering (mirror last)
+
+`scripts/smoke_mobile.py` was silently flaky when recording ran
+after mirror: SurfaceFlinger's AVC encoder session has a global
+rate limit and a fresh screenrecord can't spin up while mirror
+still holds one. Reordered: `smoke_recording` runs BEFORE
+`smoke_mirror`, and both explicitly close the shade + press HOME
++ wait 2.5s to give SurfaceFlinger time to release the encoder.
+
+### Fixed — Auth runtime tests
+The v3.84.3 query-token addition broke two pre-existing test
+doubles that didn't declare a `query` attribute. Guarded with
+`getattr(...)` so legacy doubles keep working.
+
+### Test suite
+
+869 unit passed (+10 new — all in `tests/test_mobile_v84_3.py`, 234 lines):
+- Mirror session subscriber fanout + backpressure (slow queue drops
+  frames without blocking).
+- Session registry: `get_or_start` returns same session for same
+  serial; different serials get different sessions.
+- Stats endpoint reports all sessions.
+- `_screenrecord_cmd` shape (verifies `--output-format=h264` +
+  `--size` + `--bit-rate` + stdout `-`).
+- `_ffmpeg_cmd` has the exact fMP4 flags MSE needs (regression
+  guard).
+- `check_auth` accepts the new query-token path AND rejects wrong
+  tokens.
+
+Live smoke: **62/62 on real POCO F7 Pro** including new mirror WS
+handshake + init-marker checks. Recording still produces 20 KB
+valid MP4 at 540x1200 per the v3.84.2 flow.
+
+### Files
+
+- `arena/mobile/mirror.py` (353) — session + pipeline lifecycle + WS handlers.
+- `arena/mobile/handlers.py` (623) — 3 new fields wired.
+- `arena/auth/runtime.py` (94, +6) — `?token=` accepted.
+- `arena/mobile/__init__.py` (+ mirror re-exports).
+- `dashboard/assets/38-mobile-mirror.js` (217) — MSE client.
+- `dashboard/assets/body-16-mobile.html` (+ mirror UI section).
+- `scripts/smoke_mobile.py` (441, +80) — mirror check + reorder.
+- `tests/test_mobile_v84_3.py` (234) — 10 unit tests.
+- `tests/test_mobile_v84_2.py` — dataclass-field test relaxed to
+  baseline subset (v84_3 asserts exact 41-field surface).
+
+### Known follow-ups for v3.84.4+
+
+- **Reliable mirror byte stream** — either Python-native H.264→fMP4
+  muxer or heavy ffmpeg flag rework. The current pipeline is at
+  the "endpoint + client + init marker" milestone but not "smooth
+  25 fps video in the browser".
+- **Camera app auto-detection expansion** — Vivo, Realme, OnePlus.
+- **Async recording UI in Dashboard** — currently CLI-only.
+
 ## v3.84.2 - 2026-07-14
 
 Two new capabilities driven by v3.84.1 follow-ups + one honest smoke

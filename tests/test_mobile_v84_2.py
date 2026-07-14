@@ -239,9 +239,10 @@ def test_apk_save_upload_writes_file_and_chains_to_prepare(tmp_path, monkeypatch
 # ---------------------------------------------------------------------------
 # Handler dataclass — v3.84.2 field surface
 # ---------------------------------------------------------------------------
-def test_mobile_handlers_dataclass_fields_v84_2():
+def test_mobile_handlers_dataclass_has_v84_2_fields():
+    """Baseline check. Exact 41-field surface asserted in v84_3 tests."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {
+    baseline = {
         "list_devices", "device_info", "screenshot", "tap", "swipe",
         "type_text", "key_event", "shell", "packages", "gesture",
         "ui_dump", "tap_by",
@@ -252,13 +253,13 @@ def test_mobile_handlers_dataclass_fields_v84_2():
         "batch",
         "camera_launch", "camera_shutter", "camera_photos",
         "camera_pull", "camera_capture",
-        # v3.84.2
         "apk_upload",
         "record_sync", "record_start", "record_stop",
         "record_list", "record_pull", "record_purge",
     }
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+    missing = baseline - got
+    assert not missing, f"v3.84.2 handlers missing: {missing}"
 
 
 # ---------------------------------------------------------------------------
