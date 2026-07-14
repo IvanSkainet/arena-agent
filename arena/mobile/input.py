@@ -3,6 +3,19 @@
 Provides tap/swipe/type/key primitives that mirror the desktop input
 handler's contract as closely as Android permits. All validation happens
 here — the aiohttp handler stays a thin translation layer.
+
+Notes on `input text` reliability (v3.82.2):
+  * On Android 15/16 (HyperOS/POCO F7 Pro was our reference device)
+    Google's stock IME (LatinIME) refuses non-ASCII payloads and the
+    input service raises a bare `NullPointerException: Attempt to get
+    length of null array` deep in `InputShellCommand.sendText`. That
+    is not something we can recover from at the shell layer, so we
+    reject non-ASCII **before** ever invoking adb and return an actionable
+    hint. Unicode input via ADBKeyboard helper is planned for Mobile
+    Phase 2 (v3.83.0).
+  * Empty / whitespace-only text triggers the same NPE (Android tries
+    to tokenise the escaped string and hits null), so we reject that up
+    front too.
 """
 from __future__ import annotations
 
@@ -31,8 +44,10 @@ _ALLOWED_KEYS: frozenset[str] = frozenset({
 })
 
 
-def _err(msg: str) -> dict[str, Any]:
-    return {"ok": False, "error": msg}
+def _err(msg: str, **extra: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"ok": False, "error": msg}
+    payload.update(extra)
+    return payload
 
 
 def _ensure_adb() -> dict[str, Any] | None:
@@ -107,17 +122,65 @@ def swipe(
     }
 
 
-def type_text(serial: str, text: str) -> dict[str, Any]:
-    """Type unicode text through `adb shell input text`.
+# ---------------------------------------------------------------------------
+# type_text — with strict up-front validation
+# ---------------------------------------------------------------------------
 
-    On many Android IMEs (Xiaomi/HyperOS in particular) `input text`
-    drops non-ASCII silently. For richer input the caller should use
-    IME-based methods (out of scope for Phase 1).
+# Documented in the module docstring: the underlying Android command is
+# fragile with non-ASCII payloads on modern IMEs (LatinIME on Android 15+
+# raises a bare NPE). We reject those inputs at the API boundary so we
+# never surface a Java stack trace to the user.
+_NON_ASCII_HINT = (
+    "adb's `input text` cannot encode non-ASCII characters on this device's "
+    "IME (LatinIME / HyperOS return an internal NullPointerException). "
+    "Non-ASCII input is planned for Mobile Phase 2 via the ADBKeyboard "
+    "helper. For now, either strip the input to ASCII, or paste the text "
+    "manually into the phone."
+)
+_EMPTY_HINT = (
+    "`input text` requires at least one non-whitespace character; on "
+    "modern Android it crashes with a NullPointerException when the "
+    "payload is empty or whitespace-only."
+)
+
+
+def type_text(serial: str, text: str) -> dict[str, Any]:
+    """Type ASCII text through `adb shell input text`.
+
+    Non-ASCII and empty/whitespace-only payloads are rejected up front —
+    on modern Android (15/16) the input service crashes with a bare
+    NullPointerException in both cases and there is no way to distinguish
+    the failure from a legitimate one at the shell layer.
     """
     if not isinstance(text, str):
         return _err("text must be a string")
     if len(text) > 4096:
         return _err(f"text too long ({len(text)} chars; max 4096)")
+
+    stripped = text.strip()
+    if not stripped:
+        return _err(
+            "text is empty or whitespace-only",
+            hint=_EMPTY_HINT,
+            action="type",
+        )
+
+    # Non-ASCII pre-flight — LatinIME can't encode this and Android <=16
+    # returns a bare NPE we can't do anything useful with.
+    non_ascii = [c for c in text if ord(c) > 127]
+    if non_ascii:
+        # Show up to 8 offending characters + their code points so the
+        # user knows what to strip.
+        sample = "".join(non_ascii[:8])
+        codepoints = ", ".join(f"U+{ord(c):04X}" for c in non_ascii[:8])
+        more = "" if len(non_ascii) <= 8 else f" (+{len(non_ascii) - 8} more)"
+        return _err(
+            f"text contains {len(non_ascii)} non-ASCII character(s): {sample!r}{more}",
+            hint=_NON_ASCII_HINT,
+            offending_codepoints=codepoints,
+            action="type",
+        )
+
     guard = _ensure_adb()
     if guard:
         return guard
@@ -148,7 +211,8 @@ def type_text(serial: str, text: str) -> dict[str, Any]:
 def _friendly_type_error(raw: str) -> str:
     """Rewrite the most common `adb shell input text` failures into a
     hint that a human can act on. Preserves the raw text so nothing is
-    hidden."""
+    hidden.
+    """
     lower = raw.lower()
     if "no focused window" in lower or "no window focus" in lower:
         return (
@@ -162,6 +226,17 @@ def _friendly_type_error(raw: str) -> str:
             "IME issue). On Xiaomi/HyperOS make sure USB debugging "
             "(Security settings) is enabled in Developer Options. "
             "Original error: " + raw
+        )
+    if "nullpointerexception" in lower and "length of null array" in lower:
+        # We already pre-filter non-ASCII and empty payloads, so if we
+        # still see this it means the current IME just refused the event
+        # (e.g. no focused editor, or the IME is a stub like GBoard's
+        # voice input).
+        return (
+            "Android's input service returned a NullPointerException — "
+            "the currently focused IME rejected the payload. Tap an "
+            "editable text field first, or switch the default IME to a "
+            "standard keyboard. Original error: " + raw
         )
     if "illegalargumentexception" in lower and "keyevent" in lower:
         return (

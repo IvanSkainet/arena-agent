@@ -13,6 +13,18 @@ let _mobileScreenshotBusy = false;
 let _mobileScreenshotBlobUrl = null;
 let _mobileInfoCache = null;
 
+// Live-view state. `_mobileLiveOn` mirrors the checkbox, `_mobileLiveTimer`
+// holds the polling interval id so we can cancel on tab switch / device
+// change. `_mobileScreenshotGen` is a monotonically increasing counter —
+// every new user action bumps it, and the adaptive post-action refresh
+// series bails as soon as its saved generation is stale (so a rapid tap
+// doesn't stack three overlapping screenshot fetches).
+let _mobileLiveOn = false;
+let _mobileLiveTimer = null;
+let _mobileScreenshotGen = 0;
+let _mobileLastSnapAt = 0;       // performance.now() at last successful snap
+let _mobileAgeTimer = null;      // refreshes the "N s ago" label
+
 // ---------------------------------------------------------------------------
 // Error helper — surfaces backend errors inline with a Copy button so the
 // user can paste them into a bug report instead of retyping.
@@ -123,11 +135,19 @@ async function refreshMobile() {
       }
     }
 
-    // If the selected device disappeared, hide the actions card.
+    // If the selected device disappeared, hide the actions card and
+    // stop the live-view poll (nothing to poll).
     if (_mobileSelectedSerial && !devices.some((d) => d.serial === _mobileSelectedSerial)) {
       _mobileSelectedSerial = null;
       _mobileInfoCache = null;
       if (selectedCard) selectedCard.style.display = "none";
+      if (_mobileLiveTimer) {
+        clearInterval(_mobileLiveTimer);
+        _mobileLiveTimer = null;
+        _mobileLiveOn = false;
+        const cb = document.getElementById("mobileLiveToggle");
+        if (cb) cb.checked = false;
+      }
     }
   } catch (e) {
     console.warn("[mobile] refresh failed:", e);
@@ -194,10 +214,15 @@ async function selectMobileDevice(serial, label) {
   _mobileInfoCache = null;
   _mobileNativeWidth = 0;
   _mobileNativeHeight = 0;
+  _mobileLastSnapAt = 0;
   const nameEl = document.getElementById("mobileSelectedName");
   const card = document.getElementById("mobileSelectedCard");
   if (nameEl) nameEl.textContent = (label ? label + " · " : "") + serial;
   if (card) card.style.display = "";
+  // Start (or ensure) the 1Hz "N s ago" ticker.
+  if (!_mobileAgeTimer) {
+    _mobileAgeTimer = setInterval(_mobileUpdateAgeLabel, 1000);
+  }
   mobileClearError();
   // Load info first (blocks on physical size for coord scaling), then screenshot.
   await mobileLoadInfo();
@@ -229,6 +254,14 @@ async function mobileLoadInfo() {
 
 // ---------------------------------------------------------------------------
 // Screenshot — binary blob (no base64 tax), inline loading indicator.
+//
+// `mobileScreenshot()` fetches one frame. `_mobileRefreshBurst()` is the
+// adaptive series called after every action: it snaps at t+0, t+400ms
+// and t+1200ms to catch app transition animations (a common failure mode
+// on Android — user taps a Google search result, the browser fades to
+// black for ~800ms, then paints. A single snap right after the tap
+// captures the black frame). The burst is cancelled if the user starts
+// another action mid-way (via `_mobileScreenshotGen`).
 // ---------------------------------------------------------------------------
 async function mobileScreenshot() {
   if (!_mobileSelectedSerial) return;
@@ -277,17 +310,75 @@ async function mobileScreenshot() {
       img.style.display = "";
     }
     const elapsed = Math.round(performance.now() - started);
+    _mobileLastSnapAt = performance.now();
     if (meta) {
       meta.textContent = _mobileShownWidth + "×" + _mobileShownHeight
         + " · " + Math.round(blob.size / 1024) + " KB"
         + " · " + elapsed + " ms";
     }
+    _mobileUpdateAgeLabel();
   } catch (e) {
     mobileShowError("Screenshot request failed", e && e.stack || String(e));
   } finally {
     if (loading) loading.style.display = "none";
     _mobileScreenshotBusy = false;
   }
+}
+
+// Adaptive post-action refresh series. Every burst carries the generation
+// counter it was born under; if a newer action bumps the counter, the
+// series aborts silently. This gives us smooth updates after taps that
+// trigger transition animations (e.g. Google search results screen fades
+// in over ~800ms — one snap at t=0 misses the final frame).
+function _mobileRefreshBurst() {
+  if (!_mobileSelectedSerial) return;
+  _mobileScreenshotGen += 1;
+  const gen = _mobileScreenshotGen;
+  const delays = [0, 400, 1200];
+  for (const delay of delays) {
+    setTimeout(() => {
+      if (gen !== _mobileScreenshotGen) return;   // superseded
+      if (!_mobileSelectedSerial) return;
+      mobileScreenshot();
+    }, delay);
+  }
+}
+
+// "N s ago" label under the screenshot meta line — updated once a second
+// so the user can eyeball how fresh the frame is without checking the
+// timestamp column of the meta line manually.
+function _mobileUpdateAgeLabel() {
+  const el = document.getElementById("mobileScreenshotAge");
+  if (!el) return;
+  if (!_mobileLastSnapAt) {
+    el.textContent = "";
+    return;
+  }
+  const age = Math.round((performance.now() - _mobileLastSnapAt) / 1000);
+  el.textContent = age <= 0 ? "just now" : (age + "s ago");
+  // Colour cue: fresh = green-ish, stale = grey.
+  el.style.color = age <= 2 ? "#2b8a3e" : age <= 10 ? "#666" : "#c92a2a";
+}
+
+// Live-view: poll `/screenshot` at a fixed interval. Uses the same busy
+// flag as manual refresh so a slow snapshot doesn't stack requests, and
+// bails out if we're not on the mobile tab or nothing is selected.
+function mobileToggleLive(checkbox) {
+  _mobileLiveOn = !!(checkbox && checkbox.checked);
+  if (_mobileLiveTimer) {
+    clearInterval(_mobileLiveTimer);
+    _mobileLiveTimer = null;
+  }
+  if (!_mobileLiveOn) return;
+  _mobileLiveTimer = setInterval(() => {
+    if (!_mobileSelectedSerial) return;
+    // Only poll while the mobile tab is actually visible — no point
+    // burning phone battery + Tailscale bandwidth in the background.
+    const tab = document.getElementById("tab-mobile");
+    if (!tab || !tab.classList.contains("active")) return;
+    if (_mobileScreenshotBusy) return;
+    mobileScreenshot();
+  }, 1500);
 }
 
 // ---------------------------------------------------------------------------
@@ -321,9 +412,10 @@ async function _mobileSendTap(x, y) {
       mobileShowError("Tap failed at (" + x + ", " + y + ")", _fmtBackendError("tap", r));
       return;
     }
-    // Refresh immediately — no artificial delay. The screenshot fetch
-    // itself is the main latency, don't add to it.
-    mobileScreenshot();
+    // Adaptive burst: t+0 / t+400 / t+1200 ms. Catches app-transition
+    // animations (Chrome/Google black-frame problem) without doubling
+    // Tailnet bandwidth for a static screen.
+    _mobileRefreshBurst();
   } catch (e) {
     mobileShowError("Tap request failed", e && e.stack || String(e));
   }
@@ -341,7 +433,7 @@ async function mobileKey(name) {
       mobileShowError("Key " + name + " failed", _fmtBackendError("key", r));
       return;
     }
-    mobileScreenshot();
+    _mobileRefreshBurst();
   } catch (e) {
     mobileShowError("Key request failed", e && e.stack || String(e));
   }
@@ -363,7 +455,7 @@ async function mobileType() {
       return;
     }
     if (el) el.value = "";
-    mobileScreenshot();
+    _mobileRefreshBurst();
   } catch (e) {
     mobileShowError("Type request failed", e && e.stack || String(e));
   }

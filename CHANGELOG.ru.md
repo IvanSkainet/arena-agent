@@ -6,6 +6,83 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.82.2 - 2026-07-14
+
+Hotfix поверх v3.82.1 по двум воспроизводимым проблемам на POCO F7 Pro
+разработчика (HyperOS OS3, Android 16, SDK 36):
+
+* **`adb shell input text` падает с `java.lang.NullPointerException:
+  Attempt to get length of null array`** на любом не-ASCII вводе и на
+  пустом/пробельном вводе. Корень — внутри `InputShellCommand.sendText`:
+  LatinIME отказывается принять char stream и сервис разыменовывает
+  null-массив. Из shell это не починить, поэтому такие входы теперь
+  отвергаются заранее с понятным сообщением.
+* **Скриншот протухает при переходах в приложениях.** Тап по результату
+  поиска Google запускает анимацию затемнения на ~800 мс. Один снимок
+  сразу после тапа ловит именно чёрный кадр, и UI зависает на нём до
+  ручного Refresh. Починено adaptive-серией снимков после действия и
+  опциональным Live-view.
+
+### Fixed
+
+- **`arena/mobile/input.py::type_text` отвергает не-ASCII до вызова adb.**
+  Проверено вживую на POCO F7 Pro: отправка `"привет мир"` раньше
+  возвращала голый Java NPE-стектрейс в `stderr`; теперь возвращает
+  `error: text contains 9 non-ASCII character(s): 'приветми' (+1 more)`
+  с `hint`, объясняющим ограничение LatinIME и указывающим на Mobile
+  Phase 2 (ADBKeyboard) как на плановое решение. Список кодпойнтов
+  доступен в `offending_codepoints` — вызывающий код может отфильтровать
+  автоматически.
+- **`type_text` отвергает пустые и whitespace-only payload'ы** —
+  та же NPE срабатывает, когда Android парсит `''` или строку, ставшую
+  пустой после escape'а пробелов в `%s`.
+- **`_friendly_type_error()` теперь распознаёт `NullPointerException` +
+  `Attempt to get length of null array`** и переписывает в
+  «Android's input service returned a NullPointerException — the
+  currently focused IME rejected the payload. Tap an editable text field
+  first, or switch the default IME to a standard keyboard.» Сырой
+  стектрейс сохраняется.
+
+### Changed — Dashboard live view
+
+- **Adaptive-серия после действий.** После каждого tap/key/type Mobile
+  tab снимает экран в t+0 мс, t+400 мс и t+1200 мс вместо одного раза.
+  Это ловит анимации переходов Chrome/Google (та самая проблема «чёрный
+  экран после поиска», которую поймал пользователь) не удваивая трафик
+  для статичного UI. У каждой серии есть generation-счётчик; новое
+  действие пользователя аннулирует висящие снимки — серии не стекаются.
+- **Тумблер Live view** (opt-in) в строке действий. При включении
+  опрашивает `/screenshot` каждые 1.5 с, пока Mobile tab виден.
+  По умолчанию выключен (Tailnet-трафик + батарея телефона).
+  Автоматически останавливается, когда вкладка не активна или устройство
+  пропало.
+- **Индикатор свежести «N s ago»** под мета-строкой скриншота —
+  обновляется раз в секунду, цвет-код: зелёный (≤2 с) → серый (≤10 с)
+  → красный (>10 с). Видно, что кадр устарел, без часов.
+
+### Changed — Dashboard формулировки
+
+- **Поле type-text** теперь подписано «ASCII text into focused field»
+  с пояснением, что не-ASCII сейчас крашит Android и появится в Phase 2
+  через ADBKeyboard. Совпадает с бекенд-валидацией, никаких сюрпризов.
+
+### Not fixed (осознанно вне scope этого hotfix'а)
+
+- **Fallback через `cmd clipboard set-primary-clip`** для юникода был
+  исследован и отвергнут. На HyperOS OS3 и `cmd clipboard`, и
+  `service call clipboard 1 …` недоступны shell-пользователю (возвращают
+  `No shell command implementation.` и Allocation exception на Parcel
+  соответственно). Корректный путь — ADBKeyboard companion APK, что
+  требует полноценный flow согласия на установку APK — перенесено в
+  v3.83.0 (Mobile Phase 2).
+
+### Test suite
+
+743 passed (+6 новых: пустой/whitespace текст, кириллица, эмодзи,
+проверка что ASCII проходит валидацию, ветка NPE в `_friendly_type_error`,
+форма поля `offending_codepoints`). Живая проверка через Tailnet-bridge
+на POCO F7 Pro перед релизом.
+
 ## v3.82.1 — 2026-07-14
 
 Follow-up к v3.82.0 по итогам реального использования на POCO F7 Pro:

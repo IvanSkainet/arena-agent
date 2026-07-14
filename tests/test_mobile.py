@@ -155,6 +155,67 @@ def test_type_rejects_oversized_text():
     assert r["ok"] is False and "too long" in r["error"]
 
 
+def test_type_rejects_empty_text():
+    """Empty string triggers a bare NPE in InputShellCommand on Android
+    15/16 — we filter it up front so the user gets an actionable error.
+    """
+    r = _input.type_text("dummy", "")
+    assert r["ok"] is False
+    assert "empty" in r["error"].lower() or "whitespace" in r["error"].lower()
+    assert r.get("hint")
+    assert r.get("action") == "type"
+
+
+def test_type_rejects_whitespace_only():
+    r = _input.type_text("dummy", "   \t \n")
+    assert r["ok"] is False
+    assert "empty" in r["error"].lower() or "whitespace" in r["error"].lower()
+
+
+def test_type_rejects_non_ascii_cyrillic():
+    """LatinIME on Android 15/16 (POCO F7 Pro / HyperOS reference)
+    crashes with NullPointerException on any non-ASCII byte. We must
+    reject it before ever invoking adb."""
+    r = _input.type_text("dummy", "привет")
+    assert r["ok"] is False
+    assert "non-ASCII" in r["error"] or "ASCII" in r["error"]
+    assert r.get("hint")
+    assert "U+" in r.get("offending_codepoints", "")
+
+
+def test_type_rejects_non_ascii_emoji():
+    r = _input.type_text("dummy", "hello 🌍")
+    assert r["ok"] is False
+    assert "non-ASCII" in r["error"] or "ASCII" in r["error"]
+
+
+def test_type_ascii_passes_validation():
+    """Pure-ASCII text with the adb guard tripped should reach the
+    'adb not installed' branch (not the non-ASCII branch)."""
+    orig = _adb.find_adb
+    _adb.find_adb = lambda: None
+    _input.find_adb = lambda: None
+    try:
+        r = _input.type_text("dummy", "hello world 123")
+    finally:
+        _adb.find_adb = orig
+        _input.find_adb = orig
+    assert r["ok"] is False
+    assert "adb not installed" in r["error"]
+
+
+def test_friendly_type_error_covers_npe():
+    from arena.mobile.input import _friendly_type_error
+    raw = (
+        "Exception occurred while executing 'text':\n"
+        "java.lang.NullPointerException: Attempt to get length of null array"
+    )
+    friendly = _friendly_type_error(raw)
+    assert "NullPointerException" in friendly
+    assert "focused" in friendly.lower() or "IME" in friendly
+    assert raw in friendly  # never hides the raw stack
+
+
 def test_key_rejects_disallowed_keys():
     for bad in ("POWER", "REBOOT", "CAMERA", "gibberish"):
         r = _input.key("dummy", bad)

@@ -39,8 +39,13 @@
 <div class="card" id="mobileSelectedCard" style="display:none">
 <h2>Selected device: <span id="mobileSelectedName" class="mono">—</span></h2>
 
-<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">
   <button onclick="mobileScreenshot()">📸 Refresh screen</button>
+  <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;user-select:none"
+         title="Poll a fresh screenshot every 1.5 s while this tab is visible. Uses Tailnet bandwidth and phone battery — leave off if you don't need real-time.">
+    <input type="checkbox" id="mobileLiveToggle" onchange="mobileToggleLive(this)">
+    ▶ Live (1.5s)
+  </label>
   <button onclick="mobileKey('HOME')">🏠 Home</button>
   <button onclick="mobileKey('BACK')">← Back</button>
   <button onclick="mobileKey('APP_SWITCH')">▭ Recents</button>
@@ -49,9 +54,12 @@
   <button onclick="mobileKey('WAKEUP')">💡 Wake</button>
 </div>
 
-<div class="row" style="gap:6px;margin-bottom:8px">
-  <input type="text" id="mobileTypeText" placeholder="Type text into focused field (tap the field first!)…" style="flex:1;font-size:13px">
+<div class="row" style="gap:6px;margin-bottom:4px">
+  <input type="text" id="mobileTypeText" placeholder="Type ASCII text into focused field (tap the field first!)…" style="flex:1;font-size:13px">
   <button onclick="mobileType()">Send text</button>
+</div>
+<div style="font-size:11px;color:#666;margin-bottom:8px">
+  ASCII only until Mobile Phase 2. Non-ASCII (кириллица, emoji) currently crashes Android's <code>input text</code> with a NullPointerException — rejected up front with a clear message.
 </div>
 
 <div class="row" style="gap:6px;margin-bottom:8px">
@@ -74,7 +82,10 @@
        style="display:none;position:absolute;top:8px;right:8px;padding:4px 8px;background:rgba(0,0,0,.6);color:#fff;border-radius:4px;font-size:11px">
     Refreshing…
   </div>
-  <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:#666;margin-top:4px"></div>
+  <div class="row" style="gap:8px;margin-top:4px;align-items:baseline">
+    <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:#666"></div>
+    <div id="mobileScreenshotAge" class="mono" style="font-size:11px;margin-left:auto"></div>
+  </div>
 </div>
 
 <details style="margin-top:14px">

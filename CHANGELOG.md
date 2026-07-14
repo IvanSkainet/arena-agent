@@ -1,5 +1,84 @@
 # Changelog
 
+## v3.82.2 - 2026-07-14
+
+Hotfix on top of v3.82.1 driven by two reproducible issues on the
+maintainer's POCO F7 Pro (HyperOS OS3, Android 16, SDK 36):
+
+* **`adb shell input text` crashes with `java.lang.NullPointerException:
+  Attempt to get length of null array`** on any non-ASCII payload and on
+  any empty/whitespace-only payload. Root cause is inside Android's
+  `InputShellCommand.sendText` (LatinIME refuses the char stream and the
+  service dereferences a null array). This can't be recovered from at
+  the shell layer — we now reject those inputs up front with a clear,
+  actionable message.
+* **Screenshot goes stale on app transitions.** Tapping a Google search
+  result triggers an ~800 ms fade-to-black transition. A single post-tap
+  screenshot captures the black frame and the UI is stuck showing it
+  until you manually hit Refresh. Fixed with an adaptive
+  post-action refresh burst and an opt-in Live-view poll.
+
+### Fixed
+
+- **`arena/mobile/input.py::type_text` rejects non-ASCII before invoking
+  adb.** Live-verified on POCO F7 Pro: sending `"привет мир"` used to
+  return a bare Java NPE stack trace in `stderr`; now returns
+  `error: text contains 9 non-ASCII character(s): 'приветми' (+1 more)`
+  with a `hint` explaining the LatinIME limitation and pointing at Mobile
+  Phase 2 (ADBKeyboard helper) as the planned fix. The list of offending
+  code points is included in `offending_codepoints` so the caller can
+  strip them programmatically.
+- **`type_text` rejects empty and whitespace-only payloads** up front —
+  the same NPE fires when Android's shell handler tokenises `''` or a
+  string that becomes empty after `input`'s space-to-`%s` escaping.
+- **`_friendly_type_error()` now recognises `NullPointerException` +
+  `Attempt to get length of null array`** and rewrites it to
+  "Android's input service returned a NullPointerException — the
+  currently focused IME rejected the payload. Tap an editable text field
+  first, or switch the default IME to a standard keyboard." The raw
+  stack trace is preserved.
+
+### Changed — Dashboard live view
+
+- **Adaptive post-action refresh burst.** After every tap / key / type,
+  the Mobile tab now snaps the screen at t+0 ms, t+400 ms and t+1200 ms
+  instead of once. This catches Chrome/Google app transition animations
+  (the "black screen after search" bug the user hit) without doubling
+  bandwidth for a static UI. Each burst carries a generation counter;
+  a newer user action supersedes any pending snapshots so bursts don't
+  stack.
+- **Opt-in Live view toggle** in the actions row. When enabled, polls a
+  fresh screenshot every 1.5 s while the Mobile tab is visible. Off by
+  default (Tailnet bandwidth + phone battery). Automatically stops when
+  the tab is hidden or the selected device disappears.
+- **"N s ago" freshness indicator** under the screenshot meta row —
+  updated once a second, colour-coded green (≤2 s) → grey (≤10 s) →
+  red (>10 s) so you can eyeball whether the current frame is stale.
+
+### Changed — Dashboard copy
+
+- **Type-text input** now says "ASCII text into focused field" with a
+  small note explaining that non-ASCII currently crashes Android and
+  will be enabled in Phase 2 via the ADBKeyboard helper. This mirrors
+  the backend validation so the user isn't surprised.
+
+### Not fixed (explicit non-goals for this hotfix)
+
+- **`cmd clipboard set-primary-clip` fallback** for unicode input was
+  investigated and rejected. On HyperOS OS3 both `cmd clipboard` and the
+  low-level `service call clipboard 1 …` are unavailable to the shell
+  user (returns `No shell command implementation.` and an Allocation
+  exception at the Parcel layer respectively). The correct fix is the
+  ADBKeyboard companion APK, which requires a full APK-install consent
+  flow — deferred to v3.83.0 (Mobile Phase 2).
+
+### Test suite
+
+743 passed (+6 new: empty/whitespace text, cyrillic text, emoji text,
+ASCII-passes-validation guard, `_friendly_type_error` NPE branch, and
+the offending-codepoints reporting shape). Live-verified against the
+maintainer's POCO F7 Pro via the Tailnet bridge before shipping.
+
 ## v3.82.1 - 2026-07-14
 
 Follow-up to v3.82.0 based on real usage on the maintainer's POCO F7 Pro:
