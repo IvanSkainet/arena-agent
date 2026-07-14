@@ -10,6 +10,7 @@ from arena.mobile.adb import (
     run,
 )
 from arena.mobile.devices import device_info, list_devices
+from arena.mobile.gestures import allowed_gestures, perform as perform_gesture
 from arena.mobile.handlers import MobileHandlers, make_mobile_handlers
 from arena.mobile.input import key, swipe, tap, type_text
 from arena.mobile.packages import list_packages
@@ -31,6 +32,8 @@ __all__ = [
     "key",
     "restricted_shell",
     "list_packages",
+    "allowed_gestures",
+    "perform_gesture",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

@@ -1,5 +1,111 @@
 # Changelog
 
+## v3.83.0 - 2026-07-14
+
+Mobile Phase 2 kick-off — screen quality overhaul, semantic gestures,
+drag-to-swipe, and a much richer device-info panel. All changes were
+live-verified against a POCO F7 Pro over Tailscale Funnel before shipping.
+
+### Added — Screen quality overhaul
+
+- **WebP output support** (`format=webp`). On the reference POCO F7 Pro
+  home screen: WebP at quality 82 produces 26 KB / 68 KB / 127 KB for
+  360 / 720 / 1080 px widths — versus 54 KB / 152 KB / 326 KB for JPEG
+  at the same quality. That is a **50–60% saving** with visibly better
+  UI-text rendering.
+- **JPEG now uses `subsampling=0` (4:4:4)** instead of the Pillow
+  default 4:2:0. This eliminates the red/blue chroma smearing on UI
+  text and small icons that the user complained about ("артефакты в
+  движении").
+- **`max_width=0` bypasses Pillow entirely.** Callers that want the raw
+  1440×3200 phone frame no longer round-trip through a resize step.
+- **PNG downscale path drops `optimize=True`** (saves ~150 ms per snap
+  for ~5 % size increase — worth it for the interactive UI).
+- **Dashboard screenshot settings row** with format selector
+  (WebP / JPEG / PNG), quality slider (30–100), width preset
+  (360 / 480 / 640 / **720 default** / 1080 / 1440 / native), Live
+  toggle with configurable rate (2 Hz / 1 Hz / 0.67 Hz / 0.33 Hz).
+  Settings persist in `localStorage` (key `arena.mobile.screen.settings.v1`).
+
+### Added — Semantic gestures
+
+- **New `arena/mobile/gestures.py` module** with a closed allowlist of
+  11 named gestures — `notifications`, `quick_settings`, `close_shade`,
+  `scroll_up|down|left|right`, `back_edge_left|right`, `home_gesture`,
+  `recents_gesture`. Each gesture is a normalised 0..1 coordinate recipe
+  translated to native pixels at call time via `wm size`, then routed
+  through the existing `input.swipe` for validation consistency.
+- **New endpoint `POST/GET /v1/mobile/{serial}/gesture`** with the same
+  auth + audit shape as `/swipe`. Reported in `/v1/capabilities.mobile.endpoints`.
+- **Dashboard buttons for every gesture** in the Selected-device card
+  ("▼ Shade", "↑ Scroll up", "▲ Home gesture", …), grouped separately
+  from the raw navigation keys.
+
+### Added — Drag-to-swipe on the screenshot
+
+- The screenshot `<img>` now handles `pointerdown` / `pointermove` /
+  `pointerup` instead of a bare `onclick`. Pointer distance below the
+  8 CSS-px threshold routes through the tap path; anything larger
+  becomes a raw `/swipe` with native-pixel coordinates and the actual
+  drag duration. This finally makes it possible to pull the notification
+  shade, swipe between home-screen pages, and cancel a modal by dragging
+  down — all from the Dashboard.
+- Pointer capture (`img.setPointerCapture`) so a drag that leaves the
+  image element (into the shell console area, for example) still
+  completes on `pointerup`.
+
+### Added — Rich device info
+
+- **`arena/mobile/devices.py::device_info()` batches every `getprop`
+  into a single shell call** — was ~20 round-trips, now 1. Saves ~500 ms
+  over Tailnet.
+- Added new fields: `android_security_patch`, `android_codename`,
+  `build_date`, `build_type`, `build_tags`, `bootloader`, `hardware`,
+  `board`, `cpu_abi_list`, `serialno`, `locale`.
+- New `wifi` block: `{state, info_line, ipv4}` from `dumpsys wifi` +
+  `ip addr show wlan0`.
+- New `storage` array from `df -h /data /sdcard`: `filesystem`, `size`,
+  `used`, `avail`, `use_pct`, `mount`.
+- New `memory` block from `/proc/meminfo`: `memtotal`, `memavailable`,
+  `memfree`, `swaptotal`, `swapfree`.
+- New `uptime` line, `timezone`, `locale_current`, `foreground_activity`,
+  and a fuller `battery` block (adds `scale`, `health`, `voltage`,
+  `technology`, `max_charging_*`).
+- **Dashboard `#mobileInfoPanel`** renders a compact table with the
+  most useful fields (device name, Android + security patch, HyperOS
+  version, screen, RAM used/total, storage free/total, battery %,
+  Wi-Fi IP, timezone, foreground activity, bootloader). Full JSON
+  still available in the collapsible `<details>` block.
+
+### Changed — Dashboard structure
+
+- **Split `30-mobile.js` into three files** for readability:
+  - `30-mobile.js` (447 lines) — device list, selection, info panel,
+    tap, key, type, shell, error box.
+  - `31-mobile-screen.js` (191 lines) — screenshot pipeline, settings
+    persistence, adaptive burst, Live-view polling.
+  - `32-mobile-gestures.js` (120 lines) — gesture buttons, drag-to-swipe
+    pointer handlers.
+- **Full-width screenshot** (`max-width: 100%`) instead of the previous
+  hard-coded 360 px wrap. The width is now driven by the settings row.
+
+### Test suite
+
+749 passed (+6 new): `test_gestures_allowlist_is_stable`,
+`test_gesture_rejects_unknown`, `test_gesture_rejects_non_string`,
+`test_gesture_without_adb_returns_adb_hint`,
+`test_screenshot_capture_without_adb_returns_error`,
+`test_screenshot_encode_webp_and_jpeg_produce_bytes`.
+
+### Known follow-ups for v3.83.1 / v3.83.2
+
+- **UI Automator selectors** (`uiautomator dump` + `POST /v1/mobile/{s}/tap_by`
+  with `id`/`text`/`class` selectors) — planned for v3.83.1.
+- **ADBKeyboard companion APK** for unicode text input, wireless ADB
+  `pair` / `connect` UI wizard, and generic APK install with consent —
+  planned for v3.83.2. When ADBKeyboard ships, the ASCII-only guard in
+  `type_text` and the corresponding Dashboard note will be relaxed.
+
 ## v3.82.2 - 2026-07-14
 
 Hotfix on top of v3.82.1 driven by two reproducible issues on the

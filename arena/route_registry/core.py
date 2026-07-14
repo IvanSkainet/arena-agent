@@ -70,6 +70,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/mobile/{serial}/key", h["handle_v1_mobile_key"])
     app.router.add_post("/v1/mobile/{serial}/shell", h["handle_v1_mobile_shell"])
     app.router.add_get("/v1/mobile/{serial}/packages", h["handle_v1_mobile_packages"])
+    app.router.add_post("/v1/mobile/{serial}/gesture", h["handle_v1_mobile_gesture"])
+    app.router.add_get("/v1/mobile/{serial}/gesture", h["handle_v1_mobile_gesture"])
     app.router.add_post("/v1/restart", h["handle_v1_restart"])
     app.router.add_get("/v1/webhooks", h["handle_v1_webhooks_get"])
     app.router.add_post("/v1/webhooks", h["handle_v1_webhooks_set"])

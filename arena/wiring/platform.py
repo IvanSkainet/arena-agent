@@ -170,4 +170,5 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_key": handlers.key_event,
         "handle_v1_mobile_shell": handlers.shell,
         "handle_v1_mobile_packages": handlers.packages,
+        "handle_v1_mobile_gesture": handlers.gesture,
     }

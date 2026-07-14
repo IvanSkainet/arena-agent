@@ -14,6 +14,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.mobile import devices as _devices
+from arena.mobile import gestures as _gestures
 from arena.mobile import input as _input
 from arena.mobile import packages as _packages
 from arena.mobile import screenshot as _screenshot
@@ -31,6 +32,7 @@ class MobileHandlers:
     key_event: object
     shell: object
     packages: object
+    gesture: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -214,6 +216,23 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_gesture(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        gesture = body.get("gesture", "") or request.query.get("gesture", "")
+        try:
+            res = await _run(_gestures.perform, serial, gesture)
+            ctx.audit({"type": "mobile.gesture", "serial": serial,
+                       "gesture": gesture, "ok": res.get("ok")})
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
     async def handle_packages(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -246,4 +265,5 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         key_event=handle_key,
         shell=handle_shell,
         packages=handle_packages,
+        gesture=handle_gesture,
     )

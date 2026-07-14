@@ -342,6 +342,91 @@ def test_screenshot_without_adb_returns_error():
 def test_mobile_handlers_dataclass_fields():
     from arena.mobile.handlers import MobileHandlers
     expected = {"list_devices", "device_info", "screenshot", "tap", "swipe",
-                "type_text", "key_event", "shell", "packages"}
+                "type_text", "key_event", "shell", "packages", "gesture"}
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
     assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+
+
+# ---------------------------------------------------------------------------
+# gestures.py — allowlist + coordinate math (no adb needed)
+# ---------------------------------------------------------------------------
+def test_gestures_allowlist_is_stable():
+    """Guard against silent additions/removals of gesture names — the UI
+    depends on this being a closed set."""
+    from arena.mobile.gestures import allowed_gestures
+    got = set(allowed_gestures())
+    expected = {
+        "notifications", "quick_settings", "close_shade",
+        "scroll_up", "scroll_down", "scroll_left", "scroll_right",
+        "back_edge_left", "back_edge_right",
+        "home_gesture", "recents_gesture",
+    }
+    assert got == expected, f"gesture allowlist drift: {got ^ expected}"
+
+
+def test_gesture_rejects_unknown():
+    from arena.mobile import gestures
+    r = gestures.perform("dummy", "definitely_not_a_gesture")
+    assert r["ok"] is False
+    assert "allowlist" in r["error"]
+    assert r.get("hint")
+
+
+def test_gesture_rejects_non_string():
+    from arena.mobile import gestures
+    r = gestures.perform("dummy", None)  # type: ignore[arg-type]
+    assert r["ok"] is False
+    assert "string" in r["error"]
+
+
+def test_gesture_without_adb_returns_adb_hint():
+    """The gesture must go through the same adb-not-installed guard as swipe."""
+    from arena.mobile import gestures
+    orig = _adb.find_adb
+    _adb.find_adb = lambda: None
+    gestures.find_adb = lambda: None  # type: ignore[attr-defined]
+    try:
+        r = gestures.perform("dummy", "notifications")
+    finally:
+        _adb.find_adb = orig
+        gestures.find_adb = orig  # type: ignore[attr-defined]
+    assert r["ok"] is False
+    assert "adb not installed" in r["error"]
+
+
+# ---------------------------------------------------------------------------
+# screenshot.py — format branches (no adb, small PIL-only checks)
+# ---------------------------------------------------------------------------
+def test_screenshot_capture_without_adb_returns_error():
+    """Regression: screenshot pre-flight check runs before subprocess."""
+    from arena.mobile import screenshot as _s
+    orig = _adb.find_adb
+    _adb.find_adb = lambda: None
+    _s.find_adb = lambda: None
+    try:
+        r = _s.capture("dummy", max_width=360, quality=70, format="webp")
+    finally:
+        _adb.find_adb = orig
+        _s.find_adb = orig
+    assert r["ok"] is False
+    assert "adb not installed" in r["error"]
+
+
+def test_screenshot_encode_webp_and_jpeg_produce_bytes():
+    """Direct check on `_encode`: given a Pillow image, webp/jpeg must
+    return valid magic bytes."""
+    try:
+        from PIL import Image
+    except Exception:
+        import pytest
+        pytest.skip("Pillow not installed on this host")
+    from arena.mobile.screenshot import _encode
+    import io as _io
+    img = Image.new("RGB", (32, 32), color=(200, 30, 30))
+    jpg_buf = _io.BytesIO()
+    _encode(img, jpg_buf, fmt="jpeg", quality=80)
+    assert jpg_buf.getvalue()[:3] == b"\xff\xd8\xff", "not JPEG"
+    webp_buf = _io.BytesIO()
+    _encode(img, webp_buf, fmt="webp", quality=80)
+    v = webp_buf.getvalue()
+    assert v[:4] == b"RIFF" and v[8:12] == b"WEBP", "not WebP"

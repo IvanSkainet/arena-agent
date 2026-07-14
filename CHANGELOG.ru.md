@@ -6,6 +6,116 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.83.0 - 2026-07-14
+
+Старт Mobile Phase 2 — переработка качества скриншотов, семантические
+жесты, drag-to-swipe и расширенная панель информации об устройстве.
+Все изменения проверены живьём на POCO F7 Pro через Tailscale Funnel
+перед релизом.
+
+### Added — переработка качества экрана
+
+- **Поддержка WebP** (`format=webp`). На домашнем экране POCO F7 Pro:
+  WebP при quality=82 даёт 26 KB / 68 KB / 127 KB для ширин
+  360 / 720 / 1080 пикс — против 54 KB / 152 KB / 326 KB у JPEG на том
+  же качестве. Это **50–60% экономии** при заметно лучшем рендере текста
+  и мелких иконок.
+- **JPEG теперь `subsampling=0` (4:4:4)** вместо дефолтного 4:2:0 у
+  Pillow. Убирает красно-синий цветовой смаз на тексте UI и мелких
+  иконках — та самая жалоба «артефакты в движении».
+- **`max_width=0` полностью пропускает Pillow.** Кто хочет сырой кадр
+  1440×3200 — не проходит через resize.
+- **PNG downscale больше не делает `optimize=True`** (экономит ~150 мс
+  на снимок ценой ~5 % размера — норм для интерактивного UI).
+- **Строка настроек скриншота в Dashboard**: селектор формата
+  (WebP / JPEG / PNG), слайдер quality (30–100), пресет ширины
+  (360 / 480 / 640 / **720 default** / 1080 / 1440 / native), тумблер
+  Live с настраиваемой частотой (2 Hz / 1 Hz / 0.67 Hz / 0.33 Hz).
+  Настройки сохраняются в `localStorage` (ключ
+  `arena.mobile.screen.settings.v1`).
+
+### Added — семантические жесты
+
+- **Новый модуль `arena/mobile/gestures.py`** с закрытым allowlist'ом
+  11 названных жестов — `notifications`, `quick_settings`,
+  `close_shade`, `scroll_up|down|left|right`, `back_edge_left|right`,
+  `home_gesture`, `recents_gesture`. Каждый жест — нормализованный
+  0..1 рецепт координат, транслируемый в нативные пиксели через
+  `wm size` при вызове, и уходящий через существующий `input.swipe`
+  для единства валидации.
+- **Новый эндпоинт `POST/GET /v1/mobile/{serial}/gesture`** с той же
+  auth+audit оболочкой, что и `/swipe`. Виден в
+  `/v1/capabilities.mobile.endpoints`.
+- **Кнопки для каждого жеста в Dashboard** в карточке Selected device
+  («▼ Shade», «↑ Scroll up», «▲ Home gesture», ...), сгруппированы
+  отдельно от базовых navigation-клавиш.
+
+### Added — drag-to-swipe на скриншоте
+
+- Скриншот `<img>` теперь обрабатывает `pointerdown` / `pointermove` /
+  `pointerup` вместо голого `onclick`. Расстояние pointer'а меньше 8 CSS
+  пикселей идёт как tap; больше — становится сырым `/swipe` с
+  нативно-пиксельными координатами и реальной длительностью drag'а.
+  Теперь наконец-то можно вытащить шторку уведомлений, свайпнуть между
+  home-экранами и отменить модалку перетаскиванием вниз — всё из
+  Dashboard.
+- Pointer capture (`img.setPointerCapture`), чтобы drag, ушедший за
+  границы `<img>` (например, в консоль shell), корректно завершался
+  на `pointerup`.
+
+### Added — расширенная информация об устройстве
+
+- **`arena/mobile/devices.py::device_info()` теперь батчит все `getprop`
+  в один shell-вызов** — было ~20 round-trip'ов, стало 1. Экономит
+  ~500 мс через Tailnet.
+- Новые поля: `android_security_patch`, `android_codename`,
+  `build_date`, `build_type`, `build_tags`, `bootloader`, `hardware`,
+  `board`, `cpu_abi_list`, `serialno`, `locale`.
+- Новый блок `wifi`: `{state, info_line, ipv4}` через `dumpsys wifi` +
+  `ip addr show wlan0`.
+- Новый массив `storage` из `df -h /data /sdcard`: `filesystem`, `size`,
+  `used`, `avail`, `use_pct`, `mount`.
+- Новый блок `memory` из `/proc/meminfo`: `memtotal`, `memavailable`,
+  `memfree`, `swaptotal`, `swapfree`.
+- Новые поля `uptime`, `timezone`, `locale_current`,
+  `foreground_activity`, и расширенный `battery` (добавлено `scale`,
+  `health`, `voltage`, `technology`, `max_charging_*`).
+- **`#mobileInfoPanel` в Dashboard** рендерит компактную таблицу с самыми
+  полезными полями (имя устройства, Android + patch, HyperOS, экран,
+  RAM used/total, storage free/total, battery %, Wi-Fi IP, timezone,
+  foreground activity, bootloader). Полный JSON доступен в
+  сворачиваемом `<details>`.
+
+### Changed — структура Dashboard
+
+- **Разбил `30-mobile.js` на три файла** для читаемости:
+  - `30-mobile.js` (447 строк) — список устройств, выбор, info-панель,
+    tap, key, type, shell, error box.
+  - `31-mobile-screen.js` (191 строка) — pipeline скриншота,
+    сохранение настроек, adaptive burst, Live-view polling.
+  - `32-mobile-gestures.js` (120 строк) — кнопки жестов, pointer'ы для
+    drag-to-swipe.
+- **Скриншот теперь на всю ширину** (`max-width: 100%`) вместо жёстких
+  360 пикс. Реальная ширина управляется строкой настроек.
+
+### Test suite
+
+749 passed (+6 новых): `test_gestures_allowlist_is_stable`,
+`test_gesture_rejects_unknown`, `test_gesture_rejects_non_string`,
+`test_gesture_without_adb_returns_adb_hint`,
+`test_screenshot_capture_without_adb_returns_error`,
+`test_screenshot_encode_webp_and_jpeg_produce_bytes`.
+
+### Follow-ups для v3.83.1 / v3.83.2
+
+- **UI Automator селекторы** (`uiautomator dump` +
+  `POST /v1/mobile/{s}/tap_by` с селекторами `id`/`text`/`class`) —
+  в плане на v3.83.1.
+- **ADBKeyboard companion APK** для юникод-ввода, UI-мастер wireless
+  ADB `pair` / `connect`, общий APK-install с consent'ом — в плане на
+  v3.83.2. Когда ADBKeyboard приедет, ASCII-only guard в `type_text` и
+  соответствующая пометка в Dashboard будут сняты.
+
 ## v3.82.2 - 2026-07-14
 
 Hotfix поверх v3.82.1 по двум воспроизводимым проблемам на POCO F7 Pro

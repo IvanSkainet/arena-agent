@@ -179,7 +179,7 @@ def build_capabilities(
                 "endpoints": [
                     "devices", "info", "screenshot",
                     "tap", "swipe", "type", "key",
-                    "shell", "packages",
+                    "shell", "packages", "gesture",
                 ],
                 "hint": m.get("hint"),
             }

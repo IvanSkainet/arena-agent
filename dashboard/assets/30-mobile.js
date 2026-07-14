@@ -136,7 +136,9 @@ async function refreshMobile() {
     }
 
     // If the selected device disappeared, hide the actions card and
-    // stop the live-view poll (nothing to poll).
+    // stop the live-view poll (nothing to poll). The Live checkbox
+    // state is preserved so the poll resumes if the same phone is
+    // plugged back in.
     if (_mobileSelectedSerial && !devices.some((d) => d.serial === _mobileSelectedSerial)) {
       _mobileSelectedSerial = null;
       _mobileInfoCache = null;
@@ -144,9 +146,6 @@ async function refreshMobile() {
       if (_mobileLiveTimer) {
         clearInterval(_mobileLiveTimer);
         _mobileLiveTimer = null;
-        _mobileLiveOn = false;
-        const cb = document.getElementById("mobileLiveToggle");
-        if (cb) cb.checked = false;
       }
     }
   } catch (e) {
@@ -223,10 +222,15 @@ async function selectMobileDevice(serial, label) {
   if (!_mobileAgeTimer) {
     _mobileAgeTimer = setInterval(_mobileUpdateAgeLabel, 1000);
   }
+  // Populate the settings inputs from localStorage and (re)apply any
+  // Live-view poll. Safe to call every selection — mount is idempotent.
+  if (typeof mobileScreenSettingsMount === "function") mobileScreenSettingsMount();
+  if (typeof mobileLiveApply === "function") mobileLiveApply();
   mobileClearError();
   // Load info first (blocks on physical size for coord scaling), then screenshot.
   await mobileLoadInfo();
   await mobileScreenshot();
+  mobileRenderInfoPanel();  // pretty summary alongside raw JSON
   refreshMobile();
 }
 
@@ -253,151 +257,86 @@ async function mobileLoadInfo() {
 }
 
 // ---------------------------------------------------------------------------
-// Screenshot — binary blob (no base64 tax), inline loading indicator.
-//
-// `mobileScreenshot()` fetches one frame. `_mobileRefreshBurst()` is the
-// adaptive series called after every action: it snaps at t+0, t+400ms
-// and t+1200ms to catch app transition animations (a common failure mode
-// on Android — user taps a Google search result, the browser fades to
-// black for ~800ms, then paints. A single snap right after the tap
-// captures the black frame). The burst is cancelled if the user starts
-// another action mid-way (via `_mobileScreenshotGen`).
+// Pretty device info panel — extracts the most useful fields out of the
+// raw /info JSON into a compact table. The full JSON stays available in
+// the collapsible <details> block for anyone wanting the full dump.
 // ---------------------------------------------------------------------------
-async function mobileScreenshot() {
-  if (!_mobileSelectedSerial) return;
-  if (_mobileScreenshotBusy) return;  // dedup rapid taps
-  _mobileScreenshotBusy = true;
+function mobileRenderInfoPanel() {
+  const el = document.getElementById("mobileInfoPanel");
+  if (!el || !_mobileInfoCache) return;
+  const i = _mobileInfoCache;
 
-  const img = document.getElementById("mobileScreenshotImg");
-  const meta = document.getElementById("mobileScreenshotMeta");
-  const loading = document.getElementById("mobileScreenshotLoading");
-  if (loading) loading.style.display = "";
-
-  const started = performance.now();
-  try {
-    // Fetch as raw binary — 33% smaller than the JSON+base64 path, and the
-    // image element can render straight from a blob URL.
-    const url = BASE
-      + "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial)
-      + "/screenshot?max_width=360&quality=70&format=jpeg";
-    const resp = await fetch(url, {headers, cache: "no-store"});
-    if (!resp.ok) {
-      let msg = "HTTP " + resp.status;
-      try {
-        const body = await resp.text();
-        try {
-          const j = JSON.parse(body);
-          msg = _fmtBackendError("screenshot failed", j);
-        } catch (_) {
-          if (body) msg += "\n" + body.slice(0, 400);
-        }
-      } catch (_) {}
-      if (meta) meta.textContent = "screenshot failed";
-      mobileShowError("Screenshot failed", msg);
-      return;
-    }
-    _mobileShownWidth = parseInt(resp.headers.get("X-Arena-Mobile-Width") || "0", 10);
-    _mobileShownHeight = parseInt(resp.headers.get("X-Arena-Mobile-Height") || "0", 10);
-    const blob = await resp.blob();
-
-    // Revoke old blob URL to free memory.
-    if (_mobileScreenshotBlobUrl) {
-      URL.revokeObjectURL(_mobileScreenshotBlobUrl);
-    }
-    _mobileScreenshotBlobUrl = URL.createObjectURL(blob);
-    if (img) {
-      img.src = _mobileScreenshotBlobUrl;
-      img.style.display = "";
-    }
-    const elapsed = Math.round(performance.now() - started);
-    _mobileLastSnapAt = performance.now();
-    if (meta) {
-      meta.textContent = _mobileShownWidth + "×" + _mobileShownHeight
-        + " · " + Math.round(blob.size / 1024) + " KB"
-        + " · " + elapsed + " ms";
-    }
-    _mobileUpdateAgeLabel();
-  } catch (e) {
-    mobileShowError("Screenshot request failed", e && e.stack || String(e));
-  } finally {
-    if (loading) loading.style.display = "none";
-    _mobileScreenshotBusy = false;
+  const rows = [];
+  const push = (label, value) => {
+    if (value === undefined || value === null || value === "") return;
+    rows.push([label, String(value)]);
+  };
+  const nameParts = [i.brand, i.manufacturer, i.model].filter(Boolean);
+  push("Device", nameParts.join(" · "));
+  push("Codename", i.device);
+  push("Android", (i.android_version ? "Android " + i.android_version : "")
+       + (i.android_sdk ? " · SDK " + i.android_sdk : "")
+       + (i.android_security_patch ? " · patch " + i.android_security_patch : ""));
+  push("HyperOS", i.hyperos_version || i.miui_version);
+  push("Build", (i.build_id || "") + (i.build_date ? " · " + i.build_date : ""));
+  push("CPU", (i.cpu_abi || "") + (i.hardware ? " · " + i.hardware : ""));
+  push("Screen", (i.screen_size_override || i.screen_size_physical || "")
+       + (i.density_override || i.density_physical
+          ? " · " + (i.density_override || i.density_physical) + " dpi" : ""));
+  if (i.memory && i.memory.memtotal) {
+    push("RAM", i.memory.memavailable
+      ? i.memory.memavailable + " avail / " + i.memory.memtotal
+      : i.memory.memtotal);
   }
-}
-
-// Adaptive post-action refresh series. Every burst carries the generation
-// counter it was born under; if a newer action bumps the counter, the
-// series aborts silently. This gives us smooth updates after taps that
-// trigger transition animations (e.g. Google search results screen fades
-// in over ~800ms — one snap at t=0 misses the final frame).
-function _mobileRefreshBurst() {
-  if (!_mobileSelectedSerial) return;
-  _mobileScreenshotGen += 1;
-  const gen = _mobileScreenshotGen;
-  const delays = [0, 400, 1200];
-  for (const delay of delays) {
-    setTimeout(() => {
-      if (gen !== _mobileScreenshotGen) return;   // superseded
-      if (!_mobileSelectedSerial) return;
-      mobileScreenshot();
-    }, delay);
+  if (Array.isArray(i.storage) && i.storage.length) {
+    const primary = i.storage[0];
+    push("Storage", (primary.avail || "?") + " free of " + (primary.size || "?")
+                    + " (" + (primary.use_pct || "?") + " used)");
   }
-}
-
-// "N s ago" label under the screenshot meta line — updated once a second
-// so the user can eyeball how fresh the frame is without checking the
-// timestamp column of the meta line manually.
-function _mobileUpdateAgeLabel() {
-  const el = document.getElementById("mobileScreenshotAge");
-  if (!el) return;
-  if (!_mobileLastSnapAt) {
-    el.textContent = "";
-    return;
+  if (i.battery) {
+    const parts = [];
+    if (i.battery.level && i.battery.scale) {
+      parts.push(Math.round(100 * parseInt(i.battery.level, 10) / parseInt(i.battery.scale, 10)) + "%");
+    } else if (i.battery.level) {
+      parts.push(i.battery.level + "%");
+    }
+    if (i.battery.temperature) {
+      const t = parseInt(i.battery.temperature, 10);
+      if (!Number.isNaN(t)) parts.push((t / 10).toFixed(1) + "°C");
+    }
+    const ac = i.battery.ac_powered === "true";
+    const usb = i.battery.usb_powered === "true";
+    const wl = i.battery.wireless_powered === "true";
+    if (ac) parts.push("AC");
+    else if (usb) parts.push("USB");
+    else if (wl) parts.push("wireless");
+    push("Battery", parts.join(" · "));
   }
-  const age = Math.round((performance.now() - _mobileLastSnapAt) / 1000);
-  el.textContent = age <= 0 ? "just now" : (age + "s ago");
-  // Colour cue: fresh = green-ish, stale = grey.
-  el.style.color = age <= 2 ? "#2b8a3e" : age <= 10 ? "#666" : "#c92a2a";
-}
-
-// Live-view: poll `/screenshot` at a fixed interval. Uses the same busy
-// flag as manual refresh so a slow snapshot doesn't stack requests, and
-// bails out if we're not on the mobile tab or nothing is selected.
-function mobileToggleLive(checkbox) {
-  _mobileLiveOn = !!(checkbox && checkbox.checked);
-  if (_mobileLiveTimer) {
-    clearInterval(_mobileLiveTimer);
-    _mobileLiveTimer = null;
+  if (i.wifi) {
+    push("Wi-Fi", (i.wifi.state || "") + (i.wifi.ipv4 ? " · " + i.wifi.ipv4 : ""));
   }
-  if (!_mobileLiveOn) return;
-  _mobileLiveTimer = setInterval(() => {
-    if (!_mobileSelectedSerial) return;
-    // Only poll while the mobile tab is actually visible — no point
-    // burning phone battery + Tailscale bandwidth in the background.
-    const tab = document.getElementById("tab-mobile");
-    if (!tab || !tab.classList.contains("active")) return;
-    if (_mobileScreenshotBusy) return;
-    mobileScreenshot();
-  }, 1500);
-}
+  push("Locale", (i.locale_current || i.locale || "") + (i.timezone ? " · " + i.timezone : ""));
+  push("Uptime", i.uptime);
+  push("Foreground", i.foreground_activity);
+  push("Bootloader", i.bootloader);
 
-// ---------------------------------------------------------------------------
-// Tap / key / type / shell — no artificial delays, immediate refresh
-// ---------------------------------------------------------------------------
-function mobileTapFromImage(event) {
-  if (!_mobileSelectedSerial || !_mobileShownWidth) return;
-  const img = event.currentTarget;
-  const rect = img.getBoundingClientRect();
-  const displayX = event.clientX - rect.left;
-  const displayY = event.clientY - rect.top;
-  // Scale displayed-CSS-pixels → shown-source-pixels → native device pixels.
-  const shownX = displayX * (_mobileShownWidth / img.clientWidth);
-  const shownY = displayY * (_mobileShownHeight / img.clientHeight);
-  const nativeRatio = (_mobileNativeWidth && _mobileShownWidth)
-    ? _mobileNativeWidth / _mobileShownWidth : 1;
-  const nativeX = Math.round(shownX * nativeRatio);
-  const nativeY = Math.round(shownY * nativeRatio);
-  _mobileSendTap(nativeX, nativeY);
+  el.innerHTML = "";
+  const table = document.createElement("table");
+  table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px";
+  for (const [k, v] of rows) {
+    const tr = document.createElement("tr");
+    const tdK = document.createElement("td");
+    tdK.style.cssText = "padding:3px 8px 3px 0;color:#666;white-space:nowrap;vertical-align:top;width:110px";
+    tdK.textContent = k;
+    const tdV = document.createElement("td");
+    tdV.style.cssText = "padding:3px 0;word-break:break-word";
+    tdV.className = "mono";
+    tdV.textContent = v;
+    tr.appendChild(tdK);
+    tr.appendChild(tdV);
+    table.appendChild(tr);
+  }
+  el.appendChild(table);
 }
 
 async function _mobileSendTap(x, y) {

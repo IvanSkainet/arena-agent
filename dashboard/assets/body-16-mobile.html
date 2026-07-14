@@ -39,44 +39,116 @@
 <div class="card" id="mobileSelectedCard" style="display:none">
 <h2>Selected device: <span id="mobileSelectedName" class="mono">—</span></h2>
 
-<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px;align-items:center">
-  <button onclick="mobileScreenshot()">📸 Refresh screen</button>
-  <label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;user-select:none"
-         title="Poll a fresh screenshot every 1.5 s while this tab is visible. Uses Tailnet bandwidth and phone battery — leave off if you don't need real-time.">
-    <input type="checkbox" id="mobileLiveToggle" onchange="mobileToggleLive(this)">
-    ▶ Live (1.5s)
-  </label>
+<!-- ============================ Device info ============================ -->
+<div id="mobileInfoPanel"
+     style="background:rgba(30,144,255,.04);border:1px solid rgba(30,144,255,.15);border-radius:6px;padding:8px 10px;margin-bottom:12px">
+  <div style="color:#666;font-size:12px">Loading device info…</div>
+</div>
+
+<!-- ============================ Navigation ============================ -->
+<div style="font-size:11px;color:#666;margin-bottom:4px">Navigation</div>
+<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">
   <button onclick="mobileKey('HOME')">🏠 Home</button>
   <button onclick="mobileKey('BACK')">← Back</button>
   <button onclick="mobileKey('APP_SWITCH')">▭ Recents</button>
+  <button onclick="mobileKey('WAKEUP')">💡 Wake</button>
+  <button onclick="mobileKey('SLEEP')">💤 Sleep</button>
   <button onclick="mobileKey('VOLUME_UP')">🔊+</button>
   <button onclick="mobileKey('VOLUME_DOWN')">🔊−</button>
-  <button onclick="mobileKey('WAKEUP')">💡 Wake</button>
 </div>
 
+<!-- ============================ Gestures ============================ -->
+<div style="font-size:11px;color:#666;margin-bottom:4px">
+  Gestures — high-level semantic swipes, no pixel maths.
+  For anything else, drag directly on the screenshot below.
+</div>
+<div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:12px">
+  <button onclick="mobileGesture('notifications')">▼ Shade</button>
+  <button onclick="mobileGesture('quick_settings')">▼▼ Quick settings</button>
+  <button onclick="mobileGesture('close_shade')">▲ Close shade</button>
+  <button onclick="mobileGesture('scroll_up')">↑ Scroll up</button>
+  <button onclick="mobileGesture('scroll_down')">↓ Scroll down</button>
+  <button onclick="mobileGesture('scroll_left')">← Scroll left</button>
+  <button onclick="mobileGesture('scroll_right')">Scroll right →</button>
+  <button onclick="mobileGesture('back_edge_left')" title="Gesture-nav back from left edge">← Edge back</button>
+  <button onclick="mobileGesture('home_gesture')" title="Gesture-nav home swipe from bottom">▲ Home gesture</button>
+  <button onclick="mobileGesture('recents_gesture')" title="Gesture-nav recents — swipe up + pause">▲⏸ Recents gesture</button>
+</div>
+
+<!-- ============================ Type text ============================ -->
 <div class="row" style="gap:6px;margin-bottom:4px">
   <input type="text" id="mobileTypeText" placeholder="Type ASCII text into focused field (tap the field first!)…" style="flex:1;font-size:13px">
   <button onclick="mobileType()">Send text</button>
 </div>
-<div style="font-size:11px;color:#666;margin-bottom:8px">
-  ASCII only until Mobile Phase 2. Non-ASCII (кириллица, emoji) currently crashes Android's <code>input text</code> with a NullPointerException — rejected up front with a clear message.
+<div style="font-size:11px;color:#666;margin-bottom:10px">
+  ASCII only until Mobile Phase 2 ships ADBKeyboard. Non-ASCII currently crashes Android's <code>input text</code> with a NullPointerException and is rejected up front.
 </div>
 
+<!-- ============================ Diagnostic shell ============================ -->
 <div class="row" style="gap:6px;margin-bottom:8px">
-  <input type="text" id="mobileShellCmd" placeholder="Restricted diagnostic shell (e.g. getprop ro.product.model)" style="flex:1;font-family:monospace;font-size:12px">
+  <input type="text" id="mobileShellCmd" placeholder="Restricted diagnostic shell (getprop, dumpsys, ls, df, …)" style="flex:1;font-family:monospace;font-size:12px">
   <button onclick="mobileShell()">Run</button>
 </div>
-<pre id="mobileShellOut" class="mono" style="font-size:11px;max-height:180px;overflow:auto;background:rgba(0,0,0,.04);padding:6px;margin:0;white-space:pre-wrap;display:none"></pre>
+<pre id="mobileShellOut" class="mono" style="font-size:11px;max-height:180px;overflow:auto;background:rgba(0,0,0,.04);padding:6px;margin:0 0 12px 0;white-space:pre-wrap;display:none"></pre>
 
+<!-- ============================ Screen ============================ -->
 <h3 style="margin-top:14px;font-size:14px">Screen</h3>
-<p style="margin:4px 0 8px 0;font-size:12px;color:#666">
-  Click on the screenshot to tap the phone at that pixel coordinate.
-  After every action the screenshot refreshes automatically.
-</p>
-<div id="mobileScreenshotWrap" style="max-width:360px;position:relative">
+<div style="font-size:12px;color:#666;margin-bottom:6px">
+  Click to tap · drag to swipe · Home / Recents / Notification-shade buttons above for common actions.
+</div>
+
+<!-- Screen settings row -->
+<div class="row" style="flex-wrap:wrap;gap:12px;padding:8px;background:rgba(0,0,0,.03);border-radius:6px;margin-bottom:8px;align-items:center;font-size:12px">
+  <div style="display:inline-flex;align-items:center;gap:4px">
+    <label for="mobileFormat" style="color:#666">Format</label>
+    <select id="mobileFormat" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
+      <option value="webp">WebP (best ratio)</option>
+      <option value="jpeg">JPEG (widest support)</option>
+      <option value="png">PNG (lossless, largest)</option>
+    </select>
+  </div>
+  <div style="display:inline-flex;align-items:center;gap:4px">
+    <label for="mobileQuality" style="color:#666">Quality</label>
+    <input type="range" id="mobileQuality" min="30" max="100" step="1"
+           onchange="mobileScreenSettingsFromUi()"
+           oninput="document.getElementById('mobileQualityValue').textContent = this.value"
+           style="width:120px">
+    <span id="mobileQualityValue" class="mono" style="width:24px;text-align:right">82</span>
+  </div>
+  <div style="display:inline-flex;align-items:center;gap:4px">
+    <label for="mobileWidth" style="color:#666" title="Screenshot max width in pixels. 0 = native resolution.">Width</label>
+    <select id="mobileWidth" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
+      <option value="360">360 (fastest)</option>
+      <option value="480">480</option>
+      <option value="640">640</option>
+      <option value="720">720 (default)</option>
+      <option value="1080">1080 (crisp)</option>
+      <option value="1440">1440 (retina)</option>
+      <option value="0">Native (no downscale)</option>
+    </select>
+  </div>
+  <div style="display:inline-flex;align-items:center;gap:6px" title="Poll a fresh screenshot at this rate while the Mobile tab is visible.">
+    <input type="checkbox" id="mobileLiveToggle" onchange="mobileToggleLive()">
+    <label for="mobileLiveToggle" style="color:#666">Live</label>
+    <select id="mobileLiveRate" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
+      <option value="2">2 Hz (500 ms)</option>
+      <option value="1">1 Hz</option>
+      <option value="0.67">0.67 Hz (1.5 s)</option>
+      <option value="0.33">0.33 Hz (3 s)</option>
+    </select>
+  </div>
+  <button onclick="mobileScreenshot()" style="margin-left:auto">📸 Refresh</button>
+</div>
+
+<!-- Screenshot canvas -->
+<div id="mobileScreenshotWrap" style="max-width:100%;position:relative">
   <img id="mobileScreenshotImg"
-       style="width:100%;height:auto;cursor:crosshair;border:1px solid #ccc;border-radius:6px;display:none"
-       onclick="mobileTapFromImage(event)"
+       style="max-width:100%;height:auto;cursor:crosshair;border:1px solid #ccc;border-radius:6px;display:none;touch-action:none;user-select:none;-webkit-user-drag:none"
+       onpointerdown="mobilePointerDown(event)"
+       onpointermove="mobilePointerMove(event)"
+       onpointerup="mobilePointerUp(event)"
+       onpointercancel="mobilePointerCancel(event)"
+       ondragstart="return false"
        alt="phone screen">
   <div id="mobileScreenshotLoading"
        style="display:none;position:absolute;top:8px;right:8px;padding:4px 8px;background:rgba(0,0,0,.6);color:#fff;border-radius:4px;font-size:11px">
@@ -89,7 +161,7 @@
 </div>
 
 <details style="margin-top:14px">
-  <summary style="cursor:pointer;font-size:13px">Device info + battery</summary>
+  <summary style="cursor:pointer;font-size:13px">Full device info (raw JSON)</summary>
   <pre id="mobileInfoDump" class="mono" style="font-size:11px;background:rgba(0,0,0,.04);padding:6px;white-space:pre-wrap;margin-top:6px">—</pre>
 </details>
 </div>
