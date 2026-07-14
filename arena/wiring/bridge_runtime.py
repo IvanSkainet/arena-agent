@@ -67,6 +67,7 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
                 browseract_status_fn=g["_browseract_status_runtime"],
                 subprocess_kwargs_fn=g["_subprocess_kwargs"],
             ),
+            mobile_status_sync=g.get("_mobile_status_runtime"),
         ),
         "_sys_funnel_sync": g["make_sys_funnel_sync"](
             sys_funnel_status_fn=g["_sys_funnel_status_runtime"],

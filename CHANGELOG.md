@@ -1,5 +1,99 @@
 # Changelog
 
+## v3.82.0 - 2026-07-14
+
+**Mobile domain Phase 1: Android via ADB.** Ships the full internal
+package (foundation from 3a924d3) plus HTTP routes, capabilities
+integration, and a Dashboard "Mobile Devices" card — end-to-end
+verified against a real POCO F7 Pro (Android 16 + HyperOS 3).
+
+### Added
+
+- **New `/v1/mobile/*` REST surface** — 9 endpoints:
+    - `GET  /v1/mobile/devices` — list ADB-visible devices with
+      state (device/unauthorized/offline), model, product, USB path,
+      network IP, and an actionable hint when nothing is connected or
+      authorised.
+    - `GET  /v1/mobile/{serial}/info` — deep device probe:
+      manufacturer, model, brand, Android version + SDK, HyperOS /
+      MIUI version (Xiaomi-specific fields), CPU ABI, screen size and
+      density, battery snapshot.
+    - `GET  /v1/mobile/{serial}/screenshot?max_width&quality&format&wire`
+      — capture with optional downscale + JPEG re-encode via Pillow
+      (soft dep). Default is binary PNG with X-Arena-Mobile-* headers;
+      `wire=json` returns base64.
+    - `POST /v1/mobile/{serial}/tap` — `{x, y}`.
+    - `POST /v1/mobile/{serial}/swipe` — `{x1, y1, x2, y2, duration_ms}`.
+    - `POST /v1/mobile/{serial}/type` — `{text}` (unicode-safe up to
+      4096 chars).
+    - `POST/GET /v1/mobile/{serial}/key` — `{key: HOME|BACK|APP_SWITCH|
+      VOLUME_UP|WAKEUP|...}`. Strict allowlist; POWER/REBOOT/CAMERA
+      are refused by design so an agent cannot force a reboot.
+    - `POST /v1/mobile/{serial}/shell` — `{command}`. Strict head-command
+      allowlist plus shell-metacharacter blocklist (`;`, `&&`, `|`,
+      backtick, `$(...)`, `>`, `<`, newline). Sub-verb guards refuse
+      `settings put`, `pm uninstall`, `ip link`.
+    - `GET  /v1/mobile/{serial}/packages` — read-only `pm list packages`
+      with filter sanitisation.
+
+- **`/v1/capabilities.mobile`** — reports `available` / `backend: adb` /
+  `adb_path` / `adb_version` / `devices` / `device_serials` / documented
+  endpoint list / actionable hint. Agents can query one endpoint to know
+  whether mobile is usable.
+
+- **Dashboard "Mobile" tab** (📱 Mobile) — lists connected devices,
+  live 480px JPEG preview (auto-refreshes on every action), Home / Back /
+  Recents / Volume / Wake buttons, unicode text input, restricted
+  diagnostic shell console, click-on-screenshot-to-tap coordinate mapping,
+  collapsible device-info dump.
+
+### Wiring
+
+- New `MobileWiringContext` + `build_mobile_handlers` in
+  `arena/wiring/platform.py`. Registered from
+  `arena/wiring/system_public_admin_registries.py` alongside the admin
+  handlers.
+- Capabilities now takes an optional `mobile_status_fn`, wired to
+  `arena.mobile.list_devices` via `runtime_deps/core.py`.
+- Routes registered in `arena/route_registry/core.py`.
+
+### Cross-platform posture (Phase 1)
+
+- ADB binary discovery honours `ADB_PATH` env, then `PATH`, then
+  platform-specific well-known locations: Windows Android SDK /
+  Program Files / scoop / chocolatey; macOS Homebrew (Intel + Apple
+  Silicon) + Android Studio; Linux `/opt/android-sdk`, `~/Android/Sdk`,
+  `/usr/local/bin`.
+- Windows `subprocess.run` sets `CREATE_NO_WINDOW` so Dashboard
+  auto-refresh does not flash a CMD window (same lesson as
+  `arena/admin/zerotier.py`).
+- No sudo. Ever.
+
+### Live verification against POCO F7 Pro
+
+    GET /v1/mobile/devices              → 2200ad3b state=device
+    GET /v1/mobile/2200ad3b/info        → POCO 24117RK2CG, Android 16,
+                                          HyperOS OS3.0.302.0.WOKMIXM,
+                                          1440x3200, battery 77%
+    GET /v1/mobile/2200ad3b/screenshot  → 118 KB JPEG 800x1777 (downscaled)
+    POST tap 100,100                    → ok
+    POST key BACK / HOME                → ok
+    POST shell "getprop ro.build.version.release" → "16"
+    POST shell "rm -rf /sdcard"         → refused by allowlist
+
+### Test suite
+
+737 passed (was 706, +31 mobile). Every test runs without ADB installed
+and without a device connected — the real device just confirms them
+end-to-end in production.
+
+### Dependencies (soft)
+
+- `Pillow` — only needed for screenshot downscale + JPEG re-encode. If
+  missing, the endpoint returns the raw PNG and sets `pil_missing: true`
+  on the JSON envelope. Install with `pip install --user Pillow` (or
+  `pacman -S python-pillow` on Arch).
+
 ## v3.81.5 - 2026-07-13
 
 Follow-up to v3.81.4: point the ZeroTier onboarding UI at the correct

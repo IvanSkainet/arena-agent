@@ -27,6 +27,7 @@ def build_capabilities(
     sys_svc_fn: Callable[[], dict[str, Any]],
     zerotier_status_fn: Callable[[], dict[str, Any]] | None = None,
     browseract_status_fn: Callable[[], dict[str, Any]] | None = None,
+    mobile_status_fn: Callable[[], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a machine-readable capability map for agents."""
     env = desktop_env or {}
@@ -163,5 +164,26 @@ def build_capabilities(
             })
         except Exception as e:
             caps.setdefault("network", {})["zerotier_error"] = str(e)[:200]
+
+    # Mobile (Android via ADB) — Phase 1 companion layer.
+    if mobile_status_fn is not None:
+        try:
+            m = mobile_status_fn() or {}
+            caps["mobile"] = {
+                "available": bool(m.get("adb_installed")),
+                "backend": "adb",
+                "adb_path": m.get("adb_path"),
+                "adb_version": m.get("adb_version"),
+                "devices": len(m.get("devices") or []),
+                "device_serials": [d.get("serial") for d in (m.get("devices") or [])],
+                "endpoints": [
+                    "devices", "info", "screenshot",
+                    "tap", "swipe", "type", "key",
+                    "shell", "packages",
+                ],
+                "hint": m.get("hint"),
+            }
+        except Exception as e:
+            caps["mobile"] = {"available": False, "backend": "adb", "error": str(e)[:200]}
 
     return caps

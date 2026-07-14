@@ -6,6 +6,67 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.82.0 — 2026-07-14
+
+**Mobile domain Phase 1: Android через ADB.** Полный внутренний пакет
+(foundation из 3a924d3) плюс HTTP routes, capabilities integration и
+карточка «Mobile Devices» в Dashboard — end-to-end проверено на живом
+POCO F7 Pro (Android 16 + HyperOS 3).
+
+### Добавлено
+
+- **Новый `/v1/mobile/*` REST surface** — 9 endpoints (см. English
+  секцию для полного списка). Coverage: devices list, deep info
+  (HyperOS/MIUI поля учтены для Xiaomi), screenshot с downscale/JPEG,
+  tap/swipe/type/key/shell/packages.
+- **`/v1/capabilities.mobile`** — агенты могут одним запросом узнать
+  доступен ли mobile backend и сколько устройств подключено.
+- **Dashboard «Mobile» tab** (📱 Mobile) — список устройств, live
+  превью экрана 480px JPEG (обновляется после каждого действия),
+  кнопки Home/Back/Recents/Volume/Wake, unicode-ввод текста,
+  restricted shell, клик по скриншоту = tap в соответствующей точке
+  на телефоне.
+
+### Wiring
+
+- Новый `MobileWiringContext` + `build_mobile_handlers` в
+  `arena/wiring/platform.py`, регистрируется в
+  `arena/wiring/system_public_admin_registries.py`.
+- Capabilities принимает опциональный `mobile_status_fn`, wired через
+  `runtime_deps/core.py`.
+- Routes зарегистрированы в `arena/route_registry/core.py`.
+
+### Cross-platform (Phase 1)
+
+- Поиск ADB: `ADB_PATH` env → `PATH` → well-known по OS (Windows
+  Android SDK / Program Files / scoop / chocolatey; macOS Homebrew
+  Intel+ARM + Android Studio; Linux `/opt/android-sdk`,
+  `~/Android/Sdk`, `/usr/local/bin`).
+- Windows `subprocess.run` использует `CREATE_NO_WINDOW` — Dashboard
+  auto-refresh не флешит консольным окном.
+- Без sudo.
+
+### Проверено на POCO F7 Pro
+
+    GET /v1/mobile/devices               → 2200ad3b state=device
+    GET /v1/mobile/2200ad3b/info         → POCO 24117RK2CG, Android 16,
+                                           HyperOS OS3.0.302.0.WOKMIXM
+    GET /v1/mobile/2200ad3b/screenshot   → 118 KB JPEG 800x1777
+    POST tap 100,100 / key BACK / key HOME → ok
+    POST shell "getprop ..."             → работает
+    POST shell "rm -rf /sdcard"          → отбито allowlist
+
+### Тесты
+
+737 passed (было 706, +31 mobile). Все тесты работают без ADB и без
+устройства — реальный phone только подтверждает end-to-end.
+
+### Зависимости (soft)
+
+- `Pillow` — только для downscale/JPEG в screenshot. Если отсутствует,
+  endpoint возвращает raw PNG + `pil_missing: true`. Установка:
+  `pip install --user Pillow` или `pacman -S python-pillow`.
+
 ## v3.81.5 — 2026-07-13
 
 Follow-up к v3.81.4: onboarding-подсказка ZeroTier указывала на старый

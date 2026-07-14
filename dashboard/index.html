@@ -48,7 +48,8 @@ window.ARENA_DASHBOARD_SCRIPTS = [
     '/gui/assets/24-workspace.js',
     '/gui/assets/25-workspace-v2.js',
     '/gui/assets/26-workspace-v3.js',
-    '/gui/assets/29-tunnels.js'
+    '/gui/assets/29-tunnels.js',
+    '/gui/assets/30-mobile.js'
 ];
 (async function bootArenaDashboard() {
   const root = document.getElementById("arena-dashboard-root");
@@ -69,7 +70,8 @@ window.ARENA_DASHBOARD_SCRIPTS = [
     '/gui/assets/body-12-doctor.html',
     '/gui/assets/body-13-audit.html',
     '/gui/assets/body-14-control.html',
-    '/gui/assets/body-15-settings.html'
+    '/gui/assets/body-15-settings.html',
+    '/gui/assets/body-16-mobile.html'
   ];
   const cacheBust = "?v=" + encodeURIComponent(window.ARENA_VERSION || "dev");
   const bodyHtml = await Promise.all(bodyParts.map(async p => (await fetch(p + cacheBust, {cache: "no-store"})).text()));

@@ -43,6 +43,16 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
     ))
     registry.update(_admin_handler_registry)
 
+    from arena.wiring.platform import MobileWiringContext, build_mobile_handlers
+    _mobile_handler_registry = build_mobile_handlers(MobileWiringContext(
+        require_auth=env.require_auth,
+        record_request=env._record_request,
+        cors_json_response=env._cors_json_response,
+        executor=env._EXECUTOR,
+        audit=env.audit,
+    ))
+    registry.update(_mobile_handler_registry)
+
     _public_handler_registry = env.build_public_handlers(env.PublicWiringContext(
         record_request=env._record_request,
         cors_json_response=env._cors_json_response,

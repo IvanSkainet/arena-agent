@@ -134,3 +134,40 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_tunnels_start": handlers.tunnels_start,
         "handle_v1_tunnels_stop": handlers.tunnels_stop,
     }
+
+
+@dataclass(frozen=True)
+class MobileWiringContext:
+    require_auth: Callable[..., Any]
+    record_request: Callable[..., None]
+    cors_json_response: Callable[..., Any]
+    executor: Any
+    audit: Callable[[dict[str, Any]], None]
+
+
+def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., Any]]:
+    """Wire /v1/mobile/* handlers. No sync callables needed — every mobile
+    module talks to adb via subprocess directly, cross-platform."""
+    from arena.mobile.handlers import make_mobile_handlers
+
+    class _Ctx:
+        """Duck-typed context that make_mobile_handlers uses."""
+        def __init__(self, w):
+            self.require_auth = w.require_auth
+            self.record_request = w.record_request
+            self.cors_json_response = w.cors_json_response
+            self.executor = w.executor
+            self.audit = w.audit
+
+    handlers = make_mobile_handlers(_Ctx(ctx))
+    return {
+        "handle_v1_mobile_devices": handlers.list_devices,
+        "handle_v1_mobile_info": handlers.device_info,
+        "handle_v1_mobile_screenshot": handlers.screenshot,
+        "handle_v1_mobile_tap": handlers.tap,
+        "handle_v1_mobile_swipe": handlers.swipe,
+        "handle_v1_mobile_type": handlers.type_text,
+        "handle_v1_mobile_key": handlers.key_event,
+        "handle_v1_mobile_shell": handlers.shell,
+        "handle_v1_mobile_packages": handlers.packages,
+    }

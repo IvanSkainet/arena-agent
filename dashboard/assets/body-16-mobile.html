@@ -1,0 +1,69 @@
+<div class="tab" id="tab-mobile">
+<h1>Mobile Devices <span id="mobileHeaderBadge" class="badge gray">…</span></h1>
+
+<div class="card">
+<h2>Android via ADB</h2>
+<p style="margin:4px 0 10px 0;font-size:12px;color:#666">
+  Devices reached over ADB (USB or wireless debugging). Screenshots and
+  input actions require the phone to be authorised (unlock, tap Allow on
+  the "Allow USB debugging" prompt).
+</p>
+
+<div class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px">
+  <span style="font-weight:600;width:100px">ADB</span>
+  <span id="mobileAdbStatus" class="badge gray">checking…</span>
+  <span id="mobileAdbPath" class="mono" style="font-size:11px;color:#666"></span>
+  <button style="margin-left:auto" onclick="refreshMobile()">Refresh</button>
+</div>
+
+<div id="mobileHint" class="mono" style="font-size:12px;color:#666;padding:8px;background:rgba(30,144,255,.06);border-radius:6px;white-space:pre-wrap;display:none"></div>
+
+<h3 style="margin-top:14px;font-size:14px">Connected devices</h3>
+<div id="mobileDevicesList" style="display:flex;flex-direction:column;gap:10px">
+  <div style="color:#666;font-size:12px">Loading…</div>
+</div>
+</div>
+
+<div class="card" id="mobileSelectedCard" style="display:none">
+<h2>Selected device: <span id="mobileSelectedName" class="mono">—</span></h2>
+
+<div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+  <button onclick="mobileScreenshot()">📸 Screenshot</button>
+  <button onclick="mobileKey('HOME')">🏠 Home</button>
+  <button onclick="mobileKey('BACK')">← Back</button>
+  <button onclick="mobileKey('APP_SWITCH')">▭ Recents</button>
+  <button onclick="mobileKey('VOLUME_UP')">🔊+</button>
+  <button onclick="mobileKey('VOLUME_DOWN')">🔊−</button>
+  <button onclick="mobileKey('WAKEUP')">💡 Wake</button>
+</div>
+
+<div class="row" style="gap:6px;margin-bottom:8px">
+  <input type="text" id="mobileTypeText" placeholder="Type text into focused field…" style="flex:1;font-size:13px">
+  <button onclick="mobileType()">Send text</button>
+</div>
+
+<div class="row" style="gap:6px;margin-bottom:8px">
+  <input type="text" id="mobileShellCmd" placeholder="Restricted diagnostic shell (e.g. getprop ro.product.model)" style="flex:1;font-family:monospace;font-size:12px">
+  <button onclick="mobileShell()">Run</button>
+</div>
+<pre id="mobileShellOut" class="mono" style="font-size:11px;max-height:180px;overflow:auto;background:rgba(0,0,0,.04);padding:6px;margin:0;white-space:pre-wrap;display:none"></pre>
+
+<h3 style="margin-top:14px;font-size:14px">Screen</h3>
+<p style="margin:4px 0 8px 0;font-size:12px;color:#666">
+  Click on the screenshot to tap the phone at that pixel coordinate.
+</p>
+<div id="mobileScreenshotWrap" style="max-width:400px">
+  <img id="mobileScreenshotImg"
+       style="width:100%;height:auto;cursor:crosshair;border:1px solid #ccc;border-radius:6px;display:none"
+       onclick="mobileTapFromImage(event)"
+       alt="phone screen">
+  <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:#666;margin-top:4px"></div>
+</div>
+
+<details style="margin-top:14px">
+  <summary style="cursor:pointer;font-size:13px">Device info + battery</summary>
+  <pre id="mobileInfoDump" class="mono" style="font-size:11px;background:rgba(0,0,0,.04);padding:6px;white-space:pre-wrap;margin-top:6px">—</pre>
+</details>
+</div>
+
+</div>

@@ -20,6 +20,7 @@ document.querySelectorAll(".sidebar nav a").forEach(a => {
     if (tabName === "agents") loadAgents();
     if (tabName === "audit") loadAudit();
     if (tabName === "settings") refreshSettings();
+    if (tabName === "mobile") refreshMobile();
     if (tabName === "doctor") runDoctor();
     if (tabName === "control") refreshControlPanel();
   });

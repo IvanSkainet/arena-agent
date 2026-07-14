@@ -90,6 +90,7 @@ from arena.admin.sync_factories import (  # noqa: E402,F401
 )
 from arena.admin.zerotier import zerotier_status as _zerotier_status_runtime  # noqa: E402,F401
 from arena.admin.browseract import browseract_status as _browseract_status_runtime  # noqa: E402,F401
+from arena.mobile import list_devices as _mobile_status_runtime  # noqa: E402,F401
 from arena.admin.runtime import (  # noqa: E402,F401
     CLOUDFLARED_STATE as _CLOUDFLARED_STATE,
     cloudflared_funnel_action as _cloudflared_funnel_action_runtime,
