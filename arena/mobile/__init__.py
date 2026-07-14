@@ -33,6 +33,15 @@ from arena.mobile.shell import restricted_shell
 from arena.mobile.ui import dump_ui, tap_by
 # v3.84.0: batch executor.
 from arena.mobile.batch import ALLOWED_TYPES as BATCH_STEP_TYPES, run_batch
+# v3.84.1: camera automation.
+from arena.mobile.camera import (
+    capture_and_pull as camera_capture_and_pull,
+    launch as camera_launch,
+    latest_photo as camera_latest_photo,
+    list_photos as camera_list_photos,
+    pull_photo as camera_pull_photo,
+    shutter as camera_shutter,
+)
 # Re-export the new scroll + key_combo primitives added in v3.83.3.
 from arena.mobile.input import key_combo, scroll
 
@@ -91,6 +100,13 @@ __all__ = [
     # v3.84.0
     "BATCH_STEP_TYPES",
     "run_batch",
+    # v3.84.1
+    "camera_capture_and_pull",
+    "camera_launch",
+    "camera_latest_photo",
+    "camera_list_photos",
+    "camera_pull_photo",
+    "camera_shutter",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

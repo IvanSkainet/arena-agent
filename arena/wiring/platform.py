@@ -188,4 +188,9 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_apk_prepare": handlers.apk_prepare,
         "handle_v1_mobile_apk_install": handlers.apk_install,
         "handle_v1_mobile_batch": handlers.batch,
+        "handle_v1_mobile_camera_launch":  handlers.camera_launch,
+        "handle_v1_mobile_camera_shutter": handlers.camera_shutter,
+        "handle_v1_mobile_camera_photos":  handlers.camera_photos,
+        "handle_v1_mobile_camera_pull":    handlers.camera_pull,
+        "handle_v1_mobile_camera_capture": handlers.camera_capture,
     }

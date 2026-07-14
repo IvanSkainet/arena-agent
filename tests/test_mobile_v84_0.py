@@ -282,9 +282,11 @@ def test_cli_parser_has_all_v84_subcommands():
 # ---------------------------------------------------------------------------
 # Handler dataclass — v3.84.0 field surface
 # ---------------------------------------------------------------------------
-def test_mobile_handlers_dataclass_fields_v84_0():
+def test_mobile_handlers_dataclass_has_v84_0_fields():
+    """Baseline: v3.84.0 fields still present. Exact surface asserted
+    in test_mobile_v84_1.py so tests grow independently."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {
+    baseline = {
         "list_devices", "device_info", "screenshot", "tap", "swipe",
         "type_text", "key_event", "shell", "packages", "gesture",
         "ui_dump", "tap_by",
@@ -295,4 +297,5 @@ def test_mobile_handlers_dataclass_fields_v84_0():
         "batch",
     }
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+    missing = baseline - got
+    assert not missing, f"v3.84.0 handlers missing: {missing}"

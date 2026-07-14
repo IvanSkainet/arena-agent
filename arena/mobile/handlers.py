@@ -57,6 +57,12 @@ class MobileHandlers:
     apk_install: object
     # v3.84.0 additions.
     batch: object
+    # v3.84.1: camera & media
+    camera_launch: object
+    camera_shutter: object
+    camera_photos: object
+    camera_pull: object
+    camera_capture: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -512,7 +518,7 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             return _cors({"ok": False, "error": str(e)}, status=500)
 
     async def handle_batch(request: web.Request) -> web.Response:
-        """v3.84.0 batch: N steps in one HTTP round-trip. See arena.mobile.batch."""
+        """v3.84.0: N steps in one HTTP round-trip. See arena.mobile.batch."""
         r = ctx.require_auth(request)
         if r:
             return r
@@ -522,28 +528,24 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         steps = body.get("steps") or []
         stop_on_error = body.get("stop_on_error", True)
         try:
-            res = await _run(
-                _batch.run_batch, serial, steps,
-                stop_on_error=bool(stop_on_error),
-            )
-            ctx.audit({
-                "type": "mobile.batch",
-                "serial": serial,
-                "step_count": res.get("step_count"),
-                "executed": res.get("executed"),
-                "ok": res.get("ok"),
-            })
+            res = await _run(_batch.run_batch, serial, steps,
+                             stop_on_error=bool(stop_on_error))
+            ctx.audit({"type": "mobile.batch", "serial": serial,
+                       "step_count": res.get("step_count"),
+                       "executed": res.get("executed"),
+                       "ok": res.get("ok")})
             return _cors(res)
         except Exception as e:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
-    # ---- Devops handlers (wireless + APK install) ----------------
-    # v3.83.5: pair/connect/disconnect/apk_prepare/apk_install live
-    # in arena.mobile.handlers_devops so this file stays under the
-    # 600-line runtime cap. Same context, same helpers, same shape.
+    # Devops (v3.83.5: pair/connect/disconnect/apk_*) + media
+    # (v3.84.1: camera_*) live in sibling handlers modules so this
+    # file stays under the 600-line runtime cap.
     from arena.mobile.handlers_devops import make_devops_handlers
+    from arena.mobile.handlers_media import make_media_handlers
     _devops = make_devops_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
+    _media = make_media_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
 
 
     async def handle_packages(request: web.Request) -> web.Response:
@@ -590,10 +592,11 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         sensors=handle_sensors,
         scroll=handle_scroll,
         key_combo=handle_key_combo,
-        pair=_devops["pair"],
-        connect=_devops["connect"],
-        disconnect=_devops["disconnect"],
-        apk_prepare=_devops["apk_prepare"],
-        apk_install=_devops["apk_install"],
+        **{k: _devops[k] for k in (
+            "pair", "connect", "disconnect",
+            "apk_prepare", "apk_install")},
         batch=handle_batch,
+        **{k: _media[k] for k in (
+            "camera_launch", "camera_shutter",
+            "camera_photos", "camera_pull", "camera_capture")},
     )

@@ -75,10 +75,19 @@
 <h2>Selected device: <span id="mobileSelectedName" class="mono">—</span></h2>
 
 <!-- ============================ Device info ============================ -->
-<div id="mobileInfoPanel"
-     style="background:rgba(30,144,255,.04);border:1px solid rgba(30,144,255,.15);border-radius:6px;padding:8px 10px;margin-bottom:12px">
-  <div style="color:#666;font-size:12px">Loading device info…</div>
-</div>
+<!-- Wrapped in <details> so the tab bar + table can be collapsed with
+     one click. Open by default; the user's choice persists via
+     localStorage in 34-mobile-info.js. -->
+<details id="mobileInfoDetails" open
+         style="margin-bottom:12px;background:rgba(30,144,255,.04);border:1px solid rgba(30,144,255,.15);border-radius:6px"
+         ontoggle="mobileInfoRememberOpenState(this)">
+  <summary style="cursor:pointer;padding:6px 10px;font-size:13px;font-weight:600;user-select:none">
+    Device info <span id="mobileInfoSummary" style="color:#666;font-weight:400;font-size:11px"></span>
+  </summary>
+  <div id="mobileInfoPanel" style="padding:0 10px 10px 10px">
+    <div style="color:#666;font-size:12px">Loading device info…</div>
+  </div>
+</details>
 
 <!-- ============================ Navigation ============================ -->
 <div style="font-size:11px;color:#666;margin-bottom:4px">Navigation</div>
@@ -297,6 +306,53 @@
   <input type="hidden" id="mobileApkSha">
   <input type="hidden" id="mobileApkConsent">
   <pre id="mobileApkStatus" class="mono" style="font-size:11px;color:#2b8a3e;background:rgba(0,0,0,.04);padding:6px;margin-top:6px;white-space:pre-wrap;min-height:1em"></pre>
+</details>
+
+<!-- Camera (v3.84.1). Auto-detects the shutter via UI Automator; the
+     user can pass explicit coords for camera apps we don't know. -->
+<details style="margin-top:14px" id="mobileCameraDetails">
+  <summary style="cursor:pointer;font-size:13px">Camera (take a photo, list DCIM, pull to bridge)</summary>
+  <p style="margin:6px 0 8px 0;font-size:12px;color:#666">
+    Launches the phone's default camera app via
+    <code>android.media.action.STILL_IMAGE_CAMERA</code>, waits for
+    the preview, taps the shutter button (auto-detected or from
+    <code>shutter_x/y</code>), then polls DCIM for the new photo and
+    pulls it back to the bridge (optionally downscaled). Some Android
+    versions block programmatic shutter — if auto-detect fails, dump
+    the UI and pass explicit shutter coordinates.
+  </p>
+  <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
+    <label style="color:#666">Wait before shutter</label>
+    <select id="mobileCamWait" style="font-size:12px">
+      <option value="1000">1000 ms</option>
+      <option value="1500" selected>1500 ms (default)</option>
+      <option value="2500">2500 ms</option>
+      <option value="4000">4000 ms (slow devices)</option>
+    </select>
+    <label style="color:#666">Max size</label>
+    <select id="mobileCamSize" style="font-size:12px">
+      <option value="512">512 px</option>
+      <option value="1024" selected>1024 px (default)</option>
+      <option value="2048">2048 px</option>
+      <option value="0">native (huge!)</option>
+    </select>
+    <label style="color:#666">Format</label>
+    <select id="mobileCamFormat" style="font-size:12px">
+      <option value="jpeg" selected>JPEG</option>
+      <option value="webp">WebP</option>
+      <option value="png">PNG</option>
+    </select>
+  </div>
+  <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px">
+    <button onclick="mobileCameraLaunch()">Launch camera</button>
+    <button onclick="mobileCameraShutter()">Just tap shutter</button>
+    <button onclick="mobileCameraCapture()" style="font-weight:600">📸 Capture + pull</button>
+    <button onclick="mobileCameraListPhotos()">List latest photos</button>
+  </div>
+  <pre id="mobileCameraStatus" class="mono" style="font-size:11px;color:#2b8a3e;background:rgba(0,0,0,.04);padding:6px;margin:0;white-space:pre-wrap;min-height:1em"></pre>
+  <img id="mobileCameraThumb"
+       style="display:none;max-width:100%;margin-top:6px;border:1px solid #ccc;border-radius:6px"
+       alt="last camera photo">
 </details>
 </div>
 

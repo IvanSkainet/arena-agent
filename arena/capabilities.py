@@ -186,6 +186,7 @@ def build_capabilities(
                     "pair", "connect", "disconnect",
                     "apk/prepare", "apk/install",
                     "batch",
+                    "camera/launch", "camera/shutter", "camera/photos", "camera/pull", "camera/capture",
                 ],
                 "hint": m.get("hint"),
             }

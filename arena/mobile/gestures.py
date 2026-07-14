@@ -130,11 +130,44 @@ _RECIPES: dict[str, tuple[float, float, float, float, int]] = {
 }
 
 
+# Shade gestures fire `cmd statusbar {expand-notifications,
+# expand-settings, collapse}` first — that's a direct SystemUI API
+# that always works in one call, no swipe timing luck. Falls back
+# to the swipe recipe when the statusbar service refuses (some
+# secondary users / restricted profiles).
+_STATUSBAR_ACTION: dict[str, str] = {
+    "notifications": "expand-notifications",
+    "shade_center":  "expand-notifications",
+    "shade_full":    "expand-settings",
+    "quick_settings": "expand-settings",
+    "close_shade":   "collapse",
+}
+
+
+def _try_statusbar_cmd(serial: str, action: str) -> dict[str, Any] | None:
+    """Attempt `cmd statusbar <action>`. Returns None if it fails so
+    the caller falls through to the swipe recipe."""
+    try:
+        r = run(["shell", "cmd", "statusbar", action],
+                serial=serial, timeout=10)
+    except Exception:
+        return None
+    if r.returncode != 0:
+        return None
+    return {
+        "ok": True,
+        "backend": "statusbar_cmd",
+        "cmd": f"cmd statusbar {action}",
+    }
+
+
 def perform(serial: str, gesture: str) -> dict[str, Any]:
     """Run a named gesture on the given device.
 
-    Delegates to `arena.mobile.input.swipe` for the actual send so
-    validation and error shape stay identical to the manual swipe path.
+    For shade gestures (notifications/quick_settings/shade_*/close_shade)
+    tries the direct `cmd statusbar` API first — that avoids the
+    swipe-timing fragility MIUI/HyperOS has for near-top gestures on
+    a single click. Falls back to the coordinate recipe otherwise.
     """
     if not isinstance(gesture, str):
         return _err("gesture must be a string")
@@ -148,9 +181,16 @@ def perform(serial: str, gesture: str) -> dict[str, Any]:
         from arena.mobile.adb import install_hint
         return {"ok": False, "error": "adb not installed", "hint": install_hint()}
 
-    # Fallback size matches a modern 1080p portrait phone. `swipe` inside
-    # input.py clamps and validates in absolute pixels — we just need
-    # something sane.
+    # Fast, reliable path for shade gestures.
+    sb_action = _STATUSBAR_ACTION.get(key)
+    if sb_action:
+        r = _try_statusbar_cmd(serial, sb_action)
+        if r is not None:
+            r["action"] = "gesture"
+            r["gesture"] = key
+            return r
+        # Fall through to the swipe fallback.
+
     size = _screen_size(serial) or (1080, 2400)
     width, height = size
     fx1, fy1, fx2, fy2, dur = _RECIPES[key]
@@ -166,11 +206,9 @@ def perform(serial: str, gesture: str) -> dict[str, Any]:
     except Exception as e:
         return _err(f"gesture failed: {e}")
 
-    # Repackage under a gesture-shaped envelope so the audit trail and
-    # the Dashboard error box can show semantic context, not just raw
-    # coordinates.
     res = dict(res)
     res["action"] = "gesture"
     res["gesture"] = key
     res["screen_size"] = [width, height]
+    res["backend"] = "swipe"
     return res
