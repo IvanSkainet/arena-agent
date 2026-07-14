@@ -25,6 +25,15 @@ def list_packages(
     * `include_system` — when False, add `-3` to restrict to third-party.
     * `include_disabled` — when False, add `-e` to restrict to enabled.
     """
+    # Validate BEFORE the adb-installed check so callers get a
+    # deterministic parameter error even on hosts without adb.
+    if filter_text is not None:
+        if not isinstance(filter_text, str):
+            return {"ok": False, "error": "filter_text must be a string"}
+        for ch in (";", "&", "|", "`", "$", ">", "<", "\n", "\r"):
+            if ch in filter_text:
+                return {"ok": False, "error": f"filter_text contains disallowed char: {ch!r}"}
+
     if find_adb() is None:
         from arena.mobile.adb import install_hint
         return {"ok": False, "error": "adb not installed", "hint": install_hint()}
@@ -35,12 +44,6 @@ def list_packages(
     if not include_disabled:
         args.append("-e")
     if filter_text:
-        if not isinstance(filter_text, str):
-            return {"ok": False, "error": "filter_text must be a string"}
-        # Very light sanitisation: reject shell metachars just like shell.py does.
-        for ch in (";", "&", "|", "`", "$", ">", "<", "\n", "\r"):
-            if ch in filter_text:
-                return {"ok": False, "error": f"filter_text contains disallowed char: {ch!r}"}
         args.append(filter_text)
 
     try:

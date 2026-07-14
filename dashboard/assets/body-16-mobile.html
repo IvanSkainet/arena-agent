@@ -1,6 +1,18 @@
 <div class="tab" id="tab-mobile">
 <h1>Mobile Devices <span id="mobileHeaderBadge" class="badge gray">…</span></h1>
 
+<!-- Global error box: any /v1/mobile/* failure surfaces here with a
+     Copy button so it can be pasted into a bug report. -->
+<div id="mobileErrorBox"
+     style="display:none;margin:10px 0;padding:10px 12px;background:rgba(220,53,69,.08);border:1px solid rgba(220,53,69,.35);border-radius:8px">
+  <div class="row" style="align-items:flex-start;gap:8px;margin-bottom:6px">
+    <strong id="mobileErrorTitle" style="flex:1;color:#c92a2a;font-size:13px">Error</strong>
+    <button id="mobileErrorCopyBtn" class="sm" onclick="mobileCopyError()">Copy</button>
+    <button class="sm" onclick="mobileClearError()">Dismiss</button>
+  </div>
+  <pre id="mobileErrorDetail" class="mono" style="margin:0;font-size:11px;background:rgba(0,0,0,.04);padding:6px;white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
+</div>
+
 <div class="card">
 <h2>Android via ADB</h2>
 <p style="margin:4px 0 10px 0;font-size:12px;color:#666">
@@ -28,7 +40,7 @@
 <h2>Selected device: <span id="mobileSelectedName" class="mono">—</span></h2>
 
 <div class="row" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
-  <button onclick="mobileScreenshot()">📸 Screenshot</button>
+  <button onclick="mobileScreenshot()">📸 Refresh screen</button>
   <button onclick="mobileKey('HOME')">🏠 Home</button>
   <button onclick="mobileKey('BACK')">← Back</button>
   <button onclick="mobileKey('APP_SWITCH')">▭ Recents</button>
@@ -38,7 +50,7 @@
 </div>
 
 <div class="row" style="gap:6px;margin-bottom:8px">
-  <input type="text" id="mobileTypeText" placeholder="Type text into focused field…" style="flex:1;font-size:13px">
+  <input type="text" id="mobileTypeText" placeholder="Type text into focused field (tap the field first!)…" style="flex:1;font-size:13px">
   <button onclick="mobileType()">Send text</button>
 </div>
 
@@ -51,12 +63,17 @@
 <h3 style="margin-top:14px;font-size:14px">Screen</h3>
 <p style="margin:4px 0 8px 0;font-size:12px;color:#666">
   Click on the screenshot to tap the phone at that pixel coordinate.
+  After every action the screenshot refreshes automatically.
 </p>
-<div id="mobileScreenshotWrap" style="max-width:400px">
+<div id="mobileScreenshotWrap" style="max-width:360px;position:relative">
   <img id="mobileScreenshotImg"
        style="width:100%;height:auto;cursor:crosshair;border:1px solid #ccc;border-radius:6px;display:none"
        onclick="mobileTapFromImage(event)"
        alt="phone screen">
+  <div id="mobileScreenshotLoading"
+       style="display:none;position:absolute;top:8px;right:8px;padding:4px 8px;background:rgba(0,0,0,.6);color:#fff;border-radius:4px;font-size:11px">
+    Refreshing…
+  </div>
   <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:#666;margin-top:4px"></div>
 </div>
 

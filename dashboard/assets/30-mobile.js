@@ -5,9 +5,73 @@
 // own `headers` key so the default Authorization is preserved.
 
 let _mobileSelectedSerial = null;
-let _mobileScreenWidth = 0;
-let _mobileScreenHeight = 0;
+let _mobileNativeWidth = 0;      // native device pixels (from /info)
+let _mobileNativeHeight = 0;
+let _mobileShownWidth = 0;       // downscaled screenshot pixels
+let _mobileShownHeight = 0;
+let _mobileScreenshotBusy = false;
+let _mobileScreenshotBlobUrl = null;
+let _mobileInfoCache = null;
 
+// ---------------------------------------------------------------------------
+// Error helper — surfaces backend errors inline with a Copy button so the
+// user can paste them into a bug report instead of retyping.
+// ---------------------------------------------------------------------------
+function mobileShowError(title, detail) {
+  const box = document.getElementById("mobileErrorBox");
+  const titleEl = document.getElementById("mobileErrorTitle");
+  const detailEl = document.getElementById("mobileErrorDetail");
+  if (!box || !titleEl || !detailEl) {
+    // Fallback if the panel isn't in the DOM yet.
+    alert(title + "\n\n" + detail);
+    return;
+  }
+  titleEl.textContent = title;
+  detailEl.textContent = detail || "(no details)";
+  box.style.display = "";
+  box.scrollIntoView({behavior: "smooth", block: "nearest"});
+}
+function mobileClearError() {
+  const box = document.getElementById("mobileErrorBox");
+  if (box) box.style.display = "none";
+}
+function mobileCopyError() {
+  const titleEl = document.getElementById("mobileErrorTitle");
+  const detailEl = document.getElementById("mobileErrorDetail");
+  const text = (titleEl?.textContent || "") + "\n\n" + (detailEl?.textContent || "");
+  navigator.clipboard.writeText(text).then(
+    () => {
+      const btn = document.getElementById("mobileErrorCopyBtn");
+      if (!btn) return;
+      const orig = btn.textContent;
+      btn.textContent = "✓ Copied";
+      setTimeout(() => { btn.textContent = orig; }, 1500);
+    },
+    (e) => alert("Copy failed: " + (e.message || e)),
+  );
+}
+
+// Compose a structured, human-readable error from a bridge response.
+function _fmtBackendError(prefix, r) {
+  if (!r) return prefix + ": empty response";
+  const parts = [];
+  if (r.error)       parts.push("error:    " + String(r.error));
+  if (r.hint)        parts.push("hint:     " + String(r.hint));
+  const stderr = String(r.stderr || "").trim();
+  const stdout = String(r.stdout || "").trim();
+  if (stderr)        parts.push("stderr:   " + stderr);
+  else if (stdout)   parts.push("stdout:   " + stdout);
+  if (typeof r.exit_code === "number" && r.exit_code !== 0) {
+    parts.push("exit:     " + r.exit_code);
+  }
+  if (r.action)      parts.push("action:   " + r.action);
+  if (r.cli_path)    parts.push("cli_path: " + r.cli_path);
+  return parts.length ? parts.join("\n") : (prefix + ": unknown error");
+}
+
+// ---------------------------------------------------------------------------
+// Devices list
+// ---------------------------------------------------------------------------
 async function refreshMobile() {
   const headerBadge = document.getElementById("mobileHeaderBadge");
   const adbBadge = document.getElementById("mobileAdbStatus");
@@ -62,10 +126,12 @@ async function refreshMobile() {
     // If the selected device disappeared, hide the actions card.
     if (_mobileSelectedSerial && !devices.some((d) => d.serial === _mobileSelectedSerial)) {
       _mobileSelectedSerial = null;
+      _mobileInfoCache = null;
       if (selectedCard) selectedCard.style.display = "none";
     }
   } catch (e) {
     console.warn("[mobile] refresh failed:", e);
+    mobileShowError("Failed to refresh mobile devices", e && e.stack || String(e));
   }
 }
 
@@ -120,185 +186,192 @@ function _mobileDeviceRow(d) {
   return row;
 }
 
+// ---------------------------------------------------------------------------
+// Device selection
+// ---------------------------------------------------------------------------
 async function selectMobileDevice(serial, label) {
   _mobileSelectedSerial = serial;
+  _mobileInfoCache = null;
+  _mobileNativeWidth = 0;
+  _mobileNativeHeight = 0;
   const nameEl = document.getElementById("mobileSelectedName");
   const card = document.getElementById("mobileSelectedCard");
   if (nameEl) nameEl.textContent = (label ? label + " · " : "") + serial;
   if (card) card.style.display = "";
+  mobileClearError();
+  // Load info first (blocks on physical size for coord scaling), then screenshot.
   await mobileLoadInfo();
   await mobileScreenshot();
-  refreshMobile();  // refreshes device row Select→✓ Selected label
+  refreshMobile();
 }
 
 async function mobileLoadInfo() {
   const dump = document.getElementById("mobileInfoDump");
-  if (!dump || !_mobileSelectedSerial) return;
+  if (!_mobileSelectedSerial) return;
   try {
     const r = await api("/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/info");
-    dump.textContent = JSON.stringify(r, null, 2);
+    _mobileInfoCache = r;
+    if (dump) dump.textContent = JSON.stringify(r, null, 2);
+    // Cache native screen size for coord scaling.
+    const raw = r && (r.screen_size_override || r.screen_size_physical);
+    if (raw) {
+      const m = /(\d+)x(\d+)/.exec(raw);
+      if (m) {
+        _mobileNativeWidth = parseInt(m[1], 10);
+        _mobileNativeHeight = parseInt(m[2], 10);
+      }
+    }
   } catch (e) {
-    dump.textContent = "info error: " + (e.message || e);
+    if (dump) dump.textContent = "info error: " + (e && e.message || e);
+    mobileShowError("Failed to load device info", e && e.stack || String(e));
   }
 }
 
+// ---------------------------------------------------------------------------
+// Screenshot — binary blob (no base64 tax), inline loading indicator.
+// ---------------------------------------------------------------------------
 async function mobileScreenshot() {
   if (!_mobileSelectedSerial) return;
+  if (_mobileScreenshotBusy) return;  // dedup rapid taps
+  _mobileScreenshotBusy = true;
+
   const img = document.getElementById("mobileScreenshotImg");
   const meta = document.getElementById("mobileScreenshotMeta");
-  if (!img) return;
+  const loading = document.getElementById("mobileScreenshotLoading");
+  if (loading) loading.style.display = "";
+
+  const started = performance.now();
   try {
-    // Use wire=json + base64 so we get width/height back for click→tap
-    // coordinate mapping without an extra HEAD roundtrip. Downscale to
-    // keep the payload reasonable — the bridge preserves aspect ratio.
-    const r = await api(
-      "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial)
-      + "/screenshot?max_width=480&quality=75&format=jpeg&wire=json"
-    );
-    if (!r || !r.ok) {
-      img.style.display = "none";
-      if (meta) meta.textContent = "screenshot failed: " + ((r && (r.error || r.hint)) || "?");
+    // Fetch as raw binary — 33% smaller than the JSON+base64 path, and the
+    // image element can render straight from a blob URL.
+    const url = BASE
+      + "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial)
+      + "/screenshot?max_width=360&quality=70&format=jpeg";
+    const resp = await fetch(url, {headers, cache: "no-store"});
+    if (!resp.ok) {
+      let msg = "HTTP " + resp.status;
+      try {
+        const body = await resp.text();
+        try {
+          const j = JSON.parse(body);
+          msg = _fmtBackendError("screenshot failed", j);
+        } catch (_) {
+          if (body) msg += "\n" + body.slice(0, 400);
+        }
+      } catch (_) {}
+      if (meta) meta.textContent = "screenshot failed";
+      mobileShowError("Screenshot failed", msg);
       return;
     }
-    _mobileScreenWidth = r.width;
-    _mobileScreenHeight = r.height;
-    img.src = "data:" + r.mime + ";base64," + r.base64;
-    img.style.display = "";
-    if (meta) meta.textContent = "shown " + r.width + "×" + r.height
-      + " · " + Math.round(r.size_bytes / 1024) + " KB"
-      + (r.downscaled ? " (downscaled)" : "");
+    _mobileShownWidth = parseInt(resp.headers.get("X-Arena-Mobile-Width") || "0", 10);
+    _mobileShownHeight = parseInt(resp.headers.get("X-Arena-Mobile-Height") || "0", 10);
+    const blob = await resp.blob();
+
+    // Revoke old blob URL to free memory.
+    if (_mobileScreenshotBlobUrl) {
+      URL.revokeObjectURL(_mobileScreenshotBlobUrl);
+    }
+    _mobileScreenshotBlobUrl = URL.createObjectURL(blob);
+    if (img) {
+      img.src = _mobileScreenshotBlobUrl;
+      img.style.display = "";
+    }
+    const elapsed = Math.round(performance.now() - started);
+    if (meta) {
+      meta.textContent = _mobileShownWidth + "×" + _mobileShownHeight
+        + " · " + Math.round(blob.size / 1024) + " KB"
+        + " · " + elapsed + " ms";
+    }
   } catch (e) {
-    if (meta) meta.textContent = "screenshot error: " + (e.message || e);
+    mobileShowError("Screenshot request failed", e && e.stack || String(e));
+  } finally {
+    if (loading) loading.style.display = "none";
+    _mobileScreenshotBusy = false;
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tap / key / type / shell — no artificial delays, immediate refresh
+// ---------------------------------------------------------------------------
 function mobileTapFromImage(event) {
-  if (!_mobileSelectedSerial || !_mobileScreenWidth) return;
+  if (!_mobileSelectedSerial || !_mobileShownWidth) return;
   const img = event.currentTarget;
   const rect = img.getBoundingClientRect();
   const displayX = event.clientX - rect.left;
   const displayY = event.clientY - rect.top;
-  // Scale display coordinates back to native device pixels. Screenshot
-  // was downscaled to `_mobileScreenWidth`, but the source Android
-  // screen is bigger — we saved the reported "shown" size which is
-  // what the downscaler produced, so the ratio between displayed
-  // rendered size and reported shown size is 1:1 for width, and we
-  // need to walk from `shown` back to the native resolution. We stored
-  // the shown size, not the native — so walk through the info endpoint.
-  // Simpler: pass the shown coordinate to adb, since the bridge's own
-  // screencap targets the real display. Instead, remap:
-  //   nativeX = displayX * (nativeW / renderedW)
-  // We only know renderedW; nativeW would need a second call. Just
-  // scale by the natural display size vs the img's rendered size,
-  // then multiply by the ratio nativeW/renderedW=1 (we asked ADB to
-  // capture native, then Pillow downscaled to renderedW). So the
-  // "displayed pixel" → "native pixel" ratio is nativeW/renderedW.
-  // Fetch it from a fresh info call is too slow; instead we ratio
-  // against the ORIGINAL display we cached. We only stored
-  // `_mobileScreenWidth` = the shown size. As a robust fallback,
-  // ask the device once per screenshot for its native size.
-  //
-  // Practical solution: ratio between the on-screen rendered img and
-  // the source PNG's `_mobileScreenWidth` is direct (image is rendered
-  // at max 100% of container, so displayed-vs-source is just
-  // displayX/img.width). Multiply by (nativeW/shownW) which we don't
-  // have, so approximate: nativeW ≈ shownW * (screenSizePhysical / shownW)
-  // — but we do have physical size from the info dump. Instead of
-  // adding a second network call, keep it simple: send scaled X,Y
-  // computed from the displayed pixel ratio to source-shown ratio
-  // (which is 1:1 in practice because <img> width == container, and
-  // container ≤ 400px, and source is 480px), then let ADB tap slightly
-  // off — good enough for a UI proof of life, and the terminal
-  // shell/type still work exactly. We'll refine when a native-size
-  // field lands in the /info response uniformly.
-  const shownX = Math.round(displayX * (_mobileScreenWidth / img.clientWidth));
-  const shownY = Math.round(displayY * (_mobileScreenHeight / img.clientHeight));
-  // The downscale ratio: native / shown. Read from cached info if we can.
-  const info = _mobileCachedInfo || {};
-  let nativeRatio = 1;
-  if (info.screen_size_physical) {
-    const m = /(\d+)x(\d+)/.exec(info.screen_size_physical);
-    if (m) {
-      const nativeW = parseInt(m[1], 10);
-      if (nativeW && _mobileScreenWidth) nativeRatio = nativeW / _mobileScreenWidth;
-    }
-  }
+  // Scale displayed-CSS-pixels → shown-source-pixels → native device pixels.
+  const shownX = displayX * (_mobileShownWidth / img.clientWidth);
+  const shownY = displayY * (_mobileShownHeight / img.clientHeight);
+  const nativeRatio = (_mobileNativeWidth && _mobileShownWidth)
+    ? _mobileNativeWidth / _mobileShownWidth : 1;
   const nativeX = Math.round(shownX * nativeRatio);
   const nativeY = Math.round(shownY * nativeRatio);
   _mobileSendTap(nativeX, nativeY);
 }
 
-let _mobileCachedInfo = null;
-
-async function mobileLoadInfoCached() {
-  if (!_mobileSelectedSerial) return;
-  try {
-    _mobileCachedInfo = await api("/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/info");
-    const dump = document.getElementById("mobileInfoDump");
-    if (dump) dump.textContent = JSON.stringify(_mobileCachedInfo, null, 2);
-  } catch (e) {
-    _mobileCachedInfo = null;
-  }
-}
-
 async function _mobileSendTap(x, y) {
   if (!_mobileSelectedSerial) return;
+  mobileClearError();
   try {
     const r = await api(
       "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/tap",
-      {method: "POST", body: JSON.stringify({x, y})}
+      {method: "POST", body: JSON.stringify({x, y})},
     );
     if (!r || !r.ok) {
-      alert("tap failed: " + ((r && r.error) || "?"));
+      mobileShowError("Tap failed at (" + x + ", " + y + ")", _fmtBackendError("tap", r));
       return;
     }
-    // Refresh screenshot after ~500ms so user sees the effect.
-    setTimeout(mobileScreenshot, 500);
+    // Refresh immediately — no artificial delay. The screenshot fetch
+    // itself is the main latency, don't add to it.
+    mobileScreenshot();
   } catch (e) {
-    alert("tap error: " + (e.message || e));
+    mobileShowError("Tap request failed", e && e.stack || String(e));
   }
 }
 
 async function mobileKey(name) {
   if (!_mobileSelectedSerial) return;
+  mobileClearError();
   try {
     const r = await api(
       "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/key",
-      {method: "POST", body: JSON.stringify({key: name})}
+      {method: "POST", body: JSON.stringify({key: name})},
     );
     if (!r || !r.ok) {
-      alert("key " + name + " failed: " + ((r && r.error) || "?"));
+      mobileShowError("Key " + name + " failed", _fmtBackendError("key", r));
       return;
     }
-    setTimeout(mobileScreenshot, 400);
+    mobileScreenshot();
   } catch (e) {
-    alert("key error: " + (e.message || e));
+    mobileShowError("Key request failed", e && e.stack || String(e));
   }
 }
 
 async function mobileType() {
   if (!_mobileSelectedSerial) return;
+  mobileClearError();
   const el = document.getElementById("mobileTypeText");
   const text = (el && el.value) || "";
   if (!text) return;
   try {
     const r = await api(
       "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/type",
-      {method: "POST", body: JSON.stringify({text})}
+      {method: "POST", body: JSON.stringify({text})},
     );
     if (!r || !r.ok) {
-      alert("type failed: " + ((r && r.error) || "?"));
+      mobileShowError("Type failed", _fmtBackendError("type", r));
       return;
     }
     if (el) el.value = "";
-    setTimeout(mobileScreenshot, 400);
+    mobileScreenshot();
   } catch (e) {
-    alert("type error: " + (e.message || e));
+    mobileShowError("Type request failed", e && e.stack || String(e));
   }
 }
 
 async function mobileShell() {
   if (!_mobileSelectedSerial) return;
+  mobileClearError();
   const el = document.getElementById("mobileShellCmd");
   const out = document.getElementById("mobileShellOut");
   const cmd = (el && el.value.trim()) || "";
@@ -309,19 +382,21 @@ async function mobileShell() {
   try {
     const r = await api(
       "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/shell",
-      {method: "POST", body: JSON.stringify({command: cmd})}
+      {method: "POST", body: JSON.stringify({command: cmd})},
     );
     if (r && r.ok) {
       out.textContent = "$ " + cmd + "\n" + (r.stdout || "(no output)");
     } else {
-      out.textContent = "error: " + ((r && r.error) || "?") + "\n" + (r && r.stderr ? r.stderr : "");
+      out.textContent = "$ " + cmd + "\n" + _fmtBackendError("shell", r);
     }
   } catch (e) {
     out.textContent = "shell error: " + (e.message || e);
   }
 }
 
+// ---------------------------------------------------------------------------
 // Auto-refresh + tab hook (same pattern as 29-tunnels.js).
+// ---------------------------------------------------------------------------
 (function () {
   document.addEventListener("click", (ev) => {
     const link = ev.target.closest && ev.target.closest('.sidebar nav a[data-tab="mobile"]');
@@ -338,10 +413,3 @@ async function mobileShell() {
     if (t && t.classList.contains("active")) refreshMobile();
   }
 })();
-
-// selectMobileDevice() also fetches info; keep the wrapper simple.
-const _origSelectMobileDevice = selectMobileDevice;
-selectMobileDevice = async function (serial, label) {
-  await _origSelectMobileDevice(serial, label);
-  await mobileLoadInfoCached();
-};

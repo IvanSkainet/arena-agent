@@ -44,13 +44,17 @@ def _ensure_adb() -> dict[str, Any] | None:
 
 def tap(serial: str, x: int, y: int) -> dict[str, Any]:
     """Single-tap at (x, y). Coordinates are display pixels."""
-    guard = _ensure_adb()
-    if guard:
-        return guard
+    # Validate arguments BEFORE the adb-present check so callers get a
+    # deterministic parameter error even on hosts without adb (matters
+    # for CI, and also matches the security posture — bad inputs are
+    # rejected identically regardless of runtime state).
     if not isinstance(x, int) or not isinstance(y, int):
         return _err("x and y must be integers")
     if x < 0 or y < 0 or x > 100000 or y > 100000:
         return _err(f"tap coordinates out of range: ({x}, {y})")
+    guard = _ensure_adb()
+    if guard:
+        return guard
     try:
         r = run(["shell", "input", "tap", str(x), str(y)], serial=serial, timeout=10)
     except AdbNotFoundError as e:
@@ -74,14 +78,14 @@ def swipe(
     duration_ms: int = 300,
 ) -> dict[str, Any]:
     """Swipe / drag from (x1,y1) to (x2,y2) over `duration_ms`."""
-    guard = _ensure_adb()
-    if guard:
-        return guard
     for name, val in (("x1", x1), ("y1", y1), ("x2", x2), ("y2", y2), ("duration_ms", duration_ms)):
         if not isinstance(val, int):
             return _err(f"{name} must be an integer")
     if duration_ms < 1 or duration_ms > 60_000:
         return _err(f"duration_ms out of range: {duration_ms}")
+    guard = _ensure_adb()
+    if guard:
+        return guard
     try:
         r = run(
             ["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms)],
@@ -106,17 +110,17 @@ def swipe(
 def type_text(serial: str, text: str) -> dict[str, Any]:
     """Type unicode text through `adb shell input text`.
 
-    `adb shell input text` is limited to ASCII on many Android builds —
-    non-ASCII input may drop characters silently. For richer input the
-    caller should use IME-based methods (out of scope for Phase 1).
+    On many Android IMEs (Xiaomi/HyperOS in particular) `input text`
+    drops non-ASCII silently. For richer input the caller should use
+    IME-based methods (out of scope for Phase 1).
     """
-    guard = _ensure_adb()
-    if guard:
-        return guard
     if not isinstance(text, str):
         return _err("text must be a string")
     if len(text) > 4096:
         return _err(f"text too long ({len(text)} chars; max 4096)")
+    guard = _ensure_adb()
+    if guard:
+        return guard
 
     # `input text` treats spaces as separators — %s is the documented escape.
     safe = text.replace("\\", "\\\\").replace(" ", "%s").replace("'", "\\'")
@@ -127,14 +131,45 @@ def type_text(serial: str, text: str) -> dict[str, Any]:
     except Exception as e:
         return _err(f"type failed: {e}")
     ok = r.returncode == 0
+    err_msg = None
+    if not ok:
+        raw = (r.stderr or r.stdout or f"input text exit {r.returncode}").strip()
+        err_msg = _friendly_type_error(raw)
     return {
         "ok": ok,
         "action": "type",
         "chars": len(text),
         "stdout": r.stdout, "stderr": r.stderr,
         "exit_code": r.returncode,
-        "error": None if ok else (r.stderr or f"input text exit {r.returncode}").strip(),
+        "error": err_msg,
     }
+
+
+def _friendly_type_error(raw: str) -> str:
+    """Rewrite the most common `adb shell input text` failures into a
+    hint that a human can act on. Preserves the raw text so nothing is
+    hidden."""
+    lower = raw.lower()
+    if "no focused window" in lower or "no window focus" in lower:
+        return (
+            "No focused text field on the device. Tap into an input "
+            "field first (e.g. the address bar or a search box), "
+            "then try typing again. Original error: " + raw
+        )
+    if "input service does not have permission" in lower or "securityexception" in lower:
+        return (
+            "Android refused the input event (likely a permission or "
+            "IME issue). On Xiaomi/HyperOS make sure USB debugging "
+            "(Security settings) is enabled in Developer Options. "
+            "Original error: " + raw
+        )
+    if "illegalargumentexception" in lower and "keyevent" in lower:
+        return (
+            "The text contains characters that adb's `input text` cannot "
+            "encode on this device's IME. Try ASCII-only text, or paste "
+            "via clipboard. Original error: " + raw
+        )
+    return raw
 
 
 def key(serial: str, key_name: str) -> dict[str, Any]:
@@ -144,9 +179,6 @@ def key(serial: str, key_name: str) -> dict[str, Any]:
     (e.g. `HOME`, `BACK`, `VOLUME_UP`). Only keys in the allowlist are
     accepted so an agent cannot pass e.g. `POWER` to force a reboot.
     """
-    guard = _ensure_adb()
-    if guard:
-        return guard
     if not isinstance(key_name, str):
         return _err("key must be a string")
     upper = key_name.upper().replace("KEYCODE_", "").strip()
@@ -155,6 +187,9 @@ def key(serial: str, key_name: str) -> dict[str, Any]:
             f"key {key_name!r} is not on the allowlist. "
             f"Allowed: {sorted(_ALLOWED_KEYS)}"
         )
+    guard = _ensure_adb()
+    if guard:
+        return guard
     try:
         r = run(["shell", "input", "keyevent", f"KEYCODE_{upper}"], serial=serial, timeout=10)
     except AdbNotFoundError as e:

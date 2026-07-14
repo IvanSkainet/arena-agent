@@ -1,5 +1,84 @@
 # Changelog
 
+## v3.82.1 - 2026-07-14
+
+Follow-up to v3.82.0 based on real usage on the maintainer's POCO F7 Pro:
+
+* CI on `master` was red on both mobile commits (test suite failed on
+  hosts without adb — that's exactly the case CI runs in).
+* Dashboard screenshot updates felt sluggish even when the underlying
+  `adb` calls were near-instant.
+* Errors from failed mobile actions surfaced as native browser
+  `alert()` popups you can't select-and-copy — bad UX for reporting
+  Android crash-dialog details to a maintainer.
+
+### Fixed
+
+- **CI on hosts without adb.** Every mobile guard function used to
+  check `find_adb()` *first* and only then validate arguments — which
+  meant that on CI (no adb installed) the `test_tap_rejects_negative_coords`
+  family got "adb not installed" back instead of "coords out of
+  range", and 15 tests failed. Reordered so parameter validation and
+  security guards (allowlists, metachar blocklist, sub-verb guards)
+  run BEFORE the adb-installed check, in `arena/mobile/input.py`,
+  `shell.py`, and `packages.py`. Same behaviour with adb installed;
+  green CI without it.
+
+- **`arena/mobile/type_text` returns a human hint on common failures.**
+  Wrote `_friendly_type_error()` that rewrites the three most common
+  `adb shell input text` failure modes into an actionable message
+  (no focused window / permission or IME issue on Xiaomi HyperOS /
+  IllegalArgumentException on non-ASCII text), while preserving the
+  raw error so the underlying detail isn't hidden.
+
+### Changed — Dashboard latency
+
+- **Screenshot pipeline is faster.** Switched the browser-side fetch
+  from the base64-JSON envelope (`wire=json`) to a raw binary blob.
+  Saves the 33% base64 tax and avoids two extra JSON parses. Default
+  size lowered from 480 → 360px so a full round-trip on a POCO F7 Pro
+  drops from ~2s to ~500ms.
+- **Removed artificial `setTimeout(mobileScreenshot, 400)` delays.**
+  After tap / key / type / swipe the refresh fires immediately;
+  the network round-trip is the actual latency budget.
+- **Dedup guard.** `_mobileScreenshotBusy` prevents overlapping
+  requests when the user clicks the screenshot several times quickly.
+- **Inline "Refreshing…" indicator** on the screenshot preview so the
+  user sees something is happening even when the network is slow.
+- **Blob URL memory management** — old screenshot blob URLs are
+  `URL.revokeObjectURL`'d before the next one is created, so a long
+  session doesn't leak memory.
+
+### Changed — Dashboard error UX
+
+- **Errors are now copyable, structured, and inline.** Any failure
+  from `/v1/mobile/*` now surfaces in a dedicated error panel at the
+  top of the Mobile tab with a `Copy` button (uses
+  `navigator.clipboard`) and a `Dismiss` button. Contents are
+  composed from every populated field the backend sent (`error`,
+  `hint`, `stderr`, `stdout`, `exit_code`, `action`, `cli_path`) so
+  Android/ADB crash-dialog text is preserved verbatim for pasting
+  into a bug report.
+- No more `alert()` popups for tap / key / type / screenshot
+  failures. Existing `alert()`-based flows for other cards are
+  unchanged.
+
+### Test suite
+
+737 passed (unchanged). CI regressions from v3.82.0 are proven fixed
+by a simulated-CI check (mock `find_adb() → None`) — every one of the
+15 previously-failing validation-first assertions now passes on
+adb-less hosts.
+
+### Known Phase 1 limitation (documented, not fixed)
+
+- **`adb shell input text` returns exit 0 even when the phone crashed
+  the input event or has no focused text field.** The bridge cannot
+  observe what happens on the device side. Phase 1 workaround: tap
+  the target text field first, then type. Phase 3 (native APK on the
+  phone that hosts its own bridge-like service) will eliminate this
+  entire class of ADB-round-trip quirks.
+
 ## v3.82.0 - 2026-07-14
 
 **Mobile domain Phase 1: Android via ADB.** Ships the full internal

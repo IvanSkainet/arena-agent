@@ -54,13 +54,19 @@ def _err(msg: str) -> dict[str, Any]:
 def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[str, Any]:
     """Run a whitelisted diagnostic command on the device.
 
-    `command` is parsed with shlex — command chaining (`;`, `&&`, `|`,
-    backticks) is refused before dispatch so allowlist bypass is not
-    possible via shell metacharacters.
+    Validation order (must stay stable — CI depends on it):
+      1. command type / non-empty / length caps;
+      2. shell-metacharacter blocklist;
+      3. shlex parse;
+      4. head-command allowlist + sub-verb guards;
+      5. adb-installed guard;
+      6. actual dispatch.
+
+    Steps 1-4 run BEFORE the adb-installed check so callers get a
+    deterministic parameter error even on hosts without adb. That is
+    both a CI stability property and a security property (bad input
+    is refused identically regardless of runtime state).
     """
-    if find_adb() is None:
-        from arena.mobile.adb import install_hint
-        return {"ok": False, "error": "adb not installed", "hint": install_hint()}
     if not isinstance(command, str):
         return _err("command must be a string")
     if not command.strip():
@@ -100,6 +106,11 @@ def restricted_shell(serial: str, command: str, *, timeout: int = 15) -> dict[st
     if head == "ip":
         if len(tokens) < 2 or tokens[1] not in _IP_READ_VERBS:
             return _err(f"only `ip {{{'|'.join(sorted(_IP_READ_VERBS))}}}` is allowed")
+
+    # Only now do we care whether adb is actually installed.
+    if find_adb() is None:
+        from arena.mobile.adb import install_hint
+        return {"ok": False, "error": "adb not installed", "hint": install_hint()}
 
     try:
         r = run(["shell", *tokens], serial=serial, timeout=timeout)

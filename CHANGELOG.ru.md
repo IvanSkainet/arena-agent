@@ -6,6 +6,83 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.82.1 — 2026-07-14
+
+Follow-up к v3.82.0 по итогам реального использования на POCO F7 Pro:
+
+* CI на master был красный на обоих mobile-коммитах (test suite падал
+  на хостах без adb — а именно так CI и запускается).
+* Обновления скриншота в Dashboard казались тормозными даже когда
+  сами `adb`-вызовы работают почти мгновенно.
+* Ошибки от неудачных mobile-действий показывались через `alert()`
+  которое нельзя выделить и скопировать — плохой UX для отправки
+  Android crash-dialog деталей мейнтейнеру.
+
+### Исправлено
+
+- **CI на хостах без adb.** Каждая mobile guard-функция проверяла
+  `find_adb()` *первым*, и только потом валидировала аргументы —
+  из-за этого на CI (без adb) семейство тестов
+  `test_tap_rejects_negative_coords` получало "adb not installed"
+  вместо "coords out of range", и падало 15 тестов. Переупорядочил:
+  валидация параметров и security-guard'ы (allowlist'ы, metachar
+  blocklist, sub-verb guards) теперь идут ДО проверки adb в
+  `arena/mobile/input.py`, `shell.py`, `packages.py`. С установленным
+  adb — то же поведение; без adb — зелёный CI.
+
+- **`type_text` возвращает человекочитаемую подсказку на типичные
+  ошибки.** Написал `_friendly_type_error()`, который переписывает три
+  самые частые причины отказа `adb shell input text` в actionable
+  сообщение (нет focused window / permission или IME issue на Xiaomi
+  HyperOS / IllegalArgumentException на не-ASCII), сохраняя raw error
+  чтобы деталь не терялась.
+
+### Изменено — Dashboard latency
+
+- **Screenshot pipeline быстрее.** Переключил браузерный fetch с
+  base64-JSON конверта (`wire=json`) на raw binary blob. Экономит 33%
+  base64-налога и убирает два лишних JSON-parse. Дефолтный размер
+  снижен 480 → 360px — full round-trip на POCO F7 Pro упал с ~2с
+  до ~500мс.
+- **Убраны искусственные `setTimeout(mobileScreenshot, 400)`.**
+  После tap/key/type/swipe рефреш срабатывает сразу; network
+  round-trip — единственный реальный latency-бюджет.
+- **Dedup guard.** `_mobileScreenshotBusy` предотвращает наложение
+  запросов если пользователь быстро кликает.
+- **Инлайновый "Refreshing…" индикатор** на превью скриншота,
+  чтобы было видно что что-то происходит.
+- **Blob URL memory management** — старые screenshot blob URLs
+  освобождаются через `URL.revokeObjectURL` до создания нового,
+  долгая сессия не течёт памятью.
+
+### Изменено — Dashboard error UX
+
+- **Ошибки теперь копируемые, структурированные и inline.** Любой
+  fail от `/v1/mobile/*` показывается в отдельной error-панели
+  вверху Mobile tab с кнопкой `Copy` (через `navigator.clipboard`)
+  и `Dismiss`. Содержимое составляется из всех populated полей
+  бэкенда (`error`, `hint`, `stderr`, `stdout`, `exit_code`,
+  `action`, `cli_path`), так что текст Android/ADB crash-диалога
+  сохраняется дословно для вставки в bug report.
+- Больше никаких `alert()` для tap/key/type/screenshot ошибок.
+  Существующие `alert()`-flow других карточек не изменены.
+
+### Тесты
+
+737 passed (без изменений). CI-регрессии из v3.82.0 подтверждены как
+исправленные через simulated-CI check (mock `find_adb() → None`) —
+все 15 ранее падавших validation-first assertions теперь проходят
+без adb.
+
+### Известное ограничение Phase 1 (документировано)
+
+- **`adb shell input text` возвращает exit 0 даже если phone
+  крашнул input event или нет focused text field.** Bridge не видит
+  что происходит на стороне устройства. Workaround Phase 1:
+  тапнуть по нужному полю ввода, потом type. Phase 3 (native APK
+  на телефоне со своим bridge-like сервисом) устранит весь этот
+  класс ADB-round-trip quirks.
+
 ## v3.82.0 — 2026-07-14
 
 **Mobile domain Phase 1: Android через ADB.** Полный внутренний пакет
