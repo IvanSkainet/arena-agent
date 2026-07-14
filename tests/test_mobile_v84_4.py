@@ -5,11 +5,28 @@ Covers pure-Python parts that do not need a live device:
     win over shutter_button any more
   * mode / lens / zoom / flash alias resolution
   * shutter cache fallback for record_stop when uiautomator dumps blank
-  * exact 48-field handler dataclass surface (was 41 in v3.84.3)
-"""
+  * exact 49-field handler dataclass surface (was 42 in v3.84.3)
+
+Autouse fixture below fakes `adb` presence on every test so CI runners
+(which don't have adb installed) don't short-circuit inside
+`_ensure_adb`. Individual tests still monkeypatch subprocess-level
+helpers where they need to."""
 from __future__ import annotations
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _fake_adb_available(monkeypatch):
+    """Every entry point in arena.mobile.camera[_controls] calls
+    `_ensure_adb()` first, which returns an error dict when
+    `find_adb()` returns None (the case on CI). Pretend adb is
+    installed for every test in this file."""
+    import arena.mobile.adb as _adb
+    import arena.mobile.camera as _cam
+    monkeypatch.setattr(_adb, "find_adb", lambda: "/fake/adb")
+    monkeypatch.setattr(_cam, "find_adb", lambda: "/fake/adb")
+    yield
 
 
 # ---------------------------------------------------------------------------
