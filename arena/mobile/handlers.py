@@ -75,6 +75,15 @@ class MobileHandlers:
     mirror_ws: object
     mirror_stats: object
     mirror_stop: object
+    # v3.84.4: full camera control surface (mode/lens/zoom/flash +
+    # video record via camera app UI + raw controls dump).
+    camera_controls: object
+    camera_mode: object
+    camera_lens: object
+    camera_zoom: object
+    camera_flash: object
+    camera_record_start: object
+    camera_record_stop: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -614,10 +623,14 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         batch=handle_batch,
         **{k: _media[k] for k in (
             "camera_launch", "camera_shutter",
-            "camera_photos", "camera_pull", "camera_capture")},
+            "camera_photos", "camera_pull", "camera_capture",
+            "camera_controls", "camera_mode", "camera_lens",
+            "camera_zoom", "camera_flash",
+            "camera_record_start", "camera_record_stop")},
         **{k: _rec[k] for k in (
             "record_sync", "record_start", "record_stop",
             "record_list", "record_pull", "record_purge")},
         **{k: _mir[k] for k in (
             "mirror_ws", "mirror_stats", "mirror_stop")},
     )
+

@@ -191,6 +191,9 @@ def build_capabilities(
                     "recording/sync", "recording/start", "recording/stop",
                     "recordings", "recording/purge",
                     "mirror", "mirror/stats", "mirror/stop",
+                    "camera/controls", "camera/mode", "camera/lens",
+                    "camera/zoom", "camera/flash",
+                    "camera/record/start", "camera/record/stop",
                 ],
                 "hint": m.get("hint"),
             }
@@ -198,3 +201,4 @@ def build_capabilities(
             caps["mobile"] = {"available": False, "backend": "adb", "error": str(e)[:200]}
 
     return caps
+

@@ -228,7 +228,7 @@ arena-mobile batch 2200ad3b @steps.json
 arena-mobile pair 192.168.1.5 38571 654321
 ```
 
-## All 27 endpoints in one screen
+## All 49 endpoints in one screen (v3.84.4)
 
 ```
 GET  /v1/mobile/devices
@@ -258,4 +258,121 @@ POST /v1/mobile/connect                  # {host, port?}
 POST /v1/mobile/disconnect               # {host?, port?}
 POST /v1/mobile/apk/prepare              # {apk_path}
 POST /v1/mobile/{s}/apk/install          # {apk_path, consent}
+POST /v1/mobile/apk/upload               # raw APK bytes
+# Camera (v3.84.1 + v3.84.4).
+POST /v1/mobile/{s}/camera/launch        # {intent?, package?}   intent: still|video|generic
+POST /v1/mobile/{s}/camera/shutter       # {shutter_x?, shutter_y?}
+GET  /v1/mobile/{s}/camera/photos        # ?limit
+POST /v1/mobile/{s}/camera/pull          # {path, max_size?, format?, quality?}
+POST /v1/mobile/{s}/camera/capture       # end-to-end: launch -> shutter -> pull
+GET  /v1/mobile/{s}/camera/controls      # (v3.84.4) all clickable UI nodes in camera app
+POST /v1/mobile/{s}/camera/mode          # (v3.84.4) {mode}   photo|video|portrait|pro|night|document|slowmo|timelapse|pano|short|movie
+POST /v1/mobile/{s}/camera/lens          # (v3.84.4) {target}  front|back|toggle
+POST /v1/mobile/{s}/camera/zoom          # (v3.84.4) {level}   0.6 | 1.0 | 2.0 | 3 | ...
+POST /v1/mobile/{s}/camera/flash         # (v3.84.4) {mode}    auto|on|off|torch
+POST /v1/mobile/{s}/camera/record/start  # (v3.84.4) starts in-app video recording
+POST /v1/mobile/{s}/camera/record/stop   # (v3.84.4) {pull?, max_size?}  stops + optionally returns bytes
+# Screen recording via screenrecord (v3.84.2, independent of camera app).
+POST /v1/mobile/{s}/recording/sync       # sync capture
+POST /v1/mobile/{s}/recording/start
+POST /v1/mobile/recording/{rec_id}/stop
+GET  /v1/mobile/{s}/recordings
+GET  /v1/mobile/recording/{rec_id}
+POST /v1/mobile/{s}/recording/purge
+# Live H.264 mirror (v3.84.3 BETA).
+GET  /v1/mobile/{s}/mirror               # WebSocket + ?token= auth
+GET  /v1/mobile/mirror/stats
+POST /v1/mobile/{s}/mirror/stop
+```
+
+## Camera control cookbook (v3.84.4)
+
+The camera control surface deliberately drives the **stock camera
+app** (via UIAutomator taps) rather than talking to the raw Camera2
+HAL. That means you get whatever the phone's photo/video pipeline
+already knows how to do — HDR, night mode, portrait bokeh, 4K@60,
+telephoto lens selection, etc. — without re-implementing any of it.
+
+### Introspect what's on screen
+
+```bash
+# First: what modes / lenses / zoom chips are visible right now?
+curl -sSf -H "Authorization: Bearer $TOK" \
+  "$BRIDGE/v1/mobile/$S/camera/controls" | jq
+```
+
+Response includes every clickable node with `resource_id`,
+`content_desc`, `text`, `bounds`, `center`. Also side-effects a warm
+shutter-cache entry so subsequent record calls survive UIAutomator
+outages.
+
+### Take a photo end-to-end
+
+```bash
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{}' \
+  "$BRIDGE/v1/mobile/$S/camera/launch"
+
+# ... optionally: switch lens, set zoom, set flash, switch mode ...
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{"target":"back"}' \
+  "$BRIDGE/v1/mobile/$S/camera/lens"
+
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{"level":"2.0"}' \
+  "$BRIDGE/v1/mobile/$S/camera/zoom"
+
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{"mode":"off"}' \
+  "$BRIDGE/v1/mobile/$S/camera/flash"
+
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{}' \
+  "$BRIDGE/v1/mobile/$S/camera/shutter"
+
+# Pull the newest photo back to the bridge (JPEG downscaled to 1024px):
+curl -sSf -H "Authorization: Bearer $TOK" \
+  "$BRIDGE/v1/mobile/$S/camera/photos?limit=1" | jq
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" \
+  -d '{"path":"/sdcard/DCIM/Camera/IMG_....jpg","max_size":1024}' \
+  "$BRIDGE/v1/mobile/$S/camera/pull" | jq -r '.bytes_b64' | base64 -d > photo.jpg
+```
+
+### Record a video end-to-end
+
+```bash
+# Launch the camera app + warm the shutter cache.
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{}' \
+  "$BRIDGE/v1/mobile/$S/camera/launch"
+sleep 3
+curl -sSf -H "Authorization: Bearer $TOK" \
+  "$BRIDGE/v1/mobile/$S/camera/controls" > /dev/null
+
+# Start recording (switches to video mode + presses shutter).
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{}' \
+  "$BRIDGE/v1/mobile/$S/camera/record/start"
+
+sleep 10   # record for 10 seconds
+
+# Stop + return the MP4 as base64 in the response.
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" \
+  -d '{"pull":true,"wait_for_file_ms":25000}' \
+  "$BRIDGE/v1/mobile/$S/camera/record/stop" \
+  | jq -r '.bytes_b64' | base64 -d > clip.mp4
+```
+
+`record_stop` polls DCIM for a fresh MP4, then waits for the file
+size to stabilise before reading bytes (encoders take ~1 s to finish
+finalising `moov` after you press stop).
+
+### Localisation
+
+`switch_mode` and `set_flash` match a table of English + Russian
+labels. To add another language, extend `_MODE_ALIASES` /
+`_FLASH_ALIASES` in `arena/mobile/camera_controls.py` with the
+strings that appear in your camera app.
 ```

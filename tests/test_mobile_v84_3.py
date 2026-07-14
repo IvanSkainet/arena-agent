@@ -211,8 +211,11 @@ def test_check_auth_accepts_query_token(monkeypatch):
 # Handler dataclass — v3.84.3 exact 41-field surface
 # ---------------------------------------------------------------------------
 def test_mobile_handlers_dataclass_fields_v84_3():
+    """v3.84.3 baseline: check the 41-field surface stays available.
+    Newer releases add fields; this test keeps them as a required subset
+    so a regression that drops any of these still trips the suite."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {
+    required = {
         "list_devices", "device_info", "screenshot", "tap", "swipe",
         "type_text", "key_event", "shell", "packages", "gesture",
         "ui_dump", "tap_by",
@@ -226,8 +229,9 @@ def test_mobile_handlers_dataclass_fields_v84_3():
         "apk_upload",
         "record_sync", "record_start", "record_stop",
         "record_list", "record_pull", "record_purge",
-        # v3.84.3
         "mirror_ws", "mirror_stats", "mirror_stop",
     }
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+    missing = required - got
+    assert not missing, f"MobileHandlers regressed: dropped {missing}"
+

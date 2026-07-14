@@ -105,6 +105,14 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/mobile/{serial}/mirror",         h["handle_v1_mobile_mirror_ws"])
     app.router.add_get("/v1/mobile/mirror/stats",            h["handle_v1_mobile_mirror_stats"])
     app.router.add_post("/v1/mobile/{serial}/mirror/stop",   h["handle_v1_mobile_mirror_stop"])
+    # v3.84.4: expanded camera control surface.
+    app.router.add_get("/v1/mobile/{serial}/camera/controls",       h["handle_v1_mobile_camera_controls"])
+    app.router.add_post("/v1/mobile/{serial}/camera/mode",          h["handle_v1_mobile_camera_mode"])
+    app.router.add_post("/v1/mobile/{serial}/camera/lens",          h["handle_v1_mobile_camera_lens"])
+    app.router.add_post("/v1/mobile/{serial}/camera/zoom",          h["handle_v1_mobile_camera_zoom"])
+    app.router.add_post("/v1/mobile/{serial}/camera/flash",         h["handle_v1_mobile_camera_flash"])
+    app.router.add_post("/v1/mobile/{serial}/camera/record/start",  h["handle_v1_mobile_camera_record_start"])
+    app.router.add_post("/v1/mobile/{serial}/camera/record/stop",   h["handle_v1_mobile_camera_record_stop"])
     app.router.add_post("/v1/restart", h["handle_v1_restart"])
     app.router.add_get("/v1/webhooks", h["handle_v1_webhooks_get"])
     app.router.add_post("/v1/webhooks", h["handle_v1_webhooks_set"])
@@ -112,3 +120,4 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/browser/dump", h["handle_v1_browser_dump"])
     app.router.add_get("/v1/browser/fetch", h["handle_v1_browser_fetch"])
     app.router.add_get("/v1/browser/head", h["handle_v1_browser_head"])
+

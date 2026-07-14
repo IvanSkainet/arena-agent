@@ -42,6 +42,17 @@ from arena.mobile.camera import (
     pull_photo as camera_pull_photo,
     shutter as camera_shutter,
 )
+# v3.84.4: full camera control surface (mode/lens/zoom/flash +
+# video record via camera app UI + raw controls dump).
+from arena.mobile.camera_controls import (
+    list_controls as camera_list_controls,
+    switch_mode as camera_switch_mode,
+    switch_lens as camera_switch_lens,
+    set_zoom as camera_set_zoom,
+    set_flash as camera_set_flash,
+    record_start as camera_record_start,
+    record_stop as camera_record_stop,
+)
 # Re-export the new scroll + key_combo primitives added in v3.83.3.
 from arena.mobile.input import key_combo, scroll
 
@@ -135,6 +146,15 @@ __all__ = [
     "mirror_get_or_start",
     "mirror_stats",
     "mirror_stop_all",
+    # v3.84.4
+    "camera_list_controls",
+    "camera_switch_mode",
+    "camera_switch_lens",
+    "camera_set_zoom",
+    "camera_set_flash",
+    "camera_record_start",
+    "camera_record_stop",
     "MobileHandlers",
     "make_mobile_handlers",
 ]
+

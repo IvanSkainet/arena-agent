@@ -1,5 +1,140 @@
 # Changelog
 
+## v3.84.4 - 2026-07-14
+
+### The bug this fixes
+
+`POST /v1/mobile/{serial}/camera/shutter` on HyperOS was silently
+tapping the **photo/video mode switcher** (`v9_capture_picker_layout`,
+center ≈ (1300, 2785)) instead of the actual `shutter_button`
+(center ≈ (719, 2785)). Both nodes were clickable and both matched
+the older loose "capture" substring hint, and the second one won by
+iteration order. Nothing appeared in `/sdcard/DCIM/Camera/` because
+we were tapping the mode chooser, not the shutter.
+
+### What ships
+
+**Shutter autodetect rewrite (`arena/mobile/camera.py`).**
+Three-pass detector with strict priority + resource-id blacklist:
+
+1. First match wins against a strict allowlist:
+   `shutter_button`, `smart_shutter_button_layout`, `take_picture`,
+   `photo_button`, `camera_capture_button`, `click_photo`.
+2. Content-desc containing `shutter` / `Кнопка затвора` / `Take picture`.
+3. Fallback: biggest clickable node in the bottom-center quarter of
+   the preview.
+
+Any node whose resource-id contains `picker`, `thumbnail`, `delay`,
+`container`, `menu`, `tip`, `cover`, `grid`, `focus`, `zoom` or
+`toggle` is excluded from every pass.
+
+**New camera-control surface (`arena/mobile/camera_controls.py`,
++7 endpoints).** Everything an AI caller needs to drive a real
+camera app without guessing coordinates:
+
+- `GET  /v1/mobile/{serial}/camera/controls` — dumps every clickable
+  node in the foreground camera app (resource-id, content-desc,
+  text, class, bounds, center). Warms an in-process shutter cache
+  as a side-effect so the record endpoints below survive blank
+  UIAutomator dumps.
+- `POST /v1/mobile/{serial}/camera/mode` — switches capture mode:
+  `photo`, `video`, `portrait`, `pro`, `night`, `document`, `slowmo`,
+  `timelapse`, `pano`, `short`, `movie`. Matches localised labels
+  in the on-screen mode strip (English + Russian shipping today,
+  the alias table is trivially extensible).
+- `POST /v1/mobile/{serial}/camera/lens` — `target=front|back|toggle`.
+  Inspects the current content-desc so `back → back` is a no-op.
+- `POST /v1/mobile/{serial}/camera/zoom` — `level` in x (`0.6`,
+  `1.0`, `2.0`, `3`, …). Picks the closest visible zoom chip.
+- `POST /v1/mobile/{serial}/camera/flash` — `mode=auto|on|off|torch`.
+- `POST /v1/mobile/{serial}/camera/record/start` — switches to video
+  mode, taps the shutter, verifies "recording" state.
+- `POST /v1/mobile/{serial}/camera/record/stop` — taps the shutter
+  again, polls DCIM for the fresh MP4, optionally `pull=true` to
+  return base64. Waits for the encoder to finalise moov before
+  streaming bytes.
+
+The recorder here uses the **in-app camera codec**, not
+`screenrecord`, so it captures whatever resolution / FPS / stabilisation /
+lens configuration the user picked in the camera app — full 4K@30 or
+even 4K@60 on capable phones.
+
+**Shutter cache fallback.** `record_start` and `record_stop` both go
+through `_shutter_tap`, which:
+- calls `find_shutter` live, caches the coordinates on success, and
+- on failure (blank uiautomator XML during recording, ADB blip) taps
+  the last known-good coordinates from the cache instead.
+- retries up to twice with 1.5 s spacing so transient adb hiccups
+  don't kill a recording.
+
+Cache is per-serial with a 5-minute TTL. Warmed automatically by
+`GET /camera/controls`.
+
+**Video pull path.** `pull_photo` now routes `.mp4`, `.mov`, `.mkv`,
+`.webm` and `.3gp` through without touching Pillow. Correct mime
+detection, no accidental "downscale failed" errors on video bytes.
+
+**Video launch intent wired through.** `POST /camera/launch` with
+`{"intent":"video"}` now maps to `android.media.action.VIDEO_CAMERA`
+end-to-end (the code path existed but wasn't tested).
+
+### Files touched
+
+- `arena/mobile/camera.py` (414 → 450 lines) — new detector + video
+  mime routing in `pull_photo` + shared `iter_clickable` helper.
+- `arena/mobile/camera_controls.py` (**new**, 516 lines) — mode /
+  lens / zoom / flash / record_start / record_stop / list_controls +
+  shutter cache.
+- `arena/mobile/handlers_media.py` (132 → 255 lines) — +7 endpoint
+  handlers wired to `camera_controls`.
+- `arena/mobile/handlers.py` (623 → 636 lines, still allowlisted) —
+  MobileHandlers grows from 42 → 49 fields.
+- `arena/mobile/__init__.py` (140 → 160 lines) — re-exports the new
+  helpers.
+- `arena/wiring/platform.py` — 7 new `handle_v1_mobile_camera_*`
+  entries.
+- `arena/route_registry/core.py` — 7 new routes.
+- `arena/capabilities.py` — advertises the 7 new endpoints under
+  `caps.mobile.endpoints`.
+- `scripts/smoke_mobile.py` (442 → 495 lines) — checks the new
+  capability entries + tests `controls`, `mode video → mode photo`
+  round-trip, and verifies shutter autodetect no longer resolves to
+  the mode-switcher coordinates.
+- `tests/test_mobile_v84_4.py` (**new**, 357 lines, 17 tests) —
+  covers the shutter regression, alias resolution, shutter cache
+  fallback, and the 49-field handler dataclass surface.
+
+### Test results
+
+- **886 unit passed** (was 869 in v3.84.3, +17 new).
+- Live shutter fix confirmed on POCO F7 Pro (24117RK2CG, HyperOS
+  OS3.0.302.0): `POST /camera/shutter` now taps `(719, 2785)` via
+  `strict resource-id hint 'shutter_button'` and produces real
+  JPEGs (verified `IMG_20260714_222945.jpg`, 2.94 MB, and
+  `IMG_20260714_223923.jpg`, 3.97 MB).
+- `POST /camera/mode {"mode":"video"}` verified: taps the "Видео"
+  chip at (450, 2504) and reports `mode=video`.
+- `GET /camera/controls` returns 18 clickable nodes and warms the
+  shutter cache to `[719, 2785]`.
+- `POST /camera/record/stop` confirmed working: taps via cached
+  coordinates when the live UIAutomator dump is unavailable
+  (observed during video recording where HyperOS hides the AT tree
+  behind a GL surface).
+
+### Known limitations
+
+- Full `record_start → sleep → record_stop` end-to-end capture
+  requires a stable USB session; the reference POCO F7 Pro
+  intermittently drops to `offline` during long-running smoke runs
+  on the bridge host. The `_shutter_tap` retry + cache mitigates
+  this, but a truly flaky cable will still fail. On a stable
+  connection this cycle produces MP4s matching the camera app's
+  configured resolution/FPS.
+- Mode / flash / lens localisation currently ships English + Russian.
+  Chinese, Spanish, Portuguese etc. need the alias tables extended
+  (`_MODE_ALIASES` / `_FLASH_ALIASES` in `camera_controls.py`).
+
+
 ## v3.84.3 - 2026-07-14
 
 **Live H.264 screen mirror foundations** (WebSocket endpoint + MSE

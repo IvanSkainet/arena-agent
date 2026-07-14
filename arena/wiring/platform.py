@@ -203,4 +203,13 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_mirror_ws":     handlers.mirror_ws,
         "handle_v1_mobile_mirror_stats":  handlers.mirror_stats,
         "handle_v1_mobile_mirror_stop":   handlers.mirror_stop,
+        # v3.84.4: expanded camera control surface.
+        "handle_v1_mobile_camera_controls":     handlers.camera_controls,
+        "handle_v1_mobile_camera_mode":         handlers.camera_mode,
+        "handle_v1_mobile_camera_lens":         handlers.camera_lens,
+        "handle_v1_mobile_camera_zoom":         handlers.camera_zoom,
+        "handle_v1_mobile_camera_flash":        handlers.camera_flash,
+        "handle_v1_mobile_camera_record_start": handlers.camera_record_start,
+        "handle_v1_mobile_camera_record_stop":  handlers.camera_record_stop,
     }
+

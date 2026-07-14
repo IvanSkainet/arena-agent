@@ -1,24 +1,25 @@
 """Camera automation via intents + shutter tap + latest-photo pull.
 
 Android doesn't let a userspace ADB caller directly trigger the shutter
-of a foreground camera app — `KEYCODE_CAMERA` and `KEYCODE_FOCUS` are
+of a foreground camera app -- `KEYCODE_CAMERA` and `KEYCODE_FOCUS` are
 privileged on modern releases (13+), and `KEYCODE_VOLUME_DOWN` is only
 mapped to shutter in some camera apps (Google Camera yes, MIUI Camera
 no). The reliable path is:
 
   1. Launch the camera app via `am start -a
-     android.media.action.STILL_IMAGE_CAMERA`.
+     android.media.action.STILL_IMAGE_CAMERA` (or `VIDEO_CAMERA`).
   2. Wait for the camera preview to be ready.
-  3. Tap the shutter button — either at explicit coordinates the
+  3. Tap the shutter button -- either at explicit coordinates the
      caller supplied, or auto-detected from a `uiautomator dump`
-     looking for a clickable node with `shutter` / `capture` in its
-     resource-id.
+     looking for a clickable node with `shutter_button` /
+     `smart_shutter_button_layout` in its resource-id (v3.84.4 fix:
+     `capture` is no longer matched blindly because that hits
+     `v9_capture_picker_layout`, which is the photo/video switcher).
   4. Wait for the new photo to land in `/sdcard/DCIM/**`.
   5. Optionally pull the file back to the bridge, optionally downscale.
 
-Everything here is best-effort. Some camera apps take 1-3 s to encode
-a photo, so `capture_and_pull` polls the DCIM directory for a new
-file until timeout.
+For v3.84.4 additions (mode/lens/zoom/flash + video record + raw
+control introspection) see `arena.mobile.camera_controls`.
 """
 from __future__ import annotations
 
@@ -42,14 +43,29 @@ _DCIM_PATHS = (
 
 # Image intents the caller can pick from.
 _INTENTS = {
-    "still": "android.media.action.STILL_IMAGE_CAMERA",   # user-driven capture
-    "video": "android.media.action.VIDEO_CAMERA",         # video mode
-    "generic": "android.intent.action.CAMERA_BUTTON",     # some apps listen for this
+    "still": "android.media.action.STILL_IMAGE_CAMERA",
+    "video": "android.media.action.VIDEO_CAMERA",
+    "generic": "android.intent.action.CAMERA_BUTTON",
 }
 
-# resource-id heuristics for the shutter button in the auto-detect path.
-_SHUTTER_HINTS = ("shutter", "capture", "take_picture", "click_photo",
-                  "photo_button", "camera_button")
+# resource-id hints for the shutter button, in strict priority order.
+# The FIRST one that matches wins -- previously (<= v3.84.3) all hints
+# were treated equally, which meant `v9_capture_picker_layout` (the
+# photo/video mode switcher) would beat `shutter_button` on HyperOS.
+_SHUTTER_HINTS_STRICT = (
+    "shutter_button",
+    "smart_shutter_button_layout",
+    "take_picture",
+    "photo_button",
+    "camera_capture_button",
+    "click_photo",
+)
+# Any node whose resource-id contains one of these is never treated as
+# the shutter, even if it matches a hint.
+_SHUTTER_ID_BLACKLIST = (
+    "picker", "thumbnail", "delay", "container",
+    "menu", "tip", "cover", "grid", "focus", "zoom", "toggle",
+)
 
 
 def _err(msg: str, **extra: Any) -> dict[str, Any]:
@@ -73,21 +89,22 @@ def _sh(serial: str, args: list[str], timeout: int = 10) -> tuple[int, str, str]
     return (r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip())
 
 
+def iter_clickable(serial: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Shared helper for camera_controls: return (dump_meta, clickable_nodes)."""
+    from arena.mobile import ui as _ui
+    dump = _ui.dump_ui(serial, interactive_only=False, max_nodes=1500)
+    if not dump.get("ok"):
+        return dump, []
+    return dump, [n for n in dump.get("nodes", []) if n.get("clickable") == "true"]
+
+
 # ---------------------------------------------------------------------------
 # Launch + shutter
 # ---------------------------------------------------------------------------
 
 def launch(serial: str, *, intent: str = "still",
            package: str | None = None) -> dict[str, Any]:
-    """Start the camera app via an implicit intent.
-
-    Args:
-      intent: `still` (default), `video`, or `generic`.
-      package: optional explicit package to prefer (e.g.
-        `com.google.android.GoogleCamera`, `com.android.camera`).
-        Without this Android's resolver picks the user's default
-        camera app.
-    """
+    """Start the camera app via an implicit intent."""
     if intent not in _INTENTS:
         return _err(f"unknown intent {intent!r}",
                     hint=f"Allowed: {sorted(_INTENTS)}")
@@ -114,52 +131,66 @@ def launch(serial: str, *, intent: str = "still",
 
 def find_shutter(serial: str) -> dict[str, Any]:
     """Return the on-screen shutter coordinates by inspecting UI
-    Automator. Returns `{ok, x, y, resource_id, source}` on success.
+    Automator. v3.84.4: strict priority + blacklist so the mode
+    switcher (`v9_capture_picker_layout`) never wins over the real
+    `shutter_button`.
     """
-    from arena.mobile import ui as _ui
-    dump = _ui.dump_ui(serial, interactive_only=False, max_nodes=1000)
-    if not dump.get("ok"):
+    dump, clickable = iter_clickable(serial)
+    if not clickable and not dump.get("ok"):
         return dump
 
-    # First pass: exact resource-id hint.
-    best_hint = None
-    best_generic = None
-    for n in dump.get("nodes", []):
-        rid = (n.get("resource-id") or "").lower()
-        center = n.get("center")
-        if not center or len(center) != 2:
-            continue
-        if n.get("clickable") != "true":
-            continue
-        for hint in _SHUTTER_HINTS:
-            if hint in rid:
-                best_hint = (n, hint)
-                break
-        # Fallback: the biggest clickable node in the bottom quarter,
-        # x roughly centered.
-        w = dump.get("screen_bounds", [1440, 3200])[0]
-        h = dump.get("screen_bounds", [1440, 3200])[1]
-        if center[1] > h * 0.75 and 0.3 * w < center[0] < 0.7 * w:
-            area = n.get("width", 0) * n.get("height", 0)
-            if best_generic is None or area > best_generic[1]:
-                best_generic = (n, area)
+    sw, sh = 1440, 3200
+    b = dump.get("screen_bounds")
+    if isinstance(b, (list, tuple)) and len(b) >= 2:
+        sw, sh = int(b[0]), int(b[1])
 
-    if best_hint:
-        node, matched = best_hint
-        return {
-            "ok": True,
-            "x": node["center"][0], "y": node["center"][1],
-            "resource_id": node.get("resource-id"),
-            "source": f"resource-id contains {matched!r}",
-        }
-    if best_generic:
-        node, _ = best_generic
-        return {
-            "ok": True,
-            "x": node["center"][0], "y": node["center"][1],
-            "resource_id": node.get("resource-id") or "",
-            "source": "largest clickable node in bottom-center quarter",
-        }
+    def _ok(node: dict[str, Any]) -> bool:
+        rid = (node.get("resource-id") or "").lower()
+        return all(bad not in rid for bad in _SHUTTER_ID_BLACKLIST)
+
+    # Pass 1: strict priority match against known shutter resource-ids.
+    for hint in _SHUTTER_HINTS_STRICT:
+        for n in clickable:
+            rid = (n.get("resource-id") or "").lower()
+            if hint not in rid or not _ok(n):
+                continue
+            c = n.get("center")
+            if not c:
+                continue
+            return {"ok": True, "x": c[0], "y": c[1],
+                    "resource_id": n.get("resource-id"),
+                    "source": f"strict resource-id hint {hint!r}"}
+
+    # Pass 2: content-desc looks like a shutter (localised).
+    _DESC_HINTS = ("shutter", "Кнопка затвора", "take photo",
+                   "Спуск", "Take picture")
+    for n in clickable:
+        desc = (n.get("content-desc") or "")
+        if not desc:
+            continue
+        if any(h.lower() in desc.lower() for h in _DESC_HINTS) and _ok(n):
+            c = n.get("center")
+            if c:
+                return {"ok": True, "x": c[0], "y": c[1],
+                        "resource_id": n.get("resource-id"),
+                        "source": f"content-desc {desc!r}"}
+
+    # Pass 3: biggest clickable node in the bottom center quarter.
+    best = None
+    for n in clickable:
+        c = n.get("center")
+        if not c or not _ok(n):
+            continue
+        if c[1] > sh * 0.78 and 0.35 * sw < c[0] < 0.65 * sw:
+            area = int(n.get("width", 0)) * int(n.get("height", 0))
+            if best is None or area > best[1]:
+                best = (n, area)
+    if best:
+        n, _ = best
+        return {"ok": True,
+                "x": n["center"][0], "y": n["center"][1],
+                "resource_id": n.get("resource-id") or "",
+                "source": "largest clickable node in bottom-center quarter"}
     return _err(
         "no shutter-shaped node found",
         hint="Is the camera app in the foreground? Try passing "
@@ -203,8 +234,7 @@ _LS_LINE = re.compile(
 
 
 def list_photos(serial: str, *, limit: int = 10) -> dict[str, Any]:
-    """List the newest photos + videos in DCIM. Reports name, path,
-    size and modification time for each."""
+    """List the newest photos + videos in DCIM."""
     guard = _ensure_adb()
     if guard:
         return guard
@@ -229,14 +259,11 @@ def list_photos(serial: str, *, limit: int = 10) -> dict[str, Any]:
             if len(entries) >= limit:
                 break
         if entries:
-            # First DCIM path with content wins to avoid duplicates
-            # from bind-mounted /sdcard/DCIM aliases.
             break
     return {"ok": True, "count": len(entries), "photos": entries[:limit]}
 
 
-def _photo_mtime(serial: str, path: str) -> float:
-    """Return `stat -c %Y` (epoch seconds) for the given path, or 0."""
+def photo_mtime(serial: str, path: str) -> float:
     rc, out, _ = _sh(serial, ["stat", "-c", "%Y", path])
     if rc != 0:
         return 0.0
@@ -246,13 +273,23 @@ def _photo_mtime(serial: str, path: str) -> float:
         return 0.0
 
 
-def latest_photo(serial: str) -> dict[str, Any]:
-    """Return the newest file in DCIM by modification time.
+def photo_size(serial: str, path: str) -> int:
+    rc, out, _ = _sh(serial, ["stat", "-c", "%s", path])
+    if rc != 0:
+        return 0
+    try:
+        return int(out.strip())
+    except ValueError:
+        return 0
 
-    Used by `capture_and_pull` to identify what the shutter produced —
-    we snapshot the newest mtime before shutter, then poll until we
-    see a newer file appear.
-    """
+
+# Backwards compat aliases (underscore-prefixed names used internally).
+_photo_mtime = photo_mtime
+_photo_size = photo_size
+
+
+def latest_photo(serial: str) -> dict[str, Any]:
+    """Return the newest file in DCIM by modification time."""
     r = list_photos(serial, limit=1)
     if not r.get("ok"):
         return r
@@ -261,7 +298,7 @@ def latest_photo(serial: str) -> dict[str, Any]:
         return _err("DCIM is empty",
                     hint=f"Checked {list(_DCIM_PATHS)!r}")
     p = photos[0]
-    p["mtime_epoch"] = _photo_mtime(serial, p["path"])
+    p["mtime_epoch"] = photo_mtime(serial, p["path"])
     return {"ok": True, **p}
 
 
@@ -269,21 +306,16 @@ def pull_photo(serial: str, path: str, *,
                max_size: int | None = None,
                format: str = "jpeg",
                quality: int = 85) -> dict[str, Any]:
-    """Fetch a photo from the phone. Optionally downscale on the bridge.
-
-    Response:
-      {"ok": bool, "bytes": base64_str, "mime": str, "size_bytes": int,
-       "source_path": str, "width": int, "height": int}
-    """
+    """Fetch a photo/video from the phone. For images, optionally
+    downscale; for videos the raw MP4 bytes come through untouched."""
     guard = _ensure_adb()
     if guard:
         return guard
     if not isinstance(path, str) or not path.startswith("/"):
         return _err("path must be an absolute device path")
-    # `adb exec-out cat` streams the file to stdout without base64.
     try:
         r = run(["exec-out", "cat", path], serial=serial,
-                timeout=60, capture_binary=True)
+                timeout=120, capture_binary=True)
     except AdbNotFoundError as e:
         return _err(str(e))
     if r.returncode != 0:
@@ -293,7 +325,24 @@ def pull_photo(serial: str, path: str, *,
     if not data:
         return _err(f"file empty or missing: {path}")
 
+    # Route video files straight through without PIL.
+    lower = path.lower()
+    video_ext_map = {".mp4": "video/mp4", ".mov": "video/quicktime",
+                     ".mkv": "video/x-matroska", ".webm": "video/webm",
+                     ".3gp": "video/3gpp"}
+    for ext, mime in video_ext_map.items():
+        if lower.endswith(ext):
+            return {
+                "ok": True,
+                "source_path": path,
+                "size_bytes": len(data),
+                "mime": mime,
+                "width": 0, "height": 0,
+                "bytes_b64": base64.b64encode(data).decode("ascii"),
+            }
+
     width = height = 0
+    mime = "image/jpeg"
     if max_size or format != "jpeg":
         try:
             from PIL import Image
@@ -326,8 +375,6 @@ def pull_photo(serial: str, path: str, *,
         except Exception as e:
             return _err(f"downscale failed: {e}",
                         source_path=path, size_bytes=len(data))
-    else:
-        mime = "image/jpeg"
 
     return {
         "ok": True,
@@ -348,12 +395,7 @@ def capture_and_pull(serial: str, *,
                      format: str = "jpeg",
                      quality: int = 85,
                      package: str | None = None) -> dict[str, Any]:
-    """Full flow: launch camera → shutter → poll DCIM → pull result.
-
-    Returns the pulled photo (base64) + a per-step timing report. On
-    timeout waiting for the new file we still return the launch/shutter
-    outcome so the caller can debug.
-    """
+    """Full flow: launch camera -> shutter -> poll DCIM -> pull result."""
     guard = _ensure_adb()
     if guard:
         return guard
@@ -373,7 +415,6 @@ def capture_and_pull(serial: str, *,
     if not tapped.get("ok"):
         return _err("shutter tap failed", stage="shutter", detail=tapped)
 
-    # Poll DCIM for a new file with mtime > baseline.
     deadline = time.monotonic() + wait_for_file_ms / 1000.0
     fresh_path = None
     fresh_size = 0
@@ -382,16 +423,12 @@ def capture_and_pull(serial: str, *,
         if current.get("ok"):
             path = current["path"]
             mtime = current.get("mtime_epoch", 0.0)
-            # A new file, or the same "latest" name but with a bigger
-            # mtime and a bigger size (some ROMs write with a stub then
-            # append EXIF, keeping the same filename).
             if path != baseline_path or mtime > baseline_mtime + 0.1:
                 fresh_path = path
                 fresh_size = current.get("size_bytes") or 0
                 break
         time.sleep(0.25)
 
-    total_launch_ms = int((time.monotonic() - started) * 1000)
     if not fresh_path:
         return _err(
             "no new photo appeared in DCIM before timeout",

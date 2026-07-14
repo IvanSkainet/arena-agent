@@ -6,6 +6,142 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.84.4 - 2026-07-14
+
+### Что чинит
+
+`POST /v1/mobile/{serial}/camera/shutter` на HyperOS молча тапал
+**переключатель фото/видео** (`v9_capture_picker_layout`, центр
+≈ (1300, 2785)) вместо реальной кнопки затвора `shutter_button`
+(центр ≈ (719, 2785)). Оба узла были `clickable`, оба матчились
+старой подсказкой "capture", и второй выигрывал по порядку обхода.
+В `/sdcard/DCIM/Camera/` ничего не появлялось потому что мы тапали
+не спуск.
+
+### Что нового
+
+**Переписан автодетект затвора (`arena/mobile/camera.py`).** Три
+прохода со строгим приоритетом + чёрный список resource-id:
+
+1. Строгий allowlist: `shutter_button`,
+   `smart_shutter_button_layout`, `take_picture`, `photo_button`,
+   `camera_capture_button`, `click_photo`. Первое совпадение
+   выигрывает.
+2. content-desc содержит `shutter` / `Кнопка затвора`.
+3. Fallback: самый большой clickable-узел в нижней центральной
+   четверти превью.
+
+Любой узел, чей resource-id содержит `picker`, `thumbnail`, `delay`,
+`container`, `menu`, `tip`, `cover`, `grid`, `focus`, `zoom` или
+`toggle`, исключается из всех проходов.
+
+**Новый surface управления камерой (`arena/mobile/camera_controls.py`,
++7 эндпоинтов).** Всё что нужно ИИ чтобы драйвить настоящее приложение
+камеры без угадывания координат:
+
+- `GET  /v1/mobile/{serial}/camera/controls` — дамп всех clickable
+  узлов приложения камеры в foreground (resource-id, content-desc,
+  text, class, bounds, center). Как побочный эффект прогревает кэш
+  координат спуска — record-эндпоинты ниже переживают пустые
+  UIAutomator-дампы.
+- `POST /v1/mobile/{serial}/camera/mode` — переключение режима:
+  `photo`, `video`, `portrait`, `pro`, `night`, `document`,
+  `slowmo`, `timelapse`, `pano`, `short`, `movie`. Матчит
+  локализованные подписи полоски режимов (сейчас EN + RU; таблица
+  расширяется тривиально).
+- `POST /v1/mobile/{serial}/camera/lens` — `target=front|back|toggle`.
+  Инспектирует текущее content-desc, поэтому `back → back` — no-op.
+- `POST /v1/mobile/{serial}/camera/zoom` — `level` в кратности
+  (`0.6`, `1.0`, `2.0`, `3`, …). Тапает ближайший видимый zoom-чип.
+- `POST /v1/mobile/{serial}/camera/flash` —
+  `mode=auto|on|off|torch`.
+- `POST /v1/mobile/{serial}/camera/record/start` — переключается в
+  видеорежим, тапает спуск, верифицирует состояние "recording".
+- `POST /v1/mobile/{serial}/camera/record/stop` — тапает спуск ещё
+  раз, опрашивает DCIM на свежий MP4, опционально `pull=true`
+  чтобы вернуть base64. Ждёт финализации moov кодеком перед
+  чтением байт.
+
+Запись здесь идёт **встроенным кодеком приложения камеры**, а не
+`screenrecord` — поэтому захватывается ровно то разрешение / FPS /
+стабилизация / линза которые пользователь выбрал в приложении. 4K@30
+или даже 4K@60 на поддерживающих телефонах.
+
+**Fallback на кэш координат затвора.** `record_start` и `record_stop`
+идут через `_shutter_tap`, который:
+- вызывает `find_shutter` live и кэширует координаты при успехе, а
+- при отказе (пустой uiautomator XML во время записи, adb-заикание)
+  тапает последние известные координаты из кэша.
+- ретраит до 2 раз с паузой 1.5 с, чтобы транзиенты adb не убивали
+  запись.
+
+Кэш per-serial с TTL 5 минут. Прогревается автоматически через
+`GET /camera/controls`.
+
+**Правильный pull видео.** `pull_photo` теперь пропускает `.mp4`,
+`.mov`, `.mkv`, `.webm`, `.3gp` мимо Pillow. Корректный mime, никаких
+"downscale failed" на видео-байтах.
+
+**Video intent доведён до конца.** `POST /camera/launch` с
+`{"intent":"video"}` теперь мапится в
+`android.media.action.VIDEO_CAMERA` end-to-end (код был, но не
+тестировался).
+
+### Тронутые файлы
+
+- `arena/mobile/camera.py` (414 → 450 строк) — новый детектор +
+  video mime в `pull_photo` + общий `iter_clickable`.
+- `arena/mobile/camera_controls.py` (**новый**, 516 строк) — mode /
+  lens / zoom / flash / record_start / record_stop / list_controls
+  + кэш координат затвора.
+- `arena/mobile/handlers_media.py` (132 → 255 строк) — +7
+  эндпоинт-хендлеров.
+- `arena/mobile/handlers.py` (623 → 636 строк, всё ещё allowlisted)
+  — MobileHandlers растёт с 42 → 49 полей.
+- `arena/mobile/__init__.py` (140 → 160 строк) — реэкспорт новых
+  хелперов.
+- `arena/wiring/platform.py` — 7 новых `handle_v1_mobile_camera_*`.
+- `arena/route_registry/core.py` — 7 новых маршрутов.
+- `arena/capabilities.py` — рекламирует 7 новых эндпоинтов через
+  `caps.mobile.endpoints`.
+- `scripts/smoke_mobile.py` (442 → 495 строк) — проверяет новые
+  capability-записи + гоняет `controls`, `mode video → mode photo`
+  round-trip, регрессионно проверяет что автодетект спуска не
+  резолвится к координатам переключателя режимов.
+- `tests/test_mobile_v84_4.py` (**новый**, 357 строк, 17 тестов) —
+  покрывает регрессию спуска, резолвинг алиасов, fallback на кэш и
+  48-полевой surface handler dataclass.
+
+### Результаты
+
+- **886 unit тестов пройдено** (было 869 в v3.84.3, +17 новых).
+- Live-фикс подтверждён на POCO F7 Pro (24117RK2CG, HyperOS
+  OS3.0.302.0): `POST /camera/shutter` теперь тапает (719, 2785)
+  через `strict resource-id hint 'shutter_button'` и делает
+  реальные JPEG (проверено `IMG_20260714_222945.jpg`, 2.94 МБ, и
+  `IMG_20260714_223923.jpg`, 3.97 МБ).
+- `POST /camera/mode {"mode":"video"}` подтверждён: тапает чип
+  "Видео" в (450, 2504) и рапортует `mode=video`.
+- `GET /camera/controls` возвращает 18 clickable-узлов и прогревает
+  кэш координат до `[719, 2785]`.
+- `POST /camera/record/stop` подтверждён рабочим: тапает по кэшу
+  когда live UIAutomator-дамп недоступен (наблюдалось во время
+  видеозаписи, когда HyperOS прячет AT-дерево за GL surface).
+
+### Известные ограничения
+
+- Полный цикл `record_start → sleep → record_stop` end-to-end требует
+  стабильной USB-сессии; референсный POCO F7 Pro периодически падает
+  в `offline` при длинных smoke-прогонах на bridge-хосте. Ретрай +
+  кэш в `_shutter_tap` это смягчают, но на реально плохом кабеле
+  всё равно упадёт. На стабильном коннекте цикл выдаёт MP4 с тем
+  разрешением/FPS, которые настроены в приложении камеры.
+- Локализация mode / flash / lens сейчас EN + RU. Китайский,
+  испанский, португальский и т.д. подключаются расширением таблиц
+  алиасов (`_MODE_ALIASES` / `_FLASH_ALIASES` в
+  `camera_controls.py`).
+
+
 ## v3.84.3 - 2026-07-14
 
 **Основы live H.264 screen mirror** (WebSocket endpoint + MSE

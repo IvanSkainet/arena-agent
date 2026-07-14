@@ -97,7 +97,10 @@ def smoke_capabilities() -> None:
     endpoints = set(m.get("endpoints") or [])
     for required in ("devices", "info", "screenshot", "tap", "swipe",
                      "gesture", "batch",
-                     "camera/launch", "camera/shutter", "camera/capture"):
+                     "camera/launch", "camera/shutter", "camera/capture",
+                     "camera/controls", "camera/mode", "camera/lens",
+                     "camera/zoom", "camera/flash",
+                     "camera/record/start", "camera/record/stop"):
         _check(f"endpoint '{required}' advertised", required in endpoints)
 
 
@@ -230,7 +233,7 @@ def smoke_apk_prepare() -> None:
 
 
 def smoke_camera(skip: bool) -> None:
-    section(f"/v1/mobile/{SERIAL}/camera/launch + list_photos")
+    section(f"/v1/mobile/{SERIAL}/camera/launch + list_photos + controls")
     if skip:
         _check("SKIP (--skip-camera)", True)
         return
@@ -239,7 +242,47 @@ def smoke_camera(skip: bool) -> None:
     s, r, _ = _http("POST", f"/v1/mobile/{SERIAL}/camera/launch",
                     body={"intent": "still"})
     _check("launch HTTP 200 + ok", s == 200 and (r or {}).get("ok"))
-    time.sleep(2.0)
+    time.sleep(2.5)
+
+    # v3.84.4: /camera/controls should return a non-empty list of
+    # clickable UI nodes -- and, if this is HyperOS, warm the shutter
+    # cache so record_start / record_stop survive uiautomator hiccups.
+    s3, r3, _ = _http("GET", f"/v1/mobile/{SERIAL}/camera/controls")
+    _check("controls HTTP 200 + ok", s3 == 200 and (r3 or {}).get("ok"))
+    _check("controls returns >= 3 clickable nodes",
+           (r3 or {}).get("count", 0) >= 3,
+           detail=f"count={(r3 or {}).get('count')}")
+    cached = (r3 or {}).get("cached_shutter")
+    _check("shutter cache warmed via controls",
+           bool(cached),
+           detail=f"cached_shutter={cached}")
+
+    # v3.84.4: shutter autodetect regression -- the resolved x must NOT
+    # match the mode-switcher position (~1300 on 1440-wide screens).
+    # We just probe find via the shutter endpoint's dry return.
+    s4, r4, _ = _http("POST", f"/v1/mobile/{SERIAL}/camera/shutter",
+                      body={})
+    time.sleep(1.5)
+    detected = (r4 or {}).get("detected_via", "")
+    _check("shutter autodetect uses strict resource-id hint",
+           "shutter_button" in detected or "cached" in detected,
+           detail=f"detected_via={detected!r}")
+
+    # v3.84.4: mode switch photo <-> video should succeed.
+    s5, r5, _ = _http("POST", f"/v1/mobile/{SERIAL}/camera/mode",
+                      body={"mode": "video"})
+    time.sleep(1.5)
+    _check("switch to video mode",
+           s5 == 200 and (r5 or {}).get("ok"),
+           detail=(r5 or {}).get("error") or (r5 or {}).get("matched_label"))
+    # Switch back to photo so subsequent smoke steps see a still shutter.
+    s6, r6, _ = _http("POST", f"/v1/mobile/{SERIAL}/camera/mode",
+                      body={"mode": "photo"})
+    time.sleep(1.5)
+    _check("switch back to photo mode",
+           s6 == 200 and (r6 or {}).get("ok"),
+           detail=(r6 or {}).get("error"))
+
     # List DCIM to ensure the endpoint returns something coherent.
     s2, r2, _ = _http("GET", f"/v1/mobile/{SERIAL}/camera/photos?limit=3")
     _check("photos HTTP 200 + ok", s2 == 200 and (r2 or {}).get("ok"))
@@ -439,3 +482,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
