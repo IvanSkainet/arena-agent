@@ -5,11 +5,11 @@ Kept separate from tests/test_mobile.py so both files stay under the
 """
 from __future__ import annotations
 
-from arena.mobile import adb as _adb  # noqa: F401 — kept for parity
-from arena.mobile import devices as _dev  # noqa: F401
-from arena.mobile import helpers as _h  # noqa: F401
+from arena.mobile import adb as _adb  # noqa: F401
+from arena.mobile import devices as _dev
+from arena.mobile import helpers as _h
 from arena.mobile import input as _input  # noqa: F401
-from arena.mobile import screenshot as _s  # noqa: F401
+from arena.mobile import screenshot as _s
 
 
 # ---------------------------------------------------------------------------
@@ -19,7 +19,6 @@ def test_screen_probe_reports_rotation_and_current_size(monkeypatch):
     """dumpsys window displays gives `cur=WxH` in the currently-rotated
     orientation. dumpsys input gives `orientation=N` in the INTERNAL
     viewport line. Both must land in the returned dict."""
-    from arena.mobile import devices as _dev
     wm_size = "Physical size: 1440x3200\n"
     wm_density = "Physical density: 600\n"
     disp = (
@@ -33,10 +32,14 @@ def test_screen_probe_reports_rotation_and_current_size(monkeypatch):
         "orientation=1, logicalFrame=[0, 0, 3200, 1440], physicalFrame=[0, 0, 3200, 1440]\n"
     )
     def _fake_sh(serial, args, timeout=5):
-        if args[:2] == ["wm", "size"]: return wm_size.strip()
-        if args[:2] == ["wm", "density"]: return wm_density.strip()
-        if args[:2] == ["dumpsys", "window"]: return disp
-        if args[:2] == ["dumpsys", "input"]: return inp
+        if args[:2] == ["wm", "size"]:
+            return wm_size.strip()
+        if args[:2] == ["wm", "density"]:
+            return wm_density.strip()
+        if args[:2] == ["dumpsys", "window"]:
+            return disp
+        if args[:2] == ["dumpsys", "input"]:
+            return inp
         return ""
     monkeypatch.setattr(_dev, "_sh", _fake_sh)
     out = _dev._probe_screen("dummy")
@@ -50,8 +53,6 @@ def test_screen_probe_reports_rotation_and_current_size(monkeypatch):
 def test_screenshot_returns_source_dims_for_rotation_aware_scaling():
     """capture()'s dict must expose `source_width`/`source_height` (the
     native rotated pixels) alongside the possibly-downscaled width/height."""
-    from arena.mobile import screenshot as _s
-    from arena.mobile import adb as _adb2
     fake_png = (
         b"\x89PNG\r\n\x1a\n"           # signature
         b"\x00\x00\x00\rIHDR"          # length + type
@@ -85,7 +86,6 @@ def test_helpers_bundled_apk_status_missing_file_is_actionable(tmp_path, monkeyp
     """When the APK isn't shipped in this build, status() must fail
     with a hint pointing at the expected location — not a bare
     FileNotFoundError from open()."""
-    from arena.mobile import helpers as _h
     monkeypatch.setattr(_h, "bundled_apk_path",
                         lambda: tmp_path / "does-not-exist.apk")
     r = _h.bundled_apk_status()
@@ -98,7 +98,6 @@ def test_helpers_bundled_apk_status_missing_file_is_actionable(tmp_path, monkeyp
 def test_helpers_bundled_apk_status_hash_mismatch_refuses(tmp_path, monkeypatch):
     """Someone swapping the bundled APK for a different one must be
     caught by the SHA-256 guard, not silently trusted."""
-    from arena.mobile import helpers as _h
     fake = tmp_path / "fake.apk"
     fake.write_bytes(b"not a real apk at all")
     monkeypatch.setattr(_h, "bundled_apk_path", lambda: fake)
@@ -111,7 +110,7 @@ def test_helpers_bundled_apk_status_hash_mismatch_refuses(tmp_path, monkeypatch)
 def test_helpers_consent_token_is_apk_specific():
     """The consent token must include a prefix of the APK's own hash,
     so rotating the bundle invalidates stale prompts."""
-    from arena.mobile.helpers import _consent_token, ADBKEYBOARD_SHA256
+    from arena.mobile.helpers import ADBKEYBOARD_SHA256, _consent_token
     tok = _consent_token(ADBKEYBOARD_SHA256)
     assert tok.startswith("yes-install-adbkeyboard-")
     assert tok.endswith(ADBKEYBOARD_SHA256[:8])
@@ -120,7 +119,6 @@ def test_helpers_consent_token_is_apk_specific():
 
 
 def test_helpers_install_rejects_wrong_consent(tmp_path, monkeypatch):
-    from arena.mobile import helpers as _h
     monkeypatch.setattr(_h, "bundled_apk_status", lambda: {
         "ok": True, "sha256": _h.ADBKEYBOARD_SHA256,
         "path": "/tmp/x.apk", "size_bytes": 100,
@@ -135,7 +133,6 @@ def test_helpers_install_rejects_wrong_consent(tmp_path, monkeypatch):
 def test_helpers_paste_refuses_without_adbkeyboard(monkeypatch):
     """paste_text must fail with an actionable hint when ADBKeyboard
     is not installed — not silently broadcast to nowhere."""
-    from arena.mobile import helpers as _h
     monkeypatch.setattr(_h, "find_adb", lambda: "/usr/bin/adb")
     monkeypatch.setattr(_h, "ime_status", lambda serial: {
         "ok": True,
@@ -150,7 +147,6 @@ def test_helpers_paste_refuses_without_adbkeyboard(monkeypatch):
 
 
 def test_helpers_paste_refuses_when_installed_but_inactive(monkeypatch):
-    from arena.mobile import helpers as _h
     monkeypatch.setattr(_h, "find_adb", lambda: "/usr/bin/adb")
     monkeypatch.setattr(_h, "ime_status", lambda serial: {
         "ok": True,
@@ -169,7 +165,6 @@ def test_helpers_paste_base64_encodes_utf8(monkeypatch):
     """Happy path: with ADBKeyboard active, paste_text base64-encodes
     the utf-8 bytes and issues the broadcast."""
     import base64
-    from arena.mobile import helpers as _h
     monkeypatch.setattr(_h, "find_adb", lambda: "/usr/bin/adb")
     monkeypatch.setattr(_h, "ime_status", lambda serial: {
         "ok": True, "adbkeyboard_installed": True, "adbkeyboard_active": True,
@@ -195,7 +190,6 @@ def test_helpers_paste_base64_encodes_utf8(monkeypatch):
 
 
 def test_helpers_ime_status_shape(monkeypatch):
-    from arena.mobile import helpers as _h
     monkeypatch.setattr(_h, "find_adb", lambda: "/usr/bin/adb")
     def _fake_run_sh(serial, args, timeout=6):
         if args[:3] == ["settings", "get", "secure"]:
