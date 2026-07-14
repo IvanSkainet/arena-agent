@@ -53,6 +53,13 @@ from arena.mobile.camera_controls import (
     record_start as camera_record_start,
     record_stop as camera_record_stop,
 )
+# v3.84.5: transport fallback (USB <-> wireless ADB).
+from arena.mobile.transport import (
+    enable_tcp as transport_enable_tcp,
+    disable_tcp as transport_disable_tcp,
+    describe as transport_describe,
+)
+from arena.mobile import adb_fallback as _adb_fallback  # re-export namespace
 # Re-export the new scroll + key_combo primitives added in v3.83.3.
 from arena.mobile.input import key_combo, scroll
 
@@ -154,6 +161,10 @@ __all__ = [
     "camera_set_flash",
     "camera_record_start",
     "camera_record_stop",
+    # v3.84.5 transport
+    "transport_enable_tcp",
+    "transport_disable_tcp",
+    "transport_describe",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

@@ -84,6 +84,10 @@ class MobileHandlers:
     camera_flash: object
     camera_record_start: object
     camera_record_stop: object
+    # v3.84.5: transport fallback (USB <-> wireless ADB) for flaky USB.
+    transport_status: object
+    transport_tcp_enable: object
+    transport_tcp_disable: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -619,7 +623,9 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         key_combo=handle_key_combo,
         **{k: _devops[k] for k in (
             "pair", "connect", "disconnect",
-            "apk_prepare", "apk_install", "apk_upload")},
+            "apk_prepare", "apk_install", "apk_upload",
+            "transport_status",
+            "transport_tcp_enable", "transport_tcp_disable")},
         batch=handle_batch,
         **{k: _media[k] for k in (
             "camera_launch", "camera_shutter",

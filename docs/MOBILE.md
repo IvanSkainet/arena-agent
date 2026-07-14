@@ -228,7 +228,7 @@ arena-mobile batch 2200ad3b @steps.json
 arena-mobile pair 192.168.1.5 38571 654321
 ```
 
-## All 49 endpoints in one screen (v3.84.4)
+## All 52 endpoints in one screen (v3.84.5)
 
 ```
 GET  /v1/mobile/devices
@@ -283,7 +283,81 @@ POST /v1/mobile/{s}/recording/purge
 GET  /v1/mobile/{s}/mirror               # WebSocket + ?token= auth
 GET  /v1/mobile/mirror/stats
 POST /v1/mobile/{s}/mirror/stop
+# Transport fallback (v3.84.5).
+GET  /v1/mobile/transport                # global registry snapshot
+GET  /v1/mobile/{s}/transport            # per-serial view
+POST /v1/mobile/{s}/transport/tcp/enable # {host?, port?}  probe wlan0 + adb tcpip + adb connect + register alias
+POST /v1/mobile/{s}/transport/tcp/disable# {alias?}         drop alias + adb disconnect
 ```
+
+## Transport fallback (v3.84.5)
+
+USB flaps happen. When they do, every ADB call in-flight returns
+`device 'XXX' not found` and there's nothing an API caller can do
+about it. The transport fallback registers a wireless-ADB address for
+the same phone and transparently routes calls to it once the USB
+side trips a per-transport circuit breaker.
+
+### Enable it once
+
+```bash
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{}' \
+  "$BRIDGE/v1/mobile/$S/transport/tcp/enable" | jq
+```
+
+Response walks the four stages so you can see what happened even on
+failure:
+
+```json
+{
+  "ok": true,
+  "alias": "192.168.50.181:5555",
+  "stages": [
+    {"stage": "probe_ip", "wifi_ip": "192.168.50.181"},
+    {"stage": "tcpip", "returncode": 0, "stdout": "restarting in TCP mode port: 5555"},
+    {"stage": "connect", "ok": true, "output": "connected to 192.168.50.181:5555"},
+    {"stage": "register", "alias": "192.168.50.181:5555"}
+  ]
+}
+```
+
+### Watch the health
+
+```bash
+curl -sSf -H "Authorization: Bearer $TOK" \
+  "$BRIDGE/v1/mobile/$S/transport" | jq
+```
+
+Each transport reports `healthy`, `consecutive_fails`,
+`cooldown_remaining_sec`, `total_calls`, `total_fails`, `last_error`.
+The device object also carries `is_multi_transport` (true when at
+least one alias is registered) and `active_transport` (the address
+that will be used for the next call).
+
+### How the breaker fires
+
+Three back-to-back offline-shaped errors on a single transport
+(`device offline`, `device 'XXX' not found`, `no devices/emulators
+found`, `device unauthorized`, `failed to get feature set`, etc.)
+mark it unhealthy for 20 s. During cooldown the router serves the
+next healthy transport. A successful call resets the counter
+immediately.
+
+Non-offline errors (permission denied, activity not found, invalid
+key event...) never trip the breaker — they're app-level failures,
+not transport failures.
+
+### Drop it
+
+```bash
+curl -sSf -X POST -H "Authorization: Bearer $TOK" \
+  -H "Content-Type: application/json" -d '{}' \
+  "$BRIDGE/v1/mobile/$S/transport/tcp/disable"
+```
+
+Drops every TCP alias and runs `adb disconnect` on each one. The
+USB primary is untouched.
 
 ## Camera control cookbook (v3.84.4)
 

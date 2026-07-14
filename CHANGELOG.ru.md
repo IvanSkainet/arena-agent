@@ -6,6 +6,112 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.84.5 - 2026-07-15
+
+### Зачем
+
+USB между bridge-хостом и телефоном срывается под нагрузкой. Во время
+разработки v3.84.4 POCO F7 Pro регулярно уходил в `offline` /
+`authorizing` посреди записи видео, когда uiautomator или большой
+`adb pull` нагружал шину — и никакого in-process восстановления не
+было. Каждый вызов, попавший в flap, падал с `device 'XXX' not found`
+даже несмотря на то что телефон был жив и доступен по Wi-Fi.
+
+### Что добавлено
+
+**Новый модуль `arena/mobile/adb_fallback.py` (306 строк) —
+транспортный registry с per-transport circuit breaker.** У каждого
+физического телефона может быть один или несколько транспортов:
+primary — его USB serial (`2200ad3b`), secondary — wireless-ADB
+alias'ы (`192.168.50.181:5555`). Каждый ADB-вызов идёт через
+`pick_transport(canonical)`; после `_MAX_CONSECUTIVE_FAILS` (3)
+подряд offline-подобных ошибок транспорт помечается unhealthy на
+`_UNHEALTHY_COOLDOWN_SEC` (20 с) и router возвращает следующий
+здоровый транспорт. Когда primary восстанавливается — маршрут
+автоматически возвращается.
+
+Классификатор offline (`_looks_offline`) матчит все "device
+unreachable" паттерны, что мы видели: `device offline`, `device 'XXX'
+not found`, `no devices/emulators found`, `device still authorizing`,
+`device unauthorized`, `failed to get feature set`, `cannot connect
+to daemon`, `no such device`, `protocol fault`, `server didn't ack`.
+Не-offline ошибки (permission denied, activity not found, и т.д.)
+никогда не триггерят breaker.
+
+**Новый модуль `arena/mobile/transport.py` (231 строка) — user-facing
+transport control.** Оборачивает registry в one-shot `enable_tcp(serial)`
+хелпер: пробит `wlan0` IPv4 телефона пока USB ещё жив, запускает
+`adb -s <usb> tcpip 5555`, ждёт 1.5 с для перезапуска adbd, запускает
+`adb connect ip:5555`, регистрирует `ip:5555` как alias в registry.
+Плюс `disable_tcp(serial)`, `describe(serial)`, `parse_hostport()`.
+
+**Патч `arena/mobile/adb.py` `run()` — прозрачная маршрутизация.**
+При вызове с `serial` wrapper резолвит эффективный транспорт через
+registry, спавнит adb против него, кормит исход (returncode + stderr)
+обратно чтобы следующие вызовы могли обойти падающий транспорт.
+Вызовы которые ДОЛЖНЫ попасть в конкретный транспорт (сам
+`transport.enable_tcp` при `adb -s <usb> tcpip 5555`) передают новый
+флаг `no_route=True` для opt-out.
+
+**3 новых HTTP-эндпоинта (dataclass растёт 49 → 52 поля)**:
+
+- `GET  /v1/mobile/transport`                          — глобальный snapshot registry
+- `GET  /v1/mobile/{serial}/transport`                 — per-serial view + `is_multi_transport` / `active_transport`
+- `POST /v1/mobile/{serial}/transport/tcp/enable`      — body `{host?, port?}`; probe + connect + register alias
+- `POST /v1/mobile/{serial}/transport/tcp/disable`     — body `{alias?}`; сбрасывает TCP alias(ы) и делает `adb disconnect`
+
+Все три проходят тот же `require_auth` что и остальные
+`/v1/mobile/*` и логируются через `ctx.audit(...)`.
+
+### Тронутые файлы
+
+- `arena/mobile/adb.py` (185 → 224 строк) — routing wrapper + `no_route`.
+- `arena/mobile/adb_fallback.py` (**новый**, 306 строк) — registry + breaker.
+- `arena/mobile/transport.py` (**новый**, 231 строка) — user-facing.
+- `arena/mobile/handlers_devops.py` (158 → 220 строк) — 3 новых aiohttp-хендлера.
+- `arena/mobile/handlers.py` (636 → 642 строк, всё ещё allowlisted) — MobileHandlers 49 → 52 полей.
+- `arena/mobile/__init__.py` (160 → 171 строк) — реэкспорты.
+- `arena/wiring/platform.py`, `arena/route_registry/core.py`, `arena/capabilities.py` — wire + advertise.
+- `tests/test_mobile_v84_5.py` (**новый**, 336 строк, 19 тестов) — registry + breaker + routing + `transport.enable_tcp` с mock adb.
+- `tests/test_mobile_v84_4.py` — 49-field check переведён на "required subset" чтобы будущие релизы могли добавлять поля свободно.
+
+### Результаты
+
+- **907 unit пройдено** (было 888 в v3.84.4, +19 новых).
+- Live-верификация на POCO F7 Pro (24117RK2CG, HyperOS OS3.0.302.0),
+  bridge `192.168.50.180` ↔ телефон `192.168.50.181`:
+  - `POST /transport/tcp/enable` проходит все 4 стадии (probe_ip →
+    tcpip → connect → register) и возвращает `alias =
+    192.168.50.181:5555`.
+  - `GET /transport` показывает оба транспорта healthy,
+    `is_multi_transport: true`, `active_transport: "2200ad3b"`.
+  - Live-маршрутизация проверена синтетической offline-инъекцией
+    через registry API прямо на bridge: после 3 `device offline`
+    исходов primary становится `healthy: false` с
+    `cooldown_remaining_sec: 20` и `pick_transport()` отдаёт wireless
+    alias.
+  - USB kill-server + быстрая серия вызовов: daemon рестартует,
+    вызовы проходят (часть путей самолечится без нужды в alias'е).
+
+### Поведение когда fallback не настроен
+
+Никакое. `pick_transport(serial)` возвращает `serial` как есть,
+когда registry о нём не слышал — значит все существующие вызовы
+работают побайтово идентично прошлым релизам. Feature полностью
+opt-in через `POST /transport/tcp/enable`.
+
+### Известные ограничения
+
+- Только IPv4. Wireless ADB апстримом IPv4-only; строгий
+  `parse_hostport()` regex это отражает.
+- `_probe_wifi_ip` пробует `wlan0`, `wlan1`, `wlan-mlo0`; некоторые
+  ультра-новые чипсеты могут иметь другое имя интерфейса. Расширяй
+  tuple в `arena/mobile/transport.py::_probe_wifi_ip` при
+  необходимости.
+- Circuit breaker живёт в памяти процесса. Рестарт bridge очищает
+  registry (alias'ы нужно регистрировать заново).
+
+
 ## v3.84.4 - 2026-07-14
 
 ### Что чинит

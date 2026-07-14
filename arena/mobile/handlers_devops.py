@@ -148,6 +148,65 @@ def make_devops_handlers(ctx, *, run, read_json, cors):
             ctx.record_request(is_error=True, count_request=False)
             return cors({"ok": False, "error": str(e)}, status=500)
 
+    # -- v3.84.5: transport (USB <-> wireless ADB) fallback ---------------
+    from arena.mobile import transport as _tr
+
+    async def handle_transport_status(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial")
+        try:
+            res = await run(_tr.describe, serial)
+            return cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_transport_tcp_enable(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await read_json(request)
+        host = body.get("host")
+        try:
+            port = int(body.get("port", _tr.DEFAULT_TCP_PORT))
+        except (TypeError, ValueError):
+            return cors({"ok": False, "error": "port must be an integer"},
+                        status=400)
+        try:
+            res = await run(_tr.enable_tcp, serial, port=port, host=host)
+            ctx.audit({"type": "mobile.transport.tcp_enable",
+                       "serial": serial, "host": host, "port": port,
+                       "alias": res.get("alias"),
+                       "ok": res.get("ok")})
+            return cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_transport_tcp_disable(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await read_json(request)
+        alias = body.get("alias") if isinstance(body, dict) else None
+        try:
+            res = await run(_tr.disable_tcp, serial, alias=alias)
+            ctx.audit({"type": "mobile.transport.tcp_disable",
+                       "serial": serial, "alias": alias,
+                       "dropped": res.get("dropped"),
+                       "ok": res.get("ok")})
+            return cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return cors({"ok": False, "error": str(e)}, status=500)
+
     return {
         "pair": handle_pair,
         "connect": handle_connect,
@@ -155,4 +214,7 @@ def make_devops_handlers(ctx, *, run, read_json, cors):
         "apk_prepare": handle_apk_prepare,
         "apk_install": handle_apk_install,
         "apk_upload": handle_apk_upload,
+        "transport_status": handle_transport_status,
+        "transport_tcp_enable": handle_transport_tcp_enable,
+        "transport_tcp_disable": handle_transport_tcp_disable,
     }

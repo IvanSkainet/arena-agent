@@ -310,8 +310,12 @@ def test_set_zoom_picks_closest_zoom_chip(monkeypatch):
 # Handler dataclass — v3.84.4 exact 49-field surface.
 # ---------------------------------------------------------------------------
 def test_mobile_handlers_dataclass_fields_v84_4():
+    """v3.84.4 baseline: check the 49-field surface stays available.
+    Newer releases add fields; this test keeps them as a required
+    subset so a regression that drops any of these still trips the
+    suite."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {
+    required = {
         "list_devices", "device_info", "screenshot", "tap", "swipe",
         "type_text", "key_event", "shell", "packages", "gesture",
         "ui_dump", "tap_by",
@@ -326,17 +330,13 @@ def test_mobile_handlers_dataclass_fields_v84_4():
         "record_sync", "record_start", "record_stop",
         "record_list", "record_pull", "record_purge",
         "mirror_ws", "mirror_stats", "mirror_stop",
-        # v3.84.4 additions.
         "camera_controls", "camera_mode", "camera_lens",
         "camera_zoom", "camera_flash",
         "camera_record_start", "camera_record_stop",
     }
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, (
-        f"MobileHandlers drift: extra={got - expected}, "
-        f"missing={expected - got}"
-    )
-    assert len(got) == 49
+    missing = required - got
+    assert not missing, f"MobileHandlers regressed: dropped {missing}"
 
 
 # ---------------------------------------------------------------------------

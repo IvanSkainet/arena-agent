@@ -113,6 +113,11 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/mobile/{serial}/camera/flash",         h["handle_v1_mobile_camera_flash"])
     app.router.add_post("/v1/mobile/{serial}/camera/record/start",  h["handle_v1_mobile_camera_record_start"])
     app.router.add_post("/v1/mobile/{serial}/camera/record/stop",   h["handle_v1_mobile_camera_record_stop"])
+    # v3.84.5: transport fallback (USB <-> wireless ADB).
+    app.router.add_get("/v1/mobile/transport",                       h["handle_v1_mobile_transport_status"])
+    app.router.add_get("/v1/mobile/{serial}/transport",              h["handle_v1_mobile_transport_status"])
+    app.router.add_post("/v1/mobile/{serial}/transport/tcp/enable",  h["handle_v1_mobile_transport_tcp_enable"])
+    app.router.add_post("/v1/mobile/{serial}/transport/tcp/disable", h["handle_v1_mobile_transport_tcp_disable"])
     app.router.add_post("/v1/restart", h["handle_v1_restart"])
     app.router.add_get("/v1/webhooks", h["handle_v1_webhooks_get"])
     app.router.add_post("/v1/webhooks", h["handle_v1_webhooks_set"])

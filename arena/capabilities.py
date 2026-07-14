@@ -194,6 +194,7 @@ def build_capabilities(
                     "camera/controls", "camera/mode", "camera/lens",
                     "camera/zoom", "camera/flash",
                     "camera/record/start", "camera/record/stop",
+                    "transport", "transport/tcp/enable", "transport/tcp/disable",
                 ],
                 "hint": m.get("hint"),
             }

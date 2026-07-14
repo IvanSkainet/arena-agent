@@ -140,6 +140,7 @@ def run(
     timeout: int = DEFAULT_TIMEOUT,
     input_bytes: bytes | None = None,
     capture_binary: bool = False,
+    no_route: bool = False,
 ) -> subprocess.CompletedProcess:
     """Run `adb [-s <serial>] <args...>` and return the CompletedProcess.
 
@@ -149,14 +150,36 @@ def run(
     * `capture_binary` — when True, stdout is captured as bytes (needed by
       screenshot which pulls raw PNG data). Otherwise stdout+stderr are
       captured as text.
+
+    v3.84.5: transparently routes through the transport registry in
+    `arena.mobile.adb_fallback`. If a wireless-ADB alias is registered
+    for `serial` and the USB primary trips the circuit breaker, subsequent
+    calls flow through the alias until the primary recovers. Callers that
+    never register a fallback see identical behaviour to prior releases.
     """
     adb = find_adb()
     if adb is None:
         raise AdbNotFoundError(install_hint())
 
+    # Route through the fallback registry before spawning adb. When
+    # `serial` is None we skip routing entirely -- the "no serial" path
+    # is only unambiguous with exactly one device, and swapping it out
+    # would be surprising. Callers that MUST hit a specific transport
+    # (transport.enable_tcp doing `adb -s <usb> tcpip 5555`) pass
+    # `no_route=True` to opt out.
+    effective = serial
+    canonical = serial
+    if serial and not no_route:
+        try:
+            from arena.mobile import adb_fallback as _fb
+            effective = _fb.pick_transport(serial)
+        except Exception:
+            # Registry is optional; a broken import must never crash a call.
+            effective = serial
+
     cmd: list[str] = [adb]
-    if serial:
-        cmd += ["-s", serial]
+    if effective:
+        cmd += ["-s", effective]
     cmd += args
 
     kwargs: dict[str, Any] = {"timeout": timeout, **_SUBPROCESS_KWARGS}
@@ -169,7 +192,23 @@ def run(
 
     if input_bytes is not None:
         kwargs["input"] = input_bytes
-    return subprocess.run(cmd, **kwargs)
+    result = subprocess.run(cmd, **kwargs)
+
+    # Feed the outcome back to the registry so subsequent calls can
+    # route around a failing transport. stderr may be str or bytes
+    # depending on `capture_binary`.
+    if canonical and not no_route:
+        try:
+            from arena.mobile import adb_fallback as _fb
+            raw_err = result.stderr or ""
+            if isinstance(raw_err, (bytes, bytearray)):
+                raw_err = raw_err.decode("utf-8", "replace")
+            _fb.record_outcome(canonical, effective or canonical,
+                               returncode=result.returncode,
+                               stderr=raw_err)
+        except Exception:
+            pass
+    return result
 
 
 def adb_version() -> str | None:

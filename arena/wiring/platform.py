@@ -211,5 +211,9 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_camera_flash":        handlers.camera_flash,
         "handle_v1_mobile_camera_record_start": handlers.camera_record_start,
         "handle_v1_mobile_camera_record_stop":  handlers.camera_record_stop,
+        # v3.84.5: transport fallback for flaky USB (wireless ADB).
+        "handle_v1_mobile_transport_status":       handlers.transport_status,
+        "handle_v1_mobile_transport_tcp_enable":   handlers.transport_tcp_enable,
+        "handle_v1_mobile_transport_tcp_disable":  handlers.transport_tcp_disable,
     }
 
