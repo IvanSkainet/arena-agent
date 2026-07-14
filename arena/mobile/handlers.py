@@ -19,6 +19,7 @@ from arena.mobile import input as _input
 from arena.mobile import packages as _packages
 from arena.mobile import screenshot as _screenshot
 from arena.mobile import shell as _shell
+from arena.mobile import ui as _ui
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,8 @@ class MobileHandlers:
     shell: object
     packages: object
     gesture: object
+    ui_dump: object
+    tap_by: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -216,6 +219,61 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_ui_dump(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        # Query params: interactive_only (default 1), include_full_tree
+        # (default 0), max_nodes (default 500).
+        interactive = request.query.get("interactive_only", "1") not in ("0", "false", "False")
+        include_full = request.query.get("include_full_tree", "0") in ("1", "true", "True")
+        try:
+            max_nodes = int(request.query.get("max_nodes", "500"))
+        except ValueError:
+            max_nodes = 500
+        try:
+            res = await _run(
+                _ui.dump_ui, serial,
+                interactive_only=interactive,
+                include_full_tree=include_full,
+                max_nodes=max_nodes,
+            )
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_tap_by(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        selector = {
+            "id": body.get("id"),
+            "text": body.get("text"),
+            "desc": body.get("desc"),
+            "class_name": body.get("class_name") or body.get("class"),
+            "package": body.get("package"),
+            "index": body.get("index"),
+            "match": body.get("match", "exact"),
+        }
+        try:
+            res = await _run(_ui.tap_by, serial, **selector)
+            ctx.audit({
+                "type": "mobile.tap_by",
+                "serial": serial,
+                "selector": {k: v for k, v in selector.items() if v not in (None, "")},
+                "ok": res.get("ok"),
+            })
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
     async def handle_gesture(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -266,4 +324,6 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         shell=handle_shell,
         packages=handle_packages,
         gesture=handle_gesture,
+        ui_dump=handle_ui_dump,
+        tap_by=handle_tap_by,
     )

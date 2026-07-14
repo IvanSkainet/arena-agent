@@ -16,6 +16,7 @@ from arena.mobile.input import key, swipe, tap, type_text
 from arena.mobile.packages import list_packages
 from arena.mobile.screenshot import capture as capture_screenshot
 from arena.mobile.shell import restricted_shell
+from arena.mobile.ui import dump_ui, tap_by
 
 __all__ = [
     "AdbNotFoundError",
@@ -34,6 +35,8 @@ __all__ = [
     "list_packages",
     "allowed_gestures",
     "perform_gesture",
+    "dump_ui",
+    "tap_by",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

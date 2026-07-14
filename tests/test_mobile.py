@@ -342,9 +342,235 @@ def test_screenshot_without_adb_returns_error():
 def test_mobile_handlers_dataclass_fields():
     from arena.mobile.handlers import MobileHandlers
     expected = {"list_devices", "device_info", "screenshot", "tap", "swipe",
-                "type_text", "key_event", "shell", "packages", "gesture"}
+                "type_text", "key_event", "shell", "packages", "gesture",
+                "ui_dump", "tap_by"}
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
     assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+
+
+# ---------------------------------------------------------------------------
+# ui.py — bounds parsing, matcher, no-adb guards, and tap_by validation
+# ---------------------------------------------------------------------------
+def test_ui_dump_without_adb_returns_error():
+    from arena.mobile import ui as _ui
+    orig = _adb.find_adb
+    _adb.find_adb = lambda: None
+    _ui.find_adb = lambda: None
+    try:
+        r = _ui.dump_ui("dummy")
+    finally:
+        _adb.find_adb = orig
+        _ui.find_adb = orig
+    assert r["ok"] is False
+    assert "adb not installed" in r["error"]
+
+
+def test_ui_dump_requires_serial():
+    from arena.mobile import ui as _ui
+    r = _ui.dump_ui("")
+    assert r["ok"] is False
+    assert "serial" in r["error"]
+
+
+def test_ui_bounds_parser_reads_uiautomator_format():
+    from arena.mobile.ui import _parse_bounds
+    assert _parse_bounds("[0,0][1440,3200]") == (0, 0, 1440, 3200)
+    assert _parse_bounds("[10,20][30,40]") == (10, 20, 30, 40)
+    assert _parse_bounds("") is None
+    assert _parse_bounds("garbage") is None
+    # Negative coords do occur on floating windows in gesture nav.
+    assert _parse_bounds("[-5,10][100,200]") == (-5, 10, 100, 200)
+
+
+def test_ui_matcher_modes():
+    from arena.mobile.ui import _make_matcher
+    exact = _make_matcher("exact")
+    contains = _make_matcher("contains")
+    rx = _make_matcher("regex")
+    assert exact("hello", "hello") is True
+    assert exact("hello world", "hello") is False
+    assert contains("hello world", "world") is True
+    assert contains("abc", "xyz") is False
+    assert rx("com.android.settings:id/search_btn", r"search_\w+") is True
+    assert rx("nope", r"^wrong$") is False
+    # Broken regex fails soft (no exception, just no match).
+    assert rx("anything", r"[") is False
+
+
+def test_tap_by_requires_at_least_one_selector():
+    from arena.mobile import ui as _ui
+    r = _ui.tap_by("dummy")
+    assert r["ok"] is False
+    assert "id, text, desc" in r["error"]
+
+
+def test_tap_by_rejects_invalid_match_mode():
+    from arena.mobile import ui as _ui
+    r = _ui.tap_by("dummy", id="anything", match="fuzzy")
+    assert r["ok"] is False
+    assert "match mode" in r["error"]
+
+
+def test_tap_by_without_adb_returns_error():
+    """tap_by delegates to dump_ui which triggers the adb guard."""
+    from arena.mobile import ui as _ui
+    orig = _adb.find_adb
+    _adb.find_adb = lambda: None
+    _ui.find_adb = lambda: None
+    try:
+        r = _ui.tap_by("dummy", id="com.example:id/btn")
+    finally:
+        _adb.find_adb = orig
+        _ui.find_adb = orig
+    assert r["ok"] is False
+    assert "adb not installed" in r["error"]
+
+
+def test_ui_interactive_predicate():
+    """The interactive filter should catch clickable/scrollable AND
+    label-only nodes that carry text or content-desc."""
+    import xml.etree.ElementTree as ET
+    from arena.mobile.ui import _is_interactive
+
+    def _node(**attrs):
+        e = ET.Element("node")
+        for k, v in attrs.items():
+            e.set(k, v)
+        return e
+
+    assert _is_interactive(_node(clickable="true"))
+    assert _is_interactive(_node(scrollable="true"))
+    assert _is_interactive(_node(text="Settings", clickable="false"))
+    assert _is_interactive(_node(**{"content-desc": "Home button", "clickable": "false"}))
+    # Nothing interactive → should be filtered out.
+    assert not _is_interactive(_node(text="", clickable="false", scrollable="false"))
+
+
+def test_dump_ui_parses_synthetic_xml(monkeypatch):
+    """Feed a minimal known-good XML through dump_ui and assert on the
+    parsed shape without an actual device."""
+    from arena.mobile import ui as _ui
+    from arena.mobile import adb as _adb2
+
+    class _Result:
+        def __init__(self):
+            self.returncode = 0
+            self.stdout = (
+                b"<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>"
+                b"<hierarchy rotation=\"0\">"
+                b"<node index=\"0\" package=\"com.example\" class=\"android.widget.FrameLayout\" "
+                b"clickable=\"false\" bounds=\"[0,0][1080,2400]\">"
+                b"<node index=\"0\" text=\"Login\" resource-id=\"com.example:id/btn_login\" "
+                b"class=\"android.widget.Button\" package=\"com.example\" "
+                b"clickable=\"true\" bounds=\"[100,200][980,320]\" content-desc=\"\"/>"
+                b"</node>"
+                b"</hierarchy>"
+            )
+            self.stderr = b""
+
+    monkeypatch.setattr(_ui, "find_adb", lambda: "/usr/bin/adb")
+    monkeypatch.setattr(_ui, "run", lambda *a, **kw: _Result())
+    r = _ui.dump_ui("dummy")
+    assert r["ok"] is True
+    assert r["root_package"] == "com.example"
+    assert r["screen_bounds"] == [1080, 2400]
+    assert r["rotation"] == 0
+    # 2 total nodes, 1 interactive (the Button).
+    assert r["node_count_total"] == 2
+    assert len(r["nodes"]) == 1
+    btn = r["nodes"][0]
+    assert btn["text"] == "Login"
+    assert btn["resource-id"] == "com.example:id/btn_login"
+    assert btn["bounds_rect"] == [100, 200, 980, 320]
+    assert btn["center"] == [540, 260]
+    assert btn["width"] == 880 and btn["height"] == 120
+
+
+# ---------------------------------------------------------------------------
+# devices_probes.py — parsing helpers work on real-world snippets
+# ---------------------------------------------------------------------------
+def test_probe_display_modes_parses_pocopf7_dumpsys(monkeypatch):
+    from arena.mobile import devices_probes as _p
+    snippet = (
+        "  DisplayDeviceInfo{... 1440 x 3200, modeId 1, renderFrameRate 120.00001, "
+        "supportedRefreshRates [120.00001, 90.0, 60.000004], defaultModeId 1, "
+        "mSupportedHdrTypes=[1, 2, 3, 4], "
+        "RoundedCorner{position=TopLeft, radius=120, center=Point(120, 120)}"
+    )
+    monkeypatch.setattr(_p, "_sh", lambda serial, args, timeout=5: snippet)
+    r = _p.probe_display_modes("dummy")
+    d = r["display"]
+    assert d["active_refresh_rate"] == 120.0
+    assert d["supported_refresh_rates"] == [120.0, 90.0, 60.0]
+    assert d["hdr_types"] == [1, 2, 3, 4]
+    assert d["rounded_corner_radius_px"] == 120
+
+
+def test_probe_network_masks_iccid_and_imsi(monkeypatch):
+    """Regression: probe_network must ONLY extract non-PII operator info."""
+    from arena.mobile import devices_probes as _p
+    fake_getprop = (
+        "[gsm.operator.alpha]: [beeline,]\n"
+        "[gsm.operator.iso-country]: [ru,]\n"
+        "[gsm.network.type]: [IWLAN,Unknown]\n"
+        "[gsm.sim.state]: [LOADED,ABSENT]\n"
+        "[gsm.operator.isroaming]: [false,false]\n"
+        # These must be ignored — they contain PII.
+        "[gsm.sim.imsi]: [250991234567890]\n"
+        "[gsm.sim.iccid]: [8970199912345678901]\n"
+    )
+    # First call is `getprop`, second `settings get global mobile_data`.
+    call = {"n": 0}
+    def _fake_sh(serial, args, timeout=5):
+        call["n"] += 1
+        if args[:1] == ["getprop"]:
+            return fake_getprop
+        if args[:1] == ["settings"]:
+            return "1"
+        return ""
+    monkeypatch.setattr(_p, "_sh", _fake_sh)
+    r = _p.probe_network("dummy")
+    n = r["network"]
+    assert n["operator_alpha"] == "beeline"
+    assert n["operator_iso"] == "ru"
+    assert n["mobile_type"] == "IWLAN"
+    assert n["sim_state"] == "LOADED"
+    assert n["roaming"] is False
+    assert n["data_enabled"] is True
+    # Explicit privacy assertions.
+    dumped = str(r)
+    assert "imsi" not in dumped.lower()
+    assert "iccid" not in dumped.lower()
+    assert "250991234567890" not in dumped
+    assert "8970199912345678901" not in dumped
+
+
+def test_probe_ui_mode_parses_settings(monkeypatch):
+    from arena.mobile import devices_probes as _p
+    def _fake_sh(serial, args, timeout=5):
+        # settings get global airplane_mode_on
+        if args[:3] == ["settings", "get", "global"] and args[3] == "airplane_mode_on":
+            return "0"
+        if args[:3] == ["settings", "get", "secure"] and args[3] == "ui_night_mode":
+            return "2"
+        if args[:2] == ["dumpsys", "audio"]:
+            return "  - ringer mode(internal) = 2\n"
+        if args[:3] == ["settings", "get", "system"] and args[3] == "screen_off_timeout":
+            return "30000"
+        if args[:3] == ["settings", "get", "system"] and args[3] == "screen_brightness":
+            return "128"
+        if args[:3] == ["settings", "get", "system"] and args[3] == "accelerometer_rotation":
+            return "1"
+        return ""
+    monkeypatch.setattr(_p, "_sh", _fake_sh)
+    r = _p.probe_ui_mode("dummy")
+    u = r["ui_mode"]
+    assert u["airplane_mode"] is False
+    assert u["night_mode"] == "dark"
+    assert u["ringer_mode"] == "normal"
+    assert u["screen_off_timeout_sec"] == 30
+    assert u["screen_brightness_raw"] == 128
+    assert u["auto_rotate"] is True
 
 
 # ---------------------------------------------------------------------------

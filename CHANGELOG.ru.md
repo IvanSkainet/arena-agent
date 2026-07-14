@@ -6,6 +6,131 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.83.1 - 2026-07-14
+
+Mobile Phase 2 продолжение — UI Automator, семантический tap по
+resource-id / text / content-desc, значительно расширенная информация
+об устройстве (12 новых блоков) и фикс мерцания Live view. Все изменения
+проверены живьём на POCO F7 Pro через Tailscale Funnel перед релизом.
+
+### Added — UI Automator селекторы
+
+- **Новый модуль `arena/mobile/ui.py`** с `dump_ui()` и `tap_by()`.
+  - `dump_ui()` запускает `adb exec-out uiautomator dump /dev/tty` —
+    XML идёт прямо в stdout (пропускает round-trip через
+    `/sdcard/ui.xml`, который делает обычный `uiautomator dump`).
+    Обрезает статусную строку `UI hierchary dumped to: /dev/tty` с
+    обоих концов, чтобы XML парсился чисто.
+  - `interactive_only=True` фильтрует ~500-нодовый home screen HyperOS
+    до ~20 нод, которые агенту реально нужны (clickable, long-clickable,
+    scrollable, checkable или несущие `text` / `content-desc`).
+  - Каждая возвращаемая нода уже содержит `bounds_rect`, `center`,
+    `width`, `height` — вызывающему коду не надо парсить
+    `[x1,y1][x2,y2]`.
+  - `tap_by()` принимает `id`, `text`, `desc`, `class_name` +
+    опциональные `package` scope, `index` для многозначных совпадений и
+    `match` mode (`exact` / `contains` / `regex`). Селекторы переживают
+    reflow'ы layout'а, где пиксельный tap ломается.
+- **Новые эндпоинты** `GET /v1/mobile/{serial}/ui` и
+  `POST /v1/mobile/{serial}/tap_by`. Оба зарегистрированы в
+  `/v1/capabilities.mobile.endpoints`.
+- **UI Inspector в Dashboard** — новый тумблер в панели Screen
+  («🔍 Inspect UI»). Когда включён, поверх скриншота рисуется SVG с
+  цветными bounding-box'ами на каждой интерактивной ноде (синий =
+  clickable, зелёный = scrollable, серый = label-only), hover-tooltip
+  с `id / text / desc / class / bounds / flags`, а клик вызывает
+  tap_by с приоритетом `resource-id` → `content-desc` → `text` →
+  fallback на пиксельный tap. После успешного тапа автоматически
+  делает re-dump.
+- **Новый файл Dashboard `33-mobile-ui.js`** (175 строк) — inspector.
+  Вынесен отдельно от `30-mobile.js` для читаемости.
+
+### Added — 12 новых device-info пробов
+
+Новый модуль `arena/mobile/devices_probes.py`. Каждый проб fail-soft —
+сломанный `dumpsys` на одном ROM'е не обнуляет весь `/info` ответ.
+
+- **`display`** — активный refresh rate, список поддерживаемых, HDR
+  типы (1=Dolby, 2=HDR10, 3=HLG, 4=HDR10+), радиус скругления углов.
+  На POCO F7 Pro: 120 Hz активный из [120, 90, 60], HDR 1-4,
+  скругление 120 px.
+- **`power`** — wakefulness (Awake/Dozing/Asleep), screen_on bool,
+  low_power_mode bool, charging bool.
+- **`ui_mode`** — airplane_mode, night_mode
+  (auto/unset/light/dark/custom), ringer_mode (silent/vibrate/normal),
+  screen_off_timeout_sec, screen_brightness_raw, auto_rotate.
+- **`network`** — operator_alpha ("beeline"), operator_iso ("ru"),
+  mobile_type (LTE/IWLAN/NR/...), sim_state (LOADED/ABSENT/...),
+  data_enabled, roaming. **ICCID и IMSI явно НЕ читаются** — защищено
+  регрессионным тестом, который проверяет, что этих строк нет нигде в
+  ответе.
+- **`packages_count`** — количество user_installed / system / disabled
+  (из `pm list packages -3 / -s / -d`). Названия пакетов не утекают.
+- **`ime`** — текущий default IME, количество enabled и available IME.
+- **`developer`** — adb_enabled, developer_options_enabled,
+  stay_awake_while_charging, adb_wifi_enabled,
+  install_from_unknown_sources, usb_debug_security_settings.
+- **`encryption`** — состояние шифрования ФС + тип (file/block).
+- **`selinux` / `verified_boot`** — режим enforcement и Verified Boot
+  state (green/yellow/orange/red).
+- **`kernel`** — первая строка `/proc/version` (обрезана до 200 симв).
+- **`sensors`** — количество сенсоров из `sensorservice` (89 на
+  референсном устройстве).
+
+### Changed — производительность `device_info()`
+
+- **Все `getprop` теперь в одном shell-вызове.** До v3.83.0 было ~20
+  round-trip'ов; network-проб теперь тоже пользуется этим батчем, так
+  что ничего не стоит дополнительно. Полный `/info` на POCO F7 Pro
+  через Tailscale ~2 с (было ~2.5 с в v3.83.0, несмотря на 12 новых
+  блоков).
+
+### Fixed — Live view больше не мерцает на неизменных кадрах
+
+- **Content-hash dedup** на стороне Dashboard. Каждый blob скриншота
+  получает FNV-1a хеш первых 8 KB; если хеш совпал с предыдущим кадром,
+  `<img>` не трогается (никаких `URL.createObjectURL`, декода, repaint).
+  Убирает мерцание ~50 мс в Live view, когда экран телефона реально не
+  меняется. Meta-строка показывает `dupe×N` — видно, сколько подряд
+  кадров совпали.
+- **Refresh burst всегда перерисовывает.** `_mobileRefreshBurst()`
+  сбрасывает хеш перед выстрелом, чтобы tap, изменивший всего 4 пикселя
+  (например, чекбокс), всё равно вызвал видимую смену кадра.
+
+### Test suite
+
+761 passed (+12 новых):
+- `test_ui_dump_without_adb_returns_error`,
+  `test_ui_dump_requires_serial`,
+  `test_ui_bounds_parser_reads_uiautomator_format` (включая кейс с
+  отрицательными координатами floating window),
+  `test_ui_matcher_modes` (exact / contains / regex + fail-soft для
+  битого regex),
+  `test_tap_by_requires_at_least_one_selector`,
+  `test_tap_by_rejects_invalid_match_mode`,
+  `test_tap_by_without_adb_returns_error`,
+  `test_ui_interactive_predicate`,
+  `test_dump_ui_parses_synthetic_xml` (end-to-end на рукописной XML-
+  фикстуре, без реального устройства).
+- `test_probe_display_modes_parses_pocopf7_dumpsys` — regexes проверены
+  на реальном dumpsys-фрагменте POCO F7 Pro.
+- `test_probe_network_masks_iccid_and_imsi` — **явный privacy-регресс**:
+  подаёт фейковый `getprop` с ICCID `8970199912345678901` и IMSI
+  `250991234567890`, проверяет, что ни одной из этих строк нет нигде в
+  возвращаемом значении.
+- `test_probe_ui_mode_parses_settings` — парсинг airplane/night/ringer/
+  timeout/brightness/auto-rotate.
+
+Также обновил `test_mobile_handlers_dataclass_fields` — теперь ожидает
+два новых поля (`ui_dump`, `tap_by`).
+
+### Follow-ups для v3.83.2
+
+- **ADBKeyboard companion APK** для юникод-ввода — снимет ASCII-only
+  guard в `type_text` и соответствующий баннер в Dashboard.
+- **UI-мастер для wireless ADB `pair` / `connect`.**
+- **Общий APK-install с `apksigner verify` + SHA256 consent flow.**
+
 ## v3.83.0 - 2026-07-14
 
 Старт Mobile Phase 2 — переработка качества скриншотов, семантические

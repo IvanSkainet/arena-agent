@@ -1,5 +1,134 @@
 # Changelog
 
+## v3.83.1 - 2026-07-14
+
+Mobile Phase 2 continued — UI Automator, semantic tap by resource-id /
+text / content-desc, a much richer device-info probe (12 new blocks),
+and a Live-view flicker fix. All changes live-verified against the POCO
+F7 Pro over Tailscale Funnel before shipping.
+
+### Added — UI Automator selectors
+
+- **New `arena/mobile/ui.py` module** with `dump_ui()` and `tap_by()`.
+  - `dump_ui()` runs `adb exec-out uiautomator dump /dev/tty` to stream
+    the XML tree straight to stdout (skips the `/sdcard/ui.xml`
+    round-trip that `uiautomator dump` normally does). Trims the
+    interleaved "UI hierchary dumped to: /dev/tty" status line at both
+    ends so the XML parses cleanly.
+  - `interactive_only=True` filters the ~500-node HyperOS home screen
+    down to the ~20 nodes an agent actually cares about (anything
+    clickable, long-clickable, scrollable, checkable, or carrying
+    `text` / `content-desc`).
+  - Every returned node carries `bounds_rect`, `center`, `width`,
+    `height` pre-computed so the caller doesn't have to parse the
+    `[x1,y1][x2,y2]` string format.
+  - `tap_by()` accepts `id`, `text`, `desc`, `class_name`, plus
+    optional `package` scope, `index` disambiguator, and `match` mode
+    (`exact` / `contains` / `regex`). Selectors survive layout reflows
+    that would break pixel-tap paths.
+- **New endpoints** `GET /v1/mobile/{serial}/ui` and
+  `POST /v1/mobile/{serial}/tap_by`. Both advertised in
+  `/v1/capabilities.mobile.endpoints`.
+- **Dashboard UI Inspector** — new toggle in the Screen toolbar
+  ("🔍 Inspect UI"). When enabled, overlays an SVG on top of the
+  screenshot with a colour-coded bounding box for every interactive
+  node (blue = clickable, green = scrollable, grey = label-only), a
+  hover tooltip showing `id / text / desc / class / bounds / flags`,
+  and click-to-tap-by that prefers `resource-id` → `content-desc` →
+  `text` → pixel-tap fallback. Re-dumps automatically after every
+  successful tap.
+- **New Dashboard file `33-mobile-ui.js`** (175 lines) hosts the
+  inspector. Kept separate from `30-mobile.js` for readability.
+
+### Added — 12 new device-info probes
+
+New `arena/mobile/devices_probes.py` module. Every probe is fail-soft
+so a broken `dumpsys` on one ROM never blanks the whole `/info`
+response.
+
+- **`display`** — active refresh rate, list of supported rates, HDR
+  types (1=Dolby, 2=HDR10, 3=HLG, 4=HDR10+), rounded-corner radius.
+  On the POCO F7 Pro: 120 Hz active out of [120, 90, 60], HDR 1-4,
+  120 px corners.
+- **`power`** — wakefulness (Awake/Dozing/Asleep), screen_on bool,
+  low_power_mode bool, charging bool.
+- **`ui_mode`** — airplane_mode, night_mode
+  (auto/unset/light/dark/custom), ringer_mode (silent/vibrate/normal),
+  screen_off_timeout_sec, screen_brightness_raw, auto_rotate.
+- **`network`** — operator_alpha ("beeline"), operator_iso ("ru"),
+  mobile_type (LTE/IWLAN/NR/...), sim_state (LOADED/ABSENT/...),
+  data_enabled, roaming. **ICCID and IMSI are explicitly NOT read** —
+  regression-guarded by a test that asserts those strings never appear
+  in the response.
+- **`packages_count`** — user_installed / system / disabled totals
+  (from `pm list packages -3 / -s / -d`). No package names leak.
+- **`ime`** — current default IME, count of enabled and available IMEs.
+- **`developer`** — adb_enabled, developer_options_enabled,
+  stay_awake_while_charging, adb_wifi_enabled,
+  install_from_unknown_sources, usb_debug_security_settings.
+- **`encryption`** — filesystem encryption state + type (file/block).
+- **`selinux` / `verified_boot`** — enforcement mode and Verified Boot
+  state (green/yellow/orange/red).
+- **`kernel`** — first line of `/proc/version` (trimmed to 200 chars).
+- **`sensors`** — count of sensors reported by `sensorservice` (89 on
+  the reference device).
+
+### Changed — `device_info()` performance
+
+- **All `getprop` lookups now share one shell call.** Was ~20 round-trips
+  before v3.83.0; the network probe now piggybacks on that same batch,
+  so it costs nothing extra. Full `/info` on the POCO F7 Pro over
+  Tailscale takes ~2 s total (was ~2.5 s in v3.83.0 despite adding
+  12 new probe blocks).
+
+### Fixed — Live view no longer flickers on unchanged frames
+
+- **Content-hash dedup** on the Dashboard side. Every screenshot blob
+  gets a FNV-1a hash of its first 8 KB; if the hash matches the previous
+  frame, the `<img>` element is left alone (no `URL.createObjectURL`,
+  no browser decode, no repaint). Cuts the ~50 ms repaint flicker on
+  Live view when the phone screen isn't actually moving. Meta line
+  shows `dupe×N` so you can see how many consecutive frames were
+  identical.
+- **Refresh burst always redraws.** `_mobileRefreshBurst()` clears the
+  hash before firing so a tap that only changed 4 pixels (e.g. a
+  checkbox toggle) still triggers a visible frame swap.
+
+### Test suite
+
+761 passed (+12 new):
+- `test_ui_dump_without_adb_returns_error`,
+  `test_ui_dump_requires_serial`,
+  `test_ui_bounds_parser_reads_uiautomator_format` (incl. negative-coord
+  floating-window case),
+  `test_ui_matcher_modes` (exact / contains / regex + broken-regex
+  fail-soft),
+  `test_tap_by_requires_at_least_one_selector`,
+  `test_tap_by_rejects_invalid_match_mode`,
+  `test_tap_by_without_adb_returns_error`,
+  `test_ui_interactive_predicate`,
+  `test_dump_ui_parses_synthetic_xml` (end-to-end with a hand-crafted
+  XML fixture, no device needed).
+- `test_probe_display_modes_parses_pocopf7_dumpsys` — regexes verified
+  on the actual POCO F7 Pro dumpsys snippet.
+- `test_probe_network_masks_iccid_and_imsi` — **explicit privacy
+  regression**: feeds a fake `getprop` output containing ICCID
+  `8970199912345678901` and IMSI `250991234567890`, asserts neither
+  string appears anywhere in the probe's return value.
+- `test_probe_ui_mode_parses_settings` — airplane/night/ringer/timeout/
+  brightness/auto-rotate parsing.
+
+Also updated `test_mobile_handlers_dataclass_fields` to include the two
+new fields (`ui_dump`, `tap_by`).
+
+### Known follow-ups for v3.83.2
+
+- **ADBKeyboard companion APK** for unicode text input — will remove
+  the ASCII-only guard in `type_text` and the corresponding Dashboard
+  banner.
+- **Wireless ADB `pair` / `connect` UI wizard.**
+- **Generic APK install with `apksigner verify` + SHA256 consent flow.**
+
 ## v3.83.0 - 2026-07-14
 
 Mobile Phase 2 kick-off — screen quality overhaul, semantic gestures,

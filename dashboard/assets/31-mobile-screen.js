@@ -77,6 +77,31 @@ function mobileScreenSettingsFromUi() {
 }
 
 // --- Screenshot fetch --------------------------------------------------
+//
+// Content-hash dedup: identical frames don't replace the <img> src, which
+// eliminates the ~50ms decode/repaint flicker in Live view when the phone
+// screen isn't actually changing. We compute a fast 64-bit FNV-1a hash
+// over the first 8 KB of the blob — that catches every real difference
+// on a phone UI (WebP encoder is deterministic given identical input).
+
+let _mobileLastHash = null;
+let _mobileConsecutiveDupes = 0;
+
+async function _mobileBlobHash(blob) {
+  // Fast path: use a small prefix. For 720×1600 WebP the compressed
+  // stream diverges within the first few hundred bytes for any real
+  // pixel change, so 8 KB is overkill.
+  const size = Math.min(blob.size, 8192);
+  const buf = await blob.slice(0, size).arrayBuffer();
+  const view = new Uint8Array(buf);
+  let h = 0xcbf29ce484222325n;
+  const p = 0x100000001b3n;
+  for (let i = 0; i < view.length; i++) {
+    h = BigInt.asUintN(64, (h ^ BigInt(view[i])) * p);
+  }
+  return h.toString(16) + ":" + blob.size;
+}
+
 async function mobileScreenshot() {
   if (!_mobileSelectedSerial) return;
   if (_mobileScreenshotBusy) return;
@@ -118,20 +143,34 @@ async function mobileScreenshot() {
     _mobileShownHeight = parseInt(resp.headers.get("X-Arena-Mobile-Height") || "0", 10);
     const blob = await resp.blob();
 
-    if (_mobileScreenshotBlobUrl) URL.revokeObjectURL(_mobileScreenshotBlobUrl);
-    _mobileScreenshotBlobUrl = URL.createObjectURL(blob);
-    if (img) {
-      img.src = _mobileScreenshotBlobUrl;
-      img.style.display = "";
+    // Content-hash dedup: identical blob → keep the current <img>.
+    // This is what stops the Live-view flicker.
+    const hash = await _mobileBlobHash(blob);
+    const isDupe = (hash === _mobileLastHash);
+    if (isDupe) {
+      _mobileConsecutiveDupes += 1;
+    } else {
+      _mobileConsecutiveDupes = 0;
+      _mobileLastHash = hash;
+      if (_mobileScreenshotBlobUrl) URL.revokeObjectURL(_mobileScreenshotBlobUrl);
+      _mobileScreenshotBlobUrl = URL.createObjectURL(blob);
+      if (img) {
+        img.src = _mobileScreenshotBlobUrl;
+        img.style.display = "";
+      }
     }
+
     const elapsed = Math.round(performance.now() - started);
     _mobileLastSnapAt = performance.now();
     if (meta) {
+      const dupeTag = isDupe
+        ? " · dupe" + (_mobileConsecutiveDupes > 1 ? "×" + _mobileConsecutiveDupes : "")
+        : "";
       meta.textContent =
         _mobileShownWidth + "×" + _mobileShownHeight
         + " · " + settings.format + " q" + settings.quality
         + " · " + Math.round(blob.size / 1024) + " KB"
-        + " · " + elapsed + " ms";
+        + " · " + elapsed + " ms" + dupeTag;
     }
     _mobileUpdateAgeLabel();
   } catch (e) {
@@ -147,6 +186,11 @@ function _mobileRefreshBurst() {
   if (!_mobileSelectedSerial) return;
   _mobileScreenshotGen += 1;
   const gen = _mobileScreenshotGen;
+  // Force at least one visible frame update after a user action: the
+  // very first snap in the burst clears the dedup hash so an
+  // "identical" frame after a tap that didn't visibly change anything
+  // (e.g. tapping a checkbox that only changed 4 pixels) still redraws.
+  _mobileLastHash = null;
   const delays = [0, 400, 1200];
   for (const delay of delays) {
     setTimeout(() => {

@@ -140,7 +140,23 @@
   <button onclick="mobileScreenshot()" style="margin-left:auto">📸 Refresh</button>
 </div>
 
-<!-- Screenshot canvas -->
+<!-- Inspector toggle row -->
+<div class="row" style="gap:12px;margin-bottom:6px;align-items:center;font-size:12px">
+  <label style="display:inline-flex;align-items:center;gap:4px;user-select:none"
+         title="Overlay a bounding box on every interactive UI element. Click a box to tap the underlying node by its resource-id / text / content-desc (survives layout reflows).">
+    <input type="checkbox" id="mobileInspectorToggle" onchange="mobileInspectorToggle(this)">
+    🔍 Inspect UI
+  </label>
+  <button class="sm" onclick="mobileInspectorRefresh()">Re-dump</button>
+  <span id="mobileInspectorStatus" class="mono" style="font-size:11px;color:#666"></span>
+  <span id="mobileInspectorLegend" class="mono" style="font-size:11px;margin-left:auto;display:none">
+    <span style="color:#1c7ed6">■</span> clickable
+    &nbsp;<span style="color:#2f9e44">■</span> scrollable
+    &nbsp;<span style="color:#888">■</span> label
+  </span>
+</div>
+
+<!-- Screenshot canvas + SVG overlay + tooltip -->
 <div id="mobileScreenshotWrap" style="max-width:100%;position:relative">
   <img id="mobileScreenshotImg"
        style="max-width:100%;height:auto;cursor:crosshair;border:1px solid #ccc;border-radius:6px;display:none;touch-action:none;user-select:none;-webkit-user-drag:none"
@@ -150,10 +166,14 @@
        onpointercancel="mobilePointerCancel(event)"
        ondragstart="return false"
        alt="phone screen">
+  <svg id="mobileInspectorOverlay" preserveAspectRatio="none"
+       style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></svg>
   <div id="mobileScreenshotLoading"
        style="display:none;position:absolute;top:8px;right:8px;padding:4px 8px;background:rgba(0,0,0,.6);color:#fff;border-radius:4px;font-size:11px">
     Refreshing…
   </div>
+  <pre id="mobileInspectorTip" class="mono"
+       style="display:none;position:absolute;left:8px;bottom:8px;padding:6px 8px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;border-radius:4px;max-width:80%;white-space:pre-wrap;pointer-events:none;margin:0"></pre>
   <div class="row" style="gap:8px;margin-top:4px;align-items:baseline">
     <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:#666"></div>
     <div id="mobileScreenshotAge" class="mono" style="font-size:11px;margin-left:auto"></div>

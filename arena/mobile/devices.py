@@ -145,7 +145,15 @@ _PROPS_OF_INTEREST: dict[str, str] = {
 
 
 def device_info(serial: str) -> dict[str, Any]:
-    """Deeper per-device probe. Read-only; never installs or reboots."""
+    """Deeper per-device probe. Read-only; never installs or reboots.
+
+    Layered probes so an outage in one dumpsys call (e.g. HyperOS
+    ROM removing a service) never blanks the whole response.
+    Extended in v3.83.1 with display refresh rates, power/screen state,
+    UI mode (airplane/dark/ringer/timeout/brightness), mobile operator
+    (no PII), package counts, kernel, SELinux/verified boot, current IME,
+    developer toggles, FS encryption, and sensor count.
+    """
     if find_adb() is None:
         from arena.mobile.adb import install_hint
         return {"ok": False, "error": "adb not installed", "hint": install_hint()}
@@ -163,6 +171,21 @@ def device_info(serial: str) -> dict[str, Any]:
     info.update(_probe_uptime(serial))
     info.update(_probe_locale(serial))
     info.update(_probe_foreground(serial))
+
+    # v3.83.1: extended probes live in their own module to keep this
+    # file focused. Each probe is fail-soft (returns {} on any error).
+    from arena.mobile import devices_probes as _p
+    info.update(_p.probe_display_modes(serial))
+    info.update(_p.probe_power_state(serial))
+    info.update(_p.probe_ui_mode(serial))
+    info.update(_p.probe_network(serial))
+    info.update(_p.probe_packages_count(serial))
+    info.update(_p.probe_kernel(serial))
+    info.update(_p.probe_selinux(serial))
+    info.update(_p.probe_ime(serial))
+    info.update(_p.probe_developer_options(serial))
+    info.update(_p.probe_encryption(serial))
+    info.update(_p.probe_sensor_summary(serial))
 
     return info
 

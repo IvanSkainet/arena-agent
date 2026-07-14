@@ -320,6 +320,95 @@ function mobileRenderInfoPanel() {
   push("Foreground", i.foreground_activity);
   push("Bootloader", i.bootloader);
 
+  // ------------------------------------------------------------------
+  // v3.83.1 extended fields — displayed only when the backend probe
+  // returned something. Each block is a compact one-liner.
+  // ------------------------------------------------------------------
+  if (i.display) {
+    const d = i.display;
+    const bits = [];
+    if (d.active_refresh_rate) bits.push(d.active_refresh_rate + " Hz");
+    if (Array.isArray(d.supported_refresh_rates))
+      bits.push("(" + d.supported_refresh_rates.join("/") + " Hz)");
+    if (Array.isArray(d.hdr_types) && d.hdr_types.length)
+      bits.push("HDR types: " + d.hdr_types.join(","));
+    if (d.rounded_corner_radius_px)
+      bits.push("corners r=" + d.rounded_corner_radius_px + "px");
+    push("Display", bits.join(" · "));
+  }
+  if (i.power) {
+    const bits = [];
+    if (typeof i.power.screen_on === "boolean") bits.push(i.power.screen_on ? "screen on" : "screen OFF");
+    if (i.power.wakefulness) bits.push(i.power.wakefulness);
+    if (i.power.charging === true) bits.push("charging");
+    if (i.power.low_power_mode === true) bits.push("low power");
+    push("Power", bits.join(" · "));
+  }
+  if (i.ui_mode) {
+    const u = i.ui_mode;
+    const bits = [];
+    if (u.night_mode) bits.push("theme: " + u.night_mode);
+    if (typeof u.airplane_mode === "boolean") bits.push("airplane: " + (u.airplane_mode ? "on" : "off"));
+    if (u.ringer_mode) bits.push("ringer: " + u.ringer_mode);
+    if (u.screen_off_timeout_sec) bits.push("timeout: " + u.screen_off_timeout_sec + "s");
+    if (typeof u.auto_rotate === "boolean") bits.push("auto-rotate: " + (u.auto_rotate ? "on" : "off"));
+    push("UI mode", bits.join(" · "));
+  }
+  if (i.network) {
+    const n = i.network;
+    const bits = [];
+    if (n.operator_alpha) bits.push(n.operator_alpha + (n.operator_iso ? " (" + n.operator_iso + ")" : ""));
+    if (n.mobile_type) bits.push(n.mobile_type);
+    if (n.sim_state) bits.push("SIM: " + n.sim_state);
+    if (typeof n.data_enabled === "boolean") bits.push("data: " + (n.data_enabled ? "on" : "off"));
+    if (n.roaming === true) bits.push("ROAMING");
+    push("Network", bits.join(" · "));
+  }
+  if (i.packages_count) {
+    const p = i.packages_count;
+    const bits = [];
+    if (p.user_installed !== undefined) bits.push(p.user_installed + " user");
+    if (p.system !== undefined) bits.push(p.system + " system");
+    if (p.disabled !== undefined && p.disabled > 0) bits.push(p.disabled + " disabled");
+    push("Packages", bits.join(" · "));
+  }
+  if (i.ime) {
+    const bits = [];
+    if (i.ime.current) bits.push(i.ime.current.split("/")[0]);
+    if (i.ime.enabled_count !== undefined)
+      bits.push(i.ime.enabled_count + " enabled / " + (i.ime.available_count || "?") + " available");
+    push("Keyboard", bits.join(" · "));
+  }
+  if (i.encryption) {
+    const bits = [];
+    if (i.encryption.state) bits.push(i.encryption.state);
+    if (i.encryption.type) bits.push("FS: " + i.encryption.type);
+    push("Encryption", bits.join(" · "));
+  }
+  if (i.selinux || i.verified_boot) {
+    const bits = [];
+    if (i.selinux) bits.push("SELinux: " + i.selinux);
+    if (i.verified_boot) bits.push("Verified boot: " + i.verified_boot);
+    push("Security", bits.join(" · "));
+  }
+  if (i.developer) {
+    const d = i.developer;
+    const flags = [];
+    if (d.adb_enabled === true) flags.push("adb");
+    if (d.developer_options_enabled === true) flags.push("dev-options");
+    if (d.adb_wifi_enabled === true) flags.push("adb-wifi");
+    if (d.install_from_unknown_sources === true) flags.push("unknown-sources");
+    if (d.stay_awake_while_charging) flags.push("stay-awake:" + d.stay_awake_while_charging);
+    push("Developer", flags.join(" · "));
+  }
+  if (i.sensors && i.sensors.count) {
+    push("Sensors", i.sensors.count + " reported by sensorservice");
+  }
+  if (i.kernel) {
+    // Trim to first 120 chars — the full string is a build-host banner.
+    push("Kernel", i.kernel.length > 120 ? i.kernel.slice(0, 117) + "…" : i.kernel);
+  }
+
   el.innerHTML = "";
   const table = document.createElement("table");
   table.style.cssText = "width:100%;border-collapse:collapse;font-size:12px";
