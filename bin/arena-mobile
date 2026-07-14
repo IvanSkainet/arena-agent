@@ -238,6 +238,61 @@ def cmd_disconnect(args) -> int:
     return 0 if r.get("ok") else 1
 
 
+def cmd_apk_upload(args) -> int:
+    """Upload a local APK to the bridge staging dir. Chains into prepare
+    so the caller gets sha + consent_token in the response."""
+    with open(args.file, "rb") as f:
+        data = f.read()
+    url = _base_url() + "/v1/mobile/apk/upload"
+    from urllib.parse import quote
+    url += "?filename=" + quote(args.name or __import__("os").path.basename(args.file))
+    headers = {"Content-Type": "application/octet-stream"}
+    tok = _token()
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    req = urllib.request.Request(url, data=data, method="POST", headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=300) as resp:
+            r = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        try:
+            body = json.loads(e.read())
+        except Exception:
+            body = {"error": e.reason}
+        _print(body)
+        return 1
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_record(args) -> int:
+    """Sync recording — blocks for duration, saves MP4 locally."""
+    body = {"duration_ms": args.duration_ms,
+            "size": args.size, "bit_rate": args.bit_rate,
+            "include_bytes": True, "keep_on_device": args.keep}
+    r = _request("POST", f"/v1/mobile/{args.serial}/recording/sync",
+                 body=body, timeout=args.duration_ms // 1000 + 60)
+    if not r.get("ok"):
+        _print(r)
+        return 1
+    if args.output and r.get("bytes_b64"):
+        import base64
+        with open(args.output, "wb") as f:
+            f.write(base64.b64decode(r["bytes_b64"]))
+        print(f"wrote {r['size_bytes']:,} bytes to {args.output}", file=sys.stderr)
+        # Trim base64 from the printed report so terminal doesn't
+        # get flooded with hundreds of KB of video.
+        r = {k: v for k, v in r.items() if k != "bytes_b64"}
+    _print(r)
+    return 0
+
+
+def cmd_recordings(args) -> int:
+    r = _request("GET", f"/v1/mobile/{args.serial}/recordings")
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
 # ---------------------------------------------------------------------------
 # argparse tree
 # ---------------------------------------------------------------------------
@@ -320,6 +375,32 @@ def build_parser() -> argparse.ArgumentParser:
     dc.add_argument("host", nargs="?")
     dc.add_argument("port", type=int, nargs="?")
     dc.set_defaults(fn=cmd_disconnect)
+
+    # v3.84.2: apk upload + recording
+    up = sub.add_parser("apk-upload",
+        help="upload a local APK to the bridge staging dir + prepare")
+    up.add_argument("file", help="path to the .apk on the CLI host")
+    up.add_argument("--name", help="filename to use on the bridge (default: basename of `file`)")
+    up.set_defaults(fn=cmd_apk_upload)
+
+    rec = sub.add_parser("record",
+        help="record N ms of video from the phone (max 180000)")
+    rec.add_argument("serial")
+    rec.add_argument("--duration-ms", type=int, default=5000,
+                     dest="duration_ms",
+                     help="recording length in ms (500..180000)")
+    rec.add_argument("--size", help="video WxH, e.g. 720x1600 (default: native)")
+    rec.add_argument("--bit-rate", type=int, default=4_000_000,
+                     dest="bit_rate", help="bits/second (default 4M)")
+    rec.add_argument("-o", "--output", help="save MP4 to this local path")
+    rec.add_argument("--keep", action="store_true",
+                     help="leave the MP4 on the device after pulling")
+    rec.set_defaults(fn=cmd_record)
+
+    rls = sub.add_parser("recordings",
+        help="list this device's tracked recordings (async registry)")
+    rls.add_argument("serial")
+    rls.set_defaults(fn=cmd_recordings)
 
     return p
 

@@ -98,6 +98,45 @@ def _resolve_apk_path(client_path: str) -> Path | dict[str, Any]:
     return resolved
 
 
+def save_upload(filename: str, data: bytes) -> dict[str, Any]:
+    """Persist a client-uploaded APK into `STAGING_ROOT`. Returns the
+    same shape as `prepare()` so a UI can chain upload → install
+    without a second `prepare` round-trip.
+
+    `filename` may include a subdirectory (e.g. `agent/foo.apk`) but
+    must not escape the staging root — the same path-traversal guard
+    as `prepare` / `install` applies. `..` in any segment is refused
+    outright.
+    """
+    if not isinstance(filename, str) or not filename.strip():
+        return _err("filename required")
+    # Reject obvious traversal attempts. `_resolve_apk_path` already
+    # catches these, but a direct guard produces a clearer error
+    # message before we touch the filesystem.
+    parts = Path(filename).parts
+    if any(p in ("..", "") for p in parts):
+        return _err("filename may not contain `..` or empty segments")
+    if not isinstance(data, (bytes, bytearray)) or len(data) < 100:
+        return _err("data missing or too small to be an APK")
+    # Cheap magic check: real APKs start with the ZIP magic `PK\x03\x04`.
+    if data[:4] != b"PK\x03\x04":
+        return _err(
+            "file does not look like a ZIP/APK "
+            "(missing PK\\x03\\x04 magic)",
+            got_prefix=data[:4].hex(),
+        )
+    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    dest = STAGING_ROOT / filename
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(bytes(data))
+    # Chain into prepare so the caller gets sha + consent + package.
+    prepared = prepare(filename)
+    if prepared.get("ok"):
+        prepared["action"] = "apk_upload"
+        prepared["written_bytes"] = len(data)
+    return prepared
+
+
 def prepare(apk_path: str) -> dict[str, Any]:
     """Compute SHA-256 + the required consent token + inspect the APK
     for a package name. No adb call, no device required — this is the

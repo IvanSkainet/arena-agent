@@ -159,22 +159,30 @@ def smoke_sensors() -> None:
 
 
 def smoke_gestures_shade() -> None:
-    """Regression from user report: shade must open in ONE click."""
+    """Regression from user report: shade must open in ONE click, on
+    the statusbar_cmd fast path."""
     section(f"/v1/mobile/{SERIAL}/gesture (shade fast path)")
-    # Wake + home first.
+    # Wake + home + explicit collapse first, so subsequent expand-*
+    # calls hit a clean state (SystemUI returns non-zero on some ROMs
+    # if you try to expand-settings while notifications is already open).
     _http("POST", f"/v1/mobile/{SERIAL}/key", body={"key": "WAKEUP"})
     _http("POST", f"/v1/mobile/{SERIAL}/key", body={"key": "HOME"})
-    time.sleep(0.5)
+    time.sleep(0.8)
     for g in ("notifications", "quick_settings", "shade_center", "shade_full"):
-        s, r, _ = _http("POST", f"/v1/mobile/{SERIAL}/gesture",
-                        body={"gesture": g})
-        _check(f"gesture {g!r} succeeded",
-               s == 200 and (r or {}).get("ok"),
-               detail=f"backend={r.get('backend') if r else '?'}")
-        time.sleep(0.4)
+        # Force-close before every expand so the transitions are clean.
         _http("POST", f"/v1/mobile/{SERIAL}/gesture",
               body={"gesture": "close_shade"})
-        time.sleep(0.4)
+        time.sleep(0.6)
+        s, r, _ = _http("POST", f"/v1/mobile/{SERIAL}/gesture",
+                        body={"gesture": g})
+        backend = (r or {}).get("backend", "?")
+        _check(f"gesture {g!r} used statusbar_cmd fast path",
+               s == 200 and (r or {}).get("ok") and backend == "statusbar_cmd",
+               detail=f"backend={backend}")
+        time.sleep(0.6)
+    # Leave the phone clean.
+    _http("POST", f"/v1/mobile/{SERIAL}/gesture",
+          body={"gesture": "close_shade"})
 
 
 def smoke_batch() -> None:
@@ -239,6 +247,70 @@ def smoke_camera(skip: bool) -> None:
     _http("POST", f"/v1/mobile/{SERIAL}/key", body={"key": "HOME"})
 
 
+def smoke_apk_upload() -> None:
+    """v3.84.2: POST an APK to /v1/mobile/apk/upload — the bytes end
+    up in staging + we get sha + consent token in one call."""
+    section("/v1/mobile/apk/upload")
+    from pathlib import Path
+    src = Path("/home/ivan/arena-bridge/assets/apks/adbkeyboard-v2.5-dev.apk")
+    if not src.exists():
+        _check("bundled APK exists (SKIP)", False,
+               detail="run from bridge host with assets/apks/ present")
+        return
+    data = src.read_bytes()
+    url = "/v1/mobile/apk/upload?filename=smoke-upload.apk"
+    # Custom-body upload isn't the JSON convenience of _http, so we
+    # hand-roll a raw request.
+    import urllib.error
+    import urllib.request
+    req = urllib.request.Request(
+        BASE + url, data=data, method="POST",
+        headers={"Authorization": f"Bearer {TOKEN}",
+                 "Content-Type": "application/octet-stream"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            r = json.loads(resp.read())
+            status = resp.status
+    except urllib.error.HTTPError as e:
+        r = {"error": e.reason}
+        status = e.code
+    _check("HTTP 200 + ok", status == 200 and (r or {}).get("ok"))
+    _check("sha256 present", bool((r or {}).get("sha256")))
+    _check("required_consent starts with 'yes-install-'",
+           str((r or {}).get("required_consent", "")).startswith("yes-install-"))
+
+
+def smoke_recording() -> None:
+    """v3.84.2: 3s sync recording, verify MP4 comes back."""
+    section(f"/v1/mobile/{SERIAL}/recording/sync")
+    # Make sure the shade / any modal is closed — screenrecord occasionally
+    # gets zero bytes if SurfaceFlinger has a system dialog on top.
+    _http("POST", f"/v1/mobile/{SERIAL}/gesture", body={"gesture": "close_shade"})
+    _http("POST", f"/v1/mobile/{SERIAL}/key", body={"key": "HOME"})
+    time.sleep(1.0)
+    started = time.monotonic()
+    s, r, _ = _http("POST", f"/v1/mobile/{SERIAL}/recording/sync",
+                    body={"duration_ms": 3000, "size": "540x1200",
+                          "bit_rate": 2_000_000, "include_bytes": True},
+                    timeout=60)
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    _check("HTTP 200 + ok", s == 200 and (r or {}).get("ok"),
+           detail=f"round-trip {elapsed_ms}ms")
+    _check("size_bytes > 1KB",
+           (r or {}).get("size_bytes", 0) > 1024,
+           detail=f"{(r or {}).get('size_bytes', 0):,} bytes MP4")
+    b64 = (r or {}).get("bytes_b64", "")
+    import base64
+    if b64:
+        raw = base64.b64decode(b64)
+        # MP4 files start with a size + 'ftyp' box in the first 12 bytes.
+        _check("payload is a valid MP4 (contains 'ftyp')",
+               b"ftyp" in raw[:20],
+               detail=f"prefix={raw[:12].hex()}")
+    _check("record_ms field present",
+           isinstance((r or {}).get("record_ms"), int))
+
+
 def summary(json_out: bool) -> int:
     section("summary")
     passed = sum(1 for _, ok, _ in CHECKS if ok)
@@ -269,9 +341,11 @@ def main() -> int:
     smoke_screenshot()
     smoke_sensors()
     smoke_apk_prepare()
+    smoke_apk_upload()
     if not args.skip_write:
         smoke_gestures_shade()
         smoke_batch()
+        smoke_recording()
     smoke_camera(skip=args.skip_camera or args.skip_write)
     return summary(args.json)
 

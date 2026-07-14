@@ -63,6 +63,14 @@ class MobileHandlers:
     camera_photos: object
     camera_pull: object
     camera_capture: object
+    # v3.84.2: apk upload + screen recording
+    apk_upload: object
+    record_sync: object
+    record_start: object
+    record_stop: object
+    record_list: object
+    record_pull: object
+    record_purge: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -546,6 +554,8 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
     from arena.mobile.handlers_media import make_media_handlers
     _devops = make_devops_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
     _media = make_media_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
+    from arena.mobile.handlers_recording import make_recording_handlers
+    _rec = make_recording_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
 
 
     async def handle_packages(request: web.Request) -> web.Response:
@@ -594,9 +604,12 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         key_combo=handle_key_combo,
         **{k: _devops[k] for k in (
             "pair", "connect", "disconnect",
-            "apk_prepare", "apk_install")},
+            "apk_prepare", "apk_install", "apk_upload")},
         batch=handle_batch,
         **{k: _media[k] for k in (
             "camera_launch", "camera_shutter",
             "camera_photos", "camera_pull", "camera_capture")},
+        **{k: _rec[k] for k in (
+            "record_sync", "record_start", "record_stop",
+            "record_list", "record_pull", "record_purge")},
     )

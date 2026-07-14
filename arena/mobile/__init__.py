@@ -55,6 +55,16 @@ from arena.mobile.apk_install import (
     STAGING_ROOT as APK_STAGING_ROOT,
     install as install_apk,
     prepare as prepare_apk,
+    save_upload,
+)
+# v3.84.2: screen recording.
+from arena.mobile.recording import (
+    list_recordings,
+    pull_recording,
+    purge_recordings,
+    record_sync,
+    start_async as start_async_recording,
+    stop_async as stop_async_recording,
 )
 
 __all__ = [
@@ -107,6 +117,14 @@ __all__ = [
     "camera_list_photos",
     "camera_pull_photo",
     "camera_shutter",
+    # v3.84.2
+    "list_recordings",
+    "pull_recording",
+    "purge_recordings",
+    "record_sync",
+    "save_upload",
+    "start_async_recording",
+    "stop_async_recording",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

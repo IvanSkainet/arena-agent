@@ -117,10 +117,42 @@ def make_devops_handlers(ctx, *, run, read_json, cors):
             ctx.record_request(is_error=True, count_request=False)
             return cors({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_apk_upload(request: web.Request) -> web.Response:
+        """v3.84.2: accept a raw-body upload → saves under staging dir
+        → prepares SHA + consent token. Body is the APK bytes; the
+        filename comes from `?filename=` query param (required).
+        Cap upload at 500 MB to prevent abuse."""
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        filename = request.query.get("filename") or ""
+        MAX_UPLOAD = 500 * 1024 * 1024
+        try:
+            data = await request.read()
+        except Exception as e:
+            return cors({"ok": False, "error": f"read body failed: {e}"}, status=400)
+        if len(data) > MAX_UPLOAD:
+            return cors({"ok": False,
+                         "error": f"upload too large: {len(data)} bytes",
+                         "hint": f"limit is {MAX_UPLOAD} bytes"}, status=413)
+        try:
+            res = await run(_apk_install.save_upload, filename, data)
+            ctx.audit({"type": "mobile.apk_upload",
+                       "filename": filename,
+                       "size_bytes": len(data),
+                       "apk_sha256": res.get("sha256"),
+                       "ok": res.get("ok")})
+            return cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return cors({"ok": False, "error": str(e)}, status=500)
+
     return {
         "pair": handle_pair,
         "connect": handle_connect,
         "disconnect": handle_disconnect,
         "apk_prepare": handle_apk_prepare,
         "apk_install": handle_apk_install,
+        "apk_upload": handle_apk_upload,
     }

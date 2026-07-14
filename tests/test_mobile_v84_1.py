@@ -225,9 +225,10 @@ def test_gesture_shade_swipe_fallback_when_statusbar_refuses(monkeypatch):
 # ---------------------------------------------------------------------------
 # Handler dataclass — v3.84.1 field surface
 # ---------------------------------------------------------------------------
-def test_mobile_handlers_dataclass_fields_v84_1():
+def test_mobile_handlers_dataclass_has_v84_1_fields():
+    """Baseline check. Exact 38-field surface lives in test_mobile_v84_2.py."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {
+    baseline = {
         "list_devices", "device_info", "screenshot", "tap", "swipe",
         "type_text", "key_event", "shell", "packages", "gesture",
         "ui_dump", "tap_by",
@@ -236,9 +237,9 @@ def test_mobile_handlers_dataclass_fields_v84_1():
         "sensors", "scroll", "key_combo",
         "pair", "connect", "disconnect", "apk_prepare", "apk_install",
         "batch",
-        # v3.84.1
         "camera_launch", "camera_shutter", "camera_photos",
         "camera_pull", "camera_capture",
     }
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+    missing = baseline - got
+    assert not missing, f"v3.84.1 handlers missing: {missing}"

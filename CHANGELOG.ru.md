@@ -6,6 +6,123 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.84.2 - 2026-07-14
+
+Две новые возможности из follow-ups v3.84.1 + честный smoke-регресс
+фикс: **запись видео экрана** (sync + async, до 180 с за один вызов),
+**APK upload** (байты через HTTP → сразу в staging), и hardening
+smoke-скрипта после того как реальная flaky-race была поймана в
+собственном smoke-прогоне v3.84.1.
+
+### Added — Запись видео экрана
+
+Новый `arena/mobile/recording.py` (419 строк) поверх стокового
+`screenrecord` Android. Два режима:
+
+- **Sync** — `POST /v1/mobile/{s}/recording/sync` блокируется на
+  `duration_ms` (500..180000 — лимит AVC-энкодера самого Android),
+  забирает получившийся MP4 обратно на bridge, и возвращает его
+  base64-encoded в ответе. Опциональный `include_bytes: false`
+  пропускает payload и возвращает только on-device path + size.
+- **Async** — `POST /v1/mobile/{s}/recording/start` спавнит
+  `screenrecord` как detached shell process (`nohup … &`), хранит
+  PID в in-memory registry, возвращает сразу. Poll через
+  `GET /v1/mobile/{s}/recordings`; `POST /v1/mobile/recording/{id}/stop`
+  шлёт SIGINT для чистого flush контейнера; `GET
+  /v1/mobile/recording/{id}` забирает файл обратно; `POST
+  /v1/mobile/{s}/recording/purge` чистит.
+
+Все записи попадают в `/sdcard/DCIM/ArenaRecordings/`, чтобы не
+захламлять Camera roll юзера. Файлы авто-удаляются после sync pull,
+если не передан `keep_on_device: true`.
+
+**Валидация upfront**: границы duration, WxH формат regex, bit-rate
+в `100_000..100_000_000` — плохие вызовы возвращают actionable
+ошибки до касания adb.
+
+**CLI**: `arena-mobile record 2200ad3b --duration-ms 5000 -o phone.mp4`
++ `arena-mobile recordings 2200ad3b`.
+
+Проверено вживую на POCO F7 Pro: 3-секундная запись 540×1200 дала
+**20.8 KB валидный MP4** с корректным `ftyp` box за 4.3 с
+round-trip.
+
+### Added — APK upload endpoint
+
+Flow CLI + Dashboard v3.84.0 требовал `scp` APK в
+`/tmp/arena-apk-staging/` перед вызовом prepare. **v3.84.2 добавляет
+`POST /v1/mobile/apk/upload`** — сырые APK байты в теле, filename
+через query param. Handler валидирует ZIP magic (`PK\x03\x04`),
+отвергает `..` в filename, ограничивает upload до 500 MB, сохраняет
+в staging dir, и chain'ит прямо в `prepare()` — ответ уже содержит
+SHA-256 + consent token + package name + signature check.
+
+**CLI**: `arena-mobile apk-upload ./my-app.apk` — одна команда от
+локального файла до готовой к установке prepared entry на bridge.
+
+Проверено вживую: 18 KB bundled ADBKeyboard APK uploaded + prepared
+за один round-trip.
+
+### Fixed — Флейкость smoke-скрипта
+
+Собственный smoke-прогон v3.84.1 поймал реальный регресс в v3.84.2
+пока я его писал: после `notifications` открывающего шторку через
+`statusbar_cmd`, вызов `expand-settings` для `quick_settings` при
+всё ещё открытой шторке иногда фейлится на HyperOS. То же с
+`screenrecord` — если системный диалог поверх SurfaceFlinger,
+recorder производит 0-байтный MP4.
+
+**Оба пропатчены в `scripts/smoke_mobile.py`**:
+  * Каждый shade тест теперь явно `close_shade`s ПЕРЕД следующим
+    expand вызовом — каждый transition стартует с известно-чистого
+    состояния.
+  * Recording тест явно закрывает шторку + жмёт HOME + ждёт 1с
+    перед стартом screenrecord.
+
+В этом и есть ценность live smoke — unit-тесты не поймали бы ни
+одну из проблем, потому что мокают adb. Фикс приземлился в том же
+релизе, что и тестируемый код; smoke теперь **60/60**.
+
+### Test suite
+
+859 unit passed (+14 новых — все в `tests/test_mobile_v84_2.py`, 283 строки):
+- **recording**: 6 тестов — валидация duration_ms / size / bit_rate,
+  adb guard, полный sync flow через mocked adb (проверяет что точные
+  флаги `--time-limit` / `--size` / `--bit-rate` доходят до
+  screenrecord), empty-file error path, async lifecycle (start → list
+  → stop → pull) end-to-end через module registry, unknown-id stop.
+- **apk_install.save_upload**: 4 теста — отказ path-traversal (`..`,
+  пустые сегменты), отказ non-ZIP magic, отказ tiny-file, happy-path
+  write + chain в `prepare`.
+- **handler dataclass**: ожидается 38 полей (было 32 в v3.84.1).
+- **CLI**: `apk-upload`, `record`, `recordings` все зарегистрированы.
+
+Live smoke: **60/60 на реальном POCO F7 Pro** после flake fix,
+покрывает новый recording sync путь (20.8 KB MP4 произведён) и
+apk upload roundtrip (SHA-256 + consent token возвращены).
+
+### Файлы
+
+- `arena/mobile/recording.py` (419) — sync + async оркестровка.
+- `arena/mobile/handlers_recording.py` (126) — 6 aiohttp handlers.
+- `arena/mobile/handlers_devops.py` (158, +32) — новый `handle_apk_upload`.
+- `arena/mobile/apk_install.py` (519, +40) — `save_upload()`.
+- `arena/mobile/handlers.py` (615, форма не менялась — по-прежнему
+  allowlisted с v3.84.1).
+- `bin/arena-mobile` (414) — 3 новых подкоманды.
+- `scripts/smoke_mobile.py` (354, +80) — 2 новых секции + flake fix.
+
+### Follow-ups для v3.84.3+
+
+- **Screen mirroring (live H.264 stream)** — настоящий "high FPS"
+  ответ. Требует `screenrecord --output-format=h264` пайпленный через
+  WebSocket, декодированный в браузере через `<video>` MSE.
+  Заметный объём работы.
+- **Расширение auto-detection camera app** — Vivo, Realme, OnePlus
+  shutter resource-id.
+- **Async recording UI в Dashboard** — сейчас recording только через
+  CLI; Start/Stop кнопки в Camera card были бы low-effort.
+
 ## v3.84.1 - 2026-07-14
 
 Stabilisation по итогам реального использования Dashboard: **shade

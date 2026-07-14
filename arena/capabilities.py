@@ -187,6 +187,9 @@ def build_capabilities(
                     "apk/prepare", "apk/install",
                     "batch",
                     "camera/launch", "camera/shutter", "camera/photos", "camera/pull", "camera/capture",
+                    "apk/upload",
+                    "recording/sync", "recording/start", "recording/stop",
+                    "recordings", "recording/purge",
                 ],
                 "hint": m.get("hint"),
             }
