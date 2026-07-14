@@ -22,6 +22,7 @@ from arena.mobile import screenshot as _screenshot
 from arena.mobile import sensors as _sensors
 from arena.mobile import shell as _shell
 from arena.mobile import ui as _ui
+# apk_install and wireless are used indirectly via handlers_devops.
 
 
 @dataclass(frozen=True)
@@ -47,6 +48,12 @@ class MobileHandlers:
     sensors: object
     scroll: object
     key_combo: object
+    # v3.83.5 additions.
+    pair: object
+    connect: object
+    disconnect: object
+    apk_prepare: object
+    apk_install: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -100,7 +107,9 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             return _cors({"ok": False, "error": "serial required"}, status=400)
 
         # Query params: max_width (legacy), max_size (long side, preferred),
-        # quality, format, wire (raw|json).
+        # quality, format, wire (raw|json), force_png_source (v3.83.5:
+        # skip the fast raw path so testers can compare paths side-by-side
+        # straight from the browser).
         try:
             max_width = int(request.query.get("max_width")) if request.query.get("max_width") else None
             max_size = int(request.query.get("max_size")) if request.query.get("max_size") else None
@@ -109,6 +118,7 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             return _cors({"ok": False, "error": f"invalid query param: {e}"}, status=400)
         fmt = request.query.get("format", "png").lower()
         wire = request.query.get("wire", "raw").lower()  # "raw" (binary) | "json" (b64)
+        force_png = request.query.get("force_png_source", "0") in ("1", "true", "True")
 
         try:
             result = await _run(
@@ -118,6 +128,7 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
                 max_size=max_size,
                 quality=quality,
                 format=fmt,
+                force_png_source=force_png,
             )
         except Exception as e:
             ctx.record_request(is_error=True, count_request=False)
@@ -497,6 +508,14 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
+    # ---- Devops handlers (wireless + APK install) ----------------
+    # v3.83.5: pair/connect/disconnect/apk_prepare/apk_install live
+    # in arena.mobile.handlers_devops so this file stays under the
+    # 600-line runtime cap. Same context, same helpers, same shape.
+    from arena.mobile.handlers_devops import make_devops_handlers
+    _devops = make_devops_handlers(ctx, run=_run, read_json=_read_json, cors=_cors)
+
+
     async def handle_packages(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -541,4 +560,9 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         sensors=handle_sensors,
         scroll=handle_scroll,
         key_combo=handle_key_combo,
+        pair=_devops["pair"],
+        connect=_devops["connect"],
+        disconnect=_devops["disconnect"],
+        apk_prepare=_devops["apk_prepare"],
+        apk_install=_devops["apk_install"],
     )

@@ -182,4 +182,9 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_sensors": handlers.sensors,
         "handle_v1_mobile_scroll": handlers.scroll,
         "handle_v1_mobile_key_combo": handlers.key_combo,
+        "handle_v1_mobile_pair": handlers.pair,
+        "handle_v1_mobile_connect": handlers.connect,
+        "handle_v1_mobile_disconnect": handlers.disconnect,
+        "handle_v1_mobile_apk_prepare": handlers.apk_prepare,
+        "handle_v1_mobile_apk_install": handlers.apk_install,
     }

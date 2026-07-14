@@ -296,16 +296,21 @@ def test_sensors_events_per_sensor_is_clamped_to_10():
 # ---------------------------------------------------------------------------
 # handlers dataclass — v3.83.3 fields
 # ---------------------------------------------------------------------------
-def test_mobile_handlers_dataclass_fields_v83_3():
+def test_mobile_handlers_dataclass_has_v83_3_fields():
+    """Baseline check that the v3.83.3 fields are still there. The
+    exact field set (updated when we add new handlers) lives in
+    test_mobile_v83_5.py so tests can grow without touching each
+    other."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {"list_devices", "device_info", "screenshot", "tap", "swipe",
-                "type_text", "key_event", "shell", "packages", "gesture",
-                "ui_dump", "tap_by",
-                "helpers_status", "helpers_install",
-                "ime_status", "ime_set", "ime_reset", "paste",
-                "sensors", "scroll", "key_combo"}
+    v83_3_baseline = {"list_devices", "device_info", "screenshot", "tap", "swipe",
+                      "type_text", "key_event", "shell", "packages", "gesture",
+                      "ui_dump", "tap_by",
+                      "helpers_status", "helpers_install",
+                      "ime_status", "ime_set", "ime_reset", "paste",
+                      "sensors", "scroll", "key_combo"}
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+    missing = v83_3_baseline - got
+    assert not missing, f"v3.83.3 handlers missing: {missing}"
 
 
 # ---------------------------------------------------------------------------

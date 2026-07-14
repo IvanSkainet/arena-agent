@@ -6,6 +6,133 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.83.5 - 2026-07-14
+
+Финал Mobile Phase 2 — **беспроводной ADB pair/connect**, **общий APK
+install с SHA-256 consent**, **UI установщика ADBKeyboard** (бекенд был
+в v3.82.2, кнопки в Dashboard едут сейчас), и **query-параметр
+`force_png_source`** для сравнения raw и PNG путей скриншота бок-о-бок.
+
+### Added — Беспроводной ADB pair/connect
+
+- **`arena/mobile/wireless.py`** (220 строк) с `pair(host, port, code)`,
+  `connect(host, port=5555)`, `disconnect(host=None, port=None)`.
+  - `pair` валидирует host строгим regex (dotted quad или hostname),
+    port как 1..65535, code как `^\d{6}$`. Никогда не логирует и не
+    аудитит pairing-код.
+  - `connect` парсит stdout adb на "connected to" / "failed to
+    connect" (adb возвращает exit 0 для обоих).
+  - `disconnect` без аргументов отключает все wireless устройства —
+    USB не трогается ни в каком случае.
+- **3 новых эндпоинта (device-independent):**
+  - `POST /v1/mobile/pair` — `{host, port, code}`
+  - `POST /v1/mobile/connect` — `{host, port?}`
+  - `POST /v1/mobile/disconnect` — `{host?, port?}` (пусто = все)
+- **Wizard в Dashboard** вверху вкладки Mobile: два шага — Pair
+  (host + pairing port + 6-цифровой код), потом Connect (host +
+  connect port). Автозаполнение connect host из шага pair, стирание
+  кода из DOM после использования, disconnect-all защищён `confirm()`.
+
+### Added — Общий APK install с SHA-256 consent
+
+- **`arena/mobile/apk_install.py`** (327 строк) с `prepare(apk_path)`
+  и `install(serial, apk_path, consent=…)`.
+  - **Защита от path traversal**: `apk_path` должен разрешаться в
+    `/tmp/arena-apk-staging/` (относительные пути авто-префиксятся).
+    Всё вне — включая `/etc/passwd` — отклоняется с actionable hint'ом.
+  - **SHA-256 consent token** `yes-install-<first-8-hex>` — та же
+    форма, что и у ADBKeyboard v3.83.2, так что UI обрабатывающий один
+    справится с обоими. Ротация APK инвалидирует старые prompt'ы.
+  - **Best-effort извлечение имени пакета** — сканирует
+    AndroidManifest.xml на пакет-подобную строку без зависимости от
+    aapt. Отфильтровывает `android.*` / `java.*` framework-имена.
+  - **Опциональная apksigner проверка** — запускает `apksigner verify
+    --print-certs` если бинарь на PATH; иначе возвращает
+    `signature_check.available: false` с hint (SHA-256 consent
+    по-прежнему привязывает установку к конкретному файлу).
+  - **Adb push + pm install -r** с actionable timeout hint
+    ("телефон показывает диалог 'Install this app?'") и error-code
+    hints для `INSTALL_FAILED_USER_RESTRICTED`,
+    `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,
+    `INSTALL_FAILED_VERSION_DOWNGRADE`.
+- **2 новых эндпоинта:**
+  - `POST /v1/mobile/apk/prepare` — device-independent.
+  - `POST /v1/mobile/{serial}/apk/install`
+- **Форма в Dashboard** внутри Selected-device: поле APK path, кнопки
+  Prepare + Install. Prepare показывает полный SHA-256, имя пакета,
+  статус signature check, размер, и обязательный consent token до
+  попытки установки.
+
+### Added — UI установщика ADBKeyboard в Dashboard
+
+Бекенд существовал с v3.82.2, но не было UI — юзеру приходилось
+`curl`'ом проходить flow. Теперь три кнопки:
+- **Install ADBKeyboard** — читает `/v1/mobile/helpers/status` для
+  SHA-256 + consent token, `confirm()` диалог показывает package /
+  version / hash / size, потом `POST /helpers/install`.
+- **Activate ADBKeyboard as IME** — `POST /ime/set`.
+- **Reset IME to default** — защищён `confirm()`, `POST /ime/reset`.
+После активации авто-роутинг `type_text` (добавленный в v3.82.2)
+обрабатывает кириллицу и эмодзи через ADBKeyboard broadcast.
+
+### Added — `force_png_source=1` query param для screenshot
+
+Raw-framebuffer путь v3.83.4 в 2× быстрее PNG fallback'а, но
+проверить это можно было только доверяя breakdown-строке meta. Новый
+query позволяет сравнить пути бок-о-бок прямо из браузера:
+`/v1/mobile/{s}/screenshot?force_png_source=1`. Проверено на POCO F7
+Pro что PNG fallback теперь ~800 мс capture против ~1300 мс для raw —
+наглядное напоминание почему raw дефолт.
+
+### Changed — Разделение модуля чтобы удержаться в лимите runtime
+
+`arena/mobile/handlers.py` вырос до 661 строки с 5 новыми handlers,
+пробив лимит 600 строк runtime модуля. Wireless + APK handlers
+переехали в **`arena/mobile/handlers_devops.py`** (126 строк),
+основной модуль импортирует и делегирует:
+
+```
+handlers.py:  569 строк  (было 661)
+handlers_devops.py: 126 строк  (новый)
+```
+
+Public shape тот же — `MobileHandlers.pair/connect/disconnect/apk_*`
+по-прежнему резолвятся через `make_mobile_handlers(ctx)` — никаких
+wiring-изменений вне `handlers.py`.
+
+### Test suite
+
+816 passed (+19 новых — все в `tests/test_mobile_v83_5.py`, 276 строк):
+- **wireless**: 9 тестов на валидацию host/port/code, adb guard,
+  парсинг success/failure для pair + connect, disconnect-all.
+- **apk_install**: 8 тестов включая **path-traversal регресс** (отказ
+  `/etc/passwd`), уникальность consent-token, guard на missing-serial,
+  adb guard, graceful fallback при отсутствии apksigner, end-to-end
+  успех с monkeypatched adb.
+- **handler dataclass**: exact-field проверка для 26-полевой
+  поверхности (baseline проверка в v83_3 тестах оставлена для
+  regression continuity).
+
+CI: `ruff --select F821,F811` зелёный.
+
+### Roadmap после v3.83.5
+
+Mobile Phase 2 закрывается здесь. Домен теперь покрывает 26 эндпоинтов
+(discovery устройств, deep info + сенсоры, скриншоты с rotation + raw
+speed + FLAG_SECURE, tap/swipe/scroll/key/key_combo, жесты, UI
+Automator селекторы, юникод-текст через ADBKeyboard, wireless ADB,
+общий APK install). Следующие релизные циклы:
+
+- **v3.84.0** — вероятно стабилизация / polish / охота на баги в
+  уже отгруженном, а не следующий feature-push. User-reported
+  performance-проблемы будут задавать приоритеты.
+- **Mobile Phase 3** — ultimate vision из мая 2026: нативный
+  Android APK, хостящий свой bridge-like сервис на телефоне,
+  устраняющий все ADB round-trip квирки. Такой же URL:8765 +
+  Bearer token pattern как у PC bridge, VPN через Tailscale/ZeroTier
+  Android для удалённого доступа. Огромный Kotlin/Compose lift; не
+  в планах на ближайший цикл.
+
 ## v3.83.4 - 2026-07-14
 
 Mobile Phase 2 продолжение — **screenshot переписан для скорости**,

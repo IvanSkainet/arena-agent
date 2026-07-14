@@ -1,5 +1,134 @@
 # Changelog
 
+## v3.83.5 - 2026-07-14
+
+Mobile Phase 2 wrap — **wireless ADB pair/connect**, **generic APK
+install with SHA-256 consent**, **ADBKeyboard installer UI** (backend
+was in v3.82.2, Dashboard buttons ship now), and the **`force_png_source`
+screenshot query param** for side-by-side comparison of the raw and PNG
+capture paths.
+
+### Added — Wireless ADB pair/connect
+
+- **`arena/mobile/wireless.py`** (220 lines) with `pair(host, port, code)`,
+  `connect(host, port=5555)`, `disconnect(host=None, port=None)`.
+  - `pair` validates host with a strict regex (dotted quad or
+    hostname), port as 1..65535, code as `^\d{6}$`. Never logs or
+    audits the pairing code.
+  - `connect` parses adb's stdout for "connected to" / "failed to
+    connect" (adb returns exit 0 for both).
+  - `disconnect` with no args drops every wireless device — USB is
+    unaffected either way.
+- **3 new endpoints (device-independent):**
+  - `POST /v1/mobile/pair` — `{host, port, code}`
+  - `POST /v1/mobile/connect` — `{host, port?}`
+  - `POST /v1/mobile/disconnect` — `{host?, port?}` (empty = all)
+- **Dashboard wizard** at the top of the Mobile tab: two-step
+  Pair (host + pairing port + 6-digit code) then Connect (host +
+  connect port). Auto-fills the connect host from the pair step,
+  wipes the code from the DOM after use, disconnect-all button
+  guarded by `confirm()`.
+
+### Added — Generic APK install with SHA-256 consent
+
+- **`arena/mobile/apk_install.py`** (327 lines) with `prepare(apk_path)`
+  and `install(serial, apk_path, consent=…)`.
+  - **Path traversal guard**: `apk_path` must resolve under
+    `/tmp/arena-apk-staging/` (relative paths auto-prefixed).
+    Anything outside — including `/etc/passwd` — is refused with an
+    actionable hint.
+  - **SHA-256 consent token** `yes-install-<first-8-hex>` — same shape
+    as the ADBKeyboard v3.83.2 token, so a UI that handles one
+    handles both. Rotating the APK invalidates stale prompts.
+  - **Best-effort package-name extraction** — scans AndroidManifest.xml
+    for a package-shaped string without depending on aapt. Filters
+    out `android.*` / `java.*` framework names.
+  - **Optional apksigner verify** — runs `apksigner verify --print-certs`
+    when the tool is on the PATH; when it isn't, returns
+    `signature_check.available: false` with a hint (SHA-256 consent
+    still ties install to a specific file).
+  - **Adb push + pm install -r** with an actionable timeout hint
+    ("phone is showing an on-device 'Install this app?' dialog") and
+    error-code hints for `INSTALL_FAILED_USER_RESTRICTED`,
+    `INSTALL_FAILED_UPDATE_INCOMPATIBLE`,
+    `INSTALL_FAILED_VERSION_DOWNGRADE`.
+- **2 new endpoints:**
+  - `POST /v1/mobile/apk/prepare` — device-independent.
+  - `POST /v1/mobile/{serial}/apk/install`
+- **Dashboard form** in Selected-device: APK path input, Prepare +
+  Install buttons. Prepare shows the full SHA-256, package name,
+  signature check status, size, and the required consent token
+  before install is attempted.
+
+### Added — ADBKeyboard installer Dashboard UI
+
+The backend has existed since v3.82.2 but there was no UI — the user
+had to `curl` through the flow. Ship the three buttons now:
+- **Install ADBKeyboard** — reads `/v1/mobile/helpers/status` for the
+  APK's SHA-256 + consent token, `confirm()` dialog shows package /
+  version / hash / size, then `POST /helpers/install`.
+- **Activate ADBKeyboard as IME** — `POST /ime/set`.
+- **Reset IME to default** — guarded by `confirm()`, `POST /ime/reset`.
+Once activated, the `type_text` auto-routing (added in v3.82.2)
+handles cyrillic and emoji through the ADBKeyboard broadcast.
+
+### Added — `force_png_source=1` screenshot query param
+
+The v3.83.4 raw-framebuffer path is 2× faster than the PNG fallback
+but you can only tell that by trusting the meta-line breakdown. This
+new query lets you compare paths side-by-side straight from the
+browser: `/v1/mobile/{s}/screenshot?force_png_source=1`. Verified
+on POCO F7 Pro that the PNG fallback path is now ~800 ms of capture
+vs ~1300 ms for raw — a stark reminder of why raw is the default.
+
+### Changed — Module split to keep the runtime cap green
+
+`arena/mobile/handlers.py` grew to 661 lines with the 5 new
+handlers, tripping the 600-line runtime module cap. Wireless + APK
+handlers moved to **`arena/mobile/handlers_devops.py`** (126 lines),
+which the main module now imports and delegates to:
+
+```
+handlers.py:  569 lines  (was 661)
+handlers_devops.py: 126 lines  (new)
+```
+
+Same public shape — `MobileHandlers.pair/connect/disconnect/apk_*`
+still resolve via `make_mobile_handlers(ctx)` — so no wiring change
+outside `handlers.py`.
+
+### Test suite
+
+816 passed (+19 new — all in `tests/test_mobile_v83_5.py`, 276 lines):
+- **wireless**: 9 tests covering host/port/code validation, adb
+  guard, success/failure parsing for pair + connect, disconnect-all.
+- **apk_install**: 8 tests including a **path-traversal regression**
+  (refuses `/etc/passwd`), consent-token uniqueness, missing-serial
+  guard, adb-not-installed guard, missing-apksigner graceful fallback,
+  end-to-end success with monkeypatched adb.
+- **handler dataclass**: exact-field check for the 26-field surface
+  (baseline check in v83_3 tests kept for regression continuity).
+
+CI: `ruff --select F821,F811` green.
+
+### Roadmap after v3.83.5
+
+Mobile Phase 2 wraps here. The domain now covers 26 endpoints (device
+discovery, deep info + sensors, screenshots with rotation + raw
+speed + FLAG_SECURE, tap/swipe/scroll/key/key_combo, gestures,
+UI Automator selectors, unicode text via ADBKeyboard, wireless
+ADB, generic APK install). Next release cycles will look at:
+
+- **v3.84.0** — likely stabilisation / polish / bug hunt on what's
+  already shipped rather than another feature push. User-reported
+  performance issues will guide the priorities.
+- **Mobile Phase 3** — the ultimate vision from May 2026: a native
+  Android APK hosting its own bridge-like service on the phone,
+  eliminating every ADB round-trip quirk. Same URL:8765 + Bearer
+  token pattern as the PC bridge, VPN via Tailscale/ZeroTier native
+  Android for remote access. Huge Kotlin/Compose lift; not planned
+  for the immediate cycle.
+
 ## v3.83.4 - 2026-07-14
 
 Mobile Phase 2 continued — **screenshot capture path rewritten for

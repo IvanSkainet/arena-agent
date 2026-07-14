@@ -34,6 +34,18 @@ from arena.mobile.ui import dump_ui, tap_by
 # Re-export the new scroll + key_combo primitives added in v3.83.3.
 from arena.mobile.input import key_combo, scroll
 
+# v3.83.5: wireless ADB + generic APK install.
+from arena.mobile.wireless import (
+    connect as wireless_connect,
+    disconnect as wireless_disconnect,
+    pair as wireless_pair,
+)
+from arena.mobile.apk_install import (
+    STAGING_ROOT as APK_STAGING_ROOT,
+    install as install_apk,
+    prepare as prepare_apk,
+)
+
 __all__ = [
     "AdbNotFoundError",
     "adb_version",
@@ -67,6 +79,13 @@ __all__ = [
     "ime_set_adbkeyboard",
     "ime_reset",
     "paste_text",
+    # v3.83.5
+    "wireless_pair",
+    "wireless_connect",
+    "wireless_disconnect",
+    "APK_STAGING_ROOT",
+    "prepare_apk",
+    "install_apk",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

@@ -183,6 +183,8 @@ def build_capabilities(
                     "helpers/status", "helpers/install",
                     "ime", "ime/set", "ime/reset", "paste",
                     "sensors", "scroll", "key_combo",
+                    "pair", "connect", "disconnect",
+                    "apk/prepare", "apk/install",
                 ],
                 "hint": m.get("hint"),
             }
