@@ -131,11 +131,12 @@ def swipe(
 # raises a bare NPE). We reject those inputs at the API boundary so we
 # never surface a Java stack trace to the user.
 _NON_ASCII_HINT = (
-    "adb's `input text` cannot encode non-ASCII characters on this device's "
-    "IME (LatinIME / HyperOS return an internal NullPointerException). "
-    "Non-ASCII input is planned for Mobile Phase 2 via the ADBKeyboard "
-    "helper. For now, either strip the input to ASCII, or paste the text "
-    "manually into the phone."
+    "adb's built-in `input text` cannot encode non-ASCII characters "
+    "on stock IMEs (LatinIME on Android 15/16 returns a bare "
+    "NullPointerException). Install the ADBKeyboard helper (POST "
+    "/v1/mobile/{serial}/helpers/install) and activate it (POST "
+    "/v1/mobile/{serial}/helpers/ime_set) — then `type_text` will "
+    "auto-route non-ASCII through ADBKeyboard's ADB_INPUT_B64 broadcast."
 )
 _EMPTY_HINT = (
     "`input text` requires at least one non-whitespace character; on "
@@ -145,12 +146,14 @@ _EMPTY_HINT = (
 
 
 def type_text(serial: str, text: str) -> dict[str, Any]:
-    """Type ASCII text through `adb shell input text`.
+    """Type text through the most appropriate channel.
 
-    Non-ASCII and empty/whitespace-only payloads are rejected up front —
-    on modern Android (15/16) the input service crashes with a bare
-    NullPointerException in both cases and there is no way to distinguish
-    the failure from a legitimate one at the shell layer.
+    ASCII payloads go through `adb shell input text` (fast, no helper
+    needed). Non-ASCII payloads auto-route through ADBKeyboard's
+    ADB_INPUT_B64 broadcast — but only if ADBKeyboard is already the
+    active IME on the device. If it isn't, we return an actionable
+    error telling the caller how to install and activate it, instead
+    of silently sending unicode into Android's crash-prone builtin.
     """
     if not isinstance(text, str):
         return _err("text must be a string")
@@ -165,20 +168,41 @@ def type_text(serial: str, text: str) -> dict[str, Any]:
             action="type",
         )
 
-    # Non-ASCII pre-flight — LatinIME can't encode this and Android <=16
-    # returns a bare NPE we can't do anything useful with.
+    # Non-ASCII path — route through ADBKeyboard when available.
     non_ascii = [c for c in text if ord(c) > 127]
     if non_ascii:
-        # Show up to 8 offending characters + their code points so the
-        # user knows what to strip.
+        # Lazy import to keep the module load order clean; helpers imports
+        # from input.py indirectly for shared error shapes.
+        from arena.mobile import helpers as _helpers
+        status = _helpers.ime_status(serial)
+        if status.get("ok") and status.get("adbkeyboard_active"):
+            # Route through ADBKeyboard. Same envelope as the ASCII path
+            # so the Dashboard doesn't need a special case: `action` is
+            # normalised to "type" (the user asked to type), `route`
+            # tells the audit trail which backend actually delivered it.
+            paste = _helpers.paste_text(serial, text)
+            paste = dict(paste)
+            paste["action"] = "type"
+            paste["route"] = "adbkeyboard"
+            paste["chars"] = len(text)
+            return paste
+        # ADBKeyboard not active — fall through with an actionable error.
         sample = "".join(non_ascii[:8])
         codepoints = ", ".join(f"U+{ord(c):04X}" for c in non_ascii[:8])
         more = "" if len(non_ascii) <= 8 else f" (+{len(non_ascii) - 8} more)"
+        extras: dict[str, Any] = {
+            "offending_codepoints": codepoints,
+            "action": "type",
+            "route": "blocked",
+        }
+        if status.get("ok"):
+            extras["adbkeyboard_installed"] = status.get("adbkeyboard_installed", False)
+            extras["adbkeyboard_active"] = status.get("adbkeyboard_active", False)
+            extras["current_ime"] = status.get("current")
         return _err(
             f"text contains {len(non_ascii)} non-ASCII character(s): {sample!r}{more}",
             hint=_NON_ASCII_HINT,
-            offending_codepoints=codepoints,
-            action="type",
+            **extras,
         )
 
     guard = _ensure_adb()

@@ -180,6 +180,8 @@ def build_capabilities(
                     "devices", "info", "screenshot",
                     "tap", "swipe", "type", "key",
                     "shell", "packages", "gesture", "ui", "tap_by",
+                    "helpers/status", "helpers/install",
+                    "ime", "ime/set", "ime/reset", "paste",
                 ],
                 "hint": m.get("hint"),
             }

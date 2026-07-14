@@ -232,7 +232,20 @@ def _probe_props(serial: str) -> dict[str, Any]:
 
 
 def _probe_screen(serial: str) -> dict[str, Any]:
-    """Screen size (physical + override) and density."""
+    """Screen size (physical + override) and density.
+
+    Also reports the *current* (rotation-aware) screen size and rotation
+    from `dumpsys window displays`. This matters because:
+      * `wm size` returns the physical display size, which never changes
+        when the phone is rotated (POCO F7 Pro stays 1440x3200 in both
+        portrait and landscape).
+      * `screencap -p` returns the currently-rotated frame (3200x1440
+        in landscape).
+      * `adb shell input tap` accepts coordinates in the *current*
+        (rotated) coordinate space, so the Dashboard must scale its
+        pixel-to-native math against the current size, not the physical
+        one.
+    """
     out: dict[str, Any] = {}
     size_txt = _sh(serial, ["wm", "size"])
     for line in size_txt.splitlines():
@@ -255,6 +268,32 @@ def _probe_screen(serial: str) -> dict[str, Any]:
             out["density_physical"] = value
         elif "Override density" in label:
             out["density_override"] = value
+
+    # Rotation-aware current size from `dumpsys window displays`. Format:
+    #   Display: mDisplayId=0 (organized)
+    #     init=1440x3200 600dpi mMinSizeOfResizeableTaskDp=200
+    #     cur=3200x1440 app=3200x1440 rng=1440x1440-3200x3200
+    disp_txt = _sh(serial, ["dumpsys", "window", "displays"], timeout=6)
+    if disp_txt:
+        import re as _re
+        m = _re.search(r"cur=(\d+)x(\d+)", disp_txt)
+        if m:
+            out["screen_size_current"] = f"{m.group(1)}x{m.group(2)}"
+        # Rotation is reported by `dumpsys input` as `orientation=N`
+        # inside the INTERNAL viewport line, and by uiautomator's
+        # <hierarchy rotation="N">. Values: 0=portrait, 1=landscape-left,
+        # 2=upside-down, 3=landscape-right.
+    inp_txt = _sh(serial, ["dumpsys", "input"], timeout=6)
+    if inp_txt:
+        import re as _re
+        m = _re.search(r"Viewport INTERNAL:.*?orientation=(\d)", inp_txt)
+        if m:
+            rot = int(m.group(1))
+            out["rotation"] = rot
+            out["orientation"] = {
+                0: "portrait", 1: "landscape",
+                2: "portrait_reverse", 3: "landscape_reverse",
+            }.get(rot, "unknown")
     return out
 
 

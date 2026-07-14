@@ -1,5 +1,149 @@
 # Changelog
 
+## v3.83.2 - 2026-07-14
+
+Mobile Phase 2 continued — **rotation awareness end-to-end**, **ADBKeyboard
+helper installer with unicode input**, and Live/Refresh refinements
+(request cancellation, tab-hidden pause). All changes live-verified
+against a POCO F7 Pro currently held in landscape (rotation=1).
+
+### Fixed — Rotation-aware taps, swipes and gestures
+
+- **`arena/mobile/devices.py::_probe_screen()` now reports current
+  rotation and current (rotated) screen size.**
+  - `wm size` returns the physical portrait size only, and doesn't
+    change when the phone is rotated. In v3.83.1 the Dashboard fed
+    that value into `_mobileNativeWidth/Height`, then scaled clicks
+    against 1440×3200 while the phone was actually rendering at
+    3200×1440. Every tap landed in the wrong place.
+  - New `screen_size_current` (from `dumpsys window displays cur=WxH`)
+    and `rotation` + `orientation` fields (from `dumpsys input
+    Viewport INTERNAL: orientation=N`). The three values together
+    describe exactly what `input tap` and `screencap` will see.
+- **Screenshot response now carries `X-Arena-Mobile-Source-Width` /
+  `X-Arena-Mobile-Source-Height` headers.** `screencap -p` follows
+  rotation, so these are the *actual* native pixels the frontend
+  needs for click-to-tap scaling. Dashboard reads them on every
+  screenshot and refreshes `_mobileNativeWidth/Height` — so tap /
+  swipe / drag now work in portrait, landscape, and reverse orientations
+  identically.
+- **`30-mobile.js` no longer seeds `_mobileNativeWidth` from `/info`.**
+  That was the source of the bug: `/info` reports physical portrait
+  size, `screencap` returns current rotation, and the two disagree the
+  moment the phone rotates.
+- **Info panel now shows both physical and current size + orientation
+  label**, e.g. `1440x3200 physical · 3200x1440 current · landscape
+  (rot 1) · 600 dpi`. This makes the disagreement visible so any future
+  rotation bug is obvious.
+
+### Added — ADBKeyboard helper (unicode text input)
+
+- **New `arena/mobile/helpers.py` module** with:
+  - `bundled_apk_status()` — reports the on-disk bundled APK's SHA-256
+    against a checked-in expected hash. Any drift (someone rebuilt the
+    release tarball with a different APK) makes the installer refuse
+    to offer install with an explicit "hash mismatch" error.
+  - `install_adbkeyboard(serial, consent=…)` — pushes to `/data/local/tmp/`
+    and runs `pm install -r`. Requires a consent token
+    `yes-install-adbkeyboard-<first-8-hex-of-hash>` in the request body,
+    which is tied to the specific APK build so a rotated release
+    invalidates stale prompts. HyperOS / MIUI shows an on-device
+    "Install this app?" dialog that the operator must accept — the
+    bridge cannot bypass it and reports it via a clear timeout hint.
+  - `ime_status(serial)` — reports the current default IME and whether
+    ADBKeyboard is installed / enabled / active.
+  - `ime_set_adbkeyboard(serial)` — idempotently enables and switches
+    to ADBKeyboard.
+  - `ime_reset(serial, target=…)` — switches back to a specific IME
+    or resets to system default.
+  - `paste_text(serial, text)` — base64-encodes utf-8 bytes and
+    delivers via `am broadcast -a ADB_INPUT_B64`. Refuses up front
+    (with a hint) when ADBKeyboard isn't the active IME, instead of
+    silently broadcasting into the void.
+- **Bundled `assets/apks/adbkeyboard-v2.5-dev.apk`** — the a16-fix
+  release from senzhk/ADBKeyBoard. SHA-256
+  `41a8a0996d7397a2390d1ca16a75cb66c4a7bdaa89cf4e63600a4d3fb346fbbb`.
+  Small (18.7 KB), single-purpose, source available.
+- **6 new endpoints:**
+  - `GET  /v1/mobile/helpers/status` — device-independent APK metadata
+    + required consent token.
+  - `POST /v1/mobile/{serial}/helpers/install` — install with consent.
+  - `GET  /v1/mobile/{serial}/ime` — IME status.
+  - `POST /v1/mobile/{serial}/ime/set` — activate ADBKeyboard.
+  - `POST /v1/mobile/{serial}/ime/reset` — restore prior IME.
+  - `POST /v1/mobile/{serial}/paste` — unicode paste via broadcast.
+  All advertised in `/v1/capabilities.mobile.endpoints`.
+
+### Changed — `type_text` auto-routes non-ASCII through ADBKeyboard
+
+- The ASCII-only guard added in v3.82.2 is **removed for the happy
+  path**. When ADBKeyboard is the active IME, `type_text` now:
+  1. Detects non-ASCII characters in the payload.
+  2. Calls `helpers.paste_text()` for delivery.
+  3. Returns the standard type-envelope with `route: "adbkeyboard"`.
+- **When ADBKeyboard is NOT active, non-ASCII still returns an
+  actionable error** (`route: "blocked"`) — but the hint now points
+  at the actual install/activate flow instead of "wait for Phase 2".
+  Response includes `adbkeyboard_installed`, `adbkeyboard_active`,
+  `current_ime` so a UI can offer a one-click "Install helper" button.
+
+### Changed — Live view and Refresh refinements
+
+- **AbortController for in-flight screenshot fetches.** Rapid actions
+  (tap + tap + gesture) used to queue three overlapping /screenshot
+  requests on the Tailscale link. Each new fetch now cancels the
+  previous one, so bandwidth and UI latency track the freshest action
+  instead of the oldest. AbortError is displayed as `· aborted` in
+  the meta line, not as an error popup.
+- **Live-view auto-pauses when the tab is hidden.** New
+  `visibilitychange` listener stops the poll timer, resumes it on
+  becoming visible again, and does one immediate refresh so you don't
+  see a stale frame when switching back.
+- **Live-view unsticks itself if the previous fetch stalls.** If
+  `_mobileScreenshotBusy` has been true for more than 2× the polling
+  interval, the current tick aborts the stuck request and starts a
+  fresh one instead of waiting indefinitely.
+- **Refresh burst skips t+400/t+1200 frames if the previous one is
+  still in flight.** No more triple-stacking on slow networks.
+
+### Test suite
+
+772 passed (+11 new). Split into two files so both stay readable:
+
+`tests/test_mobile.py` (701 lines):
+- Updated `test_mobile_handlers_dataclass_fields` for the 6 new
+  handler fields.
+- Replaced the old "non-ASCII always rejected" assertions with:
+  `test_type_non_ascii_without_adbkeyboard_returns_actionable_error`,
+  `test_type_non_ascii_routes_through_adbkeyboard_when_active`,
+  `test_type_non_ascii_emoji_blocked_without_helper`.
+
+`tests/test_mobile_helpers.py` (217 lines, new):
+- `test_screen_probe_reports_rotation_and_current_size` — verifies
+  the exact real-world snippets from POCO F7 Pro `dumpsys window
+  displays` and `dumpsys input`.
+- `test_screenshot_returns_source_dims_for_rotation_aware_scaling` —
+  synthetic 3200×1440 landscape PNG round-trips through `capture()`
+  and comes out with `source_width=3200, source_height=1440`.
+- `test_helpers_bundled_apk_status_missing_file_is_actionable`,
+  `test_helpers_bundled_apk_status_hash_mismatch_refuses`,
+  `test_helpers_consent_token_is_apk_specific`,
+  `test_helpers_install_rejects_wrong_consent`,
+  `test_helpers_paste_refuses_without_adbkeyboard`,
+  `test_helpers_paste_refuses_when_installed_but_inactive`,
+  `test_helpers_paste_base64_encodes_utf8` (verifies the broadcast
+  args contain valid base64(utf-8(payload))),
+  `test_helpers_ime_status_shape`.
+
+### Known follow-ups for v3.83.3
+
+- **Dashboard UI for the helper install / IME toggle / paste flow.**
+  The endpoints all work over curl; the visual consent dialog and
+  a "unicode input" toggle in the Send-text row are still coming.
+- **Wireless ADB `pair` / `connect` UI wizard.**
+- **Generic APK install** with `apksigner verify` + per-APK
+  SHA-256 consent flow (mirrors the ADBKeyboard installer's shape).
+
 ## v3.83.1 - 2026-07-14
 
 Mobile Phase 2 continued — UI Automator, semantic tap by resource-id /

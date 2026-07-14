@@ -15,6 +15,7 @@ from aiohttp import web
 
 from arena.mobile import devices as _devices
 from arena.mobile import gestures as _gestures
+from arena.mobile import helpers as _helpers
 from arena.mobile import input as _input
 from arena.mobile import packages as _packages
 from arena.mobile import screenshot as _screenshot
@@ -36,6 +37,12 @@ class MobileHandlers:
     gesture: object
     ui_dump: object
     tap_by: object
+    helpers_status: object
+    helpers_install: object
+    ime_status: object
+    ime_set: object
+    ime_reset: object
+    paste: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -123,6 +130,11 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             headers={
                 "X-Arena-Mobile-Width": str(result["width"]),
                 "X-Arena-Mobile-Height": str(result["height"]),
+                # Native device pixels in the *current* rotation. These
+                # are what `input tap` expects, so the frontend uses
+                # them (not /info physical size) to unscale clicks.
+                "X-Arena-Mobile-Source-Width": str(result.get("source_width") or result["width"]),
+                "X-Arena-Mobile-Source-Height": str(result.get("source_height") or result["height"]),
                 "X-Arena-Mobile-Downscaled": "1" if result.get("downscaled") else "0",
             },
         )
@@ -274,6 +286,125 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
+    # ---- helper-APK install + IME control + unicode paste -----------
+
+    async def handle_helpers_status(request: web.Request) -> web.Response:
+        """Report on the bundled ADBKeyboard APK (no device needed).
+
+        Advertises the expected consent token so the Dashboard doesn't
+        have to guess it. Never touches the device — reads the on-disk
+        bundle only. This is the endpoint the install-consent UI polls
+        before showing its confirm button.
+        """
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            info = await _run(_helpers.bundled_apk_status)
+            # Include the required consent token so the Dashboard can
+            # show it exactly instead of reconstructing on the client.
+            if info.get("ok") and info.get("sha256"):
+                info["required_consent"] = _helpers._consent_token(info["sha256"])
+            return _cors(info)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_helpers_install(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        consent = body.get("consent")
+        try:
+            res = await _run(_helpers.install_adbkeyboard, serial, consent=consent)
+            ctx.audit({
+                "type": "mobile.helpers.install",
+                "serial": serial,
+                "package": _helpers.ADBKEYBOARD_PACKAGE,
+                "ok": res.get("ok"),
+            })
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_ime_status(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        try:
+            return _cors(await _run(_helpers.ime_status, serial))
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_ime_set(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        try:
+            res = await _run(_helpers.ime_set_adbkeyboard, serial)
+            ctx.audit({
+                "type": "mobile.helpers.ime_set",
+                "serial": serial,
+                "target": _helpers.ADBKEYBOARD_SERVICE,
+                "ok": res.get("ok"),
+            })
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_ime_reset(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        target = body.get("target")
+        try:
+            res = await _run(_helpers.ime_reset, serial, target=target)
+            ctx.audit({
+                "type": "mobile.helpers.ime_reset",
+                "serial": serial,
+                "target": target,
+                "ok": res.get("ok"),
+            })
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
+    async def handle_paste(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        text = body.get("text", "")
+        try:
+            res = await _run(_helpers.paste_text, serial, text)
+            ctx.audit({
+                "type": "mobile.helpers.paste",
+                "serial": serial,
+                "chars": len(text),
+                "ok": res.get("ok"),
+            })
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
     async def handle_gesture(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -326,4 +457,10 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         gesture=handle_gesture,
         ui_dump=handle_ui_dump,
         tap_by=handle_tap_by,
+        helpers_status=handle_helpers_status,
+        helpers_install=handle_helpers_install,
+        ime_status=handle_ime_status,
+        ime_set=handle_ime_set,
+        ime_reset=handle_ime_reset,
+        paste=handle_paste,
     )

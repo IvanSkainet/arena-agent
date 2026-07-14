@@ -12,6 +12,19 @@ from arena.mobile.adb import (
 from arena.mobile.devices import device_info, list_devices
 from arena.mobile.gestures import allowed_gestures, perform as perform_gesture
 from arena.mobile.handlers import MobileHandlers, make_mobile_handlers
+from arena.mobile.helpers import (
+    ADBKEYBOARD_PACKAGE,
+    ADBKEYBOARD_SERVICE,
+    ADBKEYBOARD_SHA256,
+    ADBKEYBOARD_VERSION,
+    bundled_apk_path,
+    bundled_apk_status,
+    ime_reset,
+    ime_set_adbkeyboard,
+    ime_status,
+    install_adbkeyboard,
+    paste_text,
+)
 from arena.mobile.input import key, swipe, tap, type_text
 from arena.mobile.packages import list_packages
 from arena.mobile.screenshot import capture as capture_screenshot
@@ -37,6 +50,17 @@ __all__ = [
     "perform_gesture",
     "dump_ui",
     "tap_by",
+    "ADBKEYBOARD_PACKAGE",
+    "ADBKEYBOARD_SERVICE",
+    "ADBKEYBOARD_SHA256",
+    "ADBKEYBOARD_VERSION",
+    "bundled_apk_path",
+    "bundled_apk_status",
+    "install_adbkeyboard",
+    "ime_status",
+    "ime_set_adbkeyboard",
+    "ime_reset",
+    "paste_text",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

@@ -172,18 +172,59 @@ def test_type_rejects_whitespace_only():
     assert "empty" in r["error"].lower() or "whitespace" in r["error"].lower()
 
 
-def test_type_rejects_non_ascii_cyrillic():
-    """LatinIME on Android 15/16 (POCO F7 Pro / HyperOS reference)
-    crashes with NullPointerException on any non-ASCII byte. We must
-    reject it before ever invoking adb."""
+def test_type_non_ascii_without_adbkeyboard_returns_actionable_error(monkeypatch):
+    """When ADBKeyboard is not active, non-ASCII must be rejected with a
+    hint that points the caller at the helper install/activate flow."""
+    from arena.mobile import helpers as _helpers
+    monkeypatch.setattr(_helpers, "ime_status", lambda serial: {
+        "ok": True,
+        "adbkeyboard_installed": False,
+        "adbkeyboard_active": False,
+        "current": "com.google.android.inputmethod.latin/...",
+    })
     r = _input.type_text("dummy", "привет")
     assert r["ok"] is False
     assert "non-ASCII" in r["error"] or "ASCII" in r["error"]
     assert r.get("hint")
+    assert "ADBKeyboard" in r["hint"]
     assert "U+" in r.get("offending_codepoints", "")
+    assert r.get("route") == "blocked"
+    assert r.get("adbkeyboard_installed") is False
 
 
-def test_type_rejects_non_ascii_emoji():
+def test_type_non_ascii_routes_through_adbkeyboard_when_active(monkeypatch):
+    """When ADBKeyboard IS the active IME, non-ASCII must be sent via
+    the ADB_INPUT_B64 broadcast instead of `input text`."""
+    from arena.mobile import helpers as _helpers
+    monkeypatch.setattr(_helpers, "ime_status", lambda serial: {
+        "ok": True,
+        "adbkeyboard_installed": True,
+        "adbkeyboard_active": True,
+        "current": _helpers.ADBKEYBOARD_SERVICE,
+    })
+    captured: dict[str, object] = {}
+    def _fake_paste(serial, text):
+        captured["serial"] = serial
+        captured["text"] = text
+        return {"ok": True, "action": "paste", "chars": len(text),
+                "stdout": "Broadcast completed: result=0",
+                "stderr": "", "exit_code": 0}
+    monkeypatch.setattr(_helpers, "paste_text", _fake_paste)
+    r = _input.type_text("dummy", "привет 🌍")
+    assert r["ok"] is True
+    assert captured["text"] == "привет 🌍"
+    assert r.get("route") == "adbkeyboard"
+    assert r.get("action") == "type"
+    assert r.get("chars") == 8
+
+
+def test_type_non_ascii_emoji_blocked_without_helper(monkeypatch):
+    """Emoji-only payload still hits the block path when ADBKeyboard is
+    not the active IME."""
+    from arena.mobile import helpers as _helpers
+    monkeypatch.setattr(_helpers, "ime_status", lambda serial: {
+        "ok": False, "error": "adb not installed",
+    })
     r = _input.type_text("dummy", "hello 🌍")
     assert r["ok"] is False
     assert "non-ASCII" in r["error"] or "ASCII" in r["error"]
@@ -343,7 +384,9 @@ def test_mobile_handlers_dataclass_fields():
     from arena.mobile.handlers import MobileHandlers
     expected = {"list_devices", "device_info", "screenshot", "tap", "swipe",
                 "type_text", "key_event", "shell", "packages", "gesture",
-                "ui_dump", "tap_by"}
+                "ui_dump", "tap_by",
+                "helpers_status", "helpers_install",
+                "ime_status", "ime_set", "ime_reset", "paste"}
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
     assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
 

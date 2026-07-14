@@ -43,10 +43,13 @@ async function mobileInspectorRefresh() {
       return;
     }
     _mobileInspectorNodes = r.nodes || [];
-    // The overlay needs the native screen size to scale bounds. If the
-    // /ui response gave us screen_bounds, prefer that (it's the actual
-    // display used for the dump).
-    if (Array.isArray(r.screen_bounds) && r.screen_bounds.length === 2) {
+    // uiautomator's <hierarchy rotation="N"> XML already contains
+    // rotation-correct bounds, so screen_bounds here matches the
+    // current phone orientation. We prefer it over the screenshot
+    // header dims for the SVG viewBox because it comes from the same
+    // dump the bounds_rect values came from.
+    if (Array.isArray(r.screen_bounds) && r.screen_bounds.length === 2
+        && r.screen_bounds[0] > 0 && r.screen_bounds[1] > 0) {
       _mobileNativeWidth = r.screen_bounds[0];
       _mobileNativeHeight = r.screen_bounds[1];
     }

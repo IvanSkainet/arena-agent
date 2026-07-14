@@ -71,6 +71,12 @@ def capture(
         return {"ok": False, "error": "screencap returned no PNG data", "size_bytes": len(png)}
 
     width, height = _png_dimensions(png)
+    # `source_*` = native device pixels in the *current* orientation
+    # (screencap follows rotation, so a landscape phone gives us
+    # 3200x1440 here even if `wm size` still reports 1440x3200). The
+    # frontend uses these values — not the /info physical size — to
+    # translate CSS clicks back to phone coords, so tap+swipe work
+    # regardless of rotation.
     result: dict[str, Any] = {
         "ok": True,
         "bytes": png,
@@ -79,6 +85,8 @@ def capture(
         "quality": None,
         "width": width,
         "height": height,
+        "source_width": width,
+        "source_height": height,
         "size_bytes": len(png),
         "downscaled": False,
     }

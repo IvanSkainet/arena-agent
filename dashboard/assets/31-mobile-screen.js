@@ -87,6 +87,18 @@ function mobileScreenSettingsFromUi() {
 let _mobileLastHash = null;
 let _mobileConsecutiveDupes = 0;
 
+// Abort controller for the in-flight screenshot fetch. When the user
+// takes another action (tap, key, gesture), we call this to cancel
+// the previous /screenshot request instead of letting two overlapping
+// fetches race. Tailscale round-trip for a 720px WebP is ~200-400ms,
+// so a rapid triple-tap without this would queue 3 stale frames and
+// display them one after another.
+let _mobileFetchController = null;
+
+// True while the visibility hook has paused Live-view polling because
+// the tab is hidden. Resumed on `visibilitychange` -> visible.
+let _mobileLivePausedByHidden = false;
+
 async function _mobileBlobHash(blob) {
   // Fast path: use a small prefix. For 720×1600 WebP the compressed
   // stream diverges within the first few hundred bytes for any real
@@ -113,6 +125,14 @@ async function mobileScreenshot() {
   const loading = document.getElementById("mobileScreenshotLoading");
   if (loading) loading.style.display = "";
 
+  // Cancel any previous in-flight fetch so a rapid action series
+  // doesn't stack pending frames on the Tailscale link.
+  if (_mobileFetchController) {
+    try { _mobileFetchController.abort(); } catch (_) {}
+  }
+  _mobileFetchController = new AbortController();
+  const controller = _mobileFetchController;
+
   const started = performance.now();
   try {
     const params = new URLSearchParams({
@@ -123,7 +143,7 @@ async function mobileScreenshot() {
     const url = BASE
       + "/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial)
       + "/screenshot?" + params.toString();
-    const resp = await fetch(url, {headers, cache: "no-store"});
+    const resp = await fetch(url, {headers, cache: "no-store", signal: controller.signal});
     if (!resp.ok) {
       let msg = "HTTP " + resp.status;
       try {
@@ -141,6 +161,17 @@ async function mobileScreenshot() {
     }
     _mobileShownWidth = parseInt(resp.headers.get("X-Arena-Mobile-Width") || "0", 10);
     _mobileShownHeight = parseInt(resp.headers.get("X-Arena-Mobile-Height") || "0", 10);
+    // Rotation-aware native size — the frontend uses this (not the
+    // /info physical size) to translate CSS clicks back to phone
+    // coordinates. `screencap` follows rotation, so landscape gives
+    // us 3200x1440 here even though /info reports 1440x3200. Falls
+    // back to shown size if the bridge is older than v3.83.2.
+    const srcW = parseInt(resp.headers.get("X-Arena-Mobile-Source-Width") || "0", 10);
+    const srcH = parseInt(resp.headers.get("X-Arena-Mobile-Source-Height") || "0", 10);
+    if (srcW > 0 && srcH > 0) {
+      _mobileNativeWidth = srcW;
+      _mobileNativeHeight = srcH;
+    }
     const blob = await resp.blob();
 
     // Content-hash dedup: identical blob → keep the current <img>.
@@ -174,7 +205,14 @@ async function mobileScreenshot() {
     }
     _mobileUpdateAgeLabel();
   } catch (e) {
-    mobileShowError("Screenshot request failed", e && e.stack || String(e));
+    // AbortError = intentional cancel from a follow-up action, not an
+    // error we want to surface to the user.
+    if (e && e.name === "AbortError") {
+      // Meta line: hint that we skipped one frame on purpose.
+      if (meta && meta.textContent) meta.textContent += " · aborted";
+    } else {
+      mobileShowError("Screenshot request failed", e && e.stack || String(e));
+    }
   } finally {
     if (loading) loading.style.display = "none";
     _mobileScreenshotBusy = false;
@@ -196,9 +234,34 @@ function _mobileRefreshBurst() {
     setTimeout(() => {
       if (gen !== _mobileScreenshotGen) return;
       if (!_mobileSelectedSerial) return;
+      // Skip if a later burst frame is still fetching — no point
+      // stacking three in-flight requests.
+      if (delay > 0 && _mobileScreenshotBusy) return;
       mobileScreenshot();
     }, delay);
   }
+}
+
+// Pause the Live-view poll when the tab is hidden (background tab, other
+// window). Resume automatically when it becomes visible again. This
+// stops the poll from burning Tailscale bandwidth + phone battery for
+// no visible benefit.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+      if (_mobileLiveTimer) {
+        clearInterval(_mobileLiveTimer);
+        _mobileLiveTimer = null;
+        _mobileLivePausedByHidden = true;
+      }
+    } else if (_mobileLivePausedByHidden) {
+      _mobileLivePausedByHidden = false;
+      // Re-apply the current settings (starts the timer if Live is on).
+      if (typeof mobileLiveApply === "function") mobileLiveApply();
+      // And do one immediate refresh so the user sees a current frame.
+      if (_mobileSelectedSerial) mobileScreenshot();
+    }
+  });
 }
 
 function _mobileUpdateAgeLabel() {
@@ -219,12 +282,30 @@ function mobileLiveApply() {
     _mobileLiveTimer = null;
   }
   if (!(settings.live_hz > 0)) return;
+  if (typeof document !== "undefined" && document.hidden) {
+    // Don't start polling into a hidden tab — visibilitychange will
+    // re-apply once we become visible again.
+    _mobileLivePausedByHidden = true;
+    return;
+  }
   const intervalMs = Math.max(200, Math.round(1000 / settings.live_hz));
   _mobileLiveTimer = setInterval(() => {
     if (!_mobileSelectedSerial) return;
     const tab = document.getElementById("tab-mobile");
     if (!tab || !tab.classList.contains("active")) return;
-    if (_mobileScreenshotBusy) return;
+    // Skip only if the network round-trip is genuinely slower than the
+    // polling interval. If it's been more than 2× the interval since
+    // the last successful snap, the previous fetch is probably stuck —
+    // abort it so this tick can make progress.
+    if (_mobileScreenshotBusy) {
+      const stall = performance.now() - _mobileLastSnapAt;
+      if (stall > intervalMs * 2 && _mobileFetchController) {
+        try { _mobileFetchController.abort(); } catch (_) {}
+        _mobileScreenshotBusy = false;
+      } else {
+        return;
+      }
+    }
     mobileScreenshot();
   }, intervalMs);
 }

@@ -241,15 +241,15 @@ async function mobileLoadInfo() {
     const r = await api("/v1/mobile/" + encodeURIComponent(_mobileSelectedSerial) + "/info");
     _mobileInfoCache = r;
     if (dump) dump.textContent = JSON.stringify(r, null, 2);
-    // Cache native screen size for coord scaling.
-    const raw = r && (r.screen_size_override || r.screen_size_physical);
-    if (raw) {
-      const m = /(\d+)x(\d+)/.exec(raw);
-      if (m) {
-        _mobileNativeWidth = parseInt(m[1], 10);
-        _mobileNativeHeight = parseInt(m[2], 10);
-      }
-    }
+    // NOTE: we deliberately do NOT seed _mobileNativeWidth/Height from
+    // /info any more. `wm size` always returns the physical portrait
+    // dimensions and does not follow rotation, so a landscape phone
+    // would end up with pixel-swapped coordinates and every tap would
+    // land in the wrong place. The correct values come from the
+    // X-Arena-Mobile-Source-{Width,Height} headers on each screenshot
+    // response (see 31-mobile-screen.js). If a screenshot hasn't
+    // arrived yet, we let the tap path bail out (checks
+    // `_mobileShownWidth`) rather than tap wrong pixels.
   } catch (e) {
     if (dump) dump.textContent = "info error: " + (e && e.message || e);
     mobileShowError("Failed to load device info", e && e.stack || String(e));
@@ -280,9 +280,23 @@ function mobileRenderInfoPanel() {
   push("HyperOS", i.hyperos_version || i.miui_version);
   push("Build", (i.build_id || "") + (i.build_date ? " · " + i.build_date : ""));
   push("CPU", (i.cpu_abi || "") + (i.hardware ? " · " + i.hardware : ""));
-  push("Screen", (i.screen_size_override || i.screen_size_physical || "")
-       + (i.density_override || i.density_physical
-          ? " · " + (i.density_override || i.density_physical) + " dpi" : ""));
+  {
+    // Physical size (never rotates) + current size (does rotate) +
+    // orientation label. Prevents the "why doesn't tap work?" confusion
+    // when the phone is landscape.
+    const bits = [];
+    const phys = i.screen_size_override || i.screen_size_physical;
+    if (phys) bits.push(phys + " physical");
+    if (i.screen_size_current && i.screen_size_current !== phys) {
+      bits.push(i.screen_size_current + " current");
+    }
+    if (i.orientation) {
+      bits.push(i.orientation + (typeof i.rotation === "number" ? " (rot " + i.rotation + ")" : ""));
+    }
+    const dpi = i.density_override || i.density_physical;
+    if (dpi) bits.push(dpi + " dpi");
+    push("Screen", bits.join(" · "));
+  }
   if (i.memory && i.memory.memtotal) {
     push("RAM", i.memory.memavailable
       ? i.memory.memavailable + " avail / " + i.memory.memtotal
