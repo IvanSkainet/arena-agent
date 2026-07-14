@@ -260,17 +260,19 @@ def test_apksigner_verify_handles_missing_binary(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 # Handler dataclass — v3.83.5 fields expected.
 # ---------------------------------------------------------------------------
-def test_mobile_handlers_dataclass_fields_v83_5():
+def test_mobile_handlers_dataclass_has_v83_5_fields():
+    """Baseline check for v3.83.5 handlers. Exact field surface is
+    asserted in tests/test_mobile_v84_0.py so tests grow independently."""
     from arena.mobile.handlers import MobileHandlers
-    expected = {
+    v83_5_baseline = {
         "list_devices", "device_info", "screenshot", "tap", "swipe",
         "type_text", "key_event", "shell", "packages", "gesture",
         "ui_dump", "tap_by",
         "helpers_status", "helpers_install",
         "ime_status", "ime_set", "ime_reset", "paste",
         "sensors", "scroll", "key_combo",
-        # v3.83.5 additions
         "pair", "connect", "disconnect", "apk_prepare", "apk_install",
     }
     got = {f.name for f in MobileHandlers.__dataclass_fields__.values()}
-    assert expected == got, f"MobileHandlers fields drift: {got - expected} / {expected - got}"
+    missing = v83_5_baseline - got
+    assert not missing, f"v3.83.5 handlers missing: {missing}"

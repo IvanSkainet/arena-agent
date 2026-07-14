@@ -13,6 +13,7 @@ from typing import Any
 
 from aiohttp import web
 
+from arena.mobile import batch as _batch
 from arena.mobile import devices as _devices
 from arena.mobile import gestures as _gestures
 from arena.mobile import helpers as _helpers
@@ -54,6 +55,8 @@ class MobileHandlers:
     disconnect: object
     apk_prepare: object
     apk_install: object
+    # v3.84.0 additions.
+    batch: object
 
 
 def make_mobile_handlers(ctx) -> MobileHandlers:
@@ -508,6 +511,33 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return _cors({"ok": False, "error": str(e)}, status=500)
 
+    async def handle_batch(request: web.Request) -> web.Response:
+        """v3.84.0 batch: N steps in one HTTP round-trip. See arena.mobile.batch."""
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        serial = request.match_info.get("serial", "")
+        body = await _read_json(request)
+        steps = body.get("steps") or []
+        stop_on_error = body.get("stop_on_error", True)
+        try:
+            res = await _run(
+                _batch.run_batch, serial, steps,
+                stop_on_error=bool(stop_on_error),
+            )
+            ctx.audit({
+                "type": "mobile.batch",
+                "serial": serial,
+                "step_count": res.get("step_count"),
+                "executed": res.get("executed"),
+                "ok": res.get("ok"),
+            })
+            return _cors(res)
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return _cors({"ok": False, "error": str(e)}, status=500)
+
     # ---- Devops handlers (wireless + APK install) ----------------
     # v3.83.5: pair/connect/disconnect/apk_prepare/apk_install live
     # in arena.mobile.handlers_devops so this file stays under the
@@ -565,4 +595,5 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         disconnect=_devops["disconnect"],
         apk_prepare=_devops["apk_prepare"],
         apk_install=_devops["apk_install"],
+        batch=handle_batch,
     )

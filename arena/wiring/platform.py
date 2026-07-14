@@ -187,4 +187,5 @@ def build_mobile_handlers(ctx: MobileWiringContext) -> dict[str, Callable[..., A
         "handle_v1_mobile_disconnect": handlers.disconnect,
         "handle_v1_mobile_apk_prepare": handlers.apk_prepare,
         "handle_v1_mobile_apk_install": handlers.apk_install,
+        "handle_v1_mobile_batch": handlers.batch,
     }

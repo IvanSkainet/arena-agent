@@ -185,6 +185,7 @@ def build_capabilities(
                     "sensors", "scroll", "key_combo",
                     "pair", "connect", "disconnect",
                     "apk/prepare", "apk/install",
+                    "batch",
                 ],
                 "hint": m.get("hint"),
             }

@@ -6,6 +6,126 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.84.0 - 2026-07-14
+
+Стабилизация Mobile Phase 2 + одна большая юзабилити-победа:
+**batch executor** — агенту не нужно N round-trip'ов для N действий,
+**CLI `bin/arena-mobile`** — shell-юзеру не надо писать `curl` руками,
+**настоящий AXML-парсер** — `apk/prepare` наконец возвращает имя
+пакета, и **`docs/MOBILE.md`** — полный REST cheat sheet на 27
+эндпоинтов `/v1/mobile/*`.
+
+### Added — Batch action executor
+
+- **Новый `arena/mobile/batch.py`** (226 строк) с `run_batch(serial,
+  steps, stop_on_error=True)` и реестром step-types.
+- **Новый эндпоинт `POST /v1/mobile/{serial}/batch`** с телом
+  `{"steps": [...], "stop_on_error": bool}`.
+- Разрешённые типы шагов (11): `tap`, `swipe`, `scroll`, `key`,
+  `key_combo`, `type`, `paste`, `gesture`, `shell`, `tap_by`, `sleep`.
+- **Намеренно НЕ разрешены**: `install`, `pair`, `connect`,
+  `disconnect`, `helpers_install`, `apk_install`. Regression-тест
+  проверяет, что эти типы никогда не утекают в `ALLOWED_TYPES` —
+  агент не может тихо установить хелпер или переконфигурить сеть
+  как side-effect обычного action loop.
+- **Форма ответа**: aggregated report с per-step `index`, `type`,
+  `ok`, `duration_ms`, `result`, плюс `skipped: true` для шагов
+  после failing'ого при `stop_on_error=True`.
+- **Per-step `continue_on_error: true`** переопределяет top-level флаг
+  для одного шага (для необязательных tap'ов, ради которых не хочется
+  прерывать весь flow).
+- **Шаг `sleep`** для ожидания app transitions в середине batch'а
+  (0..10000 мс; ограничено чтобы runaway batch не голодал aiohttp
+  worker).
+- Ограничение 100 шагов на запрос — чтобы один вызов укладывался в
+  aiohttp read timeout.
+
+Замеры на POCO F7 Pro:
+  * v3.83.5 (6 отдельных curl): ~4200 мс всего (600-800 мс overhead
+    на HTTP hop через Tailscale).
+  * v3.84.0 (1 batch из 6 шагов): **1952 мс** — в 2.2× быстрее +
+    единственная запись в audit.
+
+### Added — CLI `bin/arena-mobile`
+
+Shell-клиент для каждого эндпоинта `/v1/mobile/*`. Читает
+`ARENA_BRIDGE_URL` + `ARENA_BRIDGE_TOKEN` из окружения (те же
+переменные, что установщик arena-agent и так задаёт).
+
+```bash
+arena-mobile devices
+arena-mobile info 2200ad3b --section overview
+arena-mobile screenshot 2200ad3b --size 720 --format webp -o phone.webp
+arena-mobile gesture 2200ad3b notifications
+arena-mobile batch 2200ad3b @steps.json      # шаги из JSON файла
+arena-mobile pair 192.168.1.5 38571 654321
+```
+
+14 подкоманд: `devices`, `info` (с фильтром `--section`), `screenshot`,
+`tap`, `swipe`, `key`, `type`, `gesture`, `shell`, `sensors`, `batch`,
+`pair`, `connect`, `disconnect`.
+
+Помечен executable, лежит в `bin/arena-mobile` — global install
+arena-agent репо помещает его на `$PATH` рядом с `bin/agentctl`.
+
+### Fixed — APK `/prepare` теперь возвращает имя пакета
+
+v3.83.5 `_extract_package_name` был наивный regex по декодированным
+AXML байтам и возвращал `null` для каждого реального APK — включая
+bundled ADBKeyboard. **v3.84.0 везёт настоящий AXML-парсер**
+(`_parse_axml_for_package` + `_parse_axml_string_pool` в
+`arena/mobile/apk_install.py`), который:
+
+  * Ходит по AXML chunk tree (`0x0003` root → `0x0001` string pool →
+    `0x0102` START_ELEMENT chunks) — без зависимости от aapt/androguard.
+  * Поддерживает и UTF-8, и UTF-16 string pools.
+  * Handling varlen length prefix (и компактной 1-байтной, и
+    расширенной 2-байтной форм).
+  * Оставляет старый regex fallback для экзотических ROM, отдающих
+    нестандартный AXML.
+  * Регресс-тест с bundled `com.android.adbkeyboard` APK —
+    проверяет, что парсер возвращает именно эту строку.
+
+Проверено вживую на bridge: `/apk/prepare` на ADBKeyboard APK теперь
+возвращает `"package": "com.android.adbkeyboard"` (было `null`).
+
+### Added — `docs/MOBILE.md` cheat sheet
+
+Полный REST-справочник на 27 эндпоинтов `/v1/mobile/*` с примером
+`curl` для каждого. Покрывает screenshot latency-breakdown заголовки,
+рецепты жестов, ADBKeyboard install-and-activate flow, wireless
+pair/connect flow, generic APK consent flow, и новый batch executor.
+
+### Test suite
+
+834 passed (+18 новых — все в `tests/test_mobile_v84_0.py`, 298 строк):
+
+- **batch**: 12 тестов на валидацию serial, схему step-list, поведение
+  `sleep` (включая верхнюю границу 10 с), пропуск хвоста при
+  stop-on-error, override per-step `continue_on_error`, dispatch
+  правильному handler через monkeypatched registry, и **security
+  регресс** что опасные типы никогда не утекают в `ALLOWED_TYPES`.
+- **apk_install AXML parser**: 2 теста — bundled ADBKeyboard APK
+  case (проверяет реальный end-to-end parsing) и graceful-null тест
+  на malformed байты.
+- **CLI parser**: 1 тест грузит `bin/arena-mobile` через
+  `SourceFileLoader` (extension-less script) и проверяет что каждая
+  ожидаемая подкоманда зарегистрирована.
+- **handler dataclass**: 27-полевая exact-проверка в v84 тестах;
+  v83_5 тест расслаблен до baseline subset для regression continuity.
+
+### Follow-ups для v3.84.1+
+
+- **Автоматический post-mortem** для fail'ов `pair` — сейчас hint
+  указывает "code expired, re-open pair dialog", но не проверяет
+  действительно ли телефон ещё в pairing mode.
+- **CLI upload helper** — сейчас `arena-mobile` не может push'нуть
+  APK в staging dir bridge'а; юзеру приходится сначала `scp`.
+  Встроенная `arena-mobile apk upload FILE` закрыла бы петлю.
+- **Batch с параллелизмом** — сейчас шаги идут serially. Для
+  data-collection воркфлоу (screenshot + sensors + info в один и тот
+  же wall-clock момент) параллельные шаги были бы legitimate win.
+
 ## v3.83.5 - 2026-07-14
 
 Финал Mobile Phase 2 — **беспроводной ADB pair/connect**, **общий APK

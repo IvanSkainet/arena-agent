@@ -1,0 +1,333 @@
+#!/usr/bin/env python3
+"""arena-mobile — command-line client for /v1/mobile/* endpoints.
+
+Reads bridge URL + token from `ARENA_BRIDGE_URL` / `ARENA_BRIDGE_TOKEN`
+env vars (Tailscale Funnel-friendly by default) and forwards the
+sub-command to the bridge over HTTP.
+
+Examples:
+    arena-mobile devices
+    arena-mobile 2200ad3b info --section overview
+    arena-mobile 2200ad3b screenshot --size 720 --format webp -o phone.webp
+    arena-mobile 2200ad3b tap 720 1500
+    arena-mobile 2200ad3b gesture notifications
+    arena-mobile 2200ad3b type "hello"
+    arena-mobile 2200ad3b batch @steps.json
+    arena-mobile 2200ad3b sensors --events 3
+    arena-mobile pair 192.168.1.5 38571 654321
+    arena-mobile connect 192.168.1.5 44121
+
+The entrypoint stays intentionally thin — this is a shell client, not
+an SDK. Anything richer belongs in a Python module the caller can
+`import`.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+DEFAULT_URL = "http://127.0.0.1:8765"
+
+
+def _base_url() -> str:
+    return os.environ.get("ARENA_BRIDGE_URL", DEFAULT_URL).rstrip("/")
+
+
+def _token() -> str | None:
+    return os.environ.get("ARENA_BRIDGE_TOKEN")
+
+
+def _request(method: str, path: str, *,
+             body: dict | None = None,
+             binary_out: str | None = None,
+             timeout: int = 60) -> dict | None:
+    """Run one HTTP request. Returns parsed JSON, or None when we wrote
+    a binary body to `binary_out`."""
+    url = _base_url() + path
+    data = None
+    headers = {"Accept": "application/json"}
+    tok = _token()
+    if tok:
+        headers["Authorization"] = f"Bearer {tok}"
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            ctype = resp.headers.get("Content-Type", "").lower()
+            payload = resp.read()
+            if binary_out and not ctype.startswith("application/json"):
+                with open(binary_out, "wb") as f:
+                    f.write(payload)
+                extras = {k: v for k, v in resp.headers.items()
+                          if k.lower().startswith("x-arena-mobile-")}
+                print(f"wrote {len(payload):,} bytes to {binary_out}", file=sys.stderr)
+                for k, v in extras.items():
+                    print(f"  {k}: {v}", file=sys.stderr)
+                return None
+            return json.loads(payload) if payload else {}
+    except urllib.error.HTTPError as e:
+        try:
+            err_payload = e.read()
+            print(err_payload.decode("utf-8", "replace"), file=sys.stderr)
+        except Exception:
+            pass
+        sys.exit(f"HTTP {e.code}: {e.reason}")
+    except urllib.error.URLError as e:
+        sys.exit(f"connection error: {e.reason}")
+
+
+def _print(obj) -> None:
+    print(json.dumps(obj, indent=2, ensure_ascii=False))
+
+
+# ---------------------------------------------------------------------------
+# Sub-commands
+# ---------------------------------------------------------------------------
+
+def cmd_devices(args) -> int:
+    r = _request("GET", "/v1/mobile/devices")
+    _print(r)
+    return 0 if (r or {}).get("ok") else 1
+
+
+def cmd_info(args) -> int:
+    r = _request("GET", f"/v1/mobile/{args.serial}/info") or {}
+    if args.section and args.section != "all":
+        # Very small filter — the CLI stays a shell, not an SDK.
+        # We map section names to top-level keys the /info response uses.
+        section_keys = {
+            "overview": ["manufacturer", "model", "brand", "android_version",
+                         "android_sdk", "android_security_patch",
+                         "hyperos_version", "miui_version",
+                         "battery", "uptime", "foreground_activity"],
+            "display": ["screen_size_physical", "screen_size_current",
+                        "screen_size_override", "rotation", "orientation",
+                        "density_physical", "density_override", "display"],
+            "hardware": ["cpu_abi", "cpu_abi_list", "hardware", "board",
+                         "bootloader", "build_id", "build_date", "build_type",
+                         "build_tags", "fingerprint", "kernel", "memory"],
+            "network": ["network", "wifi"],
+            "storage": ["storage"],
+            "security": ["selinux", "verified_boot", "encryption",
+                         "developer", "ime"],
+            "developer": ["developer", "packages_count"],
+            "sensors_summary": ["sensors"],
+            "others": ["others"],
+        }
+        keep = section_keys.get(args.section, [])
+        filtered = {k: r.get(k) for k in keep if k in r}
+        filtered["ok"] = r.get("ok")
+        _print(filtered)
+    else:
+        _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_screenshot(args) -> int:
+    qs = []
+    if args.size:      qs.append(f"max_size={args.size}")
+    if args.width:     qs.append(f"max_width={args.width}")
+    if args.quality:   qs.append(f"quality={args.quality}")
+    if args.format:    qs.append(f"format={args.format}")
+    if args.png_source: qs.append("force_png_source=1")
+    path = f"/v1/mobile/{args.serial}/screenshot"
+    if qs:
+        path += "?" + "&".join(qs)
+    r = _request("GET", path, binary_out=args.output)
+    if r is not None:
+        _print(r)
+        return 0 if r.get("ok") else 1
+    return 0
+
+
+def cmd_tap(args) -> int:
+    r = _request("POST", f"/v1/mobile/{args.serial}/tap",
+                 body={"x": args.x, "y": args.y})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_swipe(args) -> int:
+    r = _request("POST", f"/v1/mobile/{args.serial}/swipe",
+                 body={"x1": args.x1, "y1": args.y1,
+                       "x2": args.x2, "y2": args.y2,
+                       "duration_ms": args.duration})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_key(args) -> int:
+    r = _request("POST", f"/v1/mobile/{args.serial}/key",
+                 body={"key": args.key})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_type(args) -> int:
+    r = _request("POST", f"/v1/mobile/{args.serial}/type",
+                 body={"text": args.text})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_gesture(args) -> int:
+    r = _request("POST", f"/v1/mobile/{args.serial}/gesture",
+                 body={"gesture": args.gesture})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_shell(args) -> int:
+    r = _request("POST", f"/v1/mobile/{args.serial}/shell",
+                 body={"command": args.command})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_sensors(args) -> int:
+    path = f"/v1/mobile/{args.serial}/sensors?events_per_sensor={args.events}"
+    r = _request("GET", path)
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_batch(args) -> int:
+    # Accept either a JSON file (`@path.json`) or an inline JSON string.
+    raw = args.steps
+    if raw.startswith("@"):
+        with open(raw[1:], "r", encoding="utf-8") as f:
+            steps = json.load(f)
+    else:
+        steps = json.loads(raw)
+    if not isinstance(steps, list):
+        sys.exit("batch: steps must be a JSON list of {type: ...} objects")
+    r = _request("POST", f"/v1/mobile/{args.serial}/batch",
+                 body={"steps": steps,
+                       "stop_on_error": not args.continue_on_error},
+                 timeout=180)
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_pair(args) -> int:
+    r = _request("POST", "/v1/mobile/pair",
+                 body={"host": args.host, "port": args.port, "code": args.code})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_connect(args) -> int:
+    r = _request("POST", "/v1/mobile/connect",
+                 body={"host": args.host, "port": args.port})
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+def cmd_disconnect(args) -> int:
+    body = {}
+    if args.host: body["host"] = args.host
+    if args.port: body["port"] = args.port
+    r = _request("POST", "/v1/mobile/disconnect", body=body)
+    _print(r)
+    return 0 if r.get("ok") else 1
+
+
+# ---------------------------------------------------------------------------
+# argparse tree
+# ---------------------------------------------------------------------------
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="arena-mobile",
+        description="CLI client for the Arena Bridge /v1/mobile/* endpoints.",
+        epilog="Reads ARENA_BRIDGE_URL and ARENA_BRIDGE_TOKEN from the env.",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("devices", help="list connected devices").set_defaults(fn=cmd_devices)
+
+    info = sub.add_parser("info", help="deep device info")
+    info.add_argument("serial")
+    info.add_argument("--section", default="all",
+                      choices=["all", "overview", "display", "hardware",
+                               "network", "storage", "security", "developer",
+                               "sensors_summary", "others"])
+    info.set_defaults(fn=cmd_info)
+
+    ss = sub.add_parser("screenshot", help="capture a screenshot")
+    ss.add_argument("serial")
+    ss.add_argument("--size", type=int, default=720,
+                    help="long-side pixel cap (0 = native)")
+    ss.add_argument("--width", type=int, help="legacy max-width")
+    ss.add_argument("--quality", type=int, default=82)
+    ss.add_argument("--format", default="webp", choices=["webp", "jpeg", "png"])
+    ss.add_argument("--png-source", action="store_true",
+                    help="force the slower PNG capture path (A/B testing)")
+    ss.add_argument("-o", "--output", required=True, help="output file (binary)")
+    ss.set_defaults(fn=cmd_screenshot)
+
+    tap = sub.add_parser("tap")
+    tap.add_argument("serial"); tap.add_argument("x", type=int); tap.add_argument("y", type=int)
+    tap.set_defaults(fn=cmd_tap)
+
+    sw = sub.add_parser("swipe")
+    sw.add_argument("serial")
+    sw.add_argument("x1", type=int); sw.add_argument("y1", type=int)
+    sw.add_argument("x2", type=int); sw.add_argument("y2", type=int)
+    sw.add_argument("--duration", type=int, default=300)
+    sw.set_defaults(fn=cmd_swipe)
+
+    k = sub.add_parser("key"); k.add_argument("serial"); k.add_argument("key")
+    k.set_defaults(fn=cmd_key)
+
+    t = sub.add_parser("type"); t.add_argument("serial"); t.add_argument("text")
+    t.set_defaults(fn=cmd_type)
+
+    g = sub.add_parser("gesture"); g.add_argument("serial"); g.add_argument("gesture")
+    g.set_defaults(fn=cmd_gesture)
+
+    sh = sub.add_parser("shell"); sh.add_argument("serial"); sh.add_argument("command")
+    sh.set_defaults(fn=cmd_shell)
+
+    se = sub.add_parser("sensors")
+    se.add_argument("serial"); se.add_argument("--events", type=int, default=1)
+    se.set_defaults(fn=cmd_sensors)
+
+    b = sub.add_parser("batch",
+        help="run a batch of steps (`@steps.json` or inline JSON)")
+    b.add_argument("serial")
+    b.add_argument("steps", help="`@file.json` or a raw JSON array")
+    b.add_argument("--continue-on-error", action="store_true",
+                   help="don't abort the batch on the first failing step")
+    b.set_defaults(fn=cmd_batch)
+
+    pr = sub.add_parser("pair", help="pair a wireless device")
+    pr.add_argument("host"); pr.add_argument("port", type=int)
+    pr.add_argument("code")
+    pr.set_defaults(fn=cmd_pair)
+
+    cn = sub.add_parser("connect", help="connect to a paired wireless device")
+    cn.add_argument("host"); cn.add_argument("port", type=int, nargs="?", default=5555)
+    cn.set_defaults(fn=cmd_connect)
+
+    dc = sub.add_parser("disconnect", help="disconnect one or all wireless devices")
+    dc.add_argument("host", nargs="?")
+    dc.add_argument("port", type=int, nargs="?")
+    dc.set_defaults(fn=cmd_disconnect)
+
+    return p
+
+
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

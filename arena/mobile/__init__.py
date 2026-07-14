@@ -31,6 +31,8 @@ from arena.mobile.screenshot import capture as capture_screenshot
 from arena.mobile.sensors import list_sensors
 from arena.mobile.shell import restricted_shell
 from arena.mobile.ui import dump_ui, tap_by
+# v3.84.0: batch executor.
+from arena.mobile.batch import ALLOWED_TYPES as BATCH_STEP_TYPES, run_batch
 # Re-export the new scroll + key_combo primitives added in v3.83.3.
 from arena.mobile.input import key_combo, scroll
 
@@ -86,6 +88,9 @@ __all__ = [
     "APK_STAGING_ROOT",
     "prepare_apk",
     "install_apk",
+    # v3.84.0
+    "BATCH_STEP_TYPES",
+    "run_batch",
     "MobileHandlers",
     "make_mobile_handlers",
 ]

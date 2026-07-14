@@ -238,11 +238,16 @@ def install(
 def _extract_package_name(apk_bytes: bytes) -> str | None:
     """Pull the `package` attribute out of AndroidManifest.xml.
 
-    Modern APKs store AndroidManifest.xml in binary AXML format. Rather
-    than pull in a full AXML parser (androguard) or shell out to aapt,
-    we scan the string pool for the first token that looks like a
-    package name. This works for every APK the maintainer has seen and
-    is happy to return None when it doesn't.
+    APKs store AndroidManifest.xml in binary AXML (Android Binary XML)
+    format. The structure is well-defined:
+      * 8-byte chunk header {type=0x00080003, header_size=8, size=total}
+      * String pool chunk (type=0x001c0001)
+      * Resource-map chunk (type=0x00080180)
+      * XML tree chunks: START_NS, END_NS, START_ELEMENT, END_ELEMENT
+    START_ELEMENT chunks carry `name_idx` + attribute records. The
+    manifest root element (name="manifest") has an attribute
+    `package="com.example"` with `name_idx` pointing at "package" and
+    `raw_value_idx` pointing at "com.example" in the string pool.
     """
     import zipfile
     try:
@@ -253,9 +258,11 @@ def _extract_package_name(apk_bytes: bytes) -> str | None:
                 return None
     except Exception:
         return None
-    # AXML string pool contains UTF-16LE strings prefixed with a length.
-    # We just decode blocks of ASCII-safe bytes and grep for a
-    # package-shaped token.
+
+    pkg = _parse_axml_for_package(manifest)
+    if pkg:
+        return pkg
+    # Regex fallback for exotic ROMs that emit non-standard AXML.
     for enc in ("utf-16-le", "latin-1"):
         try:
             text = manifest.decode(enc, errors="ignore")
@@ -263,13 +270,159 @@ def _extract_package_name(apk_bytes: bytes) -> str | None:
             continue
         for m in _PKG_RE.finditer(text):
             candidate = m.group(0)
-            # Filter out obvious framework strings.
             if candidate.startswith("android.") or candidate.startswith("java."):
                 continue
             if candidate.startswith("com.android.internal"):
                 continue
             return candidate
     return None
+
+
+def _parse_axml_for_package(data: bytes) -> str | None:
+    """Walk the AXML chunk tree looking for <manifest package="…">."""
+    import struct
+    if len(data) < 8:
+        return None
+    # Root chunk header.
+    try:
+        chunk_type, header_size, total_size = struct.unpack_from("<HHI", data, 0)
+    except struct.error:
+        return None
+    if chunk_type != 0x0003 or total_size > len(data):
+        return None
+
+    # Locate the string pool (usually the second chunk).
+    strings = _parse_axml_string_pool(data, 8)
+    if not strings:
+        return None
+    string_list, offset_after_pool = strings
+
+    # Scan forward for START_ELEMENT chunks (type 0x00100102). Each
+    # START_ELEMENT carries: (ns_idx, name_idx, attribute_start,
+    # attribute_size, attribute_count, id_idx, class_idx, style_idx)
+    # then `attribute_count` records of 20 bytes each:
+    # (ns_idx, name_idx, raw_value_idx, typed_value_size, res0,
+    #  typed_value_type, typed_value_data).
+    pos = offset_after_pool
+    while pos + 8 <= len(data):
+        try:
+            ctype, chdr, csize = struct.unpack_from("<HHI", data, pos)
+        except struct.error:
+            return None
+        if csize == 0 or pos + csize > len(data):
+            return None
+        if ctype == 0x0102:  # START_ELEMENT
+            # Chunk header (8 bytes) + line_number (4) + comment (4) = 16
+            # Then: ns_idx(4), name_idx(4), attr_start(2), attr_size(2),
+            # attr_count(2), id_idx(2), class_idx(2), style_idx(2) = 20
+            try:
+                name_idx = struct.unpack_from("<I", data, pos + 20)[0]
+                attr_start = struct.unpack_from("<H", data, pos + 24)[0]
+                attr_count = struct.unpack_from("<H", data, pos + 28)[0]
+            except struct.error:
+                pos += csize
+                continue
+            element_name = _get_string(string_list, name_idx)
+            if element_name == "manifest":
+                # Attributes begin at pos + 16 + attr_start (attr_start
+                # is measured from the ELEMENT payload, which starts
+                # right after the 8-byte chunk header + 8-byte line/
+                # comment fields).
+                attr_base = pos + 16 + attr_start
+                for i in range(attr_count):
+                    ap = attr_base + i * 20
+                    if ap + 20 > pos + csize:
+                        break
+                    try:
+                        attr_name_idx = struct.unpack_from("<I", data, ap + 4)[0]
+                        attr_value_idx = struct.unpack_from("<i", data, ap + 8)[0]
+                    except struct.error:
+                        continue
+                    if _get_string(string_list, attr_name_idx) == "package":
+                        val = _get_string(string_list, attr_value_idx)
+                        if val:
+                            return val
+                # <manifest> found but no package attribute — bail.
+                return None
+        pos += csize
+    return None
+
+
+def _parse_axml_string_pool(data: bytes, start: int) -> tuple[list[str], int] | None:
+    """Return (list_of_strings, position_right_after_the_pool_chunk)."""
+    import struct
+    if start + 28 > len(data):
+        return None
+    try:
+        ctype, chdr, csize = struct.unpack_from("<HHI", data, start)
+    except struct.error:
+        return None
+    if ctype != 0x0001:  # String pool type
+        return None
+    # Header fields at offsets 8..28 into the chunk.
+    string_count = struct.unpack_from("<I", data, start + 8)[0]
+    # style_count at +12 (unused), flags at +16, strings_start at +20,
+    # styles_start at +24.
+    flags = struct.unpack_from("<I", data, start + 16)[0]
+    strings_start = struct.unpack_from("<I", data, start + 20)[0]
+    is_utf8 = bool(flags & (1 << 8))
+
+    offsets = []
+    off_base = start + 28
+    for i in range(string_count):
+        if off_base + i * 4 + 4 > len(data):
+            return None
+        offsets.append(struct.unpack_from("<I", data, off_base + i * 4)[0])
+
+    string_data_base = start + strings_start
+    strings: list[str] = []
+    for off in offsets:
+        p = string_data_base + off
+        if p + 2 > len(data):
+            strings.append("")
+            continue
+        if is_utf8:
+            # UTF-8 pool: two varlen fields (char count, byte count),
+            # then bytes, then null terminator.
+            _u16 = data[p]
+            # char count varlen
+            if _u16 & 0x80:
+                p += 2
+            else:
+                p += 1
+            # byte count varlen
+            u2 = data[p]
+            if u2 & 0x80:
+                length = ((u2 & 0x7F) << 8) | data[p + 1]
+                p += 2
+            else:
+                length = u2
+                p += 1
+            try:
+                strings.append(data[p:p + length].decode("utf-8", errors="replace"))
+            except Exception:
+                strings.append("")
+        else:
+            # UTF-16 pool: 1 varlen field (char count in code units),
+            # then UTF-16LE bytes, then null terminator.
+            u = struct.unpack_from("<H", data, p)[0]
+            if u & 0x8000:
+                length = ((u & 0x7FFF) << 16) | struct.unpack_from("<H", data, p + 2)[0]
+                p += 4
+            else:
+                length = u
+                p += 2
+            try:
+                strings.append(data[p:p + length * 2].decode("utf-16-le", errors="replace"))
+            except Exception:
+                strings.append("")
+    return (strings, start + csize)
+
+
+def _get_string(pool: list[str], idx: int) -> str:
+    if idx < 0 or idx >= len(pool):
+        return ""
+    return pool[idx]
 
 
 def io_bytes(b: bytes):

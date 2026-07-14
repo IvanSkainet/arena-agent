@@ -89,6 +89,7 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/mobile/apk/prepare", h["handle_v1_mobile_apk_prepare"])
     app.router.add_get("/v1/mobile/apk/prepare", h["handle_v1_mobile_apk_prepare"])
     app.router.add_post("/v1/mobile/{serial}/apk/install", h["handle_v1_mobile_apk_install"])
+    app.router.add_post("/v1/mobile/{serial}/batch", h["handle_v1_mobile_batch"])
     app.router.add_post("/v1/restart", h["handle_v1_restart"])
     app.router.add_get("/v1/webhooks", h["handle_v1_webhooks_get"])
     app.router.add_post("/v1/webhooks", h["handle_v1_webhooks_set"])

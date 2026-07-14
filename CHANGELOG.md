@@ -1,5 +1,126 @@
 # Changelog
 
+## v3.84.0 - 2026-07-14
+
+Mobile Phase 2 stabilisation + one big usability win: **batch action
+executor** so an agent doesn't need N HTTP round-trips to do N things,
+**`bin/arena-mobile` CLI** so a shell user doesn't need to hand-write
+`curl`, a **real AXML parser** so `apk/prepare` finally returns package
+names, and **`docs/MOBILE.md`** — a full REST cheat sheet for the 27
+`/v1/mobile/*` endpoints.
+
+### Added — Batch action executor
+
+- **New `arena/mobile/batch.py`** (226 lines) with `run_batch(serial,
+  steps, stop_on_error=True)` and a step-type registry.
+- **New endpoint `POST /v1/mobile/{serial}/batch`** with body
+  `{"steps": [...], "stop_on_error": bool}`.
+- Allowed step types (11): `tap`, `swipe`, `scroll`, `key`,
+  `key_combo`, `type`, `paste`, `gesture`, `shell`, `tap_by`, `sleep`.
+- **Deliberately NOT allowed**: `install`, `pair`, `connect`,
+  `disconnect`, `helpers_install`, `apk_install`. Regression test
+  asserts these never leak into `ALLOWED_TYPES` so an agent can't
+  quietly install helpers or reconfigure networking as a side effect
+  of a normal action loop.
+- **Response shape**: aggregated report with per-step `index`, `type`,
+  `ok`, `duration_ms`, `result`, plus `skipped: true` for steps
+  after a failing one when `stop_on_error=True`.
+- **Per-step `continue_on_error: true`** overrides the top-level flag
+  for that one step (useful for optional taps you don't want to abort
+  the whole flow over).
+- **`sleep` step** for waiting on app transitions mid-batch (0..10000
+  ms; capped so a runaway batch can't starve the aiohttp worker).
+- Bounded to 100 steps per request to keep any single call under the
+  aiohttp read timeout.
+
+Measured on POCO F7 Pro:
+  * v3.83.5 (6 separate curls): ~4200 ms total (600-800 ms overhead
+    per HTTP hop over Tailscale).
+  * v3.84.0 (1 batch of 6 steps): **1952 ms** — 2.2× faster + single
+    audit record.
+
+### Added — `bin/arena-mobile` CLI
+
+Shell client for every `/v1/mobile/*` endpoint. Reads
+`ARENA_BRIDGE_URL` + `ARENA_BRIDGE_TOKEN` from the environment
+(same variables `arena-agent` install already sets).
+
+```bash
+arena-mobile devices
+arena-mobile info 2200ad3b --section overview
+arena-mobile screenshot 2200ad3b --size 720 --format webp -o phone.webp
+arena-mobile gesture 2200ad3b notifications
+arena-mobile batch 2200ad3b @steps.json      # steps from a JSON file
+arena-mobile pair 192.168.1.5 38571 654321
+```
+
+14 sub-commands: `devices`, `info` (with `--section` filter),
+`screenshot`, `tap`, `swipe`, `key`, `type`, `gesture`, `shell`,
+`sensors`, `batch`, `pair`, `connect`, `disconnect`.
+
+Marked executable, packaged as `bin/arena-mobile` so a global install
+of the arena-agent repo puts it on `$PATH` alongside `bin/agentctl`.
+
+### Fixed — APK `/prepare` now returns package names
+
+The v3.83.5 `_extract_package_name` was a naive regex over decoded
+AXML bytes and returned `null` for every real APK — including the
+bundled ADBKeyboard. **v3.84.0 ships a proper AXML parser**
+(`_parse_axml_for_package` + `_parse_axml_string_pool` in
+`arena/mobile/apk_install.py`) that:
+
+  * Walks the AXML chunk tree (`0x0003` root → `0x0001` string pool →
+    `0x0102` START_ELEMENT chunks) — no dependency on aapt / androguard.
+  * Supports both UTF-8 and UTF-16 string pools.
+  * Handles the varlen length prefix (both compact 1-byte and
+    extended 2-byte forms).
+  * Keeps the old regex fallback for exotic ROMs that emit
+    non-standard AXML.
+  * Regression-tested with the bundled `com.android.adbkeyboard` APK
+    — asserts the parser returns exactly that string.
+
+Live-verified on the bridge: `/apk/prepare` on the ADBKeyboard APK
+now returns `"package": "com.android.adbkeyboard"` (was `null`).
+
+### Added — `docs/MOBILE.md` cheat sheet
+
+Full REST reference for the 27 `/v1/mobile/*` endpoints with a
+`curl` example for every one. Covers screenshot latency-breakdown
+headers, gesture recipes, ADBKeyboard install-and-activate flow,
+wireless pair/connect flow, generic APK consent flow, and the new
+batch executor.
+
+### Test suite
+
+834 passed (+18 new — all in `tests/test_mobile_v84_0.py`, 298 lines):
+
+- **batch**: 12 tests covering serial validation, step-list schema
+  validation, `sleep` step behaviour (including 10s upper bound),
+  stop-on-error tail-skipping, per-step `continue_on_error` override,
+  dispatch to the correct handler via monkeypatched registry, and
+  **the security regression** that dangerous types never leak into
+  `ALLOWED_TYPES`.
+- **apk_install AXML parser**: 2 tests — the bundled ADBKeyboard
+  APK case (verifies real end-to-end parsing) and a graceful-null
+  test on malformed bytes.
+- **CLI parser**: 1 test that loads `bin/arena-mobile` via
+  `SourceFileLoader` (extension-less script) and asserts every
+  expected subcommand is registered.
+- **handler dataclass**: 27-field exact-check in v84 tests; v83_5
+  test relaxed to a baseline subset for regression continuity.
+
+### Known follow-ups for v3.84.1+
+
+- **Automated post-mortem** for `pair` failures — right now the hint
+  points at "code expired, re-open pair dialog" but doesn't check
+  whether the phone's still in pairing mode.
+- **CLI upload helper** — right now `arena-mobile` can't push an APK
+  to the bridge's staging dir; the user has to `scp` first. A
+  built-in `arena-mobile apk upload FILE` would close that loop.
+- **Batch with parallelism** — right now steps run serially. For
+  data-collection workflows (screenshot + sensors + info at the
+  same wall-clock moment) parallel steps would be a legitimate win.
+
 ## v3.83.5 - 2026-07-14
 
 Mobile Phase 2 wrap — **wireless ADB pair/connect**, **generic APK
