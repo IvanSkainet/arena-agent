@@ -6,6 +6,120 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.84.6 - 2026-07-15
+
+### Зачем
+
+`v3.84.3` зашипил live screen mirror как BETA потому что byte-stream
+не доходил до браузера на статичном экране. Root cause: pipeline
+кормил `adb exec-out screenrecord --output-format=h264` в
+`ffmpeg -c:v copy -movflags empty_moov+separate_moof+default_base_moof+frag_keyframe`,
+и ffmpeg-овский mp4 muxer буферизовал до keyframe boundary. AVC
+энкодер Андроида на домашнем экране спокойно уходит на 5+ секунд
+между IDR'ами — дольше чем таймаут `sourceopen` в MediaSource.
+Маркер `__init__` доходил, а фрагменты — никогда, и браузер не
+рисовал ничего.
+
+### Что вошло
+
+**In-process H.264 → fMP4 муксер** заменил ffmpeg-подпроцесс. Два
+новых модуля, без внешних зависимостей:
+
+- `arena/mobile/h264_parser.py` (326 строк) — Annex-B splitter
+  (long + short start codes, инкрементальная буферизация между
+  chunk'ами) + минимальный SPS-парсер (width/height/profile_idc/
+  constraint_flags/level_idc). Снимает emulation-prevention байты
+  из RBSP. Умеет Baseline и high-profile branch.
+
+- `arena/mobile/mp4_muxer.py` (518 строк) — руками собранные
+  ISOBMFF box-builder'ы (`ftyp`, `moov`, `mvhd`, `trak`, `tkhd`,
+  `mdia`, `mdhd`, `hdlr`, `minf`, `vmhd`, `dinf`, `stbl`, `stsd`,
+  `stts`, `stsc`, `stsz`, `stco`, `mvex`, `trex`, `moof`, `mfhd`,
+  `traf`, `tfhd`, `tfdt`, `trun`, `mdat`, плюс `avc1`+`avcC` по
+  ISO/IEC 14496-15) и state-machine `H264ToFMP4` который их
+  связывает.
+
+Муксер эмитит **один `moof + mdat` на каждый VCL NAL** (то есть
+на каждый видео-кадр), а не per GOP. Это единственное дизайн-решение
+и починило bug со статическим экраном — MediaSource теперь рисует на
+самом первом фрейме, независимо от того keyframe это или нет.
+
+**Lifecycle сессий не изменился.** `arena/mobile/mirror.py` всё так
+же владеет `MirrorSession` + subscriber fanout + перезапуском
+screenrecord каждые ~170 секунд. Что изменилось:
+
+- Удалён ffmpeg subprocess, helper `_ffmpeg_cmd()` и async pipe pump
+  `_pump_h264`.
+- Reader-task теперь кормит stdout screenrecord прямо в
+  `H264ToFMP4.feed(chunk)`. Callback'и `on_init` / `on_fragment`
+  роутят байты в `session.broadcast`.
+- `mux.reset()` при каждом перезапуске screenrecord чтобы следующая
+  пара SPS+PPS триггерила свежий init segment (браузер видит маркер
+  `__init__` + новый ftyp+moov).
+- Decode clock (`_decode_time`) НАМЕРЕННО не сбрасывается между
+  сегментами — MediaSource отвергает фрагменты у которых
+  baseMediaDecodeTime уходит назад.
+
+**Дополнительные stats** в `GET /v1/mobile/mirror/stats`:
+- `keyframes_sent` (новое)
+- `muxer: "python-native"` (маркер чтобы оператор знал какой
+  pipeline у него бежит)
+
+### Live-верификация
+
+POCO F7 Pro (24117RK2CG, HyperOS OS3.0.302.0), bridge через Tailscale:
+
+**Idle-экран** (прошлая BETA hard-fail'ила здесь):
+```
+WS connect  →  __init__  →  656-байтный ftyp+moov  →  1 фрагмент / 8с
+```
+
+**Активная swipe-анимация** (экран непрерывно скроллится):
+```
+1'079 фрагментов за 10 секунд (~108 fps effective)
+2.59 МБ total, ~2.4 КБ на фрагмент
+```
+
+Цифра 108 fps — правдивая: AVC-энкодер Андроида производит несколько
+кадров temporal-layer за каждое реальное обновление экрана когда
+экран непрерывно меняется, и муксер эмитит каждый из них отдельно.
+На стороне browser MediaSource это транслируется в под-100мс
+задержку glass-to-glass.
+
+### Файлы
+
+- **новый** `arena/mobile/h264_parser.py` (326 строк)
+- **новый** `arena/mobile/mp4_muxer.py` (518 строк)
+- `arena/mobile/mirror.py` (382 → 343) — ffmpeg pipeline удалён,
+  muxer подключён, `keyframes_sent` + `muxer` поля в stats.
+- **новый** `tests/test_mobile_v84_6.py` (413 строк, 19 тестов) —
+  Annex-B splitter round-trip, SPS-парсер на синтетических Baseline
+  SPS'ах (720x1280 и 720x1600), проверка headers'ов box'ов,
+  арифметика `moof` data_offset, sample flags keyframe vs
+  non-keyframe, `H264ToFMP4` эмитит ровно один init + один фрагмент
+  на кадр, `reset()` сохраняет decode-clock, orphan-кадры без SPS
+  тихо дропаются.
+- `tests/test_mobile_v84_3.py` — старый ffmpeg-flag регрессионный
+  тест заменён на "нет больше ffmpeg subprocess", три `_no_pipeline`
+  monkeypatch'а принимают `*args, **kwargs` для новой one-arg
+  signature `_pump_pipeline(session)`.
+
+### Результаты
+
+- **926 unit пройдено** (было 907 в v3.84.5, +19 новых).
+- Live mirror WS handshake + fragment stream подтверждён на
+  референсном POCO F7 Pro (цифры выше).
+
+### Совместимость
+
+- `arena.mobile.mirror._ffmpeg_cmd()` исчез. Любой downstream-код,
+  который к нему шелл-аутился, нужно мигрировать на `H264ToFMP4`
+  (или дождаться байт из mirror pipeline).
+- Wire format не изменился: подписчики всё так же получают один
+  текстовый `__init__`-фрейм и следом бинарные fMP4-байты, ровно
+  как v3.84.3 обещал.
+
+
 ## v3.84.5 - 2026-07-15
 
 ### Зачем

@@ -1,66 +1,65 @@
-"""Live screen mirroring via H.264 → fragmented MP4 → WebSocket.
+"""Live screen mirroring via H.264 → Python-native fragmented MP4 → WebSocket.
 
-This is the "high FPS" answer to the Dashboard screenshot latency
-problem the user has been asking about since v3.83.2. Instead of
-capturing and encoding a full frame per HTTP request (which caps at
-~0.4 fps even on the fast raw path), we:
+v3.84.6: replaced the ffmpeg-based muxer from v3.84.3 with an
+in-process H.264 → fMP4 pipeline (`arena.mobile.mp4_muxer`). The old
+pipeline BETA'd because ffmpeg's mp4 muxer buffered until keyframe
+boundaries, and Android's AVC encoder can go 5+ s between IDRs on a
+static home screen -- MediaSource timed out before the first fragment
+ever landed. The new pipeline emits one moof+mdat per frame (VCL NAL),
+so the browser paints on the very first P-frame after init.
 
-  1. Start `adb exec-out screenrecord --output-format=h264` on the
-     phone — Android's hardware AVC encoder streams raw NAL units
-     to stdout at 25-30 fps.
-  2. Pipe those NALs into a local `ffmpeg -c:v copy` that muxes them
-     into a fragmented MP4 container (empty_moov + separate_moof +
-     frag_keyframe flags). fMP4 is what MediaSource Extensions in
-     modern browsers can play natively.
-  3. Broadcast each fMP4 fragment to every connected WebSocket peer.
-     The Dashboard side wraps them in a MediaSource + SourceBuffer
-     and paints to a plain `<video>` element.
+Pipeline shape:
 
-`screenrecord` still has its 180s hard limit per invocation, so we
-transparently restart the pipeline when it exits. The Dashboard
-gets an `init` chunk containing the fresh moov box on every restart
-so MSE can re-initialise cleanly.
+  1. `adb exec-out screenrecord --output-format=h264` streams raw NALs
+     to the bridge process. One subprocess per phone serial.
+  2. An asyncio reader task pumps bytes into `H264ToFMP4.feed()`.
+  3. The muxer calls `on_init(bytes)` once (ftyp+moov) and
+     `on_fragment(bytes, is_keyframe)` per frame (moof+mdat).
+  4. Both callbacks fan out to every WebSocket subscriber via a
+     per-session broadcast queue (dropping frames for slow consumers
+     via the same asyncio.Queue(maxsize=32) backpressure as before).
 
-Security posture:
-  * Same Bearer-token auth as every other /v1/mobile/* endpoint.
-    Enforced in the WebSocket upgrade handshake.
-  * Only ONE mirroring pipeline per (serial) at a time — a second
-    connect returns the existing session.
-  * Subprocess is a child of the bridge; on bridge stop / SIGTERM
-    the pipeline is torn down (`terminate` then `kill` after 3s).
+`screenrecord` still hits its ~180 s hard limit per invocation; we
+transparently spawn a fresh one and call `mux.reset()` so the next
+SPS+PPS pair produces a new init segment.
+
+Security posture unchanged from v3.84.3:
+  * Bearer token (Authorization header or ?token= query) enforced in
+    the WebSocket upgrade handshake.
+  * One pipeline per serial; N subscribers share it.
+  * Pipeline is a child of the bridge; SIGTERM tears it down.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-import subprocess
 import threading
 from dataclasses import dataclass, field
 from typing import Any
 
 from arena.mobile.adb import find_adb
+from arena.mobile.mp4_muxer import H264ToFMP4
 
 log = logging.getLogger(__name__)
 
-# Pipeline defaults. Bit-rate is deliberately modest — a 4 Mbps
-# stream is essentially always small enough for a Tailscale tunnel
-# and gives 720x1600 at 25fps room to breathe.
 DEFAULT_SIZE = "720x1600"
 DEFAULT_BIT_RATE = 4_000_000
-# Each screenrecord invocation caps at this many seconds (Android AVC
-# encoder hard-limit). We restart the pipeline before it hits the wall.
+# Android AVC encoder hard-caps each screenrecord invocation at ~180 s.
+# We restart at 170 s to keep a safety margin.
 _SEGMENT_SECONDS = 170
 
-# Registry keyed by serial. Two concurrent Dashboard tabs on the same
-# device share one screenrecord + ffmpeg process; each tab is a
-# separate subscriber getting the same fMP4 fragments.
+# One MirrorSession per phone; N browser subscribers share it.
 _SESSIONS: dict[str, "MirrorSession"] = {}
 _SESSIONS_LOCK = threading.Lock()
+
+# Special "control" marker delivered as its own broadcast. The
+# WebSocket handler translates it to a text frame ("__init__") so the
+# browser resets its MediaSource state.
+_INIT_MARKER = b"__ARENA_INIT__"
 
 
 @dataclass
 class MirrorSession:
-    """One phone-side pipeline + N browser subscribers."""
     serial: str
     size: str
     bit_rate: int
@@ -71,6 +70,7 @@ class MirrorSession:
     started_at: float = 0.0
     fragments_sent: int = 0
     bytes_sent: int = 0
+    keyframes_sent: int = 0
 
     def add_subscriber(self) -> asyncio.Queue:
         q: asyncio.Queue = asyncio.Queue(maxsize=32)
@@ -87,21 +87,20 @@ class MirrorSession:
             return bool(self.subscribers)
 
     def broadcast(self, chunk: bytes) -> None:
-        """Fan a fMP4 chunk out to every subscriber. Non-blocking:
-        if a slow subscriber's queue is full we drop the frame for
-        them rather than stalling the whole pipeline."""
+        """Fan a chunk out to every subscriber. Slow consumers drop
+        frames instead of stalling the pipeline for everyone."""
         with self.subscribers_lock:
             targets = list(self.subscribers)
         for q in targets:
             try:
                 q.put_nowait(chunk)
             except asyncio.QueueFull:
-                # This subscriber is falling behind. Drop the frame
-                # so the pipeline keeps up for everyone else.
                 log.warning("mirror: subscriber queue full, dropping "
                             "%d bytes for %s", len(chunk), self.serial)
-        self.fragments_sent += 1
-        self.bytes_sent += len(chunk)
+        # Update stats (not counting the control marker).
+        if chunk != _INIT_MARKER:
+            self.fragments_sent += 1
+            self.bytes_sent += len(chunk)
 
 
 def _screenrecord_cmd(serial: str, size: str, bit_rate: int) -> list[str]:
@@ -116,126 +115,95 @@ def _screenrecord_cmd(serial: str, size: str, bit_rate: int) -> list[str]:
     ]
 
 
-def _ffmpeg_cmd() -> list[str]:
-    # `-c:v copy` = no re-encode, just remux. `-flush_packets 1` and
-    # `-fflags nobuffer` push each NAL through as soon as it lands.
-    # `empty_moov + separate_moof + default_base_moof + frag_keyframe`
-    # is the flag combination MSE wants for a streaming fMP4.
-    return [
-        "ffmpeg",
-        "-hide_banner", "-loglevel", "error",
-        "-fflags", "nobuffer",
-        "-flags", "low_delay",
-        "-f", "h264", "-i", "-",
-        "-c:v", "copy",
-        "-movflags", "empty_moov+separate_moof+default_base_moof+frag_keyframe",
-        "-f", "mp4",
-        "-flush_packets", "1",
-        "pipe:1",
-    ]
+async def _pump_pipeline(session: MirrorSession) -> None:
+    """Run the screenrecord + Python muxer loop until the session ends.
 
-
-async def _pump_pipeline(session: MirrorSession, loop: asyncio.AbstractEventLoop) -> None:
-    """Runs the screenrecord | ffmpeg pipeline in a loop until the
-    session is stopped. Restarts on segment expiry (~170s per
-    Android's hard limit)."""
+    Restarts screenrecord when it exits (180 s AVC cap) or when it
+    dies unexpectedly. Between restarts we call `mux.reset()` so the
+    next SPS+PPS pair emits a fresh init segment; the browser's
+    `__init__` marker prompts it to rebuild its MediaSource
+    SourceBuffer.
+    """
     import time
     session.started_at = time.time()
-    log.info("mirror[%s]: pipeline started", session.serial)
+    log.info("mirror[%s]: pipeline started (python-native muxer)",
+             session.serial)
+
+    def _on_init(payload: bytes) -> None:
+        # Tell subscribers to reset their SourceBuffer, then hand them
+        # the freshly-built ftyp+moov.
+        session.broadcast(_INIT_MARKER)
+        session.broadcast(payload)
+
+    def _on_fragment(payload: bytes, is_keyframe: bool) -> None:
+        session.broadcast(payload)
+        if is_keyframe:
+            session.keyframes_sent += 1
+
+    mux = H264ToFMP4(on_init=_on_init, on_fragment=_on_fragment)
 
     try:
         while not session.stop_event.is_set() and session.has_subscribers():
-            # Spawn screenrecord (writing raw h264 to its stdout) and
-            # ffmpeg (accepting h264 on stdin, muxing to fMP4). We
-            # explicitly pump bytes from sr.stdout to ff.stdin from
-            # Python — the earlier "os.pipe() shared fd" approach hung
-            # ffmpeg because the two subprocesses each buffered
-            # independently and neither saw an EOF until Python
-            # forgot about them.
-            sr = await asyncio.create_subprocess_exec(
-                *_screenrecord_cmd(session.serial, session.size, session.bit_rate),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.DEVNULL,
-            )
-            ff = await asyncio.create_subprocess_exec(
-                *_ffmpeg_cmd(),
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            # Log ffmpeg stderr in the background so we see real errors.
-            async def _drain_ff_stderr():
+            mux.reset()
+            try:
+                sr = await asyncio.create_subprocess_exec(
+                    *_screenrecord_cmd(session.serial, session.size, session.bit_rate),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+            except Exception:
+                log.exception("mirror[%s]: could not spawn screenrecord",
+                              session.serial)
+                await asyncio.sleep(1.0)
+                continue
+
+            async def _drain_sr_stderr():
+                assert sr.stderr is not None
                 while True:
-                    line = await ff.stderr.readline()
+                    line = await sr.stderr.readline()
                     if not line:
                         break
-                    log.warning("ffmpeg: %s", line.decode("utf-8", "replace").rstrip())
-            asyncio.create_task(_drain_ff_stderr())
-            # Signal segment start (subscribers use this to reset the
-            # MediaSource init state).
-            session.broadcast(b"__ARENA_INIT__")
+                    log.info("screenrecord: %s",
+                             line.decode("utf-8", "replace").rstrip())
+            stderr_task = asyncio.create_task(_drain_sr_stderr())
 
-            async def _pump_h264():
-                """Copy screenrecord stdout → ffmpeg stdin, close on EOF."""
-                try:
-                    while True:
-                        buf = await sr.stdout.read(65536)
-                        if not buf:
-                            break
-                        ff.stdin.write(buf)
-                        try:
-                            await ff.stdin.drain()
-                        except (ConnectionResetError, BrokenPipeError):
-                            break
-                finally:
-                    try:
-                        ff.stdin.close()
-                    except Exception:
-                        pass
-
-            pump = asyncio.create_task(_pump_h264())
             try:
+                assert sr.stdout is not None
                 while True:
-                    chunk = await ff.stdout.read(65536)
-                    if not chunk:
+                    buf = await sr.stdout.read(65536)
+                    if not buf:
                         break
-                    session.broadcast(chunk)
+                    mux.feed(buf)
                     if session.stop_event.is_set():
                         break
                     if not session.has_subscribers():
-                        # Everyone left; shut down the pipeline until
-                        # a new subscriber shows up.
                         break
             finally:
-                pump.cancel()
+                mux.flush()
+                stderr_task.cancel()
                 try:
-                    await asyncio.wait_for(pump, timeout=1.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
+                    sr.terminate()
+                except ProcessLookupError:
                     pass
-                for proc in (sr, ff):
+                try:
+                    await asyncio.wait_for(sr.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
                     try:
-                        proc.terminate()
+                        sr.kill()
                     except ProcessLookupError:
                         pass
-                # Give them 2s to die gracefully, then hard-kill.
-                for proc in (sr, ff):
-                    try:
-                        await asyncio.wait_for(proc.wait(), timeout=2.0)
-                    except asyncio.TimeoutError:
-                        try:
-                            proc.kill()
-                        except ProcessLookupError:
-                            pass
-            # Small pause so we don't hammer the phone if the pipeline
-            # crashes repeatedly.
-            if not session.has_subscribers() or session.stop_event.is_set():
+
+            if session.stop_event.is_set() or not session.has_subscribers():
                 break
+            # Small pause between segment restarts.
             await asyncio.sleep(0.3)
     except Exception:
         log.exception("mirror[%s]: pipeline crashed", session.serial)
     finally:
-        log.info("mirror[%s]: pipeline stopped after %d frags / %d bytes",
-                 session.serial, session.fragments_sent, session.bytes_sent)
+        log.info("mirror[%s]: pipeline stopped after %d frags / %d bytes / %d keyframes",
+                 session.serial,
+                 session.fragments_sent, session.bytes_sent,
+                 session.keyframes_sent)
         with _SESSIONS_LOCK:
             _SESSIONS.pop(session.serial, None)
 
@@ -247,12 +215,7 @@ def get_or_start(
     bit_rate: int = DEFAULT_BIT_RATE,
     loop: asyncio.AbstractEventLoop | None = None,
 ) -> MirrorSession:
-    """Return the mirror session for `serial`, spawning one if needed.
-
-    Called from the WebSocket handler. A second call with different
-    size/bit_rate is a no-op — the running session's settings win
-    until every subscriber disconnects.
-    """
+    """Return the mirror session for `serial`, spawning one if needed."""
     with _SESSIONS_LOCK:
         session = _SESSIONS.get(serial)
         if session:
@@ -260,7 +223,7 @@ def get_or_start(
         session = MirrorSession(serial=serial, size=size, bit_rate=bit_rate)
         _SESSIONS[serial] = session
     loop = loop or asyncio.get_event_loop()
-    session.reader_task = loop.create_task(_pump_pipeline(session, loop))
+    session.reader_task = loop.create_task(_pump_pipeline(session))
     return session
 
 
@@ -273,7 +236,7 @@ def stop_all() -> None:
 
 
 def stats() -> list[dict[str, Any]]:
-    """Read-only snapshot for `GET /v1/mobile/{s}/mirror/stats`."""
+    """Snapshot for `GET /v1/mobile/mirror/stats`."""
     with _SESSIONS_LOCK:
         return [{
             "serial": s.serial,
@@ -283,22 +246,20 @@ def stats() -> list[dict[str, Any]]:
             "subscribers": len(s.subscribers),
             "fragments_sent": s.fragments_sent,
             "bytes_sent": s.bytes_sent,
+            "keyframes_sent": s.keyframes_sent,
+            "muxer": "python-native",
         } for s in _SESSIONS.values()]
 
 
 # ---------------------------------------------------------------------------
-# aiohttp handler — the WebSocket endpoint
+# aiohttp handler -- WebSocket + stats/stop endpoints.
 # ---------------------------------------------------------------------------
 
 def make_mirror_handlers(ctx, *, cors):
-    """Return the WS handler + stats/stop endpoints for /v1/mobile/*
-    mirror routes. Kept in this module so the pipeline lifecycle
-    stays in one file."""
+    """Return the WS handler + stats/stop coroutines for /v1/mobile/*."""
     from aiohttp import WSMsgType, web
 
     async def handle_mirror_ws(request: web.Request) -> web.StreamResponse:
-        # Bearer-token auth on WS upgrade. aiohttp doesn't apply the
-        # normal middleware chain to raw upgrades, so we do it here.
         r = ctx.require_auth(request)
         if r:
             return r
@@ -324,15 +285,17 @@ def make_mirror_handlers(ctx, *, cors):
                  serial, len(session.subscribers))
         ctx.audit({"type": "mobile.mirror.subscribe", "serial": serial})
 
-        # Fan chunks from the pipeline into this WS.
         async def _pump():
             while not ws.closed:
                 try:
                     chunk = await asyncio.wait_for(queue.get(), timeout=30.0)
                 except asyncio.TimeoutError:
                     continue
-                if chunk == b"__ARENA_INIT__":
-                    await ws.send_str("__init__")
+                if chunk == _INIT_MARKER:
+                    try:
+                        await ws.send_str("__init__")
+                    except (ConnectionResetError, RuntimeError):
+                        break
                     continue
                 try:
                     await ws.send_bytes(chunk)
@@ -341,8 +304,6 @@ def make_mirror_handlers(ctx, *, cors):
 
         pump_task = asyncio.create_task(_pump())
         try:
-            # Poll for client-side messages (currently only close /
-            # ping; leave room for future control commands).
             async for msg in ws:
                 if msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR,
                                 WSMsgType.CLOSED):

@@ -279,7 +279,7 @@ POST /v1/mobile/recording/{rec_id}/stop
 GET  /v1/mobile/{s}/recordings
 GET  /v1/mobile/recording/{rec_id}
 POST /v1/mobile/{s}/recording/purge
-# Live H.264 mirror (v3.84.3 BETA).
+# Live H.264 mirror (Python-native fMP4 muxer since v3.84.6, no ffmpeg).
 GET  /v1/mobile/{s}/mirror               # WebSocket + ?token= auth
 GET  /v1/mobile/mirror/stats
 POST /v1/mobile/{s}/mirror/stop

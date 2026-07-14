@@ -68,7 +68,7 @@ def test_mirror_get_or_start_returns_same_session_for_same_serial(monkeypatch):
     _m._SESSIONS.clear()
 
     # Stub out the pipeline coroutine so we don't spawn subprocesses.
-    async def _no_pipeline(session, loop):
+    async def _no_pipeline(session, *args, **kwargs):
         pass
     monkeypatch.setattr(_m, "_pump_pipeline", _no_pipeline)
     monkeypatch.setattr(_m, "find_adb", lambda: "/usr/bin/adb")
@@ -86,7 +86,7 @@ def test_mirror_get_or_start_returns_same_session_for_same_serial(monkeypatch):
 def test_mirror_get_or_start_different_serials_get_different_sessions(monkeypatch):
     from arena.mobile import mirror as _m
     _m._SESSIONS.clear()
-    async def _no_pipeline(session, loop):
+    async def _no_pipeline(session, *args, **kwargs):
         pass
     monkeypatch.setattr(_m, "_pump_pipeline", _no_pipeline)
     monkeypatch.setattr(_m, "find_adb", lambda: "/usr/bin/adb")
@@ -106,7 +106,7 @@ def test_mirror_get_or_start_different_serials_get_different_sessions(monkeypatc
 def test_mirror_stats_reports_all_sessions(monkeypatch):
     from arena.mobile import mirror as _m
     _m._SESSIONS.clear()
-    async def _no_pipeline(session, loop):
+    async def _no_pipeline(session, *args, **kwargs):
         pass
     monkeypatch.setattr(_m, "_pump_pipeline", _no_pipeline)
     monkeypatch.setattr(_m, "find_adb", lambda: "/usr/bin/adb")
@@ -143,18 +143,16 @@ def test_screenrecord_cmd_shape():
     assert cmd[-1] == "-", "screenrecord must write to stdout"
 
 
-def test_ffmpeg_cmd_has_fragmented_mp4_flags():
-    """Regression: MSE needs empty_moov + separate_moof + frag_keyframe.
-    Missing any of them breaks the browser <video> playback."""
-    from arena.mobile.mirror import _ffmpeg_cmd
-    cmd = _ffmpeg_cmd()
-    joined = " ".join(cmd)
-    assert "-c:v" in cmd and "copy" in cmd, "must not re-encode"
-    assert "empty_moov" in joined
-    assert "separate_moof" in joined
-    assert "frag_keyframe" in joined
-    assert "-f mp4" in joined
-    assert cmd[-1] == "pipe:1"
+def test_mirror_uses_python_native_muxer_no_ffmpeg():
+    """v3.84.6 replaced the ffmpeg subprocess with an in-process
+    H264ToFMP4 muxer. `_ffmpeg_cmd` is gone; the pipeline should
+    import `mp4_muxer.H264ToFMP4` directly and not spawn ffmpeg."""
+    import arena.mobile.mirror as _mirror
+    assert not hasattr(_mirror, "_ffmpeg_cmd"), \
+        "v3.84.6 removed the ffmpeg pipeline"
+    from arena.mobile.mp4_muxer import H264ToFMP4
+    # The mirror module imports the muxer at top level.
+    assert _mirror.H264ToFMP4 is H264ToFMP4
 
 
 # ---------------------------------------------------------------------------
