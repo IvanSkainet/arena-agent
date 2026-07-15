@@ -1,39 +1,109 @@
-// Auto-update Dashboard controls (v3.85.1).
+// Auto-update Dashboard controls (v3.85.4 polished UI).
 //
-// Talks to the four v3.85.0 endpoints:
-//   GET  /v1/admin/update/status          current version + install root
-//   POST /v1/admin/update/check           GitHub round-trip
-//   POST /v1/admin/update/apply           download + install
-//   POST /v1/admin/update/restart         manual restart (POSIX re-execs;
-//                                         Windows relies on a service supervisor)
+// Talks to the four v3.85.0 endpoints and renders their output in a
+// human-friendly way rather than dumping JSON at the user.
 //
-// The two-step consent flow is exactly the same as
-// /v1/mobile/{s}/apk/install from v3.83.5: the first apply call
-// returns `consent_required: true` with the token the user must
-// echo back on the second call. This module handles both roundtrips
-// automatically after a single Install click, but only after the
-// user confirms in a plain browser confirm() dialog so a stray
-// click on a shared laptop can't upgrade the bridge.
+//   GET  /v1/admin/update/status
+//   POST /v1/admin/update/check
+//   POST /v1/admin/update/apply
+//   POST /v1/admin/update/restart
 //
-// Depends on globals from 02-api-helper.js: api(). Nothing else.
+// UX contract:
+//   * The "Check" button is always safe (no side effects).
+//   * The "Install" button is a two-click confirm: first click asks
+//     the server for a consent token, second click echoes it back.
+//     Disabled unless the release has a SHA-256 digest we can verify.
+//   * The "Restart" button is a plain restart -- gated by confirm().
+//   * On first Dashboard load we run a background check() once so the
+//     "Update available" badge in the corner of the Auto-update card
+//     shows up without the user having to open Settings first.
 
-let _adminUpdateLatest = null;   // last successful /check response
+let _adminUpdateLatest = null;
 let _adminUpdateInFlight = false;
 
-function _adminUpdateStatus(msg, colour) {
-  const el = document.getElementById("adminUpdateStatus");
+// ---- DOM helpers -----------------------------------------------------------
+
+function _adminUpdateEl(id) { return document.getElementById(id); }
+
+function _adminUpdateStatus(msg, level) {
+  const el = _adminUpdateEl("adminUpdateStatus");
   if (!el) return;
   el.textContent = msg || "";
-  el.style.color = colour || "#333";
+  const colours = {info: "#333", ok: "#0a0", warn: "#a80", err: "#a00"};
+  el.style.color = colours[level || "info"];
 }
 
-function _adminUpdateSetInstallEnabled(on) {
-  const btn = document.getElementById("adminUpdateInstallBtn");
-  if (btn) btn.disabled = !on;
+function _adminUpdateSetInstallEnabled(on, tooltip) {
+  const btn = _adminUpdateEl("adminUpdateInstallBtn");
+  if (!btn) return;
+  btn.disabled = !on;
+  if (tooltip) btn.title = tooltip;
+  else btn.removeAttribute("title");
 }
 
-function _adminUpdateShowReleaseBody(body) {
-  const el = document.getElementById("adminUpdateReleaseBody");
+function _adminUpdateBadge(text, level) {
+  const el = _adminUpdateEl("adminUpdateBadge");
+  if (!el) return;
+  el.textContent = text || "";
+  el.style.display = text ? "inline-block" : "none";
+  const colours = {ok: "#2b8a3e", warn: "#c9740c", err: "#c92a2a",
+                   info: "#3a7bd5"};
+  el.style.background = colours[level || "info"];
+}
+
+function _adminUpdateFormatSize(bytes) {
+  if (!bytes || bytes <= 0) return "unknown size";
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+}
+
+function _adminUpdateFormatDate(iso) {
+  if (!iso) return "unknown";
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString();
+  } catch (_) { return iso; }
+}
+
+// ---- Rendering -------------------------------------------------------------
+
+function _adminUpdateRenderStatus(status, check) {
+  const cur = status && status.current;
+  const latest = check && check.latest;
+  const parts = [];
+  parts.push('<div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">');
+  parts.push('<div><strong>Installed:</strong> v' + (cur || "?") + '</div>');
+  if (latest) {
+    parts.push('<div><strong>Available:</strong> v' + latest + '</div>');
+  }
+  parts.push('</div>');
+  parts.push('<table class="mono" style="font-size:11px;color:#555;border-collapse:collapse;width:100%">');
+  const rows = [
+    ["Repository",   check && check.repo || (status && status.repo) || "?"],
+    ["Install root", status && status.install_root || "?"],
+    ["Platform",     status && status.platform || "?"],
+    ["Source",       check && check.source || "not yet checked"],
+    ["Published",    check && _adminUpdateFormatDate(check.published_at)],
+    ["Asset",        check && check.asset_name || "?"],
+    ["Asset size",   check && _adminUpdateFormatSize(check.asset_size_bytes)],
+    ["Asset SHA-256", (check && check.asset_digest) || "not published (add GITHUB_TOKEN to enable verification)"],
+    ["Release URL",  check && check.release_url
+                     ? '<a href="' + check.release_url + '" target="_blank" rel="noopener">' + check.release_url + '</a>'
+                     : "-"],
+  ];
+  for (const [k, v] of rows) {
+    if (v == null || v === "" || v === "unknown") continue;
+    parts.push('<tr><td style="padding:2px 8px 2px 0;color:#666;vertical-align:top;white-space:nowrap">' + k + '</td>'
+             + '<td style="padding:2px 0;word-break:break-all">' + v + '</td></tr>');
+  }
+  parts.push('</table>');
+  const el = _adminUpdateEl("adminUpdateDetails");
+  if (el) el.innerHTML = parts.join("");
+}
+
+function _adminUpdateRenderReleaseBody(body) {
+  const el = _adminUpdateEl("adminUpdateReleaseBody");
   if (!el) return;
   if (body && body.trim()) {
     el.textContent = body;
@@ -44,54 +114,52 @@ function _adminUpdateShowReleaseBody(body) {
   }
 }
 
+// ---- Actions ---------------------------------------------------------------
+
 async function adminUpdateCheck() {
   if (_adminUpdateInFlight) return;
   _adminUpdateInFlight = true;
   _adminUpdateStatus("Checking GitHub…");
   _adminUpdateSetInstallEnabled(false);
-  _adminUpdateShowReleaseBody("");
+  _adminUpdateRenderReleaseBody("");
   try {
     const status = await api("/v1/admin/update/status");
-    const check = await api("/v1/admin/update/check",
-                            {method: "POST", body: "{}"});
+    const check  = await api("/v1/admin/update/check",
+                             {method: "POST", body: "{}"});
+    _adminUpdateRenderStatus(status, check);
     if (!check || check.ok !== true) {
       const err = (check && (check.error || check.hint)) || "check failed";
-      _adminUpdateStatus("Check failed: " + err, "#a00");
+      _adminUpdateStatus("Check failed: " + err, "err");
+      _adminUpdateBadge("check failed", "err");
       return;
     }
     _adminUpdateLatest = check;
-    _adminUpdateShowReleaseBody(check.body || "");
+    _adminUpdateRenderReleaseBody(check.body || "");
     if (check.needs_update) {
-      const size = check.asset_size_bytes
-        ? (Math.round(check.asset_size_bytes / 1024) + " KB")
-        : "unknown size";
       _adminUpdateStatus(
-        "Update available: " + status.current + "  →  " + check.latest
-        + "\nAsset: " + (check.asset_name || "(unknown)")
-        + "  · " + size
-        + "\nPublished: " + (check.published_at || "?")
-        + "\nSHA-256: " + (check.asset_digest || "(GitHub did not publish one)")
-        + "\nRelease: " + (check.release_url || ""),
-        "#0a0");
-      // Only enable Install if GitHub gave us a sha256 -- without one
-      // apply_update refuses to install.
-      _adminUpdateSetInstallEnabled(!!check.asset_digest);
-      if (!check.asset_digest) {
-        _adminUpdateStatus(
-          "Update available but GitHub didn't publish a sha256 digest\n"
-          + "for this asset. Install is disabled to keep verification\n"
-          + "mandatory. Re-run the release with `gh release create`\n"
-          + "against a newer gh CLI (v2.60+) which attaches digests\n"
-          + "automatically.",
-          "#a80");
+        "Update available: v" + status.current + " → v" + check.latest,
+        "ok");
+      _adminUpdateBadge("update v" + check.latest, "warn");
+      if (check.asset_digest) {
+        _adminUpdateSetInstallEnabled(true,
+          "Download + verify + install " + check.asset_name);
+      } else {
+        _adminUpdateSetInstallEnabled(false,
+          "Install disabled: GitHub did not publish a SHA-256 digest "
+          + "for this asset (anonymous /releases/latest redirect path).\n"
+          + "To enable verified installs, add GITHUB_TOKEN to the "
+          + "bridge's systemd environment. The bridge will then use "
+          + "the authenticated API path which provides digests.");
       }
     } else {
       _adminUpdateStatus(
-        "Already on the latest version (" + status.current + ").",
-        "#080");
+        "You're on the latest version (v" + status.current + ").",
+        "ok");
+      _adminUpdateBadge("up to date", "ok");
     }
   } catch (e) {
-    _adminUpdateStatus("Check failed: " + (e && e.message || e), "#a00");
+    _adminUpdateStatus("Check failed: " + (e && e.message || e), "err");
+    _adminUpdateBadge("error", "err");
   } finally {
     _adminUpdateInFlight = false;
   }
@@ -100,27 +168,27 @@ async function adminUpdateCheck() {
 async function adminUpdateInstall() {
   if (_adminUpdateInFlight) return;
   if (!_adminUpdateLatest || !_adminUpdateLatest.needs_update) {
-    _adminUpdateStatus("Nothing to install. Press Check first.", "#a80");
+    _adminUpdateStatus("Nothing to install. Press Check first.", "warn");
     return;
   }
   const rel = _adminUpdateLatest;
-  const size = rel.asset_size_bytes
-    ? (Math.round(rel.asset_size_bytes / 1024) + " KB")
-    : "unknown";
+  const size = _adminUpdateFormatSize(rel.asset_size_bytes);
   const proceed = confirm(
-    "Install " + rel.latest + " (" + rel.asset_name + ", " + size + ")?\n\n"
+    "Install v" + rel.latest + "?\n\n"
+    + "Asset : " + rel.asset_name + "  (" + size + ")\n"
+    + "SHA-256: " + (rel.asset_digest || "not published") + "\n\n"
     + "The bridge will download the release from GitHub, verify\n"
-    + "SHA-256, atomically replace the source tree, and re-exec\n"
-    + "itself. Your config and bridge home are not touched.\n\n"
+    + "SHA-256, atomically replace the source tree, and restart.\n"
+    + "Your config and bridge home are untouched.\n\n"
     + "This takes ~10 seconds and briefly disconnects this Dashboard."
   );
   if (!proceed) {
-    _adminUpdateStatus("Install cancelled.", "#a80");
+    _adminUpdateStatus("Install cancelled.", "warn");
     return;
   }
   _adminUpdateInFlight = true;
   _adminUpdateSetInstallEnabled(false);
-  _adminUpdateStatus("Downloading " + rel.asset_name + "…");
+  _adminUpdateStatus("Requesting consent token…");
   const body = {
     tag: rel.latest_tag,
     asset_url: rel.asset_url,
@@ -129,39 +197,42 @@ async function adminUpdateInstall() {
     restart: true,
   };
   try {
-    // Step 1: server returns consent_required + the token we need.
     const step1 = await api("/v1/admin/update/apply",
                             {method: "POST", body: JSON.stringify(body)});
     if (step1 && step1.consent_required && step1.required_consent) {
       _adminUpdateStatus(
-        "Verifying + installing… (consent: " + step1.required_consent + ")");
+        "Downloading + verifying + installing… (consent = "
+        + step1.required_consent + ")");
       body.consent = step1.required_consent;
       const step2 = await api("/v1/admin/update/apply",
                               {method: "POST", body: JSON.stringify(body)});
       if (step2 && step2.ok) {
+        const swapped = (step2.swapped || []).join(", ");
+        const restartHint = step2.restart === "scheduled"
+          ? "Bridge is restarting — reload this page in ~3 s."
+          : "Restart pending: relaunch the service to activate.";
         _adminUpdateStatus(
-          "Installed " + step2.applied_version + "!\n"
-          + "Swapped: " + ((step2.swapped || []).join(", ") || "(windows deferred install)")
-          + "\n" + (step2.restart === "scheduled"
-                    ? "Bridge is restarting (systemd) — reload this page in ~3 s."
-                    : "Restart pending: relaunch the service to activate."),
-          "#0a0");
+          "Installed v" + step2.applied_version + ".\n"
+          + "Swapped: " + (swapped || "(windows deferred install)") + "\n"
+          + restartHint,
+          "ok");
+        _adminUpdateBadge("installing v" + step2.applied_version, "info");
+        // Auto-refresh the page after the bridge should be back up.
+        setTimeout(() => { location.reload(); }, 5000);
       } else {
         const err = (step2 && (step2.error || JSON.stringify(step2))) || "unknown error";
-        _adminUpdateStatus("Install failed: " + err, "#a00");
+        _adminUpdateStatus("Install failed: " + err, "err");
         _adminUpdateSetInstallEnabled(true);
       }
     } else if (step1 && step1.ok) {
-      // Some old server versions might do a one-shot install. Handle
-      // that too even though v3.85.0 always uses two-step.
-      _adminUpdateStatus("Installed " + step1.applied_version + ".", "#0a0");
+      _adminUpdateStatus("Installed v" + step1.applied_version + ".", "ok");
     } else {
       const err = (step1 && (step1.error || JSON.stringify(step1))) || "no response";
-      _adminUpdateStatus("Install failed: " + err, "#a00");
+      _adminUpdateStatus("Install failed: " + err, "err");
       _adminUpdateSetInstallEnabled(true);
     }
   } catch (e) {
-    _adminUpdateStatus("Install failed: " + (e && e.message || e), "#a00");
+    _adminUpdateStatus("Install failed: " + (e && e.message || e), "err");
     _adminUpdateSetInstallEnabled(true);
   } finally {
     _adminUpdateInFlight = false;
@@ -170,7 +241,7 @@ async function adminUpdateInstall() {
 
 async function adminUpdateRestart() {
   if (!confirm("Restart the bridge now?\n\n"
-               + "On systemd / launchd the service will come back up automatically.\n"
+               + "On systemd / launchd the service comes back automatically.\n"
                + "On Windows a service supervisor (nssm) must relaunch it.")) {
     return;
   }
@@ -181,12 +252,29 @@ async function adminUpdateRestart() {
     if (r && r.ok) {
       _adminUpdateStatus(
         "Restart " + (r.restart || "scheduled")
-        + " — reload this page in ~3 s.", "#0a0");
+        + " — reload this page in ~3 s.", "ok");
+      setTimeout(() => { location.reload(); }, 5000);
     } else {
       _adminUpdateStatus(
-        "Restart failed: " + (r && (r.error || r.hint) || "unknown"), "#a00");
+        "Restart failed: " + (r && (r.error || r.hint) || "unknown"), "err");
     }
   } catch (e) {
-    _adminUpdateStatus("Restart failed: " + (e && e.message || e), "#a00");
+    _adminUpdateStatus("Restart failed: " + (e && e.message || e), "err");
   }
 }
+
+// ---- Auto-check on Dashboard boot -----------------------------------------
+// Fire ONCE, ~2 s after boot, so the badge shows the update state
+// without the user needing to open Settings.
+(function () {
+  function _autoOnce() {
+    setTimeout(() => {
+      try { adminUpdateCheck(); } catch (_) {}
+    }, 2000);
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", _autoOnce, {once: true});
+  } else {
+    _autoOnce();
+  }
+})();

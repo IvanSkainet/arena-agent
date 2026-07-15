@@ -384,6 +384,16 @@ class H264ToFMP4:
     _pending_nals: list[bytes] = field(default_factory=list)
     _pending_has_vcl: bool = False
     _pending_is_keyframe: bool = False
+    # v3.85.4: wall-clock pacing. Android's AVC encoder often emits
+    # more temporal-layer frames than the display refresh rate (we've
+    # measured 42 fps on a 30 Hz screen because b-frame-like
+    # reordering slices land as separate access units). Using a fixed
+    # `frame_duration` off DEFAULT_FRAME_DURATION means the MP4
+    # timeline runs faster than real time -- MediaSource buffers keep
+    # growing and the <video> falls further behind by ~40 % per
+    # minute. Measure the wall-clock gap between VCL NALs and use
+    # that as the sample duration; playback stays glued to real time.
+    _last_frame_wallclock: float = 0.0
 
     stats_fragments: int = 0
     stats_bytes: int = 0
@@ -401,6 +411,9 @@ class H264ToFMP4:
         self._pending_nals.clear()
         self._pending_has_vcl = False
         self._pending_is_keyframe = False
+        # Reset the wall-clock so the first frame in the new segment
+        # gets the default duration rather than a huge one.
+        self._last_frame_wallclock = 0.0
 
     def feed(self, chunk: bytes) -> None:
         self._splitter.feed(chunk)
@@ -433,8 +446,10 @@ class H264ToFMP4:
             self._pending_nals.append(nal)
             return
         if t in VCL_TYPES:
-            # Two VCLs without an AUD in between means the previous one
-            # was a complete frame; flush before appending the new one.
+            # Two VCLs without an AUD in between means the previous
+            # one was a complete access unit; flush before appending
+            # the new one. (An AUD from screenrecord's bitstream would
+            # already have flushed via the NAL_AUD branch above.)
             if self._pending_has_vcl:
                 self._flush_pending_frame()
             self._pending_nals.append(nal)
@@ -489,17 +504,50 @@ class H264ToFMP4:
         sample_data = b"".join(
             struct.pack(">I", len(n)) + n for n in self._pending_nals
         )
+        # v3.85.4: pace samples so the MP4 timeline advances at the
+        # same rate as wall time. Two things get in the way:
+        #
+        #   * Android's screenrecord emits multiple VCL NALs per
+        #     real screen frame (temporal-layer slices) and they
+        #     arrive back-to-back within a couple of milliseconds.
+        #     Treating each of them as a full frame at
+        #     frame_duration = 33.3 ms would run the MP4 timeline
+        #     ~40 % faster than reality.
+        #
+        #   * We can't ask screenrecord for a timestamp per frame --
+        #     it doesn't expose one.
+        #
+        # Compromise: measure the wall-clock gap between successive
+        # flushed frames and use that as the sample duration, but
+        # clamp it into [3, 100] ms so back-to-back temporal slices
+        # get a small (still > 0) duration and a transient stall
+        # doesn't inject a giant sample. The average `duration`
+        # converges to real time within one second.
+        import time as _time
+        now = _time.monotonic()
+        if self._last_frame_wallclock > 0:
+            delta_sec = now - self._last_frame_wallclock
+            # After the NAL-aggregation fix above, `delta_sec` is now
+            # the gap between REAL screen frames. Clamp
+            # [16, 100] ms so a heavy garbage-collection pause doesn't
+            # inject a giant sample and a 60 Hz screen doesn't
+            # produce durations shorter than one refresh interval.
+            delta_sec = max(0.016, min(0.100, delta_sec))
+            duration = max(1, int(delta_sec * self.timescale))
+        else:
+            duration = self.frame_duration
+        self._last_frame_wallclock = now
         self._seq += 1
         moof, mdat = build_moof_mdat(
             sequence_number=self._seq,
             base_media_decode_time=self._decode_time,
             samples=[{
                 "data": sample_data,
-                "duration": self.frame_duration,
+                "duration": duration,
                 "is_keyframe": self._pending_is_keyframe,
             }],
         )
-        self._decode_time += self.frame_duration
+        self._decode_time += duration
         fragment = moof + mdat
         self.stats_fragments += 1
         self.stats_bytes += len(fragment)

@@ -138,6 +138,19 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_admin_update_check":   handlers.update_check,
         "handle_v1_admin_update_apply":   handlers.update_apply,
         "handle_v1_admin_update_restart": handlers.update_restart,
+        # v3.86.0: multi-agent handlers ride the same admin context.
+        **_build_multiagent_handlers(admin_ctx),
+    }
+
+
+def _build_multiagent_handlers(admin_ctx) -> dict[str, Any]:
+    from arena.multiagent.handlers_agents import make_agents_handlers
+    h = make_agents_handlers(admin_ctx)
+    return {
+        "handle_v1_agents_create": h["agents_create"],
+        "handle_v1_agents_list":   h["agents_list"],
+        "handle_v1_agents_get":    h["agents_get"],
+        "handle_v1_agents_delete": h["agents_delete"],
     }
 
 

@@ -38,28 +38,53 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
     def check_auth_with_role(request: web.Request, required_role: str | None = None) -> tuple[bool, str]:
         return ctx.user_store.check_auth_with_role(request, required_role=required_role)
 
-    def check_auth(request: web.Request) -> bool:
-        cfg = request.app[APP_CFG]
-        token = cfg["token"]
+    def _presented_tokens(request: web.Request) -> list[str]:
+        """Every token the caller might have presented, in preference
+        order. Order matters because we short-circuit on the first
+        constant-time match."""
+        out: list[str] = []
         auth = request.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):
-            return True
+        if auth.startswith("Bearer "):
+            out.append(auth[7:])
         xt = request.headers.get("X-Arena-Token", "")
-        if xt and hmac.compare_digest(xt, token):
-            return True
-        # v3.84.3: browsers can't set Authorization on a WebSocket
-        # upgrade, so accept the token as a query param too. Only used
-        # by /v1/mobile/{s}/mirror right now; other endpoints keep
-        # working via header as before. Guarded with getattr because
-        # some legacy test doubles don't carry a `query` attribute.
+        if xt:
+            out.append(xt)
         query = getattr(request, "query", None)
         if query:
             try:
                 qt = query.get("token", "")
             except AttributeError:
                 qt = ""
-            if qt and hmac.compare_digest(qt, token):
+            if qt:
+                out.append(qt)
+        return out
+
+    def check_auth(request: web.Request) -> bool:
+        cfg = request.app[APP_CFG]
+        master = cfg["token"]
+        candidates = _presented_tokens(request)
+        for cand in candidates:
+            if hmac.compare_digest(cand, master):
                 return True
+        # v3.86.0: multi-agent bearer tokens. Recognise `agent-<id>-<hex>`
+        # by consulting the process-wide registry. On a hit we attach
+        # the agent record onto the request so downstream handlers +
+        # audit can scope by agent without re-parsing the token.
+        try:
+            from arena.multiagent import agents as _agents
+            for cand in candidates:
+                if _agents.looks_like_agent_token(cand):
+                    rec = _agents.resolve_token(cand)
+                    if rec is not None:
+                        try:
+                            request["agent_id"] = rec.agent_id
+                            request["agent_label"] = rec.label
+                        except (AttributeError, TypeError):
+                            pass
+                        _agents.note_request(rec.agent_id)
+                        return True
+        except ImportError:
+            pass
         is_authed, _ = check_auth_with_role(request)
         if is_authed:
             return True

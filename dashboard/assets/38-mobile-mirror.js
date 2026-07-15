@@ -40,13 +40,19 @@ let _mobileMirrorStatsTimer = null;
 let _mobileMirrorLiveEdgeTimer = null;
 let _mobileMirrorLastLiveEdge = 0;
 
-// How close to the tail we try to keep playback. Larger = safer against
-// stalls on flaky networks, smaller = lower glass-to-glass latency.
-const _MIRROR_LIVE_TAIL_SEC = 0.5;
-// If the play head drifts more than this behind the live edge, hard-jump.
-const _MIRROR_MAX_LAG_SEC = 2.0;
-// Keep at most this much history in the SourceBuffer.
-const _MIRROR_MAX_BUFFERED_SEC = 3.0;
+// v3.85.4: aggressive live-edge tuning after real-user latency reports.
+// The MP4 timestamp domain and wall clock can drift for many reasons
+// (variable temporal-layer output, network jitter, background tab
+// throttling) so we hug the tail hard instead of trying to keep a
+// safety margin. Numbers picked empirically:
+//   * Play the newest 60 ms rather than the newest 500 ms.
+//   * If drift exceeds 300 ms behind the live edge, HARD-JUMP.
+//   * Trim any buffered range older than 1.0 s.
+//   * Nudge playbackRate up when drifting, back to 1.0 when caught up.
+const _MIRROR_LIVE_TAIL_SEC = 0.06;
+const _MIRROR_MAX_LAG_SEC = 0.30;
+const _MIRROR_MAX_BUFFERED_SEC = 1.0;
+const _MIRROR_CATCHUP_RATE = 1.15;
 
 function _mobileMirrorStatus(msg) {
   const el = document.getElementById("mobileMirrorStatus");
@@ -181,7 +187,10 @@ async function mobileMirrorStart() {
     if (_mobileMirrorStatsTimer) clearInterval(_mobileMirrorStatsTimer);
     _mobileMirrorStatsTimer = setInterval(_mobileMirrorUpdateMeta, 1000);
     if (_mobileMirrorLiveEdgeTimer) clearInterval(_mobileMirrorLiveEdgeTimer);
-    _mobileMirrorLiveEdgeTimer = setInterval(_mobileMirrorSeekToLiveEdge, 400);
+    // 100 ms so a 30 fps stream still gets multiple re-checks
+    // between renderable frames -- important when the encoder
+    // buffers 3-4 frames then delivers them in a burst.
+    _mobileMirrorLiveEdgeTimer = setInterval(_mobileMirrorSeekToLiveEdge, 100);
   };
   _mobileMirrorWs.onmessage = (ev) => {
     if (typeof ev.data === "string") {
@@ -304,37 +313,53 @@ function _mobileMirrorSourceBufferBusy() {
   return _mobileMirrorSourceBuffer && _mobileMirrorSourceBuffer.updating;
 }
 
-// v3.85.3: keep the play head glued to the live edge and prune old
-// buffered data so the SourceBuffer stays small. Called every 400 ms
-// (see setInterval in the WS onopen handler).
+// v3.85.4: stay glued to the live edge. Called every 100 ms (see
+// setInterval in the WS onopen handler). Three responsibilities:
+//
+//   1. Trim buffered ranges older than 1 s so the SourceBuffer
+//      doesn't grow without bound and MSE doesn't OOM.
+//   2. Hard-jump currentTime to (buffered.end - 60 ms) on any
+//      drift > 300 ms. This is what makes latency stay in the
+//      hundreds-of-ms range regardless of encoder pacing quirks.
+//   3. Nudge playbackRate to 1.15 while catching up, back to 1.0
+//      when we're within the tail window. The audible speedup
+//      lets the visual timeline catch up smoothly on small
+//      overshoots without a jarring seek.
 function _mobileMirrorSeekToLiveEdge() {
   const video = document.getElementById("mobileMirrorVideo");
-  if (!video || !_mobileMirrorSourceBuffer
-      || _mobileMirrorSourceBuffer.updating) {
-    return;
-  }
+  if (!video || !_mobileMirrorSourceBuffer) return;
   const buf = _mobileMirrorSourceBuffer.buffered;
   if (buf.length === 0) return;
   const end = buf.end(buf.length - 1);
   const start = buf.start(0);
-  const target = end - _MIRROR_LIVE_TAIL_SEC;
-  // Trim old data. Never remove the last few seconds -- MediaSource
-  // can panic if you cut too close to currentTime.
-  if (end - start > _MIRROR_MAX_BUFFERED_SEC) {
+
+  // Trim old ranges. Only when the buffer is idle -- SourceBuffer
+  // won't accept remove() while an append is in flight.
+  if (!_mobileMirrorSourceBuffer.updating
+      && end - start > _MIRROR_MAX_BUFFERED_SEC) {
     const removeUntil = end - _MIRROR_MAX_BUFFERED_SEC;
-    if (removeUntil > start && removeUntil < video.currentTime - 0.1) {
+    if (removeUntil > start && removeUntil < video.currentTime - 0.05) {
       try { _mobileMirrorSourceBuffer.remove(start, removeUntil); } catch (_) {}
-      return;   // wait for updateend before touching currentTime
     }
   }
-  // Hard-jump to live edge if we've drifted too far behind, or on
-  // the first frame we see (currentTime is still 0 from load()).
+
   const drift = end - video.currentTime;
-  if (drift > _MIRROR_MAX_LAG_SEC || video.currentTime < 0.05) {
+  const target = end - _MIRROR_LIVE_TAIL_SEC;
+
+  if (video.currentTime < 0.05 || drift > _MIRROR_MAX_LAG_SEC) {
+    // Hard jump.
     try { video.currentTime = target; } catch (_) {}
+    try { video.playbackRate = 1.0; } catch (_) {}
+  } else if (drift > _MIRROR_LIVE_TAIL_SEC * 2) {
+    // Small drift -- speed up briefly to catch up.
+    if (video.playbackRate !== _MIRROR_CATCHUP_RATE) {
+      try { video.playbackRate = _MIRROR_CATCHUP_RATE; } catch (_) {}
+    }
+  } else if (video.playbackRate !== 1.0) {
+    try { video.playbackRate = 1.0; } catch (_) {}
   }
   _mobileMirrorLastLiveEdge = end;
-  // Kick playback if the browser paused itself.
+
   if (video.paused) {
     video.play().catch(() => {});
   }

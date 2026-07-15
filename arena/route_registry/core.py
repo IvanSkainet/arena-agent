@@ -130,4 +130,9 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/browser/dump", h["handle_v1_browser_dump"])
     app.router.add_get("/v1/browser/fetch", h["handle_v1_browser_fetch"])
     app.router.add_get("/v1/browser/head", h["handle_v1_browser_head"])
+    # --- v3.86.0: multi-agent sessions ---
+    app.router.add_post("/v1/agents",              h["handle_v1_agents_create"])
+    app.router.add_get("/v1/agents",               h["handle_v1_agents_list"])
+    app.router.add_get("/v1/agents/{agent_id}",    h["handle_v1_agents_get"])
+    app.router.add_delete("/v1/agents/{agent_id}", h["handle_v1_agents_delete"])
 

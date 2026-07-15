@@ -88,20 +88,30 @@
 <button onclick="saveWebhooks()">Save Webhooks</button>
 </div>
 <div class="card">
-<h2>Auto-update (v3.85.0+)</h2>
+<h2 style="display:flex;align-items:center;gap:10px">
+  Auto-update
+  <span id="adminUpdateBadge" style="display:none;font-size:11px;padding:2px 8px;border-radius:10px;color:#fff;font-weight:600;background:#3a7bd5">checking…</span>
+</h2>
 <p style="margin:4px 0 10px 0;font-size:12px;color:#666">
   Check GitHub for a newer release and install it atomically.
-  Consent-gated: the first Install click shows the checksum + version
-  and asks for confirmation. Never touches your config or bridge home;
-  only the source tree gets replaced.
+  Consent-gated (SHA-256 verification), cross-platform, never touches
+  your config or bridge home; only the source tree gets replaced.
+  Without a <code>GITHUB_TOKEN</code> the bridge uses the
+  <code>/releases/latest</code> redirect (zero API quota) — install
+  is disabled without a digest because we can't verify. Add a token
+  to systemd env to enable verified installs.
 </p>
-<div class="row">
-<button onclick="adminUpdateCheck()">Check for updates</button>
-<button onclick="adminUpdateInstall()" id="adminUpdateInstallBtn" disabled>Install…</button>
-<button onclick="adminUpdateRestart()">Restart bridge</button>
+<div class="row" style="margin-bottom:10px">
+<button onclick="adminUpdateCheck()">🔄 Check for updates</button>
+<button onclick="adminUpdateInstall()" id="adminUpdateInstallBtn" disabled>⬇ Install…</button>
+<button onclick="adminUpdateRestart()">↻ Restart bridge</button>
 </div>
-<div id="adminUpdateStatus" class="mono" style="font-size:12px;white-space:pre-wrap;margin-top:10px;color:#333">Idle — press "Check for updates".</div>
-<div id="adminUpdateReleaseBody" style="margin-top:8px;font-size:12px;max-height:180px;overflow:auto;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:4px;display:none;white-space:pre-wrap"></div>
+<div id="adminUpdateStatus" class="mono" style="font-size:12px;white-space:pre-wrap;color:#333">Auto-checking on load…</div>
+<div id="adminUpdateDetails" style="margin-top:10px;font-size:12px"></div>
+<details style="margin-top:10px">
+  <summary style="cursor:pointer;font-size:12px;color:#666">Release notes</summary>
+  <div id="adminUpdateReleaseBody" style="margin-top:6px;font-size:12px;max-height:280px;overflow:auto;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:4px;display:none;white-space:pre-wrap"></div>
+</details>
 </div>
 
 <div class="card">
