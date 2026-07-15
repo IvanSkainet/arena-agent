@@ -37,7 +37,6 @@ let _mobileMirrorBytesReceived = 0;
 let _mobileMirrorFragments = 0;
 let _mobileMirrorStartedAt = 0;
 let _mobileMirrorStatsTimer = null;
-let _mobileMirrorErrorCount = 0;
 
 function _mobileMirrorStatus(msg) {
   const el = document.getElementById("mobileMirrorStatus");
@@ -129,7 +128,6 @@ async function mobileMirrorStart() {
   _mobileMirrorPendingReset = false;
   _mobileMirrorPendingInit = null;
   _mobileMirrorCodec = null;
-  _mobileMirrorErrorCount = 0;
 
   _mobileMirrorMediaSource = new MediaSource();
   video.src = URL.createObjectURL(_mobileMirrorMediaSource);
@@ -284,28 +282,43 @@ function _mobileMirrorSourceBufferBusy() {
 }
 
 function _mobileMirrorHandleMediaError() {
-  _mobileMirrorErrorCount += 1;
+  // v3.85.2: do NOT auto-reconnect. The v3.85.1 auto-reconnect
+  // spun into an infinite loop when the underlying stream had a
+  // persistent problem (wrong PPS byte, unsupported profile, etc.),
+  // and burned CPU on the phone via constant screenrecord restarts.
+  // Now we stop the pipeline, surface the MediaError code and
+  // message verbatim, and let the operator hit Start again.
   const video = document.getElementById("mobileMirrorVideo");
   const err = video && video.error;
-  const errMsg = err ? ("MediaError " + err.code + ": " + (err.message || "")) : "InvalidState";
-  console.warn("mirror media error -- reconnecting", errMsg);
-  if (_mobileMirrorErrorCount >= 3) {
-    _mobileMirrorStatus("giving up after 3 media errors");
-    mobileShowError("Live mirror stuck",
-      "MediaSource rejected the stream 3 times in a row. Last error: "
-      + errMsg + ". Try a different `size` (e.g. 540x1200) or `bit_rate`.");
-    mobileMirrorStop();
-    return;
-  }
-  _mobileMirrorStatus("media error, reconnecting…");
-  // Full restart: close WS + MediaSource, then reopen. The bridge
-  // seeds the next subscriber with the cached init + keyframe (v3.84.7),
-  // so playback resumes within a couple of seconds.
+  const codeNames = {
+    1: "MEDIA_ERR_ABORTED",
+    2: "MEDIA_ERR_NETWORK",
+    3: "MEDIA_ERR_DECODE",
+    4: "MEDIA_ERR_SRC_NOT_SUPPORTED",
+  };
+  const codeName = err ? (codeNames[err.code] || ("code " + err.code)) : "InvalidStateError";
+  const errMsg = err ? (codeName + ": " + (err.message || "(no message)")) : "InvalidStateError";
+  console.warn("mirror media error", errMsg);
+  _mobileMirrorStatus("stopped — " + codeName);
+  mobileShowError(
+    "Live mirror media error",
+    "MediaSource rejected the stream.\n\n"
+    + errMsg + "\n\n"
+    + "Codec was: " + (_mobileMirrorCodec || "(not detected)") + "\n"
+    + "Bytes received: " + _mobileMirrorBytesReceived + "\n"
+    + "Fragments received: " + _mobileMirrorFragments + "\n\n"
+    + "Suggested next steps:\n"
+    + " · Reload this page (Ctrl+Shift+R) to pick up the newest\n"
+    + "   dashboard JS (Cache-Control: no-store since v3.85.2 but\n"
+    + "   a hard reload never hurts).\n"
+    + " · Try a smaller size (e.g. 540x1200) or lower bit_rate.\n"
+    + " · Copy this dialog and send it to the bridge maintainer."
+  );
+  // Real teardown -- no timer, no retry.
   const wasWs = _mobileMirrorWs;
-  _mobileMirrorWs = null;   // suppress teardown's ws-close callback
-  try { wasWs && wasWs.close(1000, "reset"); } catch (_) {}
-  _mobileMirrorTeardown(/*keepErrorCount=*/true);
-  setTimeout(() => { mobileMirrorStart(); }, 500);
+  _mobileMirrorWs = null;
+  try { wasWs && wasWs.close(1000, "media error"); } catch (_) {}
+  _mobileMirrorTeardown();
 }
 
 function _mobileMirrorUpdateMeta() {
@@ -337,7 +350,7 @@ async function mobileMirrorStop() {
   } catch (_) {}
 }
 
-function _mobileMirrorTeardown(keepErrorCount) {
+function _mobileMirrorTeardown() {
   if (_mobileMirrorStatsTimer) {
     clearInterval(_mobileMirrorStatsTimer);
     _mobileMirrorStatsTimer = null;
@@ -347,7 +360,6 @@ function _mobileMirrorTeardown(keepErrorCount) {
   _mobileMirrorPendingInit = null;
   _mobileMirrorQueue = [];
   _mobileMirrorPendingReset = false;
-  if (!keepErrorCount) _mobileMirrorErrorCount = 0;
   if (_mobileMirrorMediaSource) {
     try {
       if (_mobileMirrorMediaSource.readyState === "open") {

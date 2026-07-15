@@ -450,12 +450,20 @@ class H264ToFMP4:
             return
         if not (self._sps and self._pps and self._sps_info):
             return
+        # ISO/IEC 14496-15 §5.3.3.1.2: the SPS/PPS payloads inside avcC
+        # MUST include their NAL unit header byte (0x67 for SPS,
+        # 0x68 for PPS). Slicing `[1:]` here was the source of the
+        # "non-existing PPS 0 referenced" decode failures in v3.84.6
+        # -- the decoder found no PPS at all and never produced a frame,
+        # which manifested as a black <video> in MediaSource because
+        # MSE saw a valid init segment but every fragment failed
+        # decoding at the first VCL NAL.
         moov = build_moov(
             self._sps_info.width,
             self._sps_info.height,
             self.timescale,
-            self._sps[1:],                       # avcC wants payloads without NAL header
-            self._pps[1:],
+            self._sps,          # full NAL incl. header byte
+            self._pps,          # full NAL incl. header byte
             self._sps_info,
         )
         self._init_sent = True

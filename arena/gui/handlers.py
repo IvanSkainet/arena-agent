@@ -77,8 +77,19 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
                     html = html.replace("{{TOKEN}}", url_token)
                     html = html.replace("{{VERSION}}", ctx.version)
                     html = html.replace("{{HOST}}", socket.gethostname())
+                    # v3.85.2: force-refresh the HTML on every request so
+                    # the version bumper in the asset URLs (?v={{VERSION}})
+                    # actually reaches the browser after a bridge upgrade.
+                    # Without this the browser cached the old HTML from
+                    # v3.85.0 and kept loading `?v=3.85.0` scripts even
+                    # after the bridge had already served v3.85.1.
                     return web.Response(text=html, content_type="text/html", charset="utf-8",
-                                        headers={"Access-Control-Allow-Origin": "*"})
+                                        headers={
+                                            "Access-Control-Allow-Origin": "*",
+                                            "Cache-Control": "no-store, no-cache, must-revalidate",
+                                            "Pragma": "no-cache",
+                                            "Expires": "0",
+                                        })
             # Fallback: minimal dashboard (no token leak).
             fallback = f"""<!DOCTYPE html><html><head><title>Arena Bridge v{ctx.version}</title></head>
             <body style='font-family:monospace;background:#1a1a2e;color:#e0e0e0;padding:2rem'>
