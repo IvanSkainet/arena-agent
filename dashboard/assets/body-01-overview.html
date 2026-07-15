@@ -76,7 +76,8 @@
     <h3 style="margin:0">Full System Inventory</h3>
     <span class="badge info" id="invStatus" style="font-size:11px">click Load</span>
     <button onclick="loadFullInventory()" style="margin-left:auto;padding:4px 12px;font-size:11px">⟳ Load / Refresh</button>
-    <button onclick="copyToClipboard(document.getElementById('invOutput').innerText)" class="copy-btn" style="padding:4px 12px;font-size:11px">📋 Copy</button>
+    <button id="invViewModeBtn" onclick="toggleInvViewMode()" style="padding:4px 12px;font-size:11px" title="Toggle rendered Markdown / raw text">📝 Raw</button>
+    <button onclick="copyToClipboard(window._invRawText || document.getElementById('invOutput').innerText)" class="copy-btn" style="padding:4px 12px;font-size:11px">📋 Copy</button>
   </div>
   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:11px">
     <label><input type="checkbox" class="inv-sec" value="" checked> all</label>
@@ -94,7 +95,7 @@
     <label><input type="checkbox" class="inv-sec" value="python_env"> python_env</label>
     <label><input type="checkbox" class="inv-sec" value="env"> env</label>
   </div>
-  <pre id="invOutput" style="margin:0;font-family:var(--mono);font-size:12px;line-height:1.45;white-space:pre-wrap;color:var(--text);max-height:60vh;overflow:auto;background:var(--bg2);padding:10px;border:1px solid var(--border);border-radius:6px">Click "Load / Refresh" to fetch the full system inventory.</pre>
+  <div id="invOutput" style="margin:0;font-family:var(--sans);font-size:12px;line-height:1.45;color:var(--text);max-height:60vh;overflow:auto;background:var(--bg2);padding:10px;border:1px solid var(--accent);border-radius:6px;white-space:normal">Click "Load / Refresh" to fetch the full system inventory.</div>
 </div>
 
 

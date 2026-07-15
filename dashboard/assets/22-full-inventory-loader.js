@@ -1,4 +1,32 @@
-// ===== Full Inventory (v1.6.3) =====
+// ===== Full Inventory =====
+// View state is Render (Markdown -> HTML) by default; Raw shows the
+// original monospace text so it can be selected/copied as-is.
+window._invViewMode = "render";
+window._invRawText = "";
+
+function _invRenderCurrent() {
+  const out = document.getElementById("invOutput");
+  if (!out) return;
+  const text = window._invRawText || "";
+  if (window._invViewMode === "raw") {
+    out.textContent = text;
+    out.style.fontFamily = "var(--mono)";
+  } else {
+    // renderMarkdown() lives in 03-helpers.js (shared with 39-admin-update)
+    out.innerHTML = renderMarkdown(text);
+    out.style.fontFamily = "var(--sans)";
+  }
+}
+
+function toggleInvViewMode() {
+  window._invViewMode = (window._invViewMode === "raw") ? "render" : "raw";
+  const btn = document.getElementById("invViewModeBtn");
+  if (btn) btn.textContent = (window._invViewMode === "raw")
+    ? "📖 Rendered"
+    : "📝 Raw";
+  _invRenderCurrent();
+}
+
 function toggleFullInventory() {
   const card = document.getElementById("fullInventoryCard");
   if (!card) return;
@@ -46,7 +74,11 @@ async function loadFullInventory() {
     const inv = r.inventory || {};
     // If multiple sections asked, filter client-side
     const text = formatInventoryText(inv, allChecked ? null : sections);
-    out.textContent = text;
+    // Cache raw + render in the current view mode. The "Raw / Render"
+    // toggle in body-01-overview.html reads _invRawText and calls
+    // _invRenderCurrent() to switch between plain <pre> and Markdown.
+    window._invRawText = text;
+    _invRenderCurrent();
     if (status) { status.textContent = `loaded in ${dt}s`; status.className = "badge ok"; }
   } catch (e) {
     out.textContent = "Network error: " + (e.message || e);

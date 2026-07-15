@@ -26,19 +26,23 @@
    scanned by tests/test_no_hardcoded_theme_colors.py.
    ===================================================================== */
 
-/* --------- utility: touch target ---------- */
+/* --------- utility: touch target ----------
+   Applies only to genuinely interactive elements. Badges are inline
+   status pills, NOT tap targets, so they must NOT get a 44 px min-
+   height (that produced the empty-green-square regression on Overview,
+   Control and Skills in v3.87.0). If a badge becomes clickable in the
+   future, wrap it in a <button> instead of adding it back here. */
 @media (hover: none) and (pointer: coarse) {
     button,
     .sidebar nav a,
     input[type="button"],
     input[type="submit"],
     .copy-btn,
-    .badge {
+    a.btn {
         min-height: 44px;
     }
     button.sm,
-    .copy-btn.sm,
-    .badge.sm {
+    .copy-btn.sm {
         /* explicit .sm opts out — used inside dense tables and rows */
         min-height: 28px;
     }
@@ -134,11 +138,24 @@
     }
 
     /* Form controls: >= 16px font-size prevents iOS Safari auto-zoom
-       when focused. */
+       when focused. min-width:0 (also set in the base sheet) is
+       repeated here so flex-item sizing stays correct even when a
+       future rule bumps the base back. */
     input,
     textarea,
     select {
         font-size: 16px;
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    /* Rows with inputs on narrow viewports: give inputs a real
+       flex-basis so a placeholder can't push them past their
+       parent. Explicit inline style="width:..." still wins. */
+    .row > input:not([style*="width"]):not([style*="flex"]),
+    .row > textarea:not([style*="width"]):not([style*="flex"]),
+    .row > select:not([style*="width"]):not([style*="flex"]) {
+        flex: 1 1 auto;
     }
 
     /* Buttons: same font bump for accidental-tap resilience. */

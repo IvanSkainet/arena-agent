@@ -48,3 +48,98 @@ function showCopyFeedback() {
   // brief visual feedback - handled per button
 }
 
+// Minimal Markdown -> HTML for Dashboard-embedded output. Same
+// syntax subset that the server-side arena/gui/markdown_render.py
+// supports: headings (# / ## / ###), bold **x**, italic *x*, inline
+// code `x`, fenced code ```lang\n...\n```, links [t](u), unordered
+// lists starting with * or - or +, horizontal rules ---, blockquotes >.
+// Escapes HTML first, so no XSS. NOT a full CommonMark parser -- if
+// you need one, use the /gui/docs/*.md endpoint (server-side).
+function renderMarkdown(text) {
+  if (text === null || text === undefined) return "";
+  const s = String(text);
+  const escaped = s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  // Fenced code blocks first (multi-line, greedy per fence).
+  const blocks = [];
+  let withoutFences = escaped.replace(/```([a-zA-Z0-9_+-]*)\n([\s\S]*?)```/g,
+    (_m, lang, code) => {
+      const idx = blocks.length;
+      blocks.push('<pre class="inset-block" style="overflow-x:auto"><code>'
+                  + code.replace(/\n$/, "") + '</code></pre>');
+      return "\u0000FENCE" + idx + "\u0000";
+    });
+
+  const lines = withoutFences.split("\n");
+  const out = [];
+  let inList = false;
+  const closeList = () => { if (inList) { out.push("</ul>"); inList = false; } };
+
+  for (let rawLine of lines) {
+    let line = rawLine;
+
+    // Horizontal rule
+    if (/^\s*(---+|===+|\*\*\*+)\s*$/.test(line)) {
+      closeList();
+      out.push("<hr>");
+      continue;
+    }
+    // Headings ###/##/#
+    let m = line.match(/^(#{1,6})\s+(.+)$/);
+    if (m) {
+      closeList();
+      const lvl = Math.min(m[1].length, 6);
+      out.push(`<h${lvl} class="md-h${lvl}">${m[2]}</h${lvl}>`);
+      continue;
+    }
+    // List item
+    m = line.match(/^\s*[*+-]\s+(.+)$/);
+    if (m) {
+      if (!inList) { out.push('<ul style="margin:6px 0 6px 20px">'); inList = true; }
+      out.push("<li>" + _mdInline(m[1]) + "</li>");
+      continue;
+    }
+    // Blockquote
+    if (/^\s*&gt;\s+/.test(line)) {
+      closeList();
+      out.push('<blockquote class="muted" style="border-left:3px solid var(--accent);padding-left:8px;margin:4px 0">'
+               + _mdInline(line.replace(/^\s*&gt;\s+/, "")) + "</blockquote>");
+      continue;
+    }
+    // Blank line
+    if (line.trim() === "") {
+      closeList();
+      out.push("");
+      continue;
+    }
+    // Plain paragraph line — inline-format and keep line breaks
+    closeList();
+    out.push(_mdInline(line));
+  }
+  closeList();
+
+  let html = out.join("\n");
+  // Restore fenced blocks
+  html = html.replace(/\u0000FENCE(\d+)\u0000/g, (_m, i) => blocks[Number(i)]);
+  // Collapse consecutive blank lines into paragraph breaks
+  html = html.replace(/(?:\n\n+)/g, '<div style="height:6px"></div>');
+  return html;
+}
+
+function _mdInline(s) {
+  return s
+    // inline code
+    .replace(/`([^`\n]+)`/g,
+             '<code style="background:var(--bg);padding:1px 4px;border-radius:3px">$1</code>')
+    // links [text](url)
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+             '<a href="$2" target="_blank" rel="noopener">$1</a>')
+    // bold **x**
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    // italic *x* (avoid mid-word asterisks)
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+}
+

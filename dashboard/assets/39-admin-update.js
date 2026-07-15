@@ -148,27 +148,9 @@ function _adminUpdateRenderReleaseBody(body) {
     el.innerHTML = "";
     return;
   }
-  // Minimal Markdown → HTML: bold/italic/inline-code/links + line
-  // breaks. This is NOT a general-purpose Markdown renderer -- it's
-  // just enough to make the CHANGELOG section from raw.githubuser
-  // content.com readable without a library. Escapes HTML first so
-  // no XSS.
-  const escaped = String(body)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const rendered = escaped
-    // links `[text](url)`
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g,
-             '<a href="$2" target="_blank" rel="noopener">$1</a>')
-    // inline code `x`
-    .replace(/`([^`\n]+)`/g,
-             '<code style="background:var(--bg);padding:1px 4px;border-radius:3px">$1</code>')
-    // bold **x**
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    // italic *x*  (careful: don't match middle-word asterisks)
-    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>")
-    // ### headings
-    .replace(/^###\s+(.+)$/gm, '<div style="font-weight:600;margin-top:8px">$1</div>');
-  el.innerHTML = rendered;
+  // Shared renderer from 03-helpers.js -- supports the same Markdown
+  // subset the server-side markdown_render.py handles.
+  el.innerHTML = renderMarkdown(body);
   el.style.display = "";
 }
 

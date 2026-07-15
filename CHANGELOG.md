@@ -1,3 +1,79 @@
+## v3.87.1 - 2026-07-16
+
+### Fixed
+
+- **Empty green "active" / "tailscale" blocks on Overview, Control,
+  and Skills tabs.** v3.87.0 gave every `.badge` a `min-height: 44px`
+  on coarse-pointer devices as part of the tap-target sweep, which
+  was wrong — badges are inline status pills, not touch targets. The
+  label stayed at the top and the rest of the pill became a tall
+  empty rectangle. Removed `.badge` from the coarse-pointer
+  `min-height` block. Interactive equivalents (button, `.sidebar nav a`,
+  `input[type=button|submit]`, `.copy-btn`, `a.btn`) still get their
+  44 px target.
+
+- **Placeholder text overflowing input fields on Terminal, Recall,
+  Memory, Doctor, Settings, Control, and Mobile tabs.** The global
+  `input, textarea, select { width: 100% }` combined with
+  `.row { display: flex; flex-wrap: wrap }` produced fields that
+  couldn't shrink below their content width — a long `placeholder`
+  string pushed the field past the container edge and its right
+  border disappeared under the next flex sibling. Fix: add
+  `min-width: 0; max-width: 100%; box-sizing: border-box` to the
+  base rule so flex items shrink correctly. `responsive.css` also
+  gives unmodified `.row > input|textarea|select` an explicit
+  `flex: 1 1 auto` on mobile so they wrap onto their own line
+  before overflowing.
+
+- **Missing `--border` CSS variable.** `body-01-overview.html`,
+  `body-02-terminal.html`, `21-slash-commands.js`, and
+  `05-terminal-v1-6-2-persistent-shell-like-se.js` referenced
+  `var(--border)` which was never declared, so their borders fell
+  back to `currentColor` (invisible on dark surfaces). Aliased
+  `--border` to the existing `--accent` in `dashboard.css` — visual
+  parity, one place to change it later.
+
+### Added
+
+- **Full Inventory renders as Markdown by default.** The Overview →
+  Full Inventory card produces text with `### Section` headings that
+  used to be dumped as raw monospace. It now renders as HTML via a
+  shared `renderMarkdown()` helper (headings, bold/italic,
+  inline+fenced code, links, lists, blockquotes, horizontal rules —
+  the same subset the server-side `arena/gui/markdown_render.py`
+  handles). New "📝 Raw / 📖 Rendered" toggle button lets you flip to
+  the plain text for copying. Copy button now reads the cached raw
+  text regardless of view mode.
+
+- **Shared `renderMarkdown()` in `dashboard/assets/03-helpers.js`.**
+  `39-admin-update.js` used to keep its own copy of the same regex
+  chain — deleted that duplicate and now calls the shared helper.
+  Any future card that needs Markdown → HTML uses the same 60-line
+  function; no more four half-implementations drifting apart.
+
+### Test
+
+- **`tests/test_dashboard_responsive_baseline.py` grew to 8 tests**
+  (+3 regression guards):
+  * `test_badges_are_not_touch_targets` — parses the coarse-pointer
+    `@media` block and fails if `.badge` reappears in it.
+  * `test_base_css_min_width_zero_on_inputs` — requires
+    `min-width: 0` + `max-width: 100%` on the base input rule so
+    flex-item overflow can't come back silently.
+  * `test_shared_markdown_renderer_lives_in_helpers` — verifies
+    `renderMarkdown()` is defined in `03-helpers.js` and used by
+    both callers (`22-*` and `39-*`).
+
+- **988 tests passed** (up from 985).
+
+### Live-verified
+
+Bridge at v3.87.1 serves `dashboard.css` with the new palette entry
+(`--border`) and the input rule with `min-width:0;max-width:100%`.
+`responsive.css` no longer lists `.badge` in the tap-target block.
+`03-helpers.js` exports `renderMarkdown()`; both `22-*` and `39-*`
+call it. Full Inventory card now shows a "📝 Raw" toggle button.
+
 ## v3.87.0 - 2026-07-16
 
 ### Added
