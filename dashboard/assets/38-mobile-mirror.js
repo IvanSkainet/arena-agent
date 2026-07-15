@@ -37,6 +37,16 @@ let _mobileMirrorBytesReceived = 0;
 let _mobileMirrorFragments = 0;
 let _mobileMirrorStartedAt = 0;
 let _mobileMirrorStatsTimer = null;
+let _mobileMirrorLiveEdgeTimer = null;
+let _mobileMirrorLastLiveEdge = 0;
+
+// How close to the tail we try to keep playback. Larger = safer against
+// stalls on flaky networks, smaller = lower glass-to-glass latency.
+const _MIRROR_LIVE_TAIL_SEC = 0.5;
+// If the play head drifts more than this behind the live edge, hard-jump.
+const _MIRROR_MAX_LAG_SEC = 2.0;
+// Keep at most this much history in the SourceBuffer.
+const _MIRROR_MAX_BUFFERED_SEC = 3.0;
 
 function _mobileMirrorStatus(msg) {
   const el = document.getElementById("mobileMirrorStatus");
@@ -134,6 +144,17 @@ async function mobileMirrorStart() {
   video.style.display = "";
   // Autoplay muted so browsers actually start decoding without a click.
   try { video.muted = true; } catch (_) {}
+  // v3.85.3: live-edge playback. Without this the <video> starts at
+  // time=0 and just keeps piling buffered fragments -- the user sees
+  // ~60 seconds of accumulated latency because they're literally
+  // watching a minute-old snapshot of the phone screen. The
+  // requestVideoFrameCallback loop below jumps the play head to
+  // (buffered.end - LIVE_TAIL_SEC) whenever it drifts too far back,
+  // AND periodically trims the SourceBuffer so it doesn't grow
+  // without bound.
+  video.autoplay = true;
+  try { video.playsInline = true; } catch (_) {}
+  _mobileMirrorLastLiveEdge = 0;
   _mobileMirrorStatus("connecting…");
 
   // Wait for `sourceopen` -- but do NOT addSourceBuffer yet, we don't
@@ -159,6 +180,8 @@ async function mobileMirrorStart() {
     _mobileMirrorStatus("streaming");
     if (_mobileMirrorStatsTimer) clearInterval(_mobileMirrorStatsTimer);
     _mobileMirrorStatsTimer = setInterval(_mobileMirrorUpdateMeta, 1000);
+    if (_mobileMirrorLiveEdgeTimer) clearInterval(_mobileMirrorLiveEdgeTimer);
+    _mobileMirrorLiveEdgeTimer = setInterval(_mobileMirrorSeekToLiveEdge, 400);
   };
   _mobileMirrorWs.onmessage = (ev) => {
     if (typeof ev.data === "string") {
@@ -281,6 +304,42 @@ function _mobileMirrorSourceBufferBusy() {
   return _mobileMirrorSourceBuffer && _mobileMirrorSourceBuffer.updating;
 }
 
+// v3.85.3: keep the play head glued to the live edge and prune old
+// buffered data so the SourceBuffer stays small. Called every 400 ms
+// (see setInterval in the WS onopen handler).
+function _mobileMirrorSeekToLiveEdge() {
+  const video = document.getElementById("mobileMirrorVideo");
+  if (!video || !_mobileMirrorSourceBuffer
+      || _mobileMirrorSourceBuffer.updating) {
+    return;
+  }
+  const buf = _mobileMirrorSourceBuffer.buffered;
+  if (buf.length === 0) return;
+  const end = buf.end(buf.length - 1);
+  const start = buf.start(0);
+  const target = end - _MIRROR_LIVE_TAIL_SEC;
+  // Trim old data. Never remove the last few seconds -- MediaSource
+  // can panic if you cut too close to currentTime.
+  if (end - start > _MIRROR_MAX_BUFFERED_SEC) {
+    const removeUntil = end - _MIRROR_MAX_BUFFERED_SEC;
+    if (removeUntil > start && removeUntil < video.currentTime - 0.1) {
+      try { _mobileMirrorSourceBuffer.remove(start, removeUntil); } catch (_) {}
+      return;   // wait for updateend before touching currentTime
+    }
+  }
+  // Hard-jump to live edge if we've drifted too far behind, or on
+  // the first frame we see (currentTime is still 0 from load()).
+  const drift = end - video.currentTime;
+  if (drift > _MIRROR_MAX_LAG_SEC || video.currentTime < 0.05) {
+    try { video.currentTime = target; } catch (_) {}
+  }
+  _mobileMirrorLastLiveEdge = end;
+  // Kick playback if the browser paused itself.
+  if (video.paused) {
+    video.play().catch(() => {});
+  }
+}
+
 function _mobileMirrorHandleMediaError() {
   // v3.85.2: do NOT auto-reconnect. The v3.85.1 auto-reconnect
   // spun into an infinite loop when the underlying stream had a
@@ -327,9 +386,19 @@ function _mobileMirrorUpdateMeta() {
   const kbps = Math.round((_mobileMirrorBytesReceived * 8) / elapsedMs);
   const fps = (_mobileMirrorFragments * 1000) / elapsedMs;
   const codec = _mobileMirrorCodec ? (" · " + _mobileMirrorCodec) : "";
+  // Report the visible latency: how far behind the live edge <video> is.
+  const video = document.getElementById("mobileMirrorVideo");
+  let latency = "";
+  if (video && _mobileMirrorSourceBuffer) {
+    const buf = _mobileMirrorSourceBuffer.buffered;
+    if (buf.length > 0) {
+      const lag = (buf.end(buf.length - 1) - video.currentTime) * 1000;
+      latency = " · " + Math.max(0, Math.round(lag)) + " ms lag";
+    }
+  }
   _mobileMirrorMeta(
     Math.round(_mobileMirrorBytesReceived / 1024) + " KB · "
-    + kbps + " kbps · " + fps.toFixed(1) + " fps" + codec
+    + kbps + " kbps · " + fps.toFixed(1) + " fps" + codec + latency
   );
 }
 
@@ -355,6 +424,11 @@ function _mobileMirrorTeardown() {
     clearInterval(_mobileMirrorStatsTimer);
     _mobileMirrorStatsTimer = null;
   }
+  if (_mobileMirrorLiveEdgeTimer) {
+    clearInterval(_mobileMirrorLiveEdgeTimer);
+    _mobileMirrorLiveEdgeTimer = null;
+  }
+  _mobileMirrorLastLiveEdge = 0;
   _mobileMirrorSourceBuffer = null;
   _mobileMirrorCodec = null;
   _mobileMirrorPendingInit = null;

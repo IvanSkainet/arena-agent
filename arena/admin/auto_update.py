@@ -183,35 +183,115 @@ def _pick_asset(assets: list[dict[str, Any]]) -> dict[str, Any] | None:
     return candidates[0] if candidates else None
 
 
+def _resolve_latest_via_redirect(repo: str) -> str | None:
+    """Read the tag name from the /releases/latest 302 Location header.
+
+    Doesn't touch the API endpoint, so anonymous callers don't hit
+    the 60/hour x-ratelimit-remaining wall. Returns the raw tag
+    string (e.g. `v3.85.2`) or None on failure.
+    """
+    url = f"https://github.com/{repo}/releases/latest"
+    req = urllib.request.Request(url, method="HEAD",
+                                 headers={"User-Agent": _USER_AGENT})
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *_a, **_k):
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    try:
+        opener.open(req, timeout=_HTTP_TIMEOUT)
+        return None
+    except urllib.error.HTTPError as e:
+        if e.code not in (301, 302, 303, 307, 308):
+            return None
+        location = e.headers.get("Location") or ""
+        # Expected shape: https://github.com/<owner>/<repo>/releases/tag/<tag>
+        marker = "/releases/tag/"
+        idx = location.find(marker)
+        if idx < 0:
+            return None
+        return location[idx + len(marker):].split("?")[0].split("#")[0]
+    except Exception:
+        return None
+
+
 def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
     """Ask GitHub what the latest release is.
 
-    Never raises. On network / rate-limit failures returns
-    `{ok: False, error: ...}` so the HTTP handler can surface the
-    real reason to the user.
+    v3.85.3: two-tier strategy so anonymous bridges don't 403:
+
+      1. Try the redirect on `github.com/<repo>/releases/latest`.
+         This costs zero API quota. We use it to learn the tag name
+         and to construct predictable asset URLs.
+      2. Only call the JSON API if we have a token OR the redirect
+         path failed to yield a tag. When the API answers 403 we
+         gracefully fall through to a redirect-only response.
+
+    Never raises. On total failure returns `{ok: False, error: ...}`
+    so the HTTP handler can surface the real reason.
     """
     baseline = current_version or _CURRENT_VERSION
     repo = _repo()
-    try:
-        data = _http_get_json(f"https://api.github.com/repos/{repo}/releases/latest")
-    except urllib.error.HTTPError as e:
-        return _err(f"GitHub API returned HTTP {e.code}",
-                    hint="Rate limited or repo private?" if e.code in (403, 404) else None,
-                    repo=repo)
-    except urllib.error.URLError as e:
-        return _err(f"GitHub API unreachable: {e.reason}", repo=repo)
-    except Exception as e:
-        return _err(f"GitHub API failure: {e!r}", repo=repo)
+    token = _github_token()
 
-    if not isinstance(data, dict):
-        return _err("unexpected release payload shape", repo=repo)
+    # Fast path: try the JSON API only if we have a token (no rate
+    # limit worry) OR if it's the first thing we know how to do.
+    api_error = None
+    api_data: dict[str, Any] | None = None
+    if token:
+        try:
+            data = _http_get_json(
+                f"https://api.github.com/repos/{repo}/releases/latest")
+            if isinstance(data, dict):
+                api_data = data
+        except urllib.error.HTTPError as e:
+            api_error = f"GitHub API returned HTTP {e.code}"
+        except urllib.error.URLError as e:
+            api_error = f"GitHub API unreachable: {e.reason}"
+        except Exception as e:
+            api_error = f"GitHub API failure: {e!r}"
 
-    tag = str(data.get("tag_name") or "")
-    assets = data.get("assets") or []
-    asset = _pick_asset(assets)
-    if asset is None:
-        return _err(f"release {tag} has no downloadable zip",
-                    repo=repo, tag=tag)
+    if api_data is not None:
+        tag = str(api_data.get("tag_name") or "")
+        assets = api_data.get("assets") or []
+        asset = _pick_asset(assets)
+        if asset is None:
+            return _err(f"release {tag} has no downloadable zip",
+                        repo=repo, tag=tag)
+        return {
+            "ok": True,
+            "repo": repo,
+            "current": baseline,
+            "latest": tag.lstrip("vV"),
+            "latest_tag": tag,
+            "needs_update": is_newer(tag, baseline),
+            "asset_name": asset.get("name"),
+            "asset_url": asset.get("browser_download_url"),
+            "asset_size_bytes": asset.get("size"),
+            "asset_digest": asset.get("digest"),
+            "published_at": api_data.get("published_at"),
+            "release_url": api_data.get("html_url"),
+            "body": (api_data.get("body") or "")[:2000],
+            "source": "api",
+        }
+
+    # Redirect fallback (no token, or API refused).
+    tag = _resolve_latest_via_redirect(repo)
+    if not tag:
+        return _err(
+            api_error or "could not resolve latest release "
+            "(neither the API nor the /releases/latest redirect responded)",
+            repo=repo,
+            hint=("Set GITHUB_TOKEN or GH_TOKEN in the bridge's environment "
+                  "to bypass the 60/hour anonymous rate limit."),
+        )
+    # Build the canonical asset URL. Release zip is always
+    # arena-agent-<tag>.zip AND a stable alias arena-agent.zip;
+    # both live at /releases/download/<tag>/<name>.
+    asset_name_versioned = f"arena-agent-{tag}.zip"
+    asset_name_alias = "arena-agent.zip"
+    asset_url = f"https://github.com/{repo}/releases/download/{tag}/{asset_name_versioned}"
     return {
         "ok": True,
         "repo": repo,
@@ -219,13 +299,18 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
         "latest": tag.lstrip("vV"),
         "latest_tag": tag,
         "needs_update": is_newer(tag, baseline),
-        "asset_name": asset.get("name"),
-        "asset_url": asset.get("browser_download_url"),
-        "asset_size_bytes": asset.get("size"),
-        "asset_digest": asset.get("digest"),   # 'sha256:...' when GitHub knows it
-        "published_at": data.get("published_at"),
-        "release_url": data.get("html_url"),
-        "body": (data.get("body") or "")[:2000],
+        "asset_name": asset_name_versioned,
+        "asset_url": asset_url,
+        "asset_size_bytes": None,
+        "asset_digest": None,      # unknown without API
+        "published_at": None,
+        "release_url": f"https://github.com/{repo}/releases/tag/{tag}",
+        "body": "",
+        "source": "redirect",
+        "asset_alias_name": asset_name_alias,
+        "hint": (
+            api_error and ("API path returned: " + api_error) or None
+        ),
     }
 
 

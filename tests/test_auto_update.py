@@ -72,13 +72,20 @@ def test_pick_asset_returns_none_for_no_zips():
 # check_updates
 # ---------------------------------------------------------------------------
 def test_check_updates_surfaces_http_error_gracefully(monkeypatch):
+    """When a token is present the API path is tried; on 403 (or any
+    non-2xx) we fall through to the redirect helper. If BOTH fail
+    we surface both failures."""
     import urllib.error
     from arena.admin import auto_update as au
 
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token-for-tests")
+
     def _boom(url):
         raise urllib.error.HTTPError(url, 403, "Rate limited", {}, None)
-
     monkeypatch.setattr(au, "_http_get_json", _boom)
+    # Force redirect fallback to also fail so we surface the API error.
+    monkeypatch.setattr(au, "_resolve_latest_via_redirect", lambda repo: None)
+
     r = au.check_updates(current_version="v3.84.7")
     assert r["ok"] is False
     assert "403" in r["error"]
@@ -86,6 +93,7 @@ def test_check_updates_surfaces_http_error_gracefully(monkeypatch):
 
 def test_check_updates_reports_needs_update(monkeypatch):
     from arena.admin import auto_update as au
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token-for-tests")
 
     def _fake_fetch(url):
         return {
@@ -108,10 +116,12 @@ def test_check_updates_reports_needs_update(monkeypatch):
     assert r["needs_update"] is True
     assert r["asset_name"] == "arena-agent-v3.85.0.zip"
     assert r["asset_digest"] == "sha256:abcd"
+    assert r["source"] == "api"
 
 
 def test_check_updates_reports_no_update_when_current_matches(monkeypatch):
     from arena.admin import auto_update as au
+    monkeypatch.setenv("GITHUB_TOKEN", "fake-token-for-tests")
 
     def _fake_fetch(url):
         return {"tag_name": "v3.84.7",
@@ -123,6 +133,37 @@ def test_check_updates_reports_no_update_when_current_matches(monkeypatch):
     r = au.check_updates(current_version="v3.84.7")
     assert r["ok"] is True
     assert r["needs_update"] is False
+
+
+def test_check_updates_uses_redirect_when_no_token(monkeypatch):
+    """v3.85.3: anonymous callers skip the API entirely and pull the
+    tag out of /releases/latest's 302 Location. Zero rate-limit cost."""
+    from arena.admin import auto_update as au
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+
+    def _fake_redirect(repo):
+        assert repo == "IvanSkainet/arena-agent"
+        return "v3.99.9"
+
+    monkeypatch.setattr(au, "_resolve_latest_via_redirect", _fake_redirect)
+    # If the API path is called we FAIL -- the whole point is to skip it.
+    monkeypatch.setattr(au, "_http_get_json",
+                        lambda url: (_ for _ in ()).throw(AssertionError(
+                            "API path was called for an anonymous request")))
+
+    r = au.check_updates(current_version="v3.85.0")
+    assert r["ok"] is True
+    assert r["source"] == "redirect"
+    assert r["latest"] == "3.99.9"
+    assert r["latest_tag"] == "v3.99.9"
+    assert r["needs_update"] is True
+    assert r["asset_url"] == (
+        "https://github.com/IvanSkainet/arena-agent"
+        "/releases/download/v3.99.9/arena-agent-v3.99.9.zip"
+    )
+    assert r["asset_digest"] is None
 
 
 # ---------------------------------------------------------------------------

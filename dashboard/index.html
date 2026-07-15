@@ -97,13 +97,30 @@ window.ARENA_DASHBOARD_SCRIPTS = [
   tpl.innerHTML = renderedBody;
   root.replaceWith(tpl.content.cloneNode(true));
   for (const src of window.ARENA_DASHBOARD_SCRIPTS) {
-    await new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = src + cacheBust;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error("Failed to load " + src));
-      document.body.appendChild(s);
-    });
+    // v3.85.3: retry twice on transient load failure. Chrome
+    // occasionally 0-reads the response body on connection reuse and
+    // fires script.onerror even though the second attempt sails
+    // through -- which is why the Dashboard used to fail-fast with
+    // "Failed to load /gui/assets/00-core.js" on random reloads.
+    let lastErr = null;
+    let loaded = false;
+    for (let attempt = 1; attempt <= 3 && !loaded; attempt++) {
+      try {
+        await new Promise((resolve, reject) => {
+          const s = document.createElement("script");
+          s.src = src + cacheBust + "&try=" + attempt;
+          s.onload = () => { loaded = true; resolve(); };
+          s.onerror = () => reject(new Error("Failed to load " + src));
+          document.body.appendChild(s);
+        });
+      } catch (e) {
+        lastErr = e;
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 250 * attempt));
+        }
+      }
+    }
+    if (!loaded) throw lastErr;
   }
 })().catch(err => {
   document.body.innerHTML = "<pre style='color:#e94560;padding:2rem'>Dashboard boot failed: " + String(err) + "</pre>";
