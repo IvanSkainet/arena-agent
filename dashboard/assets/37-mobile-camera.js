@@ -127,32 +127,8 @@ async function mobileCameraListPhotos() {
 
 
 // ---------------------------------------------------------------------------
-// Info-panel collapse memory (persisted so the user's choice sticks).
-// The <details> lives in body-16-mobile.html; this fn records the
-// open/closed state on toggle and re-applies it on tab activation.
-// ---------------------------------------------------------------------------
-const _MOBILE_INFO_OPEN_KEY = "arena.mobile.info.open.v1";
-
-function mobileInfoRememberOpenState(det) {
-  try { localStorage.setItem(_MOBILE_INFO_OPEN_KEY, det.open ? "1" : "0"); }
-  catch (_) {}
-}
-
-function _mobileInfoRestoreOpenState() {
-  try {
-    const raw = localStorage.getItem(_MOBILE_INFO_OPEN_KEY);
-    if (raw === null) return; // first-time — leave <details open>
-    const det = document.getElementById("mobileInfoDetails");
-    if (det) det.open = (raw === "1");
-  } catch (_) {}
-}
-
-// Fires once the tab HTML has mounted.
-if (typeof document !== "undefined") {
-  document.addEventListener("DOMContentLoaded", () => {
-    _mobileInfoRestoreOpenState();
-  });
-  if (document.readyState !== "loading") {
-    _mobileInfoRestoreOpenState();
-  }
-}
+// Info-panel collapse memory used to live here; it moved to
+// 34-mobile-info.js in v3.85.1 so that the ontoggle handler defined
+// in body-16-mobile.html is guaranteed to exist by the time the
+// browser parses that <details> element (script load order:
+// 34 before 37).

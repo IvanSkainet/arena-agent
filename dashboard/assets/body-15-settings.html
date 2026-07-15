@@ -88,6 +88,23 @@
 <button onclick="saveWebhooks()">Save Webhooks</button>
 </div>
 <div class="card">
+<h2>Auto-update (v3.85.0+)</h2>
+<p style="margin:4px 0 10px 0;font-size:12px;color:#666">
+  Check GitHub for a newer release and install it atomically.
+  Consent-gated: the first Install click shows the checksum + version
+  and asks for confirmation. Never touches your config or bridge home;
+  only the source tree gets replaced.
+</p>
+<div class="row">
+<button onclick="adminUpdateCheck()">Check for updates</button>
+<button onclick="adminUpdateInstall()" id="adminUpdateInstallBtn" disabled>Install…</button>
+<button onclick="adminUpdateRestart()">Restart bridge</button>
+</div>
+<div id="adminUpdateStatus" class="mono" style="font-size:12px;white-space:pre-wrap;margin-top:10px;color:#333">Idle — press "Check for updates".</div>
+<div id="adminUpdateReleaseBody" style="margin-top:8px;font-size:12px;max-height:180px;overflow:auto;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:4px;display:none;white-space:pre-wrap"></div>
+</div>
+
+<div class="card">
 <h2>Sound Notifications</h2>
 <div class="row">
 <button onclick="testBeep('success')">Success</button>

@@ -431,3 +431,30 @@ function _mobileInfoSectionOthers(i) {
   }
   return rows;
 }
+
+
+// ---------------------------------------------------------------------------
+// Info-panel collapse memory (moved from 37-mobile-camera.js in v3.85.1
+// so the ontoggle attribute in body-16-mobile.html has a defined callback
+// no matter which script parses first).
+// ---------------------------------------------------------------------------
+const _MOBILE_INFO_OPEN_KEY = "arena.mobile.info.open.v1";
+
+function mobileInfoRememberOpenState(det) {
+  try { localStorage.setItem(_MOBILE_INFO_OPEN_KEY, det.open ? "1" : "0"); }
+  catch (_) {}
+}
+
+function _mobileInfoRestoreOpenState() {
+  try {
+    const raw = localStorage.getItem(_MOBILE_INFO_OPEN_KEY);
+    if (raw === null) return;
+    const det = document.getElementById("mobileInfoDetails");
+    if (det) det.open = (raw === "1");
+  } catch (_) {}
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("DOMContentLoaded", _mobileInfoRestoreOpenState);
+  if (document.readyState !== "loading") _mobileInfoRestoreOpenState();
+}
