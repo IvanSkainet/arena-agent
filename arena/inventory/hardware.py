@@ -72,6 +72,13 @@ def normalize_inventory_hardware(inv: dict[str, Any]) -> dict[str, Any]:
         "systemd_failed": inv.get("systemd_failed") or {},
         "boot_time": inv.get("boot_time") or {},
         "kernel_modules": inv.get("kernel_modules") or {},
+        # v3.88.3 agent-focused probes
+        "containers": inv.get("containers") or {},
+        "systemd_timers": inv.get("systemd_timers") or {},
+        "network_io": inv.get("network_io") or {},
+        "updates_available": inv.get("updates_available") or {},
+        "logged_users": inv.get("logged_users") or {},
+        "cpu_vulnerabilities": inv.get("cpu_vulnerabilities") or {},
         "network": inv.get("network") or {},
         "displays": inv.get("displays") or {},
         "runtimes": inv.get("runtimes") or {},

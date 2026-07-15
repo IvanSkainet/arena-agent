@@ -1,3 +1,88 @@
+## v3.88.3 - 2026-07-16
+
+### Added
+
+- **Full Inventory now uses the same rich cards as the Doctor tab.**
+  Previously the Overview → Full Inventory card only offered
+  Markdown-rendered text or raw JSON — the pretty per-subsystem
+  cards were locked into the Doctor tab. Extracted every
+  `_hwRender*` helper into a new shared file
+  `dashboard/assets/03b-hw-cards.js` (~490 lines). Both
+  `15b-doctor-hardware.js` and `22-full-inventory-loader.js` now
+  reuse the same 25+ card renderers, so switching tabs feels
+  consistent and any future card fix lands in one place.
+
+  The Full Inventory view mode toggle now cycles through **three**
+  states instead of two:
+  * **🎨 Cards** (default) — same visual language as Doctor
+    Hardware, laid out in a responsive grid (auto-fill,
+    ≥ 280 px columns) so it scales cleanly from a phone to a
+    wide desktop.
+  * **📖 Rendered** — Markdown → HTML (same subset as
+    `arena/gui/markdown_render.py`).
+  * **📝 Raw** — plain monospace text for copy/paste into a
+    bug report.
+
+  The Copy button reads the cached raw text regardless of view
+  mode so it always produces a paste-friendly payload.
+
+### Added — six new probes for AI agents
+
+New probes in `arena/inventory/probe_agent_facts.py` (218 → 492
+lines). Every one returns `{"available": bool, ...}`, never
+raises, degrades cleanly when its backend is missing. Registered
+in `SECTIONS`, surfaced on `/v1/hardware`, in Full Inventory
+selectors, in text/markdown formatters, and as dedicated cards
+in both Doctor and Full Inventory.
+
+| Section | What it tells the agent | Backends |
+|---|---|---|
+| **`containers`** | Docker / Podman containers with name, image, status (`Up 3h` / `Exited (137)`), ports, created-at, plus counts of `running` / `total`. Agents avoid launching duplicate services and can spot OOM-killed containers (exit 137) before starting more work. | `docker ps -a --format {{json .}}` → `podman` fallback |
+| **`systemd_timers`** | Active timers with `next` / `left` / `last` / `passed` / `unit` / `activates`. Agents planning long jobs can dodge a backup / unattended-upgrade / cache-cleanup that's about to fire. | `systemctl list-timers --all` |
+| **`network_io`** | Cumulative RX / TX bytes + packets + errors + drops per interface (loopback excluded). Agents diagnosing slowness see packet loss / interface errors before blaming the code. | `psutil.net_io_counters(pernic=True)` |
+| **`updates_available`** | Number of pending package updates + up to 8 sample package names/versions. **No installation, no full sync** — uses each manager's cache-only mode so the probe stays < 1 s and side-effect-free. Agents know not to start a 40-min build 5 min before `pacman -Syu` invalidates half the toolchain. | `checkupdates` → `pacman -Qu` → `apt list --upgradable` → `dnf -q check-update` → `brew outdated --quiet` → `winget upgrade` |
+| **`logged_users`** | Currently logged-in interactive sessions: user, terminal, remote host, ISO start time, pid. Agents doing invasive things (kill, reboot, mass edits) check that nobody else is mid-work. | `psutil.users()` (cross-platform) |
+| **`cpu_vulnerabilities`** | Full mitigation status for Spectre / Meltdown / Retbleed / L1TF / MDS / TAA / etc., read from `/sys/devices/system/cpu/vulnerabilities/*`. Agents planning security-sensitive workflows (crypto, multi-tenant sandboxes) verify isolation is real before assuming it. | `/sys/devices/system/cpu/vulnerabilities/*` (Linux) |
+
+The Doctor Hardware tab renders each of these as its own card;
+Full Inventory renders the same cards in `🎨 Cards` mode, and
+its text/markdown modes get matching `### section` blocks.
+
+### Test
+
+- **`tests/test_dashboard_parity.py`** — new guard file (~90
+  lines):
+  * `test_shared_hw_cards_file_exists`
+  * `test_all_shared_renderers_defined_in_03b` — all 23 shared
+    functions must live in the shared file.
+  * `test_15b_doctor_hardware_does_not_redefine_renderers` —
+    prevents drift by failing if Doctor grows its own copy of
+    a shared renderer.
+  * `test_22_full_inventory_uses_shared_renderers` — Full
+    Inventory must reference the shared ones, not duplicate.
+  * `test_index_html_loads_03b_before_15b_and_22` — script order
+    matters (03b must be defined before its callers).
+  * `test_new_v883_renderers_present` — the six new v3.88.3
+    renderers all exist.
+
+- **`tests/test_probe_agent_facts.py`** — 8 new tests cover the
+  six new probes (API contract, missing-runtime, off-Linux
+  branches, psutil-less env, SECTIONS integration).
+
+- **~1024 tests passed** (up from 1008).
+
+### Live-verified
+
+Bridge at v3.88.3 returns non-empty payloads on `/v1/hardware`
+for `containers.runtime='podman'` with real container list,
+`systemd_timers` with next-fire times, `network_io` per interface,
+`updates_available.manager='pacman'` with `pending_count` +
+sample, `logged_users` (current KDE session), and
+`cpu_vulnerabilities.mitigations` (Spectre v1/v2, Meltdown, etc.
+with status per CPU). Overview → Full Inventory → 🎨 Cards
+button shows all 25 cards in a responsive grid; toggling to 📖
+Rendered / 📝 Raw and back preserves state.
+
 ## v3.88.1 - 2026-07-16
 
 ### Fixed

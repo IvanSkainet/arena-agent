@@ -111,3 +111,83 @@ def test_smartctl_hint_uses_command_v_not_hardcoded_path():
                 "/opt/smartmontools"):
         assert bad not in hint, f"hint hardcodes '{bad}': {hint}"
     assert "command -v" in hint or "which " in hint
+
+
+# ---------- v3.88.3 probes ------------------------------------------------
+
+def test_new_probes_return_available_dict():
+    m = _mod()
+    for fn_name in ("get_containers", "get_systemd_timers", "get_network_io",
+                    "get_updates_available", "get_logged_users",
+                    "get_cpu_vulnerabilities"):
+        result = getattr(m, fn_name)()
+        assert isinstance(result, dict), fn_name
+        assert "available" in result and isinstance(result["available"], bool), fn_name
+
+
+def test_containers_reports_missing_runtime():
+    m = _mod()
+    with patch.object(m, "_which", return_value=None):
+        result = m.get_containers()
+    assert result["available"] is False
+    assert "docker" in result["error"].lower() or "podman" in result["error"].lower()
+
+
+def test_systemd_timers_off_linux():
+    m = _mod()
+    with patch.object(m, "platform") as pm:
+        pm.system.return_value = "Darwin"
+        result = m.get_systemd_timers()
+    assert result["available"] is False
+    assert "linux" in result["error"].lower()
+
+
+def test_cpu_vulnerabilities_off_linux():
+    m = _mod()
+    with patch.object(m, "platform") as pm:
+        pm.system.return_value = "Windows"
+        result = m.get_cpu_vulnerabilities()
+    assert result["available"] is False
+
+
+def test_network_io_needs_psutil():
+    m = _mod()
+    import builtins
+    real_import = builtins.__import__
+    def fail_psutil(name, *args, **kwargs):
+        if name == "psutil":
+            raise ImportError("no psutil")
+        return real_import(name, *args, **kwargs)
+    with patch("builtins.__import__", side_effect=fail_psutil):
+        result = m.get_network_io()
+    assert result["available"] is False
+
+
+def test_logged_users_uses_psutil_users():
+    m = _mod()
+    fake_user = SimpleNamespace(name="alice", terminal="pts/0",
+                                 host="10.0.0.1", started=1700000000.0,
+                                 pid=1234)
+    fake_psutil = SimpleNamespace(users=lambda: [fake_user])
+    with patch.dict(sys.modules, {"psutil": fake_psutil}):
+        result = m.get_logged_users()
+    assert result["available"] is True
+    assert result["users"][0]["name"] == "alice"
+    assert result["users"][0]["terminal"] == "pts/0"
+
+
+def test_updates_available_reports_no_manager():
+    m = _mod()
+    with patch.object(m, "_which", return_value=None):
+        result = m.get_updates_available()
+    assert result["available"] is False
+    assert "package manager" in result["error"].lower()
+
+
+def test_sections_include_v883_probes():
+    from arena.inventory.report import SECTIONS
+    names = [name for name, _ in SECTIONS]
+    for expected in ("containers", "systemd_timers", "network_io",
+                     "updates_available", "logged_users",
+                     "cpu_vulnerabilities"):
+        assert expected in names, f"SECTIONS missing '{expected}'"

@@ -230,6 +230,69 @@ def format_text(data: dict) -> str:
             lines.append(f"  {mod['name']:<28} {mod['size_bytes']:>10} B  "
                          f"used by {mod['used_count']}")
 
+    if data.get("containers", {}).get("available"):
+        c = data["containers"]
+        lines.append(f"\n### Containers ({c.get('runtime', '?')}, "
+                     f"{c.get('running_count', 0)}/{c.get('total_count', 0)} running)")
+        for x in c.get("containers", [])[:15]:
+            lines.append(f"  {(x.get('name') or '?'):<30} {x.get('status', '')}")
+            if x.get("image"):
+                lines.append(f"    image : {x['image']}")
+            if x.get("ports"):
+                lines.append(f"    ports : {x['ports'][:100]}")
+
+    if data.get("systemd_timers", {}).get("available"):
+        t = data["systemd_timers"]
+        lines.append(f"\n### Systemd timers ({len(t.get('timers', []))})")
+        for tm in t.get("timers", [])[:15]:
+            nxt = tm.get("next") or "—"
+            lines.append(f"  {(tm.get('unit') or '?'):<40} next: {nxt}")
+
+    if data.get("network_io", {}).get("available"):
+        nio = data["network_io"]
+        lines.append("\n### Network I/O (cumulative)")
+        for i in nio.get("interfaces", []):
+            def _b(n):
+                for unit, div in (("TB", 1099511627776), ("GB", 1073741824),
+                                   ("MB", 1048576), ("KB", 1024)):
+                    if n >= div: return f"{n / div:.2f} {unit}"
+                return f"{n} B"
+            extra = ""
+            if i["errin"] + i["errout"]: extra += f"  err {i['errin']+i['errout']}"
+            if i["dropin"] + i["dropout"]: extra += f"  drop {i['dropin']+i['dropout']}"
+            lines.append(f"  {i['name']:<20} ↓ {_b(i['bytes_recv']):<12} "
+                         f"↑ {_b(i['bytes_sent'])}{extra}")
+
+    if data.get("updates_available", {}).get("available"):
+        u = data["updates_available"]
+        lines.append(f"\n### Package updates available ({u.get('manager', '?')})")
+        pc = u.get("pending_count")
+        lines.append(f"  Pending  : {pc if pc is not None else '?'}")
+        if u.get("checked_at"):
+            lines.append(f"  Checked  : {u['checked_at']}")
+        for pkg in u.get("sample", [])[:8]:
+            if pkg.get("new_version"):
+                lines.append(f"    {pkg['name']:<28} -> {pkg['new_version']}")
+            else:
+                lines.append(f"    {pkg['name']}")
+
+    if data.get("logged_users", {}).get("available"):
+        lu = data["logged_users"]
+        lines.append(f"\n### Logged-in users ({len(lu.get('users', []))})")
+        for user in lu.get("users", []):
+            parts = [user.get("terminal") or ""]
+            if user.get("host"): parts.append(f"from {user['host']}")
+            if user.get("started"): parts.append(user["started"])
+            lines.append(f"  {(user.get('name') or '?'):<12} {'  '.join(p for p in parts if p)}")
+
+    if data.get("cpu_vulnerabilities", {}).get("available"):
+        v = data["cpu_vulnerabilities"]
+        mits = v.get("mitigations") or {}
+        lines.append(f"\n### CPU vulnerabilities ({len(mits)})")
+        for name, status in mits.items():
+            short = str(status).split(";")[0].strip()
+            lines.append(f"  {name:<20} {short}")
+
     if "network" in data:
         n = data["network"]
         lines.append("\n### Network")

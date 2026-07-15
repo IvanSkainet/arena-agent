@@ -9,6 +9,8 @@ from arena.inventory.probe_sensors import get_battery, get_fans, get_audio, get_
 from arena.inventory.probe_agent_facts import (
     get_top_processes, get_listening_ports, get_systemd_failed,
     get_boot_time, get_kernel_modules,
+    get_containers, get_systemd_timers, get_network_io,
+    get_updates_available, get_logged_users, get_cpu_vulnerabilities,
 )
 from arena.inventory.probe_software import get_runtimes, get_package_managers, get_browsers, get_env, get_services, get_python_env
 
@@ -34,6 +36,12 @@ SECTIONS = [
     ("listening_ports", get_listening_ports),
     ("systemd_failed", get_systemd_failed),
     ("kernel_modules", get_kernel_modules),
+    ("containers", get_containers),
+    ("systemd_timers", get_systemd_timers),
+    ("network_io", get_network_io),
+    ("updates_available", get_updates_available),
+    ("logged_users", get_logged_users),
+    ("cpu_vulnerabilities", get_cpu_vulnerabilities),
     ("network", get_network),
     ("runtimes", get_runtimes),
     ("package_managers", get_package_managers),
