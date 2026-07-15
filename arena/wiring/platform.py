@@ -133,6 +133,11 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_tunnels_active": handlers.tunnels_active,
         "handle_v1_tunnels_start": handlers.tunnels_start,
         "handle_v1_tunnels_stop": handlers.tunnels_stop,
+        # v3.85.0: auto-update.
+        "handle_v1_admin_update_status":  handlers.update_status,
+        "handle_v1_admin_update_check":   handlers.update_check,
+        "handle_v1_admin_update_apply":   handlers.update_apply,
+        "handle_v1_admin_update_restart": handlers.update_restart,
     }
 
 

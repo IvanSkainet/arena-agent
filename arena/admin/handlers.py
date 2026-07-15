@@ -25,6 +25,11 @@ class AdminHandlers:
     tunnels_active: object
     tunnels_start: object
     tunnels_stop: object
+    # v3.85.0: cross-platform auto-update.
+    update_status: object
+    update_check: object
+    update_apply: object
+    update_restart: object
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
@@ -267,6 +272,11 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    # v3.85.0: auto-update handlers live in a sibling module to keep
+    # this file small.
+    from arena.admin.handlers_update import make_update_handlers
+    _upd = make_update_handlers(ctx)
+
     return AdminHandlers(
         sys_funnel=handle_v1_sys_funnel,
         token_regenerate=handle_v1_token_regenerate,
@@ -278,4 +288,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_active=handle_v1_tunnels_active,
         tunnels_start=handle_v1_tunnels_start,
         tunnels_stop=handle_v1_tunnels_stop,
+        update_status=_upd["update_status"],
+        update_check=_upd["update_check"],
+        update_apply=_upd["update_apply"],
+        update_restart=_upd["update_restart"],
     )
