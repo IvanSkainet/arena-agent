@@ -93,4 +93,3 @@ pre.mono-inset{background:var(--surface-inset);color:var(--green);padding:6px;ma
 .metric-val{font-size:22px;font-weight:700}
 .metric-label{font-size:11px;color:var(--text2)}
 .divider{border-top:1px solid var(--accent);margin:16px 0}
-@media(max-width:768px){.sidebar{width:60px;overflow:hidden}.sidebar h2,.sidebar nav a span:not(.icon),.sidebar-footer{display:none}.sidebar nav a{justify-content:center;padding:12px}.main{padding:12px}.card-grid{grid-template-columns:1fr}}

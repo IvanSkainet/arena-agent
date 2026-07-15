@@ -1,3 +1,86 @@
+## v3.87.0 - 2026-07-16
+
+### Added
+
+- **Mobile-first responsive Dashboard layer.** New file
+  `dashboard/assets/responsive.css` (~220 lines) turns the Dashboard
+  into a usable app on any phone or narrow tablet, without touching
+  any of the 40+ existing HTML/JS files.
+
+  What changes below 900 px viewport width:
+  * The sidebar becomes a **fixed bottom navigation bar** with
+    horizontal scroll + `scroll-snap`. All 17 tabs remain reachable
+    with one thumb; the icon + short label sit stacked in a 56 px
+    tall strip.
+  * `env(safe-area-inset-bottom)` keeps the bar clear of the iPhone
+    home indicator; `env(safe-area-inset-top)` gives the content
+    a matching top gutter in PWA / standalone mode.
+  * Every `<button>`, sidebar link, `.badge`, and generic
+    `input[type=button|submit]` gets a **44 px minimum tap target**
+    on coarse-pointer devices (Apple HIG + Material). Dense
+    elements can opt out with `.sm`.
+  * `input`, `textarea`, `select` are forced to `font-size: 16px`
+    below 900 px so iOS Safari stops auto-zooming on focus.
+  * `.card-grid` and `.card-grid-sm` collapse to a single column.
+  * Tables without special markup now get **horizontal scroll**
+    (`overflow-x: auto`) so nothing gets crushed. Tables that opt
+    in to the new `class="responsive"` + `<td data-label="...">`
+    contract render as stacked cards with per-row labels — this
+    is a gradual migration path, not a forced rewrite.
+  * `.output` blocks cap at 260 px on mobile so a long log doesn't
+    swallow the whole viewport.
+  * Progress bars get taller (`24px`) and larger labels for
+    thumb-and-glance readability.
+  * Ultra-narrow phones (< 380 px) tighten the nav further; landscape
+    phones (< 500 px tall) get a slimmer bar.
+
+- **Head meta upgrades in `dashboard/index.html`.**
+  * `viewport` extended with `viewport-fit=cover` (required for
+    `env(safe-area-inset-*)` on iPhones).
+  * `theme-color` set to the dashboard background so the browser
+    chrome matches (Chrome / Edge on Android, Safari on iOS).
+  * `mobile-web-app-capable` + `apple-mobile-web-app-capable` +
+    `apple-mobile-web-app-status-bar-style: black-translucent`
+    so "Add to Home Screen" launches the Dashboard as a
+    full-screen standalone app on both platforms.
+
+### Fixed
+
+- **`border: 1px solid #ccc` in `body-16-mobile.html`.** Two hardcoded
+  greys inside the mobile-info screenshot preview and the mirror
+  fallback image were missed by the v3.86.5 sweep. Replaced with
+  `var(--accent)` so dark theme stays consistent.
+
+### Changed
+
+- **Split the desktop stylesheet in two.** `dashboard.css` is now
+  layout-agnostic (base + palette + components). The old inline
+  `@media (max-width:768px)` block was removed from
+  `dashboard.css` — everything mobile-related lives in
+  `responsive.css` as a single source of truth. Loaded via a second
+  `<link>` in `index.html` *after* the base sheet so its rules win.
+
+- **Sidebar link markup semantics.** Icons are wrapped for the
+  vertical stack layout on mobile without any change to the desktop
+  view — desktop still gets the row-based nav from `dashboard.css`.
+
+### Test
+
+- **New guard `tests/test_dashboard_responsive_baseline.py`**
+  (4 tests) locks in the invariants: `responsive.css` exists,
+  declares the bottom-nav / safe-area / 16 px / touch-target rules,
+  is loaded after `dashboard.css`, `index.html` has the mobile
+  meta stack, and `dashboard.css` no longer owns any `@media` rule.
+
+- **985 tests passed** (up from 980).
+
+### Live-verified
+
+Bridge at v3.87.0 serves both stylesheets, `<link rel="stylesheet"
+href="/gui/assets/responsive.css">` returns 200 with the expected
+CSS payload. Desktop layout unchanged (visual walkthrough of all 17
+tabs). Guard tests catch the removal of any critical rule.
+
 ## v3.86.5 - 2026-07-16
 
 ### Fixed

@@ -1,0 +1,265 @@
+/* =====================================================================
+   Arena Dashboard — mobile-first responsive layer (v3.87.0).
+
+   Loaded AFTER dashboard.css so its @media rules override the desktop
+   layout on narrow viewports without touching any HTML.
+
+   Design notes:
+     * Breakpoint at 900px. Below that we assume a phone or a narrow
+       split-screen tablet, so the sidebar becomes a fixed bottom nav
+       with horizontal scroll (17 tabs won't fit vertically on a
+       6" phone in landscape either).
+     * 44px minimum tap target follows the platform HIG for both iOS
+       and Android.
+     * Font-size on form controls stays >= 16px on mobile because
+       anything smaller triggers auto-zoom on iOS Safari.
+     * env(safe-area-inset-*) keeps the bottom nav clear of the
+       iPhone home indicator and the top of the .main content clear
+       of the status bar in standalone (PWA) mode.
+     * Tables get converted to block "cards" on mobile via the
+       [data-label] contract. Any <td> without data-label just
+       displays its cell content without a label. Existing tables
+       keep working; new tables can opt in gradually.
+
+   No new hex colors here -- everything references CSS vars declared
+   in dashboard.css so themes stay swappable. This file is also
+   scanned by tests/test_no_hardcoded_theme_colors.py.
+   ===================================================================== */
+
+/* --------- utility: touch target ---------- */
+@media (hover: none) and (pointer: coarse) {
+    button,
+    .sidebar nav a,
+    input[type="button"],
+    input[type="submit"],
+    .copy-btn,
+    .badge {
+        min-height: 44px;
+    }
+    button.sm,
+    .copy-btn.sm,
+    .badge.sm {
+        /* explicit .sm opts out — used inside dense tables and rows */
+        min-height: 28px;
+    }
+}
+
+/* --------- narrow viewport layout (phones, split-screen tablets) ---------- */
+@media (max-width: 900px) {
+    body {
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    /* Sidebar becomes a fixed bottom nav bar. */
+    .sidebar {
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        width: 100%;
+        height: auto;
+        max-height: none;
+        border-right: none;
+        border-top: 1px solid var(--accent);
+        z-index: 100;
+        flex-direction: row;
+        align-items: stretch;
+        padding-bottom: env(safe-area-inset-bottom, 0);
+        /* Slight elevation so scroll-under is visible. */
+        box-shadow: 0 -2px 8px var(--overlay-mid);
+    }
+
+    /* Hide the desktop-only chrome inside the sidebar. */
+    .sidebar h2,
+    .sidebar-footer {
+        display: none;
+    }
+
+    /* Nav is a horizontally-scrollable strip with scroll-snap. */
+    .sidebar nav {
+        flex: 1;
+        display: flex;
+        flex-direction: row;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 0;
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .sidebar nav a {
+        flex: 0 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        min-width: 64px;
+        min-height: 56px;
+        padding: 6px 8px;
+        font-size: 11px;
+        line-height: 1.1;
+        text-align: center;
+        border-left: none;
+        border-top: 3px solid transparent;
+        scroll-snap-align: start;
+    }
+
+    .sidebar nav a .icon {
+        font-size: 18px;
+    }
+
+    .sidebar nav a.active {
+        border-left-color: transparent;
+        border-top-color: var(--purple);
+    }
+
+    /* Main content: safe padding all around, especially the bottom
+       so nothing hides under the nav bar. */
+    .main {
+        flex: 1;
+        padding: 12px;
+        padding-top: max(12px, env(safe-area-inset-top, 0));
+        /* 56 nav + 8 gap + safe-area */
+        padding-bottom: calc(64px + env(safe-area-inset-bottom, 0));
+        max-height: none;
+        overflow-y: auto;
+    }
+
+    /* Card grids collapse to single column on phones. */
+    .card-grid,
+    .card-grid-sm {
+        grid-template-columns: 1fr;
+    }
+
+    /* Form controls: >= 16px font-size prevents iOS Safari auto-zoom
+       when focused. */
+    input,
+    textarea,
+    select {
+        font-size: 16px;
+    }
+
+    /* Buttons: same font bump for accidental-tap resilience. */
+    button {
+        font-size: 14px;
+        padding: 10px 14px;
+    }
+    button.sm {
+        font-size: 12px;
+        padding: 6px 10px;
+    }
+
+    /* Headings tighten so long labels don't wrap awkwardly. */
+    h1 { font-size: 18px; margin-bottom: 12px; }
+    h2 { font-size: 15px; }
+    h3 { font-size: 13px; }
+
+    /* Default table behaviour on mobile: horizontal scroll so nothing
+       gets crushed. Any table can opt in to the card layout below
+       by adding class="responsive" to the <table> (or to any parent
+       wrapper). */
+    .main table:not(.responsive) {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    /* Card-style table (opt-in via class="responsive"): rows become
+       stacked cards and each <td data-label="..."> gets a label
+       prefix. Migrate tables to this shape gradually. */
+    table.responsive,
+    .responsive table {
+        display: block;
+    }
+    table.responsive thead,
+    .responsive table thead {
+        display: none;
+    }
+    table.responsive tbody,
+    .responsive table tbody,
+    table.responsive tr,
+    .responsive table tr {
+        display: block;
+    }
+    table.responsive tr,
+    .responsive table tr {
+        margin-bottom: 8px;
+        padding: 8px;
+        background: var(--bg2);
+        border: 1px solid var(--accent);
+        border-radius: 6px;
+    }
+    table.responsive td,
+    .responsive table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        padding: 4px 0;
+        border-bottom: none;
+        gap: 12px;
+    }
+    table.responsive td[data-label]::before,
+    .responsive table td[data-label]::before {
+        content: attr(data-label);
+        font-weight: 600;
+        color: var(--text2);
+        font-size: 12px;
+    }
+
+    /* Utility: hide element on mobile / show only on mobile. */
+    .desktop-only { display: none !important; }
+    .mobile-only { display: initial; }
+
+    /* Metric rows: wrap to single column instead of squeezing. */
+    .metric-row {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    /* Output blocks: shrink max-height so they don't eat the whole
+       viewport on a phone. */
+    .output {
+        max-height: 260px;
+        font-size: 11px;
+    }
+
+    /* Progress bars: make labels legible. */
+    .progress-bar {
+        height: 24px;
+    }
+    .progress-bar .text {
+        font-size: 12px;
+    }
+}
+
+/* By default, .mobile-only is hidden (desktop view). */
+.mobile-only { display: none; }
+
+/* --------- ultra-narrow (small phones under 380px) ---------- */
+@media (max-width: 380px) {
+    .sidebar nav a {
+        min-width: 56px;
+        font-size: 10px;
+    }
+    .sidebar nav a .icon {
+        font-size: 16px;
+    }
+    .main {
+        padding: 8px;
+        padding-bottom: calc(60px + env(safe-area-inset-bottom, 0));
+    }
+    h1 { font-size: 16px; }
+}
+
+/* --------- landscape phones: keep bottom nav slim ---------- */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+    .sidebar nav a {
+        min-height: 48px;
+        padding: 4px 8px;
+    }
+    .main {
+        padding-bottom: calc(56px + env(safe-area-inset-bottom, 0));
+    }
+}
