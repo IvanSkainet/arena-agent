@@ -9,12 +9,15 @@ function _invRenderCurrent() {
   if (!out) return;
   const text = window._invRawText || "";
   if (window._invViewMode === "raw") {
+    // Plain text: <pre> preserves the \n line breaks. No HTML.
     out.textContent = text;
-    out.style.fontFamily = "var(--mono)";
   } else {
-    // renderMarkdown() lives in 03-helpers.js (shared with 39-admin-update)
+    // renderMarkdown() lives in 03-helpers.js. It emits HTML with
+    // \n between plain lines instead of <br>, so the container MUST
+    // preserve whitespace -- that's why body-01-overview.html uses
+    // <pre ... white-space:pre-wrap>. Inside that <pre>, the
+    // <h1>/<ul>/<code>/etc. tags still render as HTML.
     out.innerHTML = renderMarkdown(text);
-    out.style.fontFamily = "var(--sans)";
   }
 }
 

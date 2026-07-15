@@ -138,24 +138,33 @@
     }
 
     /* Form controls: >= 16px font-size prevents iOS Safari auto-zoom
-       when focused. min-width:0 (also set in the base sheet) is
-       repeated here so flex-item sizing stays correct even when a
-       future rule bumps the base back. */
+       when focused. min-width:0 / max-width:100% / overflow / ellipsis
+       are also set in the base sheet; repeated here defensively so
+       any future rule bumping the base can't silently break mobile. */
     input,
     textarea,
     select {
         font-size: 16px;
         min-width: 0;
         max-width: 100%;
+        box-sizing: border-box;
+    }
+    input,
+    textarea {
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     /* Rows with inputs on narrow viewports: give inputs a real
-       flex-basis so a placeholder can't push them past their
-       parent. Explicit inline style="width:..." still wins. */
+       flex-basis so a long placeholder can't push them past their
+       parent. Explicit inline style="width:..." still wins.
+       flex-basis:0 makes flex:1 actually shrink the item; without
+       it, min-content leaks through and the field overflows. */
     .row > input:not([style*="width"]):not([style*="flex"]),
     .row > textarea:not([style*="width"]):not([style*="flex"]),
     .row > select:not([style*="width"]):not([style*="flex"]) {
-        flex: 1 1 auto;
+        flex: 1 1 0;
+        min-width: 0;
     }
 
     /* Buttons: same font bump for accidental-tap resilience. */

@@ -77,14 +77,43 @@ def test_base_css_min_width_zero_on_inputs():
     text = CSS_BASE.read_text(encoding="utf-8")
     m = re.search(r"input,\s*textarea,\s*select\s*{([^}]+)}", text)
     assert m, "input,textarea,select rule missing from dashboard.css"
-    rule = m.group(1)
-    assert "min-width:0" in rule.replace(" ", ""), (
+    rule = m.group(1).replace(" ", "")
+    assert "min-width:0" in rule, (
         "input,textarea,select must include min-width:0 so flex-items "
         "can shrink below their content width.\n" + rule
     )
-    assert "max-width:100%" in rule.replace(" ", ""), (
+    assert "max-width:100%" in rule, (
         "input,textarea,select must include max-width:100% so no field "
         "escapes its container.\n" + rule
+    )
+    # v3.87.2: additionally require overflow-hidden + text-overflow-ellipsis
+    # so placeholder text stays inside the field even in a squeeze.
+    assert "overflow:hidden" in rule, (
+        "input,textarea,select must include overflow:hidden so a long "
+        "placeholder cannot render outside the field's border.\n" + rule
+    )
+    assert "text-overflow:ellipsis" in rule, (
+        "input,textarea,select must include text-overflow:ellipsis so "
+        "clipped placeholder text degrades cleanly.\n" + rule
+    )
+
+
+def test_full_inventory_container_preserves_whitespace():
+    """Regression guard for v3.87.1: switching <pre> to <div
+    white-space:normal> collapsed every \\n into a space and turned
+    the Full Inventory into one long paragraph."""
+    html = (DASHBOARD / "assets" / "body-01-overview.html").read_text(encoding="utf-8")
+    m = re.search(r'<(pre|div)[^>]*id="invOutput"[^>]*>', html)
+    assert m, "invOutput element not found in body-01-overview.html"
+    tag_open = m.group(0)
+    # Must be a <pre> with pre-wrap OR a <div>/<pre> with an explicit
+    # white-space:pre-wrap. Either way, the container has to preserve
+    # newlines so the multi-line inventory reads as a list, not a
+    # single wrapping paragraph.
+    assert "pre-wrap" in tag_open, (
+        "invOutput container must set white-space:pre-wrap so the "
+        "newlines emitted by renderMarkdown() render as line breaks.\n"
+        + tag_open
     )
 
 

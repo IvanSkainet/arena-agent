@@ -1,3 +1,67 @@
+## v3.87.2 - 2026-07-16
+
+### Fixed
+
+- **Full Inventory rendered as one wrapping paragraph.** v3.87.1
+  replaced the `<pre>` container with a `<div style="white-space:
+  normal">` so Markdown tags could render, but this collapsed every
+  `\n` between the plain-text inventory lines into a single space —
+  the result was a wall of text worse than the original raw dump.
+
+  Root cause: `renderMarkdown()` emits HTML with `\n` between plain
+  lines (not `<br>`), so its container MUST preserve whitespace.
+
+  Fix: put back a `<pre>` container with `white-space: pre-wrap;
+  word-break: break-word` on `#invOutput`, and add a new
+  `pre.md-render-in-pre` class so headings inside get sans-serif
+  (they were inheriting monospace from the parent). Payload lines
+  stay monospaced, `<h1>`/`<h2>`/`<h3>` stand out in colour, lists
+  use disc bullets, `<code>` gets the small inset background.
+
+- **Placeholder text still overflowing input fields.** v3.87.1's
+  `min-width: 0` was necessary but not sufficient — the placeholder
+  itself was rendered outside the field's border because inputs had
+  no `overflow` clip, and `flex: 1 1 auto` on the mobile override
+  wasn't strong enough to force the field to shrink below its
+  content-driven basis.
+
+  Fix in `dashboard.css`:
+  * `overflow: hidden; text-overflow: ellipsis` on
+    `input, textarea, select` so any overflowing text (placeholder
+    or value) is clipped with an ellipsis instead of spilling under
+    the next flex sibling.
+  * Explicit `input::placeholder, textarea::placeholder { overflow:
+    hidden; text-overflow: ellipsis; color: var(--text3) }` so the
+    "translucent" placeholder text (which is a pseudo-element in
+    every browser) obeys the same rule.
+  * Mobile override in `responsive.css` bumps `.row > input|
+    textarea|select` from `flex: 1 1 auto` to `flex: 1 1 0` with
+    an explicit `min-width: 0`. Zero-basis makes the flex factor
+    actually shrink the item; `auto`-basis was leaking min-content
+    through.
+
+### Test
+
+- **Two new regression guards** in
+  `tests/test_dashboard_responsive_baseline.py`:
+  * `test_full_inventory_container_preserves_whitespace` — parses
+    `body-01-overview.html`, finds the `#invOutput` element, and
+    requires `pre-wrap` on it. Fails if someone switches back to
+    a `white-space:normal` container.
+  * `test_base_css_min_width_zero_on_inputs` extended to require
+    `overflow:hidden` and `text-overflow:ellipsis` on the base
+    input rule.
+
+- **989 tests passed** (up from 988; +1 new, +1 hardened).
+
+### Live-verified
+
+Bridge at v3.87.2 serves `dashboard.css` with `overflow:hidden;
+text-overflow:ellipsis` on the input rule and `pre.md-render-in-pre`
+styling block. `body-01-overview.html` has `<pre id="invOutput"
+class="md-render-in-pre" style="...white-space:pre-wrap...">`.
+`responsive.css` uses `flex: 1 1 0` for mobile inputs.
+
 ## v3.87.1 - 2026-07-16
 
 ### Fixed
