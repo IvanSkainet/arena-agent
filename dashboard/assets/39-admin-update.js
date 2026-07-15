@@ -20,6 +20,24 @@
 
 let _adminUpdateLatest = null;
 let _adminUpdateInFlight = false;
+let _adminUpdateSpinnerTimer = null;
+
+function _adminUpdateStartSpinner(baseMsg) {
+  _adminUpdateStopSpinner();
+  let dots = 0;
+  _adminUpdateStatus(baseMsg, "info");
+  _adminUpdateSpinnerTimer = setInterval(() => {
+    dots = (dots + 1) % 4;
+    _adminUpdateStatus(baseMsg + " " + ".".repeat(dots).padEnd(3), "info");
+  }, 400);
+}
+
+function _adminUpdateStopSpinner() {
+  if (_adminUpdateSpinnerTimer) {
+    clearInterval(_adminUpdateSpinnerTimer);
+    _adminUpdateSpinnerTimer = null;
+  }
+}
 
 // ---- DOM helpers -----------------------------------------------------------
 
@@ -58,6 +76,23 @@ function _adminUpdateFormatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
+function _htmlEscape(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
+function _adminUpdateShortSha(sha) {
+  // "sha256:abcdef1234...ff00" style, so operators can eyeball
+  // whether two runs referenced the same asset without reading
+  // 64 hex chars.
+  if (!sha) return "not published";
+  const clean = String(sha).replace(/^sha256:/i, "");
+  if (clean.length < 20) return sha;
+  return "sha256:" + clean.slice(0, 8) + "…" + clean.slice(-6)
+    + " (" + clean.length + " chars)";
+}
+
 function _adminUpdateFormatDate(iso) {
   if (!iso) return "unknown";
   try {
@@ -87,7 +122,10 @@ function _adminUpdateRenderStatus(status, check) {
     ["Published",    check && _adminUpdateFormatDate(check.published_at)],
     ["Asset",        check && check.asset_name || "?"],
     ["Asset size",   check && _adminUpdateFormatSize(check.asset_size_bytes)],
-    ["Asset SHA-256", (check && check.asset_digest) || "not published (add GITHUB_TOKEN to enable verification)"],
+    ["Asset SHA-256",
+      check && check.asset_digest
+        ? '<span title="' + _htmlEscape(check.asset_digest) + '">' + _htmlEscape(_adminUpdateShortSha(check.asset_digest)) + '</span>'
+        : "not published (add GITHUB_TOKEN to enable verified installs)"],
     ["Release URL",  check && check.release_url
                      ? '<a href="' + check.release_url + '" target="_blank" rel="noopener">' + check.release_url + '</a>'
                      : "-"],
@@ -188,7 +226,7 @@ async function adminUpdateInstall() {
   }
   _adminUpdateInFlight = true;
   _adminUpdateSetInstallEnabled(false);
-  _adminUpdateStatus("Requesting consent token…");
+  _adminUpdateStartSpinner("Requesting consent token");
   const body = {
     tag: rel.latest_tag,
     asset_url: rel.asset_url,
@@ -200,12 +238,13 @@ async function adminUpdateInstall() {
     const step1 = await api("/v1/admin/update/apply",
                             {method: "POST", body: JSON.stringify(body)});
     if (step1 && step1.consent_required && step1.required_consent) {
-      _adminUpdateStatus(
-        "Downloading + verifying + installing… (consent = "
+      _adminUpdateStartSpinner(
+        "Downloading + verifying + installing (consent = "
         + step1.required_consent + ")");
       body.consent = step1.required_consent;
       const step2 = await api("/v1/admin/update/apply",
                               {method: "POST", body: JSON.stringify(body)});
+      _adminUpdateStopSpinner();
       if (step2 && step2.ok) {
         const swapped = (step2.swapped || []).join(", ");
         const restartHint = step2.restart === "scheduled"
@@ -225,16 +264,20 @@ async function adminUpdateInstall() {
         _adminUpdateSetInstallEnabled(true);
       }
     } else if (step1 && step1.ok) {
+      _adminUpdateStopSpinner();
       _adminUpdateStatus("Installed v" + step1.applied_version + ".", "ok");
     } else {
+      _adminUpdateStopSpinner();
       const err = (step1 && (step1.error || JSON.stringify(step1))) || "no response";
       _adminUpdateStatus("Install failed: " + err, "err");
       _adminUpdateSetInstallEnabled(true);
     }
   } catch (e) {
+    _adminUpdateStopSpinner();
     _adminUpdateStatus("Install failed: " + (e && e.message || e), "err");
     _adminUpdateSetInstallEnabled(true);
   } finally {
+    _adminUpdateStopSpinner();
     _adminUpdateInFlight = false;
   }
 }

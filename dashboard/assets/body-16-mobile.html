@@ -155,7 +155,7 @@
      bandwidth + battery. -->
 <details style="margin-bottom:8px" id="mobileMirrorDetails">
   <summary style="cursor:pointer;font-size:13px;padding:6px 0">
-    🎥 Live mirror (H.264 stream, ~25 fps)
+    🎥 Live mirror <span style="background:#ffe066;color:#000;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;vertical-align:middle">EXPERIMENTAL</span> — for reliable mirroring use scrcpy
     <span id="mobileMirrorStatus" style="color:#666;font-weight:400;font-size:11px;margin-left:8px"></span>
   </summary>
   <div class="row" style="gap:8px;margin:6px 0;align-items:center;font-size:12px;flex-wrap:wrap">
@@ -175,6 +175,14 @@
       <option value="8000000">8 Mbps</option>
     </select>
     <span id="mobileMirrorMeta" class="mono" style="font-size:11px;color:#666;margin-left:auto"></span>
+  </div>
+  <div style="font-size:11px;color:#a06400;background:#fff9c4;border:1px solid #f59f00;padding:6px 10px;border-radius:4px;margin:4px 0">
+    ⚠️ MediaSource-based screen mirroring is experimental. Latency
+    may spike to several seconds under load, and some browsers will
+    show a black frame instead of the stream. For production use
+    please run <code>scrcpy</code> directly against the same phone.
+    A dedicated screencast pipeline is coming in Phase 3 (mobile APK)
+    that will replace this entirely.
   </div>
   <video id="mobileMirrorVideo"
          style="display:none;max-width:100%;background:#000;border:1px solid #ccc;border-radius:6px"
