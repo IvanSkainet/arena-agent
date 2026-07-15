@@ -143,77 +143,20 @@ def is_newer(candidate: str, baseline: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# GitHub API
+# GitHub helpers (moved to arena.admin.update_github in v3.86.2 so this
+# file stays under the 600-line per-module cap). Backwards-compatible
+# private aliases are kept because existing tests + external callers
+# monkeypatch them by name.
 # ---------------------------------------------------------------------------
 
-def _github_token() -> str | None:
-    """Prefer GITHUB_TOKEN, fall back to GH_TOKEN (what `gh auth login`
-    exports). Returns None if neither is set -- the check still works
-    unauthenticated, just at the anonymous rate limit."""
-    for name in ("GITHUB_TOKEN", "GH_TOKEN"):
-        v = os.environ.get(name)
-        if v and v.strip():
-            return v.strip()
-    return None
-
-
-def _http_get_json(url: str) -> dict[str, Any] | list[Any]:
-    headers = {
-        "User-Agent": _USER_AGENT,
-        "Accept": "application/vnd.github+json",
-    }
-    token = _github_token()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
-        return json.loads(resp.read().decode("utf-8"))
-
-
-def _pick_asset(assets: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Prefer the versioned zip; fall back to the alias `arena-agent.zip`."""
-    candidates = [a for a in assets if str(a.get("name", "")).endswith(".zip")]
-    for a in candidates:
-        name = str(a.get("name", ""))
-        if name.startswith("arena-agent-v") and name.endswith(".zip"):
-            return a
-    for a in candidates:
-        if str(a.get("name")) == "arena-agent.zip":
-            return a
-    return candidates[0] if candidates else None
-
-
-def _resolve_latest_via_redirect(repo: str) -> str | None:
-    """Read the tag name from the /releases/latest 302 Location header.
-
-    Doesn't touch the API endpoint, so anonymous callers don't hit
-    the 60/hour x-ratelimit-remaining wall. Returns the raw tag
-    string (e.g. `v3.85.2`) or None on failure.
-    """
-    url = f"https://github.com/{repo}/releases/latest"
-    req = urllib.request.Request(url, method="HEAD",
-                                 headers={"User-Agent": _USER_AGENT})
-
-    class _NoRedirect(urllib.request.HTTPRedirectHandler):
-        def redirect_request(self, *_a, **_k):
-            return None
-
-    opener = urllib.request.build_opener(_NoRedirect)
-    try:
-        opener.open(req, timeout=_HTTP_TIMEOUT)
-        return None
-    except urllib.error.HTTPError as e:
-        if e.code not in (301, 302, 303, 307, 308):
-            return None
-        location = e.headers.get("Location") or ""
-        # Expected shape: https://github.com/<owner>/<repo>/releases/tag/<tag>
-        marker = "/releases/tag/"
-        idx = location.find(marker)
-        if idx < 0:
-            return None
-        return location[idx + len(marker):].split("?")[0].split("#")[0]
-    except Exception:
-        return None
+from arena.admin.update_github import (
+    github_token as _github_token,
+    http_get_json as _http_get_json,
+    pick_asset as _pick_asset,
+    fetch_asset_size as _fetch_asset_size,
+    fetch_changelog_section as _fetch_changelog_section,
+    resolve_latest_via_redirect as _resolve_latest_via_redirect,
+)
 
 
 def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
@@ -292,6 +235,11 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
     asset_name_versioned = f"arena-agent-{tag}.zip"
     asset_name_alias = "arena-agent.zip"
     asset_url = f"https://github.com/{repo}/releases/download/{tag}/{asset_name_versioned}"
+    # Best-effort enrichment: neither call is required for install
+    # (the redirect path can't verify SHA-256 anyway), but both make
+    # the Dashboard feel like a real product instead of a JSON dump.
+    asset_size = _fetch_asset_size(asset_url)
+    body = _fetch_changelog_section(repo, tag) or ""
     return {
         "ok": True,
         "repo": repo,
@@ -301,11 +249,11 @@ def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
         "needs_update": is_newer(tag, baseline),
         "asset_name": asset_name_versioned,
         "asset_url": asset_url,
-        "asset_size_bytes": None,
+        "asset_size_bytes": asset_size,
         "asset_digest": None,      # unknown without API
         "published_at": None,
         "release_url": f"https://github.com/{repo}/releases/tag/{tag}",
-        "body": "",
+        "body": body,
         "source": "redirect",
         "asset_alias_name": asset_name_alias,
         "hint": (

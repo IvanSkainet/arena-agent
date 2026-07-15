@@ -18,7 +18,7 @@ existing endpoint EXCEPT `/v1/agents/*` (management is master-only).
 
 Settings → **Multi-agent sessions**:
 
-1. Type a label (e.g. `gardenxas-workstation`) → **Create agent**.
+1. Type a label (e.g. `laptop-agent`) → **Create agent**.
 2. A yellow box appears with the new token. **Copy it now** — it
    won't be shown again after you Refresh.
 3. Hand the token to whoever needs it (or paste it into your own
@@ -36,7 +36,7 @@ BRIDGE=https://your-bridge.example  # public URL
 curl -sSf -X POST \
   -H "Authorization: Bearer $MASTER" \
   -H "Content-Type: application/json" \
-  -d '{"label":"gardenxas-workstation"}' \
+  -d '{"label":"laptop-agent"}' \
   "$BRIDGE/v1/agents"
 ```
 
@@ -48,7 +48,7 @@ Response (this is the ONLY time the token is returned):
   "action": "agents.create",
   "agent": {
     "agent_id": "46acc5f0",
-    "label": "gardenxas-workstation",
+    "label": "laptop-agent",
     "created_at": 1784121364.88,
     "last_seen_at": 0,
     "request_count": 0,
@@ -89,7 +89,7 @@ Response includes per-agent counters but NEVER the token:
   "agents": [
     {
       "agent_id": "46acc5f0",
-      "label": "gardenxas-workstation",
+      "label": "laptop-agent",
       "created_at": 1784121364.88,
       "last_seen_at": 1784121430.11,
       "request_count": 42,

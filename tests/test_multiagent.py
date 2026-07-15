@@ -22,8 +22,8 @@ def _fresh_registry():
 # ---------------------------------------------------------------------------
 def test_create_returns_record_with_derived_token():
     from arena.multiagent import agents as ag
-    rec = ag.create(label="gardenxas-workstation", master_token="master-42")
-    assert rec.label == "gardenxas-workstation"
+    rec = ag.create(label="laptop-agent", master_token="master-42")
+    assert rec.label == "laptop-agent"
     assert rec.agent_id and len(rec.agent_id) == 8
     assert rec.token.startswith("agent-" + rec.agent_id + "-")
     assert rec.request_count == 0

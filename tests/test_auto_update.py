@@ -137,17 +137,25 @@ def test_check_updates_reports_no_update_when_current_matches(monkeypatch):
 
 def test_check_updates_uses_redirect_when_no_token(monkeypatch):
     """v3.85.3: anonymous callers skip the API entirely and pull the
-    tag out of /releases/latest's 302 Location. Zero rate-limit cost."""
+    tag out of /releases/latest's 302 Location. Zero rate-limit cost.
+    v3.86.2: also try to enrich with asset size + CHANGELOG section,
+    but neither is required for the response to be `ok`."""
     from arena.admin import auto_update as au
 
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
 
     def _fake_redirect(repo):
-        assert repo == "IvanSkainet/arena-agent"
+        # Real repo name is user-configurable via ARENA_UPDATE_REPO;
+        # accept whatever the default happens to be.
+        assert isinstance(repo, str) and "/" in repo
         return "v3.99.9"
 
     monkeypatch.setattr(au, "_resolve_latest_via_redirect", _fake_redirect)
+    # Mock the enrichment helpers to avoid network in tests.
+    monkeypatch.setattr(au, "_fetch_asset_size", lambda url: 1_234_567)
+    monkeypatch.setattr(au, "_fetch_changelog_section",
+                        lambda repo, tag: "## v3.99.9\n\nExample release notes.")
     # If the API path is called we FAIL -- the whole point is to skip it.
     monkeypatch.setattr(au, "_http_get_json",
                         lambda url: (_ for _ in ()).throw(AssertionError(
@@ -159,11 +167,56 @@ def test_check_updates_uses_redirect_when_no_token(monkeypatch):
     assert r["latest"] == "3.99.9"
     assert r["latest_tag"] == "v3.99.9"
     assert r["needs_update"] is True
-    assert r["asset_url"] == (
-        "https://github.com/IvanSkainet/arena-agent"
-        "/releases/download/v3.99.9/arena-agent-v3.99.9.zip"
-    )
+    assert r["asset_url"].endswith("/releases/download/v3.99.9/arena-agent-v3.99.9.zip")
     assert r["asset_digest"] is None
+    assert r["asset_size_bytes"] == 1_234_567
+    assert "Example release notes" in r["body"]
+
+
+def test_fetch_changelog_section_extracts_the_right_block(monkeypatch):
+    """v3.86.2: given a full CHANGELOG.md, we return only the block
+    for the requested tag, capped at 4 KB, and stripped."""
+    from arena.admin import auto_update as au
+
+    fake_changelog = """# Changelog
+
+## v3.99.9 - 2026-08-01
+
+### Added
+- Something *fancy*.
+
+## v3.99.8 - 2026-07-30
+Older changes not for us.
+"""
+
+    class _FakeResp:
+        def __init__(self, data): self._data = data
+        def read(self): return self._data
+        def __enter__(self): return self
+        def __exit__(self, *a): pass
+
+    def _fake_urlopen(req, timeout=None):
+        return _FakeResp(fake_changelog.encode("utf-8"))
+
+    monkeypatch.setattr(au.urllib.request, "urlopen", _fake_urlopen)
+    body = au._fetch_changelog_section("some/repo", "v3.99.9")
+    assert body is not None
+    assert "Added" in body
+    assert "fancy" in body
+    assert "v3.99.8" not in body     # next block excluded
+    assert "Older changes" not in body
+
+
+def test_fetch_asset_size_returns_none_on_network_error(monkeypatch):
+    """Missing size shouldn't blow up the response -- caller just
+    shows 'unknown size' in the UI."""
+    from arena.admin import auto_update as au
+
+    def _boom(*a, **k):
+        raise OSError("no network")
+    monkeypatch.setattr(au.urllib.request, "build_opener",
+                        lambda *_a: type("O", (), {"open": _boom})())
+    assert au._fetch_asset_size("https://example/x.zip") is None
 
 
 # ---------------------------------------------------------------------------

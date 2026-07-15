@@ -99,7 +99,7 @@ async function agentsCreate() {
   const labelEl = _agentsEl("agentsCreateLabel");
   const label = labelEl && labelEl.value ? labelEl.value.trim() : "";
   if (!label) {
-    _agentsStatus("Please enter a label first (e.g. 'gardenxas-workstation').", "warn");
+    _agentsStatus("Please enter a label first (e.g. 'laptop-agent').", "warn");
     if (labelEl) labelEl.focus();
     return;
   }
