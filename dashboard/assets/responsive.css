@@ -155,16 +155,38 @@
         text-overflow: ellipsis;
     }
 
-    /* Rows with inputs on narrow viewports: give inputs a real
-       flex-basis so a long placeholder can't push them past their
-       parent. Explicit inline style="width:..." still wins.
-       flex-basis:0 makes flex:1 actually shrink the item; without
-       it, min-content leaks through and the field overflows. */
+    /* Rows with inputs on narrow viewports: on a phone, four
+       inputs sharing one row (Memory: Profile, Key, Value, Tags)
+       have ~60-80px each and nothing fits, not even "default".
+       Solution: every input without an explicit width goes to
+       its own row. flex-wrap:wrap on .row (base sheet) picks up
+       the 100% basis and puts each field on its own line.
+       Explicit inline style="width:..." or style="flex:..." is
+       preserved so power-user tabs (Mobile pair/connect ports,
+       Terminal timeout dropdown) keep their compact layout. */
     .row > input:not([style*="width"]):not([style*="flex"]),
     .row > textarea:not([style*="width"]):not([style*="flex"]),
     .row > select:not([style*="width"]):not([style*="flex"]) {
-        flex: 1 1 0;
+        flex: 1 1 100%;
         min-width: 0;
+    }
+
+    /* Inputs that had inline style="flex:1" (Memory / Recall /
+       Control / Settings tabs) collapse to their own row too --
+       otherwise they still divide the parent's width equally and
+       a placeholder like "Search facts..." vanishes into "S…". */
+    .row > input[style*="flex:1"]:not([style*="width"]),
+    .row > input[style*="flex: 1"]:not([style*="width"]),
+    .row > textarea[style*="flex:1"]:not([style*="width"]),
+    .row > textarea[style*="flex: 1"]:not([style*="width"]),
+    .row > select[style*="flex:1"]:not([style*="width"]) {
+        flex-basis: 100%;
+    }
+
+    /* When several inputs share a row on mobile, put each on
+       its own line by nudging the flex container itself. */
+    .row {
+        row-gap: 8px;
     }
 
     /* Buttons: same font bump for accidental-tap resilience. */

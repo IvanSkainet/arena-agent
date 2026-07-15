@@ -98,6 +98,29 @@ def test_base_css_min_width_zero_on_inputs():
     )
 
 
+def test_mobile_inputs_stack_full_width():
+    """Regression guard for v3.87.2: on a 375px phone, four inputs
+    sharing one .row (Memory tab: Profile / Key / Value / Tags)
+    each got ~60-80px and couldn't even show 'default'. Fix is to
+    force full-width flex-basis on mobile so each input gets its
+    own line via flex-wrap.
+    """
+    text = (DASHBOARD / "assets" / "responsive.css").read_text(encoding="utf-8")
+    # The mobile block must give unstyled inputs 100% flex-basis.
+    # We accept either `flex: 1 1 100%` OR `flex-basis: 100%`.
+    assert re.search(
+        r"\.row\s*>\s*input[^{]*:not\([^)]*width[^)]*\)[^{]*{[^}]*"
+        r"(?:flex:\s*1\s+1\s+100%|flex-basis:\s*100%)",
+        text,
+        re.DOTALL,
+    ), (
+        "responsive.css must force unstyled .row > input to take "
+        "flex-basis:100% on mobile so each field wraps to its own "
+        "row. Otherwise sharing four inputs in one row on a phone "
+        "gives each ~70px and placeholders vanish."
+    )
+
+
 def test_full_inventory_container_preserves_whitespace():
     """Regression guard for v3.87.1: switching <pre> to <div
     white-space:normal> collapsed every \\n into a space and turned

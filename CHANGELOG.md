@@ -1,3 +1,43 @@
+## v3.87.3 - 2026-07-16
+
+### Fixed
+
+- **Placeholder text still overflowing on Memory / Recall / Control /
+  Settings / Terminal on mobile.** v3.87.2's `overflow:hidden;
+  text-overflow:ellipsis` was the right idea but the underlying
+  problem was worse than an overflow: on a 375 px phone, four
+  inputs sharing one `.row` (Memory: Profile / Key / Value / Tags,
+  each `style="flex:1"` or `flex:2`) end up ~60–80 px wide each,
+  which can't fit "default", let alone a real placeholder. The
+  ellipsis just turned `default` into `d…`.
+
+  Real fix: on mobile, every input without an explicit `width:`
+  inline gets `flex: 1 1 100%` (or `flex-basis: 100%` if it had
+  an inline `flex:` value), so it wraps to its own row via the
+  already-existing `flex-wrap: wrap` on `.row`. Forms become
+  vertical stacks on phones — the standard mobile pattern.
+  Compact widgets that had explicit `style="width:..."` (Mobile
+  tab's pair/connect port inputs, Terminal's timeout dropdown)
+  keep their inline layout untouched.
+
+  `.row` gets a `row-gap: 8px` on mobile so the stacked fields
+  have breathing room between rows.
+
+### Test
+
+- **New guard `test_mobile_inputs_stack_full_width`** in
+  `tests/test_dashboard_responsive_baseline.py` parses
+  `responsive.css` and requires unstyled `.row > input` to take
+  100 % flex basis on mobile. Locks the fix in.
+
+- **990 tests passed** (up from 989).
+
+### Live-verified
+
+Bridge at v3.87.3 serves `responsive.css` with `flex: 1 1 100%`
+in the mobile input rule and `flex-basis: 100%` in the
+`[style*="flex:1"]` mobile override.
+
 ## v3.87.2 - 2026-07-16
 
 ### Fixed
