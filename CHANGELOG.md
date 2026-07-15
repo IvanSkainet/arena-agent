@@ -1,3 +1,66 @@
+## v3.88.0 - 2026-07-16
+
+### Added
+
+- **Five new hardware sensor probes.** `arena/inventory/probe_sensors.py`
+  (382 lines) adds cross-platform, best-effort inspection of hardware
+  the previous `probe_environment.get_thermal()` didn't cover.
+  Registered in the `SECTIONS` list of `arena/inventory/report.py`
+  so `GET /v1/inventory` returns them and the Overview → Full
+  Inventory card can filter by section.
+
+  | Section | Sources | Fields |
+  |---|---|---|
+  | `battery` | `psutil.sensors_battery()` + Linux `/sys/class/power_supply/BAT*` enrichment | `percent`, `plugged`, `seconds_left`, per-battery: `manufacturer`, `model_name`, `technology`, `cycle_count`, `health_pct` (full ÷ design), `energy_full`, `voltage_now` |
+  | `fans` | `psutil.sensors_fans()` (Linux) + `Win32_Fan` via PowerShell CIM | per fan: `chip`, `label`, `rpm`, `status` |
+  | `audio` | Linux `pactl list short sinks/sources` → `aplay -l` fallback → `Win32_SoundDevice` → macOS `system_profiler SPAudioDataType` | `sinks[]`, `sources[]` with `id`, `name`, `driver`, `state` |
+  | `disk_smart` | `smartctl --scan` + `smartctl -H -i -A --json=c <dev>` per drive (SATA + NVMe) | per device: `model`, `serial`, `firmware`, `capacity_gb`, `passed`, `temperature_c`, `power_on_hours`, NVMe: `percent_used` / `available_spare_pct` / `media_errors`, SATA: `reallocated_sectors` |
+  | `thermal_detail` | `psutil.sensors_temperatures()` with `chip+label` classification (CPU / GPU / NVMe / board / other), Linux `/sys/class/thermal` fallback | per source: `chip`, `label`, `class`, `celsius`, `high_c`, `critical_c` |
+
+  Every probe returns a `{"available": bool, ...}` envelope so
+  Dashboard + agents can tell "sensor not present" apart from
+  "our probe crashed". Nothing raises upward; on a bad platform
+  the response is just `{"available": False, "error": "..."}`.
+
+- **`arena/inventory/text_format.py`** and
+  **`dashboard/assets/22b-full-inventory-format.js`** grew matching
+  render blocks for each new section, so the Full Inventory card
+  now shows temperatures grouped by CPU/GPU/NVMe/board, fan RPMs,
+  battery charge + health + cycle count, per-drive SMART status
+  + hours + temperature + wear, and audio in/out devices.
+
+- **Full Inventory section checkboxes** in
+  `dashboard/assets/body-01-overview.html` now include `smart`,
+  `thermal`, `fans`, `battery`, `audio` so operators can pull just
+  the sensor slice without the whole tree.
+
+### Test
+
+- **New `tests/test_probe_sensors.py`** (7 tests) monkeypatches
+  `psutil` / `_which` / `_run` so the suite runs anywhere,
+  regardless of what hardware is on the CI runner:
+  * `test_probes_return_available_dict` — API contract.
+  * `test_disk_smart_reports_unavailable_when_smartctl_missing`
+  * `test_battery_uses_psutil_when_available`
+  * `test_battery_handles_no_psutil`
+  * `test_fans_reads_psutil_sensors_fans`
+  * `test_fans_no_backend_returns_unavailable`
+  * `test_audio_parses_pactl_short_output`
+  * `test_thermal_detail_classifies_sensor_labels`
+  * `test_sections_include_new_probes` — integration guard for the
+    `SECTIONS` registry.
+
+- **997 tests passed** (up from 990; +7 new, +existing coverage).
+
+### Live-verified
+
+Bridge at v3.88.0 on the reference CachyOS host returns non-empty
+payloads for `thermal_detail` (CPU + NVMe + amdgpu sensors),
+`fans` (nct6798 chipset), `audio` (10 pactl sinks + sources), and
+`disk_smart` (2 NVMe drives, PASS, temperatures, power-on hours).
+`battery.available: false` because it's a desktop. Overview →
+Full Inventory renders every new section under its own `### heading`.
+
 ## v3.87.3 - 2026-07-16
 
 ### Fixed

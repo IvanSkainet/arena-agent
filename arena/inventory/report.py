@@ -5,6 +5,7 @@ from arena.inventory.probe_common import *  # noqa: F401,F403
 from arena.inventory.probe_identity import get_identity, get_os
 from arena.inventory.probe_hardware import get_cpu, get_memory, get_gpu, get_motherboard
 from arena.inventory.probe_devices import get_disks, get_storage_devices, get_pci_devices, get_usb_devices, get_thermal, get_network, get_displays
+from arena.inventory.probe_sensors import get_battery, get_fans, get_audio, get_disk_smart, get_thermal_detail
 from arena.inventory.probe_software import get_runtimes, get_package_managers, get_browsers, get_env, get_services, get_python_env
 
 SECTIONS = [
@@ -19,6 +20,11 @@ SECTIONS = [
     ("pci_devices", get_pci_devices),
     ("usb_devices", get_usb_devices),
     ("thermal", get_thermal),
+    ("thermal_detail", get_thermal_detail),
+    ("fans", get_fans),
+    ("battery", get_battery),
+    ("audio", get_audio),
+    ("disk_smart", get_disk_smart),
     ("network", get_network),
     ("runtimes", get_runtimes),
     ("package_managers", get_package_managers),

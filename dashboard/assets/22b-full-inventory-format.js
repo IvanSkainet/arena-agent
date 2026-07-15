@@ -87,6 +87,65 @@ function formatInventoryText(inv, onlySections) {
     });
     lines.push("");
   }
+  if (show("thermal_detail") && inv.thermal_detail && inv.thermal_detail.available) {
+    lines.push("### Thermal (per-source)");
+    const byCls = {};
+    (inv.thermal_detail.sensors||[]).forEach(s => {
+      const c = s.class || "other";
+      (byCls[c] = byCls[c] || []).push(s);
+    });
+    ["cpu","gpu","nvme","board","other"].forEach(cls => {
+      (byCls[cls]||[]).forEach(s => {
+        let extra = "";
+        if (s.critical_c) extra = ` (crit ${s.critical_c}°C)`;
+        else if (s.high_c) extra = ` (high ${s.high_c}°C)`;
+        lines.push(`  [${cls}] ${s.label}: ${s.celsius}°C${extra}`);
+      });
+    });
+    lines.push("");
+  }
+  if (show("fans") && inv.fans && inv.fans.available) {
+    lines.push("### Fans");
+    (inv.fans.fans||[]).forEach(f => {
+      lines.push(`  ${f.label}: ${f.rpm} RPM`);
+    });
+    lines.push("");
+  }
+  if (show("battery") && inv.battery && inv.battery.available) {
+    const b = inv.battery;
+    lines.push("### Battery");
+    if (b.percent !== undefined && b.percent !== null) {
+      lines.push(`  Charge   : ${b.percent}% (${b.plugged ? "AC" : "discharging"})`);
+    }
+    (b.batteries||[]).forEach(bat => {
+      const parts = [bat.manufacturer, bat.model_name, bat.technology].filter(Boolean);
+      if (parts.length) lines.push(`  Device   : ${parts.join(" / ")}`);
+      if (bat.health_pct !== undefined) lines.push(`  Health   : ${bat.health_pct}%`);
+      if (bat.cycle_count !== undefined) lines.push(`  Cycles   : ${bat.cycle_count}`);
+    });
+    lines.push("");
+  }
+  if (show("disk_smart") && inv.disk_smart && inv.disk_smart.available) {
+    lines.push("### Disk SMART");
+    (inv.disk_smart.devices||[]).forEach(d => {
+      const status = d.passed === true ? "PASS" : d.passed === false ? "FAIL" : "?";
+      lines.push(`  ${d.device} [${status}] ${d.model||""}`);
+      const details = [];
+      if (d.temperature_c !== undefined) details.push(`temp ${d.temperature_c}°C`);
+      if (d.power_on_hours !== undefined) details.push(`${d.power_on_hours} h`);
+      if (d.percent_used !== undefined) details.push(`${d.percent_used}% used`);
+      if (d.available_spare_pct !== undefined) details.push(`${d.available_spare_pct}% spare`);
+      if (d.reallocated_sectors !== undefined) details.push(`${d.reallocated_sectors} reallocated`);
+      if (details.length) lines.push(`    ${details.join(" · ")}`);
+    });
+    lines.push("");
+  }
+  if (show("audio") && inv.audio && inv.audio.available) {
+    lines.push("### Audio");
+    (inv.audio.sinks||[]).slice(0,10).forEach(s => lines.push(`  out: ${s.name||""}`));
+    (inv.audio.sources||[]).slice(0,10).forEach(s => lines.push(`  in : ${s.name||""}`));
+    lines.push("");
+  }
   if (show("network") && inv.network) {
     const n = inv.network;
     lines.push("### Network");

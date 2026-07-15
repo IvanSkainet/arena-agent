@@ -122,6 +122,73 @@ def format_text(data: dict) -> str:
         for t in data["thermal"].get("temperatures", [])[:12]:
             lines.append(f"  {t.get('type') or t.get('source')}: {t.get('celsius')}°C")
 
+    if data.get("thermal_detail", {}).get("available"):
+        lines.append("\n### Thermal (per-source)")
+        by_class: dict[str, list[dict]] = {}
+        for s in data["thermal_detail"].get("sensors", []):
+            by_class.setdefault(s.get("class", "other"), []).append(s)
+        for cls in ("cpu", "gpu", "nvme", "board", "other"):
+            for s in by_class.get(cls, []):
+                extra = ""
+                if s.get("critical_c"):
+                    extra = f" (crit {s['critical_c']}°C)"
+                elif s.get("high_c"):
+                    extra = f" (high {s['high_c']}°C)"
+                lines.append(f"  [{cls}] {s.get('label')}: {s.get('celsius')}°C{extra}")
+
+    if data.get("fans", {}).get("available"):
+        lines.append("\n### Fans")
+        for f in data["fans"].get("fans", []):
+            lines.append(f"  {f.get('label')}: {f.get('rpm')} RPM")
+
+    if data.get("battery", {}).get("available"):
+        b = data["battery"]
+        lines.append("\n### Battery")
+        if b.get("percent") is not None:
+            lines.append(f"  Charge    : {b['percent']}% "
+                         f"({'AC' if b.get('plugged') else 'discharging'})")
+        for bat in b.get("batteries", []):
+            parts = []
+            if bat.get("manufacturer"): parts.append(bat["manufacturer"])
+            if bat.get("model_name"):   parts.append(bat["model_name"])
+            if bat.get("technology"):   parts.append(bat["technology"])
+            if parts:
+                lines.append(f"  Device    : {' / '.join(parts)}")
+            if bat.get("health_pct") is not None:
+                lines.append(f"  Health    : {bat['health_pct']}% "
+                             f"(full {bat.get('energy_full')} of "
+                             f"design {bat.get('energy_full_design')})")
+            if bat.get("cycle_count") is not None:
+                lines.append(f"  Cycles    : {bat['cycle_count']}")
+
+    if data.get("disk_smart", {}).get("available"):
+        lines.append("\n### Disk SMART")
+        for d in data["disk_smart"].get("devices", []):
+            status = "PASS" if d.get("passed") else "FAIL" if d.get("passed") is False else "?"
+            head = f"  {d.get('device')} [{status}] {d.get('model') or ''}"
+            lines.append(head)
+            details = []
+            if d.get("temperature_c") is not None:
+                details.append(f"temp {d['temperature_c']}°C")
+            if d.get("power_on_hours") is not None:
+                details.append(f"{d['power_on_hours']} h powered on")
+            if d.get("percent_used") is not None:
+                details.append(f"{d['percent_used']}% used (NVMe)")
+            if d.get("available_spare_pct") is not None:
+                details.append(f"{d['available_spare_pct']}% spare")
+            if d.get("reallocated_sectors") is not None:
+                details.append(f"{d['reallocated_sectors']} reallocated")
+            if details:
+                lines.append(f"    {' · '.join(details)}")
+
+    if data.get("audio", {}).get("available"):
+        a = data["audio"]
+        lines.append("\n### Audio")
+        for s in a.get("sinks", [])[:10]:
+            lines.append(f"  out: {s.get('name', '')}")
+        for s in a.get("sources", [])[:10]:
+            lines.append(f"  in : {s.get('name', '')}")
+
     if "network" in data:
         n = data["network"]
         lines.append("\n### Network")
