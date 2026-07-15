@@ -14,7 +14,10 @@ from arena.inventory.probe_agent_facts import (
 )
 from arena.inventory.probe_agent_ctx import (
     get_python_venvs, get_git_repos, get_env_secret_names,
-    get_crontab_entries, get_dns_resolvers, get_dmesg_errors,
+    get_crontab_entries,
+)
+from arena.inventory.probe_agent_sys import (
+    get_dns_resolvers, get_dmesg_errors,
     get_journal_errors, get_virtualization, get_time_sync,
     get_firewall_status,
 )

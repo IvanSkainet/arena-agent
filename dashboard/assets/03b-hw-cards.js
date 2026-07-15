@@ -121,8 +121,23 @@ function _hwRenderGPU(gpu, gpus) {
 
 function _hwRenderDisks(disks) {
   if (!disks || !disks.length) return "";
-  const rows = disks.slice(0, 10).map((d) => {
-    const label = _hwEsc(d.mount || d.device || "?");
+  // Deduplicate by device: btrfs subvolumes report the same /dev/dm-0
+  // mounted at /, /home, /srv, /root, /var/cache, /var/log, /var/tmp
+  // — showing seven identical "58 GB free of 224.8 GB" rows is noise.
+  // Group by device: primary label = first mount, extras collapse into
+  // an appended "(+N more)" hint.
+  const byDevice = new Map();
+  disks.forEach(d => {
+    const key = d.device || d.mount || "?";
+    if (!byDevice.has(key)) {
+      byDevice.set(key, {primary: d, mounts: [d.mount].filter(Boolean)});
+    } else {
+      if (d.mount) byDevice.get(key).mounts.push(d.mount);
+    }
+  });
+  const rows = Array.from(byDevice.values()).slice(0, 12).map(({primary: d, mounts}) => {
+    const extraMounts = mounts.length > 1 ? " (+" + (mounts.length - 1) + " more mounts)" : "";
+    const label = _hwEsc((d.mount || d.device || "?") + extraMounts);
     const used = (d.used_gb != null && d.total_gb)
       ? _hwFmtGB(d.used_gb) + " / " + _hwFmtGB(d.total_gb) + " · " + Math.round(d.used_pct || 0) + "%"
       : "—";
@@ -131,7 +146,7 @@ function _hwRenderDisks(disks) {
       : '';
     return [label, used + bar];
   });
-  return _hwCard("Storage", rows);
+  return _hwCard("Storage (" + byDevice.size + " unique device" + (byDevice.size === 1 ? "" : "s") + ")", rows);
 }
 
 function _hwRenderOS(os) {
@@ -339,13 +354,14 @@ function _hwRenderServices(services) {
 function _hwRenderKernelModules(km) {
   if (!km || !km.available) return "";
   const total = km.count || 0;
-  const shown = (km.modules || []).length;
   const rows = (km.modules || []).slice(0, 12).map(m => [
     _hwEsc(m.name),
     _hwFmtNumber(m.size_bytes / 1024, 0) + " KB · used by " + (m.used_count || 0),
   ]);
   if (!rows.length) return "";
-  return _hwCard("Kernel modules (" + total + " loaded, top " + shown + " by size)", rows);
+  // Card header must match the shown row count, not the raw payload
+  // length (v3.88.4 said "top 156" but only rendered 12).
+  return _hwCard("Kernel modules (" + total + " loaded, top " + rows.length + " by size)", rows);
 }
 
 function _hwRenderContainers(c) {

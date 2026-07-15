@@ -47,14 +47,15 @@ function _invRenderCurrent() {
 
 // Which sections belong on the Full Inventory card view. Order
 // matches the Doctor tab so switching between the two feels
-// consistent.
+// consistent. Uses window._invHw for normalized fields (OS, CPU,
+// memory, GPU, disks, motherboard, network) and window._invRaw for
+// probe-shaped fields (thermal_detail, fans, battery, audio, smart,
+// agent-facts, agent-ctx).
 function _invBuildCards(inv) {
   if (!inv || typeof inv !== "object") return "";
+  const hw = window._invHw || {};
   const cards = [];
 
-  // Reuse Doctor renderers. Each is defensive: if the section is
-  // missing it returns "". `_hwRender*` are declared in
-  // 03b-hw-cards.js, loaded before us.
   const wants = _invWantedSet();
   const push = (name, html) => {
     if (!html) return;
@@ -62,23 +63,22 @@ function _invBuildCards(inv) {
     cards.push(html);
   };
 
-  push("identity",         _hwRenderOS ? _hwRenderOS(inv.os) : "");
-  push("boot_time",        _hwRenderBoot ? _hwRenderBoot(inv.boot_time) : "");
-  push("cpu",              _hwRenderCPU && _hwRenderCPU(inv.cpu));
-  push("memory",           _hwRenderMemory && _hwRenderMemory(inv.memory));
-  push("gpu",              _hwRenderGPU && _hwRenderGPU(
-                            (inv.gpu && inv.gpu.gpus && inv.gpu.gpus[0]) || null,
-                            (inv.gpu && inv.gpu.gpus) || []));
-  push("disks",            _hwRenderDisks && _hwRenderDisks(inv.disks));
+  // Normalized shape from /v1/hardware (same as Doctor tab).
+  push("identity",         _hwRenderOS && _hwRenderOS(hw.os || inv.os));
+  push("boot_time",        _hwRenderBoot && _hwRenderBoot(hw.boot_time || inv.boot_time));
+  push("cpu",              _hwRenderCPU && _hwRenderCPU(hw.cpu));
+  push("memory",           _hwRenderMemory && _hwRenderMemory(hw.memory || inv.memory));
+  push("gpu",              _hwRenderGPU && _hwRenderGPU(hw.gpu, hw.gpus));
+  push("disks",            _hwRenderDisks && _hwRenderDisks(hw.disks || inv.disks));
+  push("motherboard",      _hwRenderMotherboard && _hwRenderMotherboard(
+                            hw.motherboard, hw.bios));
+  push("network",          _hwRenderNetwork && _hwRenderNetwork(hw.network || inv.network));
+  // Sensor / agent-facts probes: same shape in raw + normalized.
   push("thermal_detail",   _hwRenderThermal && _hwRenderThermal(inv.thermal, inv.thermal_detail));
   push("fans",             _hwRenderFans && _hwRenderFans(inv.fans));
   push("battery",          _hwRenderBattery && _hwRenderBattery(inv.battery));
   push("disk_smart",       _hwRenderSmart && _hwRenderSmart(inv.disk_smart));
   push("audio",            _hwRenderAudio && _hwRenderAudio(inv.audio));
-  push("motherboard",      _hwRenderMotherboard && _hwRenderMotherboard(
-                            (inv.motherboard && inv.motherboard.motherboard) || null,
-                            (inv.motherboard && inv.motherboard.bios) || null));
-  push("network",          _hwRenderNetwork && _hwRenderNetwork(inv.network));
   push("top_processes",    _hwRenderTopProcesses && _hwRenderTopProcesses(inv.top_processes));
   push("listening_ports",  _hwRenderListeningPorts && _hwRenderListeningPorts(inv.listening_ports));
   push("systemd_failed",   _hwRenderSystemdFailed && _hwRenderSystemdFailed(inv.systemd_failed));
@@ -163,7 +163,19 @@ async function loadFullInventory() {
   }
 
   try {
-    const r = await api(url);
+    // Two calls in parallel:
+    //   * /v1/inventory   -- raw sections used by rendered/raw text
+    //                        AND by cards for probes that don't have
+    //                        a normalized form (agent-facts, agent-ctx).
+    //   * /v1/hardware    -- normalized shape used by Doctor cards
+    //                        (cpu.cores, cpu.threads, gpu.name, etc.).
+    //     Cards prefer /v1/hardware for OS/CPU/mem/gpu/disks/motherboard;
+    //     everything else comes straight from /v1/inventory since it
+    //     already matches the probe output shape.
+    const [r, rhw] = await Promise.all([
+      api(url),
+      api("/v1/hardware"),
+    ]);
     const dt = ((Date.now() - t0) / 1000).toFixed(1);
     if (!r.ok) {
       out.textContent = "Error: " + (r.error || JSON.stringify(r));
@@ -171,9 +183,11 @@ async function loadFullInventory() {
       return;
     }
     const inv = r.inventory || {};
+    const hw = (rhw && rhw.ok) ? (rhw.hardware || {}) : {};
     const text = formatInventoryText(inv, allChecked ? null : sections);
     window._invRawText = text;
     window._invRaw = inv;
+    window._invHw = hw;
     _invRenderCurrent();
     if (status) { status.textContent = `loaded in ${dt}s`; status.className = "badge ok"; }
   } catch (e) {

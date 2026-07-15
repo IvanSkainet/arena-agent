@@ -11,7 +11,7 @@ async function refreshOverview() {
     if (health.ok !== undefined && health.ok !== false) {
       document.getElementById("pingDot").className = "ping ok";
       document.getElementById("pingText").textContent = "Connected";
-      document.getElementById("statVersion").textContent = health.version || "--";
+      document.getElementById("statVersion").textContent = health.version ? "v" + health.version : "--";
       document.getElementById("statHost").textContent = health.host || sysinfo.hostname || "--";
       document.getElementById("sidebarVersion").textContent = health.version || "--";
       document.getElementById("versionTag").textContent = "v" + (health.version || "--");

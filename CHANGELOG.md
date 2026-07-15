@@ -1,3 +1,80 @@
+## v3.88.5 - 2026-07-16
+
+### Fixed — visual bugs surfaced in the real Cards output
+
+- **Full Inventory Cards showed `? physical · ? logical` for CPU
+  and `—` for arch.** v3.88.3's `_invBuildCards()` fed the raw
+  inventory shape (`inv.cpu.cores_physical`, `inv.cpu.cores_logical`,
+  `inv.cpu.raw.machine`) into `_hwRenderCPU()` — but that renderer
+  is built for the normalized `/v1/hardware` shape
+  (`hw.cpu.cores`, `hw.cpu.threads`, `hw.cpu.raw.machine`). Fix:
+  Full Inventory now fetches `/v1/hardware` in parallel with
+  `/v1/inventory` and feeds Cards the normalized shape for OS /
+  CPU / memory / GPU / disks / motherboard / network. Probes with
+  no normalization step (sensors, agent-facts, agent-ctx) keep
+  reading from `inv.*` directly.
+
+- **GPU card said `00.0 VGA compatible controller: NVIDIA…`
+  instead of `NVIDIA GeForce GTX 1050 Ti`.** Same root cause —
+  `inv.gpu.gpus[0]` was passed into `_hwRenderGPU` which expected
+  the normalized flat object. Same fix.
+
+- **Storage listed seven identical `/dev/dm-0 · 224.8 GB · 72%`
+  rows** because the CachyOS btrfs subvolume layout mounts the
+  same device at `/`, `/home`, `/srv`, `/root`, `/var/cache`,
+  `/var/log`, `/var/tmp`. `_hwRenderDisks()` now groups by
+  `device`: primary row shows first mount, extras collapse into
+  `(+N more mounts)`. Card title reports unique-device count.
+
+- **Git repos listed the same repo up to five times** (arena-bridge
+  × 3, zapret × 3, cwd × 5). Root cause: my walker in
+  `probe_agent_ctx.get_git_repos()` followed symlinks
+  (`~/cwd → ~/arena-bridge`) and re-discovered repos through
+  every alias. Fix: `_walk()` now skips symlinks entirely AND
+  deduplicates found repos by `path.resolve()` before appending.
+  Regression guard: `test_git_repos_dedupes_symlinked_paths`.
+  Same fix applied to `get_python_venvs()`.
+
+- **Kernel modules card said "top 156 by size" but rendered
+  only 12.** Header used the raw payload length instead of the
+  actual row count. Now says `"top 12 by size"`, matching what
+  the card actually shows.
+
+- **Kernel errors card had empty rows** like
+  `2026-07-16T01:38:10+05:00 cachyos-x8664 kernel:` (empty body).
+  New `_has_message_body()` helper skips journalctl / dmesg lines
+  whose payload after `progname[pid]:` is empty. Regression guard:
+  `test_dmesg_filters_empty_message_bodies`.
+
+- **Services card had empty bullet points in Rendered mode.** The
+  `.md-render-in-pre` CSS styling for `<ul>` / `<li>` was scoped
+  to `pre.md-render-in-pre` selectors, but v3.87.2 changed the
+  Full Inventory container from `<pre>` to `<div>`. Scope
+  broadened to `.md-render-in-pre` (any tag), plus `list-style`
+  and `padding-left` recalibrated so disc bullets actually
+  render outside the list-item box.
+
+- **Overview stat `Bridge Version` displayed `3.88.4` (no `v`
+  prefix)** while every other version reference had one. Added
+  the `v` prefix in `04-overview.js::refreshOverview()`.
+
+### Test
+
+- Three new regression guards in `tests/test_probe_agent_ctx.py`
+  (git repo dedup, kernel message body filter).
+
+- **~1040 tests passed.**
+
+### Live-verified
+
+Bridge at v3.88.5: `/v1/hardware.cpu.cores=4, threads=4` on the
+reference host; Cards show `4 physical · 4 logical · x86_64`.
+GPU card shows `NVIDIA GeForce GTX 1050 Ti · 4096 MB VRAM` (not
+the PCI slot string). Storage card shows one row for the btrfs
+device with `(+6 more mounts)`. Git repos live output shows 12
+unique repos (was 30 with dupes). Kernel modules header says
+`top 12 by size`. Services list bullets render as filled discs.
+
 ## v3.88.4 - 2026-07-16
 
 ### Added — ten new agent-context probes

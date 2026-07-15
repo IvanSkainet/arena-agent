@@ -9,10 +9,26 @@ from unittest.mock import patch
 
 
 def _mod():
-    if "arena.inventory.probe_agent_ctx" in sys.modules:
-        del sys.modules["arena.inventory.probe_agent_ctx"]
-    from arena.inventory import probe_agent_ctx  # noqa: E402
-    return probe_agent_ctx
+    """Return a namespace that unions probe_agent_ctx + probe_agent_sys
+    so old tests that call m.get_dmesg_errors / m.get_virtualization
+    keep working after the v3.88.5 module split."""
+    for name in ("arena.inventory.probe_agent_ctx",
+                 "arena.inventory.probe_agent_sys"):
+        if name in sys.modules:
+            del sys.modules[name]
+    from arena.inventory import probe_agent_ctx, probe_agent_sys  # noqa: E402
+    ns = SimpleNamespace()
+    for src in (probe_agent_ctx, probe_agent_sys):
+        for attr in dir(src):
+            if not attr.startswith("_") or attr in ("_has_message_body",):
+                setattr(ns, attr, getattr(src, attr))
+    # Also expose the raw modules so patch.object(m.platform)-style
+    # tests can find `platform`. Both files import the same one via
+    # `from probe_common import *`; use ctx as the canonical.
+    ns.platform = probe_agent_ctx.platform
+    ns._which = probe_agent_ctx._which
+    ns._run = probe_agent_ctx._run
+    return ns
 
 
 def test_all_probes_return_available_dict():
@@ -121,9 +137,11 @@ def test_virtualization_returns_type():
 
 def test_dmesg_off_linux():
     m = _mod()
-    with patch.object(m, "platform") as pm:
+    # dmesg lives in probe_agent_sys after the v3.88.5 split.
+    from arena.inventory import probe_agent_sys as sys_mod
+    with patch.object(sys_mod, "platform") as pm:
         pm.system.return_value = "Windows"
-        r = m.get_dmesg_errors()
+        r = sys_mod.get_dmesg_errors()
     assert r["available"] is False
     assert "linux" in r["error"].lower()
 
@@ -148,9 +166,10 @@ def test_dns_resolvers_returns_nameservers_list():
 
 
 def test_git_repos_handles_no_git_binary():
-    m = _mod()
-    with patch.object(m, "_which", return_value=None):
-        r = m.get_git_repos()
+    _mod()
+    from arena.inventory import probe_agent_ctx as ctx_mod
+    with patch.object(ctx_mod, "_which", return_value=None):
+        r = ctx_mod.get_git_repos()
     assert r["available"] is False
     assert "git" in r["error"].lower()
 
@@ -229,3 +248,42 @@ def test_text_format_screens_no_json_dump():
         if line.strip().startswith("screen"):
             assert "{" not in line, f"screen line contains raw JSON: {line}"
             assert "DP-1" in line
+
+
+# ---------- v3.88.5 fixes -------------------------------------------------
+
+def test_git_repos_dedupes_symlinked_paths(tmp_path):
+    """v3.88.5: ~/cwd -> ~/arena-bridge symlinks should NOT create a
+    duplicate git repo entry. And a repo under a bind mount should
+    only appear once."""
+    m = _mod()
+    real_repo = tmp_path / "real_repo"
+    real_repo.mkdir()
+    (real_repo / ".git").mkdir()
+    # Symlink to the same repo
+    symlink = tmp_path / "cwd_link"
+    try:
+        symlink.symlink_to(real_repo)
+    except (OSError, NotImplementedError):
+        # Windows without dev-mode: skip
+        return
+    r = m.get_git_repos(scan_root=str(tmp_path))
+    paths_resolved = [str(__import__("pathlib").Path(p["path"]).resolve())
+                      for p in r["repos"]]
+    # Only one entry, and it points at the real repo.
+    assert len(paths_resolved) == 1, (
+        f"Expected 1 repo, got {len(paths_resolved)}: {paths_resolved}"
+    )
+
+
+def test_dmesg_filters_empty_message_bodies():
+    """v3.88.5: lines like '... cachyos-x8664 kernel:' with an empty
+    body must not appear in the errors list."""
+    from arena.inventory.probe_agent_sys import _has_message_body
+    assert _has_message_body("2026-07-16T01:38:10+05:00 cachyos-x8664 kernel: TDX not supported")
+    assert not _has_message_body("2026-07-16T01:38:10+05:00 cachyos-x8664 kernel:")
+    assert not _has_message_body("2026-07-16T06:18:11+05:00 cachyos-x8664 kernel: ")
+    assert _has_message_body("systemd[1]: Started foo.service")
+    assert not _has_message_body("systemd[1]: ")
+    # Non-log lines pass through (defensive default).
+    assert _has_message_body("some plain message")

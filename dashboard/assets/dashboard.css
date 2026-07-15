@@ -97,13 +97,13 @@ pre.mono-inset{background:var(--surface-inset);color:var(--green);padding:6px;ma
 /* Container mixing raw text (whitespace preserved) with rendered
    Markdown tags inside. Headings get sans-serif so they stand out
    above monospaced payload lines. Lists reset their padding. */
-pre.md-render-in-pre{white-space:pre-wrap;word-break:break-word}
-pre.md-render-in-pre h1,pre.md-render-in-pre h2,pre.md-render-in-pre h3,pre.md-render-in-pre h4,pre.md-render-in-pre h5,pre.md-render-in-pre h6{font-family:var(--sans);color:var(--purple);margin:10px 0 4px 0;font-weight:600;font-size:13px}
-pre.md-render-in-pre h1{font-size:16px;color:var(--blue)}
-pre.md-render-in-pre h2{font-size:14px;color:var(--blue)}
-pre.md-render-in-pre ul{margin:2px 0 6px 20px;padding-left:0}
-pre.md-render-in-pre li{font-family:var(--mono);font-size:12px;line-height:1.5;list-style:disc}
-pre.md-render-in-pre code{background:var(--bg);padding:1px 4px;border-radius:3px;font-size:11px}
-pre.md-render-in-pre a{color:var(--blue);text-decoration:underline}
-pre.md-render-in-pre strong{color:var(--text);font-weight:600}
-pre.md-render-in-pre hr{border:0;border-top:1px solid var(--accent);margin:8px 0}
+.md-render-in-pre{white-space:pre-wrap;word-break:break-word}
+.md-render-in-pre h1,.md-render-in-pre h2,.md-render-in-pre h3,.md-render-in-pre h4,.md-render-in-pre h5,.md-render-in-pre h6{font-family:var(--sans);color:var(--purple);margin:10px 0 4px 0;font-weight:600;font-size:13px}
+.md-render-in-pre h1{font-size:16px;color:var(--blue)}
+.md-render-in-pre h2{font-size:14px;color:var(--blue)}
+.md-render-in-pre ul{margin:2px 0 6px 0;padding-left:24px;list-style-position:outside}
+.md-render-in-pre li{font-family:var(--mono);font-size:12px;line-height:1.5;list-style:disc outside;color:var(--text);display:list-item}
+.md-render-in-pre code{background:var(--bg);padding:1px 4px;border-radius:3px;font-size:11px}
+.md-render-in-pre a{color:var(--blue);text-decoration:underline}
+.md-render-in-pre strong{color:var(--text);font-weight:600}
+.md-render-in-pre hr{border:0;border-top:1px solid var(--accent);margin:8px 0}
