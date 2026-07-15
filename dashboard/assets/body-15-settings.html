@@ -112,6 +112,26 @@
   <summary style="cursor:pointer;font-size:12px;color:#666">Release notes</summary>
   <div id="adminUpdateReleaseBody" style="margin-top:6px;font-size:12px;max-height:280px;overflow:auto;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:4px;display:none;white-space:pre-wrap"></div>
 </details>
+<details style="margin-top:10px;font-size:12px;color:#666">
+  <summary style="cursor:pointer">How to enable SHA-256 verified installs (add GITHUB_TOKEN)</summary>
+  <div style="margin-top:6px;padding:8px;background:#fafafa;border-radius:4px">
+    <p>Without a token, updates use the anonymous <code>/releases/latest</code> redirect path — GitHub does not publish SHA-256 digests there, so the Install button stays disabled to keep verification mandatory. To enable verified installs:</p>
+    <ol style="margin:6px 0 6px 20px;padding:0">
+      <li>Create a personal access token at <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a> — fine-grained token with <em>Contents: read-only</em> on the <code>arena-agent</code> repo is enough (no other scopes).</li>
+      <li>Add it to the bridge's environment. Systemd example:
+        <pre class="mono" style="font-size:11px;background:#f0f0f0;padding:6px;border-radius:4px;margin:4px 0;white-space:pre-wrap">systemctl --user edit arena-bridge
+# add:
+[Service]
+Environment="GITHUB_TOKEN=github_pat_..."
+# save, then:
+systemctl --user restart arena-bridge</pre>
+      </li>
+      <li>Windows service (nssm) example: use nssm's Environment tab to set <code>GITHUB_TOKEN=...</code> and restart the service.</li>
+      <li>Docker/Podman example: pass <code>-e GITHUB_TOKEN=github_pat_...</code> at run time.</li>
+    </ol>
+    <p><code>GH_TOKEN</code> (from <code>gh auth login</code>) is also accepted as a fallback.</p>
+  </div>
+</details>
 </div>
 
 <div class="card">
@@ -160,7 +180,7 @@
     <pre class="mono" style="font-size:11px;background:#f0f0f0;padding:6px;border-radius:4px;margin:6px 0;white-space:pre-wrap">curl -H "Authorization: Bearer agent-XXXXXXXX-YYYYYYYYYYYYYYYY" \
      https://your-bridge.example/v1/mobile/devices</pre>
     <p style="margin:2px 0">The agent token works on every endpoint EXCEPT <code>/v1/agents/*</code> (management still requires master).</p>
-    <p style="margin:2px 0">Full docs: <a href="/gui/assets/../docs/MULTIAGENT.md" target="_blank">docs/MULTIAGENT.md</a></p>
+    <p style="margin:2px 0">Full docs: <a href="/gui/docs/MULTIAGENT.md" target="_blank" rel="noopener">docs/MULTIAGENT.md</a></p>
   </div>
 </details>
 </div>

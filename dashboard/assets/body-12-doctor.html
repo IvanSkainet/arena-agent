@@ -3,6 +3,7 @@
 <div class="row" style="margin-bottom:12px">
 <button onclick="runDoctor()">Run Diagnostics</button>
 <button class="warning" onclick="doctorFix()">Auto-Fix Issues</button>
+<button onclick="doctorLoadHardware()">🖥 Refresh Hardware</button>
 </div>
 <div class="card">
 <h2>Service Status</h2>
@@ -15,6 +16,23 @@
      target it still find *something* rather than throwing. -->
 <div id="doctorTailscale" style="display:none">Loading...</div>
 </div>
+
+<!-- v3.86.3: cross-platform hardware diagnostics. Populated by
+     doctorLoadHardware() which hits /v1/hardware. -->
+<div class="card">
+<h2 style="display:flex;align-items:center;gap:10px">
+  Hardware
+  <span id="hwGeneratedAt" style="font-size:11px;color:#999;font-weight:400"></span>
+</h2>
+<div id="hwCards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+  <div style="color:#999;font-size:12px">Loading hardware inventory…</div>
+</div>
+<details style="margin-top:12px">
+  <summary style="cursor:pointer;font-size:12px;color:#666">Raw JSON (for the AI agent / diagnostics)</summary>
+  <pre id="hwRawJson" class="mono" style="font-size:11px;background:#fafafa;padding:8px;border-radius:4px;max-height:400px;overflow:auto;margin-top:6px">(not loaded yet)</pre>
+</details>
+</div>
+
 <div id="doctorResults"></div>
 </div>
 

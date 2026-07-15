@@ -115,17 +115,32 @@ def fetch_asset_size(asset_url: str) -> int | None:
         return None
 
 
-def fetch_changelog_section(repo: str, tag: str) -> str | None:
-    """Pull the first `## v<version>` block for `tag` out of
-    CHANGELOG.md via raw.githubusercontent.com.
+def fetch_changelog_section(repo: str, tag: str,
+                            *, fallback_top_n: int = 3) -> str | None:
+    """Pull the CHANGELOG.md section for `tag` via raw.githubusercontent.com.
 
     raw.githubusercontent.com is unauthenticated + not rate-limited
     (verified 2026-07). Tries `master` first, then `main`. Cap at 4 KB.
-    Returns None on any failure -- release notes are best-effort.
+
+    Strategy:
+      1. Look for `## v<version>` -- exact match.
+      2. If not found (common when the release script forgot to
+         prepend the new block), return the first `fallback_top_n`
+         blocks with a "(showing latest N entries, exact block for
+         v<version> not found)" preamble so the user still sees
+         *something* useful in the Dashboard.
+      3. If CHANGELOG.md doesn't exist at all, return None.
+
+    Returns None on total failure -- release notes are best-effort.
     """
     version = tag.lstrip("vV").split("-")[0]
-    pattern = re.compile(
+    exact_pattern = re.compile(
         r"^##\s+v?" + re.escape(version) + r"(?:[^\n]*)\n(.*?)(?=^##\s+|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    # A generic "any ## v..." pattern used by the fallback path.
+    any_pattern = re.compile(
+        r"^(##\s+v[^\n]*)\n(.*?)(?=^##\s+|\Z)",
         re.MULTILINE | re.DOTALL,
     )
     for branch in ("master", "main"):
@@ -137,9 +152,27 @@ def fetch_changelog_section(repo: str, tag: str) -> str | None:
                 text = resp.read().decode("utf-8", "replace")
         except Exception:
             continue
-        m = pattern.search(text)
+        # Exact match path.
+        m = exact_pattern.search(text)
         if m:
             return m.group(1).strip()[:4000]
+        # Fallback: return the last N ## v-blocks so the Dashboard
+        # isn't blank when the CHANGELOG hasn't been updated for the
+        # latest tag yet. Prefixed with a note so the user knows it's
+        # not an exact match.
+        blocks = any_pattern.findall(text)
+        if blocks:
+            preamble = (
+                f"_Exact block for v{version} not published in "
+                "CHANGELOG.md yet -- showing the most recent "
+                f"{min(fallback_top_n, len(blocks))} entries._\n\n"
+            )
+            picked = blocks[:fallback_top_n]
+            joined = "\n\n".join(
+                f"{header}\n{body.strip()}"
+                for header, body in picked
+            )
+            return (preamble + joined)[:4000]
     return None
 
 

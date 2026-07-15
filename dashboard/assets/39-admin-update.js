@@ -117,7 +117,7 @@ function _adminUpdateRenderStatus(status, check) {
   const rows = [
     ["Repository",   check && check.repo || (status && status.repo) || "?"],
     ["Install root", status && status.install_root || "?"],
-    ["Platform",     status && status.platform || "?"],
+    ["Platform",     (status && (status.platform_display || status.platform)) || "?"],
     ["Source",       check && check.source || "not yet checked"],
     ["Published",    check && _adminUpdateFormatDate(check.published_at)],
     ["Asset",        check && check.asset_name || "?"],

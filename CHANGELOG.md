@@ -1,3 +1,46 @@
+## v3.86.3 - 2026-07-15
+
+### Fixed
+
+- **Auto-update: release notes finally show something useful.**
+  The anonymous `/releases/latest` redirect path used to return an
+  empty body when the requested tag wasn't yet in CHANGELOG.md. Now
+  we fall back to the last three `## v...` blocks with a preamble
+  saying "exact block for vX.Y.Z not published yet". The Dashboard
+  renders it as light Markdown so bold, italics, links and inline
+  code all read normally.
+- **Auto-update: SHA-256 verification instructions.** New collapsible
+  "How to enable SHA-256 verified installs (add GITHUB_TOKEN)" panel
+  in the Settings card walks through systemd / nssm / Docker
+  environment injection. Without a token the Install button stays
+  disabled (as before) but the reason is now obvious.
+- **Dashboard: docs/ finally serves.** New `GET /gui/docs/{path}`
+  handler exposes the repo's `docs/` directory (read-only,
+  path-traversal guarded). Fixes the 404 on
+  `/gui/docs/MULTIAGENT.md` from the Multi-agent panel.
+- **Dashboard: hardware inventory finally rendered.** Doctor tab
+  gains a full Hardware card that turns the existing `/v1/hardware`
+  JSON into readable per-subsystem cards (OS, CPU, Memory, GPU,
+  Storage with usage bars, Thermal, Motherboard/BIOS, Network,
+  Package managers, Runtimes, Browsers). Full JSON kept below the
+  cards in a `<details>` block for the AI agent + deep debugging.
+- **Nomenclature: "GNU/Linux" instead of "Linux" in the UI.**
+  Machine-readable `platform` field is unchanged (`linux`); only the
+  display string flips (`platform_display: "GNU/Linux"`). macOS also
+  gets a proper display name.
+- **Multi-agent placeholder is now neutral.** Removed a
+  user-specific example that made the UI feel like it was built for
+  one person.
+
+### Not fixed here
+
+- Live screen mirror stays flagged EXPERIMENTAL. See v3.86.1 notes
+  for the reasoning; a real replacement lands in Phase 3.
+- Cloudflared quick tunnels (started with `--url`) remain
+  intermittent -- that's an upstream limitation, not our code.
+  Named tunnels are the production path; the Cloudflared card in
+  Settings will grow explicit UI for that in a follow-up.
+
 # Changelog
 
 ## v3.84.6 - 2026-07-15

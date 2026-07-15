@@ -21,6 +21,8 @@ def register_compat_routes(app: web.Application, h: Mapping[str, Callable]) -> N
 
     app.router.add_get("/gui", h["handle_gui"])
     app.router.add_get("/gui/assets/{path:.*}", h["handle_gui_asset"])
+    # v3.86.3: expose docs/ so Dashboard links to /gui/docs/*.md resolve.
+    app.router.add_get("/gui/docs/{path:.*}", h["handle_gui_docs"])
     app.router.add_post("/mcp", h["handle_mcp_post"])
     app.router.add_delete("/mcp", h["handle_mcp_delete"])
     app.router.add_get("/sse", h["handle_sse"])

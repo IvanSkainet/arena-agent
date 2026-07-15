@@ -22,6 +22,7 @@ _ALWAYS_EXPORTED = {
     "handle_gui",
     "handle_gui_v2",
     "handle_gui_asset",
+    "handle_gui_docs",
 }
 
 

@@ -17,6 +17,7 @@ class GuiHandlers:
     gui: object
     gui_v2: object
     gui_asset: object
+    gui_docs: object
 
 
 def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
@@ -52,6 +53,36 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
             ".png": "image/png",
         }.get(suffix, "application/octet-stream")
         return web.FileResponse(asset_path, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
+
+    async def handle_gui_docs(request: web.Request) -> web.Response:
+        """GET /gui/docs/{path} — expose the repo's docs/ directory
+        so Dashboard links like ``docs/MULTIAGENT.md`` actually
+        resolve. Read-only, path-traversal guarded. v3.86.3."""
+        rel = request.match_info.get("path", "")
+        docs_root = (Path(ctx.bridge_dir) / "docs").resolve()
+        docs_path = (docs_root / rel).resolve()
+        try:
+            docs_path.relative_to(docs_root)
+        except ValueError:
+            return web.Response(status=404, text="not found")
+        if not docs_path.is_file():
+            return web.Response(status=404, text="not found")
+        suffix = docs_path.suffix.lower()
+        content_type = {
+            ".md":   "text/markdown; charset=utf-8",
+            ".txt":  "text/plain; charset=utf-8",
+            ".html": "text/html; charset=utf-8",
+            ".svg":  "image/svg+xml",
+            ".png":  "image/png",
+        }.get(suffix, "application/octet-stream")
+        return web.FileResponse(
+            docs_path,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": "no-store",
+                "Content-Type": content_type,
+            },
+        )
 
     async def handle_gui(request: web.Request) -> web.Response:
         """GET /gui — Dashboard. Shows login page if no valid URL token, then serves dashboard."""
@@ -101,4 +132,9 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         except Exception:
             return ctx.cors_json_response({"ok": False, "error": "Internal server error"}, status=500)
 
-    return GuiHandlers(gui=handle_gui, gui_v2=handle_gui_v2, gui_asset=handle_gui_asset)
+    return GuiHandlers(
+        gui=handle_gui,
+        gui_v2=handle_gui_v2,
+        gui_asset=handle_gui_asset,
+        gui_docs=handle_gui_docs,
+    )

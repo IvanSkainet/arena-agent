@@ -32,16 +32,28 @@ def make_update_handlers(ctx):
         ctx.record_request()
         from arena.constants import VERSION
         import platform
+        sysname = platform.system().lower()
+        # v3.86.3: show "GNU/Linux" instead of just "Linux" for
+        # Linux hosts; keep the machine-readable `platform` field as
+        # `linux` because downstream code branches on it, but expose
+        # a `platform_display` for the UI. Same principle for
+        # macOS ("darwin" -> "macOS").
+        display_map = {
+            "linux":   "GNU/Linux",
+            "darwin":  "macOS",
+            "windows": "Windows",
+        }
         payload = {
             "ok": True,
             "current": VERSION,
             "repo": _upd._repo(),
             "install_root": str(_upd._install_root()),
-            "platform": platform.system().lower(),
+            "platform": sysname,
+            "platform_display": display_map.get(sysname, sysname.capitalize()),
             "restart_hint": (
                 "Windows: service supervisor (nssm / Windows service) "
                 "will relaunch after apply."
-                if platform.system().lower() == "windows"
+                if sysname == "windows"
                 else "systemd / launchd will restart automatically on exit."
             ),
         }
