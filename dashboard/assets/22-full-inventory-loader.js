@@ -88,6 +88,17 @@ function _invBuildCards(inv) {
   push("updates_available",_hwRenderUpdates && _hwRenderUpdates(inv.updates_available));
   push("logged_users",     _hwRenderLoggedUsers && _hwRenderLoggedUsers(inv.logged_users));
   push("cpu_vulnerabilities", _hwRenderCpuVulns && _hwRenderCpuVulns(inv.cpu_vulnerabilities));
+  // v3.88.4 agent context probes
+  push("virtualization",   _hwRenderVirt && _hwRenderVirt(inv.virtualization));
+  push("time_sync",        _hwRenderTimeSync && _hwRenderTimeSync(inv.time_sync));
+  push("firewall_status",  _hwRenderFirewall && _hwRenderFirewall(inv.firewall_status));
+  push("dns_resolvers",    _hwRenderDns && _hwRenderDns(inv.dns_resolvers));
+  push("env_secret_names", _hwRenderEnvSecrets && _hwRenderEnvSecrets(inv.env_secret_names));
+  push("python_venvs",     _hwRenderVenvs && _hwRenderVenvs(inv.python_venvs));
+  push("git_repos",        _hwRenderGitRepos && _hwRenderGitRepos(inv.git_repos));
+  push("crontab_entries",  _hwRenderCrontab && _hwRenderCrontab(inv.crontab_entries));
+  push("dmesg_errors",     _hwRenderKernelErrors && _hwRenderKernelErrors(inv.dmesg_errors));
+  push("journal_errors",   _hwRenderJournalErrors && _hwRenderJournalErrors(inv.journal_errors));
   push("services",         _hwRenderServices && _hwRenderServices(inv.services));
   push("kernel_modules",   _hwRenderKernelModules && _hwRenderKernelModules(inv.kernel_modules));
   push("runtimes",         _hwRenderExtra && "");  // covered by _hwRenderExtra below

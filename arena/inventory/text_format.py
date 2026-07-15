@@ -224,9 +224,14 @@ def format_text(data: dict) -> str:
 
     if data.get("kernel_modules", {}).get("available"):
         km = data["kernel_modules"]
-        lines.append(f"\n### Kernel modules ({km.get('count', 0)} loaded, "
-                     f"showing top {len(km.get('modules', []))})")
-        for mod in km.get("modules", [])[:15]:
+        total = km.get("count", 0)
+        modules = km.get("modules", [])
+        shown = min(15, len(modules))
+        # Bug in v3.88.3 header: said "showing top 156" even though the
+        # loop only rendered 15. Now the header matches reality.
+        lines.append(f"\n### Kernel modules ({total} loaded, "
+                     f"showing top {shown} by size)")
+        for mod in modules[:shown]:
             lines.append(f"  {mod['name']:<28} {mod['size_bytes']:>10} B  "
                          f"used by {mod['used_count']}")
 
@@ -293,6 +298,102 @@ def format_text(data: dict) -> str:
             short = str(status).split(";")[0].strip()
             lines.append(f"  {name:<20} {short}")
 
+    if data.get("virtualization", {}).get("available"):
+        v = data["virtualization"]
+        lines.append("\n### Virtualization")
+        lines.append(f"  Type       : {v.get('type', 'unknown')}")
+        if v.get("hypervisor"): lines.append(f"  Hypervisor : {v['hypervisor']}")
+        if v.get("container"):  lines.append(f"  Container  : {v['container']}")
+        if v.get("model"):      lines.append(f"  Model      : {v['model']}")
+
+    if data.get("time_sync", {}).get("available"):
+        t = data["time_sync"]
+        lines.append("\n### Time sync (NTP)")
+        for k in ("NTPSynchronized", "ntp_synchronized", "server",
+                  "reference_time", "offset", "stratum", "leap_status",
+                  "Timezone", "poll_interval"):
+            if t.get(k):
+                lines.append(f"  {k:<20} {t[k]}")
+
+    if data.get("firewall_status", {}).get("available"):
+        f = data["firewall_status"]
+        lines.append("\n### Firewall")
+        lines.append(f"  Backend  : {f.get('backend', '?')}")
+        lines.append(f"  Active   : {'yes' if f.get('active') else 'no'}")
+        for p in f.get("profiles", []):
+            lines.append(f"    {p['name']:<12} {'enabled' if p['enabled'] else 'disabled'}")
+        for k, v in (f.get("rule_summary") or {}).items():
+            lines.append(f"    {k:<20} {v}")
+
+    if data.get("dns_resolvers", {}).get("available"):
+        d = data["dns_resolvers"]
+        lines.append("\n### DNS resolvers")
+        for i, ns in enumerate(d.get("nameservers", []), 1):
+            lines.append(f"  ns{i}       : {ns}")
+        if d.get("search"): lines.append(f"  search    : {' '.join(d['search'])}")
+        if d.get("hosts_entry_count") is not None:
+            lines.append(f"  hosts     : {d['hosts_entry_count']} entries")
+
+    if data.get("env_secret_names", {}).get("available"):
+        es = data["env_secret_names"]
+        lines.append(f"\n### Env secret NAMES ({es.get('count', 0)} "
+                     f"credential vars + {len(es.get('file_refs', []))} file refs)")
+        lines.append("  (values are NEVER exposed -- only variable names)")
+        for name in es.get("names", []):
+            lines.append(f"  cred: {name}")
+        for name in es.get("file_refs", []):
+            lines.append(f"  file: {name}")
+
+    if data.get("python_venvs", {}).get("available"):
+        v = data["python_venvs"]
+        lines.append(f"\n### Python venvs ({len(v.get('venvs', []))})")
+        for env in v.get("venvs", []):
+            pyv = (env.get("python_version") or "?").split(" ")[0]
+            lines.append(f"  [{pyv:<10}] {env.get('path', '?')} · "
+                         f"{env.get('package_count', 0)} pkgs")
+
+    if data.get("git_repos", {}).get("available"):
+        g = data["git_repos"]
+        lines.append(f"\n### Git repos ({len(g.get('repos', []))})")
+        for r in g.get("repos", []):
+            parts = [f"branch={r.get('branch', '?')}"]
+            if r.get("dirty_files") is not None:
+                parts.append(f"dirty={r['dirty_files']}")
+            if r.get("ahead") is not None and r.get("behind") is not None:
+                parts.append(f"↑{r['ahead']} ↓{r['behind']}")
+            lines.append(f"  {r.get('path', '?')}")
+            lines.append(f"    {' · '.join(parts)}")
+            if r.get("last_commit"):
+                lines.append(f"    last: {r['last_commit']}")
+
+    if data.get("crontab_entries", {}).get("available"):
+        c = data["crontab_entries"]
+        u = c.get("user_entries") or []
+        s = c.get("system_entries") or []
+        lines.append(f"\n### Crontab (user: {len(u)}, system: {len(s)})")
+        for entry in u:
+            lines.append(f"  [user] {entry}")
+        for entry in s[:15]:
+            lines.append(f"  [sys]  {entry}")
+
+    if data.get("dmesg_errors", {}).get("available"):
+        de = data["dmesg_errors"]
+        errs = de.get("errors", [])
+        lines.append(f"\n### Kernel errors (last {len(errs)})")
+        if not errs:
+            lines.append("  (clean)")
+        for e in errs[:15]:
+            lines.append(f"  {e}")
+
+    if data.get("journal_errors", {}).get("available"):
+        je = data["journal_errors"]
+        errs = je.get("errors", [])
+        lines.append(f"\n### Journal errors (last hour, {len(errs)})")
+        if not errs:
+            lines.append("  (clean)")
+        for e in errs[:15]:
+            lines.append(f"  {e}")
+
     if "network" in data:
         n = data["network"]
         lines.append("\n### Network")
@@ -321,18 +422,29 @@ def format_text(data: dict) -> str:
         for k, v in d.items():
             if k != "screens":
                 lines.append(f"  {k:<22} {v}")
+        # v3.88.4: was dumping raw JSON for each screen. Format
+        # per-screen fields cleanly.
         for s in d.get("screens", []) or []:
-            lines.append(f"  screen                 {s}")
+            if isinstance(s, dict):
+                parts = []
+                if s.get("output"): parts.append(s["output"])
+                if s.get("geometry"): parts.append(s["geometry"])
+                if s.get("resolution"): parts.append(s["resolution"])
+                if s.get("name"): parts.append(s["name"])
+                lines.append(f"  screen                 {' · '.join(parts) if parts else s}")
+            else:
+                lines.append(f"  screen                 {s}")
 
     if "services" in data and data["services"]:
         lines.append("\n### Services")
         for k, v in data["services"].items():
             if isinstance(v, list):
+                # v3.88.4: no more "... and N more" tail. If we have
+                # room, print all of them (systemd instances are
+                # usually 30-80 units -- still readable).
                 lines.append(f"  {k} ({len(v)}):")
-                for item in v[:10]:
+                for item in v:
                     lines.append(f"      - {item}")
-                if len(v) > 10:
-                    lines.append(f"      ... and {len(v) - 10} more")
             else:
                 lines.append(f"  {k}: {v}")
 

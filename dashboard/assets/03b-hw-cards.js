@@ -458,3 +458,110 @@ function _hwRenderExtra(hw) {
   return extras.join("");
 }
 
+
+// v3.88.4 renderers -------------------------------------------------
+
+function _hwRenderVirt(v) {
+  if (!v || !v.available) return "";
+  const rows = [["Type", _hwEsc(v.type || "unknown")]];
+  if (v.hypervisor) rows.push(["Hypervisor", _hwEsc(v.hypervisor)]);
+  if (v.container) rows.push(["Container", _hwEsc(v.container)]);
+  if (v.model) rows.push(["Model", _hwEsc(v.model)]);
+  return _hwCard("Virtualization", rows);
+}
+
+function _hwRenderTimeSync(t) {
+  if (!t || !t.available) return "";
+  const rows = [];
+  const keys = ["NTPSynchronized", "ntp_synchronized", "server",
+                "reference_time", "offset", "stratum", "leap_status",
+                "Timezone", "poll_interval"];
+  keys.forEach(k => { if (t[k]) rows.push([_hwEsc(k), _hwEsc(t[k])]); });
+  if (!rows.length && t.output) rows.push(["output", _hwEsc(t.output.slice(0, 300))]);
+  return rows.length ? _hwCard("Time sync (NTP)", rows) : "";
+}
+
+function _hwRenderFirewall(f) {
+  if (!f || !f.available) return "";
+  const rows = [
+    ["Backend", _hwEsc(f.backend || "?")],
+    ["Active", f.active ? "yes" : "no"],
+  ];
+  if (f.profiles) {
+    f.profiles.forEach(p => rows.push([_hwEsc(p.name),
+                                        p.enabled ? "enabled" : "disabled"]));
+  }
+  Object.entries(f.rule_summary || {}).forEach(([k, v]) =>
+    rows.push([_hwEsc(k), _hwEsc(String(v))]));
+  return _hwCard("Firewall", rows);
+}
+
+function _hwRenderDns(d) {
+  if (!d || !d.available) return "";
+  const rows = [];
+  (d.nameservers || []).forEach((ns, i) => rows.push(["ns" + (i + 1), _hwEsc(ns)]));
+  if (d.search && d.search.length) rows.push(["search", _hwEsc(d.search.join(" "))]);
+  if (d.hosts_entry_count != null) rows.push(["/etc/hosts", d.hosts_entry_count + " entries"]);
+  return rows.length ? _hwCard("DNS resolvers", rows) : "";
+}
+
+function _hwRenderEnvSecrets(es) {
+  if (!es || !es.available) return "";
+  const rows = [["Credentials", String(es.count || 0)]];
+  (es.names || []).slice(0, 20).forEach(n => rows.push(["", _hwEsc(n)]));
+  const files = es.file_refs || [];
+  if (files.length) {
+    rows.push(["Files ↓", String(files.length)]);
+    files.slice(0, 10).forEach(n => rows.push(["", _hwEsc(n)]));
+  }
+  return _hwCard("Env secret NAMES (values never exposed)", rows);
+}
+
+function _hwRenderVenvs(v) {
+  if (!v || !v.available) return "";
+  const rows = [];
+  (v.venvs || []).forEach(env => {
+    rows.push([_hwEsc((env.python_version || "?").split(" ")[0]),
+               _hwEsc(env.path) + " · " + (env.package_count || 0) + " pkgs"]);
+  });
+  return rows.length ? _hwCard("Python venvs (" + rows.length + ")", rows) : "";
+}
+
+function _hwRenderGitRepos(g) {
+  if (!g || !g.available) return "";
+  const rows = [];
+  (g.repos || []).forEach(r => {
+    const parts = [_hwEsc(r.branch || "?")];
+    if (r.dirty_files != null) parts.push(r.dirty_files + " dirty");
+    if (r.ahead != null && r.behind != null) parts.push("↑" + r.ahead + " ↓" + r.behind);
+    rows.push([_hwEsc(r.path.split("/").slice(-1)[0]), parts.join(" · ")]);
+    if (r.last_commit) rows.push(["  last", _hwEsc(r.last_commit)]);
+  });
+  return rows.length ? _hwCard("Git repos (" + (g.repos || []).length + ")", rows) : "";
+}
+
+function _hwRenderCrontab(c) {
+  if (!c || !c.available) return "";
+  const rows = [];
+  (c.user_entries || []).forEach(e => rows.push(["user", _hwEsc(e)]));
+  (c.system_entries || []).slice(0, 15).forEach(e => rows.push(["sys", _hwEsc(e)]));
+  if (!rows.length) return _hwCard("Crontab", [["state", "no cron entries"]]);
+  return _hwCard("Crontab (" + rows.length + ")", rows);
+}
+
+function _hwRenderKernelErrors(k) {
+  if (!k || !k.available) return "";
+  const rows = (k.errors || []).slice(0, 15).map((e, i) =>
+    [String(i + 1), _hwEsc(e)]);
+  if (!rows.length) return _hwCard("Kernel errors (last)", [["state", "clean 🎉"]]);
+  return _hwCard("Kernel errors (last " + rows.length + ")", rows);
+}
+
+function _hwRenderJournalErrors(j) {
+  if (!j || !j.available) return "";
+  const rows = (j.errors || []).slice(0, 15).map((e, i) =>
+    [String(i + 1), _hwEsc(e)]);
+  if (!rows.length) return _hwCard("Journal errors (last hour)",
+                                     [["state", "clean 🎉"]]);
+  return _hwCard("Journal errors (last hour, " + rows.length + " shown)", rows);
+}

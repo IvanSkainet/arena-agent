@@ -1,3 +1,76 @@
+## v3.88.4 - 2026-07-16
+
+### Added — ten new agent-context probes
+
+New `arena/inventory/probe_agent_ctx.py` (559 lines). Every probe
+returns `{"available": bool, ...}`, never raises, degrades cleanly
+when its backend is missing. All ten are registered in `SECTIONS`,
+propagated onto `/v1/hardware`, rendered as Cards in both Doctor
+and Full Inventory, and formatted as `### sections` in the
+Markdown/text output.
+
+| Section | What it tells the agent | Backends |
+|---|---|---|
+| **`python_venvs`** | Every virtualenv under `$HOME` (depth 5): path, Python version from `pyvenv.cfg`, package count via `*.dist-info`. Agents reuse an existing venv instead of creating a new one per task. | filesystem walk |
+| **`git_repos`** | Every `.git` under `$HOME`: branch, dirty-file count, `↑ahead ↓behind`, last commit summary. Agents check nothing is uncommitted before mass edits. | `git status --porcelain` + `git rev-list --left-right --count` |
+| **`env_secret_names`** | **NAMES ONLY** of env vars matching TOKEN/SECRET/KEY/PASSWORD/PASSPHRASE/CREDENTIAL/AUTH/API_KEY/PRIVATE/CERT/SESSION/COOKIE/DSN. Values are **never** collected or serialized — see `test_env_secret_names_returns_names_only_never_values`. Agents plan around available auth ("OpenAI configured, use direct API") without touching the secret. | `os.environ` scan with allowlist for benign lookalikes (`PATH`, `SSH_AUTH_SOCK`, `PYTHONPATH`, `XDG_RUNTIME_DIR`) |
+| **`crontab_entries`** | User `crontab -l` + `/etc/crontab` + `/etc/cron.d/*` + `cron.{hourly,daily,weekly,monthly}`. Agents dodge a 03:00 backup job when planning long runs. | `crontab` + `/etc/cron.*` |
+| **`dns_resolvers`** | `/etc/resolv.conf` nameservers + search domains + `/etc/hosts` entry count + `resolvectl status` on Linux, `ipconfig /all` on Windows. Diagnose "can't reach x.y" issues fast. | file read + `resolvectl` / `ipconfig` |
+| **`dmesg_errors`** | Last 30 kernel-level errors from `journalctl -k -p err` (falls back to `dmesg --level=err,crit,alert,emerg`). Agent knows about USB disconnects, disk retries, OOM kills. | `journalctl` → `dmesg` |
+| **`journal_errors`** | Last hour of `journalctl -p err`. Which services are crashing right now? | `journalctl` |
+| **`virtualization`** | bare-metal / vm / container / wsl detection via `systemd-detect-virt`, `/proc/sys/kernel/osrelease` (WSL2), `/.dockerenv`, macOS `sysctl kern.hv_vmm_present`, Windows `Win32_ComputerSystem.Model`. Agents pick different I/O strategies. | platform-specific |
+| **`time_sync`** | NTP source, offset, drift, leap status, timezone. `timedatectl show` + `timedatectl timesync-status` → `chronyc tracking` on Linux; `sntp` on macOS; `w32tm /query /status` on Windows. TLS cert / event-stamp workflows verify clock is sane. | timedatectl / chronyc / sntp / w32tm |
+| **`firewall_status`** | Active backend (ufw / firewalld / nftables / iptables / pf / Windows Defender) + rule count summary + per-profile state on Windows. Agent knows if a listening port will be reachable. | first available CLI |
+
+### Fixed — text_format bugs surfaced by real output
+
+- **`Kernel modules (156 loaded, showing top 156)` was lying** —
+  it actually rendered only 15. Header now says `showing top 15
+  by size`. Regression guard:
+  `test_text_format_kernel_modules_header_matches_shown`.
+
+- **`Services: … and 33 more` truncation** in the text/Markdown
+  formatter (Doctor Cards had already been fixed in v3.88.1).
+  Formatter now prints every unit — systemd instances are usually
+  30–80 lines, still readable, and truncation was hiding data
+  agents needed. Regression guard:
+  `test_text_format_shows_full_service_list_not_and_more`.
+
+- **`screen: {"output":"DP-1","geometry":"2560x1440+0+0"}`** —
+  raw JSON dump for each display. Formatter now walks the dict
+  and prints `screen: DP-1 · 2560x1440+0+0`. Regression guard:
+  `test_text_format_screens_no_json_dump`.
+
+### Test
+
+- **`tests/test_probe_agent_ctx.py`** — 13 tests covering all ten
+  probes, plus **critical guard**
+  `test_env_secret_names_returns_names_only_never_values` that
+  serializes the probe output and asserts none of the seed secret
+  values appear anywhere. If someone ever adds a "helpful"
+  `first_chars` field to that probe, the test fails immediately.
+
+- **`test_hardware_normalize_exposes_v884_fields`** — verifies all
+  ten new fields land on `/v1/hardware`.
+
+- **Three text_format regression guards** for the bugs above.
+
+- **~1040 tests passed** (up from 1022).
+
+### Live-verified
+
+Bridge at v3.88.4 returns non-empty payloads for `virtualization`
+(bare-metal on the reference host), `time_sync` (server + offset),
+`firewall_status.backend='ufw'/firewalld/nftables/...`,
+`dns_resolvers` (nameservers + hosts count), `env_secret_names`
+with real env var NAMES (values verified absent in the response),
+`python_venvs`, `git_repos` with dirty-file counts,
+`crontab_entries`, `dmesg_errors`, `journal_errors`. Both Doctor
+tab and Full Inventory → 🎨 Cards render all ten new cards.
+Kernel modules header now matches shown count. Services list no
+longer truncates to "and 33 more". Screens print as human strings,
+not JSON.
+
 ## v3.88.3 - 2026-07-16
 
 ### Added

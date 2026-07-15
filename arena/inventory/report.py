@@ -12,6 +12,12 @@ from arena.inventory.probe_agent_facts import (
     get_containers, get_systemd_timers, get_network_io,
     get_updates_available, get_logged_users, get_cpu_vulnerabilities,
 )
+from arena.inventory.probe_agent_ctx import (
+    get_python_venvs, get_git_repos, get_env_secret_names,
+    get_crontab_entries, get_dns_resolvers, get_dmesg_errors,
+    get_journal_errors, get_virtualization, get_time_sync,
+    get_firewall_status,
+)
 from arena.inventory.probe_software import get_runtimes, get_package_managers, get_browsers, get_env, get_services, get_python_env
 
 SECTIONS = [
@@ -42,6 +48,16 @@ SECTIONS = [
     ("updates_available", get_updates_available),
     ("logged_users", get_logged_users),
     ("cpu_vulnerabilities", get_cpu_vulnerabilities),
+    ("virtualization", get_virtualization),
+    ("time_sync", get_time_sync),
+    ("firewall_status", get_firewall_status),
+    ("dns_resolvers", get_dns_resolvers),
+    ("env_secret_names", get_env_secret_names),
+    ("python_venvs", get_python_venvs),
+    ("git_repos", get_git_repos),
+    ("crontab_entries", get_crontab_entries),
+    ("dmesg_errors", get_dmesg_errors),
+    ("journal_errors", get_journal_errors),
     ("network", get_network),
     ("runtimes", get_runtimes),
     ("package_managers", get_package_managers),
