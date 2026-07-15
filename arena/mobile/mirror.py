@@ -71,11 +71,35 @@ class MirrorSession:
     fragments_sent: int = 0
     bytes_sent: int = 0
     keyframes_sent: int = 0
+    # v3.84.7: cache the last init segment and last keyframe fragment
+    # so a subscriber that connects mid-stream can start decoding
+    # immediately without waiting for the next screenrecord restart
+    # (which is what got them a black `<video>` before this fix).
+    last_init: bytes | None = None
+    last_keyframe: bytes | None = None
 
     def add_subscriber(self) -> asyncio.Queue:
+        """Register a new subscriber and pre-seed its queue with the
+        cached init segment + last keyframe (if any). Without the
+        seed, a subscriber that connects mid-stream would receive
+        only P-frames until the next screenrecord restart, and
+        MediaSource would show a black video element indefinitely."""
         q: asyncio.Queue = asyncio.Queue(maxsize=32)
         with self.subscribers_lock:
             self.subscribers.add(q)
+        if self.last_init is not None:
+            # A subscriber MUST see the init marker before it processes
+            # the init segment bytes -- the client uses that marker to
+            # (re)create the MediaSource SourceBuffer.
+            try:
+                q.put_nowait(_INIT_MARKER)
+                q.put_nowait(self.last_init)
+                if self.last_keyframe is not None:
+                    q.put_nowait(self.last_keyframe)
+            except asyncio.QueueFull:
+                # Impossible on a fresh queue with maxsize=32, but
+                # defensive.
+                pass
         return q
 
     def remove_subscriber(self, q: asyncio.Queue) -> None:
@@ -130,8 +154,14 @@ async def _pump_pipeline(session: MirrorSession) -> None:
              session.serial)
 
     def _on_init(payload: bytes) -> None:
-        # Tell subscribers to reset their SourceBuffer, then hand them
-        # the freshly-built ftyp+moov.
+        # Cache the init segment so late-joining subscribers get it
+        # too. Then tell current subscribers to reset their
+        # SourceBuffer and hand them the freshly-built ftyp+moov.
+        # We deliberately DROP any previously cached keyframe here --
+        # it belonged to the old init and would fail to decode against
+        # the new one (different SPS, different codec config).
+        session.last_init = payload
+        session.last_keyframe = None
         session.broadcast(_INIT_MARKER)
         session.broadcast(payload)
 
@@ -139,6 +169,9 @@ async def _pump_pipeline(session: MirrorSession) -> None:
         session.broadcast(payload)
         if is_keyframe:
             session.keyframes_sent += 1
+            # Cache the latest keyframe so late-joining subscribers get
+            # a decodable sync sample immediately.
+            session.last_keyframe = payload
 
     mux = H264ToFMP4(on_init=_on_init, on_fragment=_on_fragment)
 

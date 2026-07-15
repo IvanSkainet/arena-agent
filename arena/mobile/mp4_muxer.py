@@ -265,24 +265,32 @@ def build_moov(width: int, height: int, timescale: int,
 _TFHD_DEFAULT_BASE_IS_MOOF = 0x020000
 
 _TRUN_DATA_OFFSET = 0x000001
-_TRUN_FIRST_FLAGS = 0x000004
 _TRUN_SAMPLE_DUR = 0x000100
 _TRUN_SAMPLE_SIZE = 0x000200
 _TRUN_SAMPLE_FLAGS = 0x000400
 
-# sample_flags: bits 24-25 = depends_on. 2 = I-slice (nothing depends
-# on it from earlier), 1 = non-I. Bit 16 = sample_is_non_sync (0 for
-# keyframes, 1 for everything else).
+# sample_flags layout (32 bits, big-endian):
+#   bits 24-25: sample_depends_on (2 = independent / I-slice, 1 = P/B)
+#   bit 16:     sample_is_non_sync_sample (0 = keyframe, 1 = otherwise)
+# Everything else zero.
 _SAMPLE_FLAG_KEYFRAME = 0x02000000
 _SAMPLE_FLAG_NON_KEYFRAME = 0x01010000
 
 
 def _trun_body(sample_count: int, data_offset: int,
-               first_flags: int, samples: list[dict]) -> bytes:
+               samples: list[dict]) -> bytes:
+    """Serialise the trun body WITHOUT first_sample_flags.
+
+    v3.84.7: dropped first_sample_flags entirely. When both are
+    present per ISO 14496-12, first_sample_flags overrides
+    sample_flags[0] and different browsers disagree about which value
+    wins -- Chrome honours per-sample, Safari honours first-sample. By
+    using only per-sample sample_flags we get identical behaviour
+    everywhere.
+    """
     buf = io.BytesIO()
     buf.write(struct.pack(">I", sample_count))
     buf.write(struct.pack(">i", data_offset))
-    buf.write(struct.pack(">I", first_flags))
     for s in samples:
         buf.write(struct.pack(">I", s["duration"]))
         buf.write(struct.pack(">I", len(s["data"])))
@@ -311,16 +319,14 @@ def build_moof_mdat(sequence_number: int, base_media_decode_time: int,
                      struct.pack(">Q", base_media_decode_time))
     mfhd = _full_box(b"mfhd", 0, 0,
                      struct.pack(">I", sequence_number))
-    trun_flags = (_TRUN_DATA_OFFSET | _TRUN_FIRST_FLAGS
+    trun_flags = (_TRUN_DATA_OFFSET
                   | _TRUN_SAMPLE_DUR | _TRUN_SAMPLE_SIZE
                   | _TRUN_SAMPLE_FLAGS)
-    first_flags = (_SAMPLE_FLAG_KEYFRAME if samples[0]["is_keyframe"]
-                   else _SAMPLE_FLAG_NON_KEYFRAME)
 
     # First pass with placeholder data_offset to learn moof size.
     trun_pre = _full_box(
         b"trun", 0, trun_flags,
-        _trun_body(len(samples), 0, first_flags, samples),
+        _trun_body(len(samples), 0, samples),
     )
     traf_pre = _box(b"traf", tfhd + tfdt + trun_pre)
     moof_pre = _box(b"moof", mfhd + traf_pre)
@@ -330,7 +336,7 @@ def build_moof_mdat(sequence_number: int, base_media_decode_time: int,
     data_offset = len(moof_pre) + 8
     trun = _full_box(
         b"trun", 0, trun_flags,
-        _trun_body(len(samples), data_offset, first_flags, samples),
+        _trun_body(len(samples), data_offset, samples),
     )
     traf = _box(b"traf", tfhd + tfdt + trun)
     moof = _box(b"moof", mfhd + traf)

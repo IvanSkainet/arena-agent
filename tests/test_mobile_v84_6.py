@@ -241,7 +241,11 @@ def test_build_moof_mdat_data_offset_points_past_moof_header():
     assert mdat[body:] == samples[0]["data"]
 
 
-def test_build_moof_mdat_marks_keyframe_flag():
+def test_build_moof_mdat_marks_keyframe_flag_via_per_sample_flags():
+    """v3.84.7: first_sample_flags was dropped -- Chrome and Safari
+    disagreed about which overrides the other. We now rely solely on
+    per-sample sample_flags inside trun. This test locates the FIRST
+    sample record and confirms its flag byte."""
     from arena.mobile.mp4_muxer import build_moof_mdat
     for is_key, expect in ((True, 0x02000000), (False, 0x01010000)):
         moof, _ = build_moof_mdat(
@@ -250,12 +254,18 @@ def test_build_moof_mdat_marks_keyframe_flag():
             samples=[{"data": b"\x00\x00\x00\x01x",
                       "duration": 3000, "is_keyframe": is_key}],
         )
-        # Locate first-sample-flags in trun: after sample_count (4) +
-        # data_offset (4) comes first_sample_flags (4).
+        # Locate first per-sample record in trun. Without
+        # first_sample_flags the layout is:
+        #   4 tag "trun" + 4 version+flags
+        #   + 4 sample_count + 4 data_offset
+        #   + [ per-sample: 4 duration + 4 size + 4 flags ]
+        # So flag byte of the first sample sits at trun-tag + 20.
         idx = moof.find(b"trun")
         assert idx > 0
-        flags_pos = idx + 4 + 4 + 4 + 4
-        (flags,) = struct.unpack(">I", moof[flags_pos:flags_pos + 4])
+        first_sample_flags_pos = idx + 4 + 4 + 4 + 4 + 4 + 4
+        (flags,) = struct.unpack(
+            ">I", moof[first_sample_flags_pos:first_sample_flags_pos + 4]
+        )
         assert flags == expect
 
 
@@ -403,3 +413,45 @@ def test_mirror_stats_snapshot_includes_muxer_marker():
         assert stats[0]["keyframes_sent"] == 0
     finally:
         m._SESSIONS.clear()
+
+
+# ---------------------------------------------------------------------------
+# v3.84.7: late-joining subscribers must get the cached init + keyframe
+# ---------------------------------------------------------------------------
+def test_mirror_session_seeds_new_subscriber_with_cached_init_and_keyframe():
+    """A subscriber that joins after the init segment already went out
+    used to receive only P-frames (black `<video>` in the browser).
+    Now the session caches the init + the latest keyframe and
+    pre-seeds every new subscriber's queue."""
+    from arena.mobile import mirror as m
+    s = m.MirrorSession(serial="x", size="720x1600", bit_rate=4_000_000)
+    s.last_init = b"\x00\x00\x00\x08ftypISO5"
+    s.last_keyframe = b"\x00\x00\x00\x0Cmoof\x00\x00\x00\x08mdatKEY"
+
+    q = s.add_subscriber()
+    # Queue should contain: __init__ marker, init bytes, last keyframe.
+    assert q.get_nowait() == m._INIT_MARKER
+    assert q.get_nowait() == s.last_init
+    assert q.get_nowait() == s.last_keyframe
+    assert q.empty()
+
+
+def test_mirror_session_seeds_only_init_when_no_keyframe_cached_yet():
+    from arena.mobile import mirror as m
+    s = m.MirrorSession(serial="x", size="720x1600", bit_rate=4_000_000)
+    s.last_init = b"\x00\x00\x00\x08ftypISO5"
+    # last_keyframe deliberately None.
+
+    q = s.add_subscriber()
+    assert q.get_nowait() == m._INIT_MARKER
+    assert q.get_nowait() == s.last_init
+    assert q.empty()
+
+
+def test_mirror_session_seeds_nothing_when_pipeline_not_yet_running():
+    """First subscriber ever -- pipeline hasn't produced an init yet,
+    so we don't seed the queue."""
+    from arena.mobile import mirror as m
+    s = m.MirrorSession(serial="x", size="720x1600", bit_rate=4_000_000)
+    q = s.add_subscriber()
+    assert q.empty()
