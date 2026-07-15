@@ -117,7 +117,7 @@ function mobileRenderInfoPanel() {
     const rows = sections[active] || [];
     if (rows.length === 0) {
       const empty = document.createElement("div");
-      empty.style.cssText = "padding:8px;color:#888;font-size:12px";
+      empty.style.cssText = "padding:8px;color:var(--text3);font-size:12px";
       empty.textContent = active === "sensors" && _mobileSensorsLoading
         ? "Loading sensor data (~1-2 s)…"
         : "No data for this section on this device.";
@@ -137,7 +137,7 @@ function _mobileInfoTabBar(activeId, sections) {
     btn.style.cssText =
       "font-size:11px;padding:2px 8px;border-radius:4px;cursor:pointer;"
       + (s.id === activeId
-        ? "background:#1c7ed6;color:#fff;border:1px solid #1c7ed6;"
+        ? "background:var(--blue);color:var(--text-inverse);border:1px solid var(--blue);"
         : "background:transparent;color:inherit;border:1px solid rgba(128,128,128,.3);");
     // Add a tiny counter suffix for non-empty sections so it's obvious
     // where the data actually is.
@@ -153,7 +153,7 @@ function _mobileInfoTabBar(activeId, sections) {
 
 function _mobileInfoSectionHeader(label) {
   const h = document.createElement("div");
-  h.style.cssText = "margin:8px 4px 2px 4px;font-size:11px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px";
+  h.style.cssText = "margin:8px 4px 2px 4px;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px";
   h.textContent = label;
   return h;
 }
@@ -165,7 +165,7 @@ function _mobileInfoTable(rows) {
     if (v === null || v === undefined || v === "") continue;
     const tr = document.createElement("tr");
     const tdK = document.createElement("td");
-    tdK.style.cssText = "padding:3px 8px 3px 4px;color:#666;white-space:nowrap;vertical-align:top;width:120px";
+    tdK.style.cssText = "padding:3px 8px 3px 4px;color:var(--text2);white-space:nowrap;vertical-align:top;width:120px";
     tdK.textContent = k;
     const tdV = document.createElement("td");
     tdV.style.cssText = "padding:3px 4px;word-break:break-word";

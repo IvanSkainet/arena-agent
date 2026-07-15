@@ -1,3 +1,63 @@
+## v3.86.5 - 2026-07-16
+
+### Fixed
+
+- **All remaining hardcoded theme colours are gone from the Dashboard.**
+  v3.86.4 covered the new UI added in v3.86.0–v3.86.3; v3.86.5 sweeps
+  the rest. 100 inline `#hex` / `rgba(...)` literals across
+  `body-16-mobile.html`, `body-15-settings.html`, `body-12-doctor.html`,
+  `body-01-overview.html`, `17c-settings-restart.js`, `34-mobile-info.js`,
+  `15b-doctor-hardware.js`, `30-mobile.js` now reference `var(--...)`.
+  New palette entries in `dashboard/assets/dashboard.css` cover the
+  cases that had no prior variable: `--text3`, `--text-inverse`,
+  `--black-abs`, `--yellow-soft`, `--red-soft`, `--warning-text*`,
+  `--surface-error`, `--border-error`, `--surface-info(-strong)`,
+  `--border-info`, `--surface-warning`, `--border-warning`,
+  `--surface-inset(-strong)`, `--overlay-mid/strong/heavy`.
+
+- **New helper classes** (`.badge.experimental`, `.error-box`,
+  `.hint-box`, `.muted`, `.muted-2`, `pre.mono-inset`, `.inset-block`)
+  in `dashboard.css` so future UI can stop inlining stylesheets.
+
+- **Version literals are no longer baked into filenames or UI labels.**
+  Dashboard file `23-control-panel-v2-9-0.js` renamed to
+  `23-control-panel.js` and the `v2.9.0` badge next to the Agent
+  Control header, plus the matching comments in `04-overview.js`
+  and `body-13-audit.html`, are gone. `dashboard/index.html` script
+  registration updated. Agent Control endpoints (`/v1/control/*`,
+  `/v1/desktop/active_window`, `/v1/desktop/focus`) were live-verified
+  to still work end to end; only the cosmetics changed.
+
+### Added
+
+- **GNU/Linux/macOS parity for the Windows helper scripts.** The bridge
+  historically shipped `start.bat`, `stop.bat`, and `status.bat` with
+  no POSIX equivalents. New `start.sh`, `stop.sh`, `status.sh` cover
+  the same use cases with `#!/usr/bin/env bash`, `set -euo pipefail`,
+  and environment overrides (`ARENA_PYTHON`, `ARENA_ROOT`,
+  `ARENA_PROFILE`, `ARENA_TOKEN_FILE`, `ARENA_PORT`,
+  `ARENA_EXTRA_ARGS`). `stop.sh` tries systemd user unit first, then
+  the system unit, then falls back to `pgrep -f 'unified_bridge.py
+  serve'` + graceful SIGTERM with a 5-second SIGKILL escalation.
+  `status.sh` reports processes, systemd state, and probes `/health`.
+
+- **Three new regression guards.**
+  `tests/test_no_hardcoded_theme_colors.py` scans
+  `dashboard/assets/*.{html,js}` for any inline hex/rgba colour and
+  fails the build if one appears outside `dashboard.css`.
+  `tests/test_no_inline_versions.py` catches `v\\d+\\.\\d+\\.\\d+`
+  literals and version-suffixed filenames like
+  `foo-v2-9-0.js` so we never re-introduce the v2.9.0-style hardcode.
+  `tests/test_start_scripts_parity.py` requires every root-level
+  `*.bat` to have a matching `*.sh` sibling with a valid bash
+  shebang.
+
+- **Retroactive CHANGELOG entries for v3.85.0–v3.86.2.** These
+  releases shipped but the top-of-file `CHANGELOG.md` skipped over
+  them, jumping from v3.86.3 straight back to v3.84.6. Historical
+  entries have been reconstructed from the git log below so anyone
+  reading the changelog top-down gets a continuous timeline.
+
 ## v3.86.4 - 2026-07-15
 
 ### Fixed
@@ -76,6 +136,174 @@ modules and the settings/doctor HTML fragments touched since v3.86.0.
   Settings will grow explicit UI for that in a follow-up.
 
 # Changelog
+
+## v3.86.2 - 2026-07-15
+
+### Fixed
+
+- **Release notes were empty** for anonymous auto-update calls
+  because the `/releases/latest` redirect path bypasses the JSON
+  body. Fix: pull the matching section from `raw.githubusercontent.com/.../CHANGELOG.md`
+  (no rate limit for anonymous callers) and render as light Markdown
+  → HTML in the Dashboard.
+- **Asset size showed "unknown"** for the same reason. Fix: HEAD the
+  asset URL, follow one redirect to the signed S3 URL, read
+  `Content-Length`. Best-effort — `None` is still rendered as
+  `unknown size`.
+- **`gardenxas-workstation` example** baked into the Multi-agent UI,
+  tests, docs, and JS placeholder replaced with neutral
+  `laptop-agent` everywhere.
+
+### Changed
+
+- Extracted `arena/admin/update_github.py` (171 lines) so
+  `auto_update.py` stays under the 600-line runtime cap after the
+  two new fetch helpers landed. Public surface unchanged.
+
+### Reverted
+
+- The aborted v3.87.0 Phase-3 skeleton (`arena/mdns.py`,
+  `arena/multiagent/handlers_link.py`, Android APK stub,
+  `/v1/agent/link` WebSocket, mDNS lifecycle hook,
+  `tests/test_mdns_and_link.py`, `docs/MOBILE_APK.md`) — wrong
+  direction. Correct Phase 3 scope is a full mobile Dashboard
+  alternative via Tailscale; design goes to `docs/ROADMAP-Phase3.md`
+  before any code.
+
+## v3.86.1 - 2026-07-15
+
+### Added
+
+- **Multi-agent Dashboard section** (`dashboard/assets/40-multiagent.js`
+  + Settings card in `body-15-settings.html`). Label input + Create
+  button; freshly-minted bearer token appears in a bright box with
+  Copy; active-agent table with request count, last-seen, per-row
+  Revoke; auto-refresh every 30 s; badge shows active count.
+  `navigator.clipboard`-less browsers fall back to `prompt()`.
+- **`docs/MULTIAGENT.md`** (166 lines) — full curl reference:
+  create/list/get/revoke, response shapes, token durability, the
+  WebSocket `?token=` trick, and an honest "not implemented and why"
+  list.
+
+### Fixed
+
+- **Auto-update UI polish.** Long SHA-256 rendered as
+  `sha256:abcdef12…ff0011 (64 chars)`; animated `…` spinner during
+  Install; stray dot in v3.86.0 confirm dialog fixed.
+- **Live Mirror flagged EXPERIMENTAL** — yellow badge + warning
+  banner pointing users at scrcpy for production mirroring.
+
+## v3.86.0 - 2026-07-15
+
+### Added
+
+- **Multi-agent sessions.** New `arena/multiagent/` package (411 lines).
+  `agents.py` — thread-safe `AgentRegistry` with HMAC-SHA256 token
+  derivation (`HMAC(master_token, agent_id)[:16]`) so revoking an
+  agent or rotating the master invalidates tokens atomically.
+  `handlers_agents.py` — four handlers gated on the master token.
+  Auth runtime recognises `agent-<id>-<hex>` tokens, sets
+  `request["agent_id"]`, bumps per-agent request count.
+  Endpoints: `POST/GET /v1/agents`, `GET/DELETE /v1/agents/{id}`.
+- **Auto-update Dashboard polish** — glanceable badge next to card
+  title (`up to date` / `update vX.Y.Z` / `check failed`); auto-check
+  2 s after boot; structured details table for
+  installed/available/repo/root/platform/source/published/asset;
+  release notes behind `<details>`; auto-reload after Install/Restart.
+
+### Fixed
+
+- **Live Mirror wall-clock pacing.** `mp4_muxer.py`: sample durations
+  now come from the real wall-clock gap between flushed access units
+  (clamped 16–100 ms) instead of a hard-coded 33.3 ms. Combined with
+  aggressive live-edge tuning in `38-mobile-mirror.js`
+  (tail 500 ms → 60 ms; hard-seek 2 s → 300 ms; playbackRate 1.15
+  catch-up), glass-to-glass latency stays under half a second.
+
+## v3.85.3 - 2026-07-15
+
+### Fixed
+
+- **Auto-update `HTTP 403`** on anonymous callers (GitHub 60/hour
+  rate limit). Fix: prefer `/releases/latest` 302 redirect for tag
+  resolution (unauthenticated, doesn't count against quota); only
+  hit JSON API when `GITHUB_TOKEN` / `GH_TOKEN` is set. Construct
+  canonical asset URL (`arena-agent-<tag>.zip`) from the redirect
+  target.
+- **Dashboard boot retry.** Chrome occasionally 0-reads a script
+  response on connection reuse and fires `script.onerror` even
+  though a second attempt sails through. Boot loader now retries
+  each script twice with 250 ms/500 ms backoff before failing.
+- **Live Mirror live-edge fallback** so playback stays near the
+  wall-clock frame even if the WebSocket burst-delivers a backlog.
+
+## v3.85.2 - 2026-07-15
+
+### Fixed
+
+- **Live Mirror black screen — root cause identified.**
+  `mp4_muxer.py::H264ToFMP4._maybe_emit_init` was passing
+  `self._sps[1:]` / `self._pps[1:]` to `build_moov`, dropping the
+  NAL unit header byte. ISO/IEC 14496-15 §5.3.3.1.2 explicitly
+  requires the SPS/PPS payloads inside `avcC` to include their NAL
+  header. Without it, Chrome / Firefox / ffmpeg silently skip PPS
+  and every frame decodes as garbage. Fix: pass the full SPS + PPS
+  including the header byte.
+- **No-cache on dashboard HTML.** `arena/gui/handlers.py` served
+  `/gui` without `Cache-Control`, so browsers kept the previous
+  version's HTML in cache and loaded outdated `?v=...` assets even
+  after upgrading the bridge. Fix: emit
+  `Cache-Control: no-store, no-cache, must-revalidate` +
+  `Pragma` / `Expires` on every `/gui` HTML response.
+- **Stop the mirror reconnect loop** introduced in v3.85.1. On any
+  `MediaError`, tear the pipeline down, log the error code +
+  message, and surface both in a copyable dialog. Operator hits
+  Start again when ready — no more infinite `screenrecord` reboots.
+
+## v3.85.1 - 2026-07-15
+
+### Fixed
+
+- **Live Mirror `InvalidStateError` on non-`avc1.640028` streams.**
+  `38-mobile-mirror.js` had the codec hardcoded to High @ Level 4.0
+  but 1440×3200 @ 4 Mbps+ Android encoders produce High @ Level 4.2
+  (`avc1.64002a`). MediaSource silently rejected the init segment
+  and every subsequent `appendBuffer` threw. Fix: detect init
+  segments by their `ftyp` 4CC, parse the `avcC` box, derive the
+  real `avc1.PPCCLL` string, and only then `addSourceBuffer`.
+- **`mobileInfoRememberOpenState is not defined`** on tab load —
+  helper moved from `37-mobile-camera.js` into `34-mobile-info.js`
+  where the owning `<details>` element lives; the parse-time
+  `ontoggle` race is closed.
+
+### Added
+
+- **Auto-update Dashboard UI** (`39-admin-update.js`, 192 lines) —
+  three buttons: Check for updates, Install…, Restart bridge; runs
+  the two-step consent flow automatically; Install disabled until a
+  SHA-256 digest is available.
+
+## v3.85.0 - 2026-07-15
+
+### Added
+
+- **Cross-platform auto-update.** New `arena/admin/auto_update.py`
+  (474 lines): semver-lite parser; `check_updates` GitHub client
+  with 15 s timeout, honours `GITHUB_TOKEN` / `GH_TOKEN`;
+  `download_release` verifies SHA-256; `consent_token(tag, sha256)`
+  returns `yes-update-<8hex>`; `apply_update` stages the extract
+  then atomically moves each `REPLACE` target (`arena/`, `dashboard/`,
+  `docs/`, `scripts/`, `bin/`, `unified_bridge.py`, `pyproject.toml`,
+  `README`, `CHANGELOG`, `assets/`, `install*`) with `.old-<ts>`
+  backups; on Windows spawns a detached `.cmd` installer that waits
+  for the current PID before robocopying. `restart_process`
+  re-execs on POSIX; returns "restart pending" on Windows for the
+  service supervisor.
+- **`arena/admin/handlers_update.py`** (171 lines): four handlers.
+  `GET /v1/admin/update/status`; `POST /v1/admin/update/check` (body
+  `{repo?}`); `POST /v1/admin/update/apply` (body `{tag, asset_url,
+  asset_name, expected_sha256, consent, restart?}`);
+  `POST /v1/admin/update/restart`.
 
 ## v3.84.6 - 2026-07-15
 

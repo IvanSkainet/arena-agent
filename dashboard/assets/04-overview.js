@@ -144,7 +144,7 @@ async function refreshOverview() {
     document.getElementById("metricExecs").textContent = overviewMetrics.execs;
     document.getElementById("metricErrors").textContent = overviewMetrics.errors;
 
-    // v2.9.0: Refresh control overview card
+    // Refresh control overview card
     refreshControlPanel();
 
   } catch(e) {

@@ -129,7 +129,7 @@ async function refreshMobile() {
       list.innerHTML = "";
       if (!devices.length) {
         const empty = document.createElement("div");
-        empty.style.cssText = "color:#666;font-size:12px";
+        empty.style.cssText = "color:var(--text2);font-size:12px";
         empty.textContent = "No devices. Connect a phone via USB and enable USB debugging.";
         list.appendChild(empty);
       } else {
@@ -182,14 +182,14 @@ function _mobileDeviceRow(d) {
   if (d.usb) {
     const usb = document.createElement("span");
     usb.className = "mono";
-    usb.style.cssText = "font-size:11px;color:#666";
+    usb.style.cssText = "font-size:11px;color:var(--text2)";
     usb.textContent = "usb:" + d.usb;
     row.appendChild(usb);
   }
   if (d.ip) {
     const ip = document.createElement("span");
     ip.className = "mono";
-    ip.style.cssText = "font-size:11px;color:#666";
+    ip.style.cssText = "font-size:11px;color:var(--text2)";
     ip.textContent = d.ip;
     row.appendChild(ip);
   }

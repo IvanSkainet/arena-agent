@@ -1,4 +1,4 @@
-// ===== CONTROL PANEL (v2.9.0) =====
+// ===== CONTROL PANEL =====
 async function refreshControlPanel() {
   try {
     const cs = await api("/v1/control/status");

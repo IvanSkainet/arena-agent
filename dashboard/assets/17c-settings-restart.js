@@ -7,11 +7,11 @@ async function bridgeRestart() {
 
     // Poll /health until back
     const overlay = document.createElement("div");
-    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:9999;" +
-      "display:flex;align-items:center;justify-content:center;font-family:var(--mono);color:#fff;font-size:14px";
-    overlay.innerHTML = "<div id='restartBox' style='background:#222;padding:20px 32px;border-radius:8px;max-width:560px;text-align:center'>" +
+    overlay.style.cssText = "position:fixed;inset:0;background:var(--overlay-strong);z-index:9999;" +
+      "display:flex;align-items:center;justify-content:center;font-family:var(--mono);color:var(--text-inverse);font-size:14px";
+    overlay.innerHTML = "<div id='restartBox' style='background:var(--bg2);padding:20px 32px;border-radius:8px;max-width:560px;text-align:center'>" +
       "<div><span class='spinner'></span> Restarting bridge... (page will reload when ready)</div>" +
-      "<div id='restartMeta' style='margin-top:8px;color:#888;font-size:11px'></div>" +
+      "<div id='restartMeta' style='margin-top:8px;color:var(--text3);font-size:11px'></div>" +
       "</div>";
     document.body.appendChild(overlay);
 
@@ -21,14 +21,14 @@ async function bridgeRestart() {
       if (!meta) return;
       if (r && r.ok) {
         if (r.respawn_scheduled === false) {
-          meta.style.color = "#f87171";
+          meta.style.color = "var(--red-soft)";
           meta.textContent = "⚠ Respawn helper failed: " + (r.method || "?") +
                              ". You may need to start the bridge manually.";
         } else if (r.method) {
           meta.textContent = "Respawn method: " + r.method;
         }
       } else if (r && r.error) {
-        meta.style.color = "#f87171";
+        meta.style.color = "var(--red-soft)";
         meta.textContent = "Restart endpoint error: " + r.error;
       }
     });
@@ -46,7 +46,7 @@ async function bridgeRestart() {
           if (!counter) {
             counter = document.createElement("span");
             counter.id = "restartElapsed";
-            counter.style.cssText = "margin-left:8px;color:#888";
+            counter.style.cssText = "margin-left:8px;color:var(--text3)";
             spin.after(counter);
           }
           counter.textContent = "(" + tries + "s)";
@@ -67,9 +67,9 @@ async function bridgeRestart() {
         const box2 = document.getElementById("restartBox");
         if (box2) {
           box2.innerHTML =
-            "<div style='color:#f87171;font-weight:600;margin-bottom:8px'>Bridge did not come back after " + max + "s</div>" +
-            "<div style='font-size:11px;color:#aaa;margin-bottom:8px'>Try manually in PowerShell:</div>" +
-            "<pre style='background:#111;padding:8px;font-size:11px;text-align:left;border-radius:4px'>" +
+            "<div style='color:var(--red-soft);font-weight:600;margin-bottom:8px'>Bridge did not come back after " + max + "s</div>" +
+            "<div style='font-size:11px;color:var(--text3);margin-bottom:8px'>Try manually in PowerShell:</div>" +
+            "<pre style='background:var(--bg);padding:8px;font-size:11px;text-align:left;border-radius:4px'>" +
             "schtasks /Run /tn ArenaUnifiedBridge\n" +
             "Start-Sleep 4\n" +
             "curl -UseBasicParsing http://127.0.0.1:" + (location.port||8765) + "/health</pre>" +

@@ -223,11 +223,11 @@ async function doctorLoadHardware() {
   const target = _hwEl("hwCards");
   const rawEl = _hwEl("hwRawJson");
   const timeEl = _hwEl("hwGeneratedAt");
-  if (target) target.innerHTML = '<div style="color:#999;font-size:12px">Loading hardware inventory…</div>';
+  if (target) target.innerHTML = '<div style="color:var(--text3);font-size:12px">Loading hardware inventory…</div>';
   try {
     const r = await api("/v1/hardware");
     if (!r || r.ok !== true) {
-      target.innerHTML = '<div style="color:#c92a2a">Hardware fetch failed: ' + _hwEsc((r && r.error) || "unknown") + '</div>';
+      target.innerHTML = '<div style="color:var(--red)">Hardware fetch failed: ' + _hwEsc((r && r.error) || "unknown") + '</div>';
       return;
     }
     const hw = r.hardware || {};
@@ -246,13 +246,13 @@ async function doctorLoadHardware() {
       _hwRenderExtra(hw),
     ].filter(Boolean);
     if (!cards.length) {
-      target.innerHTML = '<div style="color:#a80">Backend returned empty hardware payload.</div>';
+      target.innerHTML = '<div style="color:var(--warning-text)">Backend returned empty hardware payload.</div>';
     } else {
       target.innerHTML = cards.join("");
     }
     if (rawEl) rawEl.textContent = JSON.stringify(r, null, 2);
   } catch (e) {
-    target.innerHTML = '<div style="color:#c92a2a">Hardware fetch failed: ' + _hwEsc(e && e.message || e) + '</div>';
+    target.innerHTML = '<div style="color:var(--red)">Hardware fetch failed: ' + _hwEsc(e && e.message || e) + '</div>';
   }
 }
 

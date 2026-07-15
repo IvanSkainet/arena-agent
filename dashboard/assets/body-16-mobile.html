@@ -4,18 +4,18 @@
 <!-- Global error box: any /v1/mobile/* failure surfaces here with a
      Copy button so it can be pasted into a bug report. -->
 <div id="mobileErrorBox"
-     style="display:none;margin:10px 0;padding:10px 12px;background:rgba(220,53,69,.08);border:1px solid rgba(220,53,69,.35);border-radius:8px">
+     style="display:none;margin:10px 0;padding:10px 12px;background:var(--surface-error);border:1px solid var(--border-error);border-radius:8px">
   <div class="row" style="align-items:flex-start;gap:8px;margin-bottom:6px">
-    <strong id="mobileErrorTitle" style="flex:1;color:#c92a2a;font-size:13px">Error</strong>
+    <strong id="mobileErrorTitle" style="flex:1;color:var(--red);font-size:13px">Error</strong>
     <button id="mobileErrorCopyBtn" class="sm" onclick="mobileCopyError()">Copy</button>
     <button class="sm" onclick="mobileClearError()">Dismiss</button>
   </div>
-  <pre id="mobileErrorDetail" class="mono" style="margin:0;font-size:11px;background:rgba(0,0,0,.04);padding:6px;white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
+  <pre id="mobileErrorDetail" class="mono" style="margin:0;font-size:11px;background:var(--surface-inset);padding:6px;white-space:pre-wrap;max-height:200px;overflow:auto"></pre>
 </div>
 
 <div class="card">
 <h2>Android via ADB</h2>
-<p style="margin:4px 0 10px 0;font-size:12px;color:#666">
+<p style="margin:4px 0 10px 0;font-size:12px;color:var(--text2)">
   Devices reached over ADB (USB or wireless debugging). Screenshots and
   input actions require the phone to be authorised (unlock, tap Allow on
   the "Allow USB debugging" prompt).
@@ -24,15 +24,15 @@
 <div class="row" style="margin-bottom:8px;flex-wrap:wrap;gap:8px">
   <span style="font-weight:600;width:100px">ADB</span>
   <span id="mobileAdbStatus" class="badge gray">checking…</span>
-  <span id="mobileAdbPath" class="mono" style="font-size:11px;color:#666"></span>
+  <span id="mobileAdbPath" class="mono" style="font-size:11px;color:var(--text2)"></span>
   <button style="margin-left:auto" onclick="refreshMobile()">Refresh</button>
 </div>
 
-<div id="mobileHint" class="mono" style="font-size:12px;color:#666;padding:8px;background:rgba(30,144,255,.06);border-radius:6px;white-space:pre-wrap;display:none"></div>
+<div id="mobileHint" class="mono" style="font-size:12px;color:var(--text2);padding:8px;background:var(--surface-info);border-radius:6px;white-space:pre-wrap;display:none"></div>
 
 <h3 style="margin-top:14px;font-size:14px">Connected devices</h3>
 <div id="mobileDevicesList" style="display:flex;flex-direction:column;gap:10px">
-  <div style="color:#666;font-size:12px">Loading…</div>
+  <div style="color:var(--text2);font-size:12px">Loading…</div>
 </div>
 </div>
 
@@ -41,7 +41,7 @@
      plugging in USB first. -->
 <details class="card">
 <summary style="cursor:pointer;font-size:15px;font-weight:600">Wireless ADB (pair + connect)</summary>
-<p style="margin:6px 0 8px 0;font-size:12px;color:#666">
+<p style="margin:6px 0 8px 0;font-size:12px;color:var(--text2)">
   On the phone: Settings → Developer options → Wireless debugging.
   Tap "Pair device with pairing code" — the phone shows a 6-digit
   code and a HOST:PORT (this is the PAIRING port). Paste those below.
@@ -50,25 +50,25 @@
 </p>
 
 <div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center;font-size:12px">
-  <span style="color:#666;width:60px">1. Pair</span>
+  <span style="color:var(--text2);width:60px">1. Pair</span>
   <input type="text" id="mobileWlPairHost" placeholder="192.168.1.5" style="width:130px;font-family:monospace">
-  <span style="color:#666">:</span>
+  <span style="color:var(--text2)">:</span>
   <input type="number" id="mobileWlPairPort" placeholder="38571" style="width:80px;font-family:monospace" min="1" max="65535">
   <input type="text" id="mobileWlPairCode" placeholder="6-digit code" style="width:110px;font-family:monospace" maxlength="6" pattern="\d{6}">
   <button onclick="mobileWirelessPair()">Pair</button>
 </div>
 
 <div class="row" style="gap:6px;margin-bottom:6px;flex-wrap:wrap;align-items:center;font-size:12px">
-  <span style="color:#666;width:60px">2. Connect</span>
+  <span style="color:var(--text2);width:60px">2. Connect</span>
   <input type="text" id="mobileWlConnectHost" placeholder="192.168.1.5" style="width:130px;font-family:monospace">
-  <span style="color:#666">:</span>
+  <span style="color:var(--text2)">:</span>
   <input type="number" id="mobileWlConnectPort" placeholder="44121" style="width:80px;font-family:monospace" min="1" max="65535">
   <button onclick="mobileWirelessConnect()">Connect</button>
   <button onclick="mobileWirelessDisconnectAll()" style="margin-left:auto"
           title="Disconnect ALL wireless devices. USB is unaffected.">Disconnect all wireless</button>
 </div>
 
-<pre id="mobileWlStatus" class="mono" style="font-size:11px;color:#2b8a3e;background:rgba(0,0,0,.04);padding:6px;margin:0;white-space:pre-wrap;min-height:1em"></pre>
+<pre id="mobileWlStatus" class="mono" style="font-size:11px;color:var(--green);background:var(--surface-inset);padding:6px;margin:0;white-space:pre-wrap;min-height:1em"></pre>
 </details>
 
 <div class="card" id="mobileSelectedCard" style="display:none">
@@ -79,18 +79,18 @@
      one click. Open by default; the user's choice persists via
      localStorage in 34-mobile-info.js. -->
 <details id="mobileInfoDetails" open
-         style="margin-bottom:12px;background:rgba(30,144,255,.04);border:1px solid rgba(30,144,255,.15);border-radius:6px"
+         style="margin-bottom:12px;background:var(--surface-info);border:1px solid var(--border-info);border-radius:6px"
          ontoggle="mobileInfoRememberOpenState(this)">
   <summary style="cursor:pointer;padding:6px 10px;font-size:13px;font-weight:600;user-select:none">
-    Device info <span id="mobileInfoSummary" style="color:#666;font-weight:400;font-size:11px"></span>
+    Device info <span id="mobileInfoSummary" style="color:var(--text2);font-weight:400;font-size:11px"></span>
   </summary>
   <div id="mobileInfoPanel" style="padding:0 10px 10px 10px">
-    <div style="color:#666;font-size:12px">Loading device info…</div>
+    <div style="color:var(--text2);font-size:12px">Loading device info…</div>
   </div>
 </details>
 
 <!-- ============================ Navigation ============================ -->
-<div style="font-size:11px;color:#666;margin-bottom:4px">Navigation</div>
+<div style="font-size:11px;color:var(--text2);margin-bottom:4px">Navigation</div>
 <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:8px">
   <button onclick="mobileKey('HOME')">🏠 Home</button>
   <button onclick="mobileKey('BACK')">← Back</button>
@@ -102,7 +102,7 @@
 </div>
 
 <!-- ============================ Gestures ============================ -->
-<div style="font-size:11px;color:#666;margin-bottom:4px">
+<div style="font-size:11px;color:var(--text2);margin-bottom:4px">
   Gestures — high-level semantic swipes, no pixel maths.
   For anything else, drag directly on the screenshot below.
 </div>
@@ -132,7 +132,7 @@
   <input type="text" id="mobileTypeText" placeholder="Type ASCII text into focused field (tap the field first!)…" style="flex:1;font-size:13px">
   <button onclick="mobileType()">Send text</button>
 </div>
-<div style="font-size:11px;color:#666;margin-bottom:10px">
+<div style="font-size:11px;color:var(--text2);margin-bottom:10px">
   ASCII only until Mobile Phase 2 ships ADBKeyboard. Non-ASCII currently crashes Android's <code>input text</code> with a NullPointerException and is rejected up front.
 </div>
 
@@ -141,11 +141,11 @@
   <input type="text" id="mobileShellCmd" placeholder="Restricted diagnostic shell (getprop, dumpsys, ls, df, …)" style="flex:1;font-family:monospace;font-size:12px">
   <button onclick="mobileShell()">Run</button>
 </div>
-<pre id="mobileShellOut" class="mono" style="font-size:11px;max-height:180px;overflow:auto;background:rgba(0,0,0,.04);padding:6px;margin:0 0 12px 0;white-space:pre-wrap;display:none"></pre>
+<pre id="mobileShellOut" class="mono" style="font-size:11px;max-height:180px;overflow:auto;background:var(--surface-inset);padding:6px;margin:0 0 12px 0;white-space:pre-wrap;display:none"></pre>
 
 <!-- ============================ Screen ============================ -->
 <h3 style="margin-top:14px;font-size:14px">Screen</h3>
-<div style="font-size:12px;color:#666;margin-bottom:6px">
+<div style="font-size:12px;color:var(--text2);margin-bottom:6px">
   Click to tap · drag to swipe · Home / Recents / Notification-shade buttons above for common actions.
 </div>
 
@@ -155,28 +155,28 @@
      bandwidth + battery. -->
 <details style="margin-bottom:8px" id="mobileMirrorDetails">
   <summary style="cursor:pointer;font-size:13px;padding:6px 0">
-    🎥 Live mirror <span style="background:#ffe066;color:#000;padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;vertical-align:middle">EXPERIMENTAL</span> — for reliable mirroring use scrcpy
-    <span id="mobileMirrorStatus" style="color:#666;font-weight:400;font-size:11px;margin-left:8px"></span>
+    🎥 Live mirror <span style="background:var(--yellow-soft);color:var(--black-abs);padding:1px 6px;border-radius:4px;font-size:10px;font-weight:600;vertical-align:middle">EXPERIMENTAL</span> — for reliable mirroring use scrcpy
+    <span id="mobileMirrorStatus" style="color:var(--text2);font-weight:400;font-size:11px;margin-left:8px"></span>
   </summary>
   <div class="row" style="gap:8px;margin:6px 0;align-items:center;font-size:12px;flex-wrap:wrap">
     <button onclick="mobileMirrorStart()">▶ Start mirror</button>
     <button onclick="mobileMirrorStop()">■ Stop</button>
-    <label style="color:#666">Size</label>
+    <label style="color:var(--text2)">Size</label>
     <select id="mobileMirrorSize" style="font-size:12px">
       <option value="540x1200">540×1200 (light)</option>
       <option value="720x1600" selected>720×1600 (default)</option>
       <option value="1080x2400">1080×2400 (heavy)</option>
     </select>
-    <label style="color:#666">Bit-rate</label>
+    <label style="color:var(--text2)">Bit-rate</label>
     <select id="mobileMirrorBitrate" style="font-size:12px">
       <option value="1000000">1 Mbps</option>
       <option value="2000000">2 Mbps</option>
       <option value="4000000" selected>4 Mbps</option>
       <option value="8000000">8 Mbps</option>
     </select>
-    <span id="mobileMirrorMeta" class="mono" style="font-size:11px;color:#666;margin-left:auto"></span>
+    <span id="mobileMirrorMeta" class="mono" style="font-size:11px;color:var(--text2);margin-left:auto"></span>
   </div>
-  <div style="font-size:11px;color:#a06400;background:#fff9c4;border:1px solid #f59f00;padding:6px 10px;border-radius:4px;margin:4px 0">
+  <div style="font-size:11px;color:var(--warning-text);background:var(--surface-warning);border:1px solid var(--border-warning);padding:6px 10px;border-radius:4px;margin:4px 0">
     ⚠️ MediaSource-based screen mirroring is experimental. Latency
     may spike to several seconds under load, and some browsers will
     show a black frame instead of the stream. For production use
@@ -185,14 +185,14 @@
     that will replace this entirely.
   </div>
   <video id="mobileMirrorVideo"
-         style="display:none;max-width:100%;background:#000;border:1px solid #ccc;border-radius:6px"
+         style="display:none;max-width:100%;background:var(--black-abs);border:1px solid #ccc;border-radius:6px"
          autoplay muted playsinline></video>
 </details>
 
 <!-- Screen settings row -->
-<div class="row" style="flex-wrap:wrap;gap:12px;padding:8px;background:rgba(0,0,0,.03);border-radius:6px;margin-bottom:8px;align-items:center;font-size:12px">
+<div class="row" style="flex-wrap:wrap;gap:12px;padding:8px;background:var(--surface-inset);border-radius:6px;margin-bottom:8px;align-items:center;font-size:12px">
   <div style="display:inline-flex;align-items:center;gap:4px">
-    <label for="mobileFormat" style="color:#666">Format</label>
+    <label for="mobileFormat" style="color:var(--text2)">Format</label>
     <select id="mobileFormat" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
       <option value="webp">WebP (best ratio)</option>
       <option value="jpeg">JPEG (widest support)</option>
@@ -200,7 +200,7 @@
     </select>
   </div>
   <div style="display:inline-flex;align-items:center;gap:4px">
-    <label for="mobileQuality" style="color:#666">Quality</label>
+    <label for="mobileQuality" style="color:var(--text2)">Quality</label>
     <input type="range" id="mobileQuality" min="30" max="100" step="1"
            onchange="mobileScreenSettingsFromUi()"
            oninput="document.getElementById('mobileQualityValue').textContent = this.value"
@@ -208,7 +208,7 @@
     <span id="mobileQualityValue" class="mono" style="width:24px;text-align:right">82</span>
   </div>
   <div style="display:inline-flex;align-items:center;gap:4px">
-    <label for="mobileWidth" style="color:#666" title="Screenshot LONG side in pixels (works for both portrait and landscape orientations). 0 = native resolution.">Size</label>
+    <label for="mobileWidth" style="color:var(--text2)" title="Screenshot LONG side in pixels (works for both portrait and landscape orientations). 0 = native resolution.">Size</label>
     <select id="mobileWidth" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
       <option value="360">360 (fastest)</option>
       <option value="480">480</option>
@@ -221,7 +221,7 @@
   </div>
   <div style="display:inline-flex;align-items:center;gap:6px" title="Poll a fresh screenshot at this rate while the Mobile tab is visible.">
     <input type="checkbox" id="mobileLiveToggle" onchange="mobileToggleLive()">
-    <label for="mobileLiveToggle" style="color:#666">Live</label>
+    <label for="mobileLiveToggle" style="color:var(--text2)">Live</label>
     <select id="mobileLiveRate" onchange="mobileScreenSettingsFromUi()" style="font-size:12px">
       <option value="2">2 Hz (500 ms)</option>
       <option value="1">1 Hz</option>
@@ -240,16 +240,16 @@
     🔍 Inspect UI
   </label>
   <button class="sm" onclick="mobileInspectorRefresh()">Re-dump</button>
-  <span id="mobileInspectorStatus" class="mono" style="font-size:11px;color:#666"></span>
+  <span id="mobileInspectorStatus" class="mono" style="font-size:11px;color:var(--text2)"></span>
   <span id="mobileInspectorLegend" class="mono" style="font-size:11px;margin-left:auto;display:none">
-    <span style="color:#1c7ed6">■</span> clickable
-    &nbsp;<span style="color:#2f9e44">■</span> scrollable
-    &nbsp;<span style="color:#888">■</span> label
+    <span style="color:var(--blue)">■</span> clickable
+    &nbsp;<span style="color:var(--green)">■</span> scrollable
+    &nbsp;<span style="color:var(--text3)">■</span> label
   </span>
 </div>
 
 <!-- Direct-input toolbar: mouse wheel + physical keyboard -->
-<div class="row" style="gap:12px;margin-bottom:6px;align-items:center;font-size:11px;color:#666">
+<div class="row" style="gap:12px;margin-bottom:6px;align-items:center;font-size:11px;color:var(--text2)">
   <span title="Roll the mouse wheel over the phone screen to scroll the phone. Works out of the box; no toggle needed.">🖱 Wheel over the phone screen scrolls the phone</span>
   <label style="display:inline-flex;align-items:center;gap:4px;user-select:none;margin-left:auto"
          title="When ON, keyboard shortcuts (Enter, arrows, letters, Ctrl+A, etc.) go to the phone instead of the browser. Click the phone screen once first to focus it.">
@@ -263,7 +263,7 @@
      DRM video) intentionally return a black frame to the screenshot
      API. Without this note the Dashboard looks broken. -->
 <div id="mobileSecureBanner"
-     style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:rgba(255,193,7,.14);border:1px solid rgba(255,193,7,.4);border-radius:6px;font-size:12px;color:#856404">
+     style="display:none;margin:4px 0 6px 0;padding:6px 10px;background:var(--surface-warning);border:1px solid var(--border-warning);border-radius:6px;font-size:12px;color:var(--warning-text-dim)">
   🔒 Android marked this screen as secure (FLAG_SECURE) — the screenshot
   is intentionally black. Common on password entry, banking apps, and
   DRM video. Actions (tap / swipe / key) still work.
@@ -286,27 +286,27 @@
   <svg id="mobileInspectorOverlay" preserveAspectRatio="none"
        style="display:none;position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></svg>
   <div id="mobileScreenshotLoading"
-       style="display:none;position:absolute;top:8px;right:8px;padding:4px 8px;background:rgba(0,0,0,.6);color:#fff;border-radius:4px;font-size:11px">
+       style="display:none;position:absolute;top:8px;right:8px;padding:4px 8px;background:var(--overlay-mid);color:var(--text-inverse);border-radius:4px;font-size:11px">
     Refreshing…
   </div>
   <pre id="mobileInspectorTip" class="mono"
-       style="display:none;position:absolute;left:8px;bottom:8px;padding:6px 8px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;border-radius:4px;max-width:80%;white-space:pre-wrap;pointer-events:none;margin:0"></pre>
+       style="display:none;position:absolute;left:8px;bottom:8px;padding:6px 8px;background:var(--overlay-heavy);color:var(--text-inverse);font-size:11px;border-radius:4px;max-width:80%;white-space:pre-wrap;pointer-events:none;margin:0"></pre>
   <div class="row" style="gap:8px;margin-top:4px;align-items:baseline">
-    <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:#666"></div>
+    <div id="mobileScreenshotMeta" class="mono" style="font-size:11px;color:var(--text2)"></div>
     <div id="mobileScreenshotAge" class="mono" style="font-size:11px;margin-left:auto"></div>
   </div>
 </div>
 
 <details style="margin-top:14px">
   <summary style="cursor:pointer;font-size:13px">Full device info (raw JSON)</summary>
-  <pre id="mobileInfoDump" class="mono" style="font-size:11px;background:rgba(0,0,0,.04);padding:6px;white-space:pre-wrap;margin-top:6px">—</pre>
+  <pre id="mobileInfoDump" class="mono" style="font-size:11px;background:var(--surface-inset);padding:6px;white-space:pre-wrap;margin-top:6px">—</pre>
 </details>
 
 <!-- ADBKeyboard installer (v3.83.5 UI over v3.83.2 backend). Unlocks
      non-ASCII text input by installing a companion IME. -->
 <details style="margin-top:14px">
   <summary style="cursor:pointer;font-size:13px">ADBKeyboard helper (unicode text input)</summary>
-  <p style="margin:6px 0 8px 0;font-size:12px;color:#666">
+  <p style="margin:6px 0 8px 0;font-size:12px;color:var(--text2)">
     Non-ASCII payloads (cyrillic, emoji) crash Android's built-in
     <code>input text</code> with NullPointerException. Installing the
     ADBKeyboard helper APK adds an IME that accepts base64-encoded
@@ -320,7 +320,7 @@
     <button onclick="mobileHelperActivate()">Activate ADBKeyboard as IME</button>
     <button onclick="mobileHelperReset()">Reset IME to default</button>
   </div>
-  <pre id="mobileHelperStatus" class="mono" style="font-size:11px;color:#2b8a3e;background:rgba(0,0,0,.04);padding:6px;margin-top:6px;white-space:pre-wrap;min-height:1em"></pre>
+  <pre id="mobileHelperStatus" class="mono" style="font-size:11px;color:var(--green);background:var(--surface-inset);padding:6px;margin-top:6px;white-space:pre-wrap;min-height:1em"></pre>
 </details>
 
 <!-- Generic APK install (v3.83.5). Path-based — user uploads the APK
@@ -329,7 +329,7 @@
      a consent token, and pm install -r on confirmation. -->
 <details style="margin-top:14px">
   <summary style="cursor:pointer;font-size:13px">Install any APK (with SHA-256 consent)</summary>
-  <p style="margin:6px 0 8px 0;font-size:12px;color:#666">
+  <p style="margin:6px 0 8px 0;font-size:12px;color:var(--text2)">
     Upload the APK to <code>/tmp/arena-apk-staging/</code> on the
     bridge host first (arbitrary paths are refused for safety). Then
     Prepare to see SHA-256 + signature check + consent token, and
@@ -337,7 +337,7 @@
     "Install this app?" dialog you must accept.
   </p>
   <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;font-size:12px">
-    <label for="mobileApkPath" style="color:#666">APK path</label>
+    <label for="mobileApkPath" style="color:var(--text2)">APK path</label>
     <input type="text" id="mobileApkPath" placeholder="my-app.apk (relative under /tmp/arena-apk-staging/)"
            style="flex:1;font-family:monospace">
     <button onclick="mobileApkPrepare()">Prepare</button>
@@ -345,14 +345,14 @@
   </div>
   <input type="hidden" id="mobileApkSha">
   <input type="hidden" id="mobileApkConsent">
-  <pre id="mobileApkStatus" class="mono" style="font-size:11px;color:#2b8a3e;background:rgba(0,0,0,.04);padding:6px;margin-top:6px;white-space:pre-wrap;min-height:1em"></pre>
+  <pre id="mobileApkStatus" class="mono" style="font-size:11px;color:var(--green);background:var(--surface-inset);padding:6px;margin-top:6px;white-space:pre-wrap;min-height:1em"></pre>
 </details>
 
 <!-- Camera (v3.84.1). Auto-detects the shutter via UI Automator; the
      user can pass explicit coords for camera apps we don't know. -->
 <details style="margin-top:14px" id="mobileCameraDetails">
   <summary style="cursor:pointer;font-size:13px">Camera (take a photo, list DCIM, pull to bridge)</summary>
-  <p style="margin:6px 0 8px 0;font-size:12px;color:#666">
+  <p style="margin:6px 0 8px 0;font-size:12px;color:var(--text2)">
     Launches the phone's default camera app via
     <code>android.media.action.STILL_IMAGE_CAMERA</code>, waits for
     the preview, taps the shutter button (auto-detected or from
@@ -362,21 +362,21 @@
     the UI and pass explicit shutter coordinates.
   </p>
   <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">
-    <label style="color:#666">Wait before shutter</label>
+    <label style="color:var(--text2)">Wait before shutter</label>
     <select id="mobileCamWait" style="font-size:12px">
       <option value="1000">1000 ms</option>
       <option value="1500" selected>1500 ms (default)</option>
       <option value="2500">2500 ms</option>
       <option value="4000">4000 ms (slow devices)</option>
     </select>
-    <label style="color:#666">Max size</label>
+    <label style="color:var(--text2)">Max size</label>
     <select id="mobileCamSize" style="font-size:12px">
       <option value="512">512 px</option>
       <option value="1024" selected>1024 px (default)</option>
       <option value="2048">2048 px</option>
       <option value="0">native (huge!)</option>
     </select>
-    <label style="color:#666">Format</label>
+    <label style="color:var(--text2)">Format</label>
     <select id="mobileCamFormat" style="font-size:12px">
       <option value="jpeg" selected>JPEG</option>
       <option value="webp">WebP</option>
@@ -389,7 +389,7 @@
     <button onclick="mobileCameraCapture()" style="font-weight:600">📸 Capture + pull</button>
     <button onclick="mobileCameraListPhotos()">List latest photos</button>
   </div>
-  <pre id="mobileCameraStatus" class="mono" style="font-size:11px;color:#2b8a3e;background:rgba(0,0,0,.04);padding:6px;margin:0;white-space:pre-wrap;min-height:1em"></pre>
+  <pre id="mobileCameraStatus" class="mono" style="font-size:11px;color:var(--green);background:var(--surface-inset);padding:6px;margin:0;white-space:pre-wrap;min-height:1em"></pre>
   <img id="mobileCameraThumb"
        style="display:none;max-width:100%;margin-top:6px;border:1px solid #ccc;border-radius:6px"
        alt="last camera photo">
