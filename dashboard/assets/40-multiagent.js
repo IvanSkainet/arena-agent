@@ -48,7 +48,7 @@ function _agentsRenderTable() {
   const body = _agentsEl("agentsTableBody");
   if (!body) return;
   if (!_agentsList.length) {
-    body.innerHTML = '<tr><td colspan="5" style="padding:8px;text-align:center;color:#999">No agents yet — press Create.</td></tr>';
+    body.innerHTML = '<tr><td colspan="5" style="padding:8px;text-align:center;color:var(--text2)">No agents yet — press Create.</td></tr>';
     return;
   }
   const rows = _agentsList.map((a) => {
@@ -60,9 +60,9 @@ function _agentsRenderTable() {
       + '<td style="padding:4px"><code style="font-size:11px">' + _htmlEscape(id) + '</code></td>'
       + '<td style="padding:4px">' + _htmlEscape(label) + '</td>'
       + '<td style="padding:4px;text-align:right;font-variant-numeric:tabular-nums">' + reqs + '</td>'
-      + '<td style="padding:4px;color:#666;font-size:11px">' + seen + '</td>'
+      + '<td style="padding:4px;color:var(--text2);font-size:11px">' + seen + '</td>'
       + '<td style="padding:4px;text-align:right">'
-      + '<button class="sm" onclick="agentsRevoke(\'' + _jsEscape(id) + '\')" style="color:#c92a2a">Revoke</button>'
+      + '<button class="sm" onclick="agentsRevoke(\'' + _jsEscape(id) + '\')" style="color:var(--red)">Revoke</button>'
       + '</td>'
       + '</tr>';
   });

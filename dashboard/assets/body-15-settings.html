@@ -21,7 +21,7 @@
 </div>
 <div class="card">
 <h2>Tunnels &amp; Remote Access</h2>
-<p style="margin:4px 0 10px 0;font-size:12px;color:#666">
+<p style="margin:4px 0 10px 0;font-size:12px;color:var(--text2)">
   Providers try in priority order. The Bridge keeps working through the first
   healthy one, so a single provider outage does not take the Bridge offline.
 </p>
@@ -51,11 +51,11 @@
 <div class="row" style="margin-top:8px">
   <span style="font-weight:600;width:120px">ZeroTier</span>
   <span id="ztToggleStatus" class="badge gray">Unknown</span>
-  <span id="ztNodeId" class="mono" style="font-size:12px;color:#666"></span>
+  <span id="ztNodeId" class="mono" style="font-size:12px;color:var(--text2)"></span>
   <a id="ztUrl" href="#" target="_blank" style="margin-left:8px;font-size:12px;display:none" class="mono"></a>
 </div>
 <details style="margin-top:10px">
-  <summary style="cursor:pointer;font-size:12px;color:#666">Manage ZeroTier networks</summary>
+  <summary style="cursor:pointer;font-size:12px;color:var(--text2)">Manage ZeroTier networks</summary>
   <div style="margin-top:8px">
     <div id="ztNetworksList" class="mono" style="font-size:12px;white-space:pre-wrap;margin-bottom:6px">(no networks listed yet)</div>
     <div class="row">
@@ -63,7 +63,7 @@
       <button onclick="ztNetworkAction('join')">Join</button>
       <button onclick="ztNetworkAction('leave')" class="danger">Leave</button>
     </div>
-    <p id="ztHint" style="font-size:12px;color:#666;margin-top:6px;display:none"></p>
+    <p id="ztHint" style="font-size:12px;color:var(--text2);margin-top:6px;display:none"></p>
   </div>
 </details>
 </div>
@@ -92,7 +92,7 @@
   Auto-update
   <span id="adminUpdateBadge" style="display:none;font-size:11px;padding:2px 8px;border-radius:10px;color:#fff;font-weight:600;background:#3a7bd5">checking…</span>
 </h2>
-<p style="margin:4px 0 10px 0;font-size:12px;color:#666">
+<p style="margin:4px 0 10px 0;font-size:12px;color:var(--text2)">
   Check GitHub for a newer release and install it atomically.
   Consent-gated (SHA-256 verification), cross-platform, never touches
   your config or bridge home; only the source tree gets replaced.
@@ -106,20 +106,20 @@
 <button onclick="adminUpdateInstall()" id="adminUpdateInstallBtn" disabled>⬇ Install…</button>
 <button onclick="adminUpdateRestart()">↻ Restart bridge</button>
 </div>
-<div id="adminUpdateStatus" class="mono" style="font-size:12px;white-space:pre-wrap;color:#333">Auto-checking on load…</div>
+<div id="adminUpdateStatus" class="mono" style="font-size:12px;white-space:pre-wrap;color:var(--text)">Auto-checking on load…</div>
 <div id="adminUpdateDetails" style="margin-top:10px;font-size:12px"></div>
 <details style="margin-top:10px">
-  <summary style="cursor:pointer;font-size:12px;color:#666">Release notes</summary>
-  <div id="adminUpdateReleaseBody" style="margin-top:6px;font-size:12px;max-height:280px;overflow:auto;padding:8px;background:#fafafa;border:1px solid #eee;border-radius:4px;display:none;white-space:pre-wrap"></div>
+  <summary style="cursor:pointer;font-size:12px;color:var(--text2)">Release notes</summary>
+  <div id="adminUpdateReleaseBody" style="margin-top:6px;font-size:12px;max-height:280px;overflow:auto;padding:8px;background:var(--bg3);border:1px solid var(--accent);border-radius:4px;display:none;white-space:pre-wrap"></div>
 </details>
-<details style="margin-top:10px;font-size:12px;color:#666">
+<details style="margin-top:10px;font-size:12px;color:var(--text2)">
   <summary style="cursor:pointer">How to enable SHA-256 verified installs (add GITHUB_TOKEN)</summary>
-  <div style="margin-top:6px;padding:8px;background:#fafafa;border-radius:4px">
+  <div style="margin-top:6px;padding:8px;background:var(--bg3);border-radius:4px">
     <p>Without a token, updates use the anonymous <code>/releases/latest</code> redirect path — GitHub does not publish SHA-256 digests there, so the Install button stays disabled to keep verification mandatory. To enable verified installs:</p>
     <ol style="margin:6px 0 6px 20px;padding:0">
       <li>Create a personal access token at <a href="https://github.com/settings/tokens?type=beta" target="_blank" rel="noopener">github.com/settings/tokens</a> — fine-grained token with <em>Contents: read-only</em> on the <code>arena-agent</code> repo is enough (no other scopes).</li>
       <li>Add it to the bridge's environment. Systemd example:
-        <pre class="mono" style="font-size:11px;background:#f0f0f0;padding:6px;border-radius:4px;margin:4px 0;white-space:pre-wrap">systemctl --user edit arena-bridge
+        <pre class="mono" style="font-size:11px;background:var(--bg);padding:6px;border-radius:4px;margin:4px 0;white-space:pre-wrap">systemctl --user edit arena-bridge
 # add:
 [Service]
 Environment="GITHUB_TOKEN=github_pat_..."
@@ -139,7 +139,7 @@ systemctl --user restart arena-bridge</pre>
   Multi-agent sessions
   <span id="agentsBadge" style="display:none;font-size:11px;padding:2px 8px;border-radius:10px;color:#fff;font-weight:600;background:#3a7bd5">0 active</span>
 </h2>
-<p style="margin:4px 0 10px 0;font-size:12px;color:#666">
+<p style="margin:4px 0 10px 0;font-size:12px;color:var(--text2)">
   Isolated bearer tokens for multiple parallel agents on this bridge.
   Each agent gets its own request counter + audit ring so you can see
   what each one is doing. Revoking an agent invalidates its token
@@ -150,14 +150,14 @@ systemctl --user restart arena-bridge</pre>
   <button onclick="agentsCreate()">➕ Create agent</button>
   <button onclick="agentsRefresh()">🔄 Refresh</button>
 </div>
-<div id="agentsStatus" class="mono" style="font-size:12px;color:#333;margin-bottom:8px"></div>
-<div id="agentsNewTokenBox" style="display:none;background:#fff9c4;border:2px solid #f59f00;padding:10px;border-radius:6px;margin-bottom:10px;font-size:12px">
-  <div style="font-weight:600;color:#a06400;margin-bottom:6px">🔑 New agent token — copy it now, it will NOT be shown again</div>
+<div id="agentsStatus" class="mono" style="font-size:12px;color:var(--text);margin-bottom:8px"></div>
+<div id="agentsNewTokenBox" style="display:none;background:var(--bg3)9c4;border:2px solid var(--yellow);padding:10px;border-radius:6px;margin-bottom:10px;font-size:12px">
+  <div style="font-weight:600;color:var(--yellow);margin-bottom:6px">🔑 New agent token — copy it now, it will NOT be shown again</div>
   <div style="display:flex;gap:6px;align-items:center">
-    <code id="agentsNewToken" style="flex:1;background:#fff;padding:6px;border-radius:4px;font-size:11px;word-break:break-all"></code>
+    <code id="agentsNewToken" style="flex:1;background:var(--bg3);padding:6px;border-radius:4px;font-size:11px;word-break:break-all"></code>
     <button class="copy-btn sm" onclick="agentsCopyNewToken()">Copy</button>
   </div>
-  <div style="margin-top:6px;color:#666;font-size:11px">Agent ID: <code id="agentsNewId"></code></div>
+  <div style="margin-top:6px;color:var(--text2);font-size:11px">Agent ID: <code id="agentsNewId"></code></div>
 </div>
 <table style="width:100%;font-size:12px" id="agentsTableWrap">
   <thead>
@@ -173,11 +173,11 @@ systemctl --user restart arena-bridge</pre>
     <tr><td colspan="5" style="padding:8px;text-align:center;color:#999">No agents yet — press Create.</td></tr>
   </tbody>
 </table>
-<details style="margin-top:10px;font-size:12px;color:#666">
+<details style="margin-top:10px;font-size:12px;color:var(--text2)">
   <summary style="cursor:pointer">How to use an agent token</summary>
-  <div style="margin-top:6px;padding:8px;background:#fafafa;border-radius:4px">
+  <div style="margin-top:6px;padding:8px;background:var(--bg3);border-radius:4px">
     <p style="margin:2px 0"><strong>Replace</strong> your master token with the agent token in any request:</p>
-    <pre class="mono" style="font-size:11px;background:#f0f0f0;padding:6px;border-radius:4px;margin:6px 0;white-space:pre-wrap">curl -H "Authorization: Bearer agent-XXXXXXXX-YYYYYYYYYYYYYYYY" \
+    <pre class="mono" style="font-size:11px;background:var(--bg);padding:6px;border-radius:4px;margin:6px 0;white-space:pre-wrap">curl -H "Authorization: Bearer agent-XXXXXXXX-YYYYYYYYYYYYYYYY" \
      https://your-bridge.example/v1/mobile/devices</pre>
     <p style="margin:2px 0">The agent token works on every endpoint EXCEPT <code>/v1/agents/*</code> (management still requires master).</p>
     <p style="margin:2px 0">Full docs: <a href="/gui/docs/MULTIAGENT.md" target="_blank" rel="noopener">docs/MULTIAGENT.md</a></p>

@@ -1,3 +1,37 @@
+## v3.86.4 - 2026-07-15
+
+### Fixed
+
+- **Dashboard now respects the dark theme everywhere.** The Doctor
+  Hardware cards, the Multi-agent panel, the Auto-update details
+  table, the new-token warning box and the GITHUB_TOKEN help
+  section were all using hard-coded light colours (`#fff`,
+  `#fafafa`, `#333`, `#666`, etc.). Replaced every inline
+  colour with the corresponding CSS variable (`var(--bg2)`,
+  `var(--text)`, `var(--text2)`, ...) so dark theme users
+  don't get flash-banged when they open Settings or Doctor.
+
+- **Docs are now rendered as HTML with the dashboard theme.**
+  `GET /gui/docs/*.md` used to return raw `text/markdown`,
+  which browsers show as an unreadable monospace text blob. New
+  `arena/gui/markdown_render.py` (272 lines, zero deps) converts
+  Markdown to HTML server-side with the same dark palette as the
+  Dashboard. Handles headings, bold/italic/code, links (with a
+  `javascript:` blocker), lists, fenced code blocks (with HTML
+  escaping to prevent injection), blockquotes and horizontal
+  rules. 12 unit tests cover the syntax subset and the sanitiser.
+
+- **GITHUB_TOKEN instructions were nearly invisible.** They lived
+  inside a closed `<details>` element with a small grey summary
+  in the Settings card. Same block still exists, but the labelling
+  colour flipped to `var(--text2)` so it reads on the dark
+  background, and the whole panel got its own theme-aware surface
+  instead of light-grey `#fafafa`.
+
+Tests: 963 -> 975 passed (+12 new for the Markdown renderer). All
+inline light-theme colour hex constants removed from the three JS
+modules and the settings/doctor HTML fragments touched since v3.86.0.
+
 ## v3.86.3 - 2026-07-15
 
 ### Fixed

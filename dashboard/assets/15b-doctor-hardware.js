@@ -52,13 +52,13 @@ function _hwCard(title, rows) {
       v = "—";
     }
     return '<tr>'
-      + '<td style="padding:2px 8px 2px 0;color:#666;vertical-align:top;white-space:nowrap;font-size:12px">'
+      + '<td style="padding:2px 8px 2px 0;color:var(--text2);vertical-align:top;white-space:nowrap;font-size:12px">'
       + _hwEsc(k) + '</td>'
-      + '<td style="padding:2px 0;font-size:12px;word-break:break-word">' + v + '</td>'
+      + '<td style="padding:2px 0;font-size:12px;word-break:break-word;color:var(--text)">' + v + '</td>'
       + '</tr>';
   }).join("");
-  return '<div class="hw-card" style="border:1px solid #eee;border-radius:6px;padding:10px;background:#fff">'
-    + '<div style="font-weight:600;margin-bottom:6px;font-size:13px">' + _hwEsc(title) + '</div>'
+  return '<div class="hw-card" style="border:1px solid var(--accent);border-radius:6px;padding:10px;background:var(--bg3)">'
+    + '<div style="font-weight:600;margin-bottom:6px;font-size:13px;color:var(--blue)">' + _hwEsc(title) + '</div>'
     + '<table style="width:100%;border-collapse:collapse">' + body + '</table>'
     + '</div>';
 }
@@ -83,7 +83,7 @@ function _hwRenderMemory(mem) {
   const usedPct = (mem.total_gb && mem.used_gb)
     ? Math.round((mem.used_gb / mem.total_gb) * 100) + "%"
     : "—";
-  const bar = (mem.total_gb && mem.used_gb) ? '<div style="height:6px;background:#eee;border-radius:3px;overflow:hidden;margin-top:4px"><div style="height:6px;background:#3a7bd5;width:' + Math.min(100, Math.round((mem.used_gb / mem.total_gb) * 100)) + '%"></div></div>' : '';
+  const bar = (mem.total_gb && mem.used_gb) ? '<div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-top:4px"><div style="height:6px;background:var(--blue);width:' + Math.min(100, Math.round((mem.used_gb / mem.total_gb) * 100)) + '%"></div></div>' : '';
   return _hwCard("Memory", [
     ["Total",     _hwFmtGB(mem.total_gb)],
     ["Used",      _hwFmtGB(mem.used_gb) + " (" + usedPct + ")" + bar],
@@ -127,7 +127,7 @@ function _hwRenderDisks(disks) {
       ? _hwFmtGB(d.used_gb) + " / " + _hwFmtGB(d.total_gb) + " · " + Math.round(d.used_pct || 0) + "%"
       : "—";
     const bar = (d.used_pct != null)
-      ? '<div style="height:4px;background:#eee;border-radius:2px;overflow:hidden;margin-top:2px"><div style="height:4px;background:' + (d.used_pct > 90 ? "#c92a2a" : d.used_pct > 75 ? "#c9740c" : "#2b8a3e") + ';width:' + Math.min(100, d.used_pct) + '%"></div></div>'
+      ? '<div style="height:4px;background:var(--bg);border-radius:2px;overflow:hidden;margin-top:2px"><div style="height:4px;background:' + (d.used_pct > 90 ? "var(--red)" : d.used_pct > 75 ? "var(--orange)" : "var(--green)") + ';width:' + Math.min(100, d.used_pct) + '%"></div></div>'
       : '';
     return [label, used + bar];
   });

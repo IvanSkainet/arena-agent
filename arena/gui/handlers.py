@@ -57,7 +57,13 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
     async def handle_gui_docs(request: web.Request) -> web.Response:
         """GET /gui/docs/{path} — expose the repo's docs/ directory
         so Dashboard links like ``docs/MULTIAGENT.md`` actually
-        resolve. Read-only, path-traversal guarded. v3.86.3."""
+        resolve. Read-only, path-traversal guarded.
+
+        v3.86.4: Markdown files are rendered server-side to HTML with
+        the Dashboard's dark theme instead of returned as raw text
+        (which browsers show as an unreadable monospace wall). Other
+        file types (txt, html, svg, png) pass through untouched.
+        """
         rel = request.match_info.get("path", "")
         docs_root = (Path(ctx.bridge_dir) / "docs").resolve()
         docs_path = (docs_root / rel).resolve()
@@ -68,6 +74,26 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         if not docs_path.is_file():
             return web.Response(status=404, text="not found")
         suffix = docs_path.suffix.lower()
+        if suffix == ".md":
+            # Render Markdown -> HTML with the dashboard's dark theme.
+            try:
+                from arena.gui.markdown_render import render, wrap_page
+                raw = docs_path.read_text(encoding="utf-8", errors="replace")
+                body = render(raw)
+                html_page = wrap_page(docs_path.name, body)
+                return web.Response(
+                    text=html_page,
+                    content_type="text/html",
+                    charset="utf-8",
+                    headers={
+                        "Access-Control-Allow-Origin": "*",
+                        "Cache-Control": "no-store",
+                    },
+                )
+            except Exception:
+                # Fall back to raw so a rendering bug can't 500 the
+                # docs endpoint entirely.
+                pass
         content_type = {
             ".md":   "text/markdown; charset=utf-8",
             ".txt":  "text/plain; charset=utf-8",

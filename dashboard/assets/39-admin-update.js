@@ -113,7 +113,7 @@ function _adminUpdateRenderStatus(status, check) {
     parts.push('<div><strong>Available:</strong> v' + latest + '</div>');
   }
   parts.push('</div>');
-  parts.push('<table class="mono" style="font-size:11px;color:#555;border-collapse:collapse;width:100%">');
+  parts.push('<table class="mono" style="font-size:11px;color:var(--text);border-collapse:collapse;width:100%">');
   const rows = [
     ["Repository",   check && check.repo || (status && status.repo) || "?"],
     ["Install root", status && status.install_root || "?"],
@@ -132,7 +132,7 @@ function _adminUpdateRenderStatus(status, check) {
   ];
   for (const [k, v] of rows) {
     if (v == null || v === "" || v === "unknown") continue;
-    parts.push('<tr><td style="padding:2px 8px 2px 0;color:#666;vertical-align:top;white-space:nowrap">' + k + '</td>'
+    parts.push('<tr><td style="padding:2px 8px 2px 0;color:var(--text2);vertical-align:top;white-space:nowrap">' + k + '</td>'
              + '<td style="padding:2px 0;word-break:break-all">' + v + '</td></tr>');
   }
   parts.push('</table>');
@@ -161,7 +161,7 @@ function _adminUpdateRenderReleaseBody(body) {
              '<a href="$2" target="_blank" rel="noopener">$1</a>')
     // inline code `x`
     .replace(/`([^`\n]+)`/g,
-             '<code style="background:#eee;padding:1px 4px;border-radius:3px">$1</code>')
+             '<code style="background:var(--bg);padding:1px 4px;border-radius:3px">$1</code>')
     // bold **x**
     .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
     // italic *x*  (careful: don't match middle-word asterisks)
