@@ -231,6 +231,38 @@ def get_audio() -> dict:
 
 # ------------------------------------------------------------------ SMART
 
+def _smartctl_permission_hint() -> str:
+    """Platform-appropriate hint for granting smartctl the privileges
+    it needs. Does NOT hardcode a specific path -- the bridge might be
+    installed anywhere. The command uses `command -v` / `where` so
+    the operator's shell resolves the actual smartctl location.
+    """
+    sys_name = platform.system()
+    if sys_name == "Linux":
+        return (
+            "Grant smartctl the raw-IO capability so it can be run as a "
+            "regular user:  sudo setcap cap_sys_rawio+ep \"$(command -v "
+            "smartctl)\"  (persists until the smartmontools package is "
+            "reinstalled). Alternative: run the bridge as root."
+        )
+    if sys_name == "Darwin":
+        return (
+            "smartctl needs elevated privileges on macOS. Run the bridge "
+            "under sudo, or add a passwordless sudoers rule for "
+            "$(command -v smartctl)."
+        )
+    if sys_name == "Windows":
+        return (
+            "smartctl needs Administrator privileges on Windows. Restart "
+            "the bridge from an elevated PowerShell / cmd session, or "
+            "wrap the service in NSSM with LocalSystem."
+        )
+    return (
+        "smartctl needs elevated privileges. Run the bridge under an "
+        "account that can open raw block devices."
+    )
+
+
 def get_disk_smart() -> dict:
     """SMART health per block device. Requires smartctl (smartmontools).
     Returns available=False when smartctl is not on PATH.
@@ -276,11 +308,7 @@ def get_disk_smart() -> dict:
                     text = str(msg.get("string", ""))
                     entry["error"] = text
                     if "permission" in text.lower():
-                        entry["hint"] = (
-                            "smartctl needs elevated privileges: try "
-                            "`sudo setcap cap_sys_rawio+ep $(which smartctl)` "
-                            "on Linux, or run the bridge as root."
-                        )
+                        entry["hint"] = _smartctl_permission_hint()
                     break
             entry["model"] = j.get("model_name") or j.get("device", {}).get("name")
             entry["serial"] = j.get("serial_number")

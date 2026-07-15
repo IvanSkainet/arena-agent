@@ -158,29 +158,19 @@
     /* Rows with inputs on narrow viewports: on a phone, four
        inputs sharing one row (Memory: Profile, Key, Value, Tags)
        have ~60-80px each and nothing fits, not even "default".
-       Solution: every input without an explicit width goes to
-       its own row. flex-wrap:wrap on .row (base sheet) picks up
-       the 100% basis and puts each field on its own line.
-       Explicit inline style="width:..." or style="flex:..." is
-       preserved so power-user tabs (Mobile pair/connect ports,
-       Terminal timeout dropdown) keep their compact layout. */
-    .row > input:not([style*="width"]):not([style*="flex"]),
-    .row > textarea:not([style*="width"]):not([style*="flex"]),
-    .row > select:not([style*="width"]):not([style*="flex"]) {
-        flex: 1 1 100%;
+       Solution: EVERY input without an explicit inline `width:`
+       goes to its own row, regardless of whether it has a
+       `flex:` value inline. flex-wrap:wrap on .row (base sheet)
+       picks up the 100% basis and puts each field on its own line.
+       Only explicit inline `style="width:..."` (Mobile pair/connect
+       ports, Terminal timeout dropdown, camera settings selectors)
+       is preserved so power-user tabs keep their compact layout. */
+    .row > input:not([style*="width"]),
+    .row > textarea:not([style*="width"]),
+    .row > select:not([style*="width"]) {
+        flex: 1 1 100% !important;
         min-width: 0;
-    }
-
-    /* Inputs that had inline style="flex:1" (Memory / Recall /
-       Control / Settings tabs) collapse to their own row too --
-       otherwise they still divide the parent's width equally and
-       a placeholder like "Search facts..." vanishes into "S…". */
-    .row > input[style*="flex:1"]:not([style*="width"]),
-    .row > input[style*="flex: 1"]:not([style*="width"]),
-    .row > textarea[style*="flex:1"]:not([style*="width"]),
-    .row > textarea[style*="flex: 1"]:not([style*="width"]),
-    .row > select[style*="flex:1"]:not([style*="width"]) {
-        flex-basis: 100%;
+        max-width: 100%;
     }
 
     /* When several inputs share a row on mobile, put each on

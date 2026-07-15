@@ -189,6 +189,47 @@ def format_text(data: dict) -> str:
         for s in a.get("sources", [])[:10]:
             lines.append(f"  in : {s.get('name', '')}")
 
+    if data.get("top_processes", {}).get("available"):
+        tp = data["top_processes"]
+        lines.append("\n### Top processes")
+        for p in tp.get("by_cpu", [])[:5]:
+            lines.append(f"  cpu {p['cpu_pct']:>5.1f}% · {p['rss_mb']:>7.1f} MB · "
+                         f"{p['name']} (pid {p['pid']})")
+        for p in tp.get("by_memory", [])[:5]:
+            lines.append(f"  ram {p['rss_mb']:>7.1f} MB · {p['cpu_pct']:>5.1f}% · "
+                         f"{p['name']} (pid {p['pid']})")
+
+    if data.get("listening_ports", {}).get("available"):
+        lp = data["listening_ports"]
+        lines.append(f"\n### Listening TCP ports ({len(lp.get('tcp', []))})")
+        for p in lp.get("tcp", [])[:25]:
+            lines.append(f"  tcp/{p['port']:<6} {p.get('process', ''):<20} "
+                         f"pid {p.get('pid', '?')}  {p.get('addr', '')}")
+
+    if data.get("systemd_failed", {}).get("available"):
+        sf = data["systemd_failed"]
+        failed = (sf.get("system_failed") or []) + (sf.get("user_failed") or [])
+        if failed:
+            lines.append(f"\n### Systemd failed units ({len(failed)})")
+            for u in failed[:20]:
+                lines.append(f"  {u['unit']} — {u.get('description', '')}")
+
+    if data.get("boot_time", {}).get("available"):
+        b = data["boot_time"]
+        up = b.get("uptime_seconds", 0)
+        d, r = divmod(up, 86400); h, r = divmod(r, 3600); m, _ = divmod(r, 60)
+        lines.append("\n### Boot")
+        lines.append(f"  Booted   : {b.get('boot_time_iso', '')}")
+        lines.append(f"  Uptime   : {d}d {h}h {m}m")
+
+    if data.get("kernel_modules", {}).get("available"):
+        km = data["kernel_modules"]
+        lines.append(f"\n### Kernel modules ({km.get('count', 0)} loaded, "
+                     f"showing top {len(km.get('modules', []))})")
+        for mod in km.get("modules", [])[:15]:
+            lines.append(f"  {mod['name']:<28} {mod['size_bytes']:>10} B  "
+                         f"used by {mod['used_count']}")
+
     if "network" in data:
         n = data["network"]
         lines.append("\n### Network")

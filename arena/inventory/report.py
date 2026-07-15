@@ -6,11 +6,16 @@ from arena.inventory.probe_identity import get_identity, get_os
 from arena.inventory.probe_hardware import get_cpu, get_memory, get_gpu, get_motherboard
 from arena.inventory.probe_devices import get_disks, get_storage_devices, get_pci_devices, get_usb_devices, get_thermal, get_network, get_displays
 from arena.inventory.probe_sensors import get_battery, get_fans, get_audio, get_disk_smart, get_thermal_detail
+from arena.inventory.probe_agent_facts import (
+    get_top_processes, get_listening_ports, get_systemd_failed,
+    get_boot_time, get_kernel_modules,
+)
 from arena.inventory.probe_software import get_runtimes, get_package_managers, get_browsers, get_env, get_services, get_python_env
 
 SECTIONS = [
     ("identity", get_identity),
     ("os", get_os),
+    ("boot_time", get_boot_time),
     ("cpu", get_cpu),
     ("memory", get_memory),
     ("motherboard", get_motherboard),
@@ -25,6 +30,10 @@ SECTIONS = [
     ("battery", get_battery),
     ("audio", get_audio),
     ("disk_smart", get_disk_smart),
+    ("top_processes", get_top_processes),
+    ("listening_ports", get_listening_ports),
+    ("systemd_failed", get_systemd_failed),
+    ("kernel_modules", get_kernel_modules),
     ("network", get_network),
     ("runtimes", get_runtimes),
     ("package_managers", get_package_managers),

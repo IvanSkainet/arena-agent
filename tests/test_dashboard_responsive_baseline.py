@@ -99,26 +99,53 @@ def test_base_css_min_width_zero_on_inputs():
 
 
 def test_mobile_inputs_stack_full_width():
-    """Regression guard for v3.87.2: on a 375px phone, four inputs
-    sharing one .row (Memory tab: Profile / Key / Value / Tags)
-    each got ~60-80px and couldn't even show 'default'. Fix is to
-    force full-width flex-basis on mobile so each input gets its
-    own line via flex-wrap.
+    """Regression guard for v3.87.2 / v3.87.3 / v3.88.1: on a 375px
+    phone, four inputs sharing one .row (Memory tab: Profile / Key /
+    Value / Tags -- with inline flex:1 / flex:2) each got ~60-80px
+    and couldn't even show 'default'.
+
+    The rule: on mobile every input without an inline `width:` takes
+    100% flex-basis with !important so inline `flex:1` / `flex:2`
+    can't override. The selector must NOT filter by `[style*="flex"]`
+    -- that was v3.87.3's mistake that caused the regression to come
+    back once more.
     """
     text = (DASHBOARD / "assets" / "responsive.css").read_text(encoding="utf-8")
-    # The mobile block must give unstyled inputs 100% flex-basis.
-    # We accept either `flex: 1 1 100%` OR `flex-basis: 100%`.
-    assert re.search(
-        r"\.row\s*>\s*input[^{]*:not\([^)]*width[^)]*\)[^{]*{[^}]*"
-        r"(?:flex:\s*1\s+1\s+100%|flex-basis:\s*100%)",
+    # Find the mobile input rule.
+    match = re.search(
+        r"\.row\s*>\s*input([^{]+){([^}]+)}",
         text,
-        re.DOTALL,
-    ), (
-        "responsive.css must force unstyled .row > input to take "
-        "flex-basis:100% on mobile so each field wraps to its own "
-        "row. Otherwise sharing four inputs in one row on a phone "
-        "gives each ~70px and placeholders vanish."
     )
+    assert match, "mobile .row > input rule not found in responsive.css"
+    selector = match.group(1)
+    body = match.group(2)
+    # Selector must exclude only [style*="width"] -- NOT [style*="flex"].
+    assert "[style*=\"width\"]" in selector, selector
+    assert "[style*=\"flex\"]" not in selector, (
+        "responsive.css .row > input selector must NOT filter by "
+        "[style*='flex']: inputs with inline flex:1 also need to "
+        "stack on mobile. Selector was:\n" + selector
+    )
+    # Rule body must set 100% flex-basis and !important so it wins
+    # over inline styles.
+    assert "100%" in body and "!important" in body, (
+        "rule body must include 100% basis + !important:\n" + body
+    )
+
+
+def test_platform_aware_smartctl_hint():
+    """v3.88.1: probe_sensors._smartctl_permission_hint must branch
+    on platform, not emit a Linux-only command on Windows/macOS."""
+    src = (ROOT / "arena" / "inventory" / "probe_sensors.py").read_text(encoding="utf-8")
+    assert "_smartctl_permission_hint" in src
+    # The function must reference each platform explicitly.
+    fn_start = src.find("def _smartctl_permission_hint")
+    fn_end = src.find("\n\n", fn_start + 1)
+    fn_src = src[fn_start:fn_end]
+    for platform_name in ("Linux", "Darwin", "Windows"):
+        assert platform_name in fn_src, (
+            f"_smartctl_permission_hint must handle {platform_name}"
+        )
 
 
 def test_full_inventory_container_preserves_whitespace():

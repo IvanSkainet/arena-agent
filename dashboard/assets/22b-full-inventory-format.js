@@ -146,6 +146,44 @@ function formatInventoryText(inv, onlySections) {
     (inv.audio.sources||[]).slice(0,10).forEach(s => lines.push(`  in : ${s.name||""}`));
     lines.push("");
   }
+  if (show("top_processes") && inv.top_processes && inv.top_processes.available) {
+    lines.push("### Top processes (by CPU / by RAM)");
+    (inv.top_processes.by_cpu||[]).slice(0,5).forEach(p =>
+      lines.push(`  cpu ${p.cpu_pct.toString().padStart(5)}%  ${(p.rss_mb+" MB").padStart(10)}  ${p.name} (pid ${p.pid})`));
+    (inv.top_processes.by_memory||[]).slice(0,5).forEach(p =>
+      lines.push(`  ram ${(p.rss_mb+" MB").padStart(10)}  ${p.cpu_pct.toString().padStart(5)}%  ${p.name} (pid ${p.pid})`));
+    lines.push("");
+  }
+  if (show("listening_ports") && inv.listening_ports && inv.listening_ports.available) {
+    const tcp = inv.listening_ports.tcp || [];
+    lines.push(`### Listening TCP ports (${tcp.length})`);
+    tcp.slice(0,25).forEach(p =>
+      lines.push(`  tcp/${p.port.toString().padEnd(6)} ${(p.process||"").padEnd(20)} pid ${p.pid||"?"}  ${p.addr||""}`));
+    lines.push("");
+  }
+  if (show("systemd_failed") && inv.systemd_failed && inv.systemd_failed.available) {
+    const failed = (inv.systemd_failed.system_failed||[]).concat(inv.systemd_failed.user_failed||[]);
+    lines.push(`### Systemd failed units (${failed.length})`);
+    if (failed.length === 0) lines.push("  (none — clean state)");
+    failed.slice(0,20).forEach(u =>
+      lines.push(`  ${u.unit} — ${u.description||""}`));
+    lines.push("");
+  }
+  if (show("boot_time") && inv.boot_time && inv.boot_time.available) {
+    const up = inv.boot_time.uptime_seconds || 0;
+    const d = Math.floor(up/86400), h = Math.floor((up%86400)/3600), m = Math.floor((up%3600)/60);
+    lines.push("### Boot");
+    lines.push(`  Booted   : ${inv.boot_time.boot_time_iso||""}`);
+    lines.push(`  Uptime   : ${d}d ${h}h ${m}m`);
+    lines.push("");
+  }
+  if (show("kernel_modules") && inv.kernel_modules && inv.kernel_modules.available) {
+    const km = inv.kernel_modules;
+    lines.push(`### Kernel modules (${km.count||0} loaded, showing top ${(km.modules||[]).length})`);
+    (km.modules||[]).slice(0,15).forEach(mod =>
+      lines.push(`  ${mod.name.padEnd(28)} ${String(mod.size_bytes).padStart(10)} B  used by ${mod.used_count}`));
+    lines.push("");
+  }
   if (show("network") && inv.network) {
     const n = inv.network;
     lines.push("### Network");

@@ -1,3 +1,122 @@
+## v3.88.1 - 2026-07-16
+
+### Fixed
+
+- **Placeholder overflow in portrait — properly this time.**
+  v3.87.3's `[style*="flex"]:not(...)` selector still filtered out
+  inputs with inline `flex:1` / `flex:2`, so Memory's 4-field row
+  (Profile / Key / Value=`flex:2` / Tags) fell through and each
+  input stayed ~70 px wide. New rule: on mobile, **every** input
+  without an inline `width:` gets `flex: 1 1 100% !important` +
+  `min-width: 0`. Inline `flex:` no longer bypasses the mobile
+  stack. Only inputs with an explicit inline `width:` (Mobile tab
+  ports, Terminal timeout, camera selectors) keep their compact
+  layout.
+
+- **Doctor → Hardware → "Thermal sensors" showed
+  `[object Object],[object Object]`.** `_hwRenderThermal` used to
+  coerce the raw `{temperatures, lm_sensors}` envelope to string
+  and glued the resulting `[object Object]` labels together. The
+  renderer now walks `hw.thermal_detail.sensors[]` (introduced in
+  v3.88.0 but never surfaced in the Hardware card) with per-source
+  `[cpu] / [gpu] / [nvme] / [board]` prefixes, then falls back to
+  the legacy `thermal.temperatures[]` array. Non-object legacy
+  payload paths remain supported.
+
+- **Doctor "Services" list showed "and 33 more" tail.** Replaced
+  with a proper `<details>` element per systemd scope: click to
+  expand into a monospaced, scrollable (220 px cap) list. All units
+  are actually reachable now — no truncation, no lost data.
+
+- **`disk_smart.hint` hard-coded a Linux `sudo setcap` command
+  on Windows and macOS**, and even on Linux baked in `/usr/bin/`
+  as the assumed smartctl path. Extracted
+  `_smartctl_permission_hint()` with per-platform branches:
+  * **Linux** → `sudo setcap cap_sys_rawio+ep "$(command -v
+    smartctl)"` (uses the operator's PATH resolution, not a
+    hardcoded path).
+  * **macOS** → `sudo`-based hint pointing at
+    `$(command -v smartctl)`.
+  * **Windows** → "restart from an elevated PowerShell / cmd, or
+    wrap the service in NSSM with LocalSystem."
+
+- **`disk_smart.hint` wasn't visible in Doctor Hardware.** Even
+  though `/v1/inventory` returned it, `_hwRenderSmart()` did not
+  exist. Added one — device status, temperature, hours, wear,
+  error string, and the platform-aware hint are all rendered
+  inline under the device row.
+
+### Added — new sensor cards in Doctor Hardware
+
+The Hardware tab now renders the v3.88.0 sensor probes as their
+own cards (previously only reachable via Full Inventory / raw
+JSON):
+
+* **Thermal sensors** (via `thermal_detail`) — classified by CPU /
+  GPU / NVMe / board / other with high & critical thresholds.
+* **Fans** — chip / label / RPM.
+* **Battery** — charge %, plugged, health %, cycle count, model.
+* **Disk SMART** — status, model, temperature, hours, wear,
+  reallocated sectors, inline error + hint.
+* **Audio** — outputs and inputs (PipeWire / WMI / SPAudio).
+
+### Added — agent-focused probes
+
+New `arena/inventory/probe_agent_facts.py` (218 lines) with five
+probes an AI agent needs before it plans work. Registered in
+`SECTIONS`, surfaced on `/v1/hardware` and in Full Inventory
+selectors. Each returns `{"available": bool, ...}` and never
+raises.
+
+| Section | What it tells the agent |
+|---|---|
+| **`top_processes`** | Top 10 by CPU + top 10 by RAM, with pid, user, status, cmdline preview, cpu_pct, rss_mb, total process count. Agent knows what's already loud before starting a heavy job. |
+| **`listening_ports`** | Open TCP (and UDP-`SOCK_DGRAM`) listeners with owning process name + pid + bind addr. Agent avoids binding a port that's already in use. |
+| **`systemd_failed`** | Systemd units in `failed` state (both system + user scopes). Agent detects that Docker crashed before trying `docker run`. |
+| **`boot_time`** | ISO boot time + uptime seconds. Agent avoids scheduling long jobs 3 minutes after a boot when things are still initialising. |
+| **`kernel_modules`** | Top-N loaded kernel modules by size (Linux). Agent checks for `nvidia_uvm` before CUDA, `btrfs` before a snapshot plan. |
+
+Each probe also lands in `text_format.py` and
+`22b-full-inventory-format.js` so Full Inventory renders them as
+`### Sections`.
+
+### Added — services / status expose
+
+`hardware.py::normalize_inventory_hardware()` now propagates the
+new `thermal_detail / fans / battery / audio / disk_smart` (from
+v3.88.0), plus the five agent-facts probes, plus `services` (the
+systemd unit list previously stuck in the raw inventory) onto the
+flat `/v1/hardware` object. Older consumers (Doctor Hardware card,
+legacy scripts) get every new field without diving into the raw
+tree.
+
+### Test
+
+* **`tests/test_probe_agent_facts.py`** (7 tests) — API contract,
+  psutil-mocked probes, cross-platform guards (systemd only on
+  Linux, kmods only on Linux), SECTIONS integration, platform-
+  aware smartctl hint (Linux/macOS/Windows), and a regression
+  guard against hardcoded `/usr/bin/smartctl` paths in the hint.
+* **`tests/test_dashboard_responsive_baseline.py`** — the
+  `test_mobile_inputs_stack_full_width` guard now REQUIRES that
+  the mobile input selector does NOT filter by `[style*="flex"]`
+  (the very mistake that made v3.87.3 half-fix the overflow), AND
+  that the body includes `100%` + `!important`.
+* **`test_platform_aware_smartctl_hint`** — parses
+  `probe_sensors.py`, finds `_smartctl_permission_hint`, verifies
+  it names Linux / Darwin / Windows.
+* **~1010 tests passed** (up from 999).
+
+### Live-verified
+
+Bridge at v3.88.1: `/v1/hardware` returns non-empty
+`thermal_detail` (10 sensors: 5 CPU cores, NVMe composite + 2
+sensors, 2 board acpitz), `top_processes.available: true` with
+real pid/name/cpu/rss numbers, `listening_ports` with the bridge
+itself on port 8765, `systemd_failed.available: true` with the
+current failed-unit set (empty on this host), `boot_time` with
+current uptime. Doctor Hardware tab shows every new card.
+
 ## v3.88.0 - 2026-07-16
 
 ### Added

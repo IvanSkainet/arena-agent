@@ -57,11 +57,27 @@ def normalize_inventory_hardware(inv: dict[str, Any]) -> dict[str, Any]:
             "usb": inv.get("usb_devices") or [],
         },
         "thermal": inv.get("thermal") or {},
+        # v3.88.x sensor probes: also expose them on the flat
+        # hardware object so /v1/hardware consumers (Doctor tab,
+        # legacy scripts) can find them without diving into the
+        # raw inventory tree.
+        "thermal_detail": inv.get("thermal_detail") or {},
+        "fans": inv.get("fans") or {},
+        "battery": inv.get("battery") or {},
+        "audio": inv.get("audio") or {},
+        "disk_smart": inv.get("disk_smart") or {},
+        # v3.88.1 agent-focused probes
+        "top_processes": inv.get("top_processes") or {},
+        "listening_ports": inv.get("listening_ports") or {},
+        "systemd_failed": inv.get("systemd_failed") or {},
+        "boot_time": inv.get("boot_time") or {},
+        "kernel_modules": inv.get("kernel_modules") or {},
         "network": inv.get("network") or {},
         "displays": inv.get("displays") or {},
         "runtimes": inv.get("runtimes") or {},
         "package_managers": inv.get("package_managers") or {},
         "browsers": inv.get("browsers") or {},
+        "services": inv.get("services") or {},
     }
 
     # aliases expected by older dashboard/cards.
