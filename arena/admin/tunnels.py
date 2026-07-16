@@ -270,6 +270,7 @@ def tunnels_probe(
         cloudflared_status_sync=cloudflared_status_sync,
         zerotier_status_sync=zerotier_status_sync,
         priority=priority,
+        port=port,
     )
     probes = []
     for provider in snap.get("providers", []):

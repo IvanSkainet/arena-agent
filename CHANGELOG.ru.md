@@ -1,4 +1,19 @@
-# История изменений
+\n## v4.0.4 - 2026-07-16
+
+### Исправлено — CI всё ещё падал в v4.0.3 (port не передавался)
+
+v4.0.3 ужесточил синхронизацию тестов, но настоящий production
+bug был в самом ``tunnels_probe``: он принимал ``port`` kwarg и
+использовал его для URL parsing'а, но забыл передать в underlying
+``tunnels_status`` — так что ZeroTier snapshot всё равно строил
+``http://<ip>:8765`` независимо от аргумента. Тест дозванивался
+на random ephemeral port'у, а probe стучал в 8765, что падало
+как "Connection refused" (и упало бы на любом реальном хосте с
+non-default bridge port тоже). One-line fix: передать ``port=port``
+в ``tunnels_status`` внутри ``tunnels_probe``.
+
+Тесты: 1153 passed.
+\n# История изменений
 
 > 🌐 [English version](CHANGELOG.md)
 

@@ -1,4 +1,21 @@
-## v4.0.3 - 2026-07-16
+## v4.0.4 - 2026-07-16
+
+### Fixed — v4.0.3 CI still failed (port not passed through)
+
+v4.0.3 hardened the test synchronisation but the actual production
+bug was in ``tunnels_probe`` itself: it accepted a ``port`` kwarg
+and used it for URL parsing, but forgot to pass it to the
+underlying ``tunnels_status`` call — so the ZeroTier snapshot
+still built ``http://<ip>:8765`` regardless. The test dialed a
+random ephemeral port and the probe hit 8765, which failed as
+"Connection refused" (and would have failed on any real host with
+a non-default bridge port too). One-line fix: pass ``port=port``
+through to ``tunnels_status`` in ``tunnels_probe``.
+
+Tests: 1153 passed. Confirmed the fix by running the test locally
+with pytest -v and by verifying tunnels_probe against a random
+listening port.
+\n## v4.0.3 - 2026-07-16
 
 ### Fixed — v4.0.2 CI failure (test flakiness on slow runners)
 
