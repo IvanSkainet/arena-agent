@@ -5,6 +5,7 @@ import sys
 
 from arena.agentctl_cli.agentctl_common import VERSION
 from arena.agentctl_cli import agentctl_breaker as breaker
+from arena.agentctl_cli import agentctl_bridge as bridge
 from arena.agentctl_cli import agentctl_browser as browser
 from arena.agentctl_cli import agentctl_browseract as bact
 from arena.agentctl_cli import agentctl_memory as memory
@@ -28,6 +29,7 @@ Namespaces:
   skill   list|run                               Skills (executable + prompt-only)
   audit   stats|tail                             Audit log
   breaker status|deprio|reset                    Tunnels_probe circuit breaker
+  bridge  urls|best|test                          Client-side URL discovery (v4.22.0)
   backup  run                                    Removed backup feature notice
   mission list                                   Missions
   report  list                                   Reports
@@ -58,6 +60,7 @@ DISPATCH = {
     "breaker": {"status": breaker.status, "deprio": breaker.deprio,
                 "reset": breaker.reset, "help": breaker.help_,
                 "": breaker.status},
+    "bridge": bridge.DISPATCH,
     "backup": {"run": misc.backup_run},
     "mission": {"list": misc.mission_list, "ls": misc.mission_list},
     "report": {"list": misc.report_list, "ls": misc.report_list},

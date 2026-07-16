@@ -1,3 +1,81 @@
+\n## v4.22.0 - 2026-07-17
+
+### Клиентский выбор URL — ``agentctl bridge urls|best|test``
+
+На стороне сервера ``/v1/agent/config`` ещё с v4.1.0 отдавал
+все доступные транспортные URL (Tailscale, ZeroTier,
+cloudflared) с приоритетом от circuit breaker. Но агенты,
+которые ходят на bridge, хардкодили один bootstrap URL и не
+пересматривали выбор даже когда появлялся более быстрый
+канал, а латентность, измеренная на стороне bridge — это не та
+латентность, которую платит *клиент*. Sandbox-агент может
+доставать ZeroTier вдвое быстрее чем Tailscale, даже когда оба
+зелёные на сервере.
+
+Этот релиз добавляет три shell-глагола, чтобы агент (или
+bootstrap-скрипт) мог измерить это с той точки, где он
+реально находится::
+
+    agentctl bridge urls                # список всех доступных URL
+    agentctl bridge urls --json         # сырой /v1/agent/config
+    agentctl bridge best                # печатает самый быстрый URL, одна строка
+    agentctl bridge best --json         # {"provider":..,"url":..,"latency_ms":..}
+    agentctl bridge test                # прогоняет все URL, вывод таблицей
+    agentctl bridge test --json         # JSON-результат
+    agentctl bridge best --timeout 3.0  # переопределить per-URL timeout
+
+Семантика:
+
+* Bootstrap URL (``ARENA_BRIDGE_URL``) используется только для
+  того, чтобы получить ``/v1/agent/config``. Дальше каждый
+  кандидат опрашивается независимо свежим ``GET /health`` —
+  так что латентность отражает точку зрения *клиента*, а не
+  bridge.
+* ``best`` возвращает exit 3, если не отвечает никто. Сломанные
+  кандидаты (HTTP 500, DNS-ошибка, TLS mismatch, refused,
+  timeout) пропускаются и никогда не выбираются, даже если
+  стоят первыми в приоритете.
+* Пробы последовательные, специально — тривиально портируется, и
+  некоторые тоннели (особенно cloudflared free-tier) не любят
+  параллельные соединения от одного клиента.
+* Bearer-токен обязателен на каждой ``/health``-пробе — то есть
+  кандидат, который отвечает 401, считается недостижимым (это
+  доказывает, что на другой стороне действительно *наш* bridge,
+  а не кто-то другой на том же порту).
+
+Почему сейчас: постмортем v4.21.0 отметил "cloudflared как
+first-class fallback в клиенте, не только на сервере" как один
+из самых полезных пунктов. Этот релиз это доставляет, не трогая
+server-side probe — endpoint обнаружения был правильный,
+слепым был только клиент.
+
+Замечание по композиции: это закрывает арку из пяти релизов,
+начатую v4.1.0 (agent/config как данные), прошедшую через
+v4.8.0 (breaker), v4.14.0 (reset endpoint), v4.16.0
+(breaker_summary), v4.17.0 (agentctl breaker CLI) и теперь
+v4.22.0 (клиент выбирает победителя сам). Bridge больше не
+просто *знает*, какой URL лучший — клиент может *решить* сам,
+со своей точки.
+
+Тесты: ``tests/test_agentctl_bridge.py`` (13 тестов) покрывают
+help/discovery, urls/urls-json, best-picks-fastest,
+best-json-shape, best-exit-3-when-nothing-reachable,
+best-skips-broken-and-picks-good, test-table, test-json,
+test-exit-3-all-fail, регрессию на ``--timeout``.
+Suite: **1451 passed** (было 1438), один flaky
+(``test_probe_tcp_timeout_short`` — baseline).
+
+Файлы:
+
+* ``arena/agentctl_cli/agentctl_bridge.py`` (248 строк) —
+  новый модуль: глаголы ``urls/best/test/help`` +
+  вспомогательные ``_probe_url`` и ``_fetch_config``
+* ``arena/agentctl_cli/agentctl_main.py`` — три строки
+  wire-up в DISPATCH + одна help-строка
+* ``tests/test_agentctl_bridge.py`` (новый) — 13
+  subprocess-тестов с двумя stub-серверами, чтобы доказать
+  выбор по латентности end-to-end
+
 \n## v4.21.0 - 2026-07-16
 
 ### Docs - session postmortem для v4.2.0 → v4.20.0

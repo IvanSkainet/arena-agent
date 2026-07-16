@@ -1,3 +1,78 @@
+## v4.22.0 - 2026-07-17
+
+### Client-side URL discovery — ``agentctl bridge urls|best|test``
+
+Server-side, ``/v1/agent/config`` has advertised every reachable
+transport URL (Tailscale, ZeroTier, cloudflared) with breaker-
+aware priority since v4.1.0. But agents that call the bridge
+still hard-coded a single bootstrap URL and never re-negotiated
+even when a faster one appeared, and latency measured on the
+bridge side is not the latency the *client* actually pays — a
+sandboxed agent may reach ZeroTier in half the time it takes to
+reach Tailscale even when both are green on the server.
+
+This release adds three shell verbs so an agent (or a bootstrap
+script) can measure that from where it actually lives::
+
+    agentctl bridge urls                # list every advertised URL
+    agentctl bridge urls --json         # raw /v1/agent/config
+    agentctl bridge best                # print fastest URL, one line
+    agentctl bridge best --json         # {"provider":..,"url":..,"latency_ms":..}
+    agentctl bridge test                # probe every URL, table format
+    agentctl bridge test --json         # emit probe as JSON
+    agentctl bridge best --timeout 3.0  # per-URL timeout override
+
+Semantics:
+
+* The bootstrap URL (``ARENA_BRIDGE_URL``) is used only to fetch
+  ``/v1/agent/config``. Every candidate is then probed
+  independently with a fresh ``GET /health`` so latency
+  reflects the *client's* view, not the bridge's.
+* ``best`` returns exit 3 when nothing is reachable. Broken
+  candidates (HTTP 500, DNS failure, TLS mismatch, refused,
+  timeout) are skipped and never picked, even if they're first
+  in the advertised priority order.
+* Probes are sequential on purpose — trivially portable, and
+  some tunnels (cloudflared free-tier especially) dislike
+  parallel connections from one client.
+* Bearer token is required on every ``/health`` probe, so a
+  candidate that answers 401 counts as unreachable (proves the
+  bridge on the other side is really *this* bridge and not
+  someone else on the same port).
+
+Why now: the v4.21.0 postmortem flagged "cloudflared as a
+first-class fallback in the client, not just on the server" as
+one of the highest-leverage items. This release delivers it
+without touching the server-side probe — the discovery endpoint
+was already right, only the client was blind.
+
+Composition note: this closes a five-release arc that started
+with v4.1.0 (agent/config as data), moved through v4.8.0
+(breaker), v4.14.0 (reset endpoint), v4.16.0
+(breaker_summary), v4.17.0 (agentctl breaker CLI), and now
+v4.22.0 (client picks its own winner). The bridge no longer
+just *knows* which URL is best; the client can *decide* from
+its own vantage.
+
+Tests: ``tests/test_agentctl_bridge.py`` (13 tests) covers
+help/discovery, urls/urls-json, best-picks-fastest,
+best-json-shape, best-exit-3-when-nothing-reachable,
+best-skips-broken-and-picks-good, test-table, test-json,
+test-exit-3-all-fail, and the ``--timeout`` argument regression.
+Suite: **1451 passed** (was 1438), one flaky
+(``test_probe_tcp_timeout_short`` — baseline).
+
+Files:
+
+* ``arena/agentctl_cli/agentctl_bridge.py`` (248 lines) —
+  new module: ``urls/best/test/help`` verbs plus
+  ``_probe_url`` and ``_fetch_config`` helpers
+* ``arena/agentctl_cli/agentctl_main.py`` — three-line wire-up
+  in the DISPATCH table + one help line
+* ``tests/test_agentctl_bridge.py`` (new) — 13 subprocess-level
+  tests using a two-stub-server rig so latency preferences
+  can be proven end-to-end
+
 ## v4.21.0 - 2026-07-16
 
 ### Docs - session postmortem for v4.2.0 → v4.20.0
