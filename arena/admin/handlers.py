@@ -104,22 +104,28 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
         return ctx.cors_json_response(result)
 
+    # v4.38.0: shared per-verb marker persistence lives in the
+    # sibling handlers_autostart module so this file stays under
+    # the 600-line runtime threshold AND every call site gets the
+    # same fully-documented behavioural contract (see
+    # persist_after_action's docstring: on ok=False no-op,
+    # any FS error is swallowed and reported as False, etc.).
+    from arena.admin.handlers_autostart import persist_after_action
+
     def _autostart_persist(transport: str, action: str, ok: bool, port: int,
                            result: dict) -> None:
-        """v4.38.0: shared per-verb marker persistence (best-effort)."""
-        if not ok:
-            return
-        try:
-            from arena.admin import autostart as _autostart
-            if action == "start":
-                _autostart.enable(transport, ctx.root_agent, port=port)
-                result["autostart_marked"] = True
-            elif action == "stop":
-                result["autostart_cleared"] = _autostart.disable(
-                    transport, ctx.root_agent)
-        except Exception:
-            result["autostart_marked" if action == "start"
-                   else "autostart_cleared"] = False
+        """Thin closure that fills in root_agent from ctx so the
+        per-transport HTTP handlers below can call this with the
+        signature they naturally have (they don't know about
+        root_agent -- ctx does)."""
+        persist_after_action(
+            transport=transport,
+            action=action,
+            ok=ok,
+            port=port,
+            root_agent=ctx.root_agent,
+            result=result,
+        )
 
     @authed(ctx)
     async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
@@ -128,6 +134,11 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         port = cfg.get("port", 8765)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, tailscale_funnel_action, action, port)
+        # v4.38.0: persist autostart intent for tailscale (same
+        # pattern the cloudflared handler picked up in v4.22.1).
+        # Marker is best-effort -- never blocks a successful start
+        # on a filesystem hiccup. See persist_after_action docstring
+        # for the full contract.
         _autostart_persist("tailscale", action, result.get("ok"), port, result)
         ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
@@ -147,7 +158,12 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 subprocess_kwargs=ctx.subprocess_kwargs,
             ),
         )
-        # v4.22.1 + v4.38.0: unified marker persistence.
+        # v4.22.1 + v4.38.0: persist the autostart intent so a
+        # bridge restart re-establishes the tunnel automatically.
+        # Only successful start/stop calls update the marker so a
+        # failed start doesn't leave a stale intent behind. Since
+        # v4.38.0 this delegates to the shared helper in
+        # handlers_autostart.persist_after_action.
         _autostart_persist("cloudflared", action, result.get("ok"), port, result)
         ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
@@ -177,7 +193,12 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 subprocess_kwargs=ctx.subprocess_kwargs,
             ),
         )
-        # v4.38.0: unified marker persistence -- same helper as CF/TS.
+        # v4.38.0: persist autostart intent for ngrok (mirrors
+        # cloudflared's v4.22.1 pattern). Marker at
+        # ROOT_AGENT/.ngrok_autostart created on successful
+        # start, removed on successful stop. See
+        # persist_after_action docstring for the "no-op on
+        # ok=False, swallow FS errors" contract.
         _autostart_persist("ngrok", action, result.get("ok"), port, result)
         ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)

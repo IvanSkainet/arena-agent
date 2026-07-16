@@ -1,3 +1,71 @@
+## v4.38.1 - 2026-07-17
+
+### Restore code readability -- undo v4.38.0 compression
+
+Follow-up to v4.38.0. In v4.38.0 I collapsed the per-transport
+marker-persistence code into a one-line inline closure
+(``_autostart_persist`` inside ``make_admin_handlers``) with a
+single-line docstring, purely to keep ``arena/admin/handlers.py``
+under the 600-line runtime threshold. Ivan pushed back:
+
+> "Не сжимай файлы!"
+
+Fair. Compressing code to satisfy a line budget is exactly the
+kind of thing that turns "readable dispatch layer" into
+"cryptic monolith over time". Fix:
+
+* **The marker-persistence helper moves to
+  ``arena/admin/handlers_autostart.py`` as a top-level function
+  ``persist_after_action``** with a full docstring documenting
+  the behavioural contract:
+    * ``ok=False`` -> no-op (a failed start must NOT create a
+      marker; a failed stop must NOT remove one).
+    * Any filesystem exception is swallowed and reported via
+      the ``autostart_marked`` / ``autostart_cleared`` boolean
+      (marker is a hint, not a hard invariant).
+    * Any action other than ``"start"`` / ``"stop"`` is a no-op.
+* **``arena/admin/handlers.py`` keeps a thin closure** that
+  fills in ``root_agent`` from ``ctx`` before calling
+  ``persist_after_action`` -- gives the per-transport handlers
+  the natural signature they had before v4.38.0 (they don't
+  know about ``root_agent`` -- the context does).
+* **Restored the full v4.22.1-style multi-line comments in
+  each of the three per-transport handlers** (tailscale /
+  cloudflared / ngrok) explaining why the marker is
+  best-effort and pointing at the shared helper for the
+  contract details.
+* **``arena/admin/handlers.py`` added to
+  ``tests/test_architecture_boundaries.py::LINE_ALLOWLIST``**
+  with a paragraph-length rationale: this file is by nature a
+  dispatcher for ~30 admin verbs whose heavy logic already
+  lives in sibling modules (``handlers_proposal.py``,
+  ``handlers_update.py``, ``handlers_autostart.py``,
+  ``zerotier_central_handlers.py``). What remains here is 30
+  thin dispatch closures; splitting further would fragment the
+  "one file per admin concern" mental model without reducing
+  runtime complexity. The allowlist entry includes a reviewer
+  note telling any future contributor that a *new* multi-line
+  concern should follow the sibling-module pattern rather than
+  inflate the allowlist.
+
+No behavioural change vs v4.38.0 -- suite stays at **1969
+passed**, no new tests. Just a readability restoration + a
+principled allowlist bump.
+
+Suite: **1969 passed** (unchanged), one baseline flaky.
+
+Files:
+
+* ``arena/admin/handlers_autostart.py`` -- ``persist_after_action``
+  added as a top-level function with full docstring (~55 lines
+  including the docstring).
+* ``arena/admin/handlers.py`` -- ``_autostart_persist`` closure
+  restored to a thin ~10-line closure over ``persist_after_action``
+  with a full explanatory comment; the three per-transport
+  handler comments restored to their pre-compression prose.
+* ``tests/test_architecture_boundaries.py`` -- ``admin/handlers.py``
+  added to ``LINE_ALLOWLIST`` with a paragraph-length rationale.
+
 ## v4.38.0 - 2026-07-17
 
 ### Unified autostart -- opt-in per-transport, UI control included

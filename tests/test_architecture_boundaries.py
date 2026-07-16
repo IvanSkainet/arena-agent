@@ -17,6 +17,23 @@ LINE_ALLOWLIST = {
     # "modular runtime" threshold doesn't apply. A future split
     # could move format_lines to a sibling module if needed.
     Path("arena/inventory/registry.py"),
+    # v4.38.1: admin/handlers.py is by nature a dispatcher --
+    # it grows with the number of endpoints (currently ~30 admin
+    # verbs across tunnels / tokens / breakers / autostart /
+    # proposals / update / zerotier / ...). The heavy per-verb
+    # logic already lives in sibling modules:
+    #   * handlers_proposal.py (v4.19.0, proposal endpoints)
+    #   * handlers_update.py   (v3.85.0, auto-update endpoints)
+    #   * handlers_autostart.py (v4.38.0, autostart endpoints)
+    #   * zerotier_central_handlers.py (v3.96.0)
+    # What remains here is 30-ish thin dispatch closures that
+    # bind the request object to the sync-worker equivalent.
+    # Splitting further would fragment the "one file per admin
+    # concern" mental model without reducing runtime complexity.
+    # Reviewer note: if a NEW multi-line concern appears here,
+    # it should follow the sibling-module pattern rather than
+    # inflating this allowlist.
+    Path("arena/admin/handlers.py"),
 }
 MAX_RUNTIME_LINES = 600
 MAX_UNIFIED_BRIDGE_LINES = 150
