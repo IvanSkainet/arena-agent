@@ -6,6 +6,94 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.98.0 - 2026-07-16
+
+### Изменено — @authed миграция забрала mobile-подсистему (самая крупная)
+
+Четвёртая пачка серии миграции `arena/handler_helpers.py` (после
+v3.93.0 admin, v3.94.0 exec, v3.97.0 files — этот релиз mobile,
+самый большой hotspot в кодовой базе). Все 4 handler-модуля под
+`arena/mobile/` мигрированы в одном релизе:
+
+* **`arena/mobile/handlers.py`** — 22 handler'а мигрированы:
+  `list_devices`, `device_info`, `screenshot`, `tap`, `swipe`,
+  `type`, `key`, `shell`, `ui_dump`, `tap_by`, `helpers_status`,
+  `helpers_install`, `ime_status`, `ime_set`, `ime_reset`,
+  `paste`, `gesture`, `sensors`, `scroll`, `key_combo`, `batch`,
+  `packages`. Файл сжался **642 → 494 строк (-148)** — каждый
+  handler теперь через `@authed(ctx)` без локального prelude.
+
+* **`arena/mobile/handlers_devops.py`** — 9 handler'ов мигрированы
+  (pair/connect/disconnect, apk_prepare/install/upload,
+  transport_status/tcp_enable/tcp_disable). Файл сжался
+  **220 → 162 строк (-58)**. Одна ручная validation-ошибка в
+  `handle_apk_upload` (413 при oversized upload) теперь через
+  `err_json(ctx, ..., status=413, hint=...)` — тот же wire-shape.
+
+* **`arena/mobile/handlers_media.py`** — 12 camera/media handler'ов
+  мигрированы. Файл сжался **255 → 189 строк (-66)**. Предсуществующие
+  локальные helper'ы `_guard(ctx, request)` и `_oops(ctx, cors, exc)`,
+  которые дублировали работу shared-декоратора, удалены целиком.
+
+* **`arena/mobile/handlers_recording.py`** — 6 recording-handler'ов
+  мигрированы. Файл сжался **126 → 86 строк (-40)**.
+
+**Итого: 49 handler'ов, 4 модуля, 1243 → 931 строк
+(-312 net LOC чистого auth/record/try-scaffolding).** Wire-поведение
+не менялось — те же статус-коды (400/413/500/502), те же
+audit-события (`mobile.tap`, `mobile.swipe`, `mobile.camera.*`,
+`mobile.record_*`, `mobile.pair`, `mobile.apk_install`,
+`mobile.transport.*` и т.д.), та же семантика request-accounting.
+
+### Добавлено — regression guard'ы для mobile-миграции
+
+Новый `tests/test_mobile_authed_migration.py` (74 строки, 4 теста):
+
+* `test_mobile_modules_free_of_manual_auth_prelude` — grep-guard
+  по всем 4 модулям против возврата `r = ctx.require_auth(request)`.
+* `test_mobile_modules_free_of_manual_error_record` — тот же guard
+  для паттерна `record_request(is_error=True, count_request=False)`.
+* `test_mobile_modules_use_handler_helpers_authed` — проверяет,
+  что каждый модуль импортирует `authed` из `arena.handler_helpers`.
+* `test_media_module_no_longer_needs_local_guard_helpers` —
+  документирует удаление pre-v3.98.0 private-helper'ов
+  `_guard`/`_oops`, чтобы никто не добавил их обратно.
+
+### Тесты
+
+**1125 → 1129 passed** (+4 regression guard'а). Все 225 существующих
+тестов на mobile handler'ы проходят без изменений — wire-регрессий нет.
+
+### Прогресс миграции
+
+| Релиз    | Модуль                                    | Handler'ов | ~Prelude LOC убрано |
+|----------|-------------------------------------------|------------|---------------------|
+| v3.93.0  | `arena/admin/handlers*.py`                | 14         | ~70                 |
+| v3.94.0  | `arena/exec/handlers.py`                  | 3          | ~30                 |
+| v3.97.0  | `arena/files/handlers.py` + `fs_view_create.py` | 7    | ~51                 |
+| v3.98.0  | `arena/mobile/handlers*.py` (4 модуля)    | **49**     | **~312**            |
+| **Итого** | (5 подсистем)                            | **73**     | **~463 строк**      |
+
+Это 73 из изначальных 103 handler-prelude'ов мигрированы —
+**около 71 % pre-v3.92.0 boilerplate теперь ушло**. Оставшиеся
+~30 prelude'ов раскиданы по мелким handler-файлам (inventory,
+cdp, mission, agentic, gui и т.д.); каждый можно подчищать в
+follow-up patch, когда файл трогается по другой причине — cadence
+"одна подсистема за релиз" больше строго не нужен, паттерн
+проверен на масштабе.
+
+### Проверено live
+
+* Bridge на 3.98.0.
+* Все 1129 тестов зелёные.
+* `GET /v1/mobile/devices` возвращает список устройств.
+* `POST /v1/mobile/xxx/tap {}` без ADB-устройства всё так же
+  возвращает `{ok:false, error:"serial required"}` — wire без изменений.
+* Bearer-auth всё так же требуется на каждом mobile-endpoint
+  (проверено probe-запросом без токена → 401).
+* Asset-manifest signature не изменился; Dashboard reload не нужен.
+
+
 ## v3.97.0 - 2026-07-16
 
 ### Изменено — @authed миграция продолжается на /v1/fs/* + /v1/upload,download

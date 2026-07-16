@@ -1,3 +1,95 @@
+## v3.98.0 - 2026-07-16
+
+### Changed — @authed migration lands on the mobile subsystem (the big one)
+
+Fourth batch of the `arena/handler_helpers.py` migration series
+(v3.93.0 admin, v3.94.0 exec, v3.97.0 files, this release mobile —
+the biggest single hotspot in the codebase). All four handler
+modules under `arena/mobile/` are cut over in one release:
+
+* **`arena/mobile/handlers.py`** — 22 handlers migrated:
+  `list_devices`, `device_info`, `screenshot`, `tap`, `swipe`,
+  `type`, `key`, `shell`, `ui_dump`, `tap_by`, `helpers_status`,
+  `helpers_install`, `ime_status`, `ime_set`, `ime_reset`,
+  `paste`, `gesture`, `sensors`, `scroll`, `key_combo`, `batch`,
+  `packages`. File shrinks **642 → 494 lines (-148)** — every
+  handler now flows through `@authed(ctx)` with no local prelude.
+
+* **`arena/mobile/handlers_devops.py`** — 9 handlers migrated
+  (pair/connect/disconnect, apk_prepare/install/upload,
+  transport_status/tcp_enable/tcp_disable). File shrinks
+  **220 → 162 lines (-58)**. The one hand-crafted validation error
+  in `handle_apk_upload` (413 for oversized uploads) now uses
+  `err_json(ctx, ..., status=413, hint=...)` — same wire shape.
+
+* **`arena/mobile/handlers_media.py`** — 12 camera/media handlers
+  migrated. File shrinks **255 → 189 lines (-66)**. The
+  pre-existing local helpers `_guard(ctx, request)` and
+  `_oops(ctx, cors, exc)` that duplicated the shared decorator's
+  work are removed entirely.
+
+* **`arena/mobile/handlers_recording.py`** — 6 recording handlers
+  migrated. File shrinks **126 → 86 lines (-40)**.
+
+**Combined: 49 handlers, 4 modules, 1243 → 931 lines
+(-312 net LOC of pure auth/record/try scaffolding).** No wire
+behaviour changed — same status codes (400/413/500/502), same
+audit events (`mobile.tap`, `mobile.swipe`, `mobile.camera.*`,
+`mobile.record_*`, `mobile.pair`, `mobile.apk_install`,
+`mobile.transport.*`, etc.), same request accounting semantics.
+
+### Added — regression guards for the mobile migration
+
+New `tests/test_mobile_authed_migration.py` (74 lines, 4 tests):
+
+* `test_mobile_modules_free_of_manual_auth_prelude` — grep-guard
+  across all 4 modules against `r = ctx.require_auth(request)`
+  reappearing.
+* `test_mobile_modules_free_of_manual_error_record` — same guard
+  for the `record_request(is_error=True, count_request=False)`
+  pattern.
+* `test_mobile_modules_use_handler_helpers_authed` — asserts every
+  module imports `authed` from `arena.handler_helpers`.
+* `test_media_module_no_longer_needs_local_guard_helpers` —
+  documents the removal of the pre-v3.98.0 `_guard`/`_oops`
+  private helpers so nobody re-adds them.
+
+### Tests
+
+**1125 → 1129 passed** (+4 regression guards). All 225 pre-existing
+tests covering mobile handlers still pass unchanged — no wire-level
+regression from the migration.
+
+### Migration progress
+
+| Release  | Module                                    | Handlers | ~Prelude LOC removed |
+|----------|-------------------------------------------|----------|----------------------|
+| v3.93.0  | `arena/admin/handlers*.py`                | 14       | ~70                  |
+| v3.94.0  | `arena/exec/handlers.py`                  | 3        | ~30                  |
+| v3.97.0  | `arena/files/handlers.py` + `fs_view_create.py` | 7  | ~51                  |
+| v3.98.0  | `arena/mobile/handlers*.py` (4 modules)   | **49**   | **~312**             |
+| **Total** | (5 subsystems)                           | **73**   | **~463 lines**       |
+
+That's 73 of the original 103 handler preludes migrated —
+**about 71 % of the pre-v3.92.0 boilerplate is now gone**. The
+remaining ~30 preludes are scattered across smaller handler files
+(inventory, cdp, mission, agentic, gui, ...); each can be picked
+off in a follow-up patch as it's touched for other reasons — the
+one-subsystem-per-release cadence is no longer strictly needed
+now that the pattern is proven at scale.
+
+### Verified live
+
+* Bridge on 3.98.0.
+* All 1129 tests green.
+* `GET /v1/mobile/devices` returns the device list.
+* `POST /v1/mobile/xxx/tap {}` without an ADB device still returns
+  the same `{ok:false, error:"serial required"}` shape — no wire
+  change.
+* Bearer auth still enforced across every mobile endpoint (verified
+  with a probe request returning 401 without a token).
+* Asset-manifest signature unchanged; Dashboard reload not needed.
+
 ## v3.97.0 - 2026-07-16
 
 ### Changed — @authed migration continues to /v1/fs/* + /v1/upload,download
