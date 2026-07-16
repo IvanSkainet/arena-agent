@@ -1,3 +1,36 @@
+\n## v4.33.1 - 2026-07-17
+
+### Fix -- ngrok-роуты возвращали 404 несмотря на декларацию
+
+Live-smoke v4.33.0 поймал сразу: ``/v1/ngrok/tunnel/status``
+возвращал HTTP 404, хотя роут был задекларирован в
+``arena/route_registry/registry.py`` и хендлер был подключён
+в dispatch-map.
+
+Root cause: two-source-of-truth. ``registry.py`` -- каноническая
+data-list роутов, но фактические ``app.router.add_post`` /
+``add_get`` вызовы живут в ``arena/route_registry/core.py``,
+и *этот* файл не был обновлён в v4.33.0. Данные регистри были
+корректны, но никогда не консультировались при boot.
+
+Fix: две недостающие ``add_post`` / ``add_get``-строки добавлены
+в ``core.py`` сразу после cloudflared-регистраций.
+
+Регрессия-guard: ``tests/test_ngrok_route_registration.py``
+(3 теста) утверждает, что ``core.py`` регистрирует и POST, и
+GET роут, использует правильное имя хендлера, и держит
+ngrok-строки рядом с cloudflared-строками, чтобы будущий
+refactor, двигающий одно, не пропустил другое.
+
+Suite: **1824 passed** (было 1821, +3 новых), один baseline flaky.
+
+Файлы:
+
+* ``arena/route_registry/core.py`` -- две строки для
+  ``/v1/ngrok/tunnel/{action}`` POST + GET, рядом с
+  cloudflared-строками.
+* ``tests/test_ngrok_route_registration.py`` (новый) -- 3 теста.
+
 \n## v4.33.0 - 2026-07-17
 
 ### ngrok подключён в priority-chain транспортов

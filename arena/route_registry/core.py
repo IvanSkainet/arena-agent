@@ -61,6 +61,9 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/tailscale/funnel/{action}", h["handle_v1_tailscale_funnel"])
     app.router.add_post("/v1/cloudflared/tunnel/{action}", h["handle_v1_cloudflared_tunnel"])
     app.router.add_get("/v1/cloudflared/tunnel/{action}", h["handle_v1_cloudflared_tunnel"])
+    # v4.33.0: ngrok as fourth transport.
+    app.router.add_post("/v1/ngrok/tunnel/{action}", h["handle_v1_ngrok_tunnel"])
+    app.router.add_get("/v1/ngrok/tunnel/{action}", h["handle_v1_ngrok_tunnel"])
     app.router.add_get("/v1/zerotier/status", h["handle_v1_zerotier_status"])
     # v4.4.0: per-peer classification (direct / relay / root / tunneled).
     app.router.add_get("/v1/zerotier/peers", h["handle_v1_zerotier_peers"])

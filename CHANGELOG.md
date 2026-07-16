@@ -1,3 +1,37 @@
+## v4.33.1 - 2026-07-17
+
+### Fix -- ngrok routes returned 404 despite being declared
+
+The v4.33.0 live-smoke caught it immediately:
+``/v1/ngrok/tunnel/status`` returned HTTP 404 even though the
+route was declared in ``arena/route_registry/registry.py`` and
+the handler was wired into the dispatch map.
+
+Root cause: two-source-of-truth issue. ``registry.py`` is the
+canonical data list of routes, but the actual aiohttp
+``app.router.add_post`` / ``add_get`` calls live in
+``arena/route_registry/core.py`` -- and *that* file wasn't
+updated in v4.33.0. The registry data was correct but never
+consulted at boot.
+
+Fix: added the two missing ``add_post`` / ``add_get`` lines to
+``core.py`` right after the cloudflared registrations.
+
+Regression guard: ``tests/test_ngrok_route_registration.py``
+(3 tests) asserts that ``core.py`` registers both the POST and
+the GET route, uses the correct handler name, and keeps the
+ngrok lines close to the cloudflared lines so a future refactor
+that moves one will notice the other.
+
+Suite: **1824 passed** (was 1821, +3 new), one baseline flaky.
+
+Files:
+
+* ``arena/route_registry/core.py`` -- two lines added for
+  ``/v1/ngrok/tunnel/{action}`` POST + GET, next to the
+  matching cloudflared lines.
+* ``tests/test_ngrok_route_registration.py`` (new) -- 3 tests.
+
 ## v4.33.0 - 2026-07-17
 
 ### ngrok wired into the transport priority chain
