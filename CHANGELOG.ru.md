@@ -1,3 +1,76 @@
+\n## v4.2.0 - 2026-07-16
+
+### Добавлено - POST /v1/exec/script (raw multi-line script endpoint)
+
+Endpoint, которым агенты (и я во время работы с этим bridge) реально
+будут пользоваться каждый день. Раньше приходилось выкручиваться
+через /v1/exec JSON-encoded ``cmd``:
+
+* base64-uploading multi-line скриптов через /v1/upload → exec
+  ``bash /tmp/foo.sh`` → удаление tmp-файла;
+* двойной JSON-escape для newlines в shell heredocs, надеясь что
+  в payload нет литеральной " ломающей parser;
+* один command за раз даже когда natural workflow это 5-6 строк,
+  потому что ``;``-chained one-liner делает error handling
+  невозможным.
+
+Всё это больше не нужно. POST /v1/exec/script принимает raw script
+bytes как request body и выбирает interpreter через header
+``X-Arena-Interpreter``:
+
+    curl -sSf -H "Authorization: Bearer $TOKEN" \
+         -H "X-Arena-Interpreter: bash" \
+         -H "Content-Type: text/plain" \
+         --data-binary @my_script.sh \
+         $ARENA_BRIDGE_URL/v1/exec/script
+
+Поддерживаемые interpreters (v4.2.0): bash (с -euo pipefail),
+sh (-eu), python / python3, node, pwsh, powershell (оба с
+-NoProfile чтобы скрипты агента не наследовали operator's
+$PROFILE). Interpreter валидируется per-platform: попытка bash
+на Windows или powershell на Linux даёт 400 вместо загадочной
+shell-ошибки; попытка interpreter не на PATH даёт
+``interpreter 'X' not installed / not on PATH``.
+
+Дополнительные headers:
+* X-Arena-Timeout       (секунды; capped cfg[max_timeout])
+* X-Arena-Cwd           (working dir; тот же sandbox что /v1/exec)
+* X-Arena-Request-Id    (optional dedup id; auto-generated)
+
+Тот же @authed + profile allowlist + control-lease + blocklist
+что и /v1/exec. Body cap 5 MiB (больше — через /v1/upload).
+Body пишется в mode-0o700 tempfile под ``$ROOT/.arena_script_tmp/``
+и удаляется после выполнения. Тот же concurrency semaphore что
+/v1/exec — max_concurrent knob работает как раньше.
+
+Response как /v1/exec + два дополнительных поля:
+    "interpreter":  "bash"
+    "script_bytes": 123
+
+Audit trail: exec_script_start / exec_script_done / exec_script_timeout
+/ exec_script_error / exec_script_blocked — все с interpreter в
+audit log'е.
+
+### Тесты
+
+1173 -> 1180 passed (+7 новых).
+
+### Проверено live
+
+Bridge на 4.2.0. Три real script'а протестированы:
+* multi-line bash с for-loop + $(...) substitution: 92 байта stdout,
+  0.009s.
+* python3 script печатающий sys.version + 3 итерации: 132 байта,
+  interpreter=python в response.
+* Через ZeroTier overlay (10.57.152.120:8765 через ZT relay): тот
+  же script, 584ms round-trip. Ergonomic parity с локальным
+  /v1/exec.
+
+Добавлен `arena_script <interpreter>` helper в arena_live.sh:
+
+    arena_script bash <<'SH'
+    for i in 1 2 3; do echo "line $i"; done
+    SH
 \n## v4.1.1 - 2026-07-16
 
 ### Исправлено - sudo-fallback для smartctl в самом probe

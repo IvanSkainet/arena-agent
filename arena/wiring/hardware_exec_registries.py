@@ -46,7 +46,7 @@ def build_hardware_exec_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
         default_max_output=env.DEFAULT_MAX_OUTPUT,
     )
     _exec_handlers = env.make_exec_handlers(_exec_handler_ctx)
-    env.export_handler_attrs(registry, _exec_handlers, {"handle_v1_ps": "ps", "handle_v1_exec": "exec", "handle_v1_kill": "kill"})
+    env.export_handler_attrs(registry, _exec_handlers, {"handle_v1_ps": "ps", "handle_v1_exec": "exec", "handle_v1_kill": "kill", "handle_v1_exec_script": "script"})
     return registry
 
 

@@ -4,12 +4,21 @@ v3.94.0: Migrated to @authed / err_json / parse_json_body helpers
 from arena.handler_helpers. Auth preludes and error-response
 scaffolding centralized; exec handler keeps its own request
 accounting (duration + is_exec) via ``auto_record=False``.
+
+v4.2.0: Added POST /v1/exec/script — raw script body execution
+so agents don't have to double-JSON-encode multi-line scripts or
+upload-then-exec them as a temp file dance. Interpreter picked
+via ``X-Arena-Interpreter`` header (default: bash on POSIX,
+powershell on Windows). Body-shape decision: text/plain body =
+script, JSON body = preserve legacy /v1/exec compat.
 """
 from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
+import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,12 +34,52 @@ _BLOCKED_ENV_PATTERNS = [
     "LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PYTHONSTARTUP",
 ]
 
+# v4.2.0: interpreter → (cmdline template, filename suffix, unix?)
+# The template takes ``{path}`` for the temp script path; the shell
+# quoting is single-arg because we execute via create_subprocess_exec-
+# equivalent through the existing run_shell_command shim, which uses
+# shell mode. Interpreters that need special flags (bash -euo pipefail)
+# are configured here so agents don't have to think about it.
+_INTERPRETERS: dict[str, dict[str, object]] = {
+    "bash":       {"cmd": "bash -euo pipefail {path}",        "suffix": ".sh",   "unix": True},
+    "sh":         {"cmd": "sh -eu {path}",                     "suffix": ".sh",   "unix": True},
+    "python":     {"cmd": "python3 {path}",                    "suffix": ".py",   "unix": True},
+    "python3":    {"cmd": "python3 {path}",                    "suffix": ".py",   "unix": True},
+    "node":       {"cmd": "node {path}",                       "suffix": ".js",   "unix": True},
+    "pwsh":       {"cmd": "pwsh -NoProfile -File {path}",      "suffix": ".ps1",  "unix": False},
+    "powershell": {"cmd": "powershell -NoProfile -File {path}","suffix": ".ps1",  "unix": False},
+}
+
+_DEFAULT_INTERPRETER_UNIX = "bash"
+_DEFAULT_INTERPRETER_WIN = "powershell"
+
 
 @dataclass(frozen=True)
 class ExecHandlers:
     ps: object
     exec: object
     kill: object
+    # v4.2.0: raw-script endpoint.
+    script: object
+
+
+def _resolve_interpreter(name: str) -> tuple[str, dict[str, object]] | None:
+    """Return (name, config) for a supported interpreter or None.
+    Falls back to platform default when name is empty."""
+    if not name:
+        name = _DEFAULT_INTERPRETER_WIN if os.name == "nt" else _DEFAULT_INTERPRETER_UNIX
+    lower = name.strip().lower()
+    if lower in _INTERPRETERS:
+        return lower, _INTERPRETERS[lower]
+    return None
+
+
+def _which_interpreter(cmdline_template: str) -> str | None:
+    """Return the resolved absolute path of the interpreter binary,
+    or None if it's not on PATH. Used so a 404-style 'bash not
+    installed' comes back as a clear 400, not a shell error."""
+    first = cmdline_template.split()[0]
+    return shutil.which(first)
 
 
 def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
@@ -39,10 +88,6 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         ps_list = ctx.active_processes_snapshot(max_cmd_len=200)
         return ctx.cors_json_response({"ok": True, "processes": ps_list, "count": len(ps_list)})
 
-    # /v1/exec keeps its own request accounting (duration, is_exec,
-    # is_error based on the shell's outcome), so we ask @authed to
-    # skip auto_record — it still enforces auth and catches stray
-    # exceptions with best-effort error accounting.
     @authed(ctx, auto_record=False)
     async def handle_v1_exec(request: web.Request) -> web.Response:
         cfg = request.app[APP_CFG]
@@ -160,8 +205,186 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             cfg["active_exec"] -= 1
             sem.release()
 
-    # /v1/kill counts itself only on success (audit + record) — use
-    # auto_record=False so the wrapper doesn't double-count.
+    # v4.2.0 raw-script endpoint. Same auth + profile + control gates as
+    # /v1/exec, but body-shape is raw script bytes and interpreter comes
+    # from a header. Removes the need for agents to double-JSON-encode
+    # multi-line bash / python and then read stdout back through a
+    # nested string.
+    @authed(ctx, auto_record=False)
+    async def handle_v1_exec_script(request: web.Request) -> web.Response:
+        cfg = request.app[APP_CFG]
+        request_id = str(request.headers.get("X-Arena-Request-Id") or uuid.uuid4())
+
+        # Read the raw script body. Cap defensively at 5 MiB — anything
+        # bigger should upload via /v1/upload + exec.
+        body = await request.read()
+        if not body:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, "empty script body", status=400, request_id=request_id)
+        max_script = 5 * 1024 * 1024
+        if len(body) > max_script:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(
+                ctx,
+                f"script body too large: {len(body)} bytes; cap is {max_script}",
+                status=413, request_id=request_id,
+            )
+
+        # Interpreter selection.
+        interp_name = request.headers.get("X-Arena-Interpreter", "").strip()
+        resolved = _resolve_interpreter(interp_name)
+        if resolved is None:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(
+                ctx,
+                f"unsupported interpreter {interp_name!r}. Supported: "
+                + ", ".join(sorted(_INTERPRETERS.keys())),
+                status=400, request_id=request_id,
+            )
+        interp_key, interp_cfg = resolved
+
+        # Refuse to run a Unix-only interpreter on Windows and vice-versa
+        # so a clear 400 comes back instead of a mysterious shell error.
+        if os.name == "nt" and interp_cfg["unix"]:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(
+                ctx, f"interpreter {interp_key!r} not available on Windows",
+                status=400, request_id=request_id,
+            )
+        if os.name != "nt" and not interp_cfg["unix"]:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(
+                ctx, f"interpreter {interp_key!r} not available on this OS",
+                status=400, request_id=request_id,
+            )
+
+        if not _which_interpreter(str(interp_cfg["cmd"])):
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(
+                ctx, f"interpreter {interp_key!r} not installed / not on PATH",
+                status=400, request_id=request_id,
+            )
+
+        # Timeout / cwd via headers (fall back to cfg defaults).
+        try:
+            timeout = min(int(request.headers.get("X-Arena-Timeout", cfg["timeout"])),
+                          cfg["max_timeout"])
+        except (TypeError, ValueError):
+            timeout = int(cfg["timeout"])
+        max_output = int(cfg["max_output"])
+
+        root: Path = cfg["root"]
+        cwd_hdr = (request.headers.get("X-Arena-Cwd") or "").strip()
+        cwd = Path(cwd_hdr).expanduser() if cwd_hdr else root
+        if not cwd.is_absolute():
+            cwd = root / cwd
+        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, f"cwd must be under root {root}",
+                            status=403, request_id=request_id)
+        if not cwd.exists() or not cwd.is_dir():
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, f"cwd does not exist: {cwd}",
+                            status=400, request_id=request_id)
+
+        # Concurrency gate: same semaphore as /v1/exec so the two
+        # endpoints share fairness rather than doubling capacity.
+        sem: asyncio.Semaphore = cfg["semaphore"]
+        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, "too many concurrent exec requests",
+                            status=429, request_id=request_id)
+
+        # Write body to a tmpfile scoped to root so cross-mount deletes
+        # can't leak. mkstemp is race-free and gives us a mode 0o600 file.
+        tmp_dir = root / ".arena_script_tmp"
+        tmp_dir.mkdir(exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(prefix=f"scr-{request_id[:8]}-",
+                                        suffix=str(interp_cfg["suffix"]),
+                                        dir=str(tmp_dir))
+        os.close(fd)
+        try:
+            Path(tmp_path).write_bytes(body)
+            # Make the script executable so `sh <path>` works even when
+            # umask is unusually restrictive.
+            try:
+                os.chmod(tmp_path, 0o700)
+            except Exception:
+                pass
+
+            full_cmd = str(interp_cfg["cmd"]).format(path=tmp_path)
+
+            # Same blocklist that /v1/exec uses — but applied to the
+            # interpreter cmdline, not the script body. Script bodies
+            # are opaque to the blocklist; if you want to restrict what
+            # the script itself can do, use a --profile.
+            reason = ctx.blocked_reason(full_cmd)
+            if reason:
+                ctx.audit({"type": "exec_script_blocked", "request_id": request_id,
+                           "interpreter": interp_key, "reason": reason,
+                           "client": request.remote or "127.0.0.1"})
+                ctx.record_request(is_error=True, count_request=False)
+                return err_json(ctx, reason, status=403, request_id=request_id)
+
+            env = os.environ.copy()
+
+            await sem.acquire()
+            cfg["active_exec"] += 1
+            ctx.audit({"type": "exec_script_start", "request_id": request_id,
+                       "interpreter": interp_key, "bytes": len(body),
+                       "cwd": str(cwd), "timeout": timeout,
+                       "client": request.remote or "127.0.0.1"})
+            try:
+                result = await ctx.run_shell_command(
+                    request_id=request_id,
+                    cmd=full_cmd,
+                    cwd=cwd,
+                    env=env,
+                    timeout=timeout,
+                    max_output=max_output,
+                    decode_output_fn=ctx.decode_output,
+                )
+                event_type = "exec_script_timeout" if result.get("timed_out") else "exec_script_done"
+                ctx.audit({"type": event_type, "request_id": request_id,
+                           "interpreter": interp_key,
+                           "exit_code": result.get("exit_code"),
+                           "duration": result.get("duration_sec"),
+                           "truncated": result.get("truncated"),
+                           "stdout_bytes": result.get("stdout_bytes"),
+                           "stderr_bytes": result.get("stderr_bytes")})
+                ctx.record_request(duration=result.get("duration_sec", 0.0),
+                                   is_exec=True, is_error=not result.get("ok"))
+                response = dict(result)
+                response.pop("timed_out", None)
+                response["interpreter"] = interp_key
+                response["script_bytes"] = len(body)
+                return ctx.cors_json_response(
+                    response,
+                    status=408 if result.get("timed_out") else 200,
+                )
+            except Exception as e:  # noqa: BLE001
+                ctx.audit({"type": "exec_script_error", "request_id": request_id,
+                           "interpreter": interp_key, "error": repr(e)})
+                ctx.record_request(duration=0.0, is_exec=True, is_error=True)
+                return ctx.cors_json_response(
+                    {"ok": False, "request_id": request_id,
+                     "error": "Internal error", "duration_sec": 0.0,
+                     "interpreter": interp_key},
+                    status=500,
+                )
+            finally:
+                cfg["active_exec"] -= 1
+                sem.release()
+        finally:
+            # Delete the tmp script even on error — no lingering
+            # bytes on disk. Ignore ENOENT if we never wrote it.
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            except Exception:
+                pass
+
     @authed(ctx, auto_record=False)
     async def handle_v1_kill(request: web.Request) -> web.Response:
         data, jerr = await parse_json_body(request, ctx)
@@ -182,4 +405,9 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         ctx.record_request()
         return ctx.cors_json_response({"ok": True, "killed": target_id})
 
-    return ExecHandlers(ps=handle_v1_ps, exec=handle_v1_exec, kill=handle_v1_kill)
+    return ExecHandlers(
+        ps=handle_v1_ps,
+        exec=handle_v1_exec,
+        kill=handle_v1_kill,
+        script=handle_v1_exec_script,
+    )

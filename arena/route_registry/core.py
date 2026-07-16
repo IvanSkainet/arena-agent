@@ -24,6 +24,9 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/ps", h["handle_v1_ps"])
     app.router.add_get("/v1/audit", h["handle_v1_audit"])
     app.router.add_post("/v1/exec", h["handle_v1_exec"])
+    # v4.2.0: raw-script endpoint. Accepts multi-line body as-is,
+    # picks interpreter via X-Arena-Interpreter header.
+    app.router.add_post("/v1/exec/script", h["handle_v1_exec_script"])
     app.router.add_post("/v1/kill", h["handle_v1_kill"])
     app.router.add_post("/v1/upload", h["handle_v1_upload"])
     app.router.add_get("/v1/download", h["handle_v1_download"])

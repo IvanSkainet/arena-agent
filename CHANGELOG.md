@@ -1,4 +1,86 @@
-## v4.1.1 - 2026-07-16
+## v4.2.0 - 2026-07-16
+
+### Added - POST /v1/exec/script (raw multi-line script endpoint)
+
+The workhorse endpoint agents will actually use daily. Agents (and
+me while operating this bridge) have spent releases upon releases
+working around /v1/exec's JSON-encoded ``cmd`` field by:
+
+* base64-uploading multi-line scripts via /v1/upload, then
+  executing them via /v1/exec as ``bash /tmp/foo.sh``, then
+  deleting the tmp file;
+* double-JSON-escaping newlines in shell heredocs, praying nothing
+  in the payload contains a literal " that trips the parser;
+* running only one command at a time even when a natural workflow
+  is 5-6 lines because writing them as ``;``-chained one-liners
+  makes error handling impossible.
+
+None of that is needed anymore. POST /v1/exec/script accepts the
+raw script bytes as the request body and picks an interpreter
+from the ``X-Arena-Interpreter`` header:
+
+    curl -sSf -H "Authorization: Bearer $TOKEN" \
+         -H "X-Arena-Interpreter: bash" \
+         -H "Content-Type: text/plain" \
+         --data-binary @my_script.sh \
+         $ARENA_BRIDGE_URL/v1/exec/script
+
+Supported interpreters (v4.2.0): bash (with -euo pipefail baked
+in), sh (-eu), python / python3, node, pwsh, powershell (both
+with -NoProfile so agent scripts don't inherit the operator's
+$PROFILE). Interpreter is validated per platform: asking for
+'bash' on Windows or 'powershell' on Linux gets a clear 400
+instead of a mysterious shell error, and asking for something
+not on PATH gets ``interpreter 'X' not installed / not on PATH``.
+
+Additional headers:
+* X-Arena-Timeout       (seconds; capped by cfg[max_timeout])
+* X-Arena-Cwd           (working dir; same sandboxing as /v1/exec)
+* X-Arena-Request-Id    (optional dedup id; auto-generated if absent)
+
+Same @authed + profile allowlist + control-lease + blocklist as
+/v1/exec. Bodies capped at 5 MiB (bigger scripts should upload
+through /v1/upload). Body is written to a mode-0o700 tempfile
+under ``$ROOT/.arena_script_tmp/`` and deleted after execution
+regardless of outcome — no lingering bytes on disk. Sharing the
+same concurrency semaphore as /v1/exec so operators can trust the
+existing max_concurrent knob.
+
+Response mirrors /v1/exec plus two extra fields:
+    "interpreter":  "bash"
+    "script_bytes": 123
+
+Audit trail: exec_script_start / exec_script_done / exec_script_timeout
+/ exec_script_error / exec_script_blocked — all with the interpreter
+name so the audit log tells the whole story.
+
+### Tests
+
+1173 -> 1180 passed (+7 new):
+* route registration in ROUTES and make_app
+* handler exposed on ExecHandlers dataclass + @authed-wrapped
+* interpreter table covers common shells
+* platform-default interpreter (bash on POSIX, powershell on Windows)
+* unknown interpreter rejected, case-insensitive lookup
+* safe-flag contract: bash uses -euo pipefail, pwsh/powershell -NoProfile
+
+### Verified live
+
+Bridge on 4.2.0. Live-tested three real scripts:
+* multi-line bash with for-loop + $(...) substitution: 92 bytes stdout,
+  0.009s duration.
+* python3 script printing sys.version + 3 iterations: 132 bytes,
+  interpreter=python in response.
+* Via ZeroTier overlay too (10.57.152.120:8765 through ZT relay):
+  same script, 584ms round-trip. Ergonomic parity with local /v1/exec.
+
+Also added `arena_script <interpreter>` helper to the local
+arena_live.sh:
+
+    arena_script bash <<'SH'
+    for i in 1 2 3; do echo "line $i"; done
+    SH
+\n## v4.1.1 - 2026-07-16
 
 ### Fixed - smartctl sudo-fallback in the probe itself
 
