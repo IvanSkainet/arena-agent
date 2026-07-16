@@ -35,6 +35,12 @@ EXCLUDE_PARTS = {
     "tools",
     "dev",
     "docs",
+    # v4.23.0: agent-proposal runtime artifacts live under
+    # .arena_proposals/ (jsonl ledger + worktrees for evidence).
+    # They are already .gitignored but a live bridge keeps them
+    # on disk; excluding here keeps the modularity gate honest
+    # in production checkouts too.
+    ".arena_proposals",
 }
 SUFFIXES = {".py", ".js", ".html", ".css", ".sh", ".bat", ".ps1"}
 EXTRA_FILES = {Path("bin/agentctl")}

@@ -1,5 +1,94 @@
 <div class="tab active" id="tab-overview">
+<style>
+  /* Overview polish -- scoped to #tab-overview so we don't
+     touch shared dashboard.css (avoids the v4.0.x CSS regression).
+     All rules target #tab-overview ... so nothing bleeds out.
+
+     Design goal: bring the Overview tab up to the same visual
+     language the Audit tab redesign established -- scoped
+     palette, uniform toolbar with refresh dot + meta line, and
+     consistent label/value rows. Every id kept identical so the
+     existing loaders keep working with zero JS changes. */
+  #tab-overview{
+    --ov-tint-green:#00d67222;
+    --ov-tint-blue:#4fc3f733;
+    --ov-tint-purple:#53348333;
+    --ov-tint-orange:#ff980033;
+    --ov-tint-red:#e9456033;
+    --ov-tint-gray:#88888833;
+    --ov-label-w:130px;
+  }
+  /* -------- toolbar (mirrors #tab-audit .audit-toolbar) -------- */
+  #tab-overview .ov-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-overview .ov-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-overview .ov-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-overview .ov-toolbar select{width:auto;min-width:80px}
+  #tab-overview .ov-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-overview .ov-meta .sep{margin:0 8px;color:var(--accent)}
+  #tab-overview .ov-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-overview .ov-refresh-dot.on{opacity:1;animation:ov-pulse 1.4s infinite}
+  #tab-overview .ov-refresh-dot.err{opacity:1;background:var(--red);animation:ov-pulse 1.4s infinite}
+  @keyframes ov-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  /* -------- section headers -------- */
+  #tab-overview h2{display:flex;align-items:center;gap:8px;margin-top:18px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-overview h2 .section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--ov-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  /* -------- key:value rows (unifies inline `style="width:120px"` sprinkled everywhere) -------- */
+  #tab-overview .ov-row{display:flex;align-items:center;gap:10px;padding:2px 0;flex-wrap:wrap}
+  #tab-overview .ov-row .ov-label{font-size:12px;font-weight:600;width:var(--ov-label-w);color:var(--text2);flex-shrink:0}
+  #tab-overview .ov-row .ov-val{font-size:12px;color:var(--text);word-break:break-word;min-width:0;flex:1 1 auto}
+  #tab-overview .ov-row .ov-val.mono{font-family:var(--mono)}
+  /* Circuit breaker indicators -- kept intact, migrated palette. */
+  #tab-overview #networkCard .net-breaker-row{display:none}
+  #tab-overview #networkCard .net-breaker-row.on{display:flex}
+  #tab-overview #networkCard .net-breaker-list{display:flex;gap:8px;flex-wrap:wrap;font-size:11px}
+  #tab-overview #networkCard .net-breaker-list .item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-family:var(--mono);cursor:default}
+  #tab-overview #networkCard .net-breaker-list .item.open{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
+  #tab-overview #networkCard .net-breaker-list .item.warn{background:var(--surface-warning);color:var(--warning-text);border:1px solid var(--border-warning)}
+  #tab-overview #networkCard .net-breaker-list .item.ok{background:var(--surface-info);color:var(--blue);border:1px solid var(--border-info)}
+  #tab-overview #networkCard .net-breaker-list .item .reset{margin-left:6px;background:transparent;color:inherit;border:1px solid currentColor;border-radius:50%;width:16px;height:16px;padding:0;line-height:14px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:700}
+  #tab-overview #networkCard .net-breaker-list .item .reset:hover{background:currentColor;color:var(--bg2)}
+  #tab-overview #networkCard .net-breaker-list .item .reset:disabled{opacity:0.5;cursor:wait}
+  #tab-overview #networkCard .net-breaker-list .reset-all{background:transparent;color:var(--text2);border:1px solid var(--accent);border-radius:10px;padding:2px 10px;font-size:11px;font-family:var(--mono);cursor:pointer;margin-left:4px}
+  #tab-overview #networkCard .net-breaker-list .reset-all:hover{background:var(--accent);color:var(--text)}
+  #tab-overview #networkCard .net-breaker-list .reset-all:disabled{opacity:0.5;cursor:wait}
+  /* ZeroTier peers card -- kept intact, migrated palette. */
+  #tab-overview #ztPeersCard{display:none}
+  #tab-overview #ztPeersCard.on{display:block}
+  #tab-overview #ztPeersCard .zt-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  #tab-overview #ztPeersCard .zt-donut{width:96px;height:96px;flex-shrink:0}
+  #tab-overview #ztPeersCard .zt-legend{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--text2);min-width:150px}
+  #tab-overview #ztPeersCard .zt-legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  #tab-overview #ztPeersCard .zt-hint{font-size:12px;color:var(--text2);padding:8px;background:var(--surface-info);border-radius:6px;line-height:1.4}
+  #tab-overview #ztPeersCard .zt-meta{font-size:11px;color:var(--text3);margin-top:6px}
+  #tab-overview #ztPeersCard .zt-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px}
+  #tab-overview #ztPeersCard .zt-stats .item{color:var(--text2)}
+  #tab-overview #ztPeersCard .zt-stats .item b{color:var(--text);font-weight:600}
+  /* -------- Bridge metrics -- tint the numbers rather than inline colors -------- */
+  #tab-overview .ov-metrics{display:flex;gap:24px;flex-wrap:wrap}
+  #tab-overview .ov-metrics .metric-item{min-width:120px}
+  #tab-overview .ov-metrics .metric-val{font-size:22px;font-family:var(--mono);font-weight:700;color:var(--text)}
+  #tab-overview .ov-metrics .metric-val.info{color:var(--blue)}
+  #tab-overview .ov-metrics .metric-val.warn{color:var(--warning-text)}
+  #tab-overview .ov-metrics .metric-label{font-size:11px;color:var(--text2);margin-top:2px}
+</style>
 <h1>Overview <span class="version-tag" id="versionTag">v{{VERSION}}</span></h1>
+
+<!-- Overview toolbar matches the Audit tab visually. Reload +
+     auto-refresh + interval + refresh dot; meta line under it
+     reports last refresh time, load duration, and card count. -->
+<div class="ov-toolbar">
+  <button onclick="refreshOverview()">Reload</button>
+  <label><input type="checkbox" id="overviewAuto"> auto-refresh <span class="ov-refresh-dot" id="overviewRefreshDot"></span></label>
+  <select id="overviewInterval" title="Auto-refresh interval">
+    <option value="5">5s</option>
+    <option value="15" selected>15s</option>
+    <option value="30">30s</option>
+    <option value="60">60s</option>
+  </select>
+</div>
+<div class="ov-meta" id="overviewMeta">Loading…</div>
+
+<h2>System <span class="section-badge">10 stats</span></h2>
 <div class="card-grid" id="statsGrid">
 <div class="card"><div class="stat" id="statVersion">--</div><div class="label">Bridge Version</div></div>
 <div class="card"><div class="stat" id="statHost">--</div><div class="label">Hostname</div></div>
@@ -24,60 +113,18 @@
 <div id="loadAvgRow" class="row" style="display:none"><span style="width:80px;font-size:12px;font-weight:600">Load Avg</span><span id="loadAvgText" class="mono" style="font-size:13px"></span></div>
 </div>
 
-<!-- v4.11.0: circuit breaker indicators. All styling scoped to
-     #tab-overview #networkCard so nothing leaks into shared CSS
-     (v4.0.x lesson). The row is hidden until /v1/tunnels/probe
-     comes back with a non-empty breaker snapshot. -->
-<style>
-  #tab-overview #networkCard .net-breaker-row{display:none}
-  #tab-overview #networkCard .net-breaker-row.on{display:flex}
-  #tab-overview #networkCard .net-breaker-list{display:flex;gap:8px;flex-wrap:wrap;font-size:11px}
-  #tab-overview #networkCard .net-breaker-list .item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-family:var(--mono);cursor:default}
-  #tab-overview #networkCard .net-breaker-list .item.open{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
-  #tab-overview #networkCard .net-breaker-list .item.warn{background:var(--surface-warning);color:var(--warning-text);border:1px solid var(--border-warning)}
-  #tab-overview #networkCard .net-breaker-list .item.ok{background:var(--surface-info);color:var(--blue);border:1px solid var(--border-info)}
-  /* v4.14.0: inline reset buttons. The 'x' inside each open badge
-     drops that specific breaker; 'Reset all' at the row tail
-     drops every record. Kept visually subdued so healthy-triple
-     users don't feel bombarded with controls. */
-  #tab-overview #networkCard .net-breaker-list .item .reset{margin-left:6px;background:transparent;color:inherit;border:1px solid currentColor;border-radius:50%;width:16px;height:16px;padding:0;line-height:14px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:700}
-  #tab-overview #networkCard .net-breaker-list .item .reset:hover{background:currentColor;color:var(--bg2)}
-  #tab-overview #networkCard .net-breaker-list .item .reset:disabled{opacity:0.5;cursor:wait}
-  #tab-overview #networkCard .net-breaker-list .reset-all{background:transparent;color:var(--text2);border:1px solid var(--accent);border-radius:10px;padding:2px 10px;font-size:11px;font-family:var(--mono);cursor:pointer;margin-left:4px}
-  #tab-overview #networkCard .net-breaker-list .reset-all:hover{background:var(--accent);color:var(--text)}
-  #tab-overview #networkCard .net-breaker-list .reset-all:disabled{opacity:0.5;cursor:wait}
-</style>
 <h2>Network Status</h2>
 <div class="card" id="networkCard">
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Active Provider</span><span id="netActiveProvider" class="badge gray">Unknown</span></div>
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Public URL</span><span id="netActiveUrl" class="mono" style="font-size:12px">--</span></div>
-<div class="row" id="netProvidersRow"><span style="font-size:12px;font-weight:600;width:120px">Providers</span><span id="netProvidersList" class="mono" style="font-size:12px;color:var(--text2)">checking...</span></div>
-<!-- v4.11.0: circuit breaker state per (provider, host, port).
-     Hidden until at least one record exists. -->
-<div class="row net-breaker-row" id="netBreakerRow"><span style="font-size:12px;font-weight:600;width:120px">Breaker</span><span id="netBreakerList" class="net-breaker-list"></span></div>
+<div class="ov-row"><span class="ov-label">Active Provider</span><span id="netActiveProvider" class="badge gray">Unknown</span></div>
+<div class="ov-row"><span class="ov-label">Public URL</span><span id="netActiveUrl" class="ov-val mono">--</span></div>
+<div class="ov-row" id="netProvidersRow"><span class="ov-label">Providers</span><span id="netProvidersList" class="ov-val mono" style="color:var(--text2)">checking...</span></div>
+<div class="ov-row net-breaker-row" id="netBreakerRow"><span class="ov-label">Breaker</span><span id="netBreakerList" class="net-breaker-list"></span></div>
 <!-- Legacy Tailscale-only IDs kept for backward compatibility with older
-     scripts that may still update them. New code should use netActive* / netProviders*. -->
+     scripts that may still update them. -->
 <span id="tsFunnelStatus" class="badge gray" style="display:none">Unknown</span>
 <span id="tsFunnelUrl" class="mono" style="display:none">--</span>
 </div>
 
-<!-- v4.7.0: ZeroTier peers card. Hidden by default; the loader shows it
-     only when the bridge reports a working ZeroTier backend (installed
-     and reachable). All styling is scoped inline / via IDs so nothing
-     leaks into dashboard.css. -->
-<style>
-  #tab-overview #ztPeersCard{display:none}
-  #tab-overview #ztPeersCard.on{display:block}
-  #tab-overview #ztPeersCard .zt-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
-  #tab-overview #ztPeersCard .zt-donut{width:96px;height:96px;flex-shrink:0}
-  #tab-overview #ztPeersCard .zt-legend{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--text2);min-width:150px}
-  #tab-overview #ztPeersCard .zt-legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
-  #tab-overview #ztPeersCard .zt-hint{font-size:12px;color:var(--text2);padding:8px;background:var(--surface-info);border-radius:6px;line-height:1.4}
-  #tab-overview #ztPeersCard .zt-meta{font-size:11px;color:var(--text3);margin-top:6px}
-  #tab-overview #ztPeersCard .zt-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px}
-  #tab-overview #ztPeersCard .zt-stats .item{color:var(--text2)}
-  #tab-overview #ztPeersCard .zt-stats .item b{color:var(--text);font-weight:600}
-</style>
 <h2 id="ztPeersHeader" style="display:none">ZeroTier Peers <button class="sm" onclick="refreshZtPeers()" style="margin-left:8px">⟳ Refresh</button></h2>
 <div class="card" id="ztPeersCard">
   <div class="zt-row">
@@ -91,9 +138,9 @@
 
 <h2>Agent Control <span class="badge gray" id="overviewControlBadge">checking...</span></h2>
 <div class="card" id="controlOverviewCard">
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Control State</span><span id="overviewControlState" class="badge ok">Active</span></div>
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Active Window</span><span id="overviewActiveWindow" class="mono" style="font-size:12px">--</span></div>
-<div class="row" style="gap:6px">
+<div class="ov-row"><span class="ov-label">Control State</span><span id="overviewControlState" class="badge ok">Active</span></div>
+<div class="ov-row"><span class="ov-label">Active Window</span><span id="overviewActiveWindow" class="ov-val mono">--</span></div>
+<div class="ov-row" style="gap:6px">
 <button id="overviewPauseBtn" class="warning sm" onclick="controlPause()" style="display:none">&#9208; Pause</button>
 <button id="overviewResumeBtn" class="success sm" onclick="controlResume()" style="display:none">&#9654; Resume</button>
 </div>
@@ -101,7 +148,7 @@
 
 <h2>Bridge Metrics</h2>
 <div class="card">
-<div class="metric-row">
+<div class="ov-metrics">
 <div class="metric-item"><div class="metric-val info" id="metricReqs">0</div><div class="metric-label">Total Requests</div></div>
 <div class="metric-item"><div class="metric-val warn" id="metricExecs">0</div><div class="metric-label">Exec Count</div></div>
 <div class="metric-item"><div class="metric-val" id="metricErrors">0</div><div class="metric-label">Error Rate</div></div>
@@ -110,9 +157,9 @@
 
 <h2>Platform Info</h2>
 <div class="card" id="platformCard">
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Python</span><span id="platPython" class="mono" style="font-size:12px">--</span></div>
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">OS</span><span id="platOS" class="mono" style="font-size:12px">--</span></div>
-<div class="row"><span style="font-size:12px;font-weight:600;width:120px">Platform</span><span id="platArch" class="mono" style="font-size:12px">--</span></div>
+<div class="ov-row"><span class="ov-label">Python</span><span id="platPython" class="ov-val mono">--</span></div>
+<div class="ov-row"><span class="ov-label">OS</span><span id="platOS" class="ov-val mono">--</span></div>
+<div class="ov-row"><span class="ov-label">Platform</span><span id="platArch" class="ov-val mono">--</span></div>
 </div>
 
 <h2>Hardware Diagnostics</h2>

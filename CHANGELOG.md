@@ -1,3 +1,97 @@
+## v4.23.0 - 2026-07-17
+
+### Overview tab redesign -- toolbar + scoped palette in the Audit style
+
+The Overview tab was the first thing every operator saw and it
+still wore its v3.x styling: three separate inline ``<style>``
+blocks scattered through the body, per-row ``style="width:120px"``
+sprinkled everywhere, and no toolbar at all -- ``refreshOverview``
+existed but there was no button, no auto-refresh, no indicator
+that anything was even loading. The Audit tab redesign already
+demonstrated the target look; this release brings Overview to
+the same visual language.
+
+New in this release:
+
+* **Toolbar** mirroring the Audit tab -- ``Reload`` button,
+  ``auto-refresh`` checkbox with a pulsing indicator dot,
+  interval selector (5s / 15s / 30s / 60s), and a meta line
+  under the toolbar reporting "Last refresh HH:MM:SS ·
+  NNN ms · auto every 15s" (or "manual" when auto is off,
+  or "last error: ..." when the last cycle failed).
+* **One consolidated scoped ``<style>`` block** replacing three
+  scattered ones. All rules start with ``#tab-overview`` so the
+  v4.0.x CSS lesson is enforced by ``test_all_style_rules_scoped_to_tab_overview``.
+* **Palette variables** (``--ov-tint-*`` / ``--ov-label-w``)
+  declared on ``#tab-overview {...}`` -- never leaks to ``:root``,
+  so it cannot clash with other tabs' palettes.
+* **Uniform ``.ov-row`` / ``.ov-label`` / ``.ov-val`` classes**
+  replacing per-cell inline widths on the Network Status,
+  Agent Control, and Platform Info cards.
+* **New section badges** (``<span class="section-badge">10 stats</span>``)
+  so headers double as info sources -- e.g. the System header
+  now advertises "10 stats" so users know at a glance how many
+  cards to expect.
+
+Backward compatibility rules kept intact:
+
+* **Every existing id preserved** -- verified by a parameterized
+  test over 50+ ids that ``04-overview.js``, ``04b-zt-peers.js``,
+  ``04c-net-breaker.js`` and ``21b-hwinfo-overview-extensions.js``
+  reach for. Any regression would silently break those loaders,
+  so the test list is exhaustive.
+* **Zero changes to existing JS** -- the toolbar wiring lives in
+  a new ``04d-overview-toolbar.js`` that *wraps* the existing
+  ``window.refreshOverview`` rather than redefining it. Original
+  loader keeps its single responsibility; the toolbar hooks are
+  additive. Same composition trick the Audit live-tail toggle
+  used in v4.10.0.
+* **Legacy Tailscale-only ids** (``tsFunnelStatus``, ``tsFunnelUrl``)
+  kept as hidden ``display:none`` spans so any older script that
+  still updates them keeps working with no visible artifacts.
+
+Why now: the v4.22.1 postmortem promised "update all tabs so the
+new Audit is no longer the only one from this decade". Overview
+is the natural first target because it's the highest-traffic
+tab. Terminal / Extension / Mobile / Browser will follow in
+their own releases so each one gets its own review window and
+its own live-smoke.
+
+Tests: two new modules covering the redesign:
+
+* ``tests/test_overview_toolbar_layout.py`` (71 tests) -- pure
+  string checks: every preserved id present, every new toolbar
+  id present, every ``<style>`` selector scoped to
+  ``#tab-overview``, scoped palette variables declared inside
+  the tab, toolbar wiring (Reload button, interval options,
+  meta line element), JS module hygiene (IIFE wrapper, wraps
+  ``window.refreshOverview``, diagnostic namespace
+  ``__overviewToolbar`` present and non-enumerable, no
+  hardcoded ``setInterval`` delays).
+* ``tests/test_overview_toolbar_js.py`` (5 tests) -- Node
+  integration proving the wrapper captures duration + timestamp
+  on success, pulses the error dot on rejection while still
+  updating meta, drives ``setInterval`` from the DOM selector
+  value (not a constant), disarms cleanly when auto-refresh is
+  turned off, and hides its diagnostic namespace from
+  ``Object.keys(window)``.
+
+Suite: **1557 passed** (was 1481, +76 new), one baseline flaky
+(``test_probe_tcp_timeout_short``).
+
+Files:
+
+* ``dashboard/assets/body-01-overview.html`` -- rewritten body:
+  toolbar + meta line, unified ``.ov-row`` classes, three
+  ``<style>`` blocks merged into one scoped block.
+* ``dashboard/assets/04d-overview-toolbar.js`` (new, 165 lines)
+  -- IIFE wrapper: interception of ``refreshOverview``, dot
+  pulsing (green on success / red on failure), meta line
+  rewriting, timer arming/disarming from DOM controls,
+  ``__overviewToolbar`` diagnostic hook.
+* ``tests/test_overview_toolbar_layout.py`` (new) -- 71 tests
+* ``tests/test_overview_toolbar_js.py`` (new) -- 5 tests
+
 ## v4.22.1 - 2026-07-17
 
 ### Fix — cloudflared autostart persistence across bridge restarts

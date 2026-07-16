@@ -1,3 +1,102 @@
+\n## v4.23.0 - 2026-07-17
+
+### Редизайн вкладки Overview -- toolbar + scoped palette в стиле Audit
+
+Вкладка Overview -- это первое, что видит каждый оператор, и она
+до сих пор носила v3.x-стилистику: три отдельных inline
+``<style>`` разбросаны по body, per-row ``style="width:120px"``
+везде, и вообще ни одного toolbar -- ``refreshOverview``
+существовал, но не было ни кнопки, ни auto-refresh, ни индикатора
+того, что что-то вообще загружается. Редизайн Audit tab уже
+показал целевой look; этот релиз приводит Overview к той же
+визуальной языке.
+
+Новое в этом релизе:
+
+* **Toolbar** отражающий Audit-вкладку -- кнопка ``Reload``,
+  checkbox ``auto-refresh`` с пульсирующей точкой-индикатором,
+  селектор интервала (5s / 15s / 30s / 60s), и meta-строка
+  под toolbar-ом с "Last refresh HH:MM:SS · NNN ms · auto
+  every 15s" (или "manual" когда auto выключен, или "last
+  error: ..." когда последний цикл упал).
+* **Один консолидированный scoped ``<style>``-блок** заменяет
+  три разбросанных. Все правила начинаются с ``#tab-overview``,
+  так что урок v4.0.x про CSS enforced тестом
+  ``test_all_style_rules_scoped_to_tab_overview``.
+* **Palette-переменные** (``--ov-tint-*`` / ``--ov-label-w``)
+  объявлены на ``#tab-overview {...}`` -- никогда не утекают в
+  ``:root``, так что не могут конфликтовать с палитрами других
+  вкладок.
+* **Единые классы ``.ov-row`` / ``.ov-label`` / ``.ov-val``**
+  заменяют per-cell inline widths на карточках Network Status,
+  Agent Control, и Platform Info.
+* **Новые section-badges** (``<span class="section-badge">10
+  stats</span>``) чтобы заголовки заодно служили источником
+  информации -- например заголовок System теперь пишет "10
+  stats", чтобы пользователи с одного взгляда понимали, сколько
+  карточек ожидать.
+
+Правила backward-совместимости сохранены целиком:
+
+* **Каждый существующий id сохранён** -- проверено
+  параметризованным тестом по 50+ id, которые дёргают
+  ``04-overview.js``, ``04b-zt-peers.js``, ``04c-net-breaker.js``
+  и ``21b-hwinfo-overview-extensions.js``. Любая регрессия
+  тихо сломала бы эти loaders, так что список тестов
+  исчерпывающий.
+* **Ноль изменений в существующем JS** -- toolbar wiring живёт
+  в новом ``04d-overview-toolbar.js``, который *оборачивает*
+  существующий ``window.refreshOverview`` вместо того чтобы
+  переопределять. Оригинальный loader сохраняет single
+  responsibility; toolbar-хуки additive. Тот же composition
+  trick, что использовал Audit live-tail toggle.
+* **Legacy Tailscale-only ids** (``tsFunnelStatus``,
+  ``tsFunnelUrl``) сохранены как скрытые ``display:none`` span,
+  чтобы любой старый скрипт, который их всё ещё обновляет,
+  продолжал работать без видимых артефактов.
+
+Почему сейчас: постмортем v4.22.1 обещал "обновить все вкладки,
+чтобы новая Audit больше не была единственной из этого
+десятилетия". Overview -- естественная первая цель, потому что
+это самая посещаемая вкладка. Terminal / Extension / Mobile /
+Browser последуют в своих собственных релизах, чтобы каждая
+получила своё окно ревью и свой live-smoke.
+
+Тесты: два новых модуля покрывают редизайн:
+
+* ``tests/test_overview_toolbar_layout.py`` (71 тест) --
+  чисто string-проверки: каждый сохранённый id присутствует,
+  каждый новый toolbar id присутствует, каждый ``<style>``-селектор
+  scoped на ``#tab-overview``, scoped palette-переменные
+  объявлены внутри tab, toolbar-wiring (Reload button, interval
+  options, meta line element), JS-модуль-гигиена (IIFE-обёртка,
+  оборачивает ``window.refreshOverview``, диагностический
+  namespace ``__overviewToolbar`` присутствует и
+  non-enumerable, нет hardcoded ``setInterval`` delays).
+* ``tests/test_overview_toolbar_js.py`` (5 тестов) -- Node
+  integration, доказывающая что wrapper захватывает duration +
+  timestamp на success, пульсирует error-dot на rejection и
+  при этом обновляет meta, драйвит ``setInterval`` из значения
+  DOM-селектора (не константы), чисто разоружается когда
+  auto-refresh выключается, и скрывает свой diagnostic namespace
+  от ``Object.keys(window)``.
+
+Suite: **1557 passed** (было 1481, +76 новых), один baseline
+flaky (``test_probe_tcp_timeout_short``).
+
+Файлы:
+
+* ``dashboard/assets/body-01-overview.html`` -- переписанный
+  body: toolbar + meta line, унифицированные ``.ov-row``-классы,
+  три ``<style>``-блока слиты в один scoped.
+* ``dashboard/assets/04d-overview-toolbar.js`` (новый, 165
+  строк) -- IIFE-обёртка: interception ``refreshOverview``,
+  пульсация точки (green на успех / red на fail), rewrite
+  meta-строки, arming/disarming таймера из DOM-контролов,
+  ``__overviewToolbar`` диагностический хук.
+* ``tests/test_overview_toolbar_layout.py`` (новый) -- 71 тест
+* ``tests/test_overview_toolbar_js.py`` (новый) -- 5 тестов
+
 \n## v4.22.1 - 2026-07-17
 
 ### Fix — persistence автозапуска cloudflared через рестарты bridge
