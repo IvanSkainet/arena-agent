@@ -1,42 +1,91 @@
 <div class="tab" id="tab-terminal">
 <style>
-  /* v4.13.0: streaming exec support. All rules scoped to
-     #tab-terminal so nothing leaks into shared dashboard.css
-     (v4.0.x lesson). Palette vars mirror the shared .danger
-     button pair so kill-button hover uses the same darker red
-     (test_no_hardcoded_theme_colors forbids inline hex). */
-  #tab-terminal{--term-kill-hover:#c62828}
+  /* Terminal tab -- scoped to #tab-terminal (v4.0.x lesson: never
+     touch shared dashboard.css). Redesign to match the Audit /
+     Overview / Proposals visual language: scoped palette, uniform
+     toolbar, meta line under it, consistent inputs sizing. All
+     original ids preserved so 05-*, 05b-*, 21-slash-commands.js
+     keep working with zero JS changes. */
+  #tab-terminal{
+    --tm-tint-blue:#4fc3f733;
+    --tm-tint-green:#00d67222;
+    --tm-tint-red:#e9456033;
+    --tm-tint-gray:#88888833;
+    --term-kill-hover:#c62828;
+  }
   #tab-terminal .term-kill-btn{background:var(--red);color:var(--text-inverse);border:none;padding:2px 8px;border-radius:3px;font-size:11px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
   #tab-terminal .term-kill-btn:hover{background:var(--term-kill-hover)}
   #tab-terminal .term-stream-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);display:inline-block;margin-right:6px;vertical-align:middle;animation:term-stream-pulse 1.4s infinite}
   @keyframes term-stream-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  /* toolbar row 1 -- command entry */
+  #tab-terminal .tm-cmdrow{position:relative;display:flex;gap:8px;margin-bottom:6px}
+  #tab-terminal .tm-cmdrow input[type=text]{flex:1;font-family:var(--mono)}
+  /* slash-command suggest popup -- absolute positioned below the input */
+  #tab-terminal #termSuggest{display:none;position:absolute;top:100%;left:0;right:80px;background:var(--bg2);border:1px solid var(--border);border-top:none;z-index:50;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:12px}
+  /* slash-commands hint strip */
+  #tab-terminal .tm-hint{font-size:11px;color:var(--text2);margin-bottom:8px}
+  #tab-terminal .tm-hint code{background:var(--bg2);padding:1px 4px;border-radius:3px;font-size:11px}
+  /* toolbar row 2 -- controls */
+  #tab-terminal .tm-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-terminal .tm-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-terminal .tm-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-terminal .tm-toolbar select{width:auto;min-width:120px}
+  #tab-terminal .tm-toolbar .grow{flex:1}
+  /* meta line */
+  #tab-terminal .tm-meta{font-size:11px;color:var(--text3);margin:0 0 10px 2px;display:flex;gap:8px;align-items:center}
+  #tab-terminal .tm-meta .sep{margin:0 4px;color:var(--accent)}
+  /* session pane -- container that scrolls */
+  #tab-terminal #termSession{min-height:300px;max-height:65vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;border-radius:6px}
+  #tab-terminal .tm-empty{color:var(--text2);font-style:italic}
+  /* history section */
+  #tab-terminal details.tm-history{margin-top:12px}
+  #tab-terminal details.tm-history summary{cursor:pointer;font-size:12px;color:var(--text2)}
+  #tab-terminal #termHistory{font-size:12px;color:var(--text2);margin-top:6px}
 </style>
 <h1>Terminal</h1>
-<div class="row" style="position:relative">
-<input type="text" id="termCmd" placeholder="Enter command or /shot /search /read /dump ..." style="flex:1" autofocus autocomplete="off">
-<button onclick="runCommand()">Run</button>
-<div id="termSuggest" style="display:none;position:absolute;top:100%;left:0;right:80px;background:var(--bg2);border:1px solid var(--border);border-top:none;z-index:50;max-height:200px;overflow-y:auto;font-family:var(--mono);font-size:12px"></div>
+
+<!-- command entry (with slash-suggest popup) -->
+<div class="tm-cmdrow">
+  <input type="text" id="termCmd" placeholder="Enter command or /shot /search /read /dump ..." autofocus autocomplete="off">
+  <button onclick="runCommand()">Run</button>
+  <div id="termSuggest"></div>
 </div>
-<div class="row" style="margin-bottom:6px;font-size:11px;color:var(--text2)">
-Slash shortcuts: <code>/shot</code> /search /read /dump /head /hardware /hwinfo /status /doctor /sysinfo /audit /facts /tasks /ip /dns
+
+<div class="tm-hint">
+  Slash shortcuts: <code>/shot</code> <code>/search</code> <code>/read</code> <code>/dump</code> <code>/head</code> <code>/hardware</code> <code>/hwinfo</code> <code>/status</code> <code>/doctor</code> <code>/sysinfo</code> <code>/audit</code> <code>/facts</code> <code>/tasks</code> <code>/ip</code> <code>/dns</code>
 </div>
-<div class="row" style="margin-bottom:12px">
-<select id="termTimeout" style="width:120px">
-<option value="10">10s timeout</option>
-<option value="30" selected>30s timeout</option>
-<option value="60">60s timeout</option>
-<option value="120">120s timeout</option>
-</select>
-<button onclick="clearTerminal()">Clear</button>
-<button class="copy-btn" onclick="copyTermOutput()">Copy Output</button>
-<label style="font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap" title="Live NDJSON output via /v1/exec/stream. Adds a Kill button next to each running command."><input type="checkbox" id="termStream" style="width:auto;margin:0"> stream mode</label>
-<span style="margin-left:auto;font-size:12px;color:var(--text2)" id="termDuration"></span>
+
+<!-- toolbar with timeout / clear / copy / stream toggle -->
+<div class="tm-toolbar">
+  <select id="termTimeout" title="Command timeout">
+    <option value="10">10s timeout</option>
+    <option value="30" selected>30s timeout</option>
+    <option value="60">60s timeout</option>
+    <option value="120">120s timeout</option>
+  </select>
+  <button onclick="clearTerminal()">Clear</button>
+  <button class="copy-btn" onclick="copyTermOutput()">Copy Output</button>
+  <label title="Live NDJSON output via /v1/exec/stream. Adds a Kill button next to each running command.">
+    <input type="checkbox" id="termStream"> stream mode
+  </label>
+  <span class="grow"></span>
 </div>
-<div id="termSession" style="min-height:300px;max-height:65vh;overflow-y:auto;background:var(--bg2);border:1px solid var(--border);padding:12px;font-family:var(--mono);font-size:12px;line-height:1.5;border-radius:6px">
-  <div style="color:var(--text2);font-style:italic">Arena shell ready. Type a command and press Enter. Use ↑/↓ to navigate history, Tab to expand slash-commands, Ctrl+L or "Clear" to wipe.</div>
+<div class="tm-meta" id="termMeta">Ready. Press Enter after typing a command; use ↑/↓ for history.</div>
+
+<!-- session output -->
+<div id="termSession">
+  <div class="tm-empty">Arena shell ready. Type a command and press Enter. Use ↑/↓ to navigate history, Tab to expand slash-commands, Ctrl+L or "Clear" to wipe.</div>
 </div>
-<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12px;color:var(--text2)">Recent commands (click to re-run)</summary>
-<div id="termHistory" style="font-size:12px;color:var(--text2);margin-top:6px"></div>
+
+<!-- durations live-updated by 05-*.js via id=termDuration; kept
+     inline next to the meta line so operators see wall-time
+     without hunting for it. -->
+<div class="tm-meta" style="margin-top:6px" id="termDurationWrap">
+  Last command duration: <span id="termDuration">--</span>
+</div>
+
+<details class="tm-history"><summary>Recent commands (click to re-run)</summary>
+<div id="termHistory"></div>
 </details>
 </div>
 

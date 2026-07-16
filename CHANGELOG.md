@@ -1,3 +1,69 @@
+## v4.26.0 - 2026-07-17
+
+### Terminal tab redesign -- scoped palette + unified toolbar in Audit style
+
+Terminal already had a scoped ``<style>`` block for the v4.13.0
+kill button and the v4.15.0 stream dot -- but the rest of the
+tab was still built out of ad-hoc inline widths and manually
+positioned rows. This release brings the whole tab up to the
+same visual language as the Audit / Overview / Proposals
+redesigns.
+
+Layout:
+
+* **Consolidated scoped ``<style>`` block** -- palette variables
+  (``--tm-tint-*``), toolbar layout (``.tm-toolbar``), meta line
+  (``.tm-meta``), session pane, and history section all live in
+  one block scoped to ``#tab-terminal``. Every original scoped
+  rule from v4.13.0/v4.15.0 (kill button hover, stream dot pulse
+  keyframes) is preserved.
+* **Meta line** under the toolbar (``#termMeta``) matches the
+  Audit / Overview / Proposals pattern. Currently displays
+  "Ready. Press Enter after typing a command; use ↑/↓ for
+  history." Future patches can wire it up to per-command wall
+  time / stream state without needing to restructure the DOM.
+* **Slash-command hint strip** upgraded from a bare inline
+  color to a proper ``.tm-hint`` block with each shortcut
+  rendered as ``<code>``. Improves discoverability without
+  touching the ``21-slash-commands.js`` autocomplete logic.
+* **Toolbar controls** (timeout / Clear / Copy / stream toggle)
+  live in one ``.tm-toolbar`` flex row with no inline widths --
+  guarded by ``test_no_inline_widths_on_toolbar`` so a
+  future edit can't undo the discipline.
+
+Preservation guarantees:
+
+* **Every original id preserved** -- ``termCmd``, ``termSuggest``,
+  ``termTimeout``, ``termStream``, ``termSession``, ``termHistory``,
+  ``termDuration``. Verified by a parameterized test so
+  ``05-terminal-*.js``, ``05b-terminal-ansi.js`` and
+  ``21-slash-commands.js`` keep working with zero JS changes.
+* **All existing button ``onclick`` handlers** (``runCommand``,
+  ``clearTerminal``, ``copyTermOutput``) still wired.
+* **30-second default timeout** locked in by test so muscle
+  memory holds.
+* **Kill-button + stream-dot classes** preserved with their
+  ``--term-kill-hover`` palette indirection so the
+  ``test_no_hardcoded_theme_colors`` guard stays happy.
+
+Tests: ``tests/test_terminal_tab_layout.py`` (17 tests) covers:
+every preserved id, new meta line present, tab wrapper + h1,
+stream toggle + all onclick bindings still wired, 30s default
+locked, every scoped selector under ``#tab-terminal`` (v4.0.x
+lesson), palette vars declared inside the tab, no inline widths
+on the toolbar (regression guard), slash hints present, kill
+button + stream dot classes intact, history section preserved.
+
+Suite: **1658 passed** (was 1641, +17 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-02-terminal.html`` -- fully rewritten
+  body with the consolidated scoped ``<style>``, one
+  ``.tm-cmdrow``, ``.tm-hint``, ``.tm-toolbar``, ``.tm-meta``
+  block per section. All original ids and handlers preserved.
+* ``tests/test_terminal_tab_layout.py`` (new) -- 17 tests
+
 ## v4.25.0 - 2026-07-17
 
 ### Proposals tab -- UI over the v4.19.0 agent proposal endpoints
