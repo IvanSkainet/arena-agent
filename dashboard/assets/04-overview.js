@@ -68,15 +68,43 @@ async function refreshOverview() {
             }
           }
           if (urlEl) {
-            if (active && active.public_url) {
-              urlEl.innerHTML = "";
-              const a = document.createElement("a");
-              a.href = active.public_url;
-              a.target = "_blank";
-              a.textContent = active.public_url;
-              urlEl.appendChild(a);
-            } else {
+            // v4.1.1: show ALL reachable provider URLs (not just the
+            // primary), each with a Copy button. Agents on the same
+            // ZeroTier or Tailscale network can pick whichever URL
+            // routes for them without pasting the wrong one.
+            urlEl.innerHTML = "";
+            const reachable = (tun.providers || []).filter(p => p.active && p.public_url);
+            if (reachable.length === 0) {
               urlEl.textContent = "—";
+            } else {
+              reachable.forEach((p, idx) => {
+                if (idx) urlEl.appendChild(document.createTextNode("   "));
+                const label = document.createElement("span");
+                label.style.color = "var(--text2)";
+                label.style.fontSize = "11px";
+                label.textContent = p.provider + ":";
+                urlEl.appendChild(label);
+                urlEl.appendChild(document.createTextNode(" "));
+                const a = document.createElement("a");
+                a.href = p.public_url;
+                a.target = "_blank";
+                a.rel = "noreferrer";
+                a.textContent = p.public_url;
+                urlEl.appendChild(a);
+                urlEl.appendChild(document.createTextNode(" "));
+                const btn = document.createElement("button");
+                btn.className = "sm";
+                btn.style.fontSize = "11px";
+                btn.style.padding = "1px 6px";
+                btn.textContent = "Copy";
+                btn.onclick = (ev) => {
+                  ev.preventDefault();
+                  if (navigator.clipboard) navigator.clipboard.writeText(p.public_url);
+                  btn.textContent = "✓";
+                  setTimeout(() => { btn.textContent = "Copy"; }, 1200);
+                };
+                urlEl.appendChild(btn);
+              });
             }
           }
           if (listEl) {

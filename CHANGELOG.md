@@ -1,4 +1,53 @@
-## v4.1.0 - 2026-07-16
+## v4.1.1 - 2026-07-16
+
+### Fixed - smartctl sudo-fallback in the probe itself
+
+v4.0.6 introduced a NOPASSWD sudoers option for smartctl but only
+documented it in the hint text -- the actual probe still called
+smartctl directly and thus still returned Permission denied on
+hosts (like the operator's CachyOS box) where DAC on /dev/sd*
+is stricter than the capability model.
+
+Now arena/inventory/probe_sensors._smartctl_run() tries the direct
+call first, and if the output contains "permission denied" or
+"smartctl open device" it retries once via 'sudo -n smartctl ...'.
+That means the moment the operator configures the sudoers.d rule
+suggested by option (C) of the v4.0.6 hint, SMART data starts
+appearing in the Doctor tab without any code change or restart
+needed on the bridge side.
+
+Six new tests in test_smartctl_sudo_fallback.py cover: direct
+success (no sudo attempted), permission-denied triggers sudo
+retry, sudo also fails (returns original for hint rendering),
+sudo returns empty (falls back), non-Linux (never tries sudo),
+empty output (no retry).
+
+### Added - Overview shows every reachable transport URL with Copy
+
+Overview's Network Status card used to show only the primary
+provider's URL. Agents on the same ZeroTier network don't
+necessarily want the Tailscale URL (which is picked as primary
+because it's HTTPS); they want the ZT URL. v4.1.1 lists ALL
+reachable providers with per-URL Copy buttons, so operators can
+grab whichever route routes for them.
+
+### Added - opt-in ZeroTier auto-join at startup
+
+Set ARENA_ZEROTIER_NETWORK=<16-hex-network-id> in the environment
+and the bridge will run 'zerotier join <id>' before starting the
+HTTP server. Safe to call repeatedly (ZT no-ops when already a
+member). Fails soft: a bad ID or missing zerotier-cli logs a
+warning and the bridge still starts. Combined with --bind auto /
+ARENA_AUTO_BIND=1, that means a fresh box needs just two env
+vars in the systemd unit to expose the bridge on ZeroTier -- no
+manual zerotier-cli join step.
+
+Example systemd unit fragment:
+    Environment=ARENA_AUTO_BIND=1
+    Environment=ARENA_ZEROTIER_NETWORK=0123456789abcdef
+
+Tests: 1167 -> 1173 passed (+6 sudo-fallback tests).
+\n## v4.1.0 - 2026-07-16
 
 ### Added - ZeroTier as a real agent transport (not just a Central-API console)
 

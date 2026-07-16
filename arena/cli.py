@@ -104,6 +104,26 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
                      args.bind, effective_bind, bind_reason)
     args.bind = effective_bind
 
+    # v4.1.1: opt-in ZeroTier auto-join. If ARENA_ZEROTIER_NETWORK is
+    # set to a 16-hex network ID, join that network before starting
+    # the HTTP server. Missing / malformed values just log a warning
+    # and continue (bridge still starts on 127.0.0.1 / whatever bind
+    # resolved to). Safe to call repeatedly: ZT itself no-ops when
+    # already a member of the network.
+    _zt_network = (os.environ.get("ARENA_ZEROTIER_NETWORK") or "").strip().lower()
+    if _zt_network:
+        try:
+            from arena.admin.zerotier import zerotier_network_action as _zt_join
+            _res = _zt_join("join", _zt_network)
+            if _res.get("ok"):
+                ctx.log_info("[zerotier-autojoin] joined %s via %s",
+                             _zt_network, _res.get("backend", "?"))
+            else:
+                ctx.log_info("[zerotier-autojoin] join %s failed: %s",
+                             _zt_network, _res.get("error") or _res.get("stderr", "")[:200])
+        except Exception as e:  # noqa: BLE001
+            ctx.log_info("[zerotier-autojoin] exception: %s", e)
+
     ctx.log_info("Arena Unified Bridge v%s on http://%s:%s", ctx.version, args.bind, args.port)
     ctx.log_info("profile=%s root=%s audit=%s max_concurrent=%s", args.profile, root, ctx.audit_path, args.max_concurrent)
     ctx.log_info("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner")

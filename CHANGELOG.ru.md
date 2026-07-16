@@ -1,3 +1,49 @@
+\n## v4.1.1 - 2026-07-16
+
+### Исправлено - sudo-fallback для smartctl в самом probe
+
+v4.0.6 добавил NOPASSWD sudoers option в hint, но сам probe
+продолжал вызывать smartctl напрямую -- и получал Permission
+denied на хостах (как у оператора на CachyOS), где DAC на
+/dev/sd* строже capability-модели.
+
+Теперь arena/inventory/probe_sensors._smartctl_run() пробует
+direct call, и если в output "permission denied" или "smartctl
+open device" -- retry через 'sudo -n smartctl ...'. Стоит
+оператору настроить sudoers.d правило из option (C) hint'а
+v4.0.6 -- SMART данные начинают появляться в Doctor tab без
+изменения кода или рестарта bridge.
+
+Шесть новых тестов в test_smartctl_sudo_fallback.py: direct
+success, permission-denied triggers sudo retry, sudo тоже
+падает (возвращает оригинал для hint rendering), sudo пусто
+(fallback), non-Linux (никогда sudo), empty output (no retry).
+
+### Добавлено - Overview показывает все reachable URL'ы с Copy
+
+Network Status card в Overview показывал только primary
+provider URL. Агенты в той же ZeroTier сети не обязательно
+хотят Tailscale URL (он primary потому что HTTPS); им нужен
+ZT URL. v4.1.1 показывает ВСЕ reachable providers с per-URL
+Copy кнопками -- оператор берёт тот route, который для него
+работает.
+
+### Добавлено - opt-in ZeroTier auto-join при старте
+
+Задать ARENA_ZEROTIER_NETWORK=<16-hex-network-id> в env, и
+bridge вызовет 'zerotier join <id>' перед стартом HTTP-сервера.
+Безопасно при повторных вызовах (ZT no-op если уже member).
+Fail soft: плохой ID или отсутствие zerotier-cli -- warning в
+лог, bridge всё равно стартует. В комбо с --bind auto /
+ARENA_AUTO_BIND=1 свежая машина требует только 2 env-переменных
+в systemd unit'е для экспонирования bridge через ZeroTier --
+без ручного zerotier-cli join.
+
+Пример systemd unit fragment:
+    Environment=ARENA_AUTO_BIND=1
+    Environment=ARENA_ZEROTIER_NETWORK=0123456789abcdef
+
+Тесты: 1167 -> 1173 passed (+6 sudo-fallback).
 \n## v4.1.0 - 2026-07-16
 
 ### Добавлено - ZeroTier как реальный transport для агента

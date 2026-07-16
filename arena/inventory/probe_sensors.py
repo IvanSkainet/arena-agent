@@ -231,6 +231,42 @@ def get_audio() -> dict:
 
 # ------------------------------------------------------------------ SMART
 
+def _smartctl_run(args: list[str], timeout: int = 8) -> str:
+    """v4.1.1: run ``smartctl <args>`` and, if the output shows the
+    Linux "Permission denied" open-error, retry once via
+    ``sudo -n smartctl <args>``. That lets an operator who set up
+    the sudoers.d NOPASSWD rule (option C in the hint) get real
+    SMART data without changing group membership or capabilities.
+
+    Returns the raw stdout string; empty string on total failure so
+    the caller's json.loads handles it the same way as before.
+    """
+    # First try: direct invocation. Works when the bridge itself
+    # has the right capability/group, and is a no-op for platforms
+    # where sudo doesn't apply.
+    out = _run(["smartctl", *args], timeout=timeout)
+    if not out:
+        return out
+    # Detect the specific open error we're going to try to bypass.
+    # Both the JSON messages[] array and the plain-text output carry
+    # the phrase; matching case-insensitive on either.
+    low = out.lower()
+    if "permission denied" not in low and "smartctl open device" not in low:
+        return out
+    if platform.system() != "Linux":
+        return out
+    # Only retry if `sudo -n` is available and the sudoers rule
+    # accepts smartctl. We shell out via _run so subprocess
+    # inheritance / timeouts stay consistent with the rest of the
+    # probe.
+    retry = _run(["sudo", "-n", "smartctl", *args], timeout=timeout)
+    if retry and "permission denied" not in retry.lower():
+        return retry
+    # Sudo not configured for us; return the original output so the
+    # caller still surfaces the hint pointing at option A/B/C.
+    return out
+
+
 def _smartctl_permission_hint() -> str:
     """Platform-appropriate hint for granting smartctl the privileges
     it needs. v4.0.1: resolves the real smartctl path server-side so
@@ -323,10 +359,10 @@ def get_disk_smart() -> dict:
         return info
 
     sys_name = platform.system()
-    scan_args = ["smartctl", "--scan", "--json=c"]
-    if sys_name == "Windows":
-        scan_args = ["smartctl", "--scan"]
-    scan_out = _run(scan_args, timeout=6)
+    # v4.1.1: --scan itself needs open() on /dev/sd* to enumerate
+    # devices, so it also benefits from the sudo-fallback.
+    scan_args = ["--scan", "--json=c"] if sys_name != "Windows" else ["--scan"]
+    scan_out = _smartctl_run(scan_args, timeout=6)
     if not scan_out:
         return info
 
@@ -344,7 +380,8 @@ def get_disk_smart() -> dict:
 
     for dev in devices:
         entry: dict[str, Any] = {"device": dev}
-        out = _run(["smartctl", "-H", "-i", "-A", "--json=c", dev], timeout=8)
+        # v4.1.1: sudo-fallback baked in via _smartctl_run.
+        out = _smartctl_run(["-H", "-i", "-A", "--json=c", dev], timeout=8)
         try:
             j = json.loads(out) if out else {}
             # smartctl embeds permission / open errors in the
