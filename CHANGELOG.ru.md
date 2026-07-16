@@ -1,3 +1,153 @@
+\n## v4.17.0 - 2026-07-16
+
+### Добавлено - agentctl breaker CLI (status | deprio | reset)
+
+Composition release. v4.8.0 circuit breaker, v4.14.0 reset
+endpoint и v4.16.0 ``breaker_summary`` shape — три полезных
+HTTP-primitive'а которые всё ещё требовали ``curl | jq`` из
+shell'а. v4.14.0 CHANGELOG уже flagged CLI wrapper как
+follow-up; v4.17.0 доставляет.
+
+Три shell-verb'а под новым namespace ``breaker``:
+
+    agentctl breaker status              # human-readable snapshot
+    agentctl breaker status --json       # raw JSON для скриптов
+    agentctl breaker status --quiet      # only side effect
+    agentctl breaker status --no-fail-open
+    agentctl breaker deprio              # имена deprio'd providers
+    agentctl breaker deprio --json
+    agentctl breaker reset               # сбросить всё
+    agentctl breaker reset <key>         # сбросить one keyed record
+    agentctl breaker help                # per-verb usage
+
+### Human-readable output
+
+    $ agentctl breaker status
+    KEY                              STATE   FAILS  COOLDOWN   LAST ERROR
+    cloudflared|foo.example:443      open        3    42.0s    timeout after 1.5s
+    zerotier|10.57.152.120:8765      closed      1              connection refused
+    summary: total=2 open=1 warn=1 open_providers=cloudflared warn_providers=zerotier
+    $ echo $?
+    3
+
+### Meaningful exit codes
+
+* ``0`` — success (nothing wrong / operation completed)
+* ``1`` — bridge unreachable ИЛИ bridge вернул ``ok: false``
+* ``2`` — usage error / unknown verb
+* ``3`` — хотя бы один breaker open (``status`` / ``deprio``)
+
+Shell one-liner может делать
+
+    agentctl breaker status --quiet || page-oncall
+
+без парсинга JSON. Когда exit-3 мешает (cron dashboards) —
+использовать ``--no-fail-open``.
+
+### Backward-compat со старыми bridge'ами
+
+``deprio`` предпочитает v4.16.0 поле ``deprioritized``, fallback
+на ``breaker_summary.open`` (v4.15.x transitional shape), и в
+крайнем случае — fresh ``/v1/tunnels/probe`` call с local
+``_summarize`` (identical rules к
+``arena.admin.tunnels_breaker.summarize_snapshot``). Работает
+против любого bridge v4.8.0 и новее без изменений.
+
+Regression-guarded ``test_local_summarize_mirrors_v416_helper``
+— CLI compat helper и server helper остаются byte-identical.
+
+### Файлы
+
+* НОВЫЙ ``arena/agentctl_cli/agentctl_breaker.py`` (246 строк)
+  — ``status`` / ``deprio`` / ``reset`` / ``help_``
+  implementations + local ``_summarize`` compat helper +
+  крохотный ``_parse_flags`` argv парсер.
+* ИЗМЕНЁН ``arena/agentctl_cli/agentctl_main.py`` (95 -> 100
+  строк) — import, DISPATCH entry, help text row.
+
+Весь namespace идёт через existing ``bridge_get`` /
+``bridge_post`` helpers — token loading, SSL context handling,
+error surfacing matches каждому другому ``agentctl`` verb
+(никакого custom transport кода).
+
+### Тесты
+
+1363 -> 1381 passed (+18 в ``tests/test_agentctl_breaker.py``):
+
+Subprocess-тесты используют реальный ``http.server``-based
+stub bridge'а — весь HTTP round-trip (``urllib.request``,
+authorization header, JSON encode/decode) exercised, не просто
+imports.
+
+* Top-level ``agentctl commands`` help листит новый namespace
+* ``breaker help`` printит per-verb usage со всеми флагами
+* ``status`` empty snapshot -> exit 0 + placeholder
+* ``status`` c open breaker -> exit 3 + таблица + summary
+  footer + last-error string
+* ``status --no-fail-open`` suppress'ит exit 3
+* ``status --json`` emit'ит parseable JSON c v4.16.0 summary
+* ``status --quiet`` suppress'ит таблицу но keeps exit 3
+* ``status`` против unreachable bridge -> exit 1 (не 3)
+* ``status`` против ``ok: false`` -> exit 1
+* ``deprio`` prints один provider на строку + exits 3 когда
+  non-empty
+* ``deprio`` empty list -> exit 0, no output
+* ``deprio --json`` wraps в ``{"deprioritized": [...]}``
+* ``deprio`` fallback на ``breaker_summary.open`` на старом
+  bridge
+* ``reset`` (без key) POST'ит empty ``{}`` body
+* ``reset <key>`` POST'ит ``{"key": "..."}``
+* ``reset`` против ``ok: false`` -> exit 1
+* Local ``_summarize`` mirrors ``summarize_snapshot``
+  byte-for-byte на mixed snapshot
+* Local ``_summarize`` observe'ит то же "open dominates over
+  warn" правило для same-provider dual endpoints
+
+Full suite: 1381 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.17.0. Прогнал три verb'а из shell'а:
+
+    $ agentctl breaker status
+    (breaker empty -- no probes yet)
+    $ echo $?
+    0
+
+    $ curl -sSN ... /v1/exec/stream ...   # trigger real probe
+    $ agentctl breaker status
+    KEY                              STATE   FAILS  COOLDOWN   LAST ERROR
+    zerotier|10.57.152.120:8765      closed      0
+    summary: total=1 open=0 warn=0
+
+    $ agentctl breaker deprio
+    (empty output)
+    $ echo $?
+    0
+
+    $ agentctl breaker reset
+    ok: reset=all cleared=1
+
+    $ agentctl breaker reset cloudflared|foo:443
+    ok: reset=cloudflared|foo:443 cleared=1
+
+Все roundtrips через живой bridge; audit log подтверждает два
+``tunnels_breaker_reset`` события с expected ``key`` и
+``keys_cleared`` значениями.
+
+### Не включено
+
+* Auto-completion (bash / zsh / fish). Tool's help output
+  достаточно discoverable для current surface; если verb-list
+  вырастет за ~10 — добавим completion. Filed as follow-up.
+* Colored output. ``agentctl`` не ships colour anywhere else
+  today; если добавим global colour flag — breaker status
+  table выиграет, но это broader UX pass.
+* ``--watch`` mode (re-polling ``status`` каждые N seconds).
+  Тривиально с ``watch(1)`` сегодня: ``watch -n 5 agentctl
+  breaker status``. Если хиты OS без ``watch`` — reconsider.
+
 \n## v4.16.0 - 2026-07-16
 
 ### Добавлено - GET /v1/agent/config: breaker_summary + deprioritization

@@ -1,3 +1,158 @@
+## v4.17.0 - 2026-07-16
+
+### Added - agentctl breaker CLI (status | deprio | reset)
+
+Composition release. The v4.8.0 circuit breaker, v4.14.0 reset
+endpoint and v4.16.0 ``breaker_summary`` shape were three
+useful HTTP-level primitives that still required
+``curl | jq`` to consume from a shell. v4.14.0 CHANGELOG
+already flagged a CLI wrapper as follow-up work; v4.17.0
+delivers it.
+
+Three shell verbs under the new ``breaker`` namespace:
+
+    agentctl breaker status              # human-readable snapshot
+    agentctl breaker status --json       # raw JSON for scripts
+    agentctl breaker status --quiet      # side-effect only
+    agentctl breaker status --no-fail-open
+    agentctl breaker deprio              # deprioritised provider names
+    agentctl breaker deprio --json
+    agentctl breaker reset               # reset all records
+    agentctl breaker reset <key>         # reset one keyed record
+    agentctl breaker help                # per-verb usage
+
+### Human-readable output
+
+    $ agentctl breaker status
+    KEY                              STATE   FAILS  COOLDOWN   LAST ERROR
+    cloudflared|foo.example:443      open        3    42.0s    timeout after 1.5s
+    zerotier|10.57.152.120:8765      closed      1              connection refused
+    summary: total=2 open=1 warn=1 open_providers=cloudflared warn_providers=zerotier
+    $ echo $?
+    3
+
+### Meaningful exit codes
+
+* ``0`` -- success (nothing wrong / operation completed)
+* ``1`` -- bridge unreachable OR bridge returned ``ok: false``
+* ``2`` -- usage error / unknown verb
+* ``3`` -- at least one breaker is open (``status`` / ``deprio``)
+
+Lets shell one-liners do
+
+    agentctl breaker status --quiet || page-oncall
+
+without parsing JSON. When exit-3 gets in the way (cron dashboards
+etc.) use ``--no-fail-open``.
+
+### Backward-compat with older bridges
+
+``deprio`` prefers the v4.16.0 ``deprioritized`` field, falls
+back to ``breaker_summary.open`` (v4.15.x transitional shape),
+and finally to a fresh ``/v1/tunnels/probe`` call with a local
+``_summarize`` (identical rules to
+``arena.admin.tunnels_breaker.summarize_snapshot``). Works
+against any bridge v4.8.0 and newer without changes.
+
+Regression-guarded by
+``test_local_summarize_mirrors_v416_helper`` -- the CLI's
+compat helper and the server helper stay byte-identical.
+
+### Files
+
+* NEW ``arena/agentctl_cli/agentctl_breaker.py`` (246 lines) --
+  ``status`` / ``deprio`` / ``reset`` / ``help_`` verb
+  implementations + local ``_summarize`` compat helper +
+  tiny ``_parse_flags`` argv parser.
+* CHANGED ``arena/agentctl_cli/agentctl_main.py`` (95 -> 100
+  lines) -- import, DISPATCH entry, help text row.
+
+The whole namespace routes through the existing
+``bridge_get`` / ``bridge_post`` helpers so token loading,
+SSL context handling, and error surfacing match every other
+``agentctl`` verb (no bespoke transport code).
+
+### Tests
+
+1363 -> 1381 passed (+18 new in
+``tests/test_agentctl_breaker.py``):
+
+Subprocess tests use a real ``http.server``-based stub for the
+bridge so the whole HTTP round-trip (``urllib.request``,
+authorization header, JSON encode/decode) is exercised, not
+just imports.
+
+* Top-level ``agentctl commands`` help lists the new namespace
+* ``breaker help`` prints per-verb usage with all flags
+* ``status`` empty snapshot -> exit 0 + placeholder message
+* ``status`` with open breaker -> exit 3 + table + summary
+  footer + last-error string
+* ``status --no-fail-open`` suppresses exit 3
+* ``status --json`` emits parseable JSON with v4.16.0 summary
+  shape
+* ``status --quiet`` suppresses table but keeps exit 3
+* ``status`` against unreachable bridge -> exit 1 (not 3)
+* ``status`` against ``ok: false`` -> exit 1
+* ``deprio`` prints one provider per line + exits 3 when
+  non-empty
+* ``deprio`` empty list -> exit 0, no output
+* ``deprio --json`` wraps in ``{"deprioritized": [...]}``
+* ``deprio`` falls back to ``breaker_summary.open`` on old
+  bridge
+* ``reset`` (no key) POSTs empty ``{}`` body
+* ``reset <key>`` POSTs ``{"key": "..."}``
+* ``reset`` against ``ok: false`` -> exit 1
+* Local ``_summarize`` mirrors ``summarize_snapshot``
+  byte-for-byte across a mixed snapshot
+* Local ``_summarize`` observes the same "open dominates over
+  warn" rule for same-provider dual endpoints
+
+Full suite: 1381 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.17.0. Ran the three verbs from a shell:
+
+    $ agentctl breaker status
+    (breaker empty -- no probes yet)
+    $ echo $?
+    0
+
+    $ curl -sSN ... /v1/exec/stream ...   # trigger real probe
+    $ agentctl breaker status
+    KEY                              STATE   FAILS  COOLDOWN   LAST ERROR
+    zerotier|10.57.152.120:8765      closed      0
+    summary: total=1 open=0 warn=0
+
+    $ agentctl breaker deprio
+    (empty output)
+    $ echo $?
+    0
+
+    $ agentctl breaker reset
+    ok: reset=all cleared=1
+
+    $ agentctl breaker reset cloudflared|foo:443
+    ok: reset=cloudflared|foo:443 cleared=1
+
+All roundtrips through the live bridge; audit log confirms two
+``tunnels_breaker_reset`` events with the expected ``key`` and
+``keys_cleared`` values.
+
+### Not included
+
+* Auto-completion (bash / zsh / fish). The tool's help output
+  is discoverable enough for the current surface; if we grow
+  the verb list beyond ~10 we'll add completion. Filed as
+  follow-up.
+* Colored output. ``agentctl`` doesn't ship colour anywhere
+  else today; if we ever add a global colour flag the breaker
+  status table would benefit but that's a broader UX pass.
+* ``--watch`` mode (re-polling ``status`` every N seconds).
+  Trivial with ``watch(1)`` today: ``watch -n 5 agentctl
+  breaker status``. If we ever hit an OS without ``watch``
+  we'll reconsider.
 ## v4.16.0 - 2026-07-16
 
 ### Added - GET /v1/agent/config: breaker_summary + deprioritization

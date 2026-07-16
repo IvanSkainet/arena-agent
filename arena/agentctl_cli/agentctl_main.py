@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 
 from arena.agentctl_cli.agentctl_common import VERSION
+from arena.agentctl_cli import agentctl_breaker as breaker
 from arena.agentctl_cli import agentctl_browser as browser
 from arena.agentctl_cli import agentctl_browseract as bact
 from arena.agentctl_cli import agentctl_memory as memory
@@ -26,6 +27,7 @@ Namespaces:
   task    list|submit|clean                      Task queue
   skill   list|run                               Skills (executable + prompt-only)
   audit   stats|tail                             Audit log
+  breaker status|deprio|reset                    Tunnels_probe circuit breaker
   backup  run                                    Removed backup feature notice
   mission list                                   Missions
   report  list                                   Reports
@@ -53,6 +55,9 @@ DISPATCH = {
     "task": {"list": tasks.list_tasks, "ls": tasks.list_tasks, "submit": tasks.submit, "clean": tasks.clean},
     "skill": {"list": skills.list_skills, "ls": skills.list_skills, "run": skills.run_skill},
     "audit": {"stats": misc.audit_stats, "tail": misc.audit_tail},
+    "breaker": {"status": breaker.status, "deprio": breaker.deprio,
+                "reset": breaker.reset, "help": breaker.help_,
+                "": breaker.status},
     "backup": {"run": misc.backup_run},
     "mission": {"list": misc.mission_list, "ls": misc.mission_list},
     "report": {"list": misc.report_list, "ls": misc.report_list},
