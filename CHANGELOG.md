@@ -1,3 +1,59 @@
+## v4.21.0 - 2026-07-16
+
+### Docs - session postmortem for v4.2.0 → v4.20.0
+
+Nineteen releases in one continuous agent session. This
+release adds one document -- ``docs/SESSION_POSTMORTEM_v4.2_to_v4.20.md``
+-- so the next agent (or human) picking up this codebase
+doesn't start from a blank slate.
+
+Contents:
+
+* **The three composition chains** -- exec/audit streaming
+  (v4.2.0 → v4.13.0), circuit breaker (v4.8.0 → v4.17.0),
+  meta-primitive proposal endpoint (v4.19.0 → v4.20.0)
+* **Rules that carried across every release** -- CSS
+  containment discipline from the v4.0.x lesson, live-smoke
+  after every release, fail-soft Dashboard cards, cross-
+  platform non-negotiable, module line caps
+* **What I got wrong** -- 16 releases stuck in a local
+  maximum before v4.19.0 horizon expansion; skipped
+  integration testing for v4.19.0 and paid with two live
+  bugs; ``sys.executable`` mistake I should have caught from
+  CI patterns; two-file version bump friction
+* **What I got right** -- proposal endpoint safety envelope
+  proved on first live use; fail-soft everywhere; zero
+  broken masters in 19 pushes
+* **Things a next agent should read first** -- ordered list
+  of files to internalise
+* **Things I would do differently** -- 4 priority-ordered items
+
+Also cleaned up two orphaned worktrees on the bridge from
+the v4.19.0 double-``.arena_proposals`` path bug
+(``ec5c4941``, ``9ce3b702``) plus their branches. Only
+``proposal/0b7f2bd1`` remains as the v4.20.0 end-to-end proof
+artifact.
+
+### Not code
+
+This release contains no functional changes. VERSION bump
++ postmortem doc only.
+
+### Tests
+
+1438 passed, unchanged.
+
+### Why this is a release and not just a commit
+
+The postmortem is a versioned artifact. If someone reads it
+in the future they can `git log docs/SESSION_POSTMORTEM_v4.2_to_v4.20.md`
+and see exactly when it was written relative to the code it
+describes. A v4.21.0 tag makes that trivial.
+
+Also: the session started with v4.2.0 and the postmortem
+covers up to v4.20.0. Bumping to v4.21.0 leaves a clean
+boundary -- "everything before this tag is in the postmortem;
+everything after is future work."
 ## v4.20.0 - 2026-07-16
 
 ### Fixed - Two v4.19.0 proposal-endpoint bugs found in first live use

@@ -1,3 +1,59 @@
+\n## v4.21.0 - 2026-07-16
+
+### Docs - session postmortem для v4.2.0 → v4.20.0
+
+Девятнадцать релизов за одну непрерывную сессию агента. Этот
+релиз добавляет один документ --
+``docs/SESSION_POSTMORTEM_v4.2_to_v4.20.md`` -- чтобы
+следующий агент (или человек) поднимающий этот codebase не
+стартовал с пустого листа.
+
+Содержание:
+
+* **Три composition chains** -- exec/audit streaming
+  (v4.2.0 → v4.13.0), circuit breaker (v4.8.0 → v4.17.0),
+  meta-primitive proposal endpoint (v4.19.0 → v4.20.0)
+* **Правила которые carried через каждый релиз** -- CSS
+  containment discipline из v4.0.x урока, live-smoke после
+  каждого release'а, fail-soft Dashboard cards, cross-
+  platform non-negotiable, module line caps
+* **Что я делал не так** -- 16 релизов застрял в local
+  maximum до v4.19.0 horizon expansion; skip'нул integration
+  testing для v4.19.0 и заплатил двумя live bugs;
+  ``sys.executable`` mistake которую должен был поймать из CI
+  patterns; two-file version bump friction
+* **Что я делал правильно** -- proposal endpoint safety
+  envelope доказал себя на первом live use; fail-soft
+  everywhere; zero broken masters за 19 push'ей
+* **Что следующий агент должен прочитать первым** -- ordered
+  список файлов для internalise'а
+* **Что я бы делал по-другому** -- 4 priority-ordered items
+
+Также cleaned up два orphaned worktree на bridge от v4.19.0
+double-``.arena_proposals`` path bug'а (``ec5c4941``,
+``9ce3b702``) плюс их branches. Только ``proposal/0b7f2bd1``
+остался как v4.20.0 end-to-end proof artifact.
+
+### Не код
+
+Этот release не содержит functional changes. Только VERSION
+bump + postmortem doc.
+
+### Тесты
+
+1438 passed, unchanged.
+
+### Почему это release а не просто commit
+
+Postmortem это versioned artifact. Если кто-то прочитает его
+в будущем -- может `git log docs/SESSION_POSTMORTEM_v4.2_to_v4.20.md`
+и увидит когда точно он был написан относительно кода
+который описывает. v4.21.0 tag делает это тривиальным.
+
+Также: сессия стартовала с v4.2.0 и postmortem покрывает до
+v4.20.0. Bump до v4.21.0 оставляет чистую границу -- "всё до
+этого tag'а в postmortem'е; всё после -- future work".
+
 \n## v4.20.0 - 2026-07-16
 
 ### Исправлено - Два бага proposal endpoint'а v4.19.0 найденные в первом live использовании
