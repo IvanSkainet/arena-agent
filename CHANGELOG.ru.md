@@ -1,3 +1,57 @@
+\n## v4.0.5 - 2026-07-16
+
+### Откачено — dashboard.css изменения из v4.0.1/v4.0.2 (я был неправ)
+
+Оператор сказал, что layout fix из v4.0.2 сделал только хуже,
+не лучше ("уехало ещё сильнее влево"). Он прав, а мои следующие
+hotfix'ы (v4.0.3, v4.0.4) наваливали ещё больше CSS поверх
+ошибки, вместо того чтобы её признать.
+
+Root cause моей ошибки: я предположил что у Live и Mobile
+табов layout-bug, и попытался "починить" sidebar/main flex
+layout — сперва через margin:0 auto (v4.0.1), потом position:fixed
+(v4.0.2), потом viewport-относительной calc() формулой (v4.0.4).
+Каждая попытка ухудшала картинку. Оригинальный v4.0.0 CSS был
+правильным для всех табов; если конкретный таб выглядит криво,
+fix должен быть внутри его body-*.html, не в общем sheet'е.
+
+Этот релиз откатывает все dashboard.css изменения из v4.0.1..v4.0.4.
+Файл теперь побайтово идентичен v4.0.0:
+
+* `body { display: flex; ... }`
+* `.sidebar { width: 220px; ... }`   (без position:fixed)
+* `.main   { flex: 1; ... }`         (без margin-left / padding-left math)
+* `.tab.active { display: block }`   (без max-width / margin:0 auto)
+
+Другие UI-улучшения из v4.0.1..v4.0.4 сохранены — они не
+трогают layout:
+
+* `dashboard/assets/22b-full-inventory-format.js` — Rendered
+  inventory view теперь печатает `error:` и `hint:` для каждого
+  SMART device, permission-denied диск больше не рендерится как
+  пустой `?`.
+* `dashboard/assets/03b-hw-cards.js::_hwHintWithCopy` — one-click
+  "Copy fix" кнопка в SMART cards — копирует только ``sudo …``
+  snippet из hint.
+* `arena/security_commands.py` — fix `sudo -n` блоклиста
+  (non-interactive sudo проходит, `sudo -i/-s/-S` всё так же блок).
+* `arena/inventory/probe_sensors.py::_smartctl_permission_hint` —
+  server-side резолвинг пути, hint содержит реальный smartctl
+  path, не bash-специфичный `$(command -v smartctl)`.
+* `arena/admin/tunnels.py` — DEFAULT_PRIORITY теперь
+  `(tailscale, zerotier, cloudflared)`; добавлен tunnels_probe
+  endpoint `/v1/tunnels/probe` для reachability-check.
+
+Тесты: 1153 passed. Bridge рестартнут; cache-bust через version
+bump, чтобы браузер загрузил откаченный CSS.
+
+### Замечание про симптом "Live/Mobile съехали вправо"
+
+У меня всё ещё нет воспроизведения. Overview, Doctor, Settings
+и все остальные content-heavy табы используют ровно тот же
+sidebar+main layout и не съезжают на том же мониторе. Если
+симптом вернётся в v4.0.5, буду debug через реальную DOM
+inspection, а не гадать CSS.
 \n## v4.0.4 - 2026-07-16
 
 ### Исправлено — CI всё ещё падал в v4.0.3 (port не передавался)

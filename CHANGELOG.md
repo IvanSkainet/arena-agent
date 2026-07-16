@@ -1,4 +1,60 @@
-## v4.0.4 - 2026-07-16
+## v4.0.5 - 2026-07-16
+
+### Reverted — dashboard.css layout changes from v4.0.1/v4.0.2 (I was wrong)
+
+The operator reported the v4.0.2 layout fix made things worse, not
+better ("уехало ещё сильнее влево"). They were right, and my
+follow-up hotfixes (v4.0.3, v4.0.4) piled more CSS on top of a
+mistake instead of admitting it.
+
+Root cause of my mistake: I assumed Live and Mobile tabs had a
+layout bug and tried to "fix" the sidebar/main flex layout, first
+with margin:0 auto (v4.0.1), then position:fixed (v4.0.2), then a
+viewport-relative calc() formula (v4.0.4). Every one of those made
+the picture worse. The original v4.0.0 CSS (from long before Live
+and Mobile even existed) was correct for every tab; if a specific
+tab looks off, the fix belongs inside that tab's body-*.html, not
+in the shared sheet.
+
+This release reverts every dashboard.css change I made in
+v4.0.1..v4.0.4. The file is now byte-identical to v4.0.0:
+
+* `body { display: flex; ... }`
+* `.sidebar { width: 220px; ... }`   (no position:fixed)
+* `.main   { flex: 1; ... }`         (no margin-left / padding-left math)
+* `.tab.active { display: block }`   (no max-width / margin:0 auto)
+
+Other UI improvements from v4.0.1..v4.0.4 are kept because they
+don't touch layout:
+
+* `dashboard/assets/22b-full-inventory-format.js` — Rendered
+  inventory view now prints `error:` and `hint:` lines per SMART
+  device, so a permission-denied disk no longer renders as an
+  empty `?`.
+* `dashboard/assets/03b-hw-cards.js::_hwHintWithCopy` — one-click
+  "Copy fix" button in SMART cards that copies just the ``sudo …``
+  snippet from a hint.
+* `arena/security_commands.py` — the `sudo -n` blocklist fix
+  (non-interactive sudo passes through, `sudo -i/-s/-S` still
+  blocked).
+* `arena/inventory/probe_sensors.py::_smartctl_permission_hint` —
+  server-side path resolution so the hint contains the real
+  smartctl path, not a bash-specific `$(command -v smartctl)`.
+* `arena/admin/tunnels.py` — DEFAULT_PRIORITY is now
+  `(tailscale, zerotier, cloudflared)`; tunnels_probe endpoint
+  added at `/v1/tunnels/probe` for reachability checking.
+
+Tests: 1153 passed. Bridge restarted; cache-bust via version bump
+so the browser loads the reverted CSS.
+
+### Note on the "Live/Mobile shifted right" symptom the operator saw
+
+I still don't have a reproduction. Overview, Doctor, Settings, and
+every other content-heavy tab use the exact same sidebar+main
+layout and don't shift on the same monitor. If the symptom returns
+in v4.0.5 I'll debug it from actual DOM inspection instead of
+guessing at CSS.
+\n## v4.0.4 - 2026-07-16
 
 ### Fixed — v4.0.3 CI still failed (port not passed through)
 
