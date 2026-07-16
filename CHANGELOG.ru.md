@@ -1,3 +1,93 @@
+\n## v4.1.0 - 2026-07-16
+
+### Добавлено - ZeroTier как реальный transport для агента
+
+v3.96.0 ZeroTier-поверхность добавила management endpoints, но
+упустила изначальный запрос оператора: пользоваться ZeroTier
+так же, как агенты уже пользуются Tailscale (дозваниваются в
+bridge по overlay IP, без Cloudflared-костыля). Две проблемы:
+
+1) Bridge по дефолту слушал на 127.0.0.1, так что даже когда ZT
+   выдавал IP, bridge на нём не отвечал. Агенты в той же ZT
+   сети получали "connection refused".
+
+2) Не было agent-facing endpoint'а, который скажет "вот URL'ы,
+   которые можно дозвониться, в приоритетном порядке, уже
+   проверенные на reachability"; агентам приходилось самим
+   комбинировать /v1/tunnels/status + reachability probes.
+
+Обе починены в v4.1.0:
+
+* новый `arena/bind_detect.py`::``resolve_bind()`` -- при вызове
+  с ``--bind auto`` (или с ``--bind 127.0.0.1`` + ``ARENA_AUTO_BIND=1``
+  в env) перечисляет сетевые интерфейсы и расширяет bind до
+  ``0.0.0.0``, ЕСЛИ найден Tailscale или ZeroTier интерфейс.
+  Иначе остаётся на 127.0.0.1 -- security-регрессии нет для
+  loopback-only деплоев (контейнеры без overlays, ноутбуки
+  разработчиков). Явные ``--bind X.X.X.X`` и ``--bind 0.0.0.0``
+  честно передаются как есть.
+
+  Выбранный bind + причина логируются. Префиксы overlay интерфейсов
+  распознаются: Tailscale (``tailscale*``, ``utun*`` на macOS),
+  ZeroTier (``zt*``, ``feth*`` на macOS).
+
+* новый endpoint ``GET /v1/agent/config`` -- agent bootstrap:
+
+      {
+        "ok": true, "version": "4.1.0",
+        "priority": ["tailscale", "zerotier", "cloudflared"],
+        "urls": [
+          {"provider": "tailscale", "url": "https://…", "kind": "https"},
+          {"provider": "zerotier",  "url": "http://10.57.152.120:8765",
+           "kind": "http-lan"}
+        ],
+        "primary": {"provider": "tailscale", "url": "https://…"},
+        "reachable_count": 2,
+        "hint": "Bearer token still required on every call. …"
+      }
+
+  Внутри крутит v4.0.2 ``tunnels_probe`` reachability-check, так
+  что возвращённые URL'ы реально дозваниваются. Агенты,
+  спавнящиеся на ZeroTier-стороне сетевого partition, могут
+  дёрнуть это раз через ZT IP (при --bind auto) и всегда знают
+  какие URL'ы использовать.
+
+* ZeroTier default priority остаётся вторым (за Tailscale,
+  перед Cloudflared) как в v4.0.2. Полный стек теперь
+  Tailscale-first с ZT как стабильный fallback, переживающий
+  Cloudflared quick-tunnel обрывы.
+
+### Как это включить
+
+* Добавь ``--bind auto`` в командную строку bridge, ИЛИ
+* ``export ARENA_AUTO_BIND=1`` в systemd unit / nssm wrapper.
+
+Потом рестарт. Startup log подтвердит выбранный bind и причину,
+например ``[auto-bind] overlay detected: Tailscale (tailscale0),
+ZeroTier (zt7nnwiuux) -> binding 0.0.0.0``. Firewall на хосте
+всё так же работает -- если ZT видит bridge как unreachable,
+проверь что ``sudo ss -tlnp | grep 8765`` показывает
+``0.0.0.0:8765`` (не ``127.0.0.1:8765``) и что iptables/nftables/UFW
+разрешают ZT подсеть.
+
+### Тесты
+
+1153 -> 1167 passed (+14 новых):
+* tests/test_bind_detect.py -- 11 тестов: explicit / auto-mode /
+  env-optin / overlay detection / Windows utun.
+* tests/test_agent_config.py -- 3 теста: endpoint зарегистрирован
+  в ROUTES и make_app, handler доступен на AdminHandlers.
+
+### Не включено / следующие шаги
+
+* Dashboard Overview badge с "ZT: 10.57.x.x:8765 (reachable)"
+  и Copy-кнопкой -- следующий патч.
+* Auto-join через ``ARENA_ZEROTIER_NETWORK`` env (bridge сам
+  присоединяется к сети при старте, first-boot не требует
+  ручного ``zerotier-cli join``) -- следующий патч.
+* Лучший UI для v4.0.6 combo-hint в Rendered ``disk_smart``
+  view -- следующий патч (сейчас plain text; нужен тот же
+  Copy-button treatment что уже есть в Cards view).
 \n## v4.0.6 - 2026-07-16
 
 ### Исправлено - smartctl hint рекомендовал capability, которая не работает

@@ -92,6 +92,18 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
         except (OSError, ValueError):
             pass
 
+    # v4.1.0: auto-detect a suitable bind when the operator asks for
+    # it (either --bind auto or ARENA_AUTO_BIND=1 in env). When a
+    # Tailscale or ZeroTier interface is present we widen to 0.0.0.0
+    # so agents on the overlay can actually reach the bridge -- the
+    # old default of 127.0.0.1 silently broke that use case.
+    from arena.bind_detect import resolve_bind as _resolve_bind
+    effective_bind, bind_reason = _resolve_bind(args.bind, log_info=ctx.log_info)
+    if effective_bind != args.bind:
+        ctx.log_info("[bind] --bind=%r resolved to %s (%s)",
+                     args.bind, effective_bind, bind_reason)
+    args.bind = effective_bind
+
     ctx.log_info("Arena Unified Bridge v%s on http://%s:%s", ctx.version, args.bind, args.port)
     ctx.log_info("profile=%s root=%s audit=%s max_concurrent=%s", args.profile, root, ctx.audit_path, args.max_concurrent)
     ctx.log_info("All services multiplexed on single port: bridge, MCP, SSE, WS, gateway, dashboard, task-runner")
@@ -113,7 +125,12 @@ def build_parser(ctx: CliContext) -> argparse.ArgumentParser:
 
     sp = sub.add_parser("serve", help="Run unified bridge")
     sp.add_argument("--bind", default="127.0.0.1",
-                    help="Bind address (default: 127.0.0.1, use 0.0.0.0 for remote access)")
+                    help="Bind address. 'auto' widens to 0.0.0.0 when a "
+                         "Tailscale or ZeroTier interface is detected "
+                         "(v4.1.0). Explicit addresses (e.g. 10.5.1.2 or "
+                         "0.0.0.0) are honoured verbatim. Default is "
+                         "127.0.0.1; export ARENA_AUTO_BIND=1 to get the "
+                         "auto behaviour without changing the flag.")
     sp.add_argument("--port", type=int, default=8765)
     sp.add_argument("--token")
     sp.add_argument("--token-file", dest="token_file", default="",

@@ -47,6 +47,8 @@ class AdminHandlers:
     tunnels_stop: object
     # v4.1.0: reachability probe for the active transport.
     tunnels_probe: object
+    # v4.1.0: agent-facing "which URL should I use" endpoint.
+    agent_config: object
     # v3.85.0: cross-platform auto-update.
     update_status: object
     update_check: object
@@ -275,6 +277,77 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         )
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
+    async def handle_v1_agent_config(request: web.Request) -> web.Response:
+        """GET /v1/agent/config — return every transport URL that is
+        currently reachable, in priority order, so an agent can pick
+        one and connect. v4.1.0.
+
+        Response shape::
+
+            {
+              "ok": true,
+              "version": "4.1.0",
+              "priority": ["tailscale", "zerotier", "cloudflared"],
+              "urls": [
+                {"provider": "tailscale", "url": "https://…", "kind": "https"},
+                {"provider": "zerotier",  "url": "http://10.57.152.120:8765", "kind": "http-lan"}
+              ],
+              "primary": {"provider": "tailscale", "url": "https://…"},
+              "hint": "Bearer token still required on every call."
+            }
+
+        The intent: an agent (or its bootstrap script) calls this once
+        and gets an ordered list of URLs it can dial. Same auth as
+        every other admin endpoint so the token doesn't leak.
+        """
+        cfg = request.app[APP_CFG]
+        port = cfg.get("port", 8765)
+        try:
+            timeout = float(request.query.get("timeout", "1.5"))
+        except (TypeError, ValueError):
+            timeout = 1.5
+        loop = asyncio.get_running_loop()
+        probe = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(
+                tunnels_probe,
+                port=port,
+                timeout=timeout,
+                sys_funnel_status_sync=ctx.sys_funnel_status_sync,
+                cloudflared_status_sync=ctx.cloudflared_status_sync,
+                zerotier_status_sync=ctx.zerotier_status_sync,
+            ),
+        )
+        # Distill probe output down to a compact url-list for the agent.
+        urls = []
+        for p in probe.get("probes", []):
+            if not p.get("reachable"):
+                continue
+            urls.append({
+                "provider": p.get("provider"),
+                "url": p.get("public_url"),
+                "kind": p.get("public_kind") or (
+                    "https" if str(p.get("public_url", "")).startswith("https://")
+                    else "http-lan"),
+            })
+        # v4.1.0: constants.VERSION is authoritative.
+        from arena.constants import VERSION
+        return ctx.cors_json_response({
+            "ok": True,
+            "version": VERSION,
+            "priority": probe.get("priority"),
+            "urls": urls,
+            "primary": probe.get("active"),
+            "reachable_count": probe.get("reachable_count", len(urls)),
+            "hint": (
+                "Bearer token still required on every call. If no URL is "
+                "reachable, check firewall (bridge listens on all "
+                "interfaces via --bind auto / ARENA_AUTO_BIND=1 when a "
+                "Tailscale or ZeroTier interface is detected)."
+            ),
+        })
+
     # v3.85.0: auto-update handlers live in a sibling module to keep
     # this file small.
     from arena.admin.handlers_update import make_update_handlers
@@ -297,6 +370,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_start=handle_v1_tunnels_start,
         tunnels_stop=handle_v1_tunnels_stop,
         tunnels_probe=handle_v1_tunnels_probe,
+        agent_config=handle_v1_agent_config,
         update_status=_upd["update_status"],
         update_check=_upd["update_check"],
         update_apply=_upd["update_apply"],

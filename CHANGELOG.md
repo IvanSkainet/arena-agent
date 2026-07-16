@@ -1,4 +1,96 @@
-## v4.0.6 - 2026-07-16
+## v4.1.0 - 2026-07-16
+
+### Added - ZeroTier as a real agent transport (not just a Central-API console)
+
+The v3.96.0 ZeroTier surface added management endpoints, but it
+missed the operator's actual ask: use ZeroTier the same way agents
+already use Tailscale (dial the bridge on an overlay IP, no
+Cloudflared indirection). Two things stood in the way:
+
+1) The bridge defaulted to binding on 127.0.0.1, so even when ZT
+   assigned an IP the bridge didn't answer on it. Agents on the
+   same ZT network hit "connection refused".
+
+2) There was no agent-facing endpoint that says "here are the URLs
+   you can dial, in priority order, reachability-tested for you";
+   agents had to piece together /v1/tunnels/status + reachability
+   probes themselves.
+
+Both fixed in v4.1.0:
+
+* new `arena/bind_detect.py`::``resolve_bind()`` — when called with
+  ``--bind auto`` (or with ``--bind 127.0.0.1`` + ``ARENA_AUTO_BIND=1``
+  in env), enumerates network interfaces and widens the bind to
+  ``0.0.0.0`` IF a Tailscale or ZeroTier interface is present.
+  Otherwise stays on 127.0.0.1 -- no security regression for
+  loopback-only deployments (containers without overlays,
+  developers' laptops). Explicit ``--bind X.X.X.X`` and
+  ``--bind 0.0.0.0`` are honoured verbatim.
+
+  The chosen bind + the reason are logged so the operator can see
+  why a value was picked. Overlay interface prefixes recognised:
+  Tailscale (``tailscale*``, ``utun*`` on macOS), ZeroTier (``zt*``,
+  ``feth*`` on macOS).
+
+* new endpoint ``GET /v1/agent/config`` — agent bootstrap. Response:
+
+      {
+        "ok": true, "version": "4.1.0",
+        "priority": ["tailscale", "zerotier", "cloudflared"],
+        "urls": [
+          {"provider": "tailscale", "url": "https://…", "kind": "https"},
+          {"provider": "zerotier",  "url": "http://10.57.152.120:8765",
+           "kind": "http-lan"}
+        ],
+        "primary": {"provider": "tailscale", "url": "https://…"},
+        "reachable_count": 2,
+        "hint": "Bearer token still required on every call. …"
+      }
+
+  Internally runs the v4.0.2 ``tunnels_probe`` reachability check
+  so the URLs returned are actually dialable, not just what a
+  provider claims. Agents that spawn on the ZeroTier side of a
+  network partition can call this once via the ZT IP (assuming
+  --bind auto is in effect) and always know which URLs to use.
+
+* ZeroTier default priority stays second (behind Tailscale, ahead
+  of Cloudflared) as introduced in v4.0.2. The full stack now
+  Tailscale-first with ZT as the stable fallback that survives
+  Cloudflared quick-tunnel churn.
+
+### How to turn this on
+
+* Add ``--bind auto`` to your bridge command line, OR
+* ``export ARENA_AUTO_BIND=1`` in the systemd unit / nssm wrapper.
+
+Then restart. The startup log will confirm the picked bind and
+reason, e.g. ``[auto-bind] overlay detected: Tailscale (tailscale0),
+ZeroTier (zt7nnwiuux) -> binding 0.0.0.0``. Firewall on the host
+still applies -- if your ZT sees the bridge as unreachable, check
+``sudo ss -tlnp | grep 8765`` shows ``0.0.0.0:8765`` (not
+``127.0.0.1:8765``) and that iptables/nftables/UFW allows the ZT
+subnet.
+
+### Tests
+
+1153 -> 1167 passed (+14 new):
+* tests/test_bind_detect.py -- 11 tests covering explicit /
+  auto-mode / env-optin / overlay detection / Windows utun.
+* tests/test_agent_config.py -- 3 tests confirming the endpoint
+  is registered under both ROUTES and make_app, and that the
+  handler is exposed on AdminHandlers.
+
+### Not included / next steps
+
+* Dashboard Overview badge with "ZT: 10.57.x.x:8765 (reachable)"
+  and a Copy button -- next patch.
+* Auto-join via ``ARENA_ZEROTIER_NETWORK`` env (bridge joins the
+  network on startup so first-boot doesn't need manual ``zerotier-cli
+  join``) -- next patch.
+* Better UI for the Rendered ``disk_smart`` v4.0.6 combo hint --
+  next patch (currently plain text; needs the same Copy-button
+  treatment the Cards view already has).
+\n## v4.0.6 - 2026-07-16
 
 ### Fixed - smartctl hint recommended a capability that doesn't actually work
 

@@ -134,6 +134,8 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_tunnels_start": handlers.tunnels_start,
         # v4.1.0: reachability probe.
         "handle_v1_tunnels_probe":  handlers.tunnels_probe,
+        # v4.1.0: agent bootstrap URL.
+        "handle_v1_agent_config":   handlers.agent_config,
         "handle_v1_tunnels_stop": handlers.tunnels_stop,
         # v3.85.0: auto-update.
         "handle_v1_admin_update_status":  handlers.update_status,

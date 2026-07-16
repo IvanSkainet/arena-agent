@@ -159,6 +159,7 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/tunnels/stop'                                , 'handle_v1_tunnels_stop'                     , 'core', None),
     # v4.1.0: reachability probe for the active transport.
     ('GET'   , '/v1/tunnels/probe'                               , 'handle_v1_tunnels_probe'                    , 'core', None),
+    ('GET'   , '/v1/agent/config'                                , 'handle_v1_agent_config'                     , 'core', None),
     ('GET'   , '/v1/admin/update/status'                         , 'handle_v1_admin_update_status'              , 'core', None),
     ('POST'  , '/v1/admin/update/check'                          , 'handle_v1_admin_update_check'               , 'core', None),
     ('POST'  , '/v1/admin/update/apply'                          , 'handle_v1_admin_update_apply'               , 'core', None),
