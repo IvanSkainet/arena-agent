@@ -83,11 +83,59 @@ function __netBreakerRender(snapshot) {
     // detail lives in the tooltip.
     const short = label.split(" @")[0];  // just the provider name
     item.textContent = short + ": " + text;
+    // v4.14.0: reset button on OPEN badges. Clicking POSTs
+    // /v1/tunnels/probe/reset with the exact key so the breaker
+    // records for THIS provider drop and the next probe runs
+    // immediately. Buffered clicks are debounced by disabling the
+    // button while the request is in-flight.
+    if (state === "open") {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "reset";
+      btn.textContent = "×";
+      btn.title = "Reset this breaker (POST /v1/tunnels/probe/reset)";
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        btn.disabled = true;
+        btn.textContent = "…";
+        try {
+          await api("/v1/tunnels/probe/reset",
+                    {method: "POST", body: JSON.stringify({key: k})});
+        } catch (_e) { /* fall through -- refresh will show state */ }
+        // Immediate refresh so the badge either flips green (probe
+        // succeeded on the retry) or shows a fresh warn counter.
+        refreshNetBreaker().catch(() => {});
+      });
+      item.appendChild(btn);
+    }
     parts.push(item);
   });
 
   listEl.innerHTML = "";
   parts.forEach(p => listEl.appendChild(p));
+
+  // v4.14.0: bulk "Reset all" button appears once any breaker is
+  // open. Cheap operator escape hatch when several providers are
+  // stuck at once (common during a full network flap).
+  const anyOpen = keys.some(k => (snapshot[k] || {}).state === "open");
+  if (anyOpen) {
+    const resetAll = document.createElement("button");
+    resetAll.type = "button";
+    resetAll.className = "reset-all";
+    resetAll.textContent = "Reset all";
+    resetAll.title = "Clear every breaker record (POST /v1/tunnels/probe/reset)";
+    resetAll.addEventListener("click", async () => {
+      resetAll.disabled = true;
+      resetAll.textContent = "resetting…";
+      try {
+        await api("/v1/tunnels/probe/reset",
+                  {method: "POST", body: JSON.stringify({})});
+      } catch (_e) { /* fall through */ }
+      refreshNetBreaker().catch(() => {});
+    });
+    listEl.appendChild(resetAll);
+  }
+
   __netBreakerShow();
 }
 

@@ -36,6 +36,16 @@
   #tab-overview #networkCard .net-breaker-list .item.open{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
   #tab-overview #networkCard .net-breaker-list .item.warn{background:var(--surface-warning);color:var(--warning-text);border:1px solid var(--border-warning)}
   #tab-overview #networkCard .net-breaker-list .item.ok{background:var(--surface-info);color:var(--blue);border:1px solid var(--border-info)}
+  /* v4.14.0: inline reset buttons. The 'x' inside each open badge
+     drops that specific breaker; 'Reset all' at the row tail
+     drops every record. Kept visually subdued so healthy-triple
+     users don't feel bombarded with controls. */
+  #tab-overview #networkCard .net-breaker-list .item .reset{margin-left:6px;background:transparent;color:inherit;border:1px solid currentColor;border-radius:50%;width:16px;height:16px;padding:0;line-height:14px;font-size:11px;cursor:pointer;font-family:var(--mono);font-weight:700}
+  #tab-overview #networkCard .net-breaker-list .item .reset:hover{background:currentColor;color:var(--bg2)}
+  #tab-overview #networkCard .net-breaker-list .item .reset:disabled{opacity:0.5;cursor:wait}
+  #tab-overview #networkCard .net-breaker-list .reset-all{background:transparent;color:var(--text2);border:1px solid var(--accent);border-radius:10px;padding:2px 10px;font-size:11px;font-family:var(--mono);cursor:pointer;margin-left:4px}
+  #tab-overview #networkCard .net-breaker-list .reset-all:hover{background:var(--accent);color:var(--text)}
+  #tab-overview #networkCard .net-breaker-list .reset-all:disabled{opacity:0.5;cursor:wait}
 </style>
 <h2>Network Status</h2>
 <div class="card" id="networkCard">

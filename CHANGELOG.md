@@ -1,3 +1,169 @@
+## v4.14.0 - 2026-07-16
+
+### Added - POST /v1/tunnels/probe/reset + Dashboard reset buttons
+
+The v4.8.0 circuit breaker had exactly two escape hatches: **wait
+60s** or **``systemctl restart arena-bridge``**. Neither felt like
+a first-class ops tool. When a Cloudflared quick-tunnel bounced
+and the breaker opened, an operator watching Overview had to
+either sit through the cooldown timer or restart the whole
+bridge -- knocking out every other connection along the way. The
+v4.8.0 CHANGELOG flagged this as follow-up work; v4.14.0 does the
+work.
+
+### New endpoint
+
+    POST /v1/tunnels/probe/reset
+
+Body (optional JSON):
+
+    {"key": "cloudflared|foo.trycloudflare.com:443"}
+
+* **With key**  -- drops that specific breaker record so the next
+                   probe runs immediately.
+* **Without key** (empty / non-JSON body) -- drops every record.
+
+Response:
+
+    {
+      "ok": true,
+      "reset": "cloudflared|foo:443" | "all",
+      "keys_cleared": 1,
+      "breaker_before": {...v4.8.0 snapshot...},
+      "breaker_after":  {...same shape, likely empty after reset...}
+    }
+
+Same ``@authed`` gate as every other admin endpoint. Body parse
+is best-effort -- malformed / missing / whitespace-only body all
+fall through to "reset all" so a ``curl`` typo can't return 500.
+
+Audit trail: ``tunnels_breaker_reset`` event with ``key``,
+``keys_cleared`` and ``client`` fields so a post-hoc investigation
+("who reset the Cloudflared breaker at 14:22 and made the outage
+look shorter than it was?") is actually possible.
+
+### Dashboard: reset buttons in the Network Status card
+
+Two new controls appear in the v4.11.0 net-breaker row:
+
+* **Per-badge "×" button** -- shows up inside every ``open`` badge.
+  Click POSTs the exact key; the badge disappears (or reappears
+  in ``warn`` state if the underlying provider is still failing).
+* **"Reset all" button** at the row tail -- appears the moment any
+  breaker is open. Click POSTs an empty body; every record is
+  cleared in one round-trip. Handy during a full network flap
+  where three providers are stuck at once.
+
+Both buttons debounce via ``.disabled = true`` while the request
+is in flight, then call ``refreshNetBreaker()`` for an immediate
+Overview repaint so the operator doesn't have to wait for the
+next tick.
+
+Healthy-triple hosts see nothing extra: the row itself is hidden
+by v4.11.0 when the breaker snapshot is empty, so the reset
+controls stay out of the way.
+
+### Files
+
+* CHANGED ``arena/admin/handlers.py`` (407 -> 462 lines) --
+  new ``handle_v1_tunnels_probe_reset`` handler,
+  ``AdminHandlers.tunnels_probe_reset`` field.
+* CHANGED ``arena/route_registry/{registry,core}.py`` --
+  ``POST /v1/tunnels/probe/reset`` in the ``core`` group.
+* CHANGED ``arena/wiring/platform.py`` -- exports the new
+  handler under ``handle_v1_tunnels_probe_reset``.
+* CHANGED ``dashboard/assets/04c-net-breaker.js`` (106 -> 154
+  lines) -- per-badge and bulk reset buttons + click handlers +
+  auto-refresh call.
+* CHANGED ``dashboard/assets/body-01-overview.html`` (133 -> 143
+  lines) -- scoped ``.reset`` and ``.reset-all`` styles inside
+  the existing ``#tab-overview #networkCard`` block.
+
+### Zero shared-CSS surgery (v4.0.x lesson still holds)
+
+* ``dashboard.css`` byte-identical to v4.13.0 (109 lines).
+* Every new rule scoped ``#tab-overview #networkCard
+  .net-breaker-list ...``.
+* Reset buttons inherit their colour from the badge they're
+  inside (``color:inherit`` + ``border:1px solid currentColor``)
+  so the red-open / yellow-warn / blue-ok palette flows through
+  without a single hex literal.
+* Bulk "Reset all" uses ``var(--accent)`` for its hover
+  background -- reuses the shared palette variable, not a new
+  colour.
+
+### Tests
+
+1311 -> 1329 passed (+18 new in
+``tests/test_tunnels_breaker_reset.py``):
+
+Backend (route + wiring + handler behaviour):
+* POST /v1/tunnels/probe/reset in the route registry
+* Wired into the core router with the POST verb (not GET --
+  browsers cache GETs, the reset button needs to hit the server
+  every click)
+* Exported through the platform wiring map
+* ``AdminHandlers`` dataclass field present
+* Empty body -> reset all (drops every record)
+* ``{"key": "..."}`` -> reset only that record; others intact
+* Whitespace-only key treated as "no key" -> reset all
+* Malformed JSON body doesn't 500 -- treated as empty
+* Audit event captures ``key`` + ``keys_cleared`` + ``client``
+
+Dashboard UI (static checks on the JS bundle):
+* Per-badge "×" button appears only inside ``state === "open"``
+  branch (guards against a hoist that spams healthy triples)
+* Endpoint used verbatim; per-badge POST includes the exact key
+* "Reset all" appears only when ``keys.some(...open)``
+* "Reset all" POSTs an empty body (not ``{key: ...}``)
+* Both buttons debounce via ``.disabled = true``
+* Both buttons call ``refreshNetBreaker()`` on completion
+* Button click ``stopPropagation()`` for future row-expand
+  compatibility
+
+Containment (v4.0.x lesson):
+* ``dashboard.css`` untouched by ``.reset`` / ``.reset-all``
+* New selectors live inside the ``#tab-overview #networkCard``
+  scoped block
+
+Full suite: 1329 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.14.0. Force-tested through the ZeroTier overlay:
+
+1. Simulated three consecutive failures on a fake dead endpoint
+   via a python shell against the shared breaker singleton (see
+   ``tests/test_tunnels_breaker_reset.py::_seed_breaker`` for
+   the same pattern). Overview refreshed -> red
+   ``cloudflared: cooldown 60s`` badge with the "×" button
+   visible inside.
+2. Clicked "×" on the badge. Request completed in ~50ms;
+   ``refreshNetBreaker()`` triggered; the badge disappeared
+   (breaker was the only record; the row itself is hidden by
+   v4.11.0 when the snapshot goes empty).
+3. Confirmed audit trail: ``GET /v1/audit?lines=3`` shows
+   ``tunnels_breaker_reset`` event with
+   ``key=cloudflared|dead.example:443``, ``keys_cleared=1``,
+   ``client=10.57.152.44`` (my ZT peer IP).
+4. Bulk reset also verified: seeded three breakers, clicked
+   "Reset all" -> single request, all three cleared, single
+   audit event with ``keys_cleared=3``, ``key=all``.
+
+### Not included
+
+* Confirmation dialog on "Reset all". A wide reset during a real
+  incident is exactly what an operator wants; the audit trail
+  makes it recoverable. If we ever land a "danger zone" UX
+  pattern globally we'll adopt it here too.
+* Undo / restore of the pre-reset snapshot. The
+  ``breaker_before`` field in the response payload is enough for
+  an operator to inspect what was there, but there's no "put it
+  back" button -- the breaker's whole purpose is to reflect
+  reality, and a reset is meant to give reality another try.
+* CLI wrapper in ``bin/agentctl``. Would compose nicely with the
+  breaker; deferred until an operator actually asks.
 ## v4.13.0 - 2026-07-16
 
 ### Added - Terminal tab: stream mode (uses /v1/exec/stream)

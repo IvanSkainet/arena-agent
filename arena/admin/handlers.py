@@ -50,6 +50,8 @@ class AdminHandlers:
     tunnels_stop: object
     # v4.1.0: reachability probe for the active transport.
     tunnels_probe: object
+    # v4.14.0: manual reset of the circuit-breaker records.
+    tunnels_probe_reset: object
     # v4.1.0: agent-facing "which URL should I use" endpoint.
     agent_config: object
     # v3.85.0: cross-platform auto-update.
@@ -298,6 +300,58 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         return ctx.cors_json_response(result)
 
     @authed(ctx)
+    async def handle_v1_tunnels_probe_reset(request: web.Request) -> web.Response:
+        """POST /v1/tunnels/probe/reset -- clear one or all circuit
+        breaker records so a provider can be re-probed immediately
+        instead of waiting for the 60s cooldown to elapse (v4.14.0).
+
+        Body (JSON, optional):
+            {"key": "cloudflared|foo.trycloudflare.com:443"}
+
+        Empty / missing body resets every record. Returns the
+        pre-reset snapshot so the caller can see what got cleared
+        without a second /v1/tunnels/probe round-trip.
+
+        v4.8.0 CHANGELOG left this as follow-up work: the breaker
+        used to have exactly two escape hatches -- wait 60s or
+        ``systemctl restart arena-bridge``. Neither felt like a
+        first-class ops tool. Now there's a proper endpoint the
+        Dashboard's Network Status card can drive from a button.
+        """
+        from arena.admin.tunnels_breaker import get_default_breaker
+        key = None
+        try:
+            data = await request.json()
+            if isinstance(data, dict):
+                raw = data.get("key")
+                if isinstance(raw, str) and raw.strip():
+                    key = raw.strip()
+        except Exception:
+            # Empty body / non-JSON -- reset all.
+            pass
+
+        breaker = get_default_breaker()
+        before = breaker.snapshot()
+        if key is not None:
+            breaker.reset(key)
+        else:
+            breaker.reset()
+
+        ctx.audit({
+            "type": "tunnels_breaker_reset",
+            "key": key or "all",
+            "keys_cleared": (1 if key else len(before)),
+            "client": request.remote or "127.0.0.1",
+        })
+        return ctx.cors_json_response({
+            "ok": True,
+            "reset": key or "all",
+            "keys_cleared": (1 if key else len(before)),
+            "breaker_before": before,
+            "breaker_after": breaker.snapshot(),
+        })
+
+    @authed(ctx)
     async def handle_v1_agent_config(request: web.Request) -> web.Response:
         """GET /v1/agent/config — return every transport URL that is
         currently reachable, in priority order, so an agent can pick
@@ -391,6 +445,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_start=handle_v1_tunnels_start,
         tunnels_stop=handle_v1_tunnels_stop,
         tunnels_probe=handle_v1_tunnels_probe,
+        tunnels_probe_reset=handle_v1_tunnels_probe_reset,
         agent_config=handle_v1_agent_config,
         update_status=_upd["update_status"],
         update_check=_upd["update_check"],
