@@ -40,6 +40,8 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
         zerotier_status_sync=env._zerotier_status_sync,
         tailscale_funnel_action_sync=env._tailscale_funnel_action_sync,
         cloudflared_funnel_action_sync=env._cloudflared_funnel_action_sync,
+        # v4.33.0: ngrok as fourth transport.
+        ngrok_status_sync=env._ngrok_status_sync,
     ))
     registry.update(_admin_handler_registry)
 

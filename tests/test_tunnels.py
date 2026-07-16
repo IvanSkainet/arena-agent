@@ -72,8 +72,12 @@ def _stub_zt_off():
 def test_default_priority_order():
     """v4.1.0: ZeroTier is now second (ahead of cloudflared) because
     cloudflared quick-tunnels routinely drop on flaky ISP links. The
-    stable overlay is preferred as long as Tailscale isn't available."""
-    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared")
+    stable overlay is preferred as long as Tailscale isn't available.
+
+    v4.33.0: ngrok added as the fourth entry so existing operators
+    see the same primary/secondary order they had before. Override
+    with ARENA_TUNNEL_PRIORITY to reorder."""
+    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared", "ngrok")
 
 
 def test_priority_env_override(monkeypatch):
@@ -101,7 +105,11 @@ def test_status_contract_shape():
     assert snap["ok"] is True
     assert snap["priority"] == list(DEFAULT_PRIORITY)
     providers = {p["provider"] for p in snap["providers"]}
-    assert providers == {"tailscale", "cloudflared", "zerotier"}
+    # v4.33.0: ngrok joined as the fourth transport. Preserving
+    # the invariant that every provider in DEFAULT_PRIORITY shows
+    # up in the snapshot (even when unwired -- it reports
+    # available:false).
+    assert providers == {"tailscale", "cloudflared", "zerotier", "ngrok"}
     assert snap["active"] is None  # nothing running
 
 

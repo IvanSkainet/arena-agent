@@ -100,6 +100,10 @@ class AdminWiringContext:
     zerotier_status_sync: Any = None
     tailscale_funnel_action_sync: Any = None
     cloudflared_funnel_action_sync: Any = None
+    # v4.33.0: ngrok as fourth transport. Optional so a wiring
+    # context built by older tests keeps working without touching
+    # every fixture.
+    ngrok_status_sync: Any = None
 
 
 def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any]]:
@@ -120,6 +124,7 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         zerotier_status_sync=ctx.zerotier_status_sync,
         tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
         cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
+        ngrok_status_sync=ctx.ngrok_status_sync,
     )
     handlers = make_admin_handlers(admin_ctx)
     return {
@@ -127,6 +132,8 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_token_regenerate": handlers.token_regenerate,
         "handle_v1_tailscale_funnel": handlers.tailscale_funnel,
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
+        # v4.33.0: ngrok as fourth transport.
+        "handle_v1_ngrok_tunnel": handlers.ngrok_tunnel,
         "handle_v1_zerotier_status": handlers.zerotier_status,
         "handle_v1_zerotier_network": handlers.zerotier_network,
         # v4.4.0: per-peer classification (direct / relay / root / tunneled).

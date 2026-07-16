@@ -72,6 +72,26 @@ def make_cloudflared_status_sync(
     return _cloudflared_status_sync
 
 
+def make_ngrok_status_sync(
+    *,
+    root_agent: Path,
+    subprocess_kwargs_fn: Callable[[], dict[str, Any]],
+):
+    """v4.33.0: factory for the ngrok status snapshot. Mirrors
+    make_cloudflared_status_sync so the wiring block treats them
+    uniformly."""
+    from arena.admin.ngrok import ngrok_action
+
+    def _ngrok_status_sync() -> dict[str, Any]:
+        return ngrok_action(
+            "status", 0,
+            root_agent=root_agent,
+            subprocess_kwargs=subprocess_kwargs_fn,
+        )
+
+    return _ngrok_status_sync
+
+
 def make_cloudflared_funnel_action_sync(
     *,
     cloudflared_funnel_action_fn: Callable[..., dict[str, Any]],

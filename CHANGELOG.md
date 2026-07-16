@@ -1,3 +1,138 @@
+## v4.33.0 - 2026-07-17
+
+### ngrok wired into the transport priority chain
+
+Follow-up to v4.32.0 (which landed the standalone ``ngrok.py``
+module). This release plumbs it end-to-end so ``/v1/tunnels/*``,
+``/v1/agent/config``, and the dashboard all see ngrok as a
+first-class transport.
+
+Priority order:
+
+* ``DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared",
+  "ngrok")`` -- new fourth entry appended so existing operators
+  keep the same primary/secondary order they had before. Free-
+  tier ngrok requires an authtoken, so it makes sense to keep
+  it as the last-resort transport rather than the first choice.
+* ``ARENA_TUNNEL_PRIORITY`` env override still respected --
+  operators who *want* ngrok first can put it there.
+
+New HTTP endpoints:
+
+* ``POST /v1/ngrok/tunnel/{action}`` where ``{action}`` is
+  ``start`` / ``stop`` / ``status``. Same shape and error
+  contract as ``/v1/cloudflared/tunnel/{action}``.
+* ``GET /v1/ngrok/tunnel/{action}`` -- convenience alias so
+  browser-based debugging works without needing to POST.
+
+Snapshot integration:
+
+* New ``_ngrok_snapshot`` helper in ``arena/admin/tunnels.py``,
+  copy-paste-sibling of ``_cloudflared_snapshot`` -- same
+  ``{provider, installed, cli_source, version, active,
+  public_url, public_kind, manageable, update_hint, raw}``
+  shape so downstream consumers (dashboard, agent_config,
+  breaker, url_discovery in ``agentctl bridge``) don't need any
+  ngrok-specific code paths.
+* ``tunnels_status`` / ``tunnels_active`` / ``tunnels_probe``
+  gain an optional ``ngrok_status_sync=None`` kwarg. When
+  callers omit it (legacy tests, older ctx snapshots), ngrok
+  still shows up in the ``providers`` list with
+  ``available: False`` and ``reason: "provider callable not
+  wired"`` -- so downstream code can treat every provider
+  uniformly without special-casing ngrok.
+
+Wiring depth:
+
+* ``AdminHandlerContext`` and ``AdminWiringContext`` gain an
+  optional ``ngrok_status_sync`` field. Optional so older test
+  fixtures that instantiate the context without the new
+  attribute keep working -- handlers fall back through
+  ``getattr(ctx, "ngrok_status_sync", None)``.
+* ``AdminHandlers`` dataclass gains a ``ngrok_tunnel`` field.
+* ``arena/admin/sync_factories.py`` gains a
+  ``make_ngrok_status_sync`` factory that calls
+  ``ngrok_action("status", 0, ...)`` -- same shape as
+  ``make_cloudflared_status_sync``.
+* ``arena/runtime_deps/core.py`` exports the new factory into
+  the runtime registry.
+* ``arena/wiring/bridge_runtime.py`` registers
+  ``_ngrok_status_sync`` alongside the cloudflared one.
+* ``arena/wiring/system_public_admin_registries.py`` threads
+  the sync into ``AdminWiringContext``.
+* ``arena/wiring/platform.py`` maps ``handlers.ngrok_tunnel``
+  to ``handle_v1_ngrok_tunnel`` in the outbound dispatcher.
+* ``arena/route_registry/registry.py`` declares POST + GET for
+  ``/v1/ngrok/tunnel/{action}``.
+
+Not yet in this release (tracked for future patches):
+
+* No autostart persistence (no sibling ``.ngrok_autostart``
+  marker) -- following the same cadence cloudflared used
+  (wire first, autostart second after live-smoke observations).
+* Dashboard Overview network card still shows the three original
+  transports -- ngrok badge will follow once operators have
+  configured ARENA_NGROK_AUTHTOKEN and used it in production for
+  a few sessions.
+
+Regression fixes for two existing tests that hard-coded the old
+three-tuple:
+
+* ``tests/test_tunnels.py::test_default_priority_order`` --
+  updated to the new four-tuple, docstring extended with the
+  v4.33.0 reason.
+* ``tests/test_tunnels.py::test_status_contract_shape`` --
+  provider set now includes ``ngrok`` (which reports
+  ``available: False`` when unwired, preserving the invariant
+  that every ``DEFAULT_PRIORITY`` provider appears in the
+  snapshot).
+* ``tests/test_tunnels_probe.py::test_default_priority_puts_zerotier_ahead_of_cloudflared``
+  -- updated to the new four-tuple; the zerotier-ahead-of-
+  cloudflared invariant this test guards is unaffected.
+
+Tests: ``tests/test_ngrok_wiring.py`` (12 new tests) -- covers
+DEFAULT_PRIORITY includes ngrok as fourth, ``_ngrok_snapshot``
+shape for wired/unwired/raising callables and None-URL handling,
+``tunnels_status`` merges the ngrok snapshot at the priority
+tail, DEFAULT_PRIORITY-derived priority list has four entries,
+snapshot still emits a placeholder when the callable is None,
+``AdminHandlers`` dataclass has the new ``ngrok_tunnel`` field,
+route registry declares POST+GET, dispatcher maps
+``handle_v1_ngrok_tunnel``, and ``make_admin_handlers`` produces
+a callable ``ngrok_tunnel``.
+
+Suite: **1821 passed** (was 1809 +12 -0), one baseline flaky.
+
+Files:
+
+* ``arena/admin/tunnels.py`` -- ``_ngrok_snapshot`` added,
+  ``DEFAULT_PRIORITY`` extended, ``tunnels_status`` +
+  ``tunnels_active`` + ``tunnels_probe`` all accept
+  ``ngrok_status_sync`` optional kwarg.
+* ``arena/admin/handlers.py`` -- ``handle_v1_ngrok_tunnel``
+  added, ``AdminHandlers.ngrok_tunnel`` field added,
+  ``tunnels_status`` / ``tunnels_active`` / ``tunnels_probe`` /
+  ``handle_v1_agent_config`` all pass ``ngrok_status_sync``.
+* ``arena/admin/sync_factories.py`` --
+  ``make_ngrok_status_sync`` factory.
+* ``arena/runtime_deps/core.py`` -- exports the factory.
+* ``arena/wiring/bridge_runtime.py`` -- registers
+  ``_ngrok_status_sync``.
+* ``arena/wiring/platform.py`` -- ``AdminWiringContext`` gets
+  ``ngrok_status_sync`` field, ``build_admin_handlers`` wires
+  it, dispatcher maps ``handle_v1_ngrok_tunnel``.
+* ``arena/wiring/system_public_admin_registries.py`` -- threads
+  ``env._ngrok_status_sync`` into ``AdminWiringContext``.
+* ``arena/contexts/platform.py`` -- ``AdminHandlerContext``
+  gets ``ngrok_status_sync`` field.
+* ``arena/route_registry/registry.py`` -- POST + GET
+  ``/v1/ngrok/tunnel/{action}``.
+* ``tests/test_ngrok_wiring.py`` (new) -- 12 tests.
+* ``tests/test_tunnels.py`` -- two tests updated to include
+  ngrok in the expected four-tuple.
+* ``tests/test_tunnels_probe.py`` -- one test updated to the
+  four-tuple.
+
 ## v4.32.0 - 2026-07-17
 
 ### ngrok as a fourth transport -- standalone module (not yet wired)

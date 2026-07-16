@@ -40,6 +40,8 @@ class AdminHandlers:
     token_regenerate: object
     tailscale_funnel: object
     cloudflared_tunnel: object
+    # v4.33.0: ngrok as fourth transport (POST /v1/ngrok/tunnel/{action}).
+    ngrok_tunnel: object
     zerotier_status: object
     zerotier_network: object
     # v4.4.0: per-peer classification (direct / relay / root / tunneled).
@@ -147,6 +149,39 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         return ctx.cors_json_response(result)
 
     @authed(ctx)
+    async def handle_v1_ngrok_tunnel(request: web.Request) -> web.Response:
+        """POST /v1/ngrok/tunnel/{action} -- ngrok as the fourth
+        transport (v4.33.0). Same start / stop / status shape as
+        cloudflared so the dashboard can treat them as siblings.
+
+        Autostart persistence is intentionally not wired in this
+        release; adding a sibling ``.ngrok_autostart`` marker
+        follows in a subsequent release, once we've observed
+        ngrok's behaviour across a few live restarts (same
+        cadence cloudflared followed: wire first, autostart
+        second)."""
+        # Guard: if ngrok_status_sync isn't wired (older ctx or a
+        # test context predating v4.33.0), fall back to a local
+        # import so the endpoint still works. Bridge boot never
+        # blocks on ngrok even when unused.
+        action = request.match_info.get("action", "status")
+        cfg = request.app[APP_CFG]
+        port = cfg.get("port", 8765)
+        loop = asyncio.get_running_loop()
+        from arena.admin.ngrok import ngrok_action
+        result = await loop.run_in_executor(
+            ctx.executor,
+            lambda: ngrok_action(
+                action,
+                port,
+                root_agent=ctx.root_agent,
+                subprocess_kwargs=ctx.subprocess_kwargs,
+            ),
+        )
+        ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
+        return ctx.cors_json_response(result)
+
+    @authed(ctx)
     async def handle_v1_zerotier_status(request: web.Request) -> web.Response:
         """GET /v1/zerotier/status — ZeroTier status."""
         loop = asyncio.get_running_loop()
@@ -231,6 +266,9 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 sys_funnel_status_sync=ctx.sys_funnel_status_sync,
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
+                # v4.33.0: opt-in ngrok context; getattr keeps back-
+                # compat with older ctx snapshots from tests.
+                ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
             ),
         )
         return ctx.cors_json_response(result)
@@ -248,6 +286,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 sys_funnel_status_sync=ctx.sys_funnel_status_sync,
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
+                ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
             ),
         )
         return ctx.cors_json_response(result)
@@ -318,6 +357,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 sys_funnel_status_sync=ctx.sys_funnel_status_sync,
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
+                ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
             ),
         )
         return ctx.cors_json_response(result)
@@ -414,6 +454,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 sys_funnel_status_sync=ctx.sys_funnel_status_sync,
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
+                ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
             ),
         )
         # Distill probe output down to a compact url-list for the agent.
@@ -507,6 +548,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         token_regenerate=handle_v1_token_regenerate,
         tailscale_funnel=handle_v1_tailscale_funnel,
         cloudflared_tunnel=handle_v1_cloudflared_tunnel,
+        ngrok_tunnel=handle_v1_ngrok_tunnel,
         zerotier_status=handle_v1_zerotier_status,
         zerotier_network=handle_v1_zerotier_network,
         zerotier_peers=handle_v1_zerotier_peers,

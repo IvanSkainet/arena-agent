@@ -107,5 +107,10 @@ class AdminHandlerContext:
     zerotier_status_sync: Any = None
     tailscale_funnel_action_sync: Any = None
     cloudflared_funnel_action_sync: Any = None
+    # v4.33.0: ngrok wired as fourth transport. Optional so an
+    # older test rig that instantiates the context without the
+    # new field keeps working -- handlers already fall back via
+    # getattr(ctx, "ngrok_status_sync", None).
+    ngrok_status_sync: Any = None
 
 __all__ = ['ServiceHandlerContext', 'DesktopHandlerContext', 'ControlLeaseHandlerContext', 'SystemHandlerContext', 'UserHandlerContext', 'AdminHandlerContext']

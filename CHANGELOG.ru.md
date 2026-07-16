@@ -1,3 +1,85 @@
+\n## v4.33.0 - 2026-07-17
+
+### ngrok подключён в priority-chain транспортов
+
+Follow-up к v4.32.0 (который landing'ил standalone-модуль
+``ngrok.py``). Этот релиз проводит его end-to-end, так что
+``/v1/tunnels/*``, ``/v1/agent/config`` и dashboard видят ngrok
+как first-class transport.
+
+Priority order:
+
+* ``DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared",
+  "ngrok")`` -- новая четвёртая entry appended, чтобы существующие
+  операторы держали тот же primary/secondary order. Free-tier
+  ngrok требует authtoken, так что имеет смысл держать его как
+  last-resort transport, а не первый выбор.
+* ``ARENA_TUNNEL_PRIORITY`` env override продолжает работать --
+  операторы, которые *хотят* ngrok первым, могут его туда поставить.
+
+Новые HTTP endpoints:
+
+* ``POST /v1/ngrok/tunnel/{action}`` где ``{action}`` --
+  ``start`` / ``stop`` / ``status``. Тот же shape и error
+  contract, что и ``/v1/cloudflared/tunnel/{action}``.
+* ``GET /v1/ngrok/tunnel/{action}`` -- convenience-alias для
+  browser-debug'а без POST.
+
+Snapshot-интеграция:
+
+* Новый ``_ngrok_snapshot`` helper в ``arena/admin/tunnels.py``,
+  copy-paste-sibling ``_cloudflared_snapshot`` -- тот же shape.
+* ``tunnels_status`` / ``tunnels_active`` / ``tunnels_probe``
+  получают optional kwarg ``ngrok_status_sync=None``. Когда
+  caller его пропускает (legacy tests, старые ctx snapshots),
+  ngrok всё равно появляется в ``providers`` list с
+  ``available: False`` и ``reason: "provider callable not
+  wired"``, так что downstream code может лечить каждый
+  provider одинаково без ngrok-special-casing.
+
+Wiring-глубина:
+
+* ``AdminHandlerContext`` и ``AdminWiringContext`` получают
+  optional поле ``ngrok_status_sync``.
+* ``AdminHandlers`` dataclass получает поле ``ngrok_tunnel``.
+* ``arena/admin/sync_factories.py`` получает factory
+  ``make_ngrok_status_sync``.
+* ``arena/runtime_deps/core.py`` экспортит новый factory.
+* ``arena/wiring/bridge_runtime.py`` регистрирует
+  ``_ngrok_status_sync``.
+* ``arena/wiring/system_public_admin_registries.py`` threads
+  sync в ``AdminWiringContext``.
+* ``arena/wiring/platform.py`` мапит ``handlers.ngrok_tunnel``
+  на ``handle_v1_ngrok_tunnel``.
+* ``arena/route_registry/registry.py`` декларирует POST + GET
+  ``/v1/ngrok/tunnel/{action}``.
+
+Пока нет в релизе (tracked для будущих patches):
+
+* Нет autostart persistence (нет sibling
+  ``.ngrok_autostart``) -- та же cadence, что использовал
+  cloudflared (wire first, autostart second после live-smoke).
+* Dashboard Overview network card всё ещё показывает три
+  оригинальных транспорта -- ngrok badge последует, как только
+  операторы сконфигурируют ARENA_NGROK_AUTHTOKEN и используют
+  его в production несколько сессий.
+
+Regression-фиксы для двух существующих тестов, которые
+hard-code'или старый three-tuple: `test_default_priority_order`,
+`test_status_contract_shape`, `test_default_priority_puts_zerotier_ahead_of_cloudflared`
+-- обновлены на новую четвёрку с сохранением тех же invariants.
+
+Тесты: ``tests/test_ngrok_wiring.py`` (12 новых тестов) --
+покрывает DEFAULT_PRIORITY, ``_ngrok_snapshot`` shape для
+wired/unwired/raising callables, ``tunnels_status`` мерджит
+ngrok snapshot, ``AdminHandlers.ngrok_tunnel`` есть, route
+registry declares POST+GET, dispatcher мапит handler,
+``make_admin_handlers`` возвращает callable ``ngrok_tunnel``.
+
+Suite: **1821 passed** (было 1809 +12 -0), один baseline flaky.
+
+Файлы: см. English changelog.
+
 \n## v4.32.0 - 2026-07-17
 
 ### ngrok как четвёртый транспорт -- standalone-модуль (пока не подключён)

@@ -91,6 +91,11 @@ def build_bridge_runtime(g: MutableMapping[str, Any]) -> dict[str, Any]:
             root_agent=g["ROOT_AGENT"],
             subprocess_kwargs_fn=g["_subprocess_kwargs"],
         ),
+        # v4.33.0: ngrok status sync -- same shape as cloudflared.
+        "_ngrok_status_sync": g["make_ngrok_status_sync"](
+            root_agent=g["ROOT_AGENT"],
+            subprocess_kwargs_fn=g["_subprocess_kwargs"],
+        ),
         "_browseract_status_sync": g["make_browseract_status_sync"](
             browseract_status_fn=g["_browseract_status_runtime"],
             subprocess_kwargs_fn=g["_subprocess_kwargs"],

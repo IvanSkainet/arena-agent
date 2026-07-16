@@ -44,7 +44,10 @@ from typing import Any
 #
 # Override with ARENA_TUNNEL_PRIORITY=zerotier,tailscale,cloudflared
 # (any subset; missing providers append in the built-in order).
-DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared")
+# v4.33.0: ngrok added as a fourth transport, placed last so
+# existing operators see the same primary/secondary order they
+# had before. Override with ARENA_TUNNEL_PRIORITY to reorder.
+DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared", "ngrok")
 
 
 def _priority_from_env() -> tuple[str, ...]:
@@ -116,6 +119,33 @@ def _cloudflared_snapshot(cloudflared_status_sync: Callable[[], dict[str, Any]] 
         return {"provider": "cloudflared", "available": False, "error": str(e)[:200]}
     return {
         "provider": "cloudflared",
+        "installed": bool(raw.get("installed")),
+        "cli_source": raw.get("source"),
+        "version": raw.get("version"),
+        "active": bool(raw.get("active")),
+        "public_url": raw.get("url") or None,
+        "public_kind": "https",
+        "manageable": True,
+        "update_hint": raw.get("update_hint"),
+        "raw": raw,
+    }
+
+
+def _ngrok_snapshot(ngrok_status_sync: Callable[[], dict[str, Any]] | None) -> dict[str, Any]:
+    """v4.33.0: same shape as _cloudflared_snapshot -- ngrok wired
+    as fourth transport. Snapshot is opt-in: when the sync callable
+    isn't provided (older ctx / test rig), we still return a
+    well-formed 'available: False' dict so downstream code doesn't
+    have to special-case ngrok."""
+    if ngrok_status_sync is None:
+        return {"provider": "ngrok", "available": False,
+                "reason": "provider callable not wired"}
+    try:
+        raw = ngrok_status_sync() or {}
+    except Exception as e:
+        return {"provider": "ngrok", "available": False, "error": str(e)[:200]}
+    return {
+        "provider": "ngrok",
         "installed": bool(raw.get("installed")),
         "cli_source": raw.get("source"),
         "version": raw.get("version"),
@@ -253,6 +283,7 @@ def tunnels_probe(
     sys_funnel_status_sync: Callable[[], dict[str, Any]] | None = None,
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
+    ngrok_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
     timeout: float = 1.5,
@@ -283,6 +314,7 @@ def tunnels_probe(
         sys_funnel_status_sync=sys_funnel_status_sync,
         cloudflared_status_sync=cloudflared_status_sync,
         zerotier_status_sync=zerotier_status_sync,
+        ngrok_status_sync=ngrok_status_sync,
         priority=priority,
         port=port,
     )
@@ -376,6 +408,7 @@ def tunnels_status(
     sys_funnel_status_sync: Callable[[], dict[str, Any]] | None = None,
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
+    ngrok_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
 ) -> dict[str, Any]:
@@ -384,6 +417,10 @@ def tunnels_status(
     ``port`` (v4.1.0) is used to build the ZeroTier ``http://<ip>:<port>``
     URL — defaults to the bridge's canonical 8765 so existing callers
     keep working unchanged.
+
+    ``ngrok_status_sync`` (v4.33.0) is optional -- callers that predate
+    the fourth-transport wiring can omit it and ngrok will report
+    ``available: False`` in the snapshot.
     """
     order = priority or _priority_from_env()
 
@@ -391,6 +428,7 @@ def tunnels_status(
         "tailscale": _tailscale_snapshot(sys_funnel_status_sync),
         "cloudflared": _cloudflared_snapshot(cloudflared_status_sync),
         "zerotier": _zerotier_snapshot(zerotier_status_sync, port=port),
+        "ngrok": _ngrok_snapshot(ngrok_status_sync),
     }
 
     ordered = [snapshots[name] for name in order if name in snapshots]
@@ -418,6 +456,7 @@ def tunnels_active(
     sys_funnel_status_sync: Callable[[], dict[str, Any]] | None = None,
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
+    ngrok_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
 ) -> dict[str, Any]:
@@ -426,6 +465,7 @@ def tunnels_active(
         sys_funnel_status_sync=sys_funnel_status_sync,
         cloudflared_status_sync=cloudflared_status_sync,
         zerotier_status_sync=zerotier_status_sync,
+        ngrok_status_sync=ngrok_status_sync,
         priority=priority,
         port=port,
     )
