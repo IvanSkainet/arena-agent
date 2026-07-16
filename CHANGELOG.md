@@ -1,3 +1,67 @@
+## v4.24.1 - 2026-07-17
+
+### Fix -- cloudflared cold-start timeout was too tight, now tunable
+
+The v4.24.0 live-smoke caught a real regression: after a bridge
+restart, ``[Cloudflared] Autostart FAILED: cloudflared timed out
+generating a tunnel URL (10.01s)`` in journalctl. Manual restart
+seconds later succeeded on the exact same code path -- so the
+binary was fine, cloudflared's URL negotiation was just slower
+than 10 s on that cold start.
+
+Root cause: ``_start_cloudflared`` hardcoded a 20-iteration x
+0.5 s = 10 s wait loop for the ``trycloudflare.com`` URL to
+appear in the tunnel's stdout. A boot-time bridge with cold DNS
+and a busy uplink can easily overshoot that.
+
+Fix:
+
+* Default wait bumped from 10 s to **30 s**. The v4.22.1 first
+  autostart took 7.5 s, the v4.24.0 one hit 10.01 s -- 30 s is
+  three-times headroom without being annoying when the tunnel
+  is actually broken.
+* Made tunable via a new env variable
+  ``ARENA_CLOUDFLARED_URL_WAIT_SECONDS``. Operators on
+  especially slow networks can extend without a code change.
+* **Clamped** to 1 s / 300 s so a runaway typo cannot spin the
+  event loop with a zero wait or hang bridge boot for hours.
+* Non-numeric / empty / whitespace-only env values fall back to
+  the default silently -- typo-safe (must not crash bridge boot
+  on a bad config).
+* Response now includes ``"waited_seconds": <float>`` on both
+  success and failure so operators can tell from a log whether
+  the timeout was the default or an override.
+* Failure error string now includes the actual timeout used:
+  ``cloudflared timed out generating a tunnel URL after 30.0s``
+  -- diagnosable at a glance.
+
+Why now: the autostart flake is the *only* regression the v4.24.0
+live-smoke caught. Fixing it immediately (and adding a knob for
+future edge cases) is cheaper than accumulating "flake tolerated"
+technical debt. This is the same discipline used for the v4.22.1
+autostart fix a couple releases earlier.
+
+Tests: ``tests/test_cloudflared_url_wait.py`` (12 tests) covers:
+default is >= 20 s, env override respected (integer and float),
+non-numeric / empty / whitespace env falls back to default,
+clamp low at 1 s, clamp negative to min, clamp high at 300 s,
+poll interval stays sane (0.1--2.0 s), iterations always >= 1
+even at min, and an end-to-end simulation of ``_start_cloudflared``
+with a stub subprocess proves the ``waited_seconds`` field is
+populated in both the response and the error string.
+
+Suite: **1604 passed** (was 1592, +12 new), one baseline flaky.
+
+Files:
+
+* ``arena/admin/cloudflared.py`` -- new ``_url_wait_seconds()``
+  helper, four new constants (``_URL_WAIT_MIN_SECONDS``,
+  ``_URL_WAIT_MAX_SECONDS``, ``_URL_WAIT_DEFAULT_SECONDS``,
+  ``_URL_WAIT_POLL_INTERVAL_SECONDS``), ``_start_cloudflared``
+  rewritten to compute iterations from the tunable, response
+  shape gained ``waited_seconds``.
+* ``tests/test_cloudflared_url_wait.py`` (new) -- 12 tests
+
 ## v4.24.0 - 2026-07-17
 
 ### Overview: GPU + Recent System Errors cards

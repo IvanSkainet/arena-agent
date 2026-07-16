@@ -157,6 +157,39 @@ def _terminate_cloudflared(timeout: int = 5) -> None:
                 pass
 
 
+# v4.24.1: cold-start timeout was 10s (20 iterations x 0.5s), which
+# was empirically too tight for a bridge boot on a slow uplink --
+# the v4.24.0 live-smoke caught cloudflared's autostart failing at
+# exactly 10.01s while the same manual start seconds later worked
+# fine. Bumped the default to 30s and made it env-tunable so
+# operators on especially slow networks can extend further without
+# a code change. Values are clamped to a sensible range so a
+# runaway typo cannot hang bridge boot indefinitely.
+_URL_WAIT_MIN_SECONDS = 1.0
+_URL_WAIT_MAX_SECONDS = 300.0
+_URL_WAIT_DEFAULT_SECONDS = 30.0
+_URL_WAIT_POLL_INTERVAL_SECONDS = 0.5
+
+
+def _url_wait_seconds() -> float:
+    """Read ARENA_CLOUDFLARED_URL_WAIT_SECONDS from the env, clamp,
+    return. Defaults to 30s so a fresh bridge boot has room to
+    negotiate a trycloudflare URL even under network pressure."""
+    import os
+    raw = os.environ.get("ARENA_CLOUDFLARED_URL_WAIT_SECONDS", "").strip()
+    if not raw:
+        return _URL_WAIT_DEFAULT_SECONDS
+    try:
+        val = float(raw)
+    except ValueError:
+        return _URL_WAIT_DEFAULT_SECONDS
+    if val < _URL_WAIT_MIN_SECONDS:
+        return _URL_WAIT_MIN_SECONDS
+    if val > _URL_WAIT_MAX_SECONDS:
+        return _URL_WAIT_MAX_SECONDS
+    return val
+
+
 def _start_cloudflared(cf: str, port: int, *, subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     if CLOUDFLARED_STATE["proc"] and CLOUDFLARED_STATE["proc"].poll() is None:
         return {"ok": True, "action": "start", "already_running": True, "url": CLOUDFLARED_STATE["url"]}
@@ -173,16 +206,31 @@ def _start_cloudflared(cf: str, port: int, *, subprocess_kwargs: Callable[[], di
         thread = threading.Thread(target=_cloudflared_monitor_thread, args=(CLOUDFLARED_STATE["proc"], port), daemon=True)
         thread.start()
 
-        for _ in range(20):
+        total_wait = _url_wait_seconds()
+        iterations = max(1, int(total_wait / _URL_WAIT_POLL_INTERVAL_SECONDS))
+        for _ in range(iterations):
             if CLOUDFLARED_STATE["url"] or CLOUDFLARED_STATE["proc"].poll() is not None:
                 break
-            time.sleep(0.5)
+            time.sleep(_URL_WAIT_POLL_INTERVAL_SECONDS)
 
         if not CLOUDFLARED_STATE["url"]:
             _terminate_cloudflared(timeout=2)
             CLOUDFLARED_STATE["proc"] = None
-            return {"ok": False, "action": "start", "error": "cloudflared timed out generating a tunnel URL", "log": list(CLOUDFLARED_STATE["log"])}
-        return {"ok": True, "action": "start", "port": port, "url": CLOUDFLARED_STATE["url"], "log": CLOUDFLARED_STATE["log"]}
+            return {
+                "ok": False,
+                "action": "start",
+                "error": f"cloudflared timed out generating a tunnel URL after {total_wait:.1f}s",
+                "waited_seconds": total_wait,
+                "log": list(CLOUDFLARED_STATE["log"]),
+            }
+        return {
+            "ok": True,
+            "action": "start",
+            "port": port,
+            "url": CLOUDFLARED_STATE["url"],
+            "waited_seconds": total_wait,
+            "log": CLOUDFLARED_STATE["log"],
+        }
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

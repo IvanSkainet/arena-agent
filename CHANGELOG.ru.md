@@ -1,3 +1,66 @@
+\n## v4.24.1 - 2026-07-17
+
+### Fix -- cloudflared cold-start timeout был слишком тесный, теперь tunable
+
+Live-smoke v4.24.0 поймал реальную регрессию: после рестарта
+bridge, в journalctl появилось ``[Cloudflared] Autostart FAILED:
+cloudflared timed out generating a tunnel URL (10.01s)``. Ручной
+рестарт секундами позже на том же самом code path сработал --
+значит бинарник в порядке, negotiation URL cloudflared просто
+был медленнее 10 с на этом cold start.
+
+Root cause: ``_start_cloudflared`` хардкодил loop wait 20
+итераций x 0.5 с = 10 с для того, чтобы URL ``trycloudflare.com``
+появился в stdout туннеля. Boot-time bridge с cold DNS и
+загруженным uplink легко перерастает эти 10 с.
+
+Fix:
+
+* Дефолт wait поднят с 10 с до **30 с**. Первый autostart
+  v4.22.1 занял 7.5 с, v4.24.0 -- 10.01 с; 30 с -- трёхкратный
+  запас, не раздражающий когда tunnel реально сломан.
+* Сделано tunable через новую env-переменную
+  ``ARENA_CLOUDFLARED_URL_WAIT_SECONDS``. Операторы на особо
+  медленных сетях могут расширить без изменения кода.
+* **Clamp** в 1 с / 300 с, чтобы runaway typo не мог закрутить
+  event loop с нулевым wait или подвесить boot bridge на часы.
+* Non-numeric / empty / whitespace-only env-значения тихо
+  falls back на default -- typo-safe (не должен крашить bridge
+  boot на плохом config).
+* Response теперь включает ``"waited_seconds": <float>`` и на
+  success, и на failure, так что операторы могут по логу
+  понять -- это был дефолт или override.
+* Error-строка failure теперь включает актуальный timeout:
+  ``cloudflared timed out generating a tunnel URL after 30.0s``
+  -- диагностируется с одного взгляда.
+
+Почему сейчас: autostart-flake -- *единственная* регрессия,
+которую поймал live-smoke v4.24.0. Пофиксить сразу (и добавить
+knob под будущие edge cases) дешевле, чем накапливать долг
+"flake tolerated". Та же дисциплина, что и autostart-fix v4.22.1
+несколькими релизами раньше.
+
+Тесты: ``tests/test_cloudflared_url_wait.py`` (12 тестов)
+покрывают: default >= 20 с, env override работает (integer и
+float), non-numeric / empty / whitespace env -> default, clamp
+low на 1 с, clamp negative на min, clamp high на 300 с, poll
+interval sane (0.1--2.0 с), iterations всегда >= 1 даже на min,
+и end-to-end симуляция ``_start_cloudflared`` со stub subprocess
+доказывает что ``waited_seconds`` заполняется и в response, и
+в error-строке.
+
+Suite: **1604 passed** (было 1592, +12 новых), один baseline flaky.
+
+Файлы:
+
+* ``arena/admin/cloudflared.py`` -- новый helper
+  ``_url_wait_seconds()``, четыре новых константы
+  (``_URL_WAIT_MIN_SECONDS``, ``_URL_WAIT_MAX_SECONDS``,
+  ``_URL_WAIT_DEFAULT_SECONDS``, ``_URL_WAIT_POLL_INTERVAL_SECONDS``),
+  ``_start_cloudflared`` переписан чтобы считать iterations из
+  tunable, response shape получил ``waited_seconds``.
+* ``tests/test_cloudflared_url_wait.py`` (новый) -- 12 тестов
+
 \n## v4.24.0 - 2026-07-17
 
 ### Overview: карточки GPU + Recent System Errors
