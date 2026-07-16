@@ -3,6 +3,9 @@
 Split out of `arena/admin/handlers.py` to keep that module small.
 All four handlers gate on `ctx.require_auth` like the rest of the
 admin surface and audit their effects.
+
+v3.93.0: Migrated to `@authed` + `err_json` from arena.handler_helpers,
+replacing repetitive auth/record/try preludes.
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import functools
 from aiohttp import web
 
 from arena.admin import auto_update as _upd
+from arena.handler_helpers import authed, err_json
 
 
 async def _run(ctx, fn, *args, **kwargs):
@@ -22,14 +26,11 @@ async def _run(ctx, fn, *args, **kwargs):
 def make_update_handlers(ctx):
     """Return the 4 update handler coroutines keyed by short name."""
 
+    @authed(ctx)
     async def handle_update_status(request: web.Request) -> web.Response:
         """GET /v1/admin/update/status -- cached view of current version
         plus repository + install-root diagnostics. Does NOT hit
         GitHub -- use /v1/admin/update/check for that."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         from arena.constants import VERSION
         import platform
         sysname = platform.system().lower()
@@ -59,14 +60,11 @@ def make_update_handlers(ctx):
         }
         return ctx.cors_json_response(payload)
 
+    @authed(ctx)
     async def handle_update_check(request: web.Request) -> web.Response:
         """POST /v1/admin/update/check -- talk to GitHub, return the
         latest release + whether we need updating. Body is optional
         `{repo?: str}` to override the default repo (test-friendly)."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:
@@ -74,19 +72,17 @@ def make_update_handlers(ctx):
         if isinstance(body, dict) and body.get("repo"):
             import os
             os.environ["ARENA_UPDATE_REPO"] = str(body["repo"]).strip()
-        try:
-            res = await _run(ctx, _upd.check_updates)
-            ctx.audit({"type": "admin.update.check",
-                       "current": res.get("current"),
-                       "latest": res.get("latest"),
-                       "needs_update": res.get("needs_update"),
-                       "ok": res.get("ok")})
-            return ctx.cors_json_response(res)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)},
-                                          status=500)
+        res = await _run(ctx, _upd.check_updates)
+        ctx.audit({
+            "type": "admin.update.check",
+            "current": res.get("current"),
+            "latest": res.get("latest"),
+            "needs_update": res.get("needs_update"),
+            "ok": res.get("ok"),
+        })
+        return ctx.cors_json_response(res)
 
+    @authed(ctx)
     async def handle_update_apply(request: web.Request) -> web.Response:
         """POST /v1/admin/update/apply
         Body: {tag, asset_url, asset_name, expected_sha256, consent, restart?}
@@ -94,15 +90,10 @@ def make_update_handlers(ctx):
         first call without consent returns the required token so the
         Dashboard can echo it back on the second call.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:
-            return ctx.cors_json_response(
-                {"ok": False, "error": "JSON body required"}, status=400)
+            return err_json(ctx, "JSON body required", status=400)
         tag = str(body.get("tag") or "").strip()
         asset_url = str(body.get("asset_url") or "").strip()
         asset_name = str(body.get("asset_name") or "").strip()
@@ -111,10 +102,11 @@ def make_update_handlers(ctx):
         restart = bool(body.get("restart", True))
 
         if not (tag and asset_url and asset_name and expected):
-            return ctx.cors_json_response(
-                {"ok": False,
-                 "error": "tag, asset_url, asset_name, expected_sha256 all required"},
-                status=400)
+            return err_json(
+                ctx,
+                "tag, asset_url, asset_name, expected_sha256 all required",
+                status=400,
+            )
 
         # First call without consent: return the token so the caller
         # can echo it back for the actual install.
@@ -131,49 +123,40 @@ def make_update_handlers(ctx):
                 "hint": "Resend the same request with consent=<required_consent>.",
             })
 
-        try:
-            res = await _run(
-                ctx, _upd.apply_update,
-                asset_url=asset_url, asset_name=asset_name, tag=tag,
-                expected_sha256=expected, consent=consent, restart=restart,
-            )
-            ctx.audit({"type": "admin.update.apply",
-                       "tag": tag,
-                       "sha256": expected,
-                       "swapped": (res.get("swapped") if isinstance(res, dict) else None),
-                       "ok": res.get("ok") if isinstance(res, dict) else False})
-            # If apply succeeded AND caller wanted restart AND we're
-            # on POSIX -- schedule an execv AFTER we return the HTTP
-            # response.
-            if (isinstance(res, dict) and res.get("ok")
-                    and restart and res.get("platform") != "windows"):
-                # Kick off restart in the background so this handler
-                # can finish flushing.
-                _upd.restart_process(delay_sec=1.0)
-                res["restart"] = "scheduled"
-            return ctx.cors_json_response(res)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)},
-                                          status=500)
+        res = await _run(
+            ctx, _upd.apply_update,
+            asset_url=asset_url, asset_name=asset_name, tag=tag,
+            expected_sha256=expected, consent=consent, restart=restart,
+        )
+        ctx.audit({
+            "type": "admin.update.apply",
+            "tag": tag,
+            "sha256": expected,
+            "swapped": (res.get("swapped") if isinstance(res, dict) else None),
+            "ok": res.get("ok") if isinstance(res, dict) else False,
+        })
+        # If apply succeeded AND caller wanted restart AND we're
+        # on POSIX -- schedule an execv AFTER we return the HTTP
+        # response.
+        if (isinstance(res, dict) and res.get("ok")
+                and restart and res.get("platform") != "windows"):
+            # Kick off restart in the background so this handler
+            # can finish flushing.
+            _upd.restart_process(delay_sec=1.0)
+            res["restart"] = "scheduled"
+        return ctx.cors_json_response(res)
 
+    @authed(ctx)
     async def handle_update_restart(request: web.Request) -> web.Response:
         """POST /v1/admin/update/restart -- manual restart trigger.
         Used for testing and for the Windows "installer done" callback."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            res = await _run(ctx, _upd.restart_process)
-            ctx.audit({"type": "admin.update.restart",
-                       "ok": res.get("ok"),
-                       "restart": res.get("restart")})
-            return ctx.cors_json_response(res)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)},
-                                          status=500)
+        res = await _run(ctx, _upd.restart_process)
+        ctx.audit({
+            "type": "admin.update.restart",
+            "ok": res.get("ok"),
+            "restart": res.get("restart"),
+        })
+        return ctx.cors_json_response(res)
 
     return {
         "update_status":  handle_update_status,

@@ -111,3 +111,51 @@ def test_tailscale_funnel_action_stop_uses_new_syntax():
     # And the modern paths must all be present as actual argv fragments.
     assert '"off"' in src or "'off'" in src
     assert '"serve"' in src or "'serve'" in src, "should include `serve reset` fallback"
+
+
+# --- v3.93.0 migration regression guards -----------------------------------
+
+def test_admin_handlers_use_authed_decorator(tmp_path):
+    """v3.93.0: All 10 admin handlers + 4 update handlers must be wrapped
+    by @authed from arena.handler_helpers, not carry inline `require_auth`
+    preludes. functools.wraps preserves the original name, but the code
+    object of the outer wrapper differs — check that the returned
+    coroutine functions have the wrapper's `__wrapped__` attribute set.
+    """
+    handlers = make_admin_handlers(_ctx(tmp_path))
+    for name in (
+        "sys_funnel", "token_regenerate", "tailscale_funnel",
+        "cloudflared_tunnel", "zerotier_status", "zerotier_network",
+        "tunnels_status", "tunnels_active", "tunnels_start", "tunnels_stop",
+        "update_status", "update_check", "update_apply", "update_restart",
+    ):
+        h = getattr(handlers, name)
+        # @authed (via functools.wraps) sets __wrapped__ to the inner fn.
+        assert hasattr(h, "__wrapped__"), (
+            f"admin handler `{name}` is not wrapped by @authed — "
+            f"v3.93.0 migration expects all admin handlers to use "
+            f"arena.handler_helpers.authed."
+        )
+
+
+def test_admin_handlers_module_free_of_manual_prelude():
+    """v3.93.0: Confirm the inline `ctx.require_auth(request); if r: return r`
+    pattern has been eliminated from arena.admin.handlers and
+    arena.admin.handlers_update. Any regression that reintroduces it (e.g. a
+    new handler copy-pasted from an older module) fails this test loudly.
+    """
+    import inspect
+    from arena.admin import handlers as _adm, handlers_update as _adm_upd
+
+    for mod in (_adm, _adm_upd):
+        src = inspect.getsource(mod)
+        assert "r = ctx.require_auth(request)" not in src, (
+            f"{mod.__name__} still contains the inline auth prelude — "
+            f"v3.93.0 migrated it to @authed; new handlers must use the "
+            f"decorator instead of copying the prelude back in."
+        )
+        # The old error handler shape is also gone.
+        assert "record_request(is_error=True, count_request=False)" not in src, (
+            f"{mod.__name__} still contains manual error accounting — "
+            f"@authed does this centrally."
+        )

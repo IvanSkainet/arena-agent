@@ -6,6 +6,88 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.93.0 - 2026-07-16
+
+### Изменено — первый реальный consumer декоратора из v3.92.0
+
+В v3.92.0 появились `@authed` + `err_json`/`ok_json` в
+`arena/handler_helpers.py`, но 103 существующих boilerplate-prelude'а
+по всем handler-модулям не были тронуты — декоратор был opt-in и
+никто ещё им не воспользовался. Это классический анти-паттерн
+"tooling создан, но не применён". В этом релизе начинается
+миграция — сразу вся admin-поверхность:
+
+* **`arena/admin/handlers.py`** — 10 handler'ов переведено с
+  шестистрочного ручного prelude (`ctx.require_auth` →
+  `record_request` → `try/except` →
+  `record_request(is_error=True)`) на `@authed(ctx)`. Файл
+  сжался с 295 до 242 строк без изменения поведения: те же тела
+  ответов, те же статус-коды, тот же audit trail, тот же
+  wire-формат. Мигрированы: `sys_funnel`, `token_regenerate`,
+  `tailscale_funnel`, `cloudflared_tunnel`, `zerotier_status`,
+  `zerotier_network`, `tunnels_status`, `tunnels_active`,
+  `tunnels_start`, `tunnels_stop`.
+
+* **`arena/admin/handlers_update.py`** — 4 auto-update handler'а
+  мигрированы аналогично. Файл сжался с 183 до 166 строк. Один
+  ручной `cors_json_response({"ok": False, "error": ...})`
+  заменён на `err_json(ctx, ...)` для консистентности с
+  остальным кодом. Ответ "consent_required" оставлен как
+  прямой `cors_json_response` — он несёт богатый payload
+  (`required_consent`, `tag`, `asset_name`, `sha256`, `hint`),
+  который не помещается в форму простого error-helper'а.
+
+Итого: ~70 строк дублированного auth/record/try-скаффолдинга
+ушли из admin-подсистемы, все 14 admin handler'ов теперь идут
+через один центральный wrapper. Те же гарантии, что давал
+ручной prelude (401 на пропущенный auth, error-request
+учёт при stray-исключениях, HTTPException-passthrough для
+роутинга), — теперь обеспечиваются в одном месте, а не в 14
+копиях.
+
+### Добавлено — regression guard'ы, чтобы миграция не отвалилась
+
+Новые тесты в `tests/test_admin_handlers.py`:
+
+* **`test_admin_handlers_use_authed_decorator`** — обходит все
+  14 admin handler-атрибутов (`sys_funnel` … `update_restart`)
+  и проверяет что у каждого установлен `__wrapped__`, который
+  `functools.wraps` навешивает при обёртке через `@authed`.
+  Если новый handler добавят без декоратора — тест упадёт
+  сразу.
+
+* **`test_admin_handlers_module_free_of_manual_prelude`** —
+  парсит исходник модуля и запрещает
+  `r = ctx.require_auth(request)` и
+  `record_request(is_error=True, count_request=False)` в
+  обоих admin-модулях. Copy-paste старого handler'а обратно —
+  и guard упадёт до code review.
+
+### Тесты
+
+**1082 → 1084 passed** (2 новых regression guard'а). Все ранее
+зелёные тесты остались зелёными. Существующий 21 тест на admin
+handler'ы и handler_helpers подтвердил отсутствие wire-level
+регрессии от миграции.
+
+### Стратегия миграции остальных ~93 prelude'ов
+
+Оставшийся boilerplate раскидан по:
+
+* `arena/exec/handlers.py` — 34 auth+cors prelude'а
+* `arena/mobile/handlers.py` — всего 68 prelude'ов
+* `arena/files/handlers.py` — 21 prelude
+* Плюс handler'ы в inventory, cdp, mission, agentic и т.д.
+
+Миграция одной подсистемы за релиз держит blast radius
+маленьким и позволяет проверять cutover против тест-сьюта
+конкретного модуля. Admin выбран первым, потому что у него
+чистейший однородный паттерн (все 10 handler'ов делают
+`require_auth → run_in_executor → cors_json_response` и
+ничего больше); mobile и cdp имеют более богатую per-handler
+логику, которая потребует большей аккуратности.
+
+
 ## v3.84.6 - 2026-07-15
 
 ### Зачем

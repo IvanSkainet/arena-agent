@@ -1,3 +1,80 @@
+## v3.93.0 - 2026-07-16
+
+### Changed — first real consumer of the v3.92.0 handler decorator
+
+v3.92.0 shipped `@authed` + `err_json`/`ok_json` in
+`arena/handler_helpers.py` but the 103 existing boilerplate preludes
+across all handler modules were left untouched — the decorator was
+opt-in and no handler had actually opted in. That is the "tooling
+built, never applied" anti-pattern. This release starts the
+migration by cutting over the entire admin surface at once:
+
+* **`arena/admin/handlers.py`** — 10 handlers migrated from the
+  six-line manual prelude (`ctx.require_auth` → `record_request` →
+  `try/except` → `record_request(is_error=True)`) to `@authed(ctx)`.
+  File shrinks 295 → 242 lines with no behaviour change: same
+  response bodies, same status codes, same audit trail, same wire
+  format. Handlers covered: `sys_funnel`, `token_regenerate`,
+  `tailscale_funnel`, `cloudflared_tunnel`, `zerotier_status`,
+  `zerotier_network`, `tunnels_status`, `tunnels_active`,
+  `tunnels_start`, `tunnels_stop`.
+
+* **`arena/admin/handlers_update.py`** — 4 auto-update handlers
+  migrated the same way. File shrinks 183 → 166 lines. One
+  hand-written `cors_json_response({"ok": False, "error": ...})`
+  was replaced by `err_json(ctx, ...)` for consistency with the
+  rest of the codebase; the "consent_required" response stays as
+  a direct `cors_json_response` because it carries a rich payload
+  (`required_consent`, `tag`, `asset_name`, `sha256`, `hint`) that
+  doesn't fit the simple-error helper shape.
+
+Net: ~70 lines of duplicated auth/record/try scaffolding gone from
+the admin subsystem, all 14 admin handlers now flow through the
+single centralized wrapper. Same guarantees the manual prelude
+provided (401 on missing auth, error-request accounting on stray
+exceptions, HTTPException passthrough for routing) — now guaranteed
+by one place instead of 14 copies.
+
+### Added — regression guards to keep the migration sticky
+
+New tests in `tests/test_admin_handlers.py`:
+
+* **`test_admin_handlers_use_authed_decorator`** — walks all 14
+  admin handler attrs (`sys_funnel` through `update_restart`) and
+  asserts each has `__wrapped__` set, which `functools.wraps`
+  attaches when `@authed` wraps a function. If a new handler is
+  added without the decorator, this test fails immediately.
+
+* **`test_admin_handlers_module_free_of_manual_prelude`** — parses
+  the module source and forbids `r = ctx.require_auth(request)`
+  and `record_request(is_error=True, count_request=False)` from
+  appearing anywhere in either admin handler module. Copy-pasting
+  an older handler back in will trip this guard before code
+  review has to catch it.
+
+### Tests
+
+**1082 → 1084 passed** (2 new regression guards). All previously
+green tests still green. The 21 existing tests covering admin
+handlers + handler_helpers themselves confirmed no wire-level
+regression from the migration.
+
+### Migration strategy for the remaining ~93 preludes
+
+Rest of the boilerplate is spread across:
+
+* `arena/exec/handlers.py` — 34 auth+cors preludes
+* `arena/mobile/handlers.py` — 68 preludes total
+* `arena/files/handlers.py` — 21 preludes
+* Plus scattered handlers in inventory, cdp, mission, agentic, etc.
+
+Migrating one subsystem per release keeps blast radius small and
+lets each cutover be reviewed against its module's test suite.
+Admin was first because it has the cleanest uniform pattern (all
+10 handlers do `require_auth → run_in_executor → cors_json_response`
+and nothing else); the mobile and cdp surfaces have richer
+per-handler logic that will require more care.
+
 ## v3.92.0 - 2026-07-16
 
 ### Added — shared handler decorator + response helpers

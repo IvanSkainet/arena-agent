@@ -1,4 +1,10 @@
-"""Handlers for token regeneration and tunnel/funnel administration."""
+"""Handlers for token regeneration and tunnel/funnel administration.
+
+v3.93.0: Migrated to `@authed` decorator + `err_json` helper from
+`arena/handler_helpers.py`. Removes ~110 lines of auth/record/try boilerplate
+without changing any wire behaviour — same responses, same status codes,
+same audit trail.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -8,9 +14,17 @@ from dataclasses import dataclass
 from aiohttp import web
 from arena.app_keys import APP_CFG
 
-from arena.admin.runtime import cloudflared_funnel_action, sys_funnel_status, tailscale_funnel_action, token_regenerate, zerotier_status, zerotier_network_action
+from arena.admin.runtime import (
+    cloudflared_funnel_action,
+    sys_funnel_status,
+    tailscale_funnel_action,
+    token_regenerate,
+    zerotier_status,
+    zerotier_network_action,
+)
 from arena.admin.tunnels import tunnels_status, tunnels_active, tunnels_start, tunnels_stop
 from arena.handler_context import AdminHandlerContext
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)
@@ -33,100 +47,69 @@ class AdminHandlers:
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
+    @authed(ctx)
     async def handle_v1_sys_funnel(request: web.Request) -> web.Response:
         """GET /v1/sys/funnel — Tailscale Funnel status."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, functools.partial(sys_funnel_status, subprocess_kwargs=ctx.subprocess_kwargs))
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(sys_funnel_status, subprocess_kwargs=ctx.subprocess_kwargs),
+        )
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_token_regenerate(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         cfg = request.app[APP_CFG]
         target = str(cfg.get("token_file") or "")
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
-            )
-            if result.get("ok") and result.get("token"):
-                cfg["token"] = result["token"]
-            ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            lambda: token_regenerate(target, default_token_file=ctx.default_token_file),
+        )
+        if result.get("ok") and result.get("token"):
+            cfg["token"] = result["token"]
+        ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         action = request.match_info.get("action", "status")
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, tailscale_funnel_action, action, port)
-            ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, tailscale_funnel_action, action, port)
+        ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_cloudflared_tunnel(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         action = request.match_info.get("action", "status")
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                lambda: cloudflared_funnel_action(
-                    action,
-                    port,
-                    root_agent=ctx.root_agent,
-                    subprocess_kwargs=ctx.subprocess_kwargs,
-                ),
-            )
-            ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            lambda: cloudflared_funnel_action(
+                action,
+                port,
+                root_agent=ctx.root_agent,
+                subprocess_kwargs=ctx.subprocess_kwargs,
+            ),
+        )
+        ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_zerotier_status(request: web.Request) -> web.Response:
         """GET /v1/zerotier/status — ZeroTier status."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                functools.partial(zerotier_status, subprocess_kwargs=ctx.subprocess_kwargs)
-            )
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(zerotier_status, subprocess_kwargs=ctx.subprocess_kwargs),
+        )
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_zerotier_network(request: web.Request) -> web.Response:
         """POST/GET /v1/zerotier/network/{action} — ZeroTier network actions.
 
@@ -134,10 +117,6 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         application/x-www-form-urlencoded body — so both curl and browsers
         (Dashboard) can drive it without extra ceremony.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         action = request.match_info.get("action", "status")
 
         # 1) Always allow ?network_id=... regardless of method.
@@ -165,112 +144,80 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             except Exception:
                 pass
 
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                zerotier_network_action,
-                action,
-                network_id
-            )
-            ctx.audit({"type": "zerotier_network", "action": action, "ok": result.get("ok")})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            zerotier_network_action,
+            action,
+            network_id,
+        )
+        ctx.audit({"type": "zerotier_network", "action": action, "ok": result.get("ok")})
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_tunnels_status(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                functools.partial(
-                    tunnels_status,
-                    sys_funnel_status_sync=ctx.sys_funnel_status_sync,
-                    cloudflared_status_sync=ctx.cloudflared_status_sync,
-                    zerotier_status_sync=ctx.zerotier_status_sync,
-                ),
-            )
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(
+                tunnels_status,
+                sys_funnel_status_sync=ctx.sys_funnel_status_sync,
+                cloudflared_status_sync=ctx.cloudflared_status_sync,
+                zerotier_status_sync=ctx.zerotier_status_sync,
+            ),
+        )
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_tunnels_active(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                functools.partial(
-                    tunnels_active,
-                    sys_funnel_status_sync=ctx.sys_funnel_status_sync,
-                    cloudflared_status_sync=ctx.cloudflared_status_sync,
-                    zerotier_status_sync=ctx.zerotier_status_sync,
-                ),
-            )
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(
+                tunnels_active,
+                sys_funnel_status_sync=ctx.sys_funnel_status_sync,
+                cloudflared_status_sync=ctx.cloudflared_status_sync,
+                zerotier_status_sync=ctx.zerotier_status_sync,
+            ),
+        )
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_tunnels_start(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                functools.partial(
-                    tunnels_start,
-                    port=port,
-                    tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
-                    cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
-                    sys_funnel_status_sync=ctx.sys_funnel_status_sync,
-                    cloudflared_status_sync=ctx.cloudflared_status_sync,
-                    zerotier_status_sync=ctx.zerotier_status_sync,
-                ),
-            )
-            ctx.audit({"type": "tunnels_start", "active": (result.get("active") or {}).get("provider")})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(
+                tunnels_start,
+                port=port,
+                tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
+                cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
+                sys_funnel_status_sync=ctx.sys_funnel_status_sync,
+                cloudflared_status_sync=ctx.cloudflared_status_sync,
+                zerotier_status_sync=ctx.zerotier_status_sync,
+            ),
+        )
+        ctx.audit({"type": "tunnels_start", "active": (result.get("active") or {}).get("provider")})
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_tunnels_stop(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(
-                ctx.executor,
-                functools.partial(
-                    tunnels_stop,
-                    port=port,
-                    tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
-                    cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
-                ),
-            )
-            ctx.audit({"type": "tunnels_stop"})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(
+                tunnels_stop,
+                port=port,
+                tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
+                cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
+            ),
+        )
+        ctx.audit({"type": "tunnels_stop"})
+        return ctx.cors_json_response(result)
 
     # v3.85.0: auto-update handlers live in a sibling module to keep
     # this file small.
