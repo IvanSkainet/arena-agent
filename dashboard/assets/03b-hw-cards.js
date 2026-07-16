@@ -47,10 +47,10 @@ function _hwFmtSeconds(sec) {
 
 // v4.0.2: render an operator hint plus a one-click "Copy fix" button
 // that copies just the ``sudo …`` snippet, not the whole paragraph.
+// v4.0.6: Copy captures the first single-line `sudo (setcap|usermod|-n) ...` so multi-line hints paste as one runnable line, not a paragraph. white-space:pre-wrap preserves the multi-option layout in the hint text itself.
 function _hwHintWithCopy(h) {
-  const m = h.match(/sudo\s+(?:setcap|-n)\s+\S[^.]*\S/), c = m ? m[0] : h;
-  return '<span style="color:var(--warning-text);font-size:11px">' + _hwEsc(h) +
-    '</span> <button class="sm" style="margin-left:6px;font-size:11px" onclick="navigator.clipboard&&navigator.clipboard.writeText(' + JSON.stringify(c) + ')">Copy fix</button>';
+  const m = h.match(/sudo\s+(?:setcap|usermod|-n)\s+[^\n]+/), c = m ? m[0].trim() : h;
+  return '<span style="color:var(--warning-text);font-size:11px;white-space:pre-wrap">' + _hwEsc(h) + '</span> <button class="sm" style="margin-left:6px;font-size:11px" onclick="navigator.clipboard&&navigator.clipboard.writeText(' + JSON.stringify(c) + ')">Copy fix</button>';
 }
 
 function _hwCard(title, rows) {

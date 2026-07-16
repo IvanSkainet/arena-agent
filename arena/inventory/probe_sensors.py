@@ -245,21 +245,51 @@ def _smartctl_permission_hint() -> str:
 
     if sys_name == "Linux":
         if smartctl_path:
+            # v4.0.6: the previous hint only granted `cap_sys_rawio` --
+            # that's necessary for ATA/NVMe SMART ioctls but doesn't
+            # let smartctl OPEN the block device itself. The bridge
+            # user still hit "Permission denied" on /dev/sda because
+            # /dev/sd* is mode 0660 owned by root:disk and cap_sys_rawio
+            # doesn't override DAC checks. Correct combo (used by beszel,
+            # netdata, and others): cap_sys_rawio + cap_sys_admin, which
+            # together give the file the ability to open block devices
+            # AND issue the SMART command payload. Alternative: put the
+            # user in the `disk` group (broader access, but no capability
+            # dance). Both are shown so the operator picks their comfort
+            # level.
             return (
-                f"Grant smartctl the raw-IO capability so it can be run "
-                f"as a regular user:  sudo setcap cap_sys_rawio+ep "
-                f"{smartctl_path}  (persists until smartmontools is "
-                f"reinstalled). Alternative: run the bridge as root, "
-                f"or add ``ALL ALL=(ALL) NOPASSWD: {smartctl_path}`` "
-                f"to a sudoers.d file so agents can invoke "
-                f"``sudo -n {smartctl_path} ...`` on demand."
+                f"smartctl needs both raw-IO and sys-admin capabilities to "
+                f"open a block device and issue the SMART command. Run "
+                f"ONE of these as root, then run ``{smartctl_path} -H "
+                f"/dev/sda`` to verify (should print PASSED, not "
+                f"'Permission denied'):\n"
+                f"\n"
+                f"  A) File capabilities (recommended, no group changes):\n"
+                f"     sudo setcap cap_sys_rawio,cap_sys_admin+ep {smartctl_path}\n"
+                f"     sudo getcap {smartctl_path}   # verify\n"
+                f"     # setcap outputs nothing on success -- that's normal.\n"
+                f"     # getcap should print:  cap_sys_admin,cap_sys_rawio=ep\n"
+                f"\n"
+                f"  B) Group membership (simpler, but broader):\n"
+                f"     sudo usermod -aG disk $USER   # then re-login\n"
+                f"\n"
+                f"  C) NOPASSWD sudo for the bridge agent (unattended):\n"
+                f"     echo '$USER ALL=(root) NOPASSWD: {smartctl_path}' \\\n"
+                f"       | sudo tee /etc/sudoers.d/arena-smartctl\n"
+                f"     # agents then call:  sudo -n {smartctl_path} ...\n"
+                f"\n"
+                f"Note: v4.0.5 and earlier suggested only cap_sys_rawio+ep, "
+                f"which sets the capability but silently fails to open "
+                f"/dev/sda -- if you tried that, follow (A) above with the "
+                f"full 'rawio,admin' combo."
             )
         return (
             "smartctl is not on PATH. Install the smartmontools package "
             "first (Debian/Ubuntu: apt install smartmontools; "
             "Arch: pacman -S smartmontools; RHEL/Fedora: dnf install "
-            "smartmontools), then grant it the raw-IO capability with "
-            "sudo setcap cap_sys_rawio+ep /usr/sbin/smartctl "
+            "smartmontools), then grant it the raw-IO + sys-admin "
+            "capabilities with "
+            "``sudo setcap cap_sys_rawio,cap_sys_admin+ep /usr/sbin/smartctl`` "
             "(adjust path if your distro installs elsewhere)."
         )
     if sys_name == "Darwin":

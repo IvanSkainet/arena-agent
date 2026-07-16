@@ -1,3 +1,39 @@
+\n## v4.0.6 - 2026-07-16
+
+### Исправлено - smartctl hint рекомендовал capability, которая не работает
+
+v4.0.1..v4.0.5 hint говорил ``sudo setcap cap_sys_rawio+ep /usr/bin/smartctl``,
+оператор его выполнил успешно -- ``getcap`` подтверждал что
+capability установлена -- но ``smartctl -H /dev/sda`` всё равно
+возвращал ``Permission denied``. Hint был фактически неверным для
+современного Linux: одна только ``cap_sys_rawio`` позволяет smartctl
+слать ioctl'ы, но НЕ даёт открыть block device файл (``/dev/sd*``
+mode 0660, owner ``root:disk``, требует либо group membership либо
+``cap_sys_admin`` в дополнение к ``cap_sys_rawio``). Это тот же
+комбо, который используют beszel-agent, netdata и upstream
+smartmontools docs.
+
+Новый hint предлагает три варианта по убыванию предпочтения:
+  A) ``sudo setcap cap_sys_rawio,cap_sys_admin+ep <path>``  (рекомендуемый)
+  B) ``sudo usermod -aG disk $USER``  (проще, но шире)
+  C) NOPASSWD sudoers rule для unattended агентов
+
+Каждый вариант со своей verification-командой + примечание, что
+``setcap`` печатающий пустоту -- это ИМЕННО success case
+(Unix "no news is good news", что не всем очевидно).
+
+Regex Copy-fix кнопки (03b-hw-cards.js) обновлён -- захватывает
+только первую однострочную ``sudo (setcap|usermod|-n) ...``
+команду из multi-line hint'а, чтобы paste давал одну runnable
+строку, а не весь paragraph. white-space:pre-wrap сохраняет
+multi-option layout в hint-тексте SMART карточки.
+
+Если оператор уже выполнил только v4.0.5 команду
+(``cap_sys_rawio+ep``), можно наложить правильный комбо сверху:
+    sudo setcap cap_sys_rawio,cap_sys_admin+ep /usr/bin/smartctl
+    sudo getcap /usr/bin/smartctl   # должен показать ОБЕ capabilities
+
+Тесты: 1153 passed. Bridge restarted.
 \n## v4.0.5 - 2026-07-16
 
 ### Откачено — dashboard.css изменения из v4.0.1/v4.0.2 (я был неправ)
