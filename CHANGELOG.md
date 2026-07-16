@@ -1,3 +1,102 @@
+## v3.92.0 - 2026-07-16
+
+### Added — shared handler decorator + response helpers
+
+Continues the v3.89–3.91 unification track. This release targets
+the last major bit of handler boilerplate: 103 occurrences of
+the same six-line prelude at the top of every v1 API handler:
+
+```python
+r = ctx.require_auth(request)
+if r:
+    return r
+ctx.record_request()
+try:
+    ...
+except Exception as e:
+    ctx.record_request(is_error=True, count_request=False)
+    return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+```
+
+New `arena/handler_helpers.py` (180 lines, zero dependencies)
+provides four helpers usable across every subsystem:
+
+* **`@authed(ctx)`** — decorator. Runs `require_auth`, calls
+  `record_request()`, catches any uncaught exception, records an
+  error request, and returns a 500 with the exception type +
+  message. `aiohttp.web.HTTPException` passes through unchanged
+  so routing 404/405 stays clean.
+
+* **`@public(ctx)`** — same, but skips the auth check. For
+  intentional public endpoints (`/health`, `/v1/version`,
+  static assets).
+
+* **`err_json(ctx, msg, *, status=400, error_type=None, **extra)`**
+  — replaces `ctx.cors_json_response({"ok": False, "error": msg},
+  status=status)`. Optionally attaches an `error_type` string
+  (so agents can tell auth failures from validation failures
+  from server errors) and arbitrary extras (`hint`, `trace_id`,
+  ...).
+
+* **`ok_json(ctx, payload=None, **extra)`** — symmetric success
+  helper. Adds `ok: True` unless the caller supplies it.
+
+* **`parse_json_body(request, ctx) -> (data, err_response)`** —
+  centralises the "read JSON body or bail with 400" pattern that
+  appears in ~30 handlers with slightly different behaviour.
+  Returns `(None, response)` when the body isn't a valid JSON
+  object; the caller returns the response as-is.
+
+Adoption is **opt-in** — the 100+ existing handlers stay untouched.
+New handlers should use these helpers; existing handlers can be
+migrated in subsequent small releases without breaking anything.
+
+### Test
+
+New `tests/test_handler_helpers.py` (14 tests):
+* `@authed` short-circuits on auth failure; calls handler +
+  records request on success; catches exceptions with 500 +
+  error accounting; lets `HTTPException` through.
+* `@public` skips auth but still records + catches.
+* `err_json` / `ok_json` / `parse_json_body` — payload shape,
+  status codes, optional extras, invalid-body handling.
+
+**1082 tests passed** (up from 1068; +14).
+
+### Audit result — what was NOT changed and why
+
+The audit ran across every remaining `handlers.py`, every wiring
+file, every test fixture, every CLI helper. Findings:
+
+* **`arena/wiring/*_registries.py` (10 files, 1101 lines)** —
+  already share `env.export_handler_attrs` + `RuntimeEnv`. What
+  remains file-specific is per-subsystem dependency declarations
+  that document what each module needs. Further "unification"
+  would hide dependencies, not clarify them. Left as-is.
+
+* **`_FakeReq` doubles in 3 test files** (`test_multiagent.py`,
+  `test_mobile_v84_3.py`, `test_fs_rest_view_create.py`) —
+  each stubs a different subset of aiohttp Request attributes
+  (headers only vs headers+query+app vs body+match_info). A
+  shared `tests/conftest.py` fixture would either be overly
+  broad ("kitchen sink" request that satisfies every test) or
+  a factory whose call sites match the current inline definitions.
+  Not worth the abstraction cost.
+
+* **`bin/*` CLI entrypoints (26 files)** — the Python entrypoints
+  (`agentctl`, `arena-mobile`, `bridge-curl`, `pyb`,
+  `mission-record`, ...) already follow one shape:
+  `#!/usr/bin/env python3` shebang, thin ``sys.path.insert``,
+  delegate to `arena.<module>.main`. Bash-only tools
+  (`agentctl_bash_legacy`, `start-bridge`, `sd-exec`) intentionally
+  stay bash for platform reasons.
+
+### Live-verified
+
+`arena/handler_helpers.py` imports cleanly, all 14 unit tests
+pass. Existing 1068 tests untouched (no handler was migrated to
+the decorator yet, so no runtime path changed).
+
 ## v3.91.0 - 2026-07-16
 
 ### Changed — Dashboard asset manifest (auto-generated, single source)
