@@ -248,6 +248,60 @@ def _apply_authtoken(bin_path: str, subprocess_kwargs: Callable[[], dict[str, An
         pass  # Non-fatal -- ngrok will surface auth errors from `start`.
 
 
+# ---------------------------------------------------------------------------
+# Error classification -- v4.36.0
+# ---------------------------------------------------------------------------
+# Map ngrok's stdout/stderr patterns to short structured error codes so
+# callers (dashboard, agentctl, autostart hook) can react without
+# grepping free-form English strings. Each code carries a human hint
+# that names the exact fix.
+_ERROR_PATTERNS: list[tuple[str, str, str]] = [
+    # (regex fragment, error_code, human hint)
+    (r"ERR_NGROK_4018|session is not authenticated",
+     "needs_authtoken",
+     "ngrok needs an authtoken. Free tier at "
+     "https://dashboard.ngrok.com/get-started/your-authtoken -- then set "
+     "ARENA_NGROK_AUTHTOKEN in the arena-bridge service env, or run "
+     "`ngrok config add-authtoken <TOKEN>` once as the bridge user."),
+    (r"ERR_NGROK_108|simultaneously.*limit|only 1 simultaneous",
+     "session_limit_hit",
+     "ngrok free tier allows only one active session per account. Stop "
+     "the other ngrok process, or upgrade the account."),
+    (r"ERR_NGROK_3200|invalid authtoken|token.*not valid",
+     "invalid_authtoken",
+     "The ARENA_NGROK_AUTHTOKEN value is not accepted by ngrok. "
+     "Re-copy from https://dashboard.ngrok.com/get-started/your-authtoken."),
+    (r"ERR_NGROK_121|region.*not.*valid|unknown region",
+     "invalid_region",
+     "ARENA_NGROK_REGION is not one of us/eu/ap/au/sa/jp/in. Unset it "
+     "or pick a valid region."),
+    (r"ERR_NGROK_3204|too many.*tunnels",
+     "tunnel_limit_hit",
+     "Free ngrok tier is limited on concurrent tunnels; stop the extras "
+     "or upgrade."),
+    (r"address already in use|bind:.*4040",
+     "api_port_in_use",
+     "ngrok's local API port 4040 is already bound by another process "
+     "(often a leftover ngrok). Kill it with `pkill -f ngrok`."),
+]
+
+
+def _classify_error(log_lines: list[str]) -> tuple[str, str]:
+    """Scan the last N log lines and return (error_code, hint).
+
+    Returns (``"unknown"``, generic-hint) when no pattern matches --
+    the raw log is still passed through in the caller, so nothing is
+    lost; this classifier just extracts a first-class actionable
+    handle for the common cases."""
+    text = "\n".join(log_lines).lower()
+    for pattern, code, hint in _ERROR_PATTERNS:
+        if re.search(pattern.lower(), text):
+            return code, hint
+    return ("unknown",
+            "See the log field for ngrok's raw output. "
+            "Docs: https://ngrok.com/docs/errors/")
+
+
 def _start_ngrok(bin_path: str, port: int, *,
                  subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     if NGROK_STATE["proc"] and NGROK_STATE["proc"].poll() is None:
@@ -274,7 +328,8 @@ def _start_ngrok(bin_path: str, port: int, *,
             **subprocess_kwargs(),
         )
     except Exception as e:
-        return {"ok": False, "action": "start", "error": str(e)}
+        return {"ok": False, "action": "start", "error": str(e),
+                "error_code": "spawn_failed"}
 
     thread = threading.Thread(
         target=_ngrok_monitor_thread,
@@ -285,8 +340,14 @@ def _start_ngrok(bin_path: str, port: int, *,
 
     # Wait for URL to appear -- try the local API first (fast + reliable),
     # fall back to whatever the stdout monitor captured.
+    # v4.36.0: fail-fast when the child process dies before we ever
+    # see a URL. Previously we swallowed the die-event with a bare
+    # `break` and still reported "timed out after 30s" -- misleading
+    # when the truth was "died at 1.5s because no authtoken". Now
+    # we return immediately with a classified error code.
     total_wait = _url_wait_seconds()
     deadline = time.monotonic() + total_wait
+    process_died_early = False
     while time.monotonic() < deadline:
         # Prefer the local API which has a stable JSON shape.
         api_url = _poll_ngrok_url_from_api(timeout=0.5)
@@ -297,16 +358,32 @@ def _start_ngrok(bin_path: str, port: int, *,
         if NGROK_STATE["url"]:
             break
         if NGROK_STATE["proc"].poll() is not None:
-            break  # process died
+            # Give the monitor thread one more beat to drain any
+            # final stderr/stdout lines that describe the failure.
+            time.sleep(_URL_WAIT_POLL_INTERVAL_SECONDS)
+            process_died_early = True
+            break
         time.sleep(_URL_WAIT_POLL_INTERVAL_SECONDS)
 
     if not NGROK_STATE["url"]:
+        elapsed = time.monotonic() - (deadline - total_wait)
         _terminate_ngrok(timeout=2)
         NGROK_STATE["proc"] = None
+        error_code, hint = _classify_error(list(NGROK_STATE["log"]))
+        if process_died_early:
+            msg = (f"ngrok exited after {elapsed:.1f}s before opening a "
+                   f"tunnel. Reason: {error_code}. {hint}")
+        else:
+            msg = (f"ngrok timed out generating a tunnel URL after "
+                   f"{total_wait:.1f}s. Classifier: {error_code}. {hint}")
         return {
             "ok": False,
             "action": "start",
-            "error": f"ngrok timed out generating a tunnel URL after {total_wait:.1f}s",
+            "error": msg,
+            "error_code": error_code,
+            "hint": hint,
+            "process_died_early": process_died_early,
+            "elapsed_seconds": round(elapsed, 2),
             "waited_seconds": total_wait,
             "log": list(NGROK_STATE["log"]),
         }

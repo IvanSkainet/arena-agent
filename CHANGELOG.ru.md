@@ -1,3 +1,67 @@
+\n## v4.36.0 - 2026-07-17
+
+### ngrok: fail-fast + classified error codes (v4.33.1 live-smoke fix)
+
+Live-smoke ngrok-wiring поймал реальный usability-баг: когда
+``POST /v1/ngrok/tunnel/start`` вызывался против неавторизованного
+ngrok-binary, child-процесс на самом деле умирал через ~1.5s с
+чётким ``ERR_NGROK_4018: session is not authenticated``, но наш
+код упрямо ждал полные 30s URL-timeout и возвращал ``"ngrok
+timed out generating a tunnel URL after 30.0s"`` -- вводит в
+заблуждение, потому что правда была "умер на 1.5s без authtoken".
+
+Два фикса в этом релизе:
+
+**1. Fail-fast когда процесс умирает рано.** URL-wait loop уже
+имел ``if NGROK_STATE["proc"].poll() is not None: break``, но
+post-loop return потом трактовал die-event так же, как настоящий
+timeout. Этот релиз добавляет sentinel ``process_died_early`` +
+поле ``elapsed_seconds``, так что caller'ы могут отличить "умер
+на 1.5s" от "тихо стоял 30s" с одного взгляда.
+
+**2. Error-code classifier.** Новый ``_classify_error`` мапит
+шесть самых частых ngrok stdout/stderr-паттернов в короткие
+structured-коды с actionable-подсказкой на каждый:
+
+* ``needs_authtoken`` -- ``ERR_NGROK_4018``. Hint называет
+  точный URL для получения token'а и точную env-переменную
+  (``ARENA_NGROK_AUTHTOKEN``) или CLI-команду
+  (``ngrok config add-authtoken``) для конфигурации.
+* ``session_limit_hit`` -- ``ERR_NGROK_108``.
+* ``invalid_authtoken`` -- ``ERR_NGROK_3200``.
+* ``invalid_region`` -- ``ERR_NGROK_121``.
+* ``tunnel_limit_hit`` -- ``ERR_NGROK_3204``.
+* ``api_port_in_use`` -- порт 4040 занят.
+* ``unknown`` -- любые unmatched-строки. Hint ведёт в ngrok
+  error-docs.
+
+Новые поля response на start-failure: ``error_code``, ``hint``,
+``process_died_early``, ``elapsed_seconds`` -- в дополнение к
+``error`` (в котором код тоже упомянут, чтобы legacy-consumer'ы
+не сломались).
+
+Тесты: ``tests/test_ngrok_error_classification.py`` (13 тестов):
+9 pattern-matcher-тестов на каждый code + unknown/empty
+fallback, 4 fail-fast-теста доказывающие что 30s-hang баг
+починен (exit < 5s на early death), hint содержит точное
+env-var имя + dashboard-URL + CLI-команду, top-level ``error``
+несёт код, genuine-timeout path работает когда процесс жив но
+не открывает tunnel.
+
+Suite: **1863 passed** (было 1850, +13 новых), один baseline flaky.
+
+Не в релизе (tracked): dashboard Overview network card ещё
+нуждается в ngrok-badge, читающем ``error_code`` и показывающем
+inline "Fix →" link для ``needs_authtoken``. Последует когда
+завершим live E2E с реальным authtoken.
+
+Файлы:
+
+* ``arena/admin/ngrok.py`` -- ``_ERROR_PATTERNS`` список,
+  ``_classify_error()`` helper, ``_start_ngrok()`` переписан.
+* ``tests/test_ngrok_error_classification.py`` (новый) -- 13
+  тестов.
+
 \n## v4.35.0 - 2026-07-17
 
 ### Закрытие последнего dashboard-scoping gap -- Live + ZeroTier

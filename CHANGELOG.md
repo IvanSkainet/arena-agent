@@ -1,3 +1,89 @@
+## v4.36.0 - 2026-07-17
+
+### ngrok: fail-fast + classified error codes (v4.33.1 live-smoke fix)
+
+Live-smoke of the ngrok wiring caught a real usability bug: when
+``POST /v1/ngrok/tunnel/start`` was hit against an unauthenticated
+ngrok binary, the child process actually died after ~1.5s with a
+clear ``ERR_NGROK_4018: session is not authenticated`` message,
+but our code stubbornly waited the full 30-second URL-wait
+timeout and then returned ``"ngrok timed out generating a tunnel
+URL after 30.0s"`` -- misleading because the truth was "died at
+1.5s because no authtoken".
+
+Two fixes in this release:
+
+**1. Fail-fast when the process dies early.** The URL-wait loop
+already had ``if NGROK_STATE["proc"].poll() is not None: break``
+but the post-loop return then treated the die-event the same as
+a genuine timeout. This release adds a ``process_died_early``
+sentinel plus an ``elapsed_seconds`` field so callers can tell
+"died at 1.5s" from "silently stalled 30s" at a glance.
+
+**2. Error-code classifier.** New ``_classify_error`` maps the
+six most common ngrok stdout/stderr patterns into short structured
+codes with an actionable hint per code:
+
+* ``needs_authtoken`` -- ``ERR_NGROK_4018`` / "session is not
+  authenticated". Hint names the exact URL to get a token and
+  the exact env-var (``ARENA_NGROK_AUTHTOKEN``) or CLI command
+  (``ngrok config add-authtoken``) to configure it.
+* ``session_limit_hit`` -- ``ERR_NGROK_108`` / "only 1
+  simultaneous session". Hint says kill the other ngrok or
+  upgrade.
+* ``invalid_authtoken`` -- ``ERR_NGROK_3200``. Hint tells
+  operator to re-copy from dashboard.ngrok.com.
+* ``invalid_region`` -- ``ERR_NGROK_121``. Hint lists valid
+  regions.
+* ``tunnel_limit_hit`` -- ``ERR_NGROK_3204``.
+* ``api_port_in_use`` -- "bind: address already in use" on
+  port 4040. Hint suggests ``pkill -f ngrok``.
+* ``unknown`` -- any unmatched log lines. Hint points at
+  ngrok's error docs.
+
+New response fields on start failure:
+
+    {
+      "ok": false,
+      "action": "start",
+      "error": "ngrok exited after 1.5s before opening a tunnel. Reason: needs_authtoken. ngrok needs an authtoken...",
+      "error_code": "needs_authtoken",
+      "hint": "ngrok needs an authtoken. Free tier at https://dashboard.ngrok.com/get-started/your-authtoken...",
+      "process_died_early": true,
+      "elapsed_seconds": 1.5,
+      "waited_seconds": 30.0,
+      "log": [...]
+    }
+
+Legacy consumers that only read ``error`` still get the
+classified code inline in the error string, so nothing breaks
+silently. New consumers (dashboard badge, agentctl surface) can
+switch on ``error_code`` directly and skip parsing English.
+
+Tests: ``tests/test_ngrok_error_classification.py`` (13 tests)
+-- 9 pattern-matcher tests covering each classified code + the
+unknown / empty-log fallbacks, 4 fail-fast tests proving the
+30s-hang bug is fixed (exit < 5s on early death), the hint
+includes the exact ``ARENA_NGROK_AUTHTOKEN`` env-var name +
+dashboard URL + CLI command, the top-level ``error`` string
+carries the code, and the genuine-timeout path still works
+when the process stays alive but never opens a tunnel.
+
+Suite: **1863 passed** (was 1850, +13 new), one baseline flaky.
+
+Not in this release (tracked): the dashboard Overview network
+card still needs a ngrok badge that reads ``error_code`` and
+shows an inline "Fix →" link for ``needs_authtoken``. Follows
+once we complete the live E2E with a real authtoken.
+
+Files:
+
+* ``arena/admin/ngrok.py`` -- ``_ERROR_PATTERNS`` list (~30
+  lines), ``_classify_error()`` helper (~20 lines),
+  ``_start_ngrok()`` rewritten to detect ``process_died_early``
+  and return the classified response.
+* ``tests/test_ngrok_error_classification.py`` (new) -- 13 tests.
+
 ## v4.35.0 - 2026-07-17
 
 ### Close the last dashboard scoping gap -- Live + ZeroTier tabs
