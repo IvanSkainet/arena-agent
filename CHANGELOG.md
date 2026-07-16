@@ -1,3 +1,77 @@
+## v3.94.0 - 2026-07-16
+
+### Changed — @authed migration continues to /v1/exec surface
+
+Second real consumer of the `arena/handler_helpers.py` decorator
+introduced in v3.92.0 and first applied in v3.93.0. This release
+migrates the exec/process subsystem — `/v1/ps`, `/v1/exec`,
+`/v1/kill` — with one extension to the decorator to support
+handlers that own their request accounting.
+
+* **`arena/handler_helpers.py`** — `@authed` grows an `auto_record`
+  keyword (default `True`, so v3.93.0 admin migration keeps
+  working unchanged). When set to `False`, the decorator still
+  enforces auth and catches stray exceptions, but skips the
+  automatic `ctx.record_request()` on the happy path — the handler
+  itself calls `record_request(duration=..., is_exec=True,
+  is_error=...)` based on the shell command's actual outcome.
+  Exception-path accounting still runs regardless, so silent
+  crashes are never uncounted.
+
+* **`arena/exec/handlers.py`** — all 3 handlers migrated:
+  - `handle_v1_ps` uses plain `@authed(ctx)` (simple snapshot).
+  - `handle_v1_exec` uses `@authed(ctx, auto_record=False)` so
+    it can call `ctx.record_request(duration=..., is_exec=True)`
+    with the real shell duration and error state after the
+    subprocess finishes. Nine hand-written
+    `cors_json_response({"ok": False, "error": ...}, status=...)`
+    responses replaced by `err_json(ctx, ..., status=..., request_id=...)`.
+    Body parsing now goes through `parse_json_body(request, ctx)`.
+  - `handle_v1_kill` uses the same `auto_record=False` pattern —
+    it records success once at the end and error branches inline.
+
+The migration leaves the exec surface's wire behaviour byte-for-byte
+identical: same status codes (400/403/404/408/429/500), same error
+messages, same `request_id` echoed on every failure, same audit
+event shapes (`exec_start`, `exec_done`, `exec_timeout`,
+`exec_error`, `exec_blocked`, `exec_blocked_control`,
+`process_killed`), same accounting semantics.
+
+### Added — regression guards for the exec migration
+
+Three new tests in `tests/test_handler_helpers.py`:
+
+* `test_authed_auto_record_false_skips_counter_on_happy_path`
+* `test_authed_auto_record_false_still_enforces_auth`
+* `test_authed_auto_record_false_still_records_errors`
+
+Two new tests in `tests/test_exec_handlers.py`:
+
+* `test_exec_handlers_use_authed_decorator` — walks `ps`/`exec`/`kill`
+  and asserts each has `__wrapped__` set.
+* `test_exec_handlers_module_free_of_manual_auth_prelude` — grep-guard
+  against copy-pasting `r = ctx.require_auth(request); if r: return r`
+  back into the module.
+
+### Tests
+
+**1084 → 1089 passed** (+5 regression guards). All previously green
+tests still green. Live-smoke on the bridge confirmed the migrated
+`/v1/ps` and `/v1/exec` endpoints return the same shapes as before.
+
+### Migration progress
+
+| Release  | Module                          | Handlers | Preludes removed |
+|----------|---------------------------------|----------|------------------|
+| v3.93.0  | `arena/admin/handlers*.py`      | 14       | 14 auth + ~4 record |
+| v3.94.0  | `arena/exec/handlers.py`        | 3        | 3 auth + 9 error-cors → err_json |
+| **Next** | `arena/files/handlers.py`       | ~10      | 21 preludes      |
+| **Next** | `arena/mobile/handlers.py`      | ~30      | 68 preludes      |
+
+The mobile file is the biggest remaining hotspot but has richer
+per-handler logic (input injection, screencap, mirror) — will
+migrate in smaller sub-groups per release rather than one big-bang.
+
 ## v3.93.0 - 2026-07-16
 
 ### Changed — first real consumer of the v3.92.0 handler decorator

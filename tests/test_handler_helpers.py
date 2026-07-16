@@ -210,3 +210,52 @@ def test_parse_json_body_rejects_invalid_json():
     assert err is not None
     assert err.status == 400
     assert "invalid JSON" in err.text
+
+
+# --- @authed(auto_record=False) — v3.94.0 -------------------------------
+
+def test_authed_auto_record_false_skips_counter_on_happy_path():
+    """v3.94.0: exec-style handlers need to control their own
+    record_request() call (duration=, is_exec=, is_error=). Passing
+    auto_record=False must skip the wrapper's counter increment.
+    """
+    ctx = _make_ctx(auth_ok=True)
+
+    @authed(ctx, auto_record=False)
+    async def h(request):
+        return web.json_response({"ok": True})
+
+    resp = _run(h(MagicMock()))
+    assert resp.status == 200
+    # Wrapper must NOT have counted — handler owns accounting.
+    ctx.record_request.assert_not_called()
+
+
+def test_authed_auto_record_false_still_enforces_auth():
+    ctx = _make_ctx(auth_ok=False)
+
+    @authed(ctx, auto_record=False)
+    async def h(request):
+        raise AssertionError("must not be called when auth fails")
+
+    resp = _run(h(MagicMock()))
+    assert resp.status == 401
+
+
+def test_authed_auto_record_false_still_records_errors():
+    """Exception path must still increment the error counter even
+    when auto_record is disabled — otherwise silent handler crashes
+    would go uncounted."""
+    ctx = _make_ctx(auth_ok=True)
+
+    @authed(ctx, auto_record=False)
+    async def h(request):
+        raise RuntimeError("boom")
+
+    resp = _run(h(MagicMock()))
+    assert resp.status == 500
+    # Called once with (is_error=True, count_request=False).
+    assert ctx.record_request.call_count == 1
+    _, kwargs = ctx.record_request.call_args
+    assert kwargs.get("is_error") is True
+    assert kwargs.get("count_request") is False

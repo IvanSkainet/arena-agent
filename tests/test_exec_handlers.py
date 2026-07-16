@@ -40,3 +40,49 @@ def test_exec_routes_registered():
     assert ("GET", "/v1/ps") in paths
     assert ("POST", "/v1/exec") in paths
     assert ("POST", "/v1/kill") in paths
+
+
+# --- v3.94.0 migration regression guards ---------------------------------
+
+def test_exec_handlers_use_authed_decorator():
+    """v3.94.0: All 3 exec handlers must be wrapped by @authed. `exec`
+    and `kill` use auto_record=False (they do their own accounting),
+    but functools.wraps still sets __wrapped__."""
+    import unified_bridge as ub
+    ctx = ExecHandlerContext(
+        require_auth=ub.require_auth,
+        record_request=ub._record_request,
+        cors_json_response=ub._cors_json_response,
+        audit=ub.audit,
+        blocked_reason=ub.blocked_reason,
+        control_check=ub._control_check,
+        is_input_injection_cmd=ub._is_input_injection_cmd,
+        first_word=ub.first_word,
+        under_root=ub.under_root,
+        decode_output=ub.decode_output,
+        run_shell_command=ub.run_shell_command,
+        active_processes=ub.ACTIVE_PROCESSES,
+        active_processes_snapshot=ub.active_processes_snapshot,
+        cautious_allow=ub.CAUTIOUS_ALLOW,
+        default_max_output=ub.DEFAULT_MAX_OUTPUT,
+    )
+    handlers = make_exec_handlers(ctx)
+    for name in ("ps", "exec", "kill"):
+        h = getattr(handlers, name)
+        assert hasattr(h, "__wrapped__"), (
+            f"exec handler `{name}` is not wrapped by @authed — "
+            f"v3.94.0 migration expects all exec handlers to use "
+            f"arena.handler_helpers.authed."
+        )
+
+
+def test_exec_handlers_module_free_of_manual_auth_prelude():
+    """v3.94.0: Confirm the inline `ctx.require_auth(request); if r: return r`
+    prelude has been removed from arena.exec.handlers."""
+    import inspect
+    from arena.exec import handlers as _exh
+    src = inspect.getsource(_exh)
+    assert "r = ctx.require_auth(request)" not in src, (
+        "arena/exec/handlers.py still contains the inline auth "
+        "prelude — v3.94.0 migrated it to @authed."
+    )

@@ -6,6 +6,82 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.94.0 - 2026-07-16
+
+### Изменено — миграция @authed продолжается на surface /v1/exec
+
+Второй реальный consumer декоратора `arena/handler_helpers.py`,
+появившегося в v3.92.0 и впервые применённого в v3.93.0. Этот
+релиз мигрирует exec/process-подсистему — `/v1/ps`, `/v1/exec`,
+`/v1/kill` — с одним расширением декоратора для handler'ов,
+которые сами управляют учётом request'ов.
+
+* **`arena/handler_helpers.py`** — у `@authed` появился keyword
+  `auto_record` (default `True`, чтобы v3.93.0 admin-миграция
+  продолжала работать без изменений). При `False` декоратор
+  по-прежнему проверяет auth и ловит stray-исключения, но
+  пропускает автоматический `ctx.record_request()` на happy
+  path — handler сам вызывает
+  `record_request(duration=..., is_exec=True, is_error=...)` с
+  реальными параметрами по итогу subprocess'а. Учёт по exception-
+  ветке идёт всегда, поэтому "тихие" падения handler'ов никогда
+  не остаются несосчитанными.
+
+* **`arena/exec/handlers.py`** — все 3 handler'а мигрированы:
+  - `handle_v1_ps` — обычный `@authed(ctx)` (простой snapshot).
+  - `handle_v1_exec` — `@authed(ctx, auto_record=False)`, потому
+    что сам вызывает `ctx.record_request(duration=..., is_exec=True)`
+    с реальным временем и статусом shell после завершения
+    subprocess'а. 9 ручных
+    `cors_json_response({"ok": False, "error": ...}, status=...)`
+    заменены на `err_json(ctx, ..., status=..., request_id=...)`.
+    Парсинг тела теперь через `parse_json_body(request, ctx)`.
+  - `handle_v1_kill` — тот же паттерн `auto_record=False`: успех
+    учитывается один раз в конце, error-ветки inline.
+
+Миграция оставляет wire-поведение exec-surface идентичным
+до байта: те же статус-коды (400/403/404/408/429/500), те же
+error-messages, тот же `request_id` в каждом failure, те же
+формы audit-событий (`exec_start`, `exec_done`, `exec_timeout`,
+`exec_error`, `exec_blocked`, `exec_blocked_control`,
+`process_killed`), та же семантика учёта.
+
+### Добавлено — regression guard'ы для exec-миграции
+
+Три новых теста в `tests/test_handler_helpers.py`:
+
+* `test_authed_auto_record_false_skips_counter_on_happy_path`
+* `test_authed_auto_record_false_still_enforces_auth`
+* `test_authed_auto_record_false_still_records_errors`
+
+Два новых теста в `tests/test_exec_handlers.py`:
+
+* `test_exec_handlers_use_authed_decorator` — проверяет
+  `__wrapped__` у `ps`/`exec`/`kill`.
+* `test_exec_handlers_module_free_of_manual_auth_prelude` —
+  grep-guard против copy-paste старого prelude обратно.
+
+### Тесты
+
+**1084 → 1089 passed** (+5 regression guard'ов). Все ранее
+зелёные тесты остались зелёными. Live-smoke на bridge
+подтвердил что мигрированные `/v1/ps` и `/v1/exec` возвращают
+те же формы, что и раньше.
+
+### Прогресс миграции
+
+| Релиз    | Модуль                          | Handler'ов | Убрано prelude'ов |
+|----------|---------------------------------|-----------|-------------------|
+| v3.93.0  | `arena/admin/handlers*.py`      | 14        | 14 auth + ~4 record |
+| v3.94.0  | `arena/exec/handlers.py`        | 3         | 3 auth + 9 error-cors → err_json |
+| **Далее**| `arena/files/handlers.py`       | ~10       | 21 prelude        |
+| **Далее**| `arena/mobile/handlers.py`      | ~30       | 68 prelude'ов     |
+
+Mobile — самый крупный hotspot из оставшихся, но с более богатой
+per-handler логикой (input injection, screencap, mirror) — будет
+мигрировать под-группами по релизам, а не big-bang'ом.
+
+
 ## v3.93.0 - 2026-07-16
 
 ### Изменено — первый реальный consumer декоратора из v3.92.0

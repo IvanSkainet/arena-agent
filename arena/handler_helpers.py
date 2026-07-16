@@ -23,6 +23,13 @@ The decorator does auth check, request counting, and turns
 uncaught exceptions into `{ok: False, error, error_type}` JSON
 with proper status codes and error accounting.
 
+For handlers that need bespoke request accounting (e.g. exec-
+style handlers that call ``record_request(duration=..., is_exec=True,
+is_error=...)`` themselves), pass ``auto_record=False``. The
+decorator will still enforce auth and catch stray exceptions, but
+will not touch the request counter on the happy path -- the handler
+does that itself.
+
 Also provides small helpers for the most common error responses
 so callers don't hand-craft the same JSON dict everywhere:
 
@@ -49,18 +56,35 @@ _LOG = logging.getLogger(__name__)
 HandlerFn = Callable[[web.Request], Awaitable[web.Response]]
 
 
-def authed(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
+def authed(
+    ctx: Any,
+    *,
+    auto_record: bool = True,
+) -> Callable[[HandlerFn], HandlerFn]:
     """Decorator: enforce auth + count request + catch stray exceptions.
 
     The wrapped handler runs only if ``ctx.require_auth(request)``
     returns falsy. On any uncaught exception the wrapper records an
     error request and returns a 500 with the exception type + str.
 
+    ``auto_record`` (default ``True``) makes the wrapper call
+    ``ctx.record_request()`` right after the auth check. Set it to
+    ``False`` when the handler needs to do its own accounting -- e.g.
+    exec-style handlers that record duration and error mode based on
+    the shell command's outcome. Exception accounting (best-effort
+    ``record_request(is_error=True, count_request=False)`` on stray
+    exceptions) still runs regardless of ``auto_record``.
+
     Usage::
 
         @authed(ctx)
         async def handle_v1_foo(request):
             return ctx.cors_json_response({"ok": True, ...})
+
+        @authed(ctx, auto_record=False)
+        async def handle_v1_exec(request):
+            # handler calls ctx.record_request(duration=..., is_exec=True)
+            ...
 
     ``ctx`` is bound at decoration time; the returned coroutine is
     the actual aiohttp handler.
@@ -71,7 +95,8 @@ def authed(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
             r = ctx.require_auth(request)
             if r:
                 return r
-            ctx.record_request()
+            if auto_record:
+                ctx.record_request()
             try:
                 return await fn(request)
             except web.HTTPException:
