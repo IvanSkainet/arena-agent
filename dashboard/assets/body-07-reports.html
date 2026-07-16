@@ -1,8 +1,34 @@
 <div class="tab" id="tab-reports">
+<style>
+  /* Reports tab -- scoped to #tab-reports (v4.0.x lesson). */
+  #tab-reports{
+    --rp-tint-gray:#88888833;
+  }
+  #tab-reports .rp-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  #tab-reports .rp-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-reports .rp-table{width:100%}
+  #tab-reports .rp-table th.col-size{width:100px}
+  #tab-reports .rp-table th.col-modified{width:180px}
+  #tab-reports .rp-table th.col-actions{width:140px}
+  #tab-reports .rp-table tr:hover td{background:var(--bg3)}
+  #tab-reports .rp-empty{padding:24px;text-align:center;color:var(--text2)}
+  #tab-reports #reportPreview{margin-top:12px}
+</style>
 <h1>Reports</h1>
-<button onclick="loadReports()" style="margin-bottom:12px">Refresh</button>
-<table><thead><tr><th>Name</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody id="reportsTable"></tbody></table>
-<div id="reportPreview" style="margin-top:12px"></div>
+
+<div class="rp-toolbar">
+  <button onclick="loadReports()">Reload</button>
+</div>
+<div class="rp-meta">Report files from <code>reports/</code>. Click a row to preview inline.</div>
+
+<table class="rp-table">
+  <thead><tr><th>Name</th><th class="col-size">Size</th><th class="col-modified">Modified</th><th class="col-actions">Actions</th></tr></thead>
+  <tbody id="reportsTable">
+    <tr><td colspan="4" class="rp-empty">Loading… (or press Reload)</td></tr>
+  </tbody>
+</table>
+
+<div id="reportPreview"></div>
 </div>
 
 <!-- ==================== TASKS ==================== -->

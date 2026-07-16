@@ -1,16 +1,52 @@
 <div class="tab" id="tab-memory">
+<style>
+  /* Memory tab -- scoped to #tab-memory (v4.0.x lesson). Adds
+     the shared Audit-style visual language: scoped palette,
+     section badges, ``.mm-row`` flex helpers instead of inline
+     ``style="flex:1"`` on every input. Every id preserved so
+     06-memory.js keeps working. */
+  #tab-memory{
+    --mm-tint-green:#00d67222;
+    --mm-tint-blue:#4fc3f733;
+    --mm-tint-gray:#88888833;
+  }
+  #tab-memory h2{display:flex;align-items:center;gap:8px;margin:0 0 8px 0;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-memory h2 .section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--mm-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-memory .mm-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #tab-memory .mm-row input{flex:1;min-width:140px}
+  #tab-memory .mm-row input.mm-wide{flex:2}
+  #tab-memory .card{margin-bottom:10px}
+  #tab-memory table{width:100%}
+</style>
 <h1>Memory</h1>
+
 <div class="card">
-<h2>Add Fact</h2>
-<div class="row"><input id="memProfile" placeholder="Profile (default)" style="flex:1" oninput="syncMemoryProfileFields(this.value)"><input id="memKey" placeholder="Key" style="flex:1"><input id="memValue" placeholder="Value" style="flex:2"><input id="memTags" placeholder="Tags (comma)" style="flex:1"><button class="success" onclick="addMemory()">Add</button></div>
+  <h2>Add Fact <span class="section-badge">POST /v1/memory</span></h2>
+  <div class="mm-row">
+    <input id="memProfile" placeholder="Profile (default)" oninput="syncMemoryProfileFields(this.value)">
+    <input id="memKey" placeholder="Key">
+    <input id="memValue" class="mm-wide" placeholder="Value">
+    <input id="memTags" placeholder="Tags (comma)">
+    <button class="success" onclick="addMemory()">Add</button>
+  </div>
 </div>
+
 <div class="card">
-<div class="row"><input id="memSearch" placeholder="Search facts..." style="flex:1"><button onclick="loadMemory()">Search</button>
-<button class="info" onclick="memoryDigest()">Digest</button>
-<button class="warning" onclick="recallFromMemory()">Recall</button></div>
+  <h2>Search <span class="section-badge">GET /v1/memory</span></h2>
+  <div class="mm-row">
+    <input id="memSearch" placeholder="Search facts...">
+    <button onclick="loadMemory()">Search</button>
+    <button class="info" onclick="memoryDigest()">Digest</button>
+    <button class="warning" onclick="recallFromMemory()">Recall</button>
+  </div>
 </div>
+
 <div id="memoryDigestPanel" class="card" style="display:none"></div>
-<table><thead><tr><th>Key</th><th>Value</th><th>Tags</th><th>Time</th><th>Actions</th></tr></thead><tbody id="memoryTable"></tbody></table>
+
+<table>
+  <thead><tr><th>Key</th><th>Value</th><th>Tags</th><th>Time</th><th>Actions</th></tr></thead>
+  <tbody id="memoryTable"></tbody>
+</table>
 </div>
 
 <!-- ==================== RECALL ==================== -->

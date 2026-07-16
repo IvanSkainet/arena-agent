@@ -1,11 +1,31 @@
 <div class="tab" id="tab-recall">
+<style>
+  /* Recall tab -- scoped to #tab-recall (v4.0.x lesson). Same
+     shared palette + row helpers as Memory so the two tabs
+     feel like siblings visually. Every id preserved. */
+  #tab-recall{
+    --rc-tint-blue:#4fc3f733;
+    --rc-tint-gray:#88888833;
+  }
+  #tab-recall h2{display:flex;align-items:center;gap:8px;margin:0 0 8px 0;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-recall h2 .section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--rc-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-recall .rc-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #tab-recall .rc-row input{flex:1;min-width:180px}
+  #tab-recall .rc-row input.rc-wide{flex:2}
+  #tab-recall .card{margin-bottom:10px}
+</style>
 <h1>Recall <span class="version-tag">Smart Search</span></h1>
+
 <div class="card">
-<h2>TF-Scored Memory Search</h2>
-<div class="row"><input id="recallProfile" placeholder="Profile (default / all)" style="flex:1" oninput="syncMemoryProfileFields(this.value)"><input id="recallQuery" placeholder="Enter search query for smart recall..." style="flex:2">
-<button class="info" onclick="runRecall()">Recall</button>
-<button onclick="memoryDigestFull()">Memory Digest</button></div>
+  <h2>TF-Scored Memory Search <span class="section-badge">/v1/memory/recall</span></h2>
+  <div class="rc-row">
+    <input id="recallProfile" placeholder="Profile (default / all)" oninput="syncMemoryProfileFields(this.value)">
+    <input id="recallQuery" class="rc-wide" placeholder="Enter search query for smart recall...">
+    <button class="info" onclick="runRecall()">Recall</button>
+    <button onclick="memoryDigestFull()">Memory Digest</button>
+  </div>
 </div>
+
 <div id="recallResults" class="card" style="display:none"></div>
 <div id="digestResults" class="card" style="display:none"></div>
 </div>

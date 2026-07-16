@@ -1,26 +1,71 @@
 <div class="tab" id="tab-tasks">
+<style>
+  /* Tasks tab -- scoped to #tab-tasks (v4.0.x lesson). Adds
+     the shared palette + toolbar language. Every id preserved
+     (11-tasks.js reads them all). */
+  #tab-tasks{
+    --tk-tint-green:#00d67222;
+    --tk-tint-blue:#4fc3f733;
+    --tk-tint-orange:#ff980033;
+    --tk-tint-red:#e9456033;
+    --tk-tint-gray:#88888833;
+  }
+  #tab-tasks h2{display:flex;align-items:center;gap:8px;margin-top:12px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-tasks .tk-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-tasks .tk-toolbar .grow{flex:1}
+  #tab-tasks .tk-toolbar .auto-hint{font-size:12px;color:var(--text2)}
+  #tab-tasks .tk-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #tab-tasks .tk-row input{flex:1;min-width:140px}
+  #tab-tasks .tk-row input.tk-wide{flex:2}
+  #tab-tasks .tk-row input.tk-narrow{width:100px;flex:0 0 100px}
+  #tab-tasks .tk-table{width:100%}
+  #tab-tasks .tk-table th.col-id{width:110px}
+  #tab-tasks .tk-table th.col-state{width:100px}
+  #tab-tasks .tk-table th.col-started{width:160px}
+  #tab-tasks .tk-table th.col-duration{width:100px}
+  #tab-tasks .tk-table tr:hover td{background:var(--bg3)}
+  #tab-tasks .tk-empty{padding:24px;text-align:center;color:var(--text2)}
+  #tab-tasks .card{margin-bottom:10px}
+</style>
 <h1>Tasks <span class="badge info" id="taskCountBadge">0</span></h1>
+
 <div class="card">
-<div class="row">
-<button class="success" onclick="showTaskSubmit()">New Task</button>
-<button onclick="loadTasks()">Refresh</button>
-<button class="danger" onclick="cleanTasks()">Clean Completed</button>
-<span style="margin-left:auto;font-size:12px;color:var(--text2)">Auto-refresh: 10s</span>
+  <div class="tk-toolbar">
+    <button class="success" onclick="showTaskSubmit()">New Task</button>
+    <button onclick="loadTasks()">Reload</button>
+    <button class="danger" onclick="cleanTasks()">Clean Completed</button>
+    <span class="grow"></span>
+    <span class="auto-hint">Auto-refresh: 10s</span>
+  </div>
 </div>
-</div>
+
 <div id="taskSubmitPanel" class="card" style="display:none">
-<h2>Submit New Task</h2>
-<div class="row"><input id="taskCmd" placeholder="Command to run" style="flex:2"><input id="taskTimeout" type="number" value="30" placeholder="Timeout (s)" style="width:100px"><input id="taskCwd" placeholder="Working directory" style="flex:1"></div>
-<div class="row"><button class="success" onclick="submitTask()">Submit</button><button onclick="document.getElementById('taskSubmitPanel').style.display='none'">Cancel</button></div>
+  <h2>Submit New Task</h2>
+  <div class="tk-row">
+    <input id="taskCmd" class="tk-wide" placeholder="Command to run">
+    <input id="taskTimeout" class="tk-narrow" type="number" value="30" placeholder="Timeout (s)">
+    <input id="taskCwd" placeholder="Working directory">
+  </div>
+  <div class="tk-row" style="margin-top:6px">
+    <button class="success" onclick="submitTask()">Submit</button>
+    <button onclick="document.getElementById('taskSubmitPanel').style.display='none'">Cancel</button>
+  </div>
 </div>
+
 <h2>Task Queue</h2>
 <div class="card-grid-sm" id="taskStats">
-<div class="card"><div class="stat task-inbox" id="taskInbox">0</div><div class="label">Inbox</div></div>
-<div class="card"><div class="stat task-running" id="taskRunning">0</div><div class="label">Running</div></div>
-<div class="card"><div class="stat task-done" id="taskDone">0</div><div class="label">Done</div></div>
-<div class="card"><div class="stat task-failed" id="taskFailed">0</div><div class="label">Failed</div></div>
+  <div class="card"><div class="stat task-inbox" id="taskInbox">0</div><div class="label">Inbox</div></div>
+  <div class="card"><div class="stat task-running" id="taskRunning">0</div><div class="label">Running</div></div>
+  <div class="card"><div class="stat task-done" id="taskDone">0</div><div class="label">Done</div></div>
+  <div class="card"><div class="stat task-failed" id="taskFailed">0</div><div class="label">Failed</div></div>
 </div>
-<table><thead><tr><th>ID</th><th>Command</th><th>State</th><th>Started</th><th>Duration</th></tr></thead><tbody id="tasksTable"></tbody></table>
+
+<table class="tk-table">
+  <thead><tr><th class="col-id">ID</th><th>Command</th><th class="col-state">State</th><th class="col-started">Started</th><th class="col-duration">Duration</th></tr></thead>
+  <tbody id="tasksTable">
+    <tr><td colspan="5" class="tk-empty">Loading… (or press Reload)</td></tr>
+  </tbody>
+</table>
 </div>
 
 <!-- ==================== SKILLS ==================== -->

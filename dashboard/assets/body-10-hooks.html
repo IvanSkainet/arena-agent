@@ -1,6 +1,19 @@
 <div class="tab" id="tab-hooks">
+<style>
+  /* Hooks tab -- scoped to #tab-hooks (v4.0.x lesson). */
+  #tab-hooks{
+    --hk-tint-gray:#88888833;
+  }
+  #tab-hooks .hk-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  #tab-hooks .hk-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+</style>
 <h1>Hooks</h1>
-<button onclick="loadHooks()" style="margin-bottom:12px">Refresh</button>
+
+<div class="hk-toolbar">
+  <button onclick="loadHooks()">Reload</button>
+</div>
+<div class="hk-meta">Registered lifecycle hooks. Click Reload to fetch the latest from <code>/v1/hooks</code>.</div>
+
 <div id="hooksContainer"></div>
 </div>
 

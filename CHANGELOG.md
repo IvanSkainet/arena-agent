@@ -1,3 +1,69 @@
+## v4.30.0 - 2026-07-17
+
+### Batched redesign of seven small tabs -- Memory / Recall / Reports / Tasks / Skills / Hooks / Agents
+
+Seven tabs shared the same profile: under 30 lines of ad-hoc
+markup, no scoped ``<style>`` at all, inline ``style="flex:1"``
+on every input. They were the last holdouts against the Audit-
+style visual language the redesign arc established.
+
+Rather than one release per tab (would have been seven more
+CHANGELOG entries for what is largely the same shape of
+change), this release packs all seven into a single commit. Per
+tab the redesign adds:
+
+* **A scoped ``<style>`` block** with a per-tab palette
+  (``--mm-*`` / ``--rc-*`` / ``--rp-*`` / ``--tk-*`` /
+  ``--sk-*`` / ``--hk-*`` / ``--ag-*``). Every selector scoped
+  to that tab's id (``#tab-memory`` / ``#tab-recall`` etc.) --
+  v4.0.x lesson enforced by
+  ``test_every_selector_scoped``.
+* **Helper classes** replacing inline ``style="flex:1"`` on
+  every input (``.mm-row`` / ``.rc-row`` / ``.tk-row`` / etc.).
+* **Section badges** on the cards that hit an endpoint --
+  Memory advertises ``POST /v1/memory``, Recall advertises
+  ``/v1/memory/recall``, Skills advertises ``git · zip``.
+* **Uniform section header treatment** matching every other
+  redesigned tab.
+* **Empty-state placeholders** in every table (``.mm-empty``
+  etc.) so blank tables don't show as bare ``<tbody>``.
+
+Zero-risk guarantees:
+
+* **All 27 critical ids preserved across the seven tabs** --
+  ``06-memory.js``, ``07-recall.js``, ``08-missions.js``,
+  ``10-reports.js``, ``11-tasks.js``, ``12-skills.js``,
+  ``13-hooks.js``, ``14-agents.js`` keep working with zero JS
+  changes. Verified by parameterized test.
+* **All 15 onclick handlers preserved** -- another
+  parameterized test guards against any button losing its
+  wiring during the batch redesign.
+
+Tabs remaining without a scoped ``<style>`` block after this
+release: Control (77 lines), Settings (206 lines), Live (197
+lines), ZeroTier (61 lines), Workspace (96 lines), Doctor (39
+lines). These will follow in subsequent releases -- they are
+either larger or carry more JS state, so each deserves its own
+review window.
+
+Tests: ``tests/test_seven_tabs_redesign.py`` (35 tests) --
+seven-tab parameterization across ids preserved, handlers
+wired, scoped style block present, every selector scoped,
+palette variable declared inside the tab.
+
+Suite: **1769 passed** (was 1734, +35 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-03-memory.html`` -- rewritten
+* ``dashboard/assets/body-04-recall.html`` -- rewritten
+* ``dashboard/assets/body-07-reports.html`` -- rewritten
+* ``dashboard/assets/body-08-tasks.html`` -- rewritten
+* ``dashboard/assets/body-09-skills.html`` -- rewritten
+* ``dashboard/assets/body-10-hooks.html`` -- rewritten
+* ``dashboard/assets/body-11-agents.html`` -- rewritten
+* ``tests/test_seven_tabs_redesign.py`` (new) -- 35 tests
+
 ## v4.29.0 - 2026-07-17
 
 ### Mobile tab -- scoped palette + helper classes (low-risk redesign)

@@ -1,7 +1,32 @@
 <div class="tab" id="tab-agents">
+<style>
+  /* Agents tab -- scoped to #tab-agents (v4.0.x lesson). */
+  #tab-agents{
+    --ag-tint-gray:#88888833;
+  }
+  #tab-agents .ag-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+  #tab-agents .ag-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-agents .ag-table{width:100%}
+  #tab-agents .ag-table th.col-type{width:110px}
+  #tab-agents .ag-table th.col-status{width:110px}
+  #tab-agents .ag-table th.col-actions{width:160px}
+  #tab-agents .ag-table tr:hover td{background:var(--bg3)}
+  #tab-agents .ag-empty{padding:24px;text-align:center;color:var(--text2)}
+</style>
 <h1>Agents</h1>
-<button onclick="loadAgents()" style="margin-bottom:12px">Refresh</button>
-<table><thead><tr><th>Name</th><th>Type</th><th>Status</th><th>Actions</th></tr></thead><tbody id="agentsTable"></tbody></table>
+
+<div class="ag-toolbar">
+  <button onclick="loadAgents()">Reload</button>
+</div>
+<div class="ag-meta">Sub-agents from <code>/v1/agents</code>. Click Reload to refresh.</div>
+
+<table class="ag-table">
+  <thead><tr><th>Name</th><th class="col-type">Type</th><th class="col-status">Status</th><th class="col-actions">Actions</th></tr></thead>
+  <tbody id="agentsTable">
+    <tr><td colspan="4" class="ag-empty">Loading… (or press Reload)</td></tr>
+  </tbody>
+</table>
+
 <div id="agentDetail" class="detail-panel"></div>
 </div>
 

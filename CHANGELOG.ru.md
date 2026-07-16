@@ -1,3 +1,71 @@
+\n## v4.30.0 - 2026-07-17
+
+### Batched редизайн семи маленьких tab'ов -- Memory / Recall / Reports / Tasks / Skills / Hooks / Agents
+
+Семь вкладок делили один профиль: менее 30 строк ad-hoc
+разметки, никакого scoped ``<style>`` вообще, inline
+``style="flex:1"`` на каждом input. Они были последними
+holdouts против Audit-стиля визуального языка, установленного
+арк-редизайном.
+
+Вместо того чтобы делать один релиз на tab (получилось бы ещё
+семь CHANGELOG-записей об одном и том же типе изменения),
+этот релиз пакует все семь в один commit. На каждую tab
+редизайн добавляет:
+
+* **Scoped ``<style>``-блок** с per-tab палитрой
+  (``--mm-*`` / ``--rc-*`` / ``--rp-*`` / ``--tk-*`` /
+  ``--sk-*`` / ``--hk-*`` / ``--ag-*``). Каждый селектор scoped
+  на id этой tab (``#tab-memory`` / ``#tab-recall`` и т.д.) --
+  урок v4.0.x enforced ``test_every_selector_scoped``.
+* **Helper-классы** заменяют inline ``style="flex:1"`` на
+  каждом input (``.mm-row`` / ``.rc-row`` / ``.tk-row`` /
+  etc.).
+* **Section badges** на карточках, которые hit'ят endpoint --
+  Memory advertises ``POST /v1/memory``, Recall advertises
+  ``/v1/memory/recall``, Skills advertises ``git · zip``.
+* **Униформное оформление section-заголовков**, совпадающее с
+  каждой другой редизайнутой tab.
+* **Empty-state placeholder** в каждой таблице (``.mm-empty``
+  etc.), так что пустые таблицы не показываются как голый
+  ``<tbody>``.
+
+Zero-risk гарантии:
+
+* **Все 27 критичных id сохранены по семи вкладкам** --
+  ``06-memory.js``, ``07-recall.js``, ``08-missions.js``,
+  ``10-reports.js``, ``11-tasks.js``, ``12-skills.js``,
+  ``13-hooks.js``, ``14-agents.js`` продолжают работать с
+  ноль JS-изменений. Проверено параметризованным тестом.
+* **Все 15 onclick handlers сохранены** -- ещё один
+  параметризованный тест guardит против того, что кнопка
+  теряет wiring во время batch-редизайна.
+
+Вкладки, оставшиеся без scoped ``<style>``-блока после этого
+релиза: Control (77 строк), Settings (206 строк), Live (197
+строк), ZeroTier (61 строка), Workspace (96 строк), Doctor
+(39 строк). Они последуют в отдельных релизах -- они либо
+крупнее, либо несут больше JS-state, так что каждая
+заслуживает своего окна ревью.
+
+Тесты: ``tests/test_seven_tabs_redesign.py`` (35 тестов) --
+семь-tab параметризация по ids preserved, handlers wired,
+scoped style block present, every selector scoped, palette
+variable declared inside the tab.
+
+Suite: **1769 passed** (было 1734, +35 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-03-memory.html`` -- переписан
+* ``dashboard/assets/body-04-recall.html`` -- переписан
+* ``dashboard/assets/body-07-reports.html`` -- переписан
+* ``dashboard/assets/body-08-tasks.html`` -- переписан
+* ``dashboard/assets/body-09-skills.html`` -- переписан
+* ``dashboard/assets/body-10-hooks.html`` -- переписан
+* ``dashboard/assets/body-11-agents.html`` -- переписан
+* ``tests/test_seven_tabs_redesign.py`` (новый) -- 35 тестов
+
 \n## v4.29.0 - 2026-07-17
 
 ### Mobile tab -- scoped palette + helper-классы (low-risk редизайн)
