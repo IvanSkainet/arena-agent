@@ -1,3 +1,66 @@
+\n## v4.27.0 - 2026-07-17
+
+### Редизайн Browser tab -- scoped palette + section badges
+
+Browser был одной из последних dashboard-вкладок без scoped CSS
+дисциплины -- 24 строки ad-hoc inline widths и никакого
+scoped ``<style>`` вообще. Этот релиз приводит её к тому же
+визуальному языку, что и редизайны Audit / Overview /
+Proposals / Terminal.
+
+Изменения layout:
+
+* **Консолидированный scoped ``<style>``-блок** -- palette
+  variables (``--br-tint-*``), ``.br-row`` flex-контейнеры
+  заменяют inline ``style="flex:1"`` / ``style="width:80px"``,
+  ``.br-hint`` hint-строки под каждой карточкой, ``.br-result``
+  result-контейнеры с правилом ``:empty{display:none}``, чтобы
+  пустые result-боксы не стекались под toolbar до запуска tool.
+* **Section badges** на обеих карточках -- Search-заголовок
+  показывает ``/v1/browser/search``, а URL Tools-заголовок
+  показывает ``read · dump · fetch · head · shot`` -- так что
+  пользователи мгновенно видят, какой endpoint каждая карточка
+  hit'ит.
+* **Tooltips на каждой кнопке** в URL Tools card, чтобы
+  пользователи, не знающие разницу между Dump / Fetch / HEAD /
+  Read, получали hint на hover, не покидая tab.
+* **Униформное оформление section-заголовков** (``#tab-browser
+  h2``) совпадающее с Overview + Proposals -- uppercase
+  small-caps с subtle badge.
+
+Гарантии сохранения:
+
+* **Каждый существующий id сохранён** -- ``searchQuery``,
+  ``searchCount``, ``searchResults``, ``readUrl``,
+  ``readResult``, ``dumpResult``, ``headResult``. Проверено
+  параметризованными тестами, так что
+  ``09-browser-search.js``, ``09b-browser-read-dump.js``,
+  ``09c-browser-fetch-head.js``, ``09d-browser-screenshot.js``
+  продолжают работать с ноль JS-изменений.
+* **Каждый onclick handler сохранён** (``browserSearch``,
+  ``browserRead``, ``browserDump``, ``browserFetch``,
+  ``browserHead``, ``browserScreenshot``).
+* **Каждый result-контейнер** получает ``class="br-result"``,
+  так что empty-hide правило применяется consistently.
+
+Тесты: ``tests/test_browser_tab_layout.py`` (15 тестов)
+покрывают: каждый сохранённый id, tab wrapper + h1, все
+onclick handlers присутствуют, scoped-CSS дисциплина,
+palette vars scoped внутри tab, section badges advertise
+endpoints, result containers используют scoped class,
+никаких inline widths на control-rows (регрессия), URL tools
+имеют helpful tooltips.
+
+Suite: **1673 passed** (было 1658, +15 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-06-browser.html`` -- полностью
+  переписанный: scoped ``<style>`` с palette + layout, section
+  badges, ``.br-row`` / ``.br-hint`` / ``.br-result`` классы,
+  tooltips.
+* ``tests/test_browser_tab_layout.py`` (новый) -- 15 тестов
+
 \n## v4.26.0 - 2026-07-17
 
 ### Редизайн Terminal tab -- scoped palette + унифицированный toolbar в Audit-стиле

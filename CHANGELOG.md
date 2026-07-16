@@ -1,3 +1,62 @@
+## v4.27.0 - 2026-07-17
+
+### Browser tab redesign -- scoped palette + section badges
+
+Browser was one of the last dashboard tabs without any scoped
+CSS discipline -- 24 lines of ad-hoc inline widths and no
+scoped ``<style>`` at all. This release brings it up to the
+same visual language as the Audit / Overview / Proposals /
+Terminal redesigns.
+
+Layout changes:
+
+* **Consolidated scoped ``<style>`` block** -- palette variables
+  (``--br-tint-*``), ``.br-row`` flex containers replacing inline
+  ``style="flex:1"`` / ``style="width:80px"``, ``.br-hint`` hint
+  strips under each card, ``.br-result`` result containers with
+  a ``:empty{display:none}`` rule so blank result boxes don't
+  stack up under the toolbar before any tool has run.
+* **Section badges** on both cards -- the Search header
+  advertises ``/v1/browser/search`` and the URL Tools header
+  advertises ``read · dump · fetch · head · shot`` -- so users
+  instantly see which endpoint each card hits.
+* **Tooltips on every button** in the URL Tools card so users
+  who don't know the difference between Dump / Fetch / HEAD /
+  Read get a hint on hover without leaving the tab.
+* **Uniform section header treatment** (``#tab-browser h2``)
+  matching Overview + Proposals -- uppercase small-caps with
+  a subtle badge.
+
+Preservation guarantees:
+
+* **Every existing id preserved** -- ``searchQuery``,
+  ``searchCount``, ``searchResults``, ``readUrl``, ``readResult``,
+  ``dumpResult``, ``headResult``. Verified by parameterized tests
+  so ``09-browser-search.js``, ``09b-browser-read-dump.js``,
+  ``09c-browser-fetch-head.js``, ``09d-browser-screenshot.js``
+  keep working with zero JS changes.
+* **Every onclick handler preserved** (``browserSearch``,
+  ``browserRead``, ``browserDump``, ``browserFetch``,
+  ``browserHead``, ``browserScreenshot``).
+* **Every result container** gets ``class="br-result"`` so the
+  empty-hide rule applies consistently.
+
+Tests: ``tests/test_browser_tab_layout.py`` (15 tests) covers:
+every preserved id, tab wrapper + h1, all onclick handlers
+present, scoped-CSS discipline, palette vars scoped inside the
+tab, section badges advertise endpoints, result containers use
+the scoped class, no inline widths on control rows (regression
+guard), URL tools have helpful tooltips.
+
+Suite: **1673 passed** (was 1658, +15 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-06-browser.html`` -- fully rewritten:
+  scoped ``<style>`` with palette + layout, section badges,
+  ``.br-row`` / ``.br-hint`` / ``.br-result`` classes, tooltips.
+* ``tests/test_browser_tab_layout.py`` (new) -- 15 tests
+
 ## v4.26.0 - 2026-07-17
 
 ### Terminal tab redesign -- scoped palette + unified toolbar in Audit style

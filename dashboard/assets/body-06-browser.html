@@ -1,24 +1,77 @@
 <div class="tab" id="tab-browser">
+<style>
+  /* Browser tab -- scoped to #tab-browser so nothing leaks into
+     the shared sheet (v4.0.x lesson). Redesign matches the
+     Audit / Overview / Proposals / Terminal visual language:
+     scoped palette, toolbar-style flex rows, uniform section
+     headers, section-badges advertising each card's purpose.
+     Every existing id preserved so 09-*, 09b-*, 09c-*, 09d-*.js
+     loaders keep working unchanged. */
+  #tab-browser{
+    --br-tint-green:#00d67222;
+    --br-tint-blue:#4fc3f733;
+    --br-tint-purple:#53348333;
+    --br-tint-orange:#ff980033;
+    --br-tint-gray:#88888833;
+  }
+  #tab-browser h2{display:flex;align-items:center;gap:8px;margin:0 0 8px 0;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-browser h2 .section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--br-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  /* Two horizontal control rows, one per card. */
+  #tab-browser .br-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  #tab-browser .br-row input[type=text],
+  #tab-browser .br-row input:not([type]){flex:1;min-width:240px;font-family:var(--mono)}
+  #tab-browser .br-row select{width:auto;min-width:80px}
+  #tab-browser .br-hint{font-size:11px;color:var(--text3);margin:6px 0 0 2px}
+  #tab-browser .br-hint code{background:var(--bg2);padding:1px 4px;border-radius:3px;font-size:11px}
+  /* Result panes -- one container per tool so partial output from
+     the previous tool stays visible while a new one runs. */
+  #tab-browser .br-result{margin-top:8px}
+  #tab-browser .br-result:empty{display:none}
+  /* Card spacing tightened -- redesign compresses vertical gaps
+     so the two cards fit on one screen without scrolling on
+     typical laptop resolutions. */
+  #tab-browser .card{margin-bottom:10px}
+</style>
 <h1>Browser</h1>
+
+<!-- Search card: /v1/browser/search -->
 <div class="card">
-<h2>Search</h2>
-<div class="row"><input id="searchQuery" placeholder="Search query..." style="flex:1">
-<select id="searchCount" style="width:80px"><option value="5">5</option><option value="10">10</option><option value="15">15</option></select>
-<button onclick="browserSearch()">Search</button></div>
+  <h2>Search <span class="section-badge">/v1/browser/search</span></h2>
+  <div class="br-row">
+    <input id="searchQuery" type="text" placeholder="Search query...">
+    <select id="searchCount" title="Number of results">
+      <option value="5">5 results</option>
+      <option value="10">10 results</option>
+      <option value="15">15 results</option>
+    </select>
+    <button onclick="browserSearch()">Search</button>
+  </div>
+  <div class="br-hint">Web search via the configured provider. Returns a
+    ranked list; each result links straight through.</div>
 </div>
-<div id="searchResults"></div>
-<div class="card" style="margin-top:12px">
-<h2>URL Tools</h2>
-<div class="row"><input id="readUrl" placeholder="https://example.com" style="flex:1">
-<button onclick="browserRead()">Read</button>
-<button class="warning" onclick="browserDump()">Dump</button>
-<button class="info" onclick="browserFetch()">Fetch</button>
-<button onclick="browserHead()">HEAD</button>
-<button class="success" onclick="browserScreenshot()">Screenshot</button></div>
+<div id="searchResults" class="br-result"></div>
+
+<!-- URL tools card: read / dump / fetch / head / screenshot all take
+     the same URL from #readUrl -- one input, five verbs. -->
+<div class="card">
+  <h2>URL Tools <span class="section-badge">read · dump · fetch · head · shot</span></h2>
+  <div class="br-row">
+    <input id="readUrl" type="text" placeholder="https://example.com">
+    <button onclick="browserRead()" title="Extract readable text (Mozilla Readability)">Read</button>
+    <button class="warning" onclick="browserDump()" title="Full DOM dump">Dump</button>
+    <button class="info" onclick="browserFetch()" title="Raw HTTP GET (fetch API)">Fetch</button>
+    <button onclick="browserHead()" title="HTTP HEAD -- headers only">HEAD</button>
+    <button class="success" onclick="browserScreenshot()" title="Full-page screenshot via /v1/browser/shot">Screenshot</button>
+  </div>
+  <div class="br-hint">All verbs hit the same URL from the input. Results
+    render below -- each output area is independent so a prior tool's
+    result stays visible while a new one runs.</div>
 </div>
-<div id="readResult" style="margin-top:8px"></div>
-<div id="dumpResult" style="margin-top:8px"></div>
-<div id="headResult" style="margin-top:8px"></div>
+
+<div id="readResult" class="br-result"></div>
+<div id="dumpResult" class="br-result"></div>
+<div id="headResult" class="br-result"></div>
+
 </div>
 
 <!-- ==================== REPORTS ==================== -->
