@@ -175,6 +175,13 @@ async function refreshOverview() {
     // Refresh control overview card
     refreshControlPanel();
 
+    // v4.7.0: ZeroTier peers card. Fail-soft: the loader hides
+    // itself when the endpoint is unreachable or the bridge has
+    // no ZeroTier, so hosts without ZT see nothing.
+    if (typeof refreshZtPeers === "function") {
+      refreshZtPeers().catch(() => {});
+    }
+
   } catch(e) {
     document.getElementById("pingDot").className = "ping err";
     document.getElementById("pingText").textContent = "Error";

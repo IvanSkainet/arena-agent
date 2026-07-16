@@ -1,3 +1,132 @@
+\n## v4.7.0 - 2026-07-16
+
+### Добавлено - Overview: карточка ZeroTier peers (визуализация /v1/zerotier/peers)
+
+Работа v4.4.0 / v4.5.0 положила богатый per-peer classifier за
+``GET /v1/zerotier/peers``, но Dashboard всё ещё показывал только
+одну строку про ZeroTier ("Active Provider: zerotier"). Теперь
+Overview tab показывает нормальную картину состояния overlay:
+
+* **Inline SVG donut** в ZT-палитре (direct=green, relay=orange,
+  tunneled=red, root=purple, none=grey), с общим количеством
+  peer'ов в центре.
+* **Легенда** со списком присутствующих ``path_kind`` — count +
+  процент.
+* **Summary-полоса**: LEAF count, direct ratio, средняя LEAF
+  latency и v4.5.0-разбивка ``leaf_relay_planet`` +
+  ``leaf_relay_tcp_infra`` — оператор сразу видит через что идут
+  relayed peer'ы (PLANET или TCP-relay инфраструктура).
+* **Optional hint** ниже — рендерится только когда API его
+  вернул, использует общую ``.zt-hint`` панель с существующей
+  surface-info палитрой.
+* **Manual refresh** в заголовке; карточка также обновляется
+  на каждом Overview tick.
+
+Card **скрыта по умолчанию** и показывается только когда
+``/v1/zerotier/peers`` вернул ``installed: true`` с валидным
+summary. Хосты без ZeroTier (Windows без клиента, macOS без
+приложения, Linux где daemon не запущен) не видят ничего
+лишнего на Overview — ни error-card, ни пустого donut'а.
+
+Та же дисциплина containment'а что в v4.6.0 Audit-tab polish:
+
+* ``dashboard.css`` byte-identical к v4.6.0 (109 строк, baseline).
+* Каждое правило карточки scope'нуто как
+  ``#tab-overview #ztPeersCard...`` в ``<style>`` блоке внутри
+  ``body-01-overview.html``.
+* Цвета через shared-палитру: ``var(--green)`` / ``var(--orange)``
+  / ``var(--red)`` / ``var(--purple)`` / ``var(--text3)``. Ни
+  одного hex literal inline
+  (``test_no_hardcoded_theme_colors`` остаётся зелёным).
+* Loader fail-soft: любая ошибка от ``api("/v1/zerotier/peers")``
+  или отсутствие ``.summary`` — молча скрывает карточку, чтобы
+  transient bridge hiccup не уронил весь Overview refresh cycle.
+  Overview вызывает ``refreshZtPeers().catch(() => {})``.
+
+### Файлы
+
+* НОВЫЙ ``dashboard/assets/04b-zt-peers.js`` (185 строк) —
+  ``refreshZtPeers()`` renderer + private-хелперы
+  (``__ztRenderDonut`` / ``__ztRenderLegend`` /
+  ``__ztRenderStats`` / ``__ztRenderMeta`` /
+  ``__ztHideCard`` / ``__ztShowCard``) + palette-константы.
+* ИЗМЕНЁН ``dashboard/assets/body-01-overview.html`` — добавлена
+  разметка карточки (header + card + SVG placeholder +
+  legend/stats контейнеры + hint + meta) с scoped ``<style>``.
+* ИЗМЕНЁН ``dashboard/assets/04-overview.js`` — вызывает
+  ``refreshZtPeers()`` из ``refreshOverview()`` под guard'ом
+  ``typeof === "function"``, чтобы старые сборки без нового
+  файла продолжали грузиться.
+* Manifest автогенерится из ``dashboard/assets/`` на bridge'е;
+  ``04b-zt-peers.js`` встаёт между ``04-overview.js`` и
+  ``05-terminal-*`` по префикс-сортировке. Правки manifest не
+  нужны.
+
+### Техника SVG donut'а
+
+Chart использует inline SVG с фиксированным
+``viewBox="0 0 42 42"`` и ``r="15.9155"``. Такой радиус даёт
+circumference = 100, так что ``stroke-dasharray="pct 100-pct"``
+рендерит slice ровно на ``pct`` процентов. Slices — concentric
+``<circle>`` элементы, каждый rotated -90° чтобы 0% начинался
+в 12 часов, с ``stroke-dashoffset`` отслеживающим накопительный
+offset. Результат — чёткий donut без chart-библиотеки и без
+трогания ``dashboard.css``.
+
+### Тесты
+
+1221 -> 1234 passed (+13 в ``tests/test_overview_zt_peers_card.py``):
+
+* Body имеет каждый id который читает JS (и наоборот)
+* Card стартует скрытой через ``display:none`` scoped на
+  ``#tab-overview #ztPeersCard``; loader тогглит ``on`` class
+  а не трогает ``style.display`` напрямую
+* Manual refresh button wired на ``refreshZtPeers()``
+* JS экспортирует ``refreshZtPeers`` как global
+* Правильный endpoint (``/v1/zerotier/peers``)
+* Fail-soft hide на error и на ``installed === false``
+* Палитра покрывает каждый ``path_kind`` (direct / relay /
+  tunneled / root / none)
+* Summary читает v4.5.0-поля (``leaf_relay_planet`` /
+  ``leaf_relay_tcp_infra``, ``direct_ratio``,
+  ``leaf_latency_ms_avg``)
+* Ни одной unescaped ``+ (data|d|e).<field> +`` в innerHTML
+  строках
+* Overview cycle вызывает ZT peers loader внутри
+  ``typeof refreshZtPeers === "function"`` guard'а с
+  ``.catch`` wrapper'ом
+* ``dashboard.css`` не тронут (нет ``zt-*`` / ``ztPeers*`` /
+  ``ztDonut`` селекторов)
+* ZT peers стили scope'нуты на ``#tab-overview`` (комментарии и
+  ``@keyframes`` exempt)
+* Donut использует ``r=15.9155`` трюк — slice-математика
+  остаётся литеральными процентами
+
+Full suite: 1234 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.7.0 через ZeroTier overlay. Overview рендерит
+карточку только когда ZT присутствует (bridge host: да;
+не-ZT VM в том же тестовом batch — нет). Card показывает
+текущую 6-peer топологию (4 PLANET root'а + 2 relayed LEAF
+через tcp-infra, matches v4.5.0 classifier); hint читает
+"Every LEAF peer is routed through ZeroTier's TCP-relay
+infrastructure..." — та же формулировка что raw API response.
+
+### Не включено
+
+* Tailscale peer donut. Tailscale отдаёт свою структуру
+  ``tailscale status --json`` и заслуживает отдельной карточки,
+  а не общей. Отложено до момента когда bridge получит
+  ``tailscale_peers`` companion к ``zerotier_peers``.
+* Sparkline direct-ratio по времени. Требует небольшой in-browser
+  ring buffer или bridge-side timeseries; не срочно.
+* Click-through в per-peer detail modal. Audit tab уже даёт
+  per-request-id detail; если операторы попросят per-peer
+  history view — добавим.
+
 \n## v4.6.0 - 2026-07-16
 
 ### Изменено - Audit tab: полный polish (фильтры, поиск, пагинация, expand, auto-refresh)

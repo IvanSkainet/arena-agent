@@ -35,6 +35,34 @@
 <span id="tsFunnelUrl" class="mono" style="display:none">--</span>
 </div>
 
+<!-- v4.7.0: ZeroTier peers card. Hidden by default; the loader shows it
+     only when the bridge reports a working ZeroTier backend (installed
+     and reachable). All styling is scoped inline / via IDs so nothing
+     leaks into dashboard.css. -->
+<style>
+  #tab-overview #ztPeersCard{display:none}
+  #tab-overview #ztPeersCard.on{display:block}
+  #tab-overview #ztPeersCard .zt-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  #tab-overview #ztPeersCard .zt-donut{width:96px;height:96px;flex-shrink:0}
+  #tab-overview #ztPeersCard .zt-legend{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--text2);min-width:150px}
+  #tab-overview #ztPeersCard .zt-legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:middle}
+  #tab-overview #ztPeersCard .zt-hint{font-size:12px;color:var(--text2);padding:8px;background:var(--surface-info);border-radius:6px;line-height:1.4}
+  #tab-overview #ztPeersCard .zt-meta{font-size:11px;color:var(--text3);margin-top:6px}
+  #tab-overview #ztPeersCard .zt-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px}
+  #tab-overview #ztPeersCard .zt-stats .item{color:var(--text2)}
+  #tab-overview #ztPeersCard .zt-stats .item b{color:var(--text);font-weight:600}
+</style>
+<h2 id="ztPeersHeader" style="display:none">ZeroTier Peers <button class="sm" onclick="refreshZtPeers()" style="margin-left:8px">⟳ Refresh</button></h2>
+<div class="card" id="ztPeersCard">
+  <div class="zt-row">
+    <svg class="zt-donut" id="ztDonut" viewBox="0 0 42 42" role="img" aria-label="ZeroTier peer path distribution"></svg>
+    <div class="zt-legend" id="ztLegend"></div>
+    <div class="zt-stats" id="ztStats" style="margin-left:auto"></div>
+  </div>
+  <div class="zt-hint" id="ztHint" style="display:none"></div>
+  <div class="zt-meta" id="ztMeta"></div>
+</div>
+
 <h2>Agent Control <span class="badge gray" id="overviewControlBadge">checking...</span></h2>
 <div class="card" id="controlOverviewCard">
 <div class="row"><span style="font-size:12px;font-weight:600;width:120px">Control State</span><span id="overviewControlState" class="badge ok">Active</span></div>
