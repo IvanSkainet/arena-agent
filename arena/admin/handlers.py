@@ -74,6 +74,9 @@ class AdminHandlers:
     proposal_submit: object
     proposal_status: object
     proposal_list: object
+    # v4.38.0: unified autostart control (all transports).
+    autostart_get: object
+    autostart_set: object
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
@@ -101,6 +104,23 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ctx.audit({"type": "token_regenerated", "files": result.get("written_to", [])})
         return ctx.cors_json_response(result)
 
+    def _autostart_persist(transport: str, action: str, ok: bool, port: int,
+                           result: dict) -> None:
+        """v4.38.0: shared per-verb marker persistence (best-effort)."""
+        if not ok:
+            return
+        try:
+            from arena.admin import autostart as _autostart
+            if action == "start":
+                _autostart.enable(transport, ctx.root_agent, port=port)
+                result["autostart_marked"] = True
+            elif action == "stop":
+                result["autostart_cleared"] = _autostart.disable(
+                    transport, ctx.root_agent)
+        except Exception:
+            result["autostart_marked" if action == "start"
+                   else "autostart_cleared"] = False
+
     @authed(ctx)
     async def handle_v1_tailscale_funnel(request: web.Request) -> web.Response:
         action = request.match_info.get("action", "status")
@@ -108,6 +128,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         port = cfg.get("port", 8765)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, tailscale_funnel_action, action, port)
+        _autostart_persist("tailscale", action, result.get("ok"), port, result)
         ctx.audit({"type": "tailscale_funnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -126,25 +147,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 subprocess_kwargs=ctx.subprocess_kwargs,
             ),
         )
-        # v4.22.1: persist the autostart intent so a bridge restart
-        # re-establishes the tunnel automatically. Only successful
-        # start/stop calls update the marker so a failed start
-        # doesn't leave a stale intent behind.
-        if action == "start" and result.get("ok"):
-            try:
-                from arena.admin.cloudflared_autostart import mark_autostart
-                mark_autostart(ctx.root_agent, port=port)
-                result["autostart_marked"] = True
-            except Exception:
-                # Marker is best-effort — never block a successful
-                # start on a filesystem hiccup.
-                result["autostart_marked"] = False
-        elif action == "stop" and result.get("ok"):
-            try:
-                from arena.admin.cloudflared_autostart import unmark_autostart
-                result["autostart_cleared"] = unmark_autostart(ctx.root_agent)
-            except Exception:
-                result["autostart_cleared"] = False
+        # v4.22.1 + v4.38.0: unified marker persistence.
+        _autostart_persist("cloudflared", action, result.get("ok"), port, result)
         ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
@@ -154,16 +158,11 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         transport (v4.33.0). Same start / stop / status shape as
         cloudflared so the dashboard can treat them as siblings.
 
-        Autostart persistence is intentionally not wired in this
-        release; adding a sibling ``.ngrok_autostart`` marker
-        follows in a subsequent release, once we've observed
-        ngrok's behaviour across a few live restarts (same
-        cadence cloudflared followed: wire first, autostart
-        second)."""
-        # Guard: if ngrok_status_sync isn't wired (older ctx or a
-        # test context predating v4.33.0), fall back to a local
-        # import so the endpoint still works. Bridge boot never
-        # blocks on ngrok even when unused.
+        v4.38.0: autostart persistence added -- mirrors the
+        cloudflared handler's v4.22.1 pattern. Marker at
+        ``ROOT_AGENT/.ngrok_autostart`` created on successful
+        start, removed on successful stop.
+        """
         action = request.match_info.get("action", "status")
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
@@ -178,8 +177,17 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 subprocess_kwargs=ctx.subprocess_kwargs,
             ),
         )
+        # v4.38.0: unified marker persistence -- same helper as CF/TS.
+        _autostart_persist("ngrok", action, result.get("ok"), port, result)
         ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
+
+    # v4.38.0: unified autostart handlers live in a sibling module
+    # to keep this file under the runtime line threshold.
+    from arena.admin.handlers_autostart import make_autostart_handlers
+    _autostart_h = make_autostart_handlers(ctx)
+    handle_v1_autostart_get = _autostart_h["autostart_get"]
+    handle_v1_autostart_set = _autostart_h["autostart_set"]
 
     @authed(ctx)
     async def handle_v1_zerotier_status(request: web.Request) -> web.Response:
@@ -575,4 +583,6 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         proposal_submit=_prop["proposal_submit"],
         proposal_status=_prop["proposal_status"],
         proposal_list=_prop["proposal_list"],
+        autostart_get=handle_v1_autostart_get,
+        autostart_set=handle_v1_autostart_set,
     )

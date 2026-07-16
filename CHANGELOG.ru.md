@@ -1,3 +1,73 @@
+\n## v4.38.0 - 2026-07-17
+
+### Unified autostart -- opt-in per-transport, UI control included
+
+Расширяет v4.22.1 cloudflared autostart-marker pattern на все
+транспорты с start/stop verb (tailscale, cloudflared, ngrok).
+ZeroTier deliberately excluded -- membership long-lived across
+restarts, per-bridge autostart marker для ZT смысла не имеет.
+
+Ask Ивана: "автостарт нужно добавить возможность отключить в
+настройках. Причём для всех транспортов." Delivered тут как
+per-transport checkbox'ы на Transports tab (v4.37.0).
+
+Новый unified module: ``arena/admin/autostart.py``.
+
+Registered transports: ``("tailscale", "cloudflared", "ngrok")``.
+
+Public API: ``is_enabled``, ``enable``, ``disable``,
+``state_snapshot``, ``marker_path``.
+
+Marker-convention: каждый транспорт получает свой файл
+``ROOT_AGENT/.<transport>_autostart``. Env-override:
+``ARENA_<TRANSPORT>_AUTOSTART`` (truthy: ``1`` / ``true`` /
+``yes`` / ``on``, case-insensitive).
+
+Back-compat: ``arena/admin/cloudflared_autostart.py`` теперь
+thin re-export wrapper вокруг unified module. Все v4.22.1
+signature keep working; 30-тестовый suite v4.22.1 проходит
+untouched.
+
+Новые HTTP endpoints:
+    GET  /v1/autostart               -- snapshot всех транспортов
+    POST /v1/autostart/{transport}   -- toggle одного
+
+Guardrails: unknown transport -> 400 с list of registered names;
+malformed body -> defaults to enabled:false (safe -- bad body не
+может accidentally enable); env-override active -> response
+включает ``env_override_warning``.
+
+Handlers moved в sibling module
+``arena/admin/handlers_autostart.py`` чтобы ``handlers.py``
+оставался под 600-line runtime threshold. Marker persistence в
+per-transport start/stop handlers consolidated behind inline
+``_autostart_persist`` helper.
+
+Lifecycle hook: ``arena/lifecycle.py::on_startup`` теперь fires
+autostart для каждого wired транспорта (раньше только
+cloudflared). ``LifecycleContext`` gained ``ngrok_autostart`` +
+``tailscale_autostart`` optional callables.
+
+Transports tab UI:
+
+* Каждая из трёх verb-capable карточек получает
+  ``tr-autostart`` row: labelled checkbox + hidden env-pill.
+* ``loadTransports()`` параллельно fetch'ит ``/v1/autostart``.
+* ``transportAutostartToggle`` POST'ит изменение, re-renders
+  box из fresh state (rollbacks на failure), surfaces
+  ``env_override_warning`` inline.
+* Когда ``env_override`` true, checkbox становится ``disabled``
+  (read-only) + env-pill загорается оранжевым.
+* ZeroTier deliberately does NOT get autostart row.
+
+Тесты (66 новых): ``test_autostart_unified.py`` (24),
+``test_autostart_handlers.py`` (11),
+``test_transports_autostart_ui.py`` (15).
+
+Suite: **1969 passed** (было 1903, +66 новых), один baseline flaky.
+
+Файлы: см. English CHANGELOG.
+
 \n## v4.37.0 - 2026-07-17
 
 ### Unified Transports tab -- одно место, четыре карточки, один refresh

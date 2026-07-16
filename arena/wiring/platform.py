@@ -134,6 +134,9 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
         # v4.33.0: ngrok as fourth transport.
         "handle_v1_ngrok_tunnel": handlers.ngrok_tunnel,
+        # v4.38.0: unified autostart endpoints.
+        "handle_v1_autostart_get": handlers.autostart_get,
+        "handle_v1_autostart_set": handlers.autostart_set,
         "handle_v1_zerotier_status": handlers.zerotier_status,
         "handle_v1_zerotier_network": handlers.zerotier_network,
         # v4.4.0: per-peer classification (direct / relay / root / tunneled).

@@ -39,6 +39,13 @@ class LifecycleContext:
     # up never blocks bridge boot. When None (the default), no
     # autostart is attempted -- preserves pre-v4.22.1 behaviour.
     cloudflared_autostart: Callable[[], Any] | None = None
+    # v4.38.0: sibling autostart hooks for ngrok + tailscale.
+    # Same shape as cloudflared_autostart -- callable returning
+    # an AutostartOutcome-like object (attempted / ok / url /
+    # reason / duration_sec). Optional so a wiring context built
+    # by older tests keeps working without touching every fixture.
+    ngrok_autostart: Callable[[], Any] | None = None
+    tailscale_autostart: Callable[[], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -75,30 +82,36 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                 ctx.log_debug("[Desktop] Could not start ydotoold (non-fatal): %s", e)
         ctx.log_info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", ctx.version)
 
-        # v4.22.1: fire cloudflared autostart in the background.
-        # Uses run_in_executor so a slow tunnel handshake never
-        # blocks the aiohttp event loop from accepting connections.
-        # The hook itself is a no-op when neither the persistent
-        # marker nor ARENA_CLOUDFLARED_AUTOSTART is set, so a
-        # fresh install pays zero cost.
-        if ctx.cloudflared_autostart is not None:
-            async def _autostart_bg():
+        # v4.22.1 + v4.38.0: fire autostart hooks in the background
+        # for every wired transport. Each hook is a no-op when its
+        # marker + env are both unset, so a fresh install pays zero
+        # cost. run_in_executor keeps the aiohttp event loop free.
+        autostart_hooks = [
+            ("Cloudflared", ctx.cloudflared_autostart),
+            ("Ngrok",       ctx.ngrok_autostart),
+            ("Tailscale",   ctx.tailscale_autostart),
+        ]
+        for label, hook in autostart_hooks:
+            if hook is None:
+                continue
+            async def _autostart_bg(_label=label, _hook=hook):
                 try:
                     outcome = await asyncio.get_running_loop().run_in_executor(
-                        ctx.executor, ctx.cloudflared_autostart)
+                        ctx.executor, _hook)
                     if outcome is not None and getattr(outcome, "attempted", False):
                         if outcome.ok:
                             ctx.log_info(
-                                "[Cloudflared] Autostart OK in %.2fs -- %s",
-                                outcome.duration_sec, outcome.url or "(no url yet)",
+                                "[%s] Autostart OK in %.2fs -- %s",
+                                _label, outcome.duration_sec,
+                                outcome.url or "(no url yet)",
                             )
                         else:
                             ctx.log_info(
-                                "[Cloudflared] Autostart FAILED: %s (%.2fs)",
-                                outcome.reason, outcome.duration_sec,
+                                "[%s] Autostart FAILED: %s (%.2fs)",
+                                _label, outcome.reason, outcome.duration_sec,
                             )
                 except Exception as e:  # noqa: BLE001
-                    ctx.log_debug("[Cloudflared] Autostart raised: %s", e)
+                    ctx.log_debug("[%s] Autostart raised: %s", _label, e)
             asyncio.ensure_future(_autostart_bg())
 
     async def on_cleanup(app: web.Application):

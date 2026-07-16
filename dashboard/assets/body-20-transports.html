@@ -53,6 +53,15 @@
   /* Action buttons row */
   #tab-transports .tr-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
   #tab-transports .tr-actions button{font-size:11px;padding:4px 10px}
+  /* Autostart row (v4.38.0) -- one checkbox per transport, plus
+     a small "env" pill when ARENA_<T>_AUTOSTART is set from the
+     service unit (checkbox is then forced-on + read-only). */
+  #tab-transports .tr-autostart{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px dashed var(--accent);font-size:11px;color:var(--text2)}
+  #tab-transports .tr-autostart label{display:inline-flex;align-items:center;gap:4px;cursor:pointer}
+  #tab-transports .tr-autostart input[type=checkbox]{width:auto;margin:0}
+  #tab-transports .tr-autostart .env-pill{background:var(--tr-tint-orange);color:var(--warning-text);padding:1px 6px;border-radius:8px;font-family:var(--mono);font-size:10px;display:none}
+  #tab-transports .tr-autostart .env-pill.on{display:inline-block}
+  #tab-transports .tr-autostart .marker-path{color:var(--text3);font-family:var(--mono);font-size:10px;margin-left:auto}
   /* Hint / error text under card */
   #tab-transports .tr-hint{font-size:11px;color:var(--text2);margin-top:8px;padding:6px 8px;background:var(--surface-info);border-radius:4px;line-height:1.4}
   #tab-transports .tr-hint.err{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
@@ -90,6 +99,10 @@
       <button class="danger" onclick="transportStop('tailscale')">Stop</button>
       <button onclick="transportCopyUrl('tailscale')">Copy URL</button>
     </div>
+    <div class="tr-autostart">
+      <label><input type="checkbox" id="tr-autostart-tailscale" onchange="transportAutostartToggle('tailscale', this.checked)"> auto-start on bridge restart</label>
+      <span class="env-pill" id="tr-env-tailscale" title="ARENA_TAILSCALE_AUTOSTART is set in the service unit and forces autostart on. Unset it there to disable.">env-override</span>
+    </div>
     <div class="tr-hint" id="tr-hint-tailscale" style="display:none"></div>
   </div>
 
@@ -117,6 +130,10 @@
       <button class="danger" onclick="transportStop('cloudflared')">Stop</button>
       <button onclick="transportCopyUrl('cloudflared')">Copy URL</button>
     </div>
+    <div class="tr-autostart">
+      <label><input type="checkbox" id="tr-autostart-cloudflared" onchange="transportAutostartToggle('cloudflared', this.checked)"> auto-start on bridge restart</label>
+      <span class="env-pill" id="tr-env-cloudflared" title="ARENA_CLOUDFLARED_AUTOSTART is set in the service unit and forces autostart on. Unset it there to disable.">env-override</span>
+    </div>
     <div class="tr-hint" id="tr-hint-cloudflared" style="display:none"></div>
     <pre class="tr-log" id="tr-log-cloudflared"></pre>
   </div>
@@ -131,6 +148,10 @@
       <button class="info" onclick="transportStart('ngrok')">Start</button>
       <button class="danger" onclick="transportStop('ngrok')">Stop</button>
       <button onclick="transportCopyUrl('ngrok')">Copy URL</button>
+    </div>
+    <div class="tr-autostart">
+      <label><input type="checkbox" id="tr-autostart-ngrok" onchange="transportAutostartToggle('ngrok', this.checked)"> auto-start on bridge restart</label>
+      <span class="env-pill" id="tr-env-ngrok" title="ARENA_NGROK_AUTOSTART is set in the service unit and forces autostart on. Unset it there to disable.">env-override</span>
     </div>
     <div class="tr-hint" id="tr-hint-ngrok" style="display:none"></div>
     <pre class="tr-log" id="tr-log-ngrok"></pre>

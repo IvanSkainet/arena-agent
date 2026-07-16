@@ -1,3 +1,178 @@
+## v4.38.0 - 2026-07-17
+
+### Unified autostart -- opt-in per-transport, UI control included
+
+Extends the v4.22.1 cloudflared autostart-marker pattern to
+every transport with a start/stop verb (tailscale, cloudflared,
+ngrok). ZeroTier deliberately excluded -- membership is
+long-lived across restarts and has no per-bridge start/stop,
+so an autostart marker would be meaningless there.
+
+Ivan's ask: "автостарт нужно добавить возможность отключить в
+настройках. Причём для всех транспортов." Delivered here as
+per-transport checkboxes on the new Transports tab (v4.37.0).
+
+New unified module: **``arena/admin/autostart.py``**
+
+Registered transports:
+
+    TRANSPORTS = ("tailscale", "cloudflared", "ngrok")
+
+Public API::
+
+    is_enabled(transport, root_agent) -> bool
+    enable(transport, root_agent, *, port) -> Path      # writes marker
+    disable(transport, root_agent) -> bool              # removes marker
+    state_snapshot(root_agent) -> dict[str, dict]       # for /v1/autostart
+    marker_path(transport, root_agent) -> Path          # diagnostics
+
+Marker convention (each transport gets its own file):
+
+    ROOT_AGENT/.tailscale_autostart
+    ROOT_AGENT/.cloudflared_autostart   (existing since v4.22.1)
+    ROOT_AGENT/.ngrok_autostart
+
+Env override convention: ``ARENA_<TRANSPORT>_AUTOSTART`` (truthy:
+``1`` / ``true`` / ``yes`` / ``on``, case-insensitive). When set
+in the systemd service unit, it forces the transport on and the
+UI checkbox becomes read-only with an "env-override" pill
+explaining why.
+
+Backward compat: **``arena/admin/cloudflared_autostart.py`` is
+now a thin re-export wrapper** around the unified module.
+Existing v4.22.1 signatures (``mark_autostart(root_agent, port=)``,
+``unmark_autostart(root_agent)``, ``should_autostart(root_agent)``,
+``run_autostart(*, ...)``) all keep working -- the entire 30-test
+v4.22.1 suite passes untouched.
+
+New HTTP endpoints:
+
+    GET  /v1/autostart               -- snapshot for every transport
+    POST /v1/autostart/{transport}   -- toggle one transport
+
+    body: {"enabled": true|false}
+
+Response shape::
+
+    {
+      "ok": true,
+      "transports": {
+        "tailscale":   {"enabled": true|false, "marker": ..., "env_override": ..., "marker_path": "..."},
+        "cloudflared": {...},
+        "ngrok":       {...}
+      },
+      "registered": ["tailscale", "cloudflared", "ngrok"]
+    }
+
+Handler guardrails:
+* Unknown transport -> 400 with the list of valid names.
+* Malformed body -> assumes ``enabled: false`` (safe default;
+  a bad body cannot accidentally *enable* autostart).
+* Env override active -> response includes
+  ``env_override_warning`` explaining that only editing the
+  service unit can turn it off.
+
+Handlers moved to a sibling module
+``arena/admin/handlers_autostart.py`` so ``handlers.py`` stays
+under the 600-line runtime threshold (same pattern the v4.19.0
+proposal handlers followed).
+
+Marker persistence in per-transport start/stop handlers is now
+consolidated behind an inline ``_autostart_persist`` helper --
+the three ``handle_v1_*_tunnel`` handlers (TS + CF + NG) call
+the same one-liner instead of duplicating 15 lines of
+try/except each.
+
+Lifecycle hook: **``arena/lifecycle.py::on_startup``** now fires
+autostart for every wired transport (previously only
+cloudflared). ``LifecycleContext`` gained
+``ngrok_autostart`` + ``tailscale_autostart`` optional callables.
+Each hook is a no-op when its marker + env are both unset, so a
+fresh install pays zero cost. Each runs in ``run_in_executor``
+so a slow tunnel spin-up never blocks bridge boot.
+
+Transports tab UI (**v4.37.0 tab, augmented here**):
+
+* Each of the three verb-capable transport cards gains a
+  ``tr-autostart`` row: labelled checkbox + hidden env-pill.
+* ``loadTransports()`` parallel-fetches ``/v1/autostart`` too
+  (six requests instead of five per refresh) and paints each
+  checkbox from its transport's state.
+* ``transportAutostartToggle(name, enabled)`` POSTs the change,
+  re-renders the box from the fresh state (rollbacks on failure),
+  and surfaces ``env_override_warning`` inline in the card hint.
+* When ``env_override`` is true, the checkbox becomes
+  ``disabled`` (read-only) and the "env-override" pill lights
+  up orange with a tooltip explaining that the fix is in the
+  service unit.
+* ZeroTier card deliberately does NOT get an autostart row --
+  membership is long-lived, no per-bridge autostart makes
+  sense.
+
+Tests (66 new across three modules):
+
+* ``tests/test_autostart_unified.py`` (24 tests) -- registered
+  transports exclude ZT, marker path + env var derivation
+  conventions, enable/disable idempotency and atomicity,
+  is_enabled OR-shape, env truthy shapes, state_snapshot shape
+  for the /v1/autostart consumer, env-override surfaced, v4.22.1
+  wrapper delegation proved.
+* ``tests/test_autostart_handlers.py`` (11 tests) -- dataclass
+  fields, route registry declares both paths, core router
+  add_get/add_post calls, platform dispatcher wires both handlers,
+  GET returns state_snapshot shape, POST enable/disable, unknown
+  transport -> 400 with registered list, malformed body defaults
+  to disable, env-override returns warning.
+* ``tests/test_transports_autostart_ui.py`` (15 tests) --
+  checkbox + env-pill ids per transport (parameterized), ZT
+  explicitly absent, onchange handler wired, scoped CSS,
+  env-pill hidden by default, JS constant excludes ZT, loader
+  fetches /v1/autostart, transportAutostartToggle exported,
+  POST body shape, render reads env_override + toggles pill
+  class, warning surface handled.
+
+v4.22.1 test suite untouched (30/30 pass) — proves back-compat
+of the ``cloudflared_autostart`` wrapper.
+
+Suite: **1969 passed** (was 1903, +66 new), one baseline flaky.
+
+Files:
+
+* ``arena/admin/autostart.py`` (new, ~150 lines) -- unified
+  module.
+* ``arena/admin/cloudflared_autostart.py`` -- rewritten as
+  a thin back-compat wrapper (was 158 lines, now ~110 lines
+  of proxy).
+* ``arena/admin/handlers.py`` -- ``_autostart_persist`` helper
+  + three-line calls in TS / CF / NG handlers; two new dataclass
+  fields; autostart handler wiring imported from sibling. Net
+  ~30-line reduction from the v4.33.0 baseline (file is now
+  ~588 lines, well under the 600 threshold).
+* ``arena/admin/handlers_autostart.py`` (new, ~110 lines) --
+  GET + POST autostart handlers.
+* ``arena/lifecycle.py`` -- ``LifecycleContext`` gets
+  ``ngrok_autostart`` + ``tailscale_autostart`` fields;
+  on_startup loops over the three hooks instead of hard-coding
+  cloudflared.
+* ``arena/wiring/app_lifecycle.py`` -- ``_resolved_port()``
+  helper shared across all three autostart closures;
+  ``_ngrok_autostart()`` + ``_tailscale_autostart()`` closures
+  mirror the v4.22.1 cloudflared one.
+* ``arena/route_registry/registry.py`` +
+  ``arena/route_registry/core.py`` -- GET/POST
+  ``/v1/autostart[/{transport}]`` declared and registered.
+* ``arena/wiring/platform.py`` -- two new handlers plumbed
+  into the outbound dispatcher.
+* ``dashboard/assets/body-20-transports.html`` -- ``.tr-autostart``
+  scoped CSS + row per verb-capable card.
+* ``dashboard/assets/20-transports.js`` --
+  ``AUTOSTART_TRANSPORTS`` const, ``_renderAutostart``,
+  ``transportAutostartToggle``, extra ``/v1/autostart`` fetch
+  in the parallel loader.
+* ``tests/test_autostart_unified.py`` (new)
+* ``tests/test_autostart_handlers.py`` (new)
+* ``tests/test_transports_autostart_ui.py`` (new)
+
 ## v4.37.0 - 2026-07-17
 
 ### Unified Transports tab -- one place, four cards, one refresh

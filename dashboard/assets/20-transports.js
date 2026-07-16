@@ -43,6 +43,10 @@
   var _lastState = {};  // { transport: { active, url, log, ... } }
 
   var TRANSPORTS = ["tailscale", "zerotier", "cloudflared", "ngrok"];
+  // Transports that have a real autostart marker. ZeroTier
+  // absent by design -- membership is long-lived across bridge
+  // restarts, so there is nothing to autostart for it.
+  var AUTOSTART_TRANSPORTS = ["tailscale", "cloudflared", "ngrok"];
 
   function _q(id) { return document.getElementById(id); }
 
@@ -166,6 +170,65 @@
     }
   }
 
+  // v4.38.0: paint the autostart checkbox + env-override pill
+  // from the /v1/autostart snapshot. Called from loadTransports
+  // once per autostart-capable transport.
+  function _renderAutostart(name, state) {
+    var box = _q("tr-autostart-" + name);
+    var envPill = _q("tr-env-" + name);
+    if (!box) return;
+    var enabled = !!state.enabled;
+    var envOverride = !!state.env_override;
+    box.checked = enabled;
+    // env-override forces the checkbox on and makes it read-only.
+    // The user can't turn autostart off from the UI without
+    // unsetting the env var in the service unit.
+    box.disabled = envOverride;
+    if (envPill) {
+      if (envOverride) envPill.classList.add("on");
+      else envPill.classList.remove("on");
+    }
+  }
+
+  async function transportAutostartToggle(name, enabled) {
+    var box = _q("tr-autostart-" + name);
+    var hintEl = _q("tr-hint-" + name);
+    try {
+      var d = await window.api("/v1/autostart/" + name, {
+        method: "POST",
+        body: JSON.stringify({enabled: !!enabled}),
+      });
+      if (d && d.ok) {
+        // Re-render from the fresh state -- picks up env-override
+        // situations where the requested change silently didn't
+        // stick.
+        _renderAutostart(name, (d.state) || {});
+        if (d.env_override_warning && hintEl) {
+          hintEl.className = "tr-hint";
+          hintEl.textContent = d.env_override_warning;
+          hintEl.style.display = "";
+        }
+      } else {
+        // Rollback checkbox to what the server thinks is truth.
+        if (box) box.checked = !enabled;
+        if (hintEl) {
+          hintEl.className = "tr-hint err";
+          hintEl.textContent = "Autostart toggle failed: " +
+            _escape((d && d.error) || "unknown");
+          hintEl.style.display = "";
+        }
+      }
+    } catch (e) {
+      if (box) box.checked = !enabled;
+      if (hintEl) {
+        hintEl.className = "tr-hint err";
+        hintEl.textContent = "Network error: " + _escape(String(e && e.message || e));
+        hintEl.style.display = "";
+      }
+    }
+  }
+  window.transportAutostartToggle = transportAutostartToggle;
+
   async function loadTransports() {
     var t0 = performance.now();
     _pulseDot(false);
@@ -182,6 +245,8 @@
         window.api("/v1/cloudflared/tunnel/status"),
         window.api("/v1/ngrok/tunnel/status"),
         window.api("/v1/zerotier/status"),
+        // v4.38.0: unified autostart snapshot.
+        window.api("/v1/autostart"),
       ]);
       var cfg = results[0] || {};
       var urlByProv = {};
@@ -193,6 +258,8 @@
       var cfRaw = results[2] || {};
       var ngRaw = results[3] || {};
       var ztRaw = results[4] || {};
+      var autoRaw = results[5] || {};
+      var autoByTransport = (autoRaw && autoRaw.transports) || {};
 
       // Tailscale
       var tsSnap = {
@@ -238,6 +305,11 @@
       };
 
       TRANSPORTS.forEach(function (t) { _renderCard(t, _lastState[t]); });
+      // v4.38.0: paint per-transport autostart checkbox + env-pill
+      // for every transport that has a start/stop verb.
+      AUTOSTART_TRANSPORTS.forEach(function (t) {
+        _renderAutostart(t, autoByTransport[t] || {});
+      });
     } catch (e) {
       _lastError = String(e && e.message || e);
       _pulseDot(true);

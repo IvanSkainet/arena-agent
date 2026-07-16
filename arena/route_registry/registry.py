@@ -150,6 +150,9 @@ ROUTES: list[Route] = [
     # v4.33.0: ngrok as fourth transport.
     ('POST'  , '/v1/ngrok/tunnel/{action}'                       , 'handle_v1_ngrok_tunnel'                     , 'core', None),
     ('GET'   , '/v1/ngrok/tunnel/{action}'                       , 'handle_v1_ngrok_tunnel'                     , 'core', None),
+    # v4.38.0: unified autostart control across transports.
+    ('GET'   , '/v1/autostart'                                   , 'handle_v1_autostart_get'                    , 'core', None),
+    ('POST'  , '/v1/autostart/{transport}'                       , 'handle_v1_autostart_set'                    , 'core', None),
     ('GET'   , '/v1/zerotier/status'                             , 'handle_v1_zerotier_status'                  , 'core', None),
     # v4.4.0: per-peer classification -- direct / relay / root / tunneled.
     ('GET'   , '/v1/zerotier/peers'                              , 'handle_v1_zerotier_peers'                   , 'core', None),
