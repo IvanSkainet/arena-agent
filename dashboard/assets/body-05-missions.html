@@ -1,7 +1,62 @@
 <div class="tab" id="tab-missions">
+<style>
+  /* Missions tab -- scoped to #tab-missions (v4.0.x lesson).
+     Small tab: one list + a reload button. Redesign brings it
+     up to the shared visual language: scoped palette, toolbar
+     row matching Audit / Overview / Proposals / Terminal /
+     Browser, meta line, and consolidated table styling. The
+     single loader id (missionsTable) is preserved. */
+  #tab-missions{
+    --ms-tint-green:#00d67222;
+    --ms-tint-blue:#4fc3f733;
+    --ms-tint-gray:#88888833;
+  }
+  #tab-missions .ms-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-missions .ms-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-missions .ms-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-missions .ms-toolbar select{width:auto;min-width:80px}
+  #tab-missions .ms-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-missions .ms-meta .sep{margin:0 8px;color:var(--accent)}
+  #tab-missions .ms-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-missions .ms-refresh-dot.on{opacity:1;animation:ms-pulse 1.4s infinite}
+  #tab-missions .ms-refresh-dot.err{opacity:1;background:var(--red);animation:ms-pulse 1.4s infinite}
+  @keyframes ms-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  #tab-missions .ms-table{width:100%;table-layout:fixed}
+  #tab-missions .ms-table th.col-type{width:100px}
+  #tab-missions .ms-table th.col-size{width:100px}
+  #tab-missions .ms-table th.col-modified{width:180px}
+  #tab-missions .ms-table td{vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  #tab-missions .ms-table tr:hover td{background:var(--bg3)}
+  #tab-missions .ms-empty{padding:24px;text-align:center;color:var(--text2)}
+</style>
 <h1>Missions</h1>
-<button onclick="loadMissions()" style="margin-bottom:12px">Refresh</button>
-<table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th></tr></thead><tbody id="missionsTable"></tbody></table>
+
+<div class="ms-toolbar">
+  <button onclick="loadMissions()">Reload</button>
+  <label><input type="checkbox" id="missionsAuto"> auto-refresh <span class="ms-refresh-dot" id="missionsRefreshDot"></span></label>
+  <select id="missionsInterval" title="Auto-refresh interval">
+    <option value="15" selected>15s</option>
+    <option value="30">30s</option>
+    <option value="60">60s</option>
+    <option value="300">5m</option>
+  </select>
+</div>
+<div class="ms-meta" id="missionsMeta">Mission catalog from <code>/v1/mission/catalog</code>. Click Reload above or turn on auto-refresh.</div>
+
+<table class="ms-table">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th class="col-type">Type</th>
+      <th class="col-size">Size</th>
+      <th class="col-modified">Modified</th>
+    </tr>
+  </thead>
+  <tbody id="missionsTable">
+    <tr><td colspan="4" class="ms-empty">Loading… (or press Reload)</td></tr>
+  </tbody>
+</table>
+
 </div>
 
 <!-- ==================== BROWSER ==================== -->

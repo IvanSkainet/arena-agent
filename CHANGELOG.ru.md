@@ -1,3 +1,62 @@
+\n## v4.28.0 - 2026-07-17
+
+### Редизайн Missions tab -- toolbar + auto-refresh + scoped palette
+
+Missions была самой маленькой dashboard-вкладкой -- пять строк
+ad-hoc HTML с plain Refresh button и без scoped CSS. Этот
+релиз приводит её к тому же визуальному языку, что и остальные
+редизайнутые вкладки, и добавляет то, что теперь есть у всех
+остальных: auto-refresh toggle с пульсирующим dot-индикатором
+и meta line.
+
+Новое:
+
+* **Toolbar** с Reload button, auto-refresh checkbox, пульсирующей
+  dot, interval-селектором (15s / 30s / 60s / 5m). Опция 5 минут
+  добавлена, потому что missions обычно меняются на human-
+  timescale, а не на секунды.
+* **Meta line** совпадающая с Audit / Overview / Proposals /
+  Terminal / Browser: last-refresh time, load duration, mode
+  (manual/auto), last error если есть.
+* **Консолидированный scoped ``<style>``** с palette
+  (``--ms-tint-*``), toolbar layout, sized table columns
+  (``.col-type``, ``.col-size``, ``.col-modified``), row hover,
+  empty-state placeholder.
+* **Новый toolbar-модуль** ``08b-missions-toolbar.js`` -- IIFE
+  оборачивающий ``window.loadMissions`` тем же composition
+  паттерном, что установлен Overview toolbar. Оригинальный
+  loader (``08-missions.js``) не тронут; wrapper только
+  измеряет duration + обновляет meta + пульсирует dot. Экспозит
+  диагностический namespace ``__missionsToolbar`` (non-enumerable).
+
+Сохранение:
+
+* **Единственный существующий id (``missionsTable``) сохранён**
+  -- ``08-missions.js`` loader продолжает работать с ноль
+  JS-изменений.
+* **``loadMissions()`` handler wiring сохранён**, так что
+  sidebar registry onShow callback продолжает триггерить.
+
+Тесты: ``tests/test_missions_tab_layout.py`` (15 тестов):
+сохранённый id, новые toolbar ids, tab wrapper + h1, reload
+handler wired, scoped CSS дисциплина, palette scoped внутри
+tab, все четыре interval options присутствуют, column-width
+классы присутствуют, JS IIFE, оборачивает ``window.loadMissions``,
+нет hardcoded ``setInterval``-delays, экспозит
+``__missionsToolbar`` non-enumerably.
+
+Suite: **1688 passed** (было 1673, +15 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-05-missions.html`` -- переписан:
+  scoped ``<style>``, toolbar row, meta line, ``.ms-table``
+  с sized columns, empty-state placeholder.
+* ``dashboard/assets/08b-missions-toolbar.js`` (новый, 154
+  строки) -- IIFE-wrapper для ``window.loadMissions``, refresh
+  dot, meta line, interval timer, diagnostic namespace.
+* ``tests/test_missions_tab_layout.py`` (новый) -- 15 тестов
+
 \n## v4.27.0 - 2026-07-17
 
 ### Редизайн Browser tab -- scoped palette + section badges

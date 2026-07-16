@@ -1,3 +1,61 @@
+## v4.28.0 - 2026-07-17
+
+### Missions tab redesign -- toolbar + auto-refresh + scoped palette
+
+Missions was the smallest dashboard tab -- five lines of ad-hoc
+HTML with only a plain Refresh button and no scoped CSS. This
+release brings it up to the same visual language as the rest of
+the redesigned tabs while adding what every other tab now has:
+an auto-refresh toggle with pulsing indicator dot and a meta
+line.
+
+New:
+
+* **Toolbar** with Reload button, auto-refresh checkbox, pulsing
+  dot indicator, interval selector (15s / 30s / 60s / 5m). The
+  5-minute option is added because missions typically change on
+  human timescales, not seconds.
+* **Meta line** matching Audit / Overview / Proposals / Terminal
+  / Browser: last-refresh time, load duration, mode
+  (manual/auto), last error if any.
+* **Consolidated scoped ``<style>``** with palette
+  (``--ms-tint-*``), toolbar layout, sized table columns
+  (``.col-type``, ``.col-size``, ``.col-modified``), row hover,
+  and an empty-state placeholder.
+* **New toolbar module** ``08b-missions-toolbar.js`` -- IIFE
+  wrapping ``window.loadMissions`` in the same composition
+  pattern the Overview toolbar established. Original loader
+  (``08-missions.js``) is untouched; the wrapper only measures
+  duration + updates meta + pulses the dot. Exposes
+  ``__missionsToolbar`` diagnostic namespace (non-enumerable).
+
+Preservation:
+
+* **Single existing id (``missionsTable``) preserved** -- the
+  ``08-missions.js`` loader keeps working with zero JS changes.
+* **``loadMissions()`` handler wiring preserved** so the sidebar
+  registry's onShow callback still triggers.
+
+Tests: ``tests/test_missions_tab_layout.py`` (15 tests) covers:
+preserved id, new toolbar ids, tab wrapper + h1, reload handler
+wired, scoped CSS discipline, palette scoped inside tab, all
+four interval options present, column-width classes present,
+JS is IIFE, wraps ``window.loadMissions``, no hardcoded
+``setInterval`` delays, exposes ``__missionsToolbar`` diagnostic
+namespace non-enumerably.
+
+Suite: **1688 passed** (was 1673, +15 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-05-missions.html`` -- rewritten:
+  scoped ``<style>``, toolbar row, meta line, ``.ms-table``
+  with sized columns, empty-state placeholder.
+* ``dashboard/assets/08b-missions-toolbar.js`` (new, 154 lines)
+  -- IIFE wrapper for ``window.loadMissions``, refresh dot,
+  meta line, interval timer, diagnostic namespace.
+* ``tests/test_missions_tab_layout.py`` (new) -- 15 tests
+
 ## v4.27.0 - 2026-07-17
 
 ### Browser tab redesign -- scoped palette + section badges
