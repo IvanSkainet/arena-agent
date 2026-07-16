@@ -157,9 +157,13 @@ function __ansiApplyCodes(state, codes) {
 // escapes into safe HTML. Non-SGR escapes (cursor moves, etc)
 // are stripped. Text is always HTML-escape'd first so the caller
 // can drop the return value straight into innerHTML.
-function __termAnsiToHtml(text) {
-  if (text == null || text === "") return "";
-  const src = String(text);
+// Inner SGR-only renderer. Takes a chunk of text (already OSC-free)
+// plus a mutable colour state; returns the HTML. Extracted from
+// the v4.15.0 body so v4.18.0 can drive it per OSC-split text
+// piece while keeping the state (colours, bold, ...) alive across
+// splits.
+function _ansiSgrHtml(src, state) {
+  if (!src) return "";
   // Regex: ESC[ then any CSI parameter bytes (0x30..0x3f, which
   // covers digits + ';' + '?' + private-mode markers) and any
   // intermediate bytes (0x20..0x2f), up to a final byte
@@ -170,11 +174,6 @@ function __termAnsiToHtml(text) {
   const RE = /\x1b\[([\x30-\x3f]*)([\x20-\x2f]*)([\x40-\x7e])/g;
   let out = "";
   let idx = 0;
-  const state = {
-    fg: null, bg: null,
-    bold: false, dim: false, italic: false,
-    underline: false, inverse: false,
-  };
   let openSpan = false;
 
   function _flush(end) {
@@ -203,31 +202,55 @@ function __termAnsiToHtml(text) {
     _flush(m.index);
     idx = m.index + m[0].length;
     const finalByte = m[3];
-    if (finalByte !== "m") {
-      // Non-SGR CSI: strip silently. cursor moves, screen
-      // clears, DEC private modes (ESC[?25l etc) -- none of
-      // those make sense in a scrollback pane.
-      continue;
-    }
-    // SGR must have digits+';' only; if the private-mode marker
-    // block is non-empty (starts with '?', '<', '=', '>') this
-    // is not a colour code -- skip it silently too.
+    if (finalByte !== "m") continue;   // non-SGR CSI: strip
     const params = m[1];
-    if (params && /^[?<=>]/.test(params)) continue;
-    // Parse parameter list. Empty means "0" per SGR spec.
+    if (params && /^[?<=>]/.test(params)) continue;   // private-mode
     const rawParams = params || "0";
     const codes = rawParams.split(";").map(s => {
       const n = parseInt(s, 10);
       return Number.isNaN(n) ? 0 : n;
     });
     __ansiApplyCodes(state, codes);
-    // Recompute open-span state on next _flush call; simplest to
-    // close the current span here so the next chunk opens with
-    // fresh style.
     if (openSpan) { out += "</span>"; openSpan = false; }
   }
   _flush(src.length);
   if (openSpan) out += "</span>";
+  return out;
+}
+
+function __termAnsiToHtml(text) {
+  if (text == null || text === "") return "";
+  const src = String(text);
+  // v4.18.0: OSC preprocessing splits the source into an ordered
+  // list of ("text-run" | "href-open" | "href-close") pieces.
+  // Text runs still contain CSI sequences -- SGR state carries
+  // across the split so a colour opened before OSC 8 continues
+  // after the hyperlink closes.
+  const pieces = __oscPreprocess(src);
+  const state = {
+    fg: null, bg: null,
+    bold: false, dim: false, italic: false,
+    underline: false, inverse: false,
+  };
+  let out = "";
+  let openHref = false;
+  for (const p of pieces) {
+    if (p.kind === "text") {
+      out += _ansiSgrHtml(p.data, state);
+    } else if (p.kind === "href") {
+      if (openHref) { out += "</a>"; openHref = false; }
+      if (p.data) {
+        // Escape the URL for the href attribute. __ansiEsc handles
+        // & < > " so a URL like ``https://example.com/?a=1&b="x"``
+        // becomes safe attribute content.
+        out += '<a href="' + __ansiEsc(p.data) +
+               '" target="_blank" rel="noreferrer noopener">';
+        openHref = true;
+      }
+      // else: OSC 8 close with empty URL -- already handled above.
+    }
+  }
+  if (openHref) out += "</a>";
   return out;
 }
 
@@ -236,11 +259,90 @@ function __termAnsiToHtml(text) {
 // spans). Reuses the same regex.
 function __termAnsiStrip(text) {
   if (text == null) return "";
-  // Same permissive shape as __termAnsiToHtml's regex: parameter
-  // bytes 0x30..0x3f (digits + ';' + '?' + '<=>' private
-  // markers) then intermediate bytes 0x20..0x2f then final byte
-  // 0x40..0x7e. Covers DEC private modes like ESC[?25l.
-  return String(text).replace(
-    /\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, ""
-  );
+  // First drop every OSC (ESC ] ... BEL / ESC \) then every CSI.
+  // Both regex shapes match the parser used by __termAnsiToHtml so
+  // strip() output equals "what __termAnsiToHtml would render"
+  // minus the HTML wrappers.
+  return String(text)
+    .replace(/\x1b\][\s\S]*?(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g, "");
 }
+
+// --------------------------------------------------------------------------
+// v4.18.0: OSC (Operating System Command) preprocessor.
+//
+// OSC syntax:  ESC ] Ps ; Pt ST
+//   ST is either BEL (0x07) or ESC \ (0x1b 0x5c).
+//   Ps is a decimal parameter selector; Pt is the payload.
+//
+// We handle exactly two flavours because they are the only OSCs a
+// scrollback pane can meaningfully react to:
+//
+//   OSC 8 ; params ; URL   -- open hyperlink (URL is the anchor
+//                             target; anchor CLOSES on the next
+//                             OSC 8 with an empty URL).
+//   OSC 0/1/2 ; TITLE      -- set window / icon / tab title.
+//                             We have no title bar; drop silently.
+//
+// Everything else (progress reports, iTerm2 shell integration,
+// finalTerm markers, Kitty images...) is silently stripped. The
+// Terminal tab is a scrollback pane, not a real terminal; adding
+// more OSC handlers here would be scope creep.
+//
+// URL sanitisation: OSC 8 URLs are attacker-controlled bytes from
+// stdout. We normalise the scheme to lower-case and reject any
+// scheme in _UNSAFE_SCHEMES so a shell that prints
+//   ESC]8;;javascript:alert(1) ESC\ ...text... ESC]8;; ESC\
+// does not become a live XSS on click. When a URL is rejected the
+// text still renders, just without the anchor wrap.
+const _UNSAFE_SCHEMES = ["javascript:", "data:", "vbscript:", "file:"];
+
+function __oscSafeUrl(raw) {
+  if (raw == null) return null;
+  const url = String(raw).trim();
+  if (!url) return null;
+  const lower = url.toLowerCase();
+  for (const bad of _UNSAFE_SCHEMES) {
+    if (lower.startsWith(bad)) return null;
+  }
+  // Guard against control characters that could smuggle out of the
+  // href attribute later. Real URLs don't contain raw whitespace or
+  // \x00-\x1f bytes.
+  if (/[\x00-\x1f\s"'<>`]/.test(url)) return null;
+  return url;
+}
+
+// Split the input into an ordered list of pieces:
+//   {kind: "text",  data: string}       -- raw text between OSCs
+//   {kind: "href",  data: string|null}  -- OSC 8 with URL (null = close)
+// Non-hyperlink OSCs are dropped from the output entirely.
+function __oscPreprocess(src) {
+  const OSC_RE = /\x1b\](\d+);?([\s\S]*?)(?:\x07|\x1b\\)/g;
+  const pieces = [];
+  let last = 0;
+  let m;
+  OSC_RE.lastIndex = 0;
+  while ((m = OSC_RE.exec(src)) !== null) {
+    if (m.index > last) {
+      pieces.push({kind: "text", data: src.slice(last, m.index)});
+    }
+    last = m.index + m[0].length;
+    const ps = parseInt(m[1], 10);
+    const pt = m[2] || "";
+    if (ps === 8) {
+      // OSC 8 payload: "params;URL". Params usually empty (`;`) or
+      // `id=foo`; we don't consume them but must split correctly.
+      const sep = pt.indexOf(";");
+      const url = sep >= 0 ? pt.slice(sep + 1) : pt;
+      const safe = __oscSafeUrl(url);
+      pieces.push({kind: "href", data: safe});   // safe may be null (=close)
+    }
+    // Titles (0, 1, 2), progress reports (9), iTerm/finalTerm/kitty
+    // -- silently dropped.
+  }
+  if (last < src.length) {
+    pieces.push({kind: "text", data: src.slice(last)});
+  }
+  return pieces;
+}
+

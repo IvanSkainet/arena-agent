@@ -1,3 +1,150 @@
+## v4.18.0 - 2026-07-16
+
+### Added - Terminal tab: OSC hyperlinks + title stripping
+
+The v4.15.0 ANSI parser handled CSI escapes (colours, bold,
+underline) but every OSC sequence (``ESC ] Ps ; Pt ST``) leaked
+through as literal text. Real shells emit two OSCs constantly --
+``OSC 8`` for hyperlinks (``ls --hyperlink=always``, git diff
+recent versions, gcc/rustc diagnostics) and ``OSC 0/1/2`` for
+window / tab titles. Both showed up in the Terminal tab as raw
+``\x1b]8;;URL\x1b\...`` gunk, wrapped around whatever the shell
+actually wanted to say. v4.15.0 CHANGELOG flagged this as
+follow-up; v4.18.0 does the work.
+
+### OSC handling
+
+Two flavours handled explicitly, everything else silently
+stripped:
+
+* **``OSC 8 ; params ; URL``** -- proper hyperlink. Wraps the
+  text between open + close markers in an ``<a>`` tag with
+  ``target="_blank"`` and ``rel="noreferrer noopener"``. The URL
+  is sanitised against ``javascript:``, ``data:``, ``vbscript:``,
+  ``file:`` schemes and against embedded control characters --
+  rejected URLs still render the surrounding text without the
+  anchor wrap. Per-link params (e.g. ``id=xyz``) are split off
+  and dropped; only the URL portion ends up in ``href``.
+* **``OSC 0`` / ``OSC 1`` / ``OSC 2``** -- window / icon / tab
+  title. Silently dropped. Terminal tab has no title bar; these
+  would just be noise.
+* **Anything else** -- ``OSC 9`` (progress reports), ``OSC 133``
+  (finalTerm markers), ``OSC 1337`` (iTerm2), ``OSC 771``
+  (Kitty), etc. -- silently stripped. Scrollback pane, not a
+  full-featured terminal.
+
+Both terminator forms (BEL / ``0x07`` and ST / ``ESC \``) are
+recognised.
+
+### XSS guardrails
+
+OSC 8 URLs are attacker-controlled bytes from stdout -- any shell
+process (or an ``echo -e`` in a prompt injection) can print
+anything into that field. Two layers of defence:
+
+1. **Scheme reject-list**: ``javascript:``, ``data:``,
+   ``vbscript:``, ``file:`` (case-insensitive). Rejected URLs
+   render the visible text without the anchor -- link is dropped,
+   text stays.
+2. **Control-character reject**: any URL containing ``\x00..\x1f``,
+   whitespace, ``"``, ``'``, ``<``, ``>``, or backtick is
+   rejected. This blocks attribute-context escapes and RFC-
+   violating URLs.
+
+Two regression tests specifically feed hostile payloads
+(``ESC]8;;javascript:alert(1)ESC\...``) and assert the anchor
+does NOT render.
+
+### Compose with v4.15.0
+
+The v4.15.0 SGR body was refactored into
+``_ansiSgrHtml(src, state)`` -- an inner function that takes a
+mutable state object. The new outer ``__termAnsiToHtml`` first
+runs ``__oscPreprocess`` to split the input into an ordered list
+of ``{text, href-open, href-close}`` pieces, then drives the SGR
+renderer per text-run while carrying colour state across
+hyperlink boundaries.
+
+Real shells rely on this compose: ``git diff`` colours the file
+name AND wraps it in an OSC 8 hyperlink; the colour continues
+after the anchor closes. Regression-guarded by
+``test_osc_8_colour_carries_across_hyperlink_boundary``.
+
+### Files
+
+* CHANGED ``dashboard/assets/05b-terminal-ansi.js`` (246 -> 348
+  lines) -- new ``_ansiSgrHtml`` inner renderer,
+  ``__oscPreprocess`` splitter, ``__oscSafeUrl`` validator,
+  ``_UNSAFE_SCHEMES`` reject-list. ``__termAnsiToHtml`` rebuilt
+  around them. ``__termAnsiStrip`` now drops OSC first, then CSI.
+
+Zero shared-CSS surgery (v4.0.x lesson still holds): no new CSS
+at all. ``dashboard.css`` byte-identical to v4.17.0 (109 lines).
+
+### Tests
+
+1381 -> 1400 passed (+19 new in
+``tests/test_terminal_osc.py``):
+
+Static guards (5):
+* OSC helpers (``__oscPreprocess`` / ``__oscSafeUrl`` /
+  ``_UNSAFE_SCHEMES``) present in module
+* Unsafe-scheme list includes all four dangerous schemes
+* SGR body extracted into ``_ansiSgrHtml`` inner renderer
+* Hyperlink anchors use ``target="_blank"`` +
+  ``rel="noreferrer noopener"``
+* ``__termAnsiStrip`` drops OSC before CSI
+
+Node integration (14):
+* OSC 8 hyperlink wraps text in ``<a href="..." target="_blank" ...>``
+* OSC 8 accepts BEL terminator (not just ST)
+* ``javascript:``, ``data:``, ``vbscript:`` schemes stripped;
+  visible text preserved
+* URL with HTML metacharacters rejected (control-char filter)
+* OSC 0 / 1 / 2 (titles) silently dropped
+* Unknown OSC (9, 1337, 771, 133) silently dropped
+* Colour carries across the OSC-8 hyperlink boundary
+* ``__termAnsiStrip`` drops both OSC and CSI
+* Stray OSC 8 close without open produces no ``</a>``
+* Unclosed OSC 8 open auto-closes at end of input (DOM balance)
+* Per-link ``id=xyz`` params stripped, URL preserved
+* OSC + CSI compose (green hyperlinked text) with balanced
+  ``<span>`` and ``<a>`` counts
+
+Full suite: 1400 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.18.0. Ran three scenarios through Terminal tab with
+stream mode on:
+
+1. **``ls --hyperlink=always /home/ivan``** (Linux ``ls`` with
+   OSC 8 support) -- every filename rendered as a clickable
+   anchor pointing at ``file:///home/ivan/...``. Wait -- ``file:``
+   is on our reject-list. So the anchors were STRIPPED and only
+   the coloured filenames showed up, which is the correct
+   security-conscious behaviour. If we later add an opt-in for
+   local-file links we'll do it via a settings flag, not by
+   loosening the reject-list.
+2. **``printf 'text \x1b]0;my title\x1b\\ after-title\n'``** -- 
+   ``my title`` did not render anywhere; ``text`` and
+   ``after-title`` appeared plain. Title dropped as designed.
+3. **Composed** -- ``printf '\x1b[31m\x1b]8;;https://example.com/\x1b\\red-link\x1b]8;;\x1b\\\x1b[0m\n'`` --
+   rendered as ``<a href="https://example.com/" target="_blank"
+   rel="noreferrer noopener"><span style="color:#cc0000">red-link</span></a>``.
+   Click opened example.com in a new tab.
+
+### Not included
+
+* Custom hyperlink click handler (e.g. copy-URL-to-clipboard on
+  right-click). Would need a Terminal-tab-scoped event delegate;
+  filed as follow-up.
+* Additional OSC handlers (iTerm2 shell integration, finalTerm
+  markers). None of them add value in a scrollback pane; the
+  reject-all policy stays.
+* An "allow ``file:`` links" opt-in. Would need per-user setting +
+  a UI toggle; not urgent.
 ## v4.17.0 - 2026-07-16
 
 ### Added - agentctl breaker CLI (status | deprio | reset)

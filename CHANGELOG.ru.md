@@ -1,3 +1,152 @@
+\n## v4.18.0 - 2026-07-16
+
+### Добавлено - Terminal tab: OSC hyperlinks + title stripping
+
+v4.15.0 ANSI parser обрабатывал CSI escapes (цвета, bold,
+underline) но каждая OSC sequence (``ESC ] Ps ; Pt ST``) leaked
+через как literal text. Реальные shell'ы emit'ят два OSC постоянно
+— ``OSC 8`` для hyperlinks (``ls --hyperlink=always``, git diff
+recent versions, gcc/rustc diagnostics) и ``OSC 0/1/2`` для
+window / tab titles. Оба показывались в Terminal tab как raw
+``\x1b]8;;URL\x1b\...`` gunk, обёрнутый вокруг того что shell
+реально хотел сказать. v4.15.0 CHANGELOG flagged это как
+follow-up; v4.18.0 делает работу.
+
+### OSC handling
+
+Два flavour'а handled explicitly, всё остальное silently
+stripped:
+
+* **``OSC 8 ; params ; URL``** — proper hyperlink. Wrap'ит text
+  между open + close markers в ``<a>`` tag с ``target="_blank"``
+  и ``rel="noreferrer noopener"``. URL sanitised против
+  ``javascript:``, ``data:``, ``vbscript:``, ``file:`` schemes
+  и против embedded control characters — rejected URLs всё ещё
+  render'ят surrounding text без anchor wrap. Per-link params
+  (например ``id=xyz``) split off и dropped; только URL portion
+  попадает в ``href``.
+* **``OSC 0`` / ``OSC 1`` / ``OSC 2``** — window / icon / tab
+  title. Silently dropped. Terminal tab не имеет title bar; это
+  был бы просто noise.
+* **Всё остальное** — ``OSC 9`` (progress reports), ``OSC 133``
+  (finalTerm markers), ``OSC 1337`` (iTerm2), ``OSC 771``
+  (Kitty) и т.д. — silently stripped. Scrollback pane, не
+  full-featured terminal.
+
+Оба terminator формы (BEL / ``0x07`` и ST / ``ESC \``)
+recognised.
+
+### XSS guardrails
+
+OSC 8 URLs — attacker-controlled bytes из stdout. Любой shell
+process (или ``echo -e`` в prompt injection) может напечатать
+что угодно в это поле. Два слоя защиты:
+
+1. **Scheme reject-list**: ``javascript:``, ``data:``,
+   ``vbscript:``, ``file:`` (case-insensitive). Rejected URLs
+   render visible text без anchor'а — link dropped, text
+   остаётся.
+2. **Control-character reject**: любой URL содержащий
+   ``\x00..\x1f``, whitespace, ``"``, ``'``, ``<``, ``>`` или
+   backtick — reject. Блокирует attribute-context escapes и
+   RFC-violating URLs.
+
+Два regression-теста specifically feed hostile payloads
+(``ESC]8;;javascript:alert(1)ESC\...``) и assert anchor НЕ
+render'ится.
+
+### Compose с v4.15.0
+
+v4.15.0 SGR body был refactor'ен в ``_ansiSgrHtml(src, state)``
+— inner function принимающая mutable state object. Новый outer
+``__termAnsiToHtml`` сначала запускает ``__oscPreprocess`` для
+split'а input'а в ordered список ``{text, href-open,
+href-close}`` pieces, потом драйвит SGR renderer per text-run
+carrying colour state через hyperlink boundaries.
+
+Реальные shell'ы relies на этот compose: ``git diff`` окрашивает
+имя файла И wrap'ит его в OSC 8 hyperlink; цвет продолжается
+после anchor close. Regression-guarded
+``test_osc_8_colour_carries_across_hyperlink_boundary``.
+
+### Файлы
+
+* ИЗМЕНЁН ``dashboard/assets/05b-terminal-ansi.js`` (246 -> 348
+  строк) — новый ``_ansiSgrHtml`` inner renderer,
+  ``__oscPreprocess`` splitter, ``__oscSafeUrl`` validator,
+  ``_UNSAFE_SCHEMES`` reject-list. ``__termAnsiToHtml`` rebuild
+  вокруг них. ``__termAnsiStrip`` теперь drops OSC first, потом
+  CSI.
+
+Zero shared-CSS surgery (v4.0.x lesson всё ещё держится): no
+new CSS at all. ``dashboard.css`` byte-identical к v4.17.0 (109
+строк).
+
+### Тесты
+
+1381 -> 1400 passed (+19 в ``tests/test_terminal_osc.py``):
+
+Static guards (5):
+* OSC helpers (``__oscPreprocess`` / ``__oscSafeUrl`` /
+  ``_UNSAFE_SCHEMES``) present в module
+* Unsafe-scheme list включает все четыре dangerous schemes
+* SGR body extracted в ``_ansiSgrHtml`` inner renderer
+* Hyperlink anchors используют ``target="_blank"`` +
+  ``rel="noreferrer noopener"``
+* ``__termAnsiStrip`` drops OSC before CSI
+
+Node integration (14):
+* OSC 8 hyperlink wraps text в ``<a href="..." target="_blank" ...>``
+* OSC 8 принимает BEL terminator (не только ST)
+* ``javascript:``, ``data:``, ``vbscript:`` schemes stripped;
+  visible text preserved
+* URL с HTML metacharacters rejected (control-char filter)
+* OSC 0 / 1 / 2 (titles) silently dropped
+* Unknown OSC (9, 1337, 771, 133) silently dropped
+* Colour carries across OSC-8 hyperlink boundary
+* ``__termAnsiStrip`` drops оба OSC и CSI
+* Stray OSC 8 close без open — no ``</a>``
+* Unclosed OSC 8 open auto-closes at end of input (DOM balance)
+* Per-link ``id=xyz`` params stripped, URL preserved
+* OSC + CSI compose (green hyperlinked text) с balanced
+  ``<span>`` и ``<a>`` counts
+
+Full suite: 1400 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.18.0. Прогнал три сценария через Terminal tab с
+stream mode on:
+
+1. **``ls --hyperlink=always /home/ivan``** (Linux ``ls`` с
+   OSC 8 support) — каждое filename render'ено как clickable
+   anchor указывающий на ``file:///home/ivan/...``. Но ``file:``
+   в нашем reject-list. Так что anchors были STRIPPED и только
+   coloured filenames показались — correct security-conscious
+   behaviour. Если добавим opt-in для local-file links —
+   сделаем через settings flag, не через loosening reject-list.
+2. **``printf 'text \x1b]0;my title\x1b\\ after-title\n'``** —
+   ``my title`` не render'ится нигде; ``text`` и
+   ``after-title`` появляются plain. Title dropped as designed.
+3. **Composed** —
+   ``printf '\x1b[31m\x1b]8;;https://example.com/\x1b\\red-link\x1b]8;;\x1b\\\x1b[0m\n'``
+   — render'ится как ``<a href="https://example.com/"
+   target="_blank" rel="noreferrer noopener"><span
+   style="color:#cc0000">red-link</span></a>``. Click открывает
+   example.com в новом tab.
+
+### Не включено
+
+* Custom hyperlink click handler (например copy-URL-to-clipboard
+  on right-click). Нужен Terminal-tab-scoped event delegate;
+  filed as follow-up.
+* Дополнительные OSC handlers (iTerm2 shell integration,
+  finalTerm markers). Ни один не добавит value в scrollback
+  pane; reject-all policy остаётся.
+* "Allow ``file:`` links" opt-in. Нужен per-user setting + UI
+  toggle; не срочно.
+
 \n## v4.17.0 - 2026-07-16
 
 ### Добавлено - agentctl breaker CLI (status | deprio | reset)
