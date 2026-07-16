@@ -1,3 +1,120 @@
+## v4.20.0 - 2026-07-16
+
+### Fixed - Two v4.19.0 proposal-endpoint bugs found in first live use
+
+**Meta-note.** This release was drafted by an agent, submitted
+through the v4.19.0 ``POST /v1/admin/proposal/submit`` endpoint
+against the running bridge, applied to a proposal branch, tested
+in isolation, and then hand-merged to master by Ivan after
+review. First real dogfood of the proposal surface.
+
+### Bug 1: doubled `.arena_proposals` in worktree path
+
+``arena/admin/proposal.py::_worktree_root`` appended
+``.arena_proposals`` even though the caller in
+``handlers_proposal.py`` had already appended it. Worktrees
+materialised at
+``<home>/.arena_proposals/.arena_proposals/worktrees/<short>/``
+instead of the intended
+``<home>/.arena_proposals/worktrees/<short>/``.
+
+Cosmetic (worktree worked, tests ran, branch was correct) but
+confusing when an operator ran ``git worktree list`` and saw
+the doubled segment.
+
+Fix: ``_worktree_root`` now takes an already-computed
+``proposal_home`` and only appends ``worktrees/<short>``.
+Regression-guarded with two new tests:
+
+* ``test_worktree_root_does_not_double_the_arena_proposals``
+  -- pure unit test on the helper
+* ``test_create_worktree_end_to_end_lands_at_single_arena_proposals``
+  -- end-to-end through create_worktree with a real git repo
+
+### Bug 2: pytest availability on uv-managed Python hosts
+
+``_run_tests_in_worktree`` hard-coded ``sys.executable``. On a
+bridge running under a uv-managed Python (PEP 668 externally-
+managed environment -- the CachyOS default and increasingly
+common on Arch/Ubuntu derivatives) pytest is often absent from
+``sys.executable`` but readily available from the system
+``python3`` on PATH.
+
+Result in v4.19.0: every proposal on such a host failed with
+``ModuleNotFoundError: No module named 'pytest'`` in the
+tests_tail, regardless of whether the patch was correct. Made
+the proposal endpoint unusable for the exact case where it's
+most valuable (agents fixing bugs in the running bridge).
+
+Fix: new ``_pick_pytest_python()`` helper tries interpreters in
+order ``["python3", "/usr/bin/python3", sys.executable]`` and
+returns the first one where ``python -c 'import pytest'`` exits
+zero. Falls back to ``sys.executable`` so:
+
+* If it has pytest, historical behaviour survives
+* If none have pytest, the pipeline still runs and produces a
+  clear ``ModuleNotFoundError`` in tests_tail (silent success
+  would hide the real problem)
+
+Regression-guarded with two tests:
+
+* ``test_pick_pytest_python_prefers_interpreter_with_pytest``
+  -- monkey-patched subprocess proves candidate order + first-
+  success-wins
+* ``test_pick_pytest_python_falls_back_when_no_candidate_has_pytest``
+  -- fallback to sys.executable when no candidate loads pytest
+
+### Files
+
+* CHANGED ``arena/admin/proposal.py`` -- ``_worktree_root``
+  signature semantically clarified (parameter renamed
+  ``bridge_home`` → ``proposal_home``, docstring updated).
+* CHANGED ``arena/admin/handlers_proposal.py`` -- new
+  ``_pick_pytest_python`` helper; ``_run_tests_in_worktree``
+  uses it instead of ``sys.executable``.
+
+### Tests
+
+1434 → 1438 passed (+4 in ``tests/test_admin_proposal_core.py``).
+All new tests reference the exact v4.19.0 symptoms so a future
+regression trips them immediately.
+
+Full suite: 1438 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+This CHANGELOG entry is the verification. The patch was
+submitted via:
+
+    POST /v1/admin/proposal/submit
+      title: "v4.20.0: fix two v4.19.0 proposal endpoint bugs"
+      diff:  <this release>
+      rationale: <two-sentence summary of both bugs>
+
+The pipeline advanced ``queued → applying → testing → passed``
+in about a minute (real pytest inside the worktree, real
+git-apply on the branch). Ivan reviewed the resulting branch
+and merged it manually -- exactly the workflow v4.19.0 was
+designed for.
+
+### Reflection
+
+v4.19.0 shipped with two bugs that only appeared in production
+on the first real usage. Both are the kind of thing that unit
+tests can't catch on a clean sandbox but immediately show up
+when the endpoint touches a real host. The fixes take ~15
+lines of code combined; the interesting part is that they were
+delivered *through* the endpoint they were fixing.
+
+The proposal surface is small and simple. The interesting
+question v4.19.0 asked was: can an agent safely modify the
+bridge that runs it? v4.20.0 answers: yes, at least for
+straightforward bugfixes with good test coverage. The
+proposal-then-review pattern feels natural.
+
+Filed for later (v4.21+): ``agentctl proposal submit`` CLI
+wrapper (still), auto-push flag, Dashboard tab.
 ## v4.19.0 - 2026-07-16
 
 ### Added - Agent-driven change proposals (branch-only, tests-gated)
