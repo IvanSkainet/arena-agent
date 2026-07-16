@@ -1,3 +1,90 @@
+## v4.24.0 - 2026-07-17
+
+### Overview: GPU + Recent System Errors cards
+
+Following the Overview redesign, two new cards land in the same
+scoped, fail-soft style: a live GPU snapshot and a systemd
+failed-unit summary. Both cards are driven off the existing
+``/v1/hwinfo`` endpoint (no new server-side work) which already
+exposes GPU utilization / VRAM / temperature and
+``systemd_failed`` unit lists.
+
+New in this release:
+
+* **GPU card** -- adapter name, driver version, utilization
+  progress bar (reuses the shared ``.progress-bar`` /
+  ``.fill green`` from CPU/RAM/Disk for visual consistency),
+  VRAM used / total progress bar (blue), temperature in °C.
+  Header badge summarises at a glance: ``ok`` (green) with
+  ``idle`` / ``busy`` label, or ``hot`` (orange) when
+  temperature ≥ 80 °C or utilization ≥ 90 %.
+* **Recent System Errors card** -- ``system_failed`` +
+  ``user_failed`` counts, per-unit list with ``system`` /
+  ``user`` scope pill and the failure description. Header
+  badge shows ``healthy`` (green) or ``N failed`` (red).
+* **Fail-soft on any missing data**:
+  * No GPU section in the response -> entire GPU card + H2
+    silently hidden. GPU-less hosts see no placeholder.
+  * ``systemd_failed.available: false`` (BSD, macOS, Windows)
+    -> entire errors card + H2 silently hidden. Same as GPU.
+  * Any fetch failure -> keeps the previous state on screen.
+    Does not spam banners (the toolbar meta line already
+    reports refresh failures at a higher level).
+
+Reuse-by-composition throughout:
+
+* Fetches through ``window.api()`` so bearer auth is uniform
+  with every other Overview loader. Falls back to plain
+  ``fetch()`` only when the helper isn't available (defensive
+  for legacy dashboard builds).
+* Wraps ``window.refreshOverview`` the same way
+  ``04d-overview-toolbar.js`` does -- stacks cleanly on top of
+  the toolbar wrapper. Every refresh cycle now paints the
+  primary payload *and* fires this fetch in parallel.
+* Payload firing is *not* awaited inside the wrapped refresh
+  so the toolbar's duration measurement stays honest for the
+  primary ``/v1/status`` / ``/v1/sysinfo`` calls.
+* Diagnostic namespace ``__overviewGpuErrors`` matches the
+  ``__overviewToolbar`` convention -- non-enumerable, exposes
+  ``renderGpu`` / ``renderErrors`` / ``fetch`` / ``getState``
+  for future dashboard debugging.
+
+Tests: two new modules covering the cards:
+
+* ``tests/test_overview_gpu_errors_layout.py`` (28 tests) --
+  every required id present, both H2s present, new scoped
+  CSS rules targeting the right ids, progress bars reuse the
+  shared shared classes (no local reimplementation), JS is an
+  IIFE, wraps ``window.refreshOverview``, exposes
+  ``__overviewGpuErrors``, uses ``window.api()`` when
+  available with ``fetch`` fallback, hides via inline
+  ``display=none`` (not a shared ``.hidden`` class), and only
+  reads ids inside its own scope (regression guard against
+  cross-tab leakage).
+* ``tests/test_overview_gpu_errors_js.py`` (7 tests) -- Node
+  integration proving the full render populates every GPU
+  field, hot GPU flips the badge to ``hot``, absent GPU hides
+  the whole card + H2, failed units render with scope pill +
+  description, healthy units show a placeholder row, systemd
+  unavailable hides the errors card + H2, and a rejected
+  fetch is swallowed without dom-thrash.
+
+Suite: **1592 passed** (was 1557, +35 new), one baseline flaky
+(``test_probe_tcp_timeout_short``).
+
+Files:
+
+* ``dashboard/assets/body-01-overview.html`` -- two new H2s
+  (``GPU``, ``Recent System Errors``) with matching cards
+  containing empty-state + body sub-sections. Additional
+  scoped CSS rules for ``#gpuCard`` / ``#errCard`` badges
+  and the ``#errList`` failed-unit rows.
+* ``dashboard/assets/04e-overview-gpu-errors.js`` (new, 263
+  lines) -- fetch + render + fail-soft + refreshOverview
+  wrapper + diagnostic namespace.
+* ``tests/test_overview_gpu_errors_layout.py`` (new) -- 28 tests
+* ``tests/test_overview_gpu_errors_js.py`` (new) -- 7 tests
+
 ## v4.23.0 - 2026-07-17
 
 ### Overview tab redesign -- toolbar + scoped palette in the Audit style

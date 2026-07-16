@@ -1,3 +1,90 @@
+\n## v4.24.0 - 2026-07-17
+
+### Overview: карточки GPU + Recent System Errors
+
+Продолжая редизайн Overview, две новые карточки приземляются в
+той же scoped, fail-soft манере: live GPU-снимок и summary
+упавших systemd-юнитов. Обе карточки питаются от существующего
+endpoint'а ``/v1/hwinfo`` (никакой новой серверной работы), который
+уже отдаёт GPU utilization / VRAM / temperature и списки
+``systemd_failed``.
+
+Новое в релизе:
+
+* **GPU-карточка** -- имя адаптера, версия драйвера, progress
+  bar utilization (переиспользует shared ``.progress-bar`` /
+  ``.fill green`` от CPU/RAM/Disk для визуальной
+  согласованности), progress bar VRAM used / total (синий),
+  температура в °C. Header badge подытоживает с одного взгляда:
+  ``ok`` (зелёный) с меткой ``idle`` / ``busy``, или ``hot``
+  (оранжевый) когда температура ≥ 80 °C или utilization ≥ 90 %.
+* **Recent System Errors card** -- счётчики ``system_failed`` +
+  ``user_failed``, список по юнитам с pill'ом ``system`` /
+  ``user`` и описанием failure. Header badge показывает
+  ``healthy`` (зелёный) или ``N failed`` (красный).
+* **Fail-soft на любые missing data**:
+  * Нет GPU-секции в response -> GPU-карточка + H2 полностью
+    и тихо скрыты. Хосты без GPU не видят пустого placeholder.
+  * ``systemd_failed.available: false`` (BSD, macOS, Windows)
+    -> errors-карточка + H2 полностью и тихо скрыты. Как GPU.
+  * Любой fetch-fail -> сохраняет предыдущее состояние на
+    экране. Не спамит banners (toolbar meta line уже
+    репортит refresh-failures на верхнем уровне).
+
+Reuse-through-composition повсюду:
+
+* Fetch через ``window.api()``, так что bearer-auth uniform
+  со всеми Overview-loader'ами. Fallback на plain ``fetch()``
+  только когда helper недоступен (защитно для legacy dashboard
+  builds).
+* Оборачивает ``window.refreshOverview`` тем же способом,
+  что и ``04d-overview-toolbar.js`` -- чисто stack'ается поверх
+  toolbar-wrapper. Каждый refresh-цикл теперь рисует primary
+  payload *и* fires этот fetch параллельно.
+* Firing payload'а *не* awaited внутри wrapped refresh, так
+  что duration measurement toolbar'а остаётся честным для
+  primary ``/v1/status`` / ``/v1/sysinfo``.
+* Диагностический namespace ``__overviewGpuErrors`` подходит
+  под конвенцию ``__overviewToolbar`` -- non-enumerable,
+  экспозит ``renderGpu`` / ``renderErrors`` / ``fetch`` /
+  ``getState`` для будущей dashboard-отладки.
+
+Тесты: два новых модуля покрывают карточки:
+
+* ``tests/test_overview_gpu_errors_layout.py`` (28 тестов) --
+  каждый требуемый id присутствует, оба H2 присутствуют,
+  новые scoped CSS-правила targeting правильные ids, progress
+  bars переиспользуют shared-классы (никакой локальной
+  реимплементации), JS это IIFE, wrapt'ает
+  ``window.refreshOverview``, экспозит ``__overviewGpuErrors``,
+  использует ``window.api()`` когда доступно с ``fetch``
+  fallback, скрывает через inline ``display=none`` (не shared
+  ``.hidden`` class), и читает только ids внутри своего
+  scope (регрессия-guard против cross-tab leakage).
+* ``tests/test_overview_gpu_errors_js.py`` (7 тестов) -- Node
+  integration доказывающая: full render заполняет все GPU-поля,
+  горячий GPU перебрасывает badge на ``hot``, отсутствие GPU
+  прячет всю карточку + H2, упавшие юниты рендерятся с
+  scope-pill + description, healthy units показывают
+  placeholder row, systemd unavailable прячет errors-card + H2,
+  и rejected fetch swallow'ится без dom-thrash.
+
+Suite: **1592 passed** (было 1557, +35 новых), один baseline
+flaky (``test_probe_tcp_timeout_short``).
+
+Файлы:
+
+* ``dashboard/assets/body-01-overview.html`` -- два новых H2
+  (``GPU``, ``Recent System Errors``) с соответствующими
+  карточками, содержащими empty-state + body sub-sections.
+  Дополнительные scoped CSS-правила для ``#gpuCard`` /
+  ``#errCard`` badges и ``#errList`` failed-unit rows.
+* ``dashboard/assets/04e-overview-gpu-errors.js`` (новый, 263
+  строки) -- fetch + render + fail-soft + refreshOverview
+  wrapper + diagnostic namespace.
+* ``tests/test_overview_gpu_errors_layout.py`` (новый) -- 28 тестов
+* ``tests/test_overview_gpu_errors_js.py`` (новый) -- 7 тестов
+
 \n## v4.23.0 - 2026-07-17
 
 ### Редизайн вкладки Overview -- toolbar + scoped palette в стиле Audit

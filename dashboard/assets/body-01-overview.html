@@ -63,6 +63,18 @@
   #tab-overview #ztPeersCard .zt-stats{display:flex;gap:14px;flex-wrap:wrap;font-size:12px}
   #tab-overview #ztPeersCard .zt-stats .item{color:var(--text2)}
   #tab-overview #ztPeersCard .zt-stats .item b{color:var(--text);font-weight:600}
+  /* GPU + recent-errors cards */
+  #tab-overview #gpuCard .ov-empty,
+  #tab-overview #errCard .ov-empty{padding:8px 4px}
+  #tab-overview #errList{display:flex;flex-direction:column;gap:4px;font-family:var(--mono);font-size:11px;color:var(--text2);max-height:180px;overflow:auto}
+  #tab-overview #errList .err-item{display:flex;gap:8px;padding:4px 6px;background:var(--surface-error);color:var(--red);border:1px solid var(--border-error);border-radius:4px;align-items:center;flex-wrap:wrap}
+  #tab-overview #errList .err-item .scope{font-size:10px;padding:1px 6px;border-radius:8px;background:var(--ov-tint-gray);color:var(--text2);text-transform:uppercase;letter-spacing:0.03em;flex-shrink:0}
+  #tab-overview #errList .err-item .unit{font-weight:600;color:var(--red);flex-shrink:0}
+  #tab-overview #errList .err-item .desc{color:var(--text2);flex:1;min-width:0;word-break:break-word;font-family:inherit;font-size:11px}
+  #tab-overview #errBadge.ok{background:var(--ov-tint-green);color:var(--green)}
+  #tab-overview #errBadge.fail{background:var(--ov-tint-red);color:var(--red)}
+  #tab-overview #gpuBadge.hot{background:var(--ov-tint-orange);color:var(--warning-text)}
+  #tab-overview #gpuBadge.ok{background:var(--ov-tint-green);color:var(--green)}
   /* -------- Bridge metrics -- tint the numbers rather than inline colors -------- */
   #tab-overview .ov-metrics{display:flex;gap:24px;flex-wrap:wrap}
   #tab-overview .ov-metrics .metric-item{min-width:120px}
@@ -153,6 +165,32 @@
 <div class="metric-item"><div class="metric-val warn" id="metricExecs">0</div><div class="metric-label">Exec Count</div></div>
 <div class="metric-item"><div class="metric-val" id="metricErrors">0</div><div class="metric-label">Error Rate</div></div>
 </div>
+</div>
+
+<h2>GPU <span class="badge gray" id="gpuBadge" style="display:none">--</span></h2>
+<div class="card" id="gpuCard">
+  <div class="ov-empty" id="gpuEmpty" style="font-size:12px;color:var(--text2)">Loading GPU data...</div>
+  <div id="gpuBody" style="display:none">
+    <div class="ov-row"><span class="ov-label">Adapter</span><span id="gpuName" class="ov-val mono">--</span></div>
+    <div class="ov-row"><span class="ov-label">Driver</span><span id="gpuDriver" class="ov-val mono">--</span></div>
+    <div class="ov-row"><span class="ov-label">Utilization</span>
+      <div class="progress-bar" style="flex:1"><div class="fill green" id="gpuUtilBar" style="width:0%"></div><div class="text" id="gpuUtilText">0%</div></div>
+    </div>
+    <div class="ov-row"><span class="ov-label">VRAM</span>
+      <div class="progress-bar" style="flex:1"><div class="fill blue" id="gpuVramBar" style="width:0%"></div><div class="text" id="gpuVramText">0 / 0 MB</div></div>
+    </div>
+    <div class="ov-row"><span class="ov-label">Temperature</span><span id="gpuTempText" class="ov-val mono">--</span></div>
+  </div>
+</div>
+
+<h2>Recent System Errors <span class="badge gray" id="errBadge">--</span></h2>
+<div class="card" id="errCard">
+  <div class="ov-empty" id="errEmpty" style="font-size:12px;color:var(--text2)">Loading systemd status...</div>
+  <div id="errBody" style="display:none">
+    <div class="ov-row"><span class="ov-label">System units</span><span id="errSystemCount" class="ov-val mono">0 failed</span></div>
+    <div class="ov-row"><span class="ov-label">User units</span><span id="errUserCount" class="ov-val mono">0 failed</span></div>
+    <div id="errList" style="margin-top:6px"></div>
+  </div>
 </div>
 
 <h2>Platform Info</h2>
