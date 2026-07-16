@@ -1,3 +1,122 @@
+## v3.95.0 - 2026-07-16
+
+### Added — Live host-metrics + Dashboard sparkline tab
+
+New **Live** tab in the Dashboard renders rolling 2-minute
+sparklines for CPU, memory, swap, network RX/TX, disk read/write,
+and per-device GPU utilisation + VRAM. All series are driven by
+a new lightweight backend surface that other agents/tooling can
+consume directly too.
+
+#### Backend
+
+* **`arena/observability/live_metrics.py`** (456 lines) —
+  `live_metrics_snapshot()` returns a single JSON-serialisable
+  dict with `cpu`, `memory`, `swap`, `net`, `disk`, `gpu`
+  sections. Uses `psutil` when installed for high fidelity;
+  falls back to `/proc/{stat,meminfo}` on GNU/Linux; returns
+  `{"available": false, "reason": ...}` on platforms without
+  `psutil` and no `/proc`. Cross-platform (Windows/macOS/GNU-Linux)
+  by design.
+
+* Deltas for `net.bytes_{sent,recv}_per_sec` and
+  `disk.{read,write}_bytes_per_sec` are computed against a
+  process-global `_LAST_SAMPLE` under a `threading.Lock`, so
+  multiple pollers see consistent per-second rates.
+
+* GPU query cached for 2 s to keep 1 Hz sampling cheap:
+  `nvidia-smi` first, then `rocm-smi` fallback, empty otherwise.
+  Live-verified on a NVIDIA GTX 1050 Ti (util 4 %, temp 43 °C).
+
+* **`arena/observability/live_metrics_handler.py`** (154 lines) —
+  two aiohttp handlers wired through the standard registries:
+
+  - `GET /v1/live-metrics` — one-shot JSON snapshot for scripts
+    and one-off inspection. Uses `@authed` from
+    `arena/handler_helpers.py`.
+  - `GET /v1/live-metrics/stream` — WebSocket that pushes a
+    snapshot approximately every 1 s until the client closes.
+    Auth is enforced identically to REST (Bearer header or
+    `?token=` query param, which the browser needs since it
+    can't set headers on a WebSocket handshake). A module-level
+    counter caps concurrent stream clients at 32 per process.
+
+* Route wiring: two new tuples in
+  `arena/route_registry/registry.py`, matching
+  `app.router.add_get(...)` calls in
+  `arena/route_registry/domain.py`, and new handler-name
+  mappings in `arena/wiring/observability_registries.py`. Follows
+  the v3.90.0 route-registry pattern — everything auto-discoverable
+  through one file per concern.
+
+#### Frontend
+
+* **`dashboard/assets/00-tabs-registry.js`** — new **Live** tab
+  entry (icon 📈, positioned between Mobile and Doctor) with
+  `onShow → startLiveCharts()` and `onHide → stopLiveCharts()`.
+
+* **`dashboard/assets/body-17-live.html`** (197 lines) — tab
+  markup: 5 sparkline cards (CPU, Memory, Swap, Network RX/TX,
+  Disk R/W) in a responsive `live-grid`, plus a dynamic per-GPU
+  section. All theme colors resolved through
+  `--live-*` CSS variables in `dashboard.css`.
+
+* **`dashboard/assets/41-live-charts.js`** (371 lines) — pure
+  Canvas 2D sparkline renderer (~40 LOC), no external chart
+  library so the Dashboard preview works even inside the
+  sandboxed iframe that blocks CDNs. Buffer size = 120 samples
+  (2 min at 1 Hz), auto-scaling for throughput series, fixed
+  0–100 range for percent series. WebSocket-first with automatic
+  HTTP-poll fallback if the socket closes without ever delivering
+  a message.
+
+* **`dashboard/assets/dashboard.css`** — added
+  `--live-{card-bg,card-border,canvas-bg,core-track,text,text-muted}`
+  + accent palette `--live-{cpu,mem,swap,net-rx,net-tx,disk-rd,disk-wr,gpu,gpu-mem}`
+  so themes can retint the sparklines with the rest of the UI.
+
+#### Tests
+
+* **`tests/test_live_metrics.py`** (91 lines, 7 tests) — snapshot
+  shape, CPU/memory percent bounds, two-sample delta correctness,
+  GPU 2-second cache reuse, JSON serialisability, disk totals
+  non-decreasing.
+
+* **`tests/test_live_metrics_handler.py`** (110 lines, 6 tests) —
+  handler returns snapshot, auth enforcement (`@authed` still
+  wraps the plain `GET` handler; the WebSocket route enforces
+  auth manually first), 429 when the stream-client cap is hit,
+  route registration under both `ub.make_app` and
+  `arena.route_registry.registry.ROUTES`.
+
+* `tests/test_route_registry.py::test_tabs_registry_file_exists_and_declares_all_tabs`
+  updated to include the new `live` tab in its expected set.
+
+**1102 total passed** (was 1089; +13 new).
+
+### Verified live
+
+* `GET /v1/live-metrics` returns full snapshot (CPU 50.7 % / 4
+  cores, memory 46.6 %, swap 0 %, network + disk totals, NVIDIA
+  GTX 1050 Ti at 7 % / 41 °C).
+* `GET /v1/live-metrics` without token → **401**.
+* `GET /v1/live-metrics/stream` WebSocket: 4 ticks in ~3 s, per-tick
+  network RX growing from 0 → 55 111 B/s as real traffic hits the
+  interface, GPU utilisation and temperature updated per tick.
+* `GET /gui/assets/manifest.json` auto-discovered the new
+  `41-live-charts.js` script and `body-17-live.html` body — no
+  manual registration needed (v3.91.0 asset manifest doing its
+  job).
+
+### Follow-up ideas (not in this release)
+
+* Add optional 5 s / 10 s buffer-length toggle in the Live tab so
+  operators can zoom out for longer observation windows.
+* Extend the GPU section to break out compute vs. graphics
+  utilisation on NVIDIA (nvidia-smi has separate query fields).
+* Wire the same snapshot function into the Prometheus exporter so
+  external scrapers don't have to poll two endpoints.
+
 ## v3.94.0 - 2026-07-16
 
 ### Changed — @authed migration continues to /v1/exec surface

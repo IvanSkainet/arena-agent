@@ -118,7 +118,7 @@ def test_tabs_registry_file_exists_and_declares_all_tabs():
     # Each expected tab appears as `name: "X"`.
     for name in ("overview", "workspace", "terminal", "memory", "recall",
                  "missions", "browser", "reports", "tasks", "skills",
-                 "hooks", "agents", "control", "mobile", "doctor",
+                 "hooks", "agents", "control", "mobile", "live", "doctor",
                  "audit", "settings"):
         assert re.search(rf'name:\s*"{name}"', src), (
             f"00-tabs-registry.js is missing tab '{name}'"

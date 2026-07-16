@@ -39,6 +39,9 @@ def build_observability_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
             "handle_v1_metrics": "metrics",
             "handle_prometheus_metrics": "prometheus_metrics",
             "handle_v1_logs": "logs",
+            # v3.95.0 -- live-metrics HTTP + WebSocket for Dashboard sparklines.
+            "handle_v1_live_metrics": "live_metrics",
+            "handle_v1_live_metrics_stream": "live_metrics_stream",
         },
     )
     registry.update(_runtime_observability_handler_registry)

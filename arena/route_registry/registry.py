@@ -308,6 +308,8 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/extension/execute'                           , 'handle_v1_extension_execute'                , 'domain', None),
     ('GET'   , '/v1/metrics'                                     , 'handle_v1_metrics'                          , 'domain', None),
     ('GET'   , '/v1/logs'                                        , 'handle_v1_logs'                             , 'domain', None),
+    ('GET'   , '/v1/live-metrics'                                , 'handle_v1_live_metrics'                     , 'domain', None),
+    ('GET'   , '/v1/live-metrics/stream'                         , 'handle_v1_live_metrics_stream'              , 'domain', None),
     ('GET'   , '/metrics'                                        , 'handle_prometheus_metrics'                  , 'domain', None),
     ('GET'   , '/api-docs'                                       , 'handle_api_docs'                            , 'domain', None),
     ('GET'   , '/openapi.json'                                   , 'handle_api_docs'                            , 'domain', None),

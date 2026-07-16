@@ -1,0 +1,197 @@
+<!-- ==================== LIVE ==================== -->
+<div class="tab" id="tab-live">
+<style>
+/* v3.95.0 -- inline styles so the Live tab renders correctly
+   inside the sandboxed asset preview iframe too. All theme colors
+   flow through the shared dashboard.css variable palette
+   (--live-*) so future theme swaps affect the sparklines too. */
+.live-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.live-card {
+  background: var(--live-card-bg);
+  border: 1px solid var(--live-card-border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.live-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.live-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--live-text);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.live-value {
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.live-canvas {
+  display: block;
+  width: 100%;
+  height: 60px;
+  background: var(--live-canvas-bg);
+  border-radius: 4px;
+  margin: 4px 0;
+}
+.live-meta {
+  font-size: 11px;
+  color: var(--live-text-muted);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  vertical-align: middle;
+  margin-right: 4px;
+}
+.live-controls {
+  margin: 8px 0 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.livecore {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 2px 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.livecore-label {
+  width: 18px;
+  color: var(--live-text-muted);
+  text-align: right;
+}
+.livecore-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--live-core-track);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.livecore-fill {
+  height: 100%;
+  transition: width 0.4s ease-out;
+}
+.livecore-val {
+  width: 34px;
+  color: var(--live-text);
+  text-align: right;
+}
+.live-status-text {
+  font-size: 12px;
+  color: var(--live-text-muted);
+}
+.live-hint {
+  color: var(--live-text-muted);
+  margin: -6px 0 12px;
+  font-size: 13px;
+}
+/* Accent-per-metric colors on the .live-value spans, so the
+   sparkline stroke color matches the numeric readout. */
+.live-value.cpu     { color: var(--live-cpu); }
+.live-value.mem     { color: var(--live-mem); }
+.live-value.swap    { color: var(--live-swap); }
+.live-value.net-rx  { color: var(--live-net-rx); }
+.live-value.net-tx  { color: var(--live-net-tx); }
+.live-value.disk-rd { color: var(--live-disk-rd); }
+.live-value.disk-wr { color: var(--live-disk-wr); }
+.live-dot.stopped { background: var(--live-text-muted); }
+</style>
+
+<h1>Live</h1>
+<p class="live-hint">
+  Rolling 2-minute sparklines. Streams from
+  <code>/v1/live-metrics/stream</code> (WebSocket, 1&nbsp;Hz) when
+  available, falls back to <code>GET /v1/live-metrics</code>
+  polling otherwise.
+</p>
+
+<div class="live-controls">
+  <button onclick="startLiveCharts()">▶ Start</button>
+  <button onclick="stopLiveCharts()">⏸ Stop</button>
+  <span id="liveStatus" class="live-status-text">
+    <span class="live-dot stopped"></span> stopped
+  </span>
+</div>
+
+<div class="live-grid">
+
+  <div class="live-card">
+    <div class="live-header">
+      <span class="live-label">CPU</span>
+      <span class="live-value cpu" id="liveCpuValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveCpuChart" height="60"></canvas>
+    <div class="live-meta" id="liveCpuMeta">--</div>
+    <div id="liveCpuPerCore" style="margin-top:6px"></div>
+  </div>
+
+  <div class="live-card">
+    <div class="live-header">
+      <span class="live-label">Memory</span>
+      <span class="live-value mem" id="liveMemValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveMemChart" height="60"></canvas>
+    <div class="live-meta" id="liveMemMeta">--</div>
+  </div>
+
+  <div class="live-card">
+    <div class="live-header">
+      <span class="live-label">Swap</span>
+      <span class="live-value swap" id="liveSwapValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveSwapChart" height="60"></canvas>
+    <div class="live-meta" id="liveSwapMeta">--</div>
+  </div>
+
+  <div class="live-card">
+    <div class="live-header">
+      <span class="live-label">Network ↓ RX</span>
+      <span class="live-value net-rx" id="liveNetRxValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveNetRxChart" height="60"></canvas>
+    <div class="live-header" style="margin-top:6px">
+      <span class="live-label">Network ↑ TX</span>
+      <span class="live-value net-tx" id="liveNetTxValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveNetTxChart" height="60"></canvas>
+    <div class="live-meta" id="liveNetMeta">--</div>
+  </div>
+
+  <div class="live-card">
+    <div class="live-header">
+      <span class="live-label">Disk read</span>
+      <span class="live-value disk-rd" id="liveDiskRdValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveDiskRdChart" height="60"></canvas>
+    <div class="live-header" style="margin-top:6px">
+      <span class="live-label">Disk write</span>
+      <span class="live-value disk-wr" id="liveDiskWrValue">--</span>
+    </div>
+    <canvas class="live-canvas" id="liveDiskWrChart" height="60"></canvas>
+    <div class="live-meta" id="liveDiskMeta">--</div>
+  </div>
+
+</div>
+
+<h2 style="margin-top:20px">GPU</h2>
+<div class="live-grid" id="liveGpuBox">
+  <div class="card"><div class="stat">--</div><div class="label">GPU (loading…)</div></div>
+</div>
+</div>

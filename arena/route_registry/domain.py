@@ -54,6 +54,9 @@ def register_domain_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_post("/v1/extension/execute", h["handle_v1_extension_execute"])
     app.router.add_get("/v1/metrics", h["handle_v1_metrics"])
     app.router.add_get("/v1/logs", h["handle_v1_logs"])
+    # v3.95.0 -- live-metrics for Dashboard sparklines.
+    app.router.add_get("/v1/live-metrics", h["handle_v1_live_metrics"])
+    app.router.add_get("/v1/live-metrics/stream", h["handle_v1_live_metrics_stream"])
 
     app.router.add_get("/metrics", h["handle_prometheus_metrics"])
     app.router.add_get("/api-docs", h["handle_api_docs"])

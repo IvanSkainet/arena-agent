@@ -6,6 +6,128 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.95.0 - 2026-07-16
+
+### Добавлено — Live host-metrics и вкладка Live с sparklines
+
+Новая вкладка **Live** в Dashboard рисует rolling-sparklines за
+последние 2 минуты для CPU, памяти, swap, сети RX/TX, диска
+чтение/запись и per-device GPU utilization + VRAM. Все ряды
+приходят с новой лёгкой backend-поверхности, которую агенты и
+другие тулзы могут дёргать напрямую.
+
+#### Backend
+
+* **`arena/observability/live_metrics.py`** (456 строк) —
+  `live_metrics_snapshot()` возвращает один JSON-сериализуемый
+  dict с секциями `cpu`, `memory`, `swap`, `net`, `disk`, `gpu`.
+  Использует `psutil` когда он установлен для высокой точности;
+  на GNU/Linux падает в fallback через `/proc/{stat,meminfo}`;
+  на платформах без `psutil` и без `/proc` возвращает
+  `{"available": false, "reason": ...}`. Cross-platform
+  (Windows/macOS/GNU-Linux) by design.
+
+* Дельты `net.bytes_{sent,recv}_per_sec` и
+  `disk.{read,write}_bytes_per_sec` считаются против
+  process-global `_LAST_SAMPLE` под `threading.Lock`, чтобы
+  несколько pollers видели консистентные per-second rates.
+
+* GPU-запрос кэшируется на 2 секунды, чтобы 1 Hz sampling
+  оставался дешёвым: сначала `nvidia-smi`, потом fallback на
+  `rocm-smi`, иначе пусто. Live-проверено на NVIDIA GTX 1050 Ti
+  (utilization 4 %, температура 43 °C).
+
+* **`arena/observability/live_metrics_handler.py`** (154 строки) —
+  два aiohttp handler'а, подключённых через стандартные registries:
+
+  - `GET /v1/live-metrics` — one-shot JSON snapshot для скриптов
+    и разовых проверок. Использует `@authed` из
+    `arena/handler_helpers.py`.
+  - `GET /v1/live-metrics/stream` — WebSocket, который пушит
+    snapshot примерно раз в секунду до тех пор, пока клиент не
+    закроется. Auth такой же как в REST (Bearer-header или
+    `?token=` query param, потому что браузер не может выставить
+    header на WebSocket handshake). Module-level счётчик режет
+    concurrent stream-клиентов на уровне 32 per process.
+
+* Wire для routes: два новых tuple'а в
+  `arena/route_registry/registry.py`, соответствующие вызовы
+  `app.router.add_get(...)` в `arena/route_registry/domain.py` и
+  новые handler-name mappings в
+  `arena/wiring/observability_registries.py`. Всё в паттерне
+  v3.90.0 route-registry — один файл на один concern.
+
+#### Frontend
+
+* **`dashboard/assets/00-tabs-registry.js`** — новый tab **Live**
+  (иконка 📈, между Mobile и Doctor) с
+  `onShow → startLiveCharts()` и `onHide → stopLiveCharts()`.
+
+* **`dashboard/assets/body-17-live.html`** (197 строк) — разметка
+  таба: 5 sparkline-cards (CPU, Memory, Swap, Network RX/TX,
+  Disk R/W) в responsive `live-grid`, плюс динамическая
+  per-GPU-секция. Все theme-цвета через `--live-*` CSS-variables
+  в `dashboard.css`.
+
+* **`dashboard/assets/41-live-charts.js`** (371 строка) — чистый
+  Canvas 2D sparkline-renderer (~40 LOC), без внешней chart-
+  библиотеки, чтобы preview работал даже внутри sandbox-iframe
+  без CDN. Buffer 120 samples (2 мин при 1 Hz), auto-scaling для
+  throughput-серий, фиксированный диапазон 0–100 для процентных.
+  WebSocket-first с автоматическим HTTP-poll fallback, если
+  socket закрылся, не отдав ни одного сообщения.
+
+* **`dashboard/assets/dashboard.css`** — добавлены
+  `--live-{card-bg,card-border,canvas-bg,core-track,text,text-muted}`
+  + accent-palette `--live-{cpu,mem,swap,net-rx,net-tx,disk-rd,disk-wr,gpu,gpu-mem}`,
+  чтобы будущие темы могли перекрашивать sparklines вместе со
+  всем UI.
+
+#### Тесты
+
+* **`tests/test_live_metrics.py`** (91 строка, 7 тестов) —
+  форма snapshot'а, границы CPU/memory percent, корректность
+  two-sample дельт, reuse GPU 2-секундного кэша,
+  JSON-сериализуемость, монотонность disk totals.
+
+* **`tests/test_live_metrics_handler.py`** (110 строк, 6 тестов) —
+  handler возвращает snapshot, enforcement auth (`@authed`
+  оборачивает plain `GET`; WebSocket-роут проверяет auth
+  вручную первым), 429 при превышении cap stream-клиентов,
+  регистрация routes и в `ub.make_app`, и в
+  `arena.route_registry.registry.ROUTES`.
+
+* `tests/test_route_registry.py::test_tabs_registry_file_exists_and_declares_all_tabs`
+  обновлён — включает новый tab `live`.
+
+**Всего 1102 passed** (было 1089; +13 новых).
+
+### Проверено live
+
+* `GET /v1/live-metrics` возвращает полный snapshot (CPU 50.7 % / 4
+  ядра, память 46.6 %, swap 0 %, network + disk totals, NVIDIA
+  GTX 1050 Ti на 7 % / 41 °C).
+* `GET /v1/live-metrics` без токена → **401**.
+* `GET /v1/live-metrics/stream` WebSocket: 4 tick'а за ~3 с, per-tick
+  network RX растёт с 0 до 55 111 B/s по мере поступления реального
+  трафика на интерфейс, GPU utilization и температура обновляются
+  каждый tick.
+* `GET /gui/assets/manifest.json` **автоматически подхватил** новый
+  скрипт `41-live-charts.js` и body `body-17-live.html` — ничего
+  вручную регистрировать не пришлось (v3.91.0 asset manifest
+  сработал как задумано).
+
+### Идеи на будущее (не в этом релизе)
+
+* Добавить опциональный toggle 5 с / 10 с длины buffer'а во вкладке
+  Live, чтобы можно было "отойти" для наблюдения за более длинными
+  окнами.
+* Расширить GPU-секцию — разделить compute vs. graphics utilization
+  на NVIDIA (nvidia-smi имеет отдельные query-поля).
+* Подцепить ту же snapshot-функцию к Prometheus exporter, чтобы
+  внешним scrapers не приходилось дёргать два endpoint'а.
+
+
 ## v3.94.0 - 2026-07-16
 
 ### Изменено — миграция @authed продолжается на surface /v1/exec

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import RuntimeObservabilityHandlerContext
+from arena.observability.live_metrics_handler import make_live_metrics_handlers
 from arena.observability.logs_handler import make_logs_handler
 from arena.observability.metrics_handler import make_metrics_handler
 from arena.observability.prometheus_handler import make_prometheus_metrics_handler
@@ -17,6 +18,9 @@ class RuntimeObservabilityHandlers:
     metrics: object
     prometheus_metrics: object
     logs: object
+    # v3.95.0 -- live-metrics for Dashboard sparkline charts.
+    live_metrics: object
+    live_metrics_stream: object
 
 
 def _as_runtime_handler(handler):
@@ -29,10 +33,13 @@ def _as_runtime_handler(handler):
 
 
 def make_runtime_observability_handlers(ctx: RuntimeObservabilityHandlerContext) -> RuntimeObservabilityHandlers:
+    live = make_live_metrics_handlers(ctx)
     return RuntimeObservabilityHandlers(
         metrics=_as_runtime_handler(make_metrics_handler(ctx)),
         prometheus_metrics=_as_runtime_handler(make_prometheus_metrics_handler(ctx)),
         logs=_as_runtime_handler(make_logs_handler(ctx)),
+        live_metrics=_as_runtime_handler(live["live_metrics"]),
+        live_metrics_stream=_as_runtime_handler(live["live_metrics_stream"]),
     )
 
 
