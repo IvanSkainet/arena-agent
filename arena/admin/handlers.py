@@ -68,6 +68,10 @@ class AdminHandlers:
     zt_central_members_list: object
     zt_central_member_update: object
     zt_central_member_delete: object
+    # v4.19.0: agent-driven change proposals.
+    proposal_submit: object
+    proposal_status: object
+    proposal_list: object
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
@@ -472,6 +476,13 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     from arena.admin.zerotier_central_handlers import make_zerotier_central_handlers
     _ztc = make_zerotier_central_handlers(ctx)
 
+    # v4.19.0: agent proposal handlers. Repo root is derived
+    # from BRIDGE_DIR (constants.py). Kept in a sibling module
+    # because the whole apply+test pipeline is ~250 lines.
+    from arena.admin.handlers_proposal import make_proposal_handlers
+    from arena.constants import BRIDGE_DIR
+    _prop = make_proposal_handlers(ctx, BRIDGE_DIR)
+
     return AdminHandlers(
         sys_funnel=handle_v1_sys_funnel,
         token_regenerate=handle_v1_token_regenerate,
@@ -499,4 +510,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         zt_central_members_list=_ztc.members_list,
         zt_central_member_update=_ztc.member_update,
         zt_central_member_delete=_ztc.member_delete,
+        # v4.19.0: agent-driven change proposals.
+        proposal_submit=_prop["proposal_submit"],
+        proposal_status=_prop["proposal_status"],
+        proposal_list=_prop["proposal_list"],
     )

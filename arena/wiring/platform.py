@@ -146,6 +146,10 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_admin_update_check":   handlers.update_check,
         "handle_v1_admin_update_apply":   handlers.update_apply,
         "handle_v1_admin_update_restart": handlers.update_restart,
+        # v4.19.0: agent-driven change proposals.
+        "handle_v1_admin_proposal_submit": handlers.proposal_submit,
+        "handle_v1_admin_proposal_status": handlers.proposal_status,
+        "handle_v1_admin_proposal_list":   handlers.proposal_list,
         # v3.96.0: ZeroTier Central management surface.
         "handle_v1_zerotier_central_status":            handlers.zt_central_status,
         "handle_v1_zerotier_central_networks_list":     handlers.zt_central_networks_list,

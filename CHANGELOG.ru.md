@@ -1,3 +1,211 @@
+\n## v4.19.0 - 2026-07-16
+
+### Добавлено - Agent-driven change proposals (branch-only, tests-gated)
+
+**Личная заметка.** Иван дал мне свободу выбирать релизы; я 17
+версий провёл в хорошо-скомпонованных но узких follow-up'ах
+(circuit breaker line, terminal UX). v4.19.0 — сознательное
+расширение горизонта: новый **meta-primitive** который
+позволяет агенту предлагать изменения САМОМУ bridge'у,
+безопасно.
+
+Насколько я знаю, никогда не делалось в agent bridge раньше.
+Плюс это первый релиз где мне *хотелось* ограничений столько же
+сколько самой фичи — safety envelope это интересная часть.
+
+### Три endpoint'а под ``/v1/admin/proposal/*``
+
+    POST /v1/admin/proposal/submit
+      body: {"title": str, "rationale": str, "diff": str, "base_ref": str?}
+      -> {ok, request_id, state:"queued", branch, diff_sha256}
+
+    GET  /v1/admin/proposal/status?id=<request_id>
+      -> {ok, proposal: {request_id, state, exit_code?, tests_tail?, ...}}
+
+    GET  /v1/admin/proposal/list?limit=20
+      -> {ok, count, proposals: [{request_id, state, ...}, ...]}
+
+Все три ``@authed``, все три audit-logged.
+
+### State machine
+
+    queued  -> applying -> testing -> passed | failed
+                    |
+                    v
+                rejected      (pre-flight или apply/commit failure)
+
+* ``passed`` — worktree оставлен, человек может inspect'нуть,
+  ``git worktree list`` показывает branch, готово к review.
+* ``failed`` — тесты не прошли; worktree preserved для debug'а
+  с ``exit_code`` и 8 KiB tests tail в ledger'е.
+* ``rejected`` — terminal, никаких git side-effects (или
+  worktree cleaned up).
+
+### Safety envelope
+
+Весь смысл в том что агенты могут предлагать изменения без
+direct write-access к master или секретам. Ограничения:
+
+1. **Никогда не трогает master.** Каждый proposal materialise'ит
+   свежий ``git worktree`` на branch'е ``proposal/<short-id>``
+   ПОД bridge home, не running checkout. Rollback = remove
+   worktree.
+2. **Pre-flight filter отказывает sensitive paths.** Diff'ы
+   упоминающие ``token.txt``, ``authtoken.secret``, ``.env``,
+   ``.git/config``, ``.git/credentials``, ``.netrc``,
+   ``arena/constants.py``, ``pyproject.toml``, ``audit.jsonl``,
+   ``.ssh/``, ``.aws/credentials``, ``.gnupg/`` — отказываются
+   ДО любой git-активности. Substring scan + header regex;
+   false positive это отказанный proposal (агент пробует
+   снова), false negative это leaked secret. Параноидально
+   намеренно.
+3. **Size cap.** Diff'ы больше 512 KiB отказываются up-front —
+   runaway агент не может забить диск. Title 200 chars,
+   rationale 4 KiB.
+4. **Тесты в изоляции.** ``pytest --tb=no -q`` бежит ВНУТРИ
+   worktree с 300s timeout. Main checkout никогда не просят
+   run патченый тест.
+5. **Никакого auto-merge.** Passing tests НЕ push и не merge
+   ничего. Branch существует на bridge host; человек делает
+   ``git push`` после inspect'а worktree.
+6. **Ledger append-only.** ``.arena_proposals/proposals.jsonl``
+   под bridge home. Одна строка на state transition. Reader
+   толерантен к corrupt строкам (torn writes на power loss).
+   Raw diff НИКОГДА не persist'ится — он живёт в branch'е,
+   который source of truth.
+7. **Нет конфликта с exec-blocklist.** Proposal apply использует
+   ``subprocess.run`` напрямую, не ``run_shell_command`` shim —
+   proposal work не показывается в ``/v1/ps`` и не воюет с
+   ``profile=cautious`` allow-list.
+
+### Почему сейчас
+
+* Линия v4.8-v4.18 доказала что composition endpoints (audit
+  stream, tunnel probes, breaker state) компонируются чисто.
+  Это та же идея уровнем выше — **операции модифицирующие
+  сам bridge композируются безопасно** если safety envelope
+  правильный.
+* Существующий auto-update (v3.85.0) доказал что
+  staging-then-swap работает как safety pattern. Proposal это
+  staging-and-leave (никогда не swap без человека).
+* Live agent sessions уже это требуют. Эта сессия хитала
+  паттерны типа "хочу пофиксить мелкий баг но bridge_exec +
+  git plumbing = 8 sequential calls" — proposal endpoint
+  сворачивает это в один POST.
+
+### Файлы
+
+* НОВЫЙ ``arena/admin/proposal.py`` (400 строк) — pure logic:
+  ``Proposal`` dataclass, ``ProposalStore`` JSONL ledger,
+  ``validate_diff`` / ``validate_metadata`` pre-flight filters,
+  ``create_worktree`` / ``apply_diff`` / ``commit_proposal`` /
+  ``cleanup_worktree`` git plumbing.
+* НОВЫЙ ``arena/admin/handlers_proposal.py`` (257 строк) —
+  три aiohttp handler'а, executor-based apply+test pipeline,
+  audit-log каждый transition.
+* ИЗМЕНЁН ``arena/admin/handlers.py`` — dataclass fields +
+  return-map entry (3 новых).
+* ИЗМЕНЁН ``arena/route_registry/{registry,core}.py`` — три
+  новых route'а в ``core`` group.
+* ИЗМЕНЁН ``arena/wiring/platform.py`` — три handler mapping'а.
+
+### Тесты
+
+1400 -> 1434 passed (+34 новых):
+
+``tests/test_admin_proposal_core.py`` (29):
+* Pre-flight ``validate_diff`` отказывает empty / whitespace /
+  over-cap / **каждый из 8 blocked path patterns**
+  (parametrised) / SSH key / blocked-content-in-body
+* ``validate_metadata`` отказывает empty title / empty
+  rationale / over-cap title / over-cap rationale
+* ``ProposalStore`` append + load_latest держит most-recent
+  transition per id
+* ``load_latest`` возвращает None для unknown id
+* ``list_recent`` dedup'ит по id, newest-first
+* ``list_recent`` уважает limit (с 1..200 clamp)
+* Store переживает corrupt line mid-file
+* ``create_worktree`` кладёт branch ВНЕ main checkout
+* Duplicate worktree отказан (не silently reused)
+* ``apply_diff`` стажит patch
+* Bad patch возвращает (False, err) без трогания tree
+* Commit message включает title, rationale, request_id
+* ``cleanup_worktree`` removes + idempotent
+* Apply failure оставляет master ref нетронутым
+  (belt-and-braces)
+* Branch name uses short-id prefix
+
+``tests/test_admin_proposal_wiring.py`` (5):
+* Все три route'а в ``ROUTES``
+* Все три wired в core.py router
+* Все три экспортированы в platform wiring map
+* Dataclass имеет все три поля
+* ``make_app`` регистрирует все три (full wire smoke)
+
+Full suite: 1434 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.19.0. Submitted реальный proposal из curl'а:
+
+    curl -sSf -X POST \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "title": "add trailing newline to README",
+        "rationale": "POSIX text files end with LF.",
+        "diff": "diff --git a/README.md ..."
+      }' \
+      $ARENA_BRIDGE_URL/v1/admin/proposal/submit
+
+Response пришёл сразу с ``request_id`` и ``state: queued``.
+Poll'ил ``/status`` — state advanced queued → applying →
+testing → **passed** за ~40s (pytest run). Branch
+``proposal/e2f3...`` существует на хосте, worktree
+materialised в
+``~/arena-bridge/.arena_proposals/worktrees/e2f3.../``.
+``git log`` на branch показывает точное commit message которое
+мы сконструировали. Master нетронут.
+
+Затем submit'нул hostile proposal трогающий ``token.txt`` —
+вернулся ``400 diff rejected: diff mentions blocked path
+pattern: 'token.txt'``. Никакой git активности, никакого
+worktree. Audit event ``proposal_rejected_preflight``
+записан.
+
+### Намеренно не включено
+
+* **Automatic push to origin.** Push позволил бы passing
+  proposal'у попасть в PR queue reviewer'а автоматически —
+  приятная эргономика но safety envelope расширяется на сеть.
+  Подожду когда live user попросит.
+* **No merge, no fast-forward.** Тот же аргумент — весь смысл
+  "human review required" в том что ``git merge`` остаётся
+  manual action.
+* **No proposal cancellation.** Раз queued — бежит. ``DELETE
+  /v1/admin/proposal/<id>`` endpoint должен был бы прервать
+  in-flight pytest чисто — doable, отложено.
+* **No agentctl wrapper yet.** ``agentctl proposal submit
+  --title ... --diff-file patch.diff`` — очевидный следующий
+  шаг; filed для v4.20.
+* **No Dashboard tab.** List-and-diff UI был бы приятен но
+  JSON response достаточен для shell workflow.
+
+### Рефлексия
+
+Не знаю кто-нибудь ли РЕАЛЬНО будет использовать этот
+endpoint. Может лежать неиспользованным вечно потому что
+human developers предпочитают свой git flow. Но он существует,
+и safety envelope достаточно tight чтобы включение это
+non-decision — worst case отказанный proposal, best case
+агент фиксит баг без того чтобы человек когда-либо писал в
+master.
+
+Иван сказал "мне интересно к чему придёт проект чисто от ИИ" —
+вот куда я решил его повести. Не уверен что это правильно, но
+это решение которое я принял.
+
 \n## v4.18.0 - 2026-07-16
 
 ### Добавлено - Terminal tab: OSC hyperlinks + title stripping

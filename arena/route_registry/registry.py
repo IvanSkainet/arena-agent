@@ -174,6 +174,10 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/admin/update/check'                          , 'handle_v1_admin_update_check'               , 'core', None),
     ('POST'  , '/v1/admin/update/apply'                          , 'handle_v1_admin_update_apply'               , 'core', None),
     ('POST'  , '/v1/admin/update/restart'                        , 'handle_v1_admin_update_restart'             , 'core', None),
+    # v4.19.0: agent-driven change proposals (branch-only, tests-gated).
+    ('POST'  , '/v1/admin/proposal/submit'                       , 'handle_v1_admin_proposal_submit'            , 'core', None),
+    ('GET'   , '/v1/admin/proposal/status'                       , 'handle_v1_admin_proposal_status'            , 'core', None),
+    ('GET'   , '/v1/admin/proposal/list'                         , 'handle_v1_admin_proposal_list'              , 'core', None),
     ('GET'   , '/v1/mobile/devices'                              , 'handle_v1_mobile_devices'                   , 'core', None),
     ('GET'   , '/v1/mobile/{serial}/info'                        , 'handle_v1_mobile_info'                      , 'core', None),
     ('GET'   , '/v1/mobile/{serial}/screenshot'                  , 'handle_v1_mobile_screenshot'                , 'core', None),

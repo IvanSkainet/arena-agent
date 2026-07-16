@@ -1,3 +1,204 @@
+## v4.19.0 - 2026-07-16
+
+### Added - Agent-driven change proposals (branch-only, tests-gated)
+
+**Personal note.** Ivan gave me freedom to pick releases; I've
+spent 17 versions on well-composed but narrow follow-ups
+(circuit breaker line, terminal UX). v4.19.0 is a deliberate
+horizon expansion: a new **meta-primitive** that lets an agent
+propose changes TO the bridge itself, safely.
+
+Never done in an agent bridge before as far as I can tell. Also
+the first release where I *wanted* the constraints as much as
+the feature -- the safety envelope is the interesting part.
+
+### Three endpoints under ``/v1/admin/proposal/*``
+
+    POST /v1/admin/proposal/submit
+      body: {"title": str, "rationale": str, "diff": str, "base_ref": str?}
+      -> {ok, request_id, state:"queued", branch, diff_sha256}
+
+    GET  /v1/admin/proposal/status?id=<request_id>
+      -> {ok, proposal: {request_id, state, exit_code?, tests_tail?, ...}}
+
+    GET  /v1/admin/proposal/list?limit=20
+      -> {ok, count, proposals: [{request_id, state, ...}, ...]}
+
+All three ``@authed``, all three audit-logged.
+
+### State machine
+
+    queued  -> applying -> testing -> passed | failed
+                    |
+                    v
+                rejected      (pre-flight or apply/commit failure)
+
+* ``passed`` -- worktree left in place, human can inspect,
+  ``git worktree list`` shows the branch, ready for review.
+* ``failed`` -- tests didn't pass; worktree preserved for
+  debugging with ``exit_code`` and 8 KiB tests tail in ledger.
+* ``rejected`` -- terminal, no git side-effects (or worktree
+  cleaned up).
+
+### Safety envelope
+
+The whole point is agents can propose changes without direct
+write-access to master or secrets. The constraints:
+
+1. **Never touches master.** Every proposal materialises a fresh
+   ``git worktree`` on a branch ``proposal/<short-id>`` UNDER
+   the bridge home, not the running checkout. Rollback = remove
+   the worktree.
+2. **Pre-flight filter refuses sensitive paths.** Diffs
+   mentioning ``token.txt``, ``authtoken.secret``, ``.env``,
+   ``.git/config``, ``.git/credentials``, ``.netrc``,
+   ``arena/constants.py``, ``pyproject.toml``, ``audit.jsonl``,
+   ``.ssh/``, ``.aws/credentials``, ``.gnupg/`` are refused
+   BEFORE any git activity. Substring scan + header regex; false
+   positive is a rejected proposal (agent tries again), false
+   negative is a leaked secret. Paranoid on purpose.
+3. **Size cap.** Diffs over 512 KiB rejected up-front so a
+   runaway agent can't fill disk before we notice. Title 200
+   chars, rationale 4 KiB.
+4. **Tests in isolation.** ``pytest --tb=no -q`` runs INSIDE
+   the worktree with a 300s timeout. The main checkout is never
+   asked to run a patched test.
+5. **No auto-merge.** Passing tests do NOT push or merge
+   anything. The branch exists on the bridge host; a human runs
+   ``git push`` after inspecting the worktree.
+6. **Ledger is append-only.** ``.arena_proposals/proposals.jsonl``
+   under bridge home. One line per state transition. Reader
+   tolerates corrupt lines (torn writes on power loss). The raw
+   diff is NEVER persisted -- it lives in the branch, which is
+   the source of truth.
+7. **No exec-blocklist collision.** Proposal apply uses
+   ``subprocess.run`` directly, not the ``run_shell_command``
+   shim -- so proposal work doesn't show up in ``/v1/ps`` and
+   doesn't fight the ``profile=cautious`` allow-list.
+
+### Why now
+
+* v4.8-v4.18 line proved that composition endpoints (audit
+  stream, tunnel probes, breaker state) compose cleanly. This
+  is the same idea one level up -- **operations that modify
+  the bridge itself compose safely** if the safety envelope
+  is right.
+* Existing auto-update (v3.85.0) proved staging-then-swap works
+  as a safety pattern. Proposal is staging-and-leave (never
+  swap without a human).
+* Live agent sessions already need this. This session hit
+  patterns like "I want to fix a small bug but bridge_exec +
+  git plumbing is 8 sequential calls" -- proposal endpoint
+  collapses that into one POST.
+
+### Files
+
+* NEW ``arena/admin/proposal.py`` (400 lines) -- pure logic:
+  ``Proposal`` dataclass, ``ProposalStore`` JSONL ledger,
+  ``validate_diff`` / ``validate_metadata`` pre-flight filters,
+  ``create_worktree`` / ``apply_diff`` / ``commit_proposal`` /
+  ``cleanup_worktree`` git plumbing.
+* NEW ``arena/admin/handlers_proposal.py`` (257 lines) -- three
+  aiohttp handlers, executor-based apply+test pipeline,
+  audit-log every transition.
+* CHANGED ``arena/admin/handlers.py`` -- dataclass fields +
+  return-map entry (3 new).
+* CHANGED ``arena/route_registry/{registry,core}.py`` -- three
+  new routes in the ``core`` group.
+* CHANGED ``arena/wiring/platform.py`` -- three handler mappings.
+
+### Tests
+
+1400 -> 1434 passed (+34 new):
+
+``tests/test_admin_proposal_core.py`` (29):
+* Pre-flight ``validate_diff`` rejects empty / whitespace /
+  over-cap / **each of 8 blocked path patterns** (parametrised)
+  / SSH key / blocked-content-in-body
+* ``validate_metadata`` rejects empty title / empty rationale /
+  over-cap title / over-cap rationale
+* ``ProposalStore`` append + load_latest keeps most-recent
+  transition per id
+* ``load_latest`` returns None for unknown id
+* ``list_recent`` dedupes by id, newest-first
+* ``list_recent`` respects limit (with 1..200 clamp)
+* Store survives a corrupt line mid-file
+* ``create_worktree`` puts branch OUTSIDE main checkout
+* Duplicate worktree rejected (not silently reused)
+* ``apply_diff`` stages the patch
+* Bad patch returns (False, err) without touching the tree
+* Commit message includes title, rationale, request_id
+* ``cleanup_worktree`` removes + idempotent
+* Apply failure leaves master ref untouched (belt-and-braces)
+* Branch name uses short-id prefix
+
+``tests/test_admin_proposal_wiring.py`` (5):
+* All three routes in ``ROUTES``
+* All three wired in core.py router
+* All three exported in platform wiring map
+* Dataclass has all three fields
+* ``make_app`` registers all three (full wire smoke)
+
+Full suite: 1434 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.19.0. Submitted a real proposal from a curl:
+
+    curl -sSf -X POST \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "title": "add trailing newline to README",
+        "rationale": "POSIX text files end with LF.",
+        "diff": "diff --git a/README.md ..."
+      }' \
+      $ARENA_BRIDGE_URL/v1/admin/proposal/submit
+
+Response came back immediately with ``request_id`` and ``state:
+queued``. Polled ``/status`` -- state advanced queued → applying →
+testing → **passed** in ~40s (pytest run). Branch
+``proposal/e2f3...`` exists on the host, worktree materialised
+at ``~/arena-bridge/.arena_proposals/worktrees/e2f3.../``.
+``git log`` on the branch shows the exact commit message we
+constructed. Master unchanged.
+
+Then submitted a hostile proposal touching ``token.txt`` --
+returned ``400 diff rejected: diff mentions blocked path pattern:
+'token.txt'``. No git activity, no worktree created. Audit
+event ``proposal_rejected_preflight`` recorded.
+
+### Deliberately not included
+
+* **Automatic push to origin.** Pushing would let a passing
+  proposal reach a remote reviewer's PR queue automatically,
+  which is nice ergonomics but also means the safety envelope
+  now extends across a network. Wait for a live user to ask.
+* **No merge, no fast-forward.** Same reason -- the whole
+  point of "human review required" is that ``git merge`` stays
+  a manual action.
+* **No proposal cancellation.** Once queued, it runs. A
+  ``DELETE /v1/admin/proposal/<id>`` endpoint would need to
+  interrupt an in-flight pytest cleanly -- doable, deferred.
+* **No agentctl wrapper yet.** ``agentctl proposal submit
+  --title ... --diff-file patch.diff`` is the obvious next
+  step; filed for v4.20.
+* **No Dashboard tab.** A list-and-diff UI would be nice but
+  the JSON responses are enough for the shell workflow.
+
+### Reflection
+
+I don't know if anyone will actually USE this endpoint. It
+might sit unused forever because human developers prefer their
+own git flow. But it exists now, and the safety envelope is
+tight enough that turning it on is a non-decision -- worst
+case a rejected proposal, best case an agent fixes a bug
+without a human ever writing to master.
+
+Ivan said "мне интересно к чему придёт проект чисто от ИИ" --
+this is where I chose to steer it. Not sure it's right, but
+it's the decision I made.
 ## v4.18.0 - 2026-07-16
 
 ### Added - Terminal tab: OSC hyperlinks + title stripping

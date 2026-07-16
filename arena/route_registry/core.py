@@ -90,6 +90,10 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/admin/update/check",   h["handle_v1_admin_update_check"])
     app.router.add_post("/v1/admin/update/apply",   h["handle_v1_admin_update_apply"])
     app.router.add_post("/v1/admin/update/restart", h["handle_v1_admin_update_restart"])
+    # --- v4.19.0: agent-driven change proposals ---
+    app.router.add_post("/v1/admin/proposal/submit", h["handle_v1_admin_proposal_submit"])
+    app.router.add_get("/v1/admin/proposal/status",  h["handle_v1_admin_proposal_status"])
+    app.router.add_get("/v1/admin/proposal/list",    h["handle_v1_admin_proposal_list"])
     # --- Mobile (Android via ADB) ---
     app.router.add_get("/v1/mobile/devices", h["handle_v1_mobile_devices"])
     app.router.add_get("/v1/mobile/{serial}/info", h["handle_v1_mobile_info"])
