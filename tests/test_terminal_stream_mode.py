@@ -127,12 +127,13 @@ def test_js_appends_output_incrementally_not_at_end():
     if end == -1:
         end = js.find("\nfunction ", start + 1)
     body = js[start:end] if end != -1 else js[start:]
-    # Count how many places set slot.out.textContent inside the
-    # stream body. Must be > 1 (per-chunk render) plus the final
-    # summary render.
-    n = body.count("slot.out.textContent =")
+    # v4.15.0: the per-chunk writes now go through the
+    # _termWriteOut helper (which either sets textContent or
+    # innerHTML depending on ANSI presence). Count either shape
+    # so the guard survives the routing indirection.
+    n = body.count("slot.out.textContent =") + body.count("_termWriteOut(slot,")
     assert n >= 2, (
-        f"stream mode writes slot.out.textContent only {n} times; "
+        f"stream mode writes output only {n} times; "
         "expected at least one per-chunk write + one final render"
     )
 

@@ -78,6 +78,24 @@ function normalizeShellCommand(cmd) {
   return cmd;
 }
 
+// v4.15.0: render output through the ANSI-SGR parser so
+// stdout/stderr with ESC[...m colour codes shows up as coloured
+// spans instead of literal '\x1b[31m'. Falls back to
+// textContent when the string has no escapes so we keep the
+// zero-cost path for ordinary commands. Also stashes the raw
+// (uncoloured) text on the pre so Copy Output can round-trip
+// it without HTML tags.
+function _termWriteOut(slot, text) {
+  if (!slot || !slot.out) return;
+  const raw = String(text == null ? "" : text);
+  slot.out._rawText = raw;
+  if (raw.indexOf("\x1b[") === -1) {
+    slot.out.textContent = raw;
+  } else {
+    slot.out.innerHTML = __termAnsiToHtml(raw);
+  }
+}
+
 // v4.13.0: feature-detect ReadableStream support so old browsers
 // silently fall back to buffered /v1/exec instead of showing a
 // broken stream-mode session. Same probe shape as the audit
@@ -178,16 +196,16 @@ async function _runStreamedCommand(c, timeout, slot, t0) {
         } else if (t === "stdout") {
           stdoutText += ev.data || "";
           if (slot) {
-            slot.out.textContent = stdoutText +
-              (stderrText ? "\n--- STDERR ---\n" + stderrText : "");
+            _termWriteOut(slot, stdoutText +
+              (stderrText ? "\n--- STDERR ---\n" + stderrText : ""));
             const sess = document.getElementById("termSession");
             if (sess) sess.scrollTop = sess.scrollHeight;
           }
         } else if (t === "stderr") {
           stderrText += ev.data || "";
           if (slot) {
-            slot.out.textContent = stdoutText +
-              (stderrText ? "\n--- STDERR ---\n" + stderrText : "");
+            _termWriteOut(slot, stdoutText +
+              (stderrText ? "\n--- STDERR ---\n" + stderrText : ""));
             const sess = document.getElementById("termSession");
             if (sess) sess.scrollTop = sess.scrollHeight;
           }
@@ -213,10 +231,10 @@ async function _runStreamedCommand(c, timeout, slot, t0) {
 
   if (slot) {
     if (!stdoutText && !stderrText) {
-      slot.out.textContent = "(no output)";
+      _termWriteOut(slot, "(no output)");
     } else {
-      slot.out.textContent = stdoutText +
-        (stderrText ? "\n--- STDERR ---\n" + stderrText : "");
+      _termWriteOut(slot, stdoutText +
+        (stderrText ? "\n--- STDERR ---\n" + stderrText : ""));
     }
     let status = "ok";
     if (timedOut) status = "timeout";
@@ -289,7 +307,7 @@ async function runCommand(cmd) {
     }
 
     if (slot) {
-      slot.out.textContent = outText || "(no output)";
+      _termWriteOut(slot, outText || "(no output)");
       const color = status === "ok" ? "var(--green)" : (status === "timeout" ? "var(--yellow,#fbbf24)" : "var(--red,#f87171)");
       slot.meta.innerHTML = "";
       const tag = document.createElement("span");
@@ -303,7 +321,7 @@ async function runCommand(cmd) {
     }
   } catch(e) {
     if (slot) {
-      slot.out.textContent = "Error executing command: " + (e.message || "Unknown error");
+      _termWriteOut(slot, "Error executing command: " + (e.message || "Unknown error"));
       slot.meta.innerHTML = '<span style="color:var(--red,#f87171)">network error</span>';
     }
   }
@@ -375,11 +393,11 @@ async function apiQuickGet(path) {
     const dur = ((Date.now() - t0) / 1000).toFixed(1);
     document.getElementById("termDuration").textContent = dur + "s";
     if (slot) {
-      slot.out.textContent = JSON.stringify(result, null, 2);
+      _termWriteOut(slot, JSON.stringify(result, null, 2));
       slot.meta.textContent = "HTTP helper · " + dur + "s";
     }
   } catch(e) {
-    if (slot) { slot.out.textContent = "Error fetching " + path + ": " + (e.message || "Unknown error"); slot.meta.textContent = "error"; }
+    if (slot) { _termWriteOut(slot, "Error fetching " + path + ": " + (e.message || "Unknown error")); slot.meta.textContent = "error"; }
   }
   cmdHistory.unshift("GET " + path);
   if (cmdHistory.length > 30) cmdHistory.length = 30;

@@ -1,3 +1,191 @@
+\n## v4.15.0 - 2026-07-16
+
+### Добавлено - Terminal tab: ANSI SGR colour rendering
+
+v4.13.0 stream-mode toggle качал raw stdout/stderr прямо в
+output ``<pre>``. Всё что печаталось с ANSI colour escapes --
+``ls --color=always``, ``docker pull`` progress bars, ``pytest``
+failure summaries, ``cargo`` compiler output -- показывалось
+литеральным ``\x1b[31mFAILED\x1b[0m`` вместо красного "FAILED".
+v4.13.0 CHANGELOG flagged это как follow-up work; v4.15.0
+делает работу.
+
+Client-side ANSI SGR (Select Graphic Rendition) parser
+конвертирует escape sequences в inline-styled ``<span>``
+элементы. Каждое место где Terminal tab писал в
+``slot.out.textContent`` теперь идёт через новый
+``_termWriteOut(slot, text)`` helper:
+
+* Fast-path: строки без ``ESC[`` fall through в ``textContent``
+  (zero cost для обычных команд).
+* SGR-path: строки с escapes сначала HTML-escape'ятся, потом
+  parser wrap'ит runs styled-text в ``<span style="...">``
+  элементы, потом результат пишется в ``innerHTML``.
+
+Raw uncoloured строка stash'ится в ``slot.out._rawText`` -
+"Copy Output" всё ещё round-trip'ит чистый текст (``innerText``
+уже strip'ает spans natively).
+
+### Поддерживаемые SGR коды
+
+Все коды которые реальный shell реально emit'ит:
+
+* ``0`` reset
+* ``1`` / ``22``   bold on / off
+* ``2``            dim on
+* ``3`` / ``23``   italic on / off
+* ``4`` / ``24``   underline on / off
+* ``7`` / ``27``   inverse on / off  (swap fg/bg)
+* ``30..37`` / ``39``     basic foreground / default
+* ``40..47`` / ``49``     basic background / default
+* ``90..97``              bright foreground
+* ``100..107``            bright background
+* ``38;5;N`` / ``48;5;N``       256-colour (xterm cube)
+* ``38;2;R;G;B`` / ``48;2;R;G;B`` truecolour (24-bit)
+
+Всё остальное -- blink, hidden, framed, и каждая non-SGR CSI
+sequence типа cursor moves (``ESC[H``), screen clears
+(``ESC[2J``), DEC private modes (``ESC[?25l``) -- silently
+stripped. Terminal tab это scrollback pane, не real TTY;
+позволить app repaint'ить над previous output было бы хуже
+чем не rendering escapes вообще.
+
+### Палитра
+
+Mirror'ит classic xterm defaults: не too bright, всё ещё
+читаема на ``#0f0f23`` dashboard background. Bright colours
+используют standard "brighter" set, не gratuitous saturation
+bump. 256-colour cube builds'ится на module load time из
+xterm ``[0, 95, 135, 175, 215, 255]`` step table + 24-step
+grayscale ramp.
+
+### XSS safety
+
+Каждый byte shell output HTML-escape'ится **до того как**
+parser wrap'ит его в span. Команда типа
+``echo -e '\x1b[31m<script>alert(1)</script>\x1b[0m'``
+рендерится как literal красная строка ``<script>alert(1)</script>``,
+а не executed script. Покрыто dedicated node-integration
+тестом (``test_ansi_escape_helper_uses_esc_from_dashboard``).
+
+### Файлы
+
+* НОВЫЙ ``dashboard/assets/05b-terminal-ansi.js`` (229 строк) --
+  standalone parser: ``__termAnsiToHtml`` (main entry),
+  ``__termAnsiStrip`` (для copy-to-clipboard callers),
+  ``__ansiStyleFromState`` (state → inline ``style="..."``),
+  ``__ansiApplyCodes`` (mutate state для one SGR run),
+  ``__ANSI_BASIC`` / ``__ANSI_BRIGHT`` / ``__ANSI_XTERM256``
+  palette-константы.
+* ИЗМЕНЁН
+  ``dashboard/assets/05-terminal-v1-6-2-persistent-shell-like-se.js``
+  (389 -> 407) -- новый ``_termWriteOut(slot, text)`` helper +
+  8 call-site rewrites (обе stream-mode + buffered branches).
+
+Manifest автогенерится из ``dashboard/assets/`` — 
+``05b-terminal-ansi.js`` встаёт между ``05-terminal-*.js`` и
+``06-memory.js`` по prefix sort -- никаких manifest правок.
+
+### Regex expansion (permissive CSI grammar)
+
+Strip regex теперь
+``/\x1b\[[\x30-\x3f]*[\x20-\x2f]*[\x40-\x7e]/g`` -- принимает
+DEC private-mode marker (``?``, ``<``, ``=``, ``>``) который
+programs типа ``htop`` и ``clear`` inject'ят. Без этого первый
+``ESC[?25l`` (hide cursor) сломал бы pipeline и dump'нул
+остальной escape как literal text. Regression-guarded
+``test_ansi_non_sgr_csi_is_stripped_not_rendered`` и
+``test_ansi_strip_removes_all_csi_leaves_visible_text`` -- оба
+нашли bug на первом test run и drove fix.
+
+### Ноль shared-CSS хирургии (v4.0.x lesson всё ещё держится)
+
+* ``dashboard.css`` byte-identical к v4.14.0 (109 строк,
+  baseline).
+* Никакого нового CSS вообще -- colours inline на emitted
+  ``<span>`` элементах, как в реальном терминале.
+* ``.term-*`` scoped-блок в ``body-02-terminal.html`` (v4.13.0)
+  не тронут.
+
+### Тесты
+
+1329 -> 1348 passed (+19 в ``tests/test_terminal_ansi.py``):
+
+Static guards:
+* ANSI module present, exposes все named helpers
+* Terminal tab роутит каждый stdout write через
+  ``_termWriteOut`` (regression против bare ``textContent`` =
+  call который swallow'нул бы escapes)
+* Helper fast-path'ит ANSI-free строки через ``textContent``
+  (guards против rewrite который всегда hits innerHTML)
+* Non-SGR CSI stripping branch exists; strip regex --
+  permissive shape
+* Каждый emitted chunk идёт через ``__ansiEsc`` (XSS guard)
+
+Node-integration (real JS execution, без headless browser):
+* Plain text без escapes -> HTML-escaped, no spans
+* Empty / null / undefined return empty string
+* Basic foreground (ESC[31m) wrap'ит только styled text
+* Bold + underline + colour compose в одном span
+* 256-colour foreground resolves в xterm cube hex
+* Truecolour 38;2;R;G;B resolves в lowercase hex
+* Inverse (ESC[7m) swap'ит fg и bg
+* Non-SGR CSI (cursor move, hide cursor) silently dropped
+* Malformed escape не throw'ает; emit'ит best-effort text
+* Reset закрывает spans cleanly (equal <span>/</span> counts)
+* __termAnsiStrip removes каждый CSI, keeps visible text
+* ``<script>`` / ``&`` / ``"`` в shell output все escape'ятся
+  перед вхождением в span (dedicated XSS regression test)
+* Bright foreground 91..97 resolves в bright palette, не basic
+
+Также обновлён один v4.13.0 test
+(``test_js_appends_output_incrementally_not_at_end``) который
+считал ``slot.out.textContent =`` writes напрямую -- теперь
+считает ``_termWriteOut(slot,`` calls тоже.
+
+CSS containment:
+* ``dashboard.css`` не тронут ``term-ansi`` / ``ansi-span`` /
+  ``ANSI_`` tokens
+
+Full suite: 1348 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.15.0. Открыл Terminal tab через ZeroTier overlay
+с stream mode on, run'нул три сценария:
+
+1. **Coloured output**:
+   ``printf '\x1b[31mred\x1b[0m \x1b[32mgreen\x1b[0m \x1b[1;33mbold-yellow\x1b[0m\n'``
+   -- rendered ожидаемыми тремя цветами, "bold-yellow" visibly
+   тяжелее.
+2. **256-colour progress-bar-style output**:
+   ``for i in 40 41 42 43 44; do printf '\x1b[38;5;%dm████\x1b[0m' $i; done``
+   -- пять gradient blocks появились в xterm cube colours.
+3. **``ls --color=always``** на ``/home/ivan`` -- directory
+   names синим, executables зелёным, symlinks cyan; никаких
+   literal escapes; total output identical тому что shell
+   показал бы в proper terminal.
+
+Buffered mode (stream mode off) также verified с теми же
+inputs -- coloured output течёт через shared ``_termWriteOut``
+helper независимо от transport'а.
+
+### Не включено
+
+* SGR blink (``5``, ``6``) rendering. Blink universally
+  hated в modern terminals; принимаем код silently но
+  не produce CSS animation. Skip.
+* Bold-brightens-basic-colours behaviour. Некоторые old
+  terminals трактовали bold как "используй bright palette
+  для этого colour" -- мы трактуем bold как
+  ``font-weight:700`` и colour как exact code, что matches
+  каждый modern terminal.
+* OSC sequences (window title, hyperlinks). Требует
+  отдельного ``ESC]...ESC\`` parser'а; отложено. Strip
+  regex CSI-only, так что OSC sequence сегодня покажется
+  literal text'ом -- annoying но не security concern.
+
 \n## v4.14.0 - 2026-07-16
 
 ### Добавлено - POST /v1/tunnels/probe/reset + Dashboard reset кнопки
