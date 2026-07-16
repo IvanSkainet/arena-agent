@@ -1,3 +1,135 @@
+## v4.37.0 - 2026-07-17
+
+### Unified Transports tab -- one place, four cards, one refresh
+
+Before this release, controls for the four transports were
+scattered across five different surfaces:
+
+* **Settings tab** -- ``Start`` / ``Stop`` buttons for
+  Tailscale + cloudflared (with per-provider status badges)
+* **Doctor tab** -- Tailscale diagnostic (read-only)
+* **ZeroTier Central tab** -- ZT network + member admin
+  (a very different concern from tunnel status)
+* **Terminal / curl-only** -- ngrok had NO UI at all until
+  this release; operators had to POST manually
+* **Overview** -- the network-status card had a summary
+  badge, but no controls
+
+Ivan called this out explicitly: "часть в Doctor, часть в
+Settings, ngrok вообще только через консоль, а zerotier
+даже отдельную вкладку выделили в Dashboard зачем-то".
+Consolidation is the fix.
+
+New sidebar tab: **🔌 Transports** (between Audit and
+Proposals -- kept with the other meta / admin tabs at the
+bottom of the sidebar).
+
+Layout:
+
+* **Toolbar** matching Audit + Overview + Proposals redesigns:
+  Reload button, "▶ Start all" / "■ Stop all" bulk actions,
+  auto-refresh checkbox with pulsing indicator dot, interval
+  selector (5s / 15s / 30s / 60s).
+* **Meta line** under the toolbar: up/down count chips
+  (``N up`` green + ``N down`` red), last-refresh time,
+  load duration, mode (manual/auto), last error if any.
+* **Card grid** -- one card per transport, four transports:
+  * 🔒 **Tailscale** -- badge, public URL, installed status,
+    Start / Stop / Copy URL buttons.
+  * 🌐 **ZeroTier** -- badge, LAN URL, installed status,
+    Copy URL button. NO Start / Stop (membership is managed
+    through the ZeroTier Central tab -- surfaced as a link
+    "Manage networks →" so operators don't wonder where it
+    went).
+  * ☁️ **cloudflared** -- badge, public URL, installed
+    status, Start / Stop / Copy URL, and a scrollable
+    log-tail (streams stdout for troubleshooting).
+  * 🌩️ **ngrok** -- same shape as cloudflared, plus
+    surfaces the v4.36.0 ``hint`` / ``error_code`` when
+    start fails (``needs_authtoken`` etc.) so the operator
+    gets an actionable message in the card body without
+    hitting the terminal.
+
+Bulk actions:
+
+* **▶ Start all** fires ``start`` for TS + CF + NG in
+  parallel (fire-and-forget so a slow ngrok cold-start
+  doesn't block cloudflared).
+* **■ Stop all** stops all three sequentially (safer -- if
+  one hangs, the others already went down).
+
+Data sources (five parallel requests per refresh):
+
+    /v1/agent/config              -- authoritative URL list
+    /v1/tailscale/funnel/status   -- TS installed/active/url
+    /v1/cloudflared/tunnel/status -- CF installed/active/url/log
+    /v1/ngrok/tunnel/status       -- NG installed/active/url/log/hint
+    /v1/zerotier/status           -- ZT installed/reachable
+
+Start/stop endpoints per transport:
+
+    POST /v1/tailscale/funnel/start|stop
+    POST /v1/cloudflared/tunnel/start|stop
+    POST /v1/ngrok/tunnel/start|stop
+    (ZT deliberately has no start/stop verb)
+
+The ``_ROUTE`` map in the JS module deliberately omits
+``zerotier`` so ``transportStart('zerotier')`` returns a
+helpful message instead of silently 404'ing on a
+nonexistent ``/v1/zerotier/tunnel/start``.
+
+Backward compatibility:
+
+* **Settings tab keeps the legacy Tunnels panel intact** --
+  every id (``tsFunnelStart``, ``tsFunnelStop``,
+  ``cfFunnelStart``, ``cfFunnelStop``, etc.) still exists.
+  ``17-settings-status.js`` and ``29-tunnels.js`` keep working
+  unchanged. A visible deprecation banner points operators
+  at the new Transports tab. Hard removal follows in a
+  subsequent release once we've observed adoption.
+* **Overview #networkCard stays as read-only summary** --
+  the summary badge + URL there is useful at a glance; the
+  Transports tab is for control.
+* **ZeroTier Central tab untouched** -- it's about network
+  membership admin, orthogonal to bridge tunnel status.
+
+Test coverage: ``tests/test_transports_tab_layout.py`` (30
+tests) -- toolbar id present (4 params), card id present
+per transport (4 transports × 5 ids = 20 params), CF+NG
+have log containers (TS+ZT don't), start/stop buttons per
+verb-capable transport (3 params), ZT explicitly has no
+start/stop, Copy URL per transport, bulk actions present,
+scoped-CSS discipline, palette scoped inside tab, sidebar
+registration between audit + proposals, JS IIFE, exports
+loadTransports + all transport verbs globally, uses
+window.api (no raw fetch), diagnostic namespace
+``__transportsTab`` non-enumerable, escapes untrusted
+strings, no hardcoded ``setInterval`` delay, ``_ROUTE``
+map deliberately excludes zerotier, all five status
+endpoints referenced in parallel loader, Settings
+deprecation notice visible + legacy ids preserved.
+
+Suite: **1903 passed** (was 1872, +31 new), one baseline
+flaky.
+
+Files:
+
+* ``dashboard/assets/body-20-transports.html`` (new, ~130
+  lines) -- scoped ``<style>``, toolbar + meta line, 4-card
+  grid with per-transport badge/url/installed/hint/actions.
+* ``dashboard/assets/20-transports.js`` (new, ~290 lines)
+  -- IIFE loader, five parallel status fetches per refresh,
+  per-transport card renderer, start/stop/copy/startAll/
+  stopAll verbs, auto-refresh timer, diagnostic namespace.
+* ``dashboard/assets/00-tabs-registry.js`` -- ``transports``
+  tab entry between ``audit`` and ``proposals``.
+* ``dashboard/assets/body-15-settings.html`` -- deprecation
+  banner above the legacy Tunnels panel; all legacy ids and
+  handlers preserved.
+* ``tests/test_route_registry.py`` -- ``transports`` added
+  to the expected-tabs list.
+* ``tests/test_transports_tab_layout.py`` (new) -- 30 tests.
+
 ## v4.36.2 - 2026-07-17
 
 ### ngrok URL-wait default bumped 30s -> 45s (live-smoke tuning)

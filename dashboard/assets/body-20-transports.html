@@ -1,0 +1,142 @@
+<div class="tab" id="tab-transports">
+<style>
+  /* Transports tab -- unified control surface for every
+     transport (Tailscale / ZeroTier / cloudflared / ngrok). Scoped
+     to #tab-transports so nothing bleeds into shared dashboard.css
+     (v4.0.x lesson). Palette + helpers follow the same Audit-style
+     visual language every other redesigned tab respects.
+
+     Design goal: before this release operators had to hunt across
+     Settings (TS/CF start/stop), Doctor (diagnostic), ZeroTier
+     Central (network admin), and the terminal (ngrok curl-only)
+     to see + control the four transports. One tab, four cards,
+     one refresh, one auto-refresh, one meta line. */
+  #tab-transports{
+    --tr-tint-green:#00d67222;
+    --tr-tint-red:#e9456033;
+    --tr-tint-orange:#ff980033;
+    --tr-tint-blue:#4fc3f733;
+    --tr-tint-purple:#53348333;
+    --tr-tint-gray:#88888833;
+  }
+  /* Toolbar mirror -- matches Audit + Overview + Proposals. */
+  #tab-transports .tr-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-transports .tr-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-transports .tr-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-transports .tr-toolbar select{width:auto;min-width:80px}
+  #tab-transports .tr-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-transports .tr-meta .sep{margin:0 8px;color:var(--accent)}
+  #tab-transports .tr-meta .chip{margin-right:6px;padding:1px 6px;border-radius:8px;font-size:10px;font-family:var(--mono)}
+  #tab-transports .tr-meta .chip.up{background:var(--tr-tint-green);color:var(--green)}
+  #tab-transports .tr-meta .chip.down{background:var(--tr-tint-red);color:var(--red)}
+  #tab-transports .tr-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-transports .tr-refresh-dot.on{opacity:1;animation:tr-pulse 1.4s infinite}
+  #tab-transports .tr-refresh-dot.err{opacity:1;background:var(--red);animation:tr-pulse 1.4s infinite}
+  @keyframes tr-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  /* Card grid -- one card per transport. */
+  #tab-transports .tr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+  #tab-transports .tr-card{border:1px solid var(--accent);border-radius:8px;padding:14px;background:var(--bg2)}
+  #tab-transports .tr-card h3{margin:0 0 8px 0;display:flex;align-items:center;gap:8px;font-size:15px}
+  #tab-transports .tr-card h3 .tr-icon{font-size:18px}
+  #tab-transports .tr-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;font-family:var(--mono);text-transform:lowercase;margin-left:auto}
+  #tab-transports .tr-badge.up{background:var(--tr-tint-green);color:var(--green)}
+  #tab-transports .tr-badge.down{background:var(--tr-tint-gray);color:var(--text2)}
+  #tab-transports .tr-badge.err{background:var(--tr-tint-red);color:var(--red)}
+  #tab-transports .tr-badge.warn{background:var(--tr-tint-orange);color:var(--warning-text)}
+  /* Rows inside each card -- label:value, uniform width. */
+  #tab-transports .tr-row{display:flex;gap:10px;align-items:center;padding:2px 0;font-size:12px;flex-wrap:wrap}
+  #tab-transports .tr-row .tr-label{font-size:11px;font-weight:600;color:var(--text2);width:100px;flex-shrink:0}
+  #tab-transports .tr-row .tr-val{color:var(--text);flex:1 1 auto;min-width:0;word-break:break-all}
+  #tab-transports .tr-row .tr-val.mono{font-family:var(--mono);font-size:11px}
+  #tab-transports .tr-row .tr-val.muted{color:var(--text2)}
+  #tab-transports .tr-url{font-family:var(--mono);font-size:11px;color:var(--blue);word-break:break-all;flex:1;min-width:0}
+  /* Action buttons row */
+  #tab-transports .tr-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  #tab-transports .tr-actions button{font-size:11px;padding:4px 10px}
+  /* Hint / error text under card */
+  #tab-transports .tr-hint{font-size:11px;color:var(--text2);margin-top:8px;padding:6px 8px;background:var(--surface-info);border-radius:4px;line-height:1.4}
+  #tab-transports .tr-hint.err{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
+  #tab-transports .tr-hint code{background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:11px}
+  #tab-transports .tr-hint a{color:var(--blue)}
+  /* Log tail -- shown on ngrok/cloudflared cards */
+  #tab-transports .tr-log{margin-top:8px;max-height:120px;overflow:auto;font-family:var(--mono);font-size:10px;color:var(--text2);background:var(--bg3);padding:6px 8px;border-radius:4px;line-height:1.4;white-space:pre-wrap;word-break:break-all}
+  #tab-transports .tr-log:empty{display:none}
+</style>
+<h1>Transports 🔌</h1>
+
+<div class="tr-toolbar">
+  <button onclick="loadTransports()">Reload</button>
+  <button class="info" onclick="transportsStartAll()">▶ Start all</button>
+  <button class="danger" onclick="transportsStopAll()">■ Stop all</button>
+  <label><input type="checkbox" id="transportsAuto"> auto-refresh <span class="tr-refresh-dot" id="transportsRefreshDot"></span></label>
+  <select id="transportsInterval" title="Auto-refresh interval">
+    <option value="5">5s</option>
+    <option value="15" selected>15s</option>
+    <option value="30">30s</option>
+    <option value="60">60s</option>
+  </select>
+</div>
+<div class="tr-meta" id="transportsMeta">Loading…</div>
+
+<div class="tr-grid">
+  <!-- Tailscale card -->
+  <div class="tr-card" id="tr-card-tailscale">
+    <h3><span class="tr-icon">🔒</span>Tailscale<span class="tr-badge down" id="tr-badge-tailscale">unknown</span></h3>
+    <div class="tr-row"><span class="tr-label">Public URL</span><span class="tr-url" id="tr-url-tailscale">—</span></div>
+    <div class="tr-row"><span class="tr-label">Installed</span><span class="tr-val mono" id="tr-installed-tailscale">?</span></div>
+    <div class="tr-row"><span class="tr-label">Type</span><span class="tr-val muted">Tailscale Funnel — public HTTPS via Tailnet edge</span></div>
+    <div class="tr-actions">
+      <button class="info" onclick="transportStart('tailscale')">Start</button>
+      <button class="danger" onclick="transportStop('tailscale')">Stop</button>
+      <button onclick="transportCopyUrl('tailscale')">Copy URL</button>
+    </div>
+    <div class="tr-hint" id="tr-hint-tailscale" style="display:none"></div>
+  </div>
+
+  <!-- ZeroTier card -->
+  <div class="tr-card" id="tr-card-zerotier">
+    <h3><span class="tr-icon">🌐</span>ZeroTier<span class="tr-badge down" id="tr-badge-zerotier">unknown</span></h3>
+    <div class="tr-row"><span class="tr-label">LAN URL</span><span class="tr-url" id="tr-url-zerotier">—</span></div>
+    <div class="tr-row"><span class="tr-label">Installed</span><span class="tr-val mono" id="tr-installed-zerotier">?</span></div>
+    <div class="tr-row"><span class="tr-label">Type</span><span class="tr-val muted">Overlay VPN — private IP over ZT network</span></div>
+    <div class="tr-actions">
+      <button onclick="transportCopyUrl('zerotier')">Copy URL</button>
+      <button class="info" onclick="location.hash='#zerotier'; setTimeout(()=>document.querySelector('[data-tab=zerotier]')?.click(),50)">Manage networks →</button>
+    </div>
+    <div class="tr-hint" id="tr-hint-zerotier" style="display:none"></div>
+  </div>
+
+  <!-- cloudflared card -->
+  <div class="tr-card" id="tr-card-cloudflared">
+    <h3><span class="tr-icon">☁️</span>cloudflared<span class="tr-badge down" id="tr-badge-cloudflared">unknown</span></h3>
+    <div class="tr-row"><span class="tr-label">Public URL</span><span class="tr-url" id="tr-url-cloudflared">—</span></div>
+    <div class="tr-row"><span class="tr-label">Installed</span><span class="tr-val mono" id="tr-installed-cloudflared">?</span></div>
+    <div class="tr-row"><span class="tr-label">Type</span><span class="tr-val muted">Cloudflare quick tunnel — public HTTPS via *.trycloudflare.com</span></div>
+    <div class="tr-actions">
+      <button class="info" onclick="transportStart('cloudflared')">Start</button>
+      <button class="danger" onclick="transportStop('cloudflared')">Stop</button>
+      <button onclick="transportCopyUrl('cloudflared')">Copy URL</button>
+    </div>
+    <div class="tr-hint" id="tr-hint-cloudflared" style="display:none"></div>
+    <pre class="tr-log" id="tr-log-cloudflared"></pre>
+  </div>
+
+  <!-- ngrok card -->
+  <div class="tr-card" id="tr-card-ngrok">
+    <h3><span class="tr-icon">🌩️</span>ngrok<span class="tr-badge down" id="tr-badge-ngrok">unknown</span></h3>
+    <div class="tr-row"><span class="tr-label">Public URL</span><span class="tr-url" id="tr-url-ngrok">—</span></div>
+    <div class="tr-row"><span class="tr-label">Installed</span><span class="tr-val mono" id="tr-installed-ngrok">?</span></div>
+    <div class="tr-row"><span class="tr-label">Type</span><span class="tr-val muted">Reserved / free-tier public HTTPS via ngrok edge (needs authtoken)</span></div>
+    <div class="tr-actions">
+      <button class="info" onclick="transportStart('ngrok')">Start</button>
+      <button class="danger" onclick="transportStop('ngrok')">Stop</button>
+      <button onclick="transportCopyUrl('ngrok')">Copy URL</button>
+    </div>
+    <div class="tr-hint" id="tr-hint-ngrok" style="display:none"></div>
+    <pre class="tr-log" id="tr-log-ngrok"></pre>
+  </div>
+</div>
+
+</div>
+
+<!-- ==================== ZEROTIER CENTRAL (existing tab) ==================== -->

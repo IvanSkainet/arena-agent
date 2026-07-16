@@ -39,6 +39,7 @@ window.ARENA_TABS = [
   {name: "zerotier",  icon: "🌐", label: "ZeroTier", onShow: () => refreshZerotierCentral()},
   {name: "doctor",    icon: "🏥", label: "Doctor",    onShow: () => runDoctor()},
   {name: "audit",     icon: "📜", label: "Audit",     onShow: () => loadAudit()},
+  {name: "transports",icon: "🔌", label: "Transports",onShow: () => loadTransports()},
   {name: "proposals", icon: "📝", label: "Proposals", onShow: () => loadProposals()},
   {name: "settings",  icon: "⚙️", label: "Settings",  onShow: () => refreshSettings()},
 ];

@@ -1,3 +1,102 @@
+\n## v4.37.0 - 2026-07-17
+
+### Unified Transports tab -- одно место, четыре карточки, один refresh
+
+До этого релиза контролы для четырёх транспортов были
+разбросаны по пяти разным поверхностям:
+
+* **Settings tab** -- ``Start`` / ``Stop`` для Tailscale +
+  cloudflared (с per-provider status-badges)
+* **Doctor tab** -- Tailscale diagnostic (read-only)
+* **ZeroTier Central tab** -- ZT network + member admin
+  (совсем другой concern, отдельная вкладка)
+* **Terminal / curl-only** -- у ngrok до этого релиза не было
+  UI вообще; операторы POST'или руками
+* **Overview** -- network-status card имел summary-badge, но
+  без контролов
+
+Замечание Ивана: "часть в Doctor, часть в Settings, ngrok
+вообще только через консоль, а zerotier даже отдельную
+вкладку выделили в Dashboard зачем-то". Consolidation -- fix.
+
+Новая sidebar-вкладка: **🔌 Transports** (между Audit и
+Proposals -- держится с другими meta/admin-вкладками внизу
+sidebar).
+
+Layout:
+
+* **Toolbar** совпадающий с редизайнами Audit + Overview +
+  Proposals: Reload button, "▶ Start all" / "■ Stop all"
+  bulk-actions, auto-refresh checkbox с пульсирующей
+  dot-индикацией, interval-селектор (5s / 15s / 30s / 60s).
+* **Meta line** под toolbar-ом: up/down count-chips
+  (``N up`` зелёный + ``N down`` красный), last-refresh time,
+  load duration, mode (manual/auto), last error если есть.
+* **Card grid** -- одна карточка на транспорт, четыре:
+  * 🔒 **Tailscale** -- badge, public URL, installed status,
+    Start / Stop / Copy URL.
+  * 🌐 **ZeroTier** -- badge, LAN URL, installed status,
+    Copy URL. БЕЗ Start/Stop (membership управляется через
+    ZeroTier Central tab -- surfaced как link "Manage
+    networks →", чтобы операторы не гадали, куда делось).
+  * ☁️ **cloudflared** -- badge, public URL, installed,
+    Start / Stop / Copy URL, plus scrollable log-tail
+    (streams stdout для troubleshooting).
+  * 🌩️ **ngrok** -- та же форма, что и cloudflared, plus
+    surfaces v4.36.0 ``hint`` / ``error_code`` когда start
+    fail'ится (``needs_authtoken`` etc.), так что оператор
+    получает actionable-сообщение в теле карточки без
+    захода в terminal.
+
+Bulk-actions:
+
+* **▶ Start all** файрит ``start`` для TS + CF + NG
+  параллельно (fire-and-forget, чтобы slow ngrok cold-start
+  не блокировал cloudflared).
+* **■ Stop all** останавливает все три последовательно
+  (безопаснее -- если один зависнет, другие уже упали).
+
+Data sources (пять параллельных requests на refresh):
+    /v1/agent/config, /v1/tailscale/funnel/status,
+    /v1/cloudflared/tunnel/status, /v1/ngrok/tunnel/status,
+    /v1/zerotier/status
+
+Start/stop endpoints per transport:
+    POST /v1/tailscale/funnel/start|stop
+    POST /v1/cloudflared/tunnel/start|stop
+    POST /v1/ngrok/tunnel/start|stop
+    (ZT deliberately не имеет start/stop verb)
+
+Backward compatibility:
+
+* **Settings tab сохраняет legacy Tunnels panel intact** --
+  все id (``tsFunnelStart``, ``tsFunnelStop``,
+  ``cfFunnelStart``, ``cfFunnelStop`` etc.) на месте.
+  ``17-settings-status.js`` и ``29-tunnels.js`` продолжают
+  работать. Visible deprecation-баннер направляет
+  операторов в новую Transports tab. Жёсткое удаление
+  последует в отдельном релизе, когда увидим adoption.
+* **Overview #networkCard остаётся read-only summary**.
+* **ZeroTier Central tab не тронут** -- он про network
+  membership admin, orthogonal к bridge tunnel status.
+
+Тесты: ``tests/test_transports_tab_layout.py`` (30 тестов).
+
+Suite: **1903 passed** (было 1872, +31 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-20-transports.html`` (новый, ~130
+  строк).
+* ``dashboard/assets/20-transports.js`` (новый, ~290 строк).
+* ``dashboard/assets/00-tabs-registry.js`` -- ``transports``
+  между ``audit`` и ``proposals``.
+* ``dashboard/assets/body-15-settings.html`` -- deprecation
+  banner + legacy ids preserved.
+* ``tests/test_route_registry.py`` -- ``transports``
+  добавлен в expected-list.
+* ``tests/test_transports_tab_layout.py`` (новый) -- 30 тестов.
+
 \n## v4.36.2 - 2026-07-17
 
 ### ngrok URL-wait default повышен 30s -> 45s (live-smoke tuning)
