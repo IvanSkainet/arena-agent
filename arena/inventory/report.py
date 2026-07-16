@@ -1,90 +1,34 @@
-"""Inventory aggregation and text formatting."""
+"""Inventory aggregation. Reads the registry as the single source of
+truth for what probes exist; text formatting also lives there.
+"""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
-from arena.inventory.probe_identity import get_identity, get_os
-from arena.inventory.probe_hardware import get_cpu, get_memory, get_gpu, get_motherboard
-from arena.inventory.probe_devices import get_disks, get_storage_devices, get_pci_devices, get_usb_devices, get_thermal, get_network, get_displays
-from arena.inventory.probe_sensors import get_battery, get_fans, get_audio, get_disk_smart, get_thermal_detail
-from arena.inventory.probe_agent_facts import (
-    get_top_processes, get_listening_ports, get_systemd_failed,
-    get_boot_time, get_kernel_modules,
-    get_containers, get_systemd_timers, get_network_io,
-    get_updates_available, get_logged_users, get_cpu_vulnerabilities,
-)
-from arena.inventory.probe_agent_ctx import (
-    get_python_venvs, get_git_repos, get_env_secret_names,
-    get_crontab_entries,
-)
-from arena.inventory.probe_agent_sys import (
-    get_dns_resolvers, get_dmesg_errors,
-    get_journal_errors, get_virtualization, get_time_sync,
-    get_firewall_status,
-)
-from arena.inventory.probe_software import get_runtimes, get_package_managers, get_browsers, get_env, get_services, get_python_env
+from datetime import datetime, timezone
+from typing import Any, Optional
 
-SECTIONS = [
-    ("identity", get_identity),
-    ("os", get_os),
-    ("boot_time", get_boot_time),
-    ("cpu", get_cpu),
-    ("memory", get_memory),
-    ("motherboard", get_motherboard),
-    ("gpu", get_gpu),
-    ("disks", get_disks),
-    ("storage_devices", get_storage_devices),
-    ("pci_devices", get_pci_devices),
-    ("usb_devices", get_usb_devices),
-    ("thermal", get_thermal),
-    ("thermal_detail", get_thermal_detail),
-    ("fans", get_fans),
-    ("battery", get_battery),
-    ("audio", get_audio),
-    ("disk_smart", get_disk_smart),
-    ("top_processes", get_top_processes),
-    ("listening_ports", get_listening_ports),
-    ("systemd_failed", get_systemd_failed),
-    ("kernel_modules", get_kernel_modules),
-    ("containers", get_containers),
-    ("systemd_timers", get_systemd_timers),
-    ("network_io", get_network_io),
-    ("updates_available", get_updates_available),
-    ("logged_users", get_logged_users),
-    ("cpu_vulnerabilities", get_cpu_vulnerabilities),
-    ("virtualization", get_virtualization),
-    ("time_sync", get_time_sync),
-    ("firewall_status", get_firewall_status),
-    ("dns_resolvers", get_dns_resolvers),
-    ("env_secret_names", get_env_secret_names),
-    ("python_venvs", get_python_venvs),
-    ("git_repos", get_git_repos),
-    ("crontab_entries", get_crontab_entries),
-    ("dmesg_errors", get_dmesg_errors),
-    ("journal_errors", get_journal_errors),
-    ("network", get_network),
-    ("runtimes", get_runtimes),
-    ("package_managers", get_package_managers),
-    ("browsers", get_browsers),
-    ("displays", get_displays),
-    ("env", get_env),
-    ("services", get_services),
-    ("python_env", get_python_env),
-]
+from arena.inventory.registry import REGISTRY
+
+# Back-compat alias: older code imports `SECTIONS` from here as
+# `list[tuple[name, collector]]`.
+SECTIONS = [(s.name, s.collector) for s in REGISTRY]
 
 
 def collect(only_section: Optional[str] = None) -> dict:
+    """Run every registered probe (or one by name) and assemble the
+    inventory dict. Probe exceptions become ``{"error": str}`` so
+    downstream never sees a raise."""
     result: dict[str, Any] = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "tool": "arena-inventory",
         "tool_version": "1.0.0",
     }
-    for name, fn in SECTIONS:
-        if only_section and name != only_section:
+    for s in REGISTRY:
+        if only_section and s.name != only_section:
             continue
         try:
-            result[name] = fn()
-        except Exception as e:
-            result[name] = {"error": str(e)}
+            result[s.name] = s.collector()
+        except Exception as e:  # noqa: BLE001 -- probes must never crash the run
+            result[s.name] = {"error": str(e)}
     return result
 
 

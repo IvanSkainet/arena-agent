@@ -581,3 +581,114 @@ function _hwRenderJournalErrors(j) {
                                      [["state", "clean 🎉"]]);
   return _hwCard("Journal errors (last hour, " + rows.length + " shown)", rows);
 }
+
+// =====================================================================
+// v3.89.0 unified renderer.
+//
+// _HW_CARD_MAP is the single source of truth for "which registry
+// section maps to which _hwRender* function AND how to extract the
+// data from the source object". Both the Doctor tab and the Full
+// Inventory tab call _hwRenderAll(source, wantSet) with:
+//
+//   * source  -- an object that has every section as a top-level key
+//                (matches both /v1/hardware.hardware AND /v1/inventory).
+//   * wantSet -- Set of section names to include, or null = all.
+//
+// Adding a new probe? One line in _HW_CARD_MAP below and both tabs
+// pick it up. If the section already comes with matching key names,
+// the default `extract` is fine.
+// =====================================================================
+
+// Prefer the normalized shape when it's meaningfully different from
+// the raw one. Doctor always gets the normalized shape from
+// /v1/hardware; Full Inventory can pass either one -- the extractor
+// tolerates both by preferring normalized (`hw`) when available.
+const _HW_CARD_MAP = [
+  // 'os' section from the registry -- rendered by _hwRenderOS which
+  // shows OS/distro/kernel/uptime. Named 'os' so it matches the
+  // registry key exactly (identity is a separate section).
+  {name: "os",               extract: s => s.os,               render: _hwRenderOS},
+  {name: "boot_time",        extract: s => s.boot_time,        render: _hwRenderBoot},
+  {name: "cpu",              extract: s => s.cpu,              render: _hwRenderCPU},
+  {name: "memory",           extract: s => s.memory,           render: _hwRenderMemory},
+  {name: "gpu",              extract: s => ({one: s.gpu && s.gpu.name ? s.gpu : (s.gpus && s.gpus[0]) || (s.gpu && s.gpu.gpus && s.gpu.gpus[0]) || null,
+                                              all: (s.gpus && s.gpus.length ? s.gpus : (s.gpu && s.gpu.gpus) || [])}),
+                              render: v => _hwRenderGPU(v.one, v.all)},
+  {name: "disks",            extract: s => s.disks,            render: _hwRenderDisks},
+  {name: "thermal_detail",   extract: s => ({legacy: s.thermal, detail: s.thermal_detail}),
+                              render: v => _hwRenderThermal(v.legacy, v.detail)},
+  {name: "fans",             extract: s => s.fans,             render: _hwRenderFans},
+  {name: "battery",          extract: s => s.battery,          render: _hwRenderBattery},
+  {name: "disk_smart",       extract: s => s.disk_smart,       render: _hwRenderSmart},
+  {name: "audio",            extract: s => s.audio,            render: _hwRenderAudio},
+  {name: "motherboard",      extract: s => ({mb: s.motherboard && s.motherboard.motherboard ? s.motherboard.motherboard : s.motherboard,
+                                              bios: s.bios || (s.motherboard && s.motherboard.bios)}),
+                              render: v => _hwRenderMotherboard(v.mb, v.bios)},
+  {name: "network",          extract: s => s.network,          render: _hwRenderNetwork},
+  {name: "top_processes",    extract: s => s.top_processes,    render: _hwRenderTopProcesses},
+  {name: "listening_ports",  extract: s => s.listening_ports,  render: _hwRenderListeningPorts},
+  {name: "systemd_failed",   extract: s => s.systemd_failed,   render: _hwRenderSystemdFailed},
+  {name: "containers",       extract: s => s.containers,       render: _hwRenderContainers},
+  {name: "systemd_timers",   extract: s => s.systemd_timers,   render: _hwRenderSystemdTimers},
+  {name: "network_io",       extract: s => s.network_io,       render: _hwRenderNetworkIO},
+  {name: "updates_available",extract: s => s.updates_available,render: _hwRenderUpdates},
+  {name: "logged_users",     extract: s => s.logged_users,     render: _hwRenderLoggedUsers},
+  {name: "cpu_vulnerabilities", extract: s => s.cpu_vulnerabilities, render: _hwRenderCpuVulns},
+  {name: "virtualization",   extract: s => s.virtualization,   render: _hwRenderVirt},
+  {name: "time_sync",        extract: s => s.time_sync,        render: _hwRenderTimeSync},
+  {name: "firewall_status",  extract: s => s.firewall_status,  render: _hwRenderFirewall},
+  {name: "dns_resolvers",    extract: s => s.dns_resolvers,    render: _hwRenderDns},
+  {name: "env_secret_names", extract: s => s.env_secret_names, render: _hwRenderEnvSecrets},
+  {name: "python_venvs",     extract: s => s.python_venvs,     render: _hwRenderVenvs},
+  {name: "git_repos",        extract: s => s.git_repos,        render: _hwRenderGitRepos},
+  {name: "crontab_entries",  extract: s => s.crontab_entries,  render: _hwRenderCrontab},
+  {name: "dmesg_errors",     extract: s => s.dmesg_errors,     render: _hwRenderKernelErrors},
+  {name: "journal_errors",   extract: s => s.journal_errors,   render: _hwRenderJournalErrors},
+  {name: "services",         extract: s => s.services,         render: _hwRenderServices},
+  {name: "kernel_modules",   extract: s => s.kernel_modules,   render: _hwRenderKernelModules},
+  // Extra runtime bundles: runtimes / package_managers / browsers.
+  // _hwRenderExtra reads them all from a single flat object.
+  {name: "__extra__",        extract: s => s,                  render: _hwRenderExtra},
+];
+
+// Render every section from `source` that (a) has an extractor and
+// (b) either is unfiltered or is in `wantSet`. Returns concatenated
+// HTML (may be empty string if nothing renders).
+function _hwRenderAll(source, wantSet) {
+  if (!source || typeof source !== "object") return "";
+  const out = [];
+  _HW_CARD_MAP.forEach(entry => {
+    if (wantSet && !wantSet.has(entry.name) && entry.name !== "__extra__") return;
+    try {
+      const data = entry.extract(source);
+      if (data === undefined || data === null) return;
+      const html = entry.render(data);
+      if (html) out.push(html);
+    } catch (e) {
+      // Render errors must never break the whole grid; swallow +
+      // console.warn so a broken renderer isolates to one card.
+      if (window && window.console) console.warn("hw card failed", entry.name, e);
+    }
+  });
+  return out.join("");
+}
+
+// Public helper: fetch the registry once at boot and cache it. Full
+// Inventory uses this to auto-build the checkbox strip; without the
+// endpoint (older bridge / offline) it falls back to the map above.
+window._hwRegistry = null;
+async function _hwLoadRegistry() {
+  if (window._hwRegistry) return window._hwRegistry;
+  try {
+    const r = await api("/v1/inventory/registry");
+    if (r && r.ok && Array.isArray(r.sections)) {
+      window._hwRegistry = r.sections;
+      return r.sections;
+    }
+  } catch (_e) { /* fall through */ }
+  // Fallback derived from the card map.
+  window._hwRegistry = _HW_CARD_MAP
+    .filter(e => e.name !== "__extra__")
+    .map(e => ({name: e.name, label: e.name, category: "hardware", show_in_doctor: true}));
+  return window._hwRegistry;
+}

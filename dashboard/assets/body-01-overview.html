@@ -79,49 +79,8 @@
     <button id="invViewModeBtn" onclick="toggleInvViewMode()" style="padding:4px 12px;font-size:11px" title="Cycle view mode: Cards / Rendered Markdown / Raw text">🎨 Cards</button>
     <button onclick="copyToClipboard(window._invRawText || document.getElementById('invOutput').innerText)" class="copy-btn" style="padding:4px 12px;font-size:11px">📋 Copy</button>
   </div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:11px">
-    <label><input type="checkbox" class="inv-sec" value="" checked> all</label>
-    <label><input type="checkbox" class="inv-sec" value="os"> os</label>
-    <label><input type="checkbox" class="inv-sec" value="cpu"> cpu</label>
-    <label><input type="checkbox" class="inv-sec" value="memory"> memory</label>
-    <label><input type="checkbox" class="inv-sec" value="gpu"> gpu</label>
-    <label><input type="checkbox" class="inv-sec" value="disks"> disks</label>
-    <label><input type="checkbox" class="inv-sec" value="disk_smart"> smart</label>
-    <label><input type="checkbox" class="inv-sec" value="thermal_detail"> thermal</label>
-    <label><input type="checkbox" class="inv-sec" value="fans"> fans</label>
-    <label><input type="checkbox" class="inv-sec" value="battery"> battery</label>
-    <label><input type="checkbox" class="inv-sec" value="audio"> audio</label>
-    <label><input type="checkbox" class="inv-sec" value="top_processes"> top procs</label>
-    <label><input type="checkbox" class="inv-sec" value="listening_ports"> ports</label>
-    <label><input type="checkbox" class="inv-sec" value="systemd_failed"> failed</label>
-    <label><input type="checkbox" class="inv-sec" value="boot_time"> boot</label>
-    <label><input type="checkbox" class="inv-sec" value="kernel_modules"> kmods</label>
-    <label><input type="checkbox" class="inv-sec" value="containers"> containers</label>
-    <label><input type="checkbox" class="inv-sec" value="systemd_timers"> timers</label>
-    <label><input type="checkbox" class="inv-sec" value="network_io"> net i/o</label>
-    <label><input type="checkbox" class="inv-sec" value="updates_available"> updates</label>
-    <label><input type="checkbox" class="inv-sec" value="logged_users"> users</label>
-    <label><input type="checkbox" class="inv-sec" value="cpu_vulnerabilities"> cpu vulns</label>
-    <label><input type="checkbox" class="inv-sec" value="virtualization"> virt</label>
-    <label><input type="checkbox" class="inv-sec" value="time_sync"> time</label>
-    <label><input type="checkbox" class="inv-sec" value="firewall_status"> firewall</label>
-    <label><input type="checkbox" class="inv-sec" value="dns_resolvers"> dns</label>
-    <label><input type="checkbox" class="inv-sec" value="env_secret_names"> env keys</label>
-    <label><input type="checkbox" class="inv-sec" value="python_venvs"> venvs</label>
-    <label><input type="checkbox" class="inv-sec" value="git_repos"> git</label>
-    <label><input type="checkbox" class="inv-sec" value="crontab_entries"> cron</label>
-    <label><input type="checkbox" class="inv-sec" value="dmesg_errors"> dmesg</label>
-    <label><input type="checkbox" class="inv-sec" value="journal_errors"> journal</label>
-    <label><input type="checkbox" class="inv-sec" value="network"> network</label>
-    <label><input type="checkbox" class="inv-sec" value="runtimes"> runtimes</label>
-    <label><input type="checkbox" class="inv-sec" value="package_managers"> pkg managers</label>
-    <label><input type="checkbox" class="inv-sec" value="browsers"> browsers</label>
-    <label><input type="checkbox" class="inv-sec" value="displays"> displays</label>
-    <label><input type="checkbox" class="inv-sec" value="services"> services</label>
-    <label><input type="checkbox" class="inv-sec" value="python_env"> python_env</label>
-    <label><input type="checkbox" class="inv-sec" value="env"> env</label>
-  </div>
-  <div id="invOutput" class="md-render-in-pre" style="margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;color:var(--text);max-height:60vh;overflow:auto;background:var(--bg2);padding:10px;border:1px solid var(--accent);border-radius:6px;white-space:pre-wrap;word-break:break-word">Click "Load / Refresh" to fetch the full system inventory.</div>
+  <div id="invSectionStrip" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;font-size:11px"><label><input type="checkbox" class="inv-sec" value="" checked> all</label></div>
+    <div id="invOutput" class="md-render-in-pre" style="margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;color:var(--text);max-height:60vh;overflow:auto;background:var(--bg2);padding:10px;border:1px solid var(--accent);border-radius:6px;white-space:pre-wrap;word-break:break-word">Click "Load / Refresh" to fetch the full system inventory.</div>
 </div>
 
 

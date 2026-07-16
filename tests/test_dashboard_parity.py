@@ -59,13 +59,21 @@ def test_15b_doctor_hardware_does_not_redefine_renderers():
 
 
 def test_22_full_inventory_uses_shared_renderers():
+    """v3.89.0: 22-full-inventory-loader.js delegates all card
+    rendering to the unified _hwRenderAll() in 03b-hw-cards.js
+    instead of hand-listing every renderer."""
     src = (ASSETS / "22-full-inventory-loader.js").read_text(encoding="utf-8")
-    # It should reference at least the common ones by name.
-    for name in ("_hwCard", "_hwRenderCPU", "_hwRenderMemory",
-                 "_hwRenderThermal", "_hwRenderTopProcesses"):
-        assert name in src, (
-            f"22-full-inventory-loader.js does not reference {name} -- "
-            "did you re-implement it locally instead of reusing 03b?"
+    assert "_hwRenderAll" in src, (
+        "22-full-inventory-loader.js must call the unified "
+        "_hwRenderAll() helper from 03b-hw-cards.js."
+    )
+    # And it must NOT enumerate individual renderers by hand.
+    for name in ("_hwRenderCPU(", "_hwRenderMemory(",
+                 "_hwRenderThermal(", "_hwRenderTopProcesses("):
+        assert name not in src, (
+            f"22-full-inventory-loader.js still calls {name} directly. "
+            "Route it through _hwRenderAll instead so Doctor + Full "
+            "Inventory stay in sync automatically."
         )
 
 

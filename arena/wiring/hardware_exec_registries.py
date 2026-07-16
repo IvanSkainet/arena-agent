@@ -25,7 +25,7 @@ def build_hardware_exec_registries(g: MutableMapping[str, Any]) -> dict[str, Cal
     env.export_handler_attrs(
         registry,
         _hardware_handlers,
-        {"handle_v1_inventory": "inventory", "handle_v1_hardware": "hardware", "handle_v1_hwinfo": "hwinfo"},
+        {"handle_v1_inventory": "inventory", "handle_v1_hardware": "hardware", "handle_v1_hwinfo": "hwinfo", "handle_v1_inventory_registry": "registry"},
     )
 
     _exec_handler_ctx = env.ExecHandlerContext(

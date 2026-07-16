@@ -1,3 +1,106 @@
+## v3.89.0 - 2026-07-16
+
+### Changed — unified inventory registry (single source of truth)
+
+Before this release, adding one new probe meant editing **four**
+places:
+    1. `arena/inventory/report.py::SECTIONS` — the collector list.
+    2. `arena/inventory/text_format.py` — a hand-crafted `if
+       data.get("X").get("available"): ...` block.
+    3. `dashboard/assets/03b-hw-cards.js` — the `_hwRender*`
+       function definition.
+    4. `dashboard/assets/body-01-overview.html` — a `<label>` in
+       the Full Inventory checkbox strip.
+
+Now: **one edit** in `arena/inventory/registry.py`, add a
+`Section(...)` entry, done. Every downstream module (SECTIONS,
+text formatter, JS card map, JS checkbox strip) pulls from the
+registry.
+
+### Added
+
+- **`arena/inventory/registry.py`** — 591-line registry with:
+  * A `Section` dataclass carrying `name`, `label`, `category`,
+    `collector`, `format_lines`, `show_in_doctor`.
+  * All 42 known probes registered in display order.
+  * 25 pure formatter functions (one per section that renders in
+    the text/Markdown output), factored out of `text_format.py`.
+  * `registry_meta()` returning a JSON-safe list for the frontend.
+
+- **`GET /v1/inventory/registry`** — new endpoint returning
+  `registry_meta()`. Frontend fetches once at boot and caches in
+  `window._hwRegistry`.
+
+- **`_hwRenderAll(source, wantSet)`** in `03b-hw-cards.js` — the
+  single unified card renderer. Takes any source object with
+  section keys (works with both `/v1/hardware.hardware` and
+  `/v1/inventory`) and an optional filter set. Iterates over
+  `_HW_CARD_MAP`, extracts each section's data via a per-entry
+  extractor lambda (so shape mismatches like `inv.gpu.gpus[0]` vs
+  `hw.gpu` are handled once), and returns concatenated HTML.
+  Renderer errors are caught per-card so one broken renderer can't
+  break the whole grid.
+
+- **`_hwLoadRegistry()`** — caches the registry from the endpoint
+  with a fallback to `_HW_CARD_MAP` for offline / older-bridge
+  scenarios.
+
+- **`_invBuildCheckboxStrip()`** in `22-full-inventory-loader.js`
+  — auto-builds the Full Inventory section checkboxes from the
+  registry, grouped by category (hardware / sensors / agent /
+  runtime / software). No more hand-maintained `<label>` blocks
+  in `body-01-overview.html`.
+
+### Removed
+
+- **`arena/inventory/text_format.py`** shrank from 471 → 36 lines.
+  All 30+ hand-crafted `### Section` blocks are gone; a single
+  loop over `REGISTRY` calls each section's `format_lines()`.
+
+- **`arena/inventory/report.py`** shrank to a thin collector
+  around `REGISTRY`. `SECTIONS = [(s.name, s.collector) for s in
+  REGISTRY]` preserves the old import path.
+
+- **`15b-doctor-hardware.js`** shrank from 94 → 63 lines. The
+  hand-maintained `_hwRenderX(hw.Y)` list is replaced with a
+  single `_hwRenderAll(hw, null)` call.
+
+- **`22-full-inventory-loader.js`** shrank; the `_invBuildCards`
+  function that duplicated the mapping is gone.
+
+- **`body-01-overview.html`** — 30 hardcoded `<label>` checkboxes
+  reduced to 1 (the "all" fallback). The JS fills in the rest.
+
+### Test
+
+New `tests/test_registry_completeness.py` (~8 tests) locks the
+single-source-of-truth invariants:
+- `test_sections_derives_from_registry` — `SECTIONS` is `[(s.name,
+  s.collector) for s in REGISTRY]`, not a duplicate list.
+- `test_every_section_has_a_formatter_or_is_marked_none`.
+- `test_registry_endpoint_shape` — `registry_meta()` shape stable.
+- `test_all_registry_names_are_unique`.
+- `test_body_01_overview_no_hardcoded_checkboxes` — exactly one
+  `inv-sec` checkbox remains in HTML (the "all" fallback).
+- `test_15b_doctor_hardware_uses_unified_renderer` — Doctor tab
+  calls `_hwRenderAll`, not individual `_hwRender*` helpers.
+- `test_22_full_inventory_uses_unified_renderer`.
+- `test_hw_card_map_contains_no_duplicates`.
+- `test_every_registry_section_has_matching_card_entry` —
+  card map covers every registered section (or is explicitly
+  text-only).
+
+### Live-verified
+
+Bridge at v3.89.0 serves `GET /v1/inventory/registry` returning
+all 42 sections with `label` / `category` / `show_in_doctor`.
+Doctor tab loads via `_hwRenderAll(hw, null)`. Full Inventory
+checkbox strip populates from the endpoint on first open (5-10
+categories, all sections listed with human labels). Cards mode
+renders identically in Doctor + Full Inventory. Renderer/format
+regressions surface immediately as test failures instead of
+silent drift across four files.
+
 ## v3.88.5 - 2026-07-16
 
 ### Fixed — visual bugs surfaced in the real Cards output

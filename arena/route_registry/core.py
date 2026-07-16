@@ -20,6 +20,7 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/hardware", h["handle_v1_hardware"])
     app.router.add_get("/v1/hwinfo", h["handle_v1_hwinfo"])
     app.router.add_get("/v1/inventory", h["handle_v1_inventory"])
+    app.router.add_get("/v1/inventory/registry", h["handle_v1_inventory_registry"])
     app.router.add_get("/v1/ps", h["handle_v1_ps"])
     app.router.add_get("/v1/audit", h["handle_v1_audit"])
     app.router.add_post("/v1/exec", h["handle_v1_exec"])

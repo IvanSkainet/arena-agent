@@ -1,120 +1,54 @@
-// ===== Full Inventory =====
-// Three view modes:
-//   * cards    -- rich HTML cards from 03b-hw-cards.js (same as Doctor)
-//   * rendered -- Markdown-to-HTML via renderMarkdown() from 03-helpers.js
-//   * raw      -- plain monospace text, ideal for copy/paste
-// Default is 'cards' -- gives the operator (and any agent screenshot)
-// the same look as the Doctor Hardware tab.
+// Full Inventory tab. Since v3.89.0 delegates all card rendering
+// to the unified _hwRenderAll() in 03b-hw-cards.js -- same visuals
+// as Doctor tab, no duplicated mapping. View toggle cycles through:
+//   * cards    -- grid of _hwRender* cards
+//   * rendered -- text -> Markdown -> HTML
+//   * raw      -- plain monospace text
 window._invViewMode = "cards";
 window._invRawText = "";
-window._invRaw = null;   // parsed JSON inventory (used by cards mode)
+window._invRaw = null;   // parsed /v1/inventory JSON
+window._invHw = null;    // parsed /v1/hardware.hardware JSON
+
+function _invWantedSet() {
+  const boxes = Array.from(document.querySelectorAll(".inv-sec:checked"));
+  if (!boxes.length) return null;
+  if (boxes.some(b => b.value === "")) return null;   // "all" wins
+  return new Set(boxes.map(b => b.value));
+}
 
 function _invRenderCurrent() {
   const out = document.getElementById("invOutput");
   if (!out) return;
   const text = window._invRawText || "";
-  const inv = window._invRaw || {};
 
   if (window._invViewMode === "raw") {
-    out.textContent = text;
     out.style.whiteSpace = "pre-wrap";
+    out.textContent = text;
     return;
   }
   if (window._invViewMode === "rendered") {
-    // renderMarkdown() from 03-helpers.js. Emits HTML with \n between
-    // plain lines instead of <br>, so the container preserves whitespace.
     out.style.whiteSpace = "pre-wrap";
     out.innerHTML = renderMarkdown(text);
     return;
   }
-  // 'cards' mode -- same visual language as Doctor Hardware tab.
-  // Uses the shared _hwRender* renderers in 03b-hw-cards.js.
+  // cards mode -- use the unified renderer. Prefer /v1/hardware (has
+  // normalized cpu/gpu/memory) for known-normalized sections; merged
+  // in with /v1/inventory as the base so probe-shaped sections (agent
+  // facts/ctx) that only exist on the raw side are still rendered.
   out.style.whiteSpace = "normal";
-  if (typeof _hwCard !== "function") {
-    // 03b failed to load somehow; fall through to raw text.
+  if (typeof _hwRenderAll !== "function") {
     out.textContent = text;
     return;
   }
-  const cards = _invBuildCards(inv);
-  if (!cards) {
+  const merged = Object.assign({}, window._invRaw || {}, window._invHw || {});
+  const html = _hwRenderAll(merged, _invWantedSet());
+  if (!html) {
     out.textContent = text || "(no data)";
     return;
   }
   out.innerHTML =
     '<div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(280px,1fr))">'
-    + cards + "</div>";
-}
-
-// Which sections belong on the Full Inventory card view. Order
-// matches the Doctor tab so switching between the two feels
-// consistent. Uses window._invHw for normalized fields (OS, CPU,
-// memory, GPU, disks, motherboard, network) and window._invRaw for
-// probe-shaped fields (thermal_detail, fans, battery, audio, smart,
-// agent-facts, agent-ctx).
-function _invBuildCards(inv) {
-  if (!inv || typeof inv !== "object") return "";
-  const hw = window._invHw || {};
-  const cards = [];
-
-  const wants = _invWantedSet();
-  const push = (name, html) => {
-    if (!html) return;
-    if (wants && !wants.has(name)) return;
-    cards.push(html);
-  };
-
-  // Normalized shape from /v1/hardware (same as Doctor tab).
-  push("identity",         _hwRenderOS && _hwRenderOS(hw.os || inv.os));
-  push("boot_time",        _hwRenderBoot && _hwRenderBoot(hw.boot_time || inv.boot_time));
-  push("cpu",              _hwRenderCPU && _hwRenderCPU(hw.cpu));
-  push("memory",           _hwRenderMemory && _hwRenderMemory(hw.memory || inv.memory));
-  push("gpu",              _hwRenderGPU && _hwRenderGPU(hw.gpu, hw.gpus));
-  push("disks",            _hwRenderDisks && _hwRenderDisks(hw.disks || inv.disks));
-  push("motherboard",      _hwRenderMotherboard && _hwRenderMotherboard(
-                            hw.motherboard, hw.bios));
-  push("network",          _hwRenderNetwork && _hwRenderNetwork(hw.network || inv.network));
-  // Sensor / agent-facts probes: same shape in raw + normalized.
-  push("thermal_detail",   _hwRenderThermal && _hwRenderThermal(inv.thermal, inv.thermal_detail));
-  push("fans",             _hwRenderFans && _hwRenderFans(inv.fans));
-  push("battery",          _hwRenderBattery && _hwRenderBattery(inv.battery));
-  push("disk_smart",       _hwRenderSmart && _hwRenderSmart(inv.disk_smart));
-  push("audio",            _hwRenderAudio && _hwRenderAudio(inv.audio));
-  push("top_processes",    _hwRenderTopProcesses && _hwRenderTopProcesses(inv.top_processes));
-  push("listening_ports",  _hwRenderListeningPorts && _hwRenderListeningPorts(inv.listening_ports));
-  push("systemd_failed",   _hwRenderSystemdFailed && _hwRenderSystemdFailed(inv.systemd_failed));
-  push("containers",       _hwRenderContainers && _hwRenderContainers(inv.containers));
-  push("systemd_timers",   _hwRenderSystemdTimers && _hwRenderSystemdTimers(inv.systemd_timers));
-  push("network_io",       _hwRenderNetworkIO && _hwRenderNetworkIO(inv.network_io));
-  push("updates_available",_hwRenderUpdates && _hwRenderUpdates(inv.updates_available));
-  push("logged_users",     _hwRenderLoggedUsers && _hwRenderLoggedUsers(inv.logged_users));
-  push("cpu_vulnerabilities", _hwRenderCpuVulns && _hwRenderCpuVulns(inv.cpu_vulnerabilities));
-  // v3.88.4 agent context probes
-  push("virtualization",   _hwRenderVirt && _hwRenderVirt(inv.virtualization));
-  push("time_sync",        _hwRenderTimeSync && _hwRenderTimeSync(inv.time_sync));
-  push("firewall_status",  _hwRenderFirewall && _hwRenderFirewall(inv.firewall_status));
-  push("dns_resolvers",    _hwRenderDns && _hwRenderDns(inv.dns_resolvers));
-  push("env_secret_names", _hwRenderEnvSecrets && _hwRenderEnvSecrets(inv.env_secret_names));
-  push("python_venvs",     _hwRenderVenvs && _hwRenderVenvs(inv.python_venvs));
-  push("git_repos",        _hwRenderGitRepos && _hwRenderGitRepos(inv.git_repos));
-  push("crontab_entries",  _hwRenderCrontab && _hwRenderCrontab(inv.crontab_entries));
-  push("dmesg_errors",     _hwRenderKernelErrors && _hwRenderKernelErrors(inv.dmesg_errors));
-  push("journal_errors",   _hwRenderJournalErrors && _hwRenderJournalErrors(inv.journal_errors));
-  push("services",         _hwRenderServices && _hwRenderServices(inv.services));
-  push("kernel_modules",   _hwRenderKernelModules && _hwRenderKernelModules(inv.kernel_modules));
-  push("runtimes",         _hwRenderExtra && "");  // covered by _hwRenderExtra below
-  push("packages",         "");
-  // Package managers / runtimes / browsers -- render once via _hwRenderExtra
-  cards.push(_hwRenderExtra ? _hwRenderExtra(inv) : "");
-
-  return cards.filter(Boolean).join("");
-}
-
-function _invWantedSet() {
-  // If "all" is checked (empty value), return null = show everything.
-  const boxes = Array.from(document.querySelectorAll(".inv-sec:checked"));
-  if (!boxes.length) return null;
-  if (boxes.some(b => b.value === "")) return null;
-  return new Set(boxes.map(b => b.value));
+    + html + "</div>";
 }
 
 function toggleInvViewMode() {
@@ -137,12 +71,44 @@ function toggleFullInventory() {
     card.style.display = "";
     if (btn) btn.textContent = "🙈 Hide Inventory";
     card.scrollIntoView({behavior: "smooth", block: "start"});
-    const out = document.getElementById("invOutput");
-    if (out && out.textContent.startsWith('Click "Load')) loadFullInventory();
+    // Populate the checkbox strip on first open, before firing the load.
+    _invBuildCheckboxStrip().then(() => {
+      const out = document.getElementById("invOutput");
+      if (out && out.textContent.startsWith('Click "Load')) loadFullInventory();
+    });
   } else {
     card.style.display = "none";
     if (btn) btn.textContent = "📋 Full Inventory";
   }
+}
+
+// v3.89.0: checkboxes are now auto-generated from the registry so
+// adding a new probe backend-side lights up its section here at boot.
+// The "all" checkbox is the first one and stays hardcoded in HTML.
+async function _invBuildCheckboxStrip() {
+  const strip = document.getElementById("invSectionStrip");
+  if (!strip) return;
+  if (strip.dataset.built === "1") return;
+  const sections = await _hwLoadRegistry();
+  // Group by category for readability.
+  const byCat = {};
+  sections.forEach(s => {
+    (byCat[s.category || "other"] = byCat[s.category] || []).push(s);
+  });
+  const parts = [
+    '<label><input type="checkbox" class="inv-sec" value="" checked> all</label>',
+  ];
+  ["hardware", "sensors", "agent", "runtime", "software", "other"].forEach(cat => {
+    const items = byCat[cat] || [];
+    items.forEach(s => {
+      parts.push(
+        '<label><input type="checkbox" class="inv-sec" value="'
+        + s.name + '"> ' + (s.label || s.name) + '</label>'
+      );
+    });
+  });
+  strip.innerHTML = parts.join("");
+  strip.dataset.built = "1";
 }
 
 async function loadFullInventory() {
@@ -163,31 +129,18 @@ async function loadFullInventory() {
   }
 
   try {
-    // Two calls in parallel:
-    //   * /v1/inventory   -- raw sections used by rendered/raw text
-    //                        AND by cards for probes that don't have
-    //                        a normalized form (agent-facts, agent-ctx).
-    //   * /v1/hardware    -- normalized shape used by Doctor cards
-    //                        (cpu.cores, cpu.threads, gpu.name, etc.).
-    //     Cards prefer /v1/hardware for OS/CPU/mem/gpu/disks/motherboard;
-    //     everything else comes straight from /v1/inventory since it
-    //     already matches the probe output shape.
-    const [r, rhw] = await Promise.all([
-      api(url),
-      api("/v1/hardware"),
-    ]);
+    const [r, rhw] = await Promise.all([api(url), api("/v1/hardware")]);
     const dt = ((Date.now() - t0) / 1000).toFixed(1);
     if (!r.ok) {
       out.textContent = "Error: " + (r.error || JSON.stringify(r));
       if (status) { status.textContent = "error"; status.className = "badge red"; }
       return;
     }
-    const inv = r.inventory || {};
-    const hw = (rhw && rhw.ok) ? (rhw.hardware || {}) : {};
-    const text = formatInventoryText(inv, allChecked ? null : sections);
-    window._invRawText = text;
-    window._invRaw = inv;
-    window._invHw = hw;
+    window._invRaw = r.inventory || {};
+    window._invHw = (rhw && rhw.ok) ? (rhw.hardware || {}) : {};
+    window._invRawText = formatInventoryText(
+      window._invRaw, allChecked ? null : sections
+    );
     _invRenderCurrent();
     if (status) { status.textContent = `loaded in ${dt}s`; status.className = "badge ok"; }
   } catch (e) {

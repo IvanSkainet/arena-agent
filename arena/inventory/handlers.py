@@ -14,9 +14,24 @@ class HardwareHandlers:
     inventory: object
     hardware: object
     hwinfo: object
+    registry: object
 
 
 def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
+    async def handle_v1_inventory_registry(request: web.Request) -> web.Response:
+        """GET /v1/inventory/registry — machine-readable list of every
+        inventory section: name, label, category, show_in_doctor.
+        Used by the Dashboard to build the Full Inventory checkbox
+        strip and Cards mapping without hand-maintaining a duplicate
+        list in JS.
+        """
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        from arena.inventory.registry import registry_meta
+        return ctx.cors_json_response({"ok": True, "sections": registry_meta()})
+
     async def handle_v1_inventory(request: web.Request) -> web.Response:
         r = ctx.require_auth(request)
         if r:
@@ -75,4 +90,5 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
         inventory=handle_v1_inventory,
         hardware=handle_v1_hardware,
         hwinfo=handle_v1_hwinfo,
+        registry=handle_v1_inventory_registry,
     )

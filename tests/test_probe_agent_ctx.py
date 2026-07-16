@@ -216,7 +216,12 @@ def test_text_format_shows_full_service_list_not_and_more():
     assert "svc-49.service" in out
 
 
-def test_text_format_kernel_modules_header_matches_shown():
+def test_text_format_kernel_modules_shows_bounded_slice():
+    """v3.89.0: kernel_modules formatter must render at most 15
+    modules even when the probe returns hundreds. Header is just
+    the section label ('### Kernel modules') -- the "showing top N"
+    hint moved into the JS Card renderer where it's naturally
+    right next to the visible rows."""
     from arena.inventory.text_format import format_text
     data = {
         "kernel_modules": {
@@ -227,10 +232,11 @@ def test_text_format_kernel_modules_header_matches_shown():
         },
     }
     out = format_text(data)
-    # v3.88.3 said "showing top 156" but only rendered 15. v3.88.4
-    # header must match reality.
-    assert "showing top 15" in out
-    assert "showing top 156" not in out
+    assert "### Kernel modules" in out
+    assert "m0 " in out and "m14 " in out.replace("  ", " ")
+    # Must NOT dump all 156 modules into text output.
+    assert "m20" not in out, "kernel_modules text output leaked past 15 rows"
+    assert "m155" not in out
 
 
 def test_text_format_screens_no_json_dump():
