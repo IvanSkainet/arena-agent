@@ -34,6 +34,11 @@ class LifecycleContext:
     version: str
     log_info: Callable[..., None]
     log_debug: Callable[..., None]
+    # v4.22.1: optional autostart hook for cloudflared. Called in
+    # a background executor from on_startup so a slow tunnel spin-
+    # up never blocks bridge boot. When None (the default), no
+    # autostart is attempted -- preserves pre-v4.22.1 behaviour.
+    cloudflared_autostart: Callable[[], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,32 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             except Exception as e:
                 ctx.log_debug("[Desktop] Could not start ydotoold (non-fatal): %s", e)
         ctx.log_info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", ctx.version)
+
+        # v4.22.1: fire cloudflared autostart in the background.
+        # Uses run_in_executor so a slow tunnel handshake never
+        # blocks the aiohttp event loop from accepting connections.
+        # The hook itself is a no-op when neither the persistent
+        # marker nor ARENA_CLOUDFLARED_AUTOSTART is set, so a
+        # fresh install pays zero cost.
+        if ctx.cloudflared_autostart is not None:
+            async def _autostart_bg():
+                try:
+                    outcome = await asyncio.get_running_loop().run_in_executor(
+                        ctx.executor, ctx.cloudflared_autostart)
+                    if outcome is not None and getattr(outcome, "attempted", False):
+                        if outcome.ok:
+                            ctx.log_info(
+                                "[Cloudflared] Autostart OK in %.2fs -- %s",
+                                outcome.duration_sec, outcome.url or "(no url yet)",
+                            )
+                        else:
+                            ctx.log_info(
+                                "[Cloudflared] Autostart FAILED: %s (%.2fs)",
+                                outcome.reason, outcome.duration_sec,
+                            )
+                except Exception as e:  # noqa: BLE001
+                    ctx.log_debug("[Cloudflared] Autostart raised: %s", e)
+            asyncio.ensure_future(_autostart_bg())
 
     async def on_cleanup(app: web.Application):
         """Stop background task runner and clean up resources."""

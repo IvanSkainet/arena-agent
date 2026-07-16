@@ -32,6 +32,34 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
     def _get_mission_schedule_loop():
         return g.get("mission_schedule_loop")
 
+    # v4.22.1: cloudflared autostart binding. Reads persistent
+    # marker + env var on boot; no-op if neither is set. Placed
+    # here so the lifecycle module doesn't need to know anything
+    # about cloudflared's specific dependencies.
+    def _cloudflared_autostart():
+        from arena.admin.cloudflared_autostart import run_autostart
+        cloudflared_fn = g.get("_cloudflared_funnel_action_runtime")
+        subprocess_kwargs_fn = g.get("_subprocess_kwargs")
+        root_agent = g.get("ROOT_AGENT")
+        if cloudflared_fn is None or subprocess_kwargs_fn is None or root_agent is None:
+            return None
+        # Port comes from the runtime config populated at boot; the
+        # bridge only listens on one port so this is unambiguous.
+        port = 8765
+        try:
+            cfg_ref = g.get("_app_ref")
+            if cfg_ref is not None:
+                from arena.app_keys import APP_CFG
+                port = int(cfg_ref[APP_CFG].get("port", 8765))
+        except Exception:
+            pass
+        return run_autostart(
+            root_agent=root_agent,
+            port=port,
+            cloudflared_funnel_action_fn=cloudflared_fn,
+            subprocess_kwargs_fn=subprocess_kwargs_fn,
+        )
+
     lifecycle_ctx = env.LifecycleContext(
         executor=env._EXECUTOR,
         slow_executor=env._SLOW_EXECUTOR,
@@ -50,6 +78,7 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         version=env.VERSION,
         log_info=env.log.info,
         log_debug=env.log.debug,
+        cloudflared_autostart=_cloudflared_autostart,
     )
     lifecycle_runtime = env.make_lifecycle(lifecycle_ctx)
     registry.update({

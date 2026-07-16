@@ -1,3 +1,79 @@
+\n## v4.22.1 - 2026-07-17
+
+### Fix — persistence автозапуска cloudflared через рестарты bridge
+
+Live-smoke v4.22.0 обнаружил реальный gap: каждый
+``systemctl --user restart arena-bridge`` убивал дочерний процесс
+``cloudflared`` и URL ``trycloudflare.com`` пропадал до тех пор,
+пока кто-то вручную не сделает ``POST /v1/cloudflared/tunnel/start``.
+Это означало, что ``/v1/agent/config`` — и потому
+``agentctl bridge best`` — никогда не видел третий транспорт после
+любого рестарта, если только человек не следил за перезагрузкой.
+Три URL на бумаге, два — после рестарта.
+
+Этот релиз фиксит через маленький, opt-in слой persistence:
+
+* Когда пользователь стартует туннель через
+  ``POST /v1/cloudflared/tunnel/start`` **и** старт удался, bridge
+  оставляет marker-файл ``ROOT_AGENT/.cloudflared_autostart``
+  с timestamp + port.
+* Когда останавливает — marker удаляется.
+* На boot ``on_startup`` проверяет marker И опциональную env-переменную
+  ``ARENA_CLOUDFLARED_AUTOSTART``. Если любой сигнал есть — cloudflared
+  (пере)запускается в фоновом executor, тем же кодом, что и user-вызов.
+  Если ручной старт работает — autostart тоже работает.
+* Autostart **opt-in**: свежая установка без маркера и без env
+  ведёт себя ровно как v4.22.0. Существующие операторы платят
+  ноль, пока явно не попросят поведение.
+
+Дополнения к response shape (backward-compatible, только новые
+поля): ``POST /v1/cloudflared/tunnel/start`` теперь возвращает
+``"autostart_marked": true|false``, а
+``POST /v1/cloudflared/tunnel/stop`` возвращает
+``"autostart_cleared": true|false`` — скрипты могут проверить,
+что intent сохранён.
+
+Правила marker-файла:
+* Живёт по пути ``ROOT_AGENT/.cloudflared_autostart`` — **никогда**
+  под ``/tmp`` или каким-либо hard-coded системным путём (защищено
+  тестом ``test_marker_never_lives_under_tmp``).
+* Атомарная запись через ``.tmp`` + ``rename``, так что crash
+  посреди записи не оставит труcated marker.
+* Идемпотентно — повторные ``start``-вызовы overwrite со свежим
+  timestamp/port, а не портят содержимое.
+* Содержит JSON-объект ``{"marked_at":<epoch>, "port":<int>,
+  "version":1}`` для operator-диагностики.
+
+Почему сейчас: это был топ-пункт постмортема v4.22.0. Пятирелизная
+арка URL-discovery окупается только когда все три транспорта
+надёжно живы после рестарта — этот релиз закрывает.
+
+Тесты: ``tests/test_cloudflared_autostart.py`` (30 тестов)
+покрывают marker path/atomic write/идемпотентность/unmark,
+env-var truthy-формы (``1``/``true``/``yes``/``on`` во всех
+регистрах), логику ``should_autostart`` по комбинациям
+marker+env, orchestrator ``run_autostart`` (skip когда ни одного
+сигнала, call-through с marker only, с env only, propagation
+failure-reason, exception-swallowing, измерение duration), и
+регрессию что marker никогда не выходит за пределы ``root_agent``.
+Suite: **1481 passed** (было 1451), один baseline flaky.
+
+Файлы:
+
+* ``arena/admin/cloudflared_autostart.py`` (новый, 145 строк) —
+  ``mark_autostart``, ``unmark_autostart``, ``should_autostart``,
+  ``run_autostart``, ``AutostartOutcome``
+* ``arena/admin/handlers.py`` — 20 строк: mark на успешный start,
+  unmark на успешный stop, best-effort try/except
+* ``arena/lifecycle.py`` — 24 строки: новое опциональное поле
+  ``cloudflared_autostart`` в ``LifecycleContext``, вызов в фоновом
+  executor'е из ``on_startup``, структурированная log-строка с
+  outcome
+* ``arena/wiring/app_lifecycle.py`` — 24 строки: closure которая
+  мостит runtime-globals в ``run_autostart``, читает port из
+  ``APP_CFG`` когда доступно, с fallback 8765
+* ``tests/test_cloudflared_autostart.py`` (новый) — 30 тестов
+
 \n## v4.22.0 - 2026-07-17
 
 ### Клиентский выбор URL — ``agentctl bridge urls|best|test``

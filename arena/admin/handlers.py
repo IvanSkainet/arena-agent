@@ -124,6 +124,25 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 subprocess_kwargs=ctx.subprocess_kwargs,
             ),
         )
+        # v4.22.1: persist the autostart intent so a bridge restart
+        # re-establishes the tunnel automatically. Only successful
+        # start/stop calls update the marker so a failed start
+        # doesn't leave a stale intent behind.
+        if action == "start" and result.get("ok"):
+            try:
+                from arena.admin.cloudflared_autostart import mark_autostart
+                mark_autostart(ctx.root_agent, port=port)
+                result["autostart_marked"] = True
+            except Exception:
+                # Marker is best-effort — never block a successful
+                # start on a filesystem hiccup.
+                result["autostart_marked"] = False
+        elif action == "stop" and result.get("ok"):
+            try:
+                from arena.admin.cloudflared_autostart import unmark_autostart
+                result["autostart_cleared"] = unmark_autostart(ctx.root_agent)
+            except Exception:
+                result["autostart_cleared"] = False
         ctx.audit({"type": "cloudflared_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
