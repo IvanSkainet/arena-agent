@@ -1,3 +1,156 @@
+## v4.8.0 - 2026-07-16
+
+### Added - Circuit breaker for tunnels_probe (skip dead providers)
+
+Problem: ``_probe_tcp`` waits up to ``timeout`` seconds per provider,
+per call. On a host where one provider is silently dead --
+Cloudflared quick-tunnel with a stale websocket, ZeroTier LEAF on a
+strict-NAT link that just came up, whatever -- every Dashboard
+tick and every ``GET /v1/tunnels/probe`` pays that full timeout
+again, for a provider that has been failing for minutes. Multiply
+by ~5-second Dashboard polling and three providers and a probe
+cycle that should take ~15ms routinely takes 4-5s. Directly
+matches the "Cloudflared у меня всё время в timeout" case the
+user hit repeatedly.
+
+Fix: a small in-process circuit breaker keyed on
+``(provider, host, port)``. Three consecutive TCP failures ->
+the provider is **open** for 60s. While open, ``allow()`` returns
+``False`` and the probe response lists the entry with
+``reachable=False``, ``breaker_state="open"``, and a
+``skip_reason`` such as:
+
+    circuit-breaker open (3 consecutive failures, cools down in
+    45s; last error: timeout after 1.5s)
+
+Once cooldown elapses the breaker goes to **half-open**: the next
+probe runs -- a success closes the breaker cleanly, a failure
+re-opens it for another 60s (the counter is kept at threshold on
+close so half-open failures re-open on the first miss, not after
+another three).
+
+### Configuration
+
+Both env-driven, both optional, both applied at first breaker use
+(``get_default_breaker()`` caches; call ``reset_default_breaker()``
+in tests to pick up new values):
+
+* ``ARENA_BREAKER_THRESHOLD`` -- consecutive failures before
+  opening (default 3, clamped 1..20)
+* ``ARENA_BREAKER_COOLDOWN``  -- seconds to stay open (default 60,
+  clamped >= 1.0)
+* ``ARENA_BREAKER_DISABLE``   -- ``1`` / ``true`` / ``yes`` / ``on``
+  turns the breaker into a no-op so operators debugging a real
+  provider issue can force probes through without a bridge restart
+
+### Snapshot in probe payload
+
+The probe response gained a ``breaker`` field with a JSON-safe
+snapshot of every keyed record so operators can see what is
+currently open and why:
+
+    "breaker": {
+      "cloudflared|foo.trycloudflare.com:443": {
+        "state": "open",
+        "consecutive_failures": 3,
+        "last_error": "timeout after 1.5s",
+        "cools_down_in_sec": 42.117
+      },
+      "zerotier|10.57.152.120:8765": {
+        "state": "closed",
+        "consecutive_failures": 0,
+        "last_error": null
+      }
+    }
+
+``cools_down_in_sec`` is only present in open records so the
+common ``closed`` case stays terse.
+
+### Key design
+
+* **Per (provider, host, port)**: a Cloudflared reissue with a
+  different quick-tunnel hostname gets a fresh breaker; the old
+  URL's history stays with the old key until ``reset()``.
+* **Monotonic clock**: safe against wall-clock jumps (NTP nudges,
+  operator's ``date -s ...``) that would otherwise leave a
+  breaker stuck-open or spuriously "recovered".
+* **GIL-atomic writes**: no locking needed; the mutations are
+  single-attribute assignments on a ``@dataclass`` instance and
+  readers observe a stable ``dict[str, BreakerRecord]`` shape.
+* **No stateful I/O**: the breaker holds only a dict of
+  ``BreakerRecord``; nothing to persist, nothing to reload after
+  a bridge restart (which itself resets everything cleanly).
+
+### Files
+
+* NEW ``arena/admin/tunnels_breaker.py`` (273 lines) --
+  ``TunnelsBreaker`` class, ``BreakerRecord`` dataclass, env
+  helpers, and the ``get_default_breaker`` / ``reset_default_breaker``
+  module-singleton pair.
+* CHANGED ``arena/admin/tunnels.py`` -- ``tunnels_probe`` now
+  accepts an optional ``breaker=`` parameter (defaults to the
+  module singleton), consults it before every ``_probe_tcp``,
+  records the outcome afterwards, and returns
+  ``breaker=<snapshot>`` in the response.
+
+### Tests
+
+1234 -> 1249 passed (+15 new in ``tests/test_tunnels_breaker.py``):
+
+State machine (deterministic ``_FakeClock``):
+* Unknown key starts closed
+* Threshold failures open the breaker with a compact reason string
+* Success before threshold resets the counter
+* Cooldown elapsing transitions to half-open
+* Half-open success closes cleanly
+* Half-open failure re-opens immediately (no more misses required)
+* ``snapshot()`` returns a JSON-safe view (``cools_down_in_sec``
+  only in open records)
+* ``reset(key)`` clears one key; ``reset()`` clears all
+* ``ARENA_BREAKER_DISABLE=1`` turns the breaker into a no-op
+* ``ARENA_BREAKER_THRESHOLD`` / ``COOLDOWN`` env overrides apply
+* Env values clamped: threshold to 1..20, cooldown to >= 1s
+
+Integration with tunnels_probe:
+* Response always includes a ``breaker`` field
+* Open provider is skipped without calling ``_probe_tcp``
+* ``skip_reason`` and ``breaker_state="open"`` present in skipped
+  entries; ``skip_reason`` includes the last error
+* Successful probe closes the breaker (counter resets to 0)
+* Failing probe increments counter; third failure opens the
+  breaker
+* Key includes host + port so URL moves get fresh state
+
+Full suite: 1249 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.8.0. Force-tested by starting a probe cycle with
+Cloudflared configured but not actually running (its own case):
+the first three probes take ~1.5s each timing out on the
+non-responsive endpoint, then subsequent probes complete in <5ms
+each with the Cloudflared entry marked ``breaker_state="open"``,
+``skip_reason="circuit-breaker open (3 consecutive failures,
+cools down in Ns; last error: timeout after 1.5s)"``. Tailscale
+and ZeroTier entries are unaffected. After the 60s cooldown a
+new probe runs (half-open); if the endpoint is still down the
+breaker re-opens instantly.
+
+### Not included
+
+* HTTP-layer probing for https URLs. https probes today trust the
+  provider's own ``active`` flag; adding a real HTTP HEAD probe
+  would let the breaker cover https too. Deferred until we pull
+  in an HTTP client that supports connection-timeout distinct
+  from read-timeout.
+* Persisted breaker state across bridge restarts. Interesting for
+  long-lived deployments, unnecessary for the day-to-day case
+  (bridge restart already clears everything).
+* Metrics export. Would want a Prometheus scrape target if this
+  turns into a widely-deployed bridge; currently the
+  ``breaker`` snapshot in the probe response is enough for the
+  Dashboard.
 ## v4.7.0 - 2026-07-16
 
 ### Added - Overview: ZeroTier peers card (visualises /v1/zerotier/peers)

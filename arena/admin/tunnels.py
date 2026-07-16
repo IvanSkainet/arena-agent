@@ -256,6 +256,7 @@ def tunnels_probe(
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
     timeout: float = 1.5,
+    breaker: Any = None,
 ) -> dict[str, Any]:
     """v4.1.0: check that each provider's advertised public URL is
     actually reachable from the bridge host.
@@ -264,7 +265,20 @@ def tunnels_probe(
     transport is currently useful, rather than trusting the provider's
     self-report (Cloudflared quick-tunnel in particular says "active"
     long after its websocket to Cloudflare has silently died).
+
+    v4.8.0: adds a per-``(provider,host,port)`` circuit breaker so
+    a provider that has failed the last N probes in a row is skipped
+    for the cooldown window rather than paying another ``timeout``
+    seconds per call. Skipped probes still appear in the response as
+    ``reachable=False`` with an audit-quality ``skip_reason`` so agents
+    know a transport isn't just missing, it's currently in cooldown.
+    Pass ``breaker=None`` (default) to use the shared module-level
+    breaker; tests pass their own instance.
     """
+    from arena.admin.tunnels_breaker import get_default_breaker
+    if breaker is None:
+        breaker = get_default_breaker()
+
     snap = tunnels_status(
         sys_funnel_status_sync=sys_funnel_status_sync,
         cloudflared_status_sync=cloudflared_status_sync,
@@ -304,7 +318,27 @@ def tunnels_probe(
                 "note": "https endpoint — trusted from provider's active flag",
             })
             continue
+        # v4.8.0: per-(provider,host,port) circuit breaker. Once N
+        # probes fail in a row we stop wasting `timeout` seconds and
+        # simply report the breaker state until cooldown elapses.
+        breaker_key = f"{provider.get('provider')}|{host}:{port_from_url}"
+        if not breaker.allow(breaker_key):
+            probes.append({
+                "provider": provider.get("provider"),
+                "public_url": url,
+                "host": host,
+                "port": port_from_url,
+                "reachable": False,
+                "skip_reason": breaker.describe_open(breaker_key)
+                                or "circuit-breaker open",
+                "breaker_state": "open",
+            })
+            continue
         result = _probe_tcp(host, port_from_url, timeout=timeout)
+        if result["ok"]:
+            breaker.record_success(breaker_key)
+        else:
+            breaker.record_failure(breaker_key, error=result.get("error"))
         probes.append({
             "provider": provider.get("provider"),
             "public_url": url,
@@ -328,6 +362,9 @@ def tunnels_probe(
             "public_url": active["public_url"],
         } if active else None,
         "reachable_count": len(reachable),
+        # v4.8.0: expose breaker state so ops can see WHY a provider
+        # is currently being skipped without needing a debug endpoint.
+        "breaker": breaker.snapshot(),
     }
 
 

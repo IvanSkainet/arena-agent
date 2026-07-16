@@ -1,3 +1,157 @@
+\n## v4.8.0 - 2026-07-16
+
+### Добавлено - Circuit breaker для tunnels_probe (skip мёртвых providers)
+
+Проблема: ``_probe_tcp`` ждёт до ``timeout`` секунд на provider на
+вызов. На хосте где один provider тихо мёртв — Cloudflared
+quick-tunnel со stale websocket, ZeroTier LEAF на strict-NAT link
+что только что поднялся — каждый Dashboard tick и каждый
+``GET /v1/tunnels/probe`` платит полный timeout снова, за
+provider'а который failing минутами. Умножьте на ~5s Dashboard
+polling и три provider'а — probe cycle который должен занимать
+~15ms регулярно занимает 4-5s. Прямо про твой случай "Cloudflared
+у меня всё время в timeout".
+
+Fix: небольшой in-process circuit breaker с ключом
+``(provider, host, port)``. Три подряд TCP failures → provider
+**open** на 60s. Пока open — ``allow()`` возвращает ``False`` и
+probe response показывает entry с ``reachable=False``,
+``breaker_state="open"``, и ``skip_reason`` вида:
+
+    circuit-breaker open (3 consecutive failures, cools down in
+    45s; last error: timeout after 1.5s)
+
+Когда cooldown истекает breaker переходит в **half-open**:
+следующий probe запускается — success закрывает breaker чисто,
+failure переоткрывает на ещё 60s (counter держится на threshold
+при закрытии так что half-open failures переоткрывают с первого
+промаха, не после ещё трёх).
+
+### Конфигурация
+
+Обе через env, обе optional, обе применяются при первом
+использовании (``get_default_breaker()`` кеширует; вызывай
+``reset_default_breaker()`` в тестах чтобы подхватить новые
+значения):
+
+* ``ARENA_BREAKER_THRESHOLD`` — consecutive failures перед
+  открытием (default 3, clamped 1..20)
+* ``ARENA_BREAKER_COOLDOWN``  — секунды в open (default 60,
+  clamped >= 1.0)
+* ``ARENA_BREAKER_DISABLE``   — ``1`` / ``true`` / ``yes`` / ``on``
+  делает breaker no-op'ом чтобы operator дебажащий реальную
+  проблему provider'а мог force-run probes без restart bridge
+
+### Snapshot в probe payload
+
+Probe response получил поле ``breaker`` с JSON-safe snapshot'ом
+каждой записи чтобы operator видел что сейчас open и почему:
+
+    "breaker": {
+      "cloudflared|foo.trycloudflare.com:443": {
+        "state": "open",
+        "consecutive_failures": 3,
+        "last_error": "timeout after 1.5s",
+        "cools_down_in_sec": 42.117
+      },
+      "zerotier|10.57.152.120:8765": {
+        "state": "closed",
+        "consecutive_failures": 0,
+        "last_error": null
+      }
+    }
+
+``cools_down_in_sec`` только в open-записях чтобы обычный
+``closed`` case оставался кратким.
+
+### Ключевые design-решения
+
+* **Per (provider, host, port)**: Cloudflared reissue с другим
+  quick-tunnel hostname получает свежий breaker; история старого
+  URL остаётся со старым ключом до ``reset()``.
+* **Monotonic clock**: безопасно от wall-clock jumps (NTP
+  подстройки, ``date -s ...`` оператора) которые иначе оставили
+  бы breaker stuck-open или spuriously "recovered".
+* **GIL-atomic writes**: locking не нужен; мутации — single-
+  attribute assignments на ``@dataclass`` instance, readers
+  видят стабильный ``dict[str, BreakerRecord]``.
+* **No stateful I/O**: breaker держит только dict записей;
+  ничего не персистится, ничего не reload после bridge restart
+  (сам restart сбрасывает всё чисто).
+
+### Файлы
+
+* НОВЫЙ ``arena/admin/tunnels_breaker.py`` (273 строки) —
+  ``TunnelsBreaker`` class, ``BreakerRecord`` dataclass, env-
+  хелперы, ``get_default_breaker`` / ``reset_default_breaker``
+  module-singleton пара.
+* ИЗМЕНЁН ``arena/admin/tunnels.py`` — ``tunnels_probe`` теперь
+  принимает optional ``breaker=`` (default'ит на module
+  singleton), консультируется с ним перед каждым ``_probe_tcp``,
+  записывает результат после, и возвращает ``breaker=<snapshot>``
+  в response.
+
+### Тесты
+
+1234 -> 1249 passed (+15 в ``tests/test_tunnels_breaker.py``):
+
+State machine (deterministic ``_FakeClock``):
+* Unknown key стартует closed
+* Threshold failures открывают breaker с compact reason string
+* Success до threshold сбрасывает counter
+* Истечение cooldown переводит в half-open
+* Half-open success закрывает чисто
+* Half-open failure переоткрывает мгновенно (больше промахов не
+  нужно)
+* ``snapshot()`` возвращает JSON-safe view
+  (``cools_down_in_sec`` только в open records)
+* ``reset(key)`` чистит один ключ; ``reset()`` чистит всё
+* ``ARENA_BREAKER_DISABLE=1`` делает breaker no-op
+* ``ARENA_BREAKER_THRESHOLD`` / ``COOLDOWN`` env-overrides
+  применяются
+* Env-значения clamp'аются: threshold 1..20, cooldown >= 1s
+
+Интеграция с tunnels_probe:
+* Response всегда включает ``breaker`` поле
+* Open provider пропускается без вызова ``_probe_tcp``
+* ``skip_reason`` и ``breaker_state="open"`` present в
+  skipped entries; ``skip_reason`` включает last error
+* Successful probe закрывает breaker (counter reset to 0)
+* Failing probe инкрементит counter; third failure открывает
+  breaker
+* Ключ включает host + port так что URL moves получают fresh
+  state
+
+Full suite: 1249 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.8.0. Force-tested запуском probe cycle с Cloudflared
+сконфигурированным но не работающим (его собственный случай):
+первые три probes занимают ~1.5s каждый на timeout'е неотзывного
+endpoint'а, потом последующие probes завершаются за <5ms каждый
+с Cloudflared entry помеченным ``breaker_state="open"``,
+``skip_reason="circuit-breaker open (3 consecutive failures,
+cools down in Ns; last error: timeout after 1.5s)"``. Tailscale
+и ZeroTier entries не затронуты. После 60s cooldown новый probe
+запускается (half-open); если endpoint всё ещё down — breaker
+переоткрывается мгновенно.
+
+### Не включено
+
+* HTTP-layer probing для https URLs. https probes сейчас trust
+  provider's ``active`` flag; добавление real HTTP HEAD probe
+  дало бы breaker'у покрытие и для https. Отложено до pull'а
+  HTTP client'а поддерживающего connection-timeout отдельно от
+  read-timeout.
+* Persisted breaker state через bridge restarts. Интересно для
+  long-lived deployments, не нужно для day-to-day case
+  (bridge restart уже чистит всё).
+* Metrics export. Хотел бы Prometheus scrape target если
+  bridge станет широко deployed; сейчас snapshot в probe
+  response достаточен для Dashboard.
+
 \n## v4.7.0 - 2026-07-16
 
 ### Добавлено - Overview: карточка ZeroTier peers (визуализация /v1/zerotier/peers)
