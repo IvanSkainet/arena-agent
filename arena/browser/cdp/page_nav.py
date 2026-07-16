@@ -5,9 +5,11 @@ import asyncio
 import time
 
 from arena.handler_context import CdpPageHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_navigate(request):
         """POST /v1/browser/cdp/navigate — Navigate to URL.
 
@@ -20,9 +22,6 @@ def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
         the tab list and activates the correct tab (fixes tab-switching bug
         where navigation created a new tab and CDP lost connection).
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
 
         try:
             body = await request.json()

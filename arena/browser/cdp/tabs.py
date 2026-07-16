@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import CdpTabsHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -18,14 +19,12 @@ class CdpTabsHandlers:
 
 
 def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
+    @authed(ctx)
     async def handle_v1_cdp_tabs(request):
         """GET /v1/browser/cdp/tabs — List all tracked tabs.
     
         Auto-connects any disconnected tabs that have ws_url before listing.
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             return ctx.cors_json_response({"ok": True, "tabs": [], "tab_count": 0})
@@ -50,6 +49,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
         })
 
 
+    @authed(ctx)
     async def handle_v1_cdp_tabs_new(request):
         """POST /v1/browser/cdp/tabs/new — Open new tab.
     
@@ -57,9 +57,6 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
             url: string (default: "about:blank")
             activate: bool (default: true)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             ctx.record_request(is_error=True, count_request=False)
@@ -76,27 +73,21 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     
         mgr = ctx.cdp_state["manager"]
     
-        try:
-            tab = await mgr.new_tab(url, activate=activate)
-            return ctx.cors_json_response({
-                "ok": True,
-                "tab": tab.to_dict(),
-                "tab_id": tab.target_id,
-            })
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        tab = await mgr.new_tab(url, activate=activate)
+        return ctx.cors_json_response({
+            "ok": True,
+            "tab": tab.to_dict(),
+            "tab_id": tab.target_id,
+        })
 
 
+    @authed(ctx)
     async def handle_v1_cdp_tabs_close(request):
         """POST /v1/browser/cdp/tabs/close — Close a tab.
     
         Body JSON:
             tab_id: string (required)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             ctx.record_request(is_error=True, count_request=False)
@@ -115,27 +106,21 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     
         mgr = ctx.cdp_state["manager"]
     
-        try:
-            success = await mgr.close_tab(tab_id)
-            return ctx.cors_json_response({
-                "ok": success,
-                "tab_id": tab_id,
-                "remaining_tabs": mgr.tab_count,
-            })
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        success = await mgr.close_tab(tab_id)
+        return ctx.cors_json_response({
+            "ok": success,
+            "tab_id": tab_id,
+            "remaining_tabs": mgr.tab_count,
+        })
 
 
+    @authed(ctx)
     async def handle_v1_cdp_tabs_activate(request):
         """POST /v1/browser/cdp/tabs/activate — Activate a tab.
     
         Body JSON:
             tab_id: string (required)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             ctx.record_request(is_error=True, count_request=False)

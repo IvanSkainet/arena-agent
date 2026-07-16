@@ -8,6 +8,7 @@ from arena.app_keys import APP_CFG
 
 from arena.grpc.runtime import GRPC_CONFIG
 from arena.handler_context import GrpcHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -16,14 +17,11 @@ class GrpcHandlers:
 
 
 def make_grpc_handlers(ctx: GrpcHandlerContext) -> GrpcHandlers:
+    @authed(ctx)
     async def handle_v1_grpc(request: web.Request) -> web.Response:
         """GET /v1/grpc — gRPC-style interface status.
         POST /v1/grpc — Configure/start/stop the gRPC interface.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if request.method == "POST":
             try:

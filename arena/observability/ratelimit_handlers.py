@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import RateLimitHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -14,14 +15,11 @@ class RateLimitHandlers:
 
 
 def make_rate_limit_handlers(ctx: RateLimitHandlerContext) -> RateLimitHandlers:
+    @authed(ctx)
     async def handle_v1_ratelimit(request: web.Request) -> web.Response:
         """GET /v1/ratelimit — Rate limit configuration and stats.
         POST /v1/ratelimit — Update rate limit configuration.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         if request.method == "POST":
             try:
                 data = await request.json()

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import CdpInterceptHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -16,15 +17,13 @@ class CdpInterceptHandlers:
 
 
 def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpInterceptHandlers:
+    @authed(ctx)
     async def handle_v1_cdp_intercept_start(request):
         """POST /v1/browser/cdp/intercept/start — Start network interception.
     
         Body JSON (optional):
             patterns: list of Fetch pattern dicts (default: intercept all)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"]:
             ctx.record_request(is_error=True, count_request=False)
@@ -64,24 +63,19 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+    @authed(ctx)
     async def handle_v1_cdp_intercept_stop(request):
         """POST /v1/browser/cdp/intercept/stop — Stop network interception."""
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         interceptor = ctx.cdp_state.get("interceptor")
         if not interceptor or not interceptor.active:
             return ctx.cors_json_response({"ok": True, "message": "Interception not active"})
     
-        try:
-            await interceptor.stop()
-            return ctx.cors_json_response({"ok": True, "message": "Interception stopped"})
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        await interceptor.stop()
+        return ctx.cors_json_response({"ok": True, "message": "Interception stopped"})
 
 
+    @authed(ctx)
     async def handle_v1_cdp_intercept_rule(request):
         """POST /v1/browser/cdp/intercept/rule — Add interception rule.
         DELETE /v1/browser/cdp/intercept/rule — Remove interception rule.
@@ -100,9 +94,6 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
         DELETE Body JSON:
             name: string (required)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         cdp = ctx.get_cdp_module()
         if not cdp:

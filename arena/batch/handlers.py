@@ -9,6 +9,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 
 from arena.handler_context import BatchHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -17,16 +18,13 @@ class BatchHandlers:
 
 
 def make_batch_handlers(ctx: BatchHandlerContext) -> BatchHandlers:
+    @authed(ctx)
     async def handle_v1_batch(request: web.Request) -> web.Response:
         """POST /v1/batch — Execute multiple operations in parallel.
 
         Body: {"operations": [{"method": "GET", "path": "/v1/status"}, ...]}
         Optional: "max_concurrent": 5, "fail_fast": false
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:

@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 
 from arena.handler_context import CdpPageHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_eval_handler(ctx: CdpPageHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_eval(request):
         """POST /v1/browser/cdp/eval — Evaluate JavaScript.
 
@@ -21,9 +23,6 @@ def make_cdp_eval_handler(ctx: CdpPageHandlerContext):
         v2.5.1: Configurable timeout, better error messages for heavy eval,
                 and explicit `ok: false` with reason when JS throws.
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
 
         try:
             body = await request.json()

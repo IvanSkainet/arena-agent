@@ -7,6 +7,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import CdpNetworkHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -18,11 +19,9 @@ class CdpNetworkHandlers:
 
 
 def make_cdp_network_handlers(ctx: CdpNetworkHandlerContext) -> CdpNetworkHandlers:
+    @authed(ctx)
     async def handle_v1_cdp_network_start(request):
         """POST /v1/browser/cdp/network/start — Start network monitoring."""
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"]:
             ctx.record_request(is_error=True, count_request=False)
@@ -64,24 +63,19 @@ def make_cdp_network_handlers(ctx: CdpNetworkHandlerContext) -> CdpNetworkHandle
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+    @authed(ctx)
     async def handle_v1_cdp_network_stop(request):
         """POST /v1/browser/cdp/network/stop — Stop network monitoring."""
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         monitor = ctx.cdp_state.get("monitor")
         if not monitor or not monitor.active:
             return ctx.cors_json_response({"ok": True, "message": "Network monitoring not active"})
     
-        try:
-            await monitor.stop()
-            return ctx.cors_json_response({"ok": True, "message": "Network monitoring stopped"})
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        await monitor.stop()
+        return ctx.cors_json_response({"ok": True, "message": "Network monitoring stopped"})
 
 
+    @authed(ctx)
     async def handle_v1_cdp_network_requests(request):
         """GET /v1/browser/cdp/network/requests — Get captured network requests.
     
@@ -90,9 +84,6 @@ def make_cdp_network_handlers(ctx: CdpNetworkHandlerContext) -> CdpNetworkHandle
             resource_type: string (optional)
             include_active: bool (default: true)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         monitor = ctx.cdp_state.get("monitor")
         if not monitor:
@@ -124,22 +115,16 @@ def make_cdp_network_handlers(ctx: CdpNetworkHandlerContext) -> CdpNetworkHandle
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+    @authed(ctx)
     async def handle_v1_cdp_network_har(request):
         """GET /v1/browser/cdp/network/har — Export captured requests as HAR."""
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         monitor = ctx.cdp_state.get("monitor")
         if not monitor:
             return ctx.cors_json_response({"log": {"version": "1.2", "creator": {"name": "arena-cdp", "version": "1.0"}, "entries": []}})
     
-        try:
-            har = monitor.export_har()
-            return ctx.cors_json_response(har)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        har = monitor.export_har()
+        return ctx.cors_json_response(har)
 
     return CdpNetworkHandlers(
         start=handle_v1_cdp_network_start,

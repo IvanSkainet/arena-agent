@@ -7,6 +7,7 @@ from aiohttp import web
 
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import controlled, err_json
 
 
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):
@@ -24,14 +25,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
                 }, status=409)
         return None
 
+    @controlled(ctx)
     async def handle_v1_desktop_click(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:
@@ -64,14 +59,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": f"Click failed ({tool}): {result.get('stderr', result.get('error', ''))}"}, status=500)
         return ctx.cors_json_response({"ok": True, "x": int(x), "y": int(y), "button": body.get("button", "left"), "double": body.get("double", False), "tool": tool})
 
+    @controlled(ctx)
     async def handle_v1_desktop_type(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:
@@ -105,14 +94,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": f"Type failed ({tool}): {result.get('stderr', result.get('error', ''))}"}, status=500)
         return ctx.cors_json_response({"ok": True, "text": text, "tool": tool, "ensure_latin": ensure_latin, "layout_switched": layout_switched})
 
+    @controlled(ctx)
     async def handle_v1_desktop_key(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:
@@ -136,14 +119,8 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": f"Key press failed ({tool}): {result.get('stderr', result.get('error', ''))}"}, status=500)
         return ctx.cors_json_response({"ok": True, "key": key_label, "tool": tool})
 
+    @controlled(ctx)
     async def handle_v1_desktop_mouse(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         ctx.control_record_agent_action()
         try:
             body = await request.json()

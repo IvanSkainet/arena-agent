@@ -10,6 +10,7 @@ from arena.browser.cdp.session_diagnostics import (
     terminate_browser_proc,
 )
 from arena.handler_context import CdpSessionHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 async def parse_connect_body(request) -> tuple[int, bool]:
@@ -109,12 +110,9 @@ def timeout_response(ctx: CdpSessionHandlerContext, mgr):
 
 
 def make_cdp_connect_handler(ctx: CdpSessionHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_connect(request):
         """POST /v1/browser/cdp/connect — Connect to browser CDP."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         cdp = ctx.get_cdp_module()
         if not cdp:

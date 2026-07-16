@@ -7,15 +7,13 @@ from urllib.parse import parse_qs
 
 from arena.browser.cdp.test_launch_runner import run_test_launch
 from arena.handler_context import CdpDiagnosticHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_test_launch_handler(ctx: CdpDiagnosticHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_test_launch(request):
         """GET /v1/browser/cdp/test-launch — try launching Chromium and capture output."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         cdp = ctx.get_cdp_module()
         if not cdp:

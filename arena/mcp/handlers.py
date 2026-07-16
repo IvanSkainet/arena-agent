@@ -12,6 +12,7 @@ from arena.app_keys import APP_MCP_SESSIONS
 
 from arena.handler_context import McpHandlerContext
 from arena.mcp.runtime import now_ms, sid
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -24,12 +25,9 @@ class McpHandlers:
 
 
 def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
+    @authed(ctx)
     async def handle_mcp_post(request: web.Request) -> web.Response:
         """MCP Streamable HTTP — main endpoint."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             msg = await request.json()
         except Exception:
@@ -52,6 +50,7 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
             return web.Response(status=204, headers={"Access-Control-Allow-Origin": "*"})
         return web.json_response(resp, headers={"Access-Control-Allow-Origin": "*"})
 
+    @authed(ctx)
     async def handle_mcp_delete(request: web.Request) -> web.Response:
         """Close MCP session."""
         r = ctx.require_auth(request)
@@ -66,10 +65,6 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
 
     async def handle_sse(request: web.Request) -> web.Response:
         """SSE transport — open event stream."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         session = sid()
         request.app[APP_MCP_SESSIONS][session] = {"created": now_ms()}
 
@@ -100,12 +95,9 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
 
         return resp
 
+    @authed(ctx)
     async def handle_sse_messages(request: web.Request) -> web.Response:
         """SSE peer message endpoint."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             msg = await request.json()
         except Exception:

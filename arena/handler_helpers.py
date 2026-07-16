@@ -118,6 +118,55 @@ def authed(
     return _wrap
 
 
+def controlled(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
+    """Decorator for desktop input/window/text handlers.
+
+    Same as :func:`authed` but also runs ``ctx.control_check()`` after
+    auth passes. If the control lease is currently paused (returned
+    an error dict), the handler short-circuits with a 403 carrying
+    the lease info — this matches every desktop input handler's
+    existing hand-coded ``ctrl_err = ctx.control_check()`` prelude.
+
+    Introduced in v4.0.0 to eliminate the last ~10 preludes that
+    combined auth + control gate. Wire-identical to the manual
+    prelude::
+
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctrl_err = ctx.control_check()
+        if ctrl_err:
+            return ctx.cors_json_response(ctrl_err, status=403)
+        ctx.record_request()
+    """
+    def _wrap(fn: HandlerFn) -> HandlerFn:
+        @functools.wraps(fn)
+        async def wrapper(request: web.Request) -> web.Response:
+            r = ctx.require_auth(request)
+            if r:
+                return r
+            ctrl_err = ctx.control_check()
+            if ctrl_err:
+                return ctx.cors_json_response(ctrl_err, status=403)
+            ctx.record_request()
+            try:
+                return await fn(request)
+            except web.HTTPException:
+                raise
+            except Exception as e:  # noqa: BLE001
+                try:
+                    ctx.record_request(is_error=True, count_request=False)
+                except Exception:
+                    pass
+                _LOG.exception("controlled handler %s crashed", fn.__name__)
+                return err_json(
+                    ctx, f"{type(e).__name__}: {e}", status=500,
+                    error_type=type(e).__name__,
+                )
+        return wrapper
+    return _wrap
+
+
 def public(ctx: Any) -> Callable[[HandlerFn], HandlerFn]:
     """Same as :func:`authed` but skips the auth check.
 

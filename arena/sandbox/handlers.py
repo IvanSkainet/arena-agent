@@ -7,6 +7,7 @@ from aiohttp import web
 
 from arena.handler_context import SandboxHandlerContext
 from arena.sandbox.runtime import SANDBOX_CONFIG
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -15,6 +16,7 @@ class SandboxHandlers:
 
 
 def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:
+    @authed(ctx)
     async def handle_v1_sandbox(request: web.Request) -> web.Response:
         """GET /v1/sandbox — Sandbox configuration.
         POST /v1/sandbox — Run a command in sandbox OR update sandbox config.
@@ -22,10 +24,6 @@ def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:
         To run: {"action": "run", "cmd": "...", "timeout": 30}
         To configure: {"action": "config", "max_cpu_seconds": 60, ...}
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if request.method == "GET":
             return ctx.cors_json_response({"ok": True, "config": SANDBOX_CONFIG})

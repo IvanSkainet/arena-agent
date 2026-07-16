@@ -5,23 +5,17 @@ from aiohttp import web
 
 from arena.desktop.text_action import run_text_action
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import controlled, err_json, parse_json_body
 
 
 
 def make_desktop_text_action_handler(ctx: DesktopHandlerContext):
+    @controlled(ctx)
     async def handle_v1_desktop_text_action(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
-        try:
-            body = await request.json()
-        except Exception as e:
+        body, jerr = await parse_json_body(request, ctx)
+        if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": f"invalid json: {e}"}, status=400)
+            return jerr
         action = str(body.get("action", "resolve") or "resolve")
         result = await run_text_action(
             action=action,

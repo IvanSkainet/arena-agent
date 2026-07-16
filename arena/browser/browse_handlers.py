@@ -8,6 +8,7 @@ from aiohttp import web
 from arena.browser.browse_browseract import run_browseract_browse
 from arena.browser.browse_cdp import run_cdp_browse
 from arena.handler_context import BrowserBrowseHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -16,12 +17,9 @@ class BrowserBrowseHandlers:
 
 
 def make_browser_browse_handlers(ctx: BrowserBrowseHandlerContext) -> BrowserBrowseHandlers:
+    @authed(ctx)
     async def handle_v1_browser_browse(request: web.Request) -> web.Response:
         """POST /v1/browser/browse — unified browser endpoint with auto backend switching."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         try:
             body = await request.json()

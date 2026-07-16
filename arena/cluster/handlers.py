@@ -7,6 +7,7 @@ from aiohttp import web
 
 from arena.cluster.runtime import CLUSTER_CONFIG, CLUSTER_STATE
 from arena.handler_context import ClusterHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -15,14 +16,11 @@ class ClusterHandlers:
 
 
 def make_cluster_handlers(ctx: ClusterHandlerContext) -> ClusterHandlers:
+    @authed(ctx)
     async def handle_v1_cluster(request: web.Request) -> web.Response:
         """GET /v1/cluster — Cluster configuration and status.
         POST /v1/cluster — Configure clustering (add/remove nodes, enable/disable).
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if request.method == "POST":
             try:

@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from arena.handler_context import CdpSessionHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 async def stop_active_cdp_components(ctx: CdpSessionHandlerContext) -> None:
@@ -32,12 +33,9 @@ def reset_disconnected_state(ctx: CdpSessionHandlerContext) -> None:
 
 
 def make_cdp_disconnect_handler(ctx: CdpSessionHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_disconnect(request):
         """POST /v1/browser/cdp/disconnect — Disconnect CDP session."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if not ctx.cdp_state["connected"]:
             return ctx.cors_json_response({"ok": True, "message": "Not connected"})

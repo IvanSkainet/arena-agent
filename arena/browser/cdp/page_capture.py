@@ -8,9 +8,11 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import CdpPageHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_screenshot(request):
         """GET /v1/browser/cdp/screenshot — Take screenshot.
     
@@ -19,9 +21,6 @@ def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
             format: "png" | "base64" (default: "base64")
             save_path: string (optional, save to file on host)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         qs = parse_qs(request.query_string)
         tab_id = qs.get("tab_id", [None])[0]
@@ -67,15 +66,13 @@ def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+    @authed(ctx)
     async def handle_v1_cdp_dom(request):
         """GET /v1/browser/cdp/dom — Dump page DOM.
     
         Query params:
             tab_id: string (optional)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         qs = parse_qs(request.query_string)
         tab_id = qs.get("tab_id", [None])[0]

@@ -7,9 +7,11 @@ from datetime import datetime, timezone
 
 from arena.browser.cdp.advanced_common import get_active_browser
 from arena.handler_context import CdpAdvancedHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_health_handler(ctx: CdpAdvancedHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_health(request):
         """GET /v1/browser/cdp/health — CDP connection health dashboard.
 
@@ -21,9 +23,6 @@ def make_cdp_health_handler(ctx: CdpAdvancedHandlerContext):
         - Active tab info
         - Memory/resource usage
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
 
         mgr = ctx.cdp_state.get("manager")
         connected = ctx.cdp_state["connected"]

@@ -27,22 +27,16 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
         info = await loop.run_in_executor(ctx.executor, ctx.service_info_sync)
         return ctx.cors_json_response(info)
 
+    @authed(ctx)
     async def handle_v1_sys_svc(request: web.Request) -> web.Response:
         """GET /v1/sys/svc — Service status."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.sys_svc_sync)
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_capabilities(request: web.Request) -> web.Response:
         """GET /v1/capabilities — Agent-facing capability map."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.capabilities_sync)
         return ctx.cors_json_response(result)

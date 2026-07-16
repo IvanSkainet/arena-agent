@@ -5,9 +5,11 @@ import asyncio
 
 from arena.browser.cdp.advanced_common import get_active_browser
 from arena.handler_context import CdpAdvancedHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_stealth_shot_handler(ctx: CdpAdvancedHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_stealth_shot(request):
         """POST /v1/browser/cdp/stealth/shot — Navigate to URL via CDP and take a screenshot.
 
@@ -22,9 +24,6 @@ def make_cdp_stealth_shot_handler(ctx: CdpAdvancedHandlerContext):
             format: string ("png" or "jpeg", default: "png")
             timeout: float (default: 15s)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
 
         if not ctx.cdp_state["connected"]:
             ctx.record_request(is_error=True, count_request=False)

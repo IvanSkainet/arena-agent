@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import TaskHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -17,31 +18,21 @@ class TaskHandlers:
 
 
 def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:
+    @authed(ctx)
     async def handle_v1_tasks_get(request: web.Request) -> web.Response:
         """GET /v1/tasks?status=inbox|running|done|failed&limit=20 — list tasks."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         status = request.query.get("status", "")
         try:
             limit = int(request.query.get("limit", "20"))
         except ValueError:
             limit = 20
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.tasks_list_sync, status, limit)
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.tasks_list_sync, status, limit)
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_tasks_post(request: web.Request) -> web.Response:
         """POST /v1/tasks — Submit task. Body: {cmd, title?, description?, priority?, cwd?, timeout?, env?}."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:
@@ -61,20 +52,13 @@ def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Internal error"}, status=500)
 
+    @authed(ctx)
     async def handle_v1_tasks_clean(request: web.Request) -> web.Response:
         """POST /v1/tasks/clean — Clean completed tasks older than 24h."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.tasks_clean_sync)
-            ctx.audit({"type": "tasks_clean", "removed": result.get("removed", 0)})
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.tasks_clean_sync)
+        ctx.audit({"type": "tasks_clean", "removed": result.get("removed", 0)})
+        return ctx.cors_json_response(result)
 
     return TaskHandlers(
         tasks_get=handle_v1_tasks_get,

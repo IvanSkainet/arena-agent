@@ -5,9 +5,11 @@ from urllib.parse import parse_qs
 
 from arena.browser.cdp.advanced_common import get_active_browser
 from arena.handler_context import CdpAdvancedHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_session_check_handler(ctx: CdpAdvancedHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_session_check(request):
         """GET /v1/browser/cdp/session/check — Check session health.
     
@@ -15,9 +17,6 @@ def make_cdp_session_check_handler(ctx: CdpAdvancedHandlerContext):
             domain: string (required)
             auth_cookie_names: string (comma-separated, optional)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         if not ctx.cdp_state["connected"]:
             return ctx.cors_json_response({

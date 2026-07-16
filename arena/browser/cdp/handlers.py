@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import CdpBasicHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -20,12 +21,9 @@ class CdpBasicHandlers:
 
 
 def make_cdp_basic_handlers(ctx: CdpBasicHandlerContext) -> CdpBasicHandlers:
+    @authed(ctx)
     async def handle_v1_cdp_status(request: web.Request) -> web.Response:
         """GET /v1/browser/cdp/status — CDP session status."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         cdp = ctx.get_cdp_module()
         cdp_state = ctx.cdp_state
@@ -53,12 +51,9 @@ def make_cdp_basic_handlers(ctx: CdpBasicHandlerContext) -> CdpBasicHandlers:
 
         return ctx.cors_json_response(status)
 
+    @authed(ctx)
     async def handle_v1_cdp_diag(request: web.Request) -> web.Response:
         """GET /v1/browser/cdp/diag — Quick CDP diagnostics (no browser launch)."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         uid = os.getuid() if hasattr(os, "getuid") else -1
         in_systemd = bool(os.environ.get("INVOCATION_ID") or os.environ.get("JOURNAL_STREAM"))

@@ -8,6 +8,7 @@ from aiohttp import web
 
 from arena.handler_context import WatchdogHandlerContext
 from arena.watchdog.runtime import WATCHDOG_STATE
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -16,14 +17,11 @@ class WatchdogHandlers:
 
 
 def make_watchdog_handlers(ctx: WatchdogHandlerContext) -> WatchdogHandlers:
+    @authed(ctx)
     async def handle_v1_watchdog(request: web.Request) -> web.Response:
         """GET /v1/watchdog — Watchdog status and configuration.
         POST /v1/watchdog — Update watchdog settings.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if request.method == "POST":
             try:

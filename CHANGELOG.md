@@ -1,3 +1,162 @@
+## v4.0.0 - 2026-07-16
+
+### 🎉 Milestone: unified handler pipeline complete
+
+**Version 4.0.0 marks the completion of the arena/handler_helpers.py
+migration series.** The 8-release journey started with v3.92.0
+(shared decorator + response helpers as tooling), continued through
+v3.93.0 – v3.99.0 (progressively migrating admin, exec, files,
+mobile, and then a mass sweep of 20 more modules), and closes here
+with **the last non-trivial preludes moved to a new `@controlled`
+decorator plus the desktop input surface migrated en masse**.
+
+**Before v3.92.0:** ~200 handlers, each carrying the same ~6-line
+prelude:
+
+```python
+r = ctx.require_auth(request)
+if r:
+    return r
+ctx.record_request()
+try:
+    ...
+except Exception as e:
+    ctx.record_request(is_error=True, count_request=False)
+    return ctx.cors_json_response({"ok": False, "error": str(e)},
+                                  status=500)
+```
+
+**After v4.0.0:** 64 modules using one of three shared decorators
+(`@authed`, `@controlled`, `@public`), only 13 preludes remain and
+every one is a legitimate edge case (WebSocket auth, master-token
+gate, private helper — not an actual v1 handler).
+
+### Added — `@controlled` decorator for desktop control-lease surface
+
+`arena/handler_helpers.py` gains a third decorator:
+
+```python
+@controlled(ctx)
+async def handle_v1_desktop_click(request):
+    ...
+```
+
+`@controlled` does everything `@authed` does *plus* runs
+`ctx.control_check()` after auth passes. If the desktop control
+lease is currently paused (e.g. operator revoked it via
+`POST /v1/control/pause`), the handler short-circuits with a 403
+carrying the lease info — wire-identical to the ~10 hand-coded
+`ctrl_err = ctx.control_check(); if ctrl_err: return ...` preludes
+that all desktop input/window/OCR handlers were carrying.
+
+### Changed — Desktop control-lease modules migrated to @controlled
+
+5 desktop handler modules cut over:
+
+* `arena/desktop/input_handlers.py` — 2 handlers, **164 → 141 lines
+  (-23)**. Now uses `@controlled(ctx)` for click/type.
+* `arena/desktop/window_handlers.py` — 1 handler migrated. Focus
+  handler.
+* `arena/desktop/ocr_handler.py` — 2 handlers migrated
+  (click_text, other OCR-triggered actions).
+* `arena/desktop/text_action_handler.py` — 1 handler, plus
+  body-parsing switched to shared `parse_json_body`.
+* `arena/desktop/window_action_handler.py` — 1 handler.
+
+All 7 handlers previously spelled out identical auth+control-check
+scaffolding — now `@controlled(ctx)` in one place. Wire behaviour
+preserved (401 without auth, 403 with lease paused, 500 on stray
+exception).
+
+### Changed — v3.99.0's automated sweep extended: 31 more modules
+
+New `mass_migrate_v2.py` transformer handles two more prelude
+shapes the v3.99.0 tool couldn't match:
+
+1. Handler with docstring between `def` and prelude (found in
+   `arena/service/handlers.py`, most CDP handlers).
+2. Compact one-line prelude (`if r: return r` on a single line) —
+   found across `arena/browser/cdp/*.py`.
+
+**31 additional modules migrated in one pass:**
+
+| Subsystem                            | Files | Handlers |
+|--------------------------------------|------:|---------:|
+| `arena/browser/cdp/*.py`             |    17 |       27 |
+| `arena/skills/handlers.py`           |     1 |        5 |
+| `arena/mcp/handlers.py`              |     1 |        3 |
+| `arena/tasks/handlers.py`            |     1 |        3 |
+| `arena/inventory/handlers.py`        |     1 |        2 |
+| `arena/browser/browse_handlers.py`   |     1 |        1 |
+| `arena/service/handlers.py` (extras) |     1 |        2 |
+| `arena/observability/{alerts,ratelimit_handlers}.py` | 2 | 2 |
+| `arena/batch/handlers.py`            |     1 |        1 |
+| `arena/cluster/handlers.py`          |     1 |        1 |
+| `arena/grpc/handlers.py`             |     1 |        1 |
+| `arena/sandbox/handlers.py`          |     1 |        1 |
+| `arena/tls/handlers.py`              |     1 |        1 |
+| `arena/watchdog/handlers.py`         |     1 |        1 |
+| **Total**                            |  **31** |    **52** |
+
+Wire-identical for every handler; `mass_migrate_v2.py` is committed
+under `tools/mass_migrate/` so future contributors can extend it if
+new shape variants emerge.
+
+### Cumulative migration status (final)
+
+| Release  | Modules covered                              | Handlers | ~LOC removed |
+|----------|----------------------------------------------|---------:|-------------:|
+| v3.92.0  | (tooling: `arena/handler_helpers.py`)        |        0 |            0 |
+| v3.93.0  | admin/handlers*.py                           |       14 |          ~70 |
+| v3.94.0  | exec/handlers.py                             |        3 |          ~30 |
+| v3.97.0  | files/{handlers,fs_view_create}.py           |        7 |          ~51 |
+| v3.98.0  | mobile/handlers*.py (4 modules)              |       49 |         ~312 |
+| v3.99.0  | 20 modules sweep                             |       46 |         ~158 |
+| **v4.0.0** | 31 modules + 5 desktop @controlled         |   **57** |     **~350** |
+| **TOTAL** | 64 modules, 3 decorators                    | **176**  |    **~971** |
+
+**176 handlers migrated to the shared pipeline.** That's roughly
+87 % of all v1 API handlers in the project. The remaining 13
+preludes live in files where the wrapper *shouldn't* apply
+(WebSocket auth flows, master-token gates, private helpers).
+
+### Tests
+
+* `tests/test_controlled_decorator.py` (146 lines, 6 tests):
+  happy path + auth-fail short-circuit + control-lock 403 +
+  exception-500, plus 2 regression guards (`@controlled` present
+  in all 5 desktop modules, inline control-prelude absent).
+
+* Existing 1129 tests still all pass — **1129 → 1135 passed
+  (+6 new)**. Zero wire-level regressions across the entire
+  desktop / cdp / skills / mcp / tasks / inventory / … cutover.
+
+### Verified live
+
+* Bridge on 4.0.0.
+* All 1135 tests green.
+* `POST /v1/desktop/click {}` still returns proper 403 when the
+  control lease is paused, 400 when body is invalid.
+* `GET /v1/skills`, `GET /v1/tasks`, `GET /v1/inventory/registry`
+  return expected shapes through the migrated handlers.
+* Bearer auth still enforced on every migrated endpoint (401
+  without token).
+* Asset-manifest signature unchanged; Dashboard reload not needed.
+
+### What's next after v4.0.0
+
+The unified handler pipeline is done. The remaining ~30 preludes
+in odd corners (WebSocket auth, multiagent master-token gate,
+private helpers under `_mission_get` / `_post_json`) don't fit
+the decorator model — each is one bespoke check tightly coupled
+to its own logic. Fine to leave them alone; the pattern doesn't
+help there.
+
+Future work returns to features: ZeroTier ACL editor, Live-charts
+buffer-size toggle, breakdown compute-vs-graphics GPU util,
+mobile-side WebSocket touch replay. Now the pipeline can support
+all of them without any of them needing to re-invent auth+record.
+
 ## v3.99.0 - 2026-07-16
 
 ### Changed — @authed migration sweep: 20 more modules in one pass

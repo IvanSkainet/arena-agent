@@ -8,18 +8,13 @@ from arena.desktop.window_action import perform_window_action
 from arena.desktop.window_action_plans import plan_window_action_geometry
 from arena.desktop.window_catalog import resolve_window_target
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import controlled, err_json
 
 
 
 def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
+    @controlled(ctx)
     async def handle_v1_desktop_window_action(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:

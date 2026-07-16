@@ -6,7 +6,7 @@ from aiohttp import web
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import controlled, authed, err_json
 
 
 
@@ -47,14 +47,8 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
             return ctx.cors_json_response({"ok": True, **active})
         return ctx.cors_json_response({"ok": True, "id": None, "title": None, "backend": "none", "message": "Could not determine active window"})
 
+    @controlled(ctx)
     async def handle_v1_desktop_focus(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception:

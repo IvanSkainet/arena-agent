@@ -11,15 +11,13 @@ from arena.browser.cdp.raw_info_browser import (
 from arena.browser.cdp.raw_info_http import fetch_raw_tabs, fetch_raw_version
 from arena.browser.cdp.raw_info_ws import probe_raw_info_websocket
 from arena.handler_context import CdpDiagnosticHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_raw_info_handler(ctx: CdpDiagnosticHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_raw_info(request):
         """GET /v1/browser/cdp/raw-info — fetch raw CDP HTTP info and probe tab WS."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         cdp = ctx.get_cdp_module()
         if not cdp:

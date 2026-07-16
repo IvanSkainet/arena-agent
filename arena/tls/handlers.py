@@ -13,6 +13,7 @@ from aiohttp import web
 
 from arena.constants import APP_DIR
 from arena.handler_context import TlsHandlerContext
+from arena.handler_helpers import authed, err_json
 
 TLS_CONFIG: dict[str, Any] = {
     "enabled": False,
@@ -118,14 +119,11 @@ def get_tailscale_cert(*, log_info: Any = None) -> tuple[str, str]:
 
 
 def make_tls_handlers(ctx: TlsHandlerContext) -> TlsHandlers:
+    @authed(ctx)
     async def handle_v1_tls(request: web.Request) -> web.Response:
         """GET /v1/tls — TLS configuration status.
         POST /v1/tls — Configure TLS (enable/disable, set cert paths, auto-cert).
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if request.method == "POST":
             try:

@@ -4,9 +4,11 @@ from __future__ import annotations
 import asyncio
 
 from arena.handler_context import CdpPageHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
+    @authed(ctx)
     async def handle_v1_cdp_click(request):
         """POST /v1/browser/cdp/click — Click element by CSS selector or coordinates.
 
@@ -22,9 +24,6 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
 
         v2.3.0: Added x/y coordinate support and 15s hard timeout.
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
 
         try:
             body = await request.json()
@@ -81,6 +80,7 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
 
+    @authed(ctx)
     async def handle_v1_cdp_type(request):
         """POST /v1/browser/cdp/type — Type text into element.
     
@@ -89,9 +89,6 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
             text: string (required)
             tab_id: string (optional)
         """
-        r = ctx.require_auth(request)
-        if r: return r
-        ctx.record_request()
     
         try:
             body = await request.json()

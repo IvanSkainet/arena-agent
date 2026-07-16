@@ -8,7 +8,7 @@ from aiohttp import web
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import controlled, authed, err_json
 
 
 class DesktopOcrHandlers(tuple):
@@ -132,14 +132,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             return ctx.cors_json_response({**result, "error": f"no matches for query: {result['query']}"}, status=404)
         return ctx.cors_json_response(result)
 
+    @controlled(ctx)
     async def handle_v1_desktop_click_text(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctrl_err = ctx.control_check()
-        if ctrl_err:
-            return ctx.cors_json_response(ctrl_err, status=403)
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:

@@ -6,6 +6,169 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v4.0.0 - 2026-07-16
+
+### 🎉 Milestone: единый handler pipeline завершён
+
+**Version 4.0.0 отмечает завершение серии миграции
+`arena/handler_helpers.py`.** 8-релизный путь начался в v3.92.0
+(shared декоратор + response-helpers как инструментарий),
+продолжился через v3.93.0 – v3.99.0 (постепенная миграция admin,
+exec, files, mobile, потом mass-sweep 20 модулей) и закрывается
+здесь: **последние нетривиальные preludes перенесены на новый
+`@controlled` декоратор плюс desktop input surface мигрирован
+en masse**.
+
+**До v3.92.0:** ~200 handler'ов, каждый нёс тот же ~6-строчный
+prelude:
+
+```python
+r = ctx.require_auth(request)
+if r:
+    return r
+ctx.record_request()
+try:
+    ...
+except Exception as e:
+    ctx.record_request(is_error=True, count_request=False)
+    return ctx.cors_json_response({"ok": False, "error": str(e)},
+                                  status=500)
+```
+
+**После v4.0.0:** 64 модуля используют один из трёх shared-
+декораторов (`@authed`, `@controlled`, `@public`), осталось всего
+13 prelude'ов и каждый из них — законный edge case (WebSocket
+auth, master-token gate, приватный helper — не реальный v1
+handler).
+
+### Добавлено — `@controlled` декоратор для desktop control-lease surface
+
+`arena/handler_helpers.py` получает третий декоратор:
+
+```python
+@controlled(ctx)
+async def handle_v1_desktop_click(request):
+    ...
+```
+
+`@controlled` делает всё то же, что `@authed`, *плюс* запускает
+`ctx.control_check()` после прохождения auth. Если desktop
+control lease сейчас на паузе (например, оператор снял его через
+`POST /v1/control/pause`), handler short-circuit'ится с 403,
+несущим lease-info — wire-identical к ~10 ручным
+`ctrl_err = ctx.control_check(); if ctrl_err: return ...`
+prelude'ам, которые несли все desktop input/window/OCR
+handler'ы.
+
+### Изменено — Desktop control-lease модули на @controlled
+
+5 desktop handler-модулей переведены:
+
+* `arena/desktop/input_handlers.py` — 2 handler'а, **164 → 141
+  строк (-23)**. Теперь `@controlled(ctx)` для click/type.
+* `arena/desktop/window_handlers.py` — 1 handler мигрирован (focus).
+* `arena/desktop/ocr_handler.py` — 2 handler'а (click_text,
+  прочие OCR-triggered actions).
+* `arena/desktop/text_action_handler.py` — 1 handler, body-parsing
+  переключён на shared `parse_json_body`.
+* `arena/desktop/window_action_handler.py` — 1 handler.
+
+Все 7 handler'ов раньше писали identical auth+control-check
+scaffolding — теперь `@controlled(ctx)` в одном месте.
+Wire-поведение сохранено (401 без auth, 403 при lease paused,
+500 при stray exception).
+
+### Изменено — автоматический sweep v3.99.0 расширен: ещё 31 модуль
+
+Новый `mass_migrate_v2.py` трансформатор ловит ещё два prelude-
+shape, которые v3.99.0 tool не мог сматчить:
+
+1. Handler с docstring между `def` и prelude (найден в
+   `arena/service/handlers.py`, большинство CDP handler'ов).
+2. Compact one-line prelude (`if r: return r` одной строкой) —
+   найден по всему `arena/browser/cdp/*.py`.
+
+**31 дополнительных модуля мигрированы за один pass:**
+
+| Подсистема                             | Файлов | Handler'ов |
+|----------------------------------------|-------:|-----------:|
+| `arena/browser/cdp/*.py`               |     17 |         27 |
+| `arena/skills/handlers.py`             |      1 |          5 |
+| `arena/mcp/handlers.py`                |      1 |          3 |
+| `arena/tasks/handlers.py`              |      1 |          3 |
+| `arena/inventory/handlers.py`          |      1 |          2 |
+| `arena/browser/browse_handlers.py`     |      1 |          1 |
+| `arena/service/handlers.py` (extras)   |      1 |          2 |
+| `arena/observability/{alerts,ratelimit_handlers}.py` | 2 | 2 |
+| `arena/batch/handlers.py`              |      1 |          1 |
+| `arena/cluster/handlers.py`            |      1 |          1 |
+| `arena/grpc/handlers.py`               |      1 |          1 |
+| `arena/sandbox/handlers.py`            |      1 |          1 |
+| `arena/tls/handlers.py`                |      1 |          1 |
+| `arena/watchdog/handlers.py`           |      1 |          1 |
+| **Итого**                              |   **31** |     **52** |
+
+Wire-identical для каждого handler'а.
+
+### Кумулятивный статус миграции (финал)
+
+| Релиз    | Покрытые модули                              | Handlers | ~Убрано LOC |
+|----------|----------------------------------------------|---------:|------------:|
+| v3.92.0  | (инструментарий: `arena/handler_helpers.py`) |        0 |           0 |
+| v3.93.0  | admin/handlers*.py                           |       14 |         ~70 |
+| v3.94.0  | exec/handlers.py                             |        3 |         ~30 |
+| v3.97.0  | files/{handlers,fs_view_create}.py           |        7 |         ~51 |
+| v3.98.0  | mobile/handlers*.py (4 модуля)               |       49 |        ~312 |
+| v3.99.0  | sweep 20 модулей                             |       46 |        ~158 |
+| **v4.0.0** | 31 модуль + 5 desktop @controlled          |   **57** |    **~350** |
+| **ИТОГО** | 64 модуля, 3 декоратора                    | **176**  |    **~971** |
+
+**176 handler'ов мигрированы на shared pipeline.** Это примерно
+87 % всех v1 API handler'ов в проекте. Оставшиеся 13 prelude'ов
+живут в файлах, где wrapper *не должен* применяться (WebSocket
+auth-flows, master-token gates, приватные helper'ы).
+
+### Тесты
+
+* `tests/test_controlled_decorator.py` (146 строк, 6 тестов):
+  happy path + auth-fail short-circuit + control-lock 403 +
+  exception-500, плюс 2 regression guard'а (`@controlled`
+  присутствует во всех 5 desktop-модулях, inline control-
+  prelude отсутствует).
+
+* Существующие 1129 тестов всё так же проходят — **1129 → 1135
+  passed (+6 новых)**. Ноль wire-level регрессий по всему
+  desktop / cdp / skills / mcp / tasks / inventory / …
+  cutover.
+
+### Проверено live
+
+* Bridge на 4.0.0.
+* Все 1135 тестов зелёные.
+* `POST /v1/desktop/click {}` всё так же возвращает proper 403
+  когда control lease на паузе, 400 когда body невалидное.
+* `GET /v1/skills`, `GET /v1/tasks`, `GET /v1/inventory/registry`
+  возвращают expected shapes через мигрированные handler'ы.
+* Bearer auth всё так же enforced на каждом мигрированном
+  endpoint'е (401 без токена).
+* Asset-manifest signature не изменился; Dashboard reload не нужен.
+
+### Что дальше после v4.0.0
+
+Единый handler pipeline готов. Оставшиеся ~30 prelude'ов в
+странных углах (WebSocket auth, multiagent master-token gate,
+приватные helper'ы `_mission_get` / `_post_json`) не ложатся в
+декораторную модель — каждый это bespoke check, туго связанный
+со своей логикой. Ok оставить их в покое; паттерн там не
+помогает.
+
+Дальнейшая работа возвращается к features: ZeroTier ACL editor,
+Live-charts buffer-size toggle, breakdown compute-vs-graphics
+GPU util, mobile-side WebSocket touch replay. Теперь pipeline
+поддержит все из них так, что никому не придётся заново
+изобретать auth+record.
+
+
 ## v3.99.0 - 2026-07-16
 
 ### Изменено — @authed миграция sweep: 20 модулей за один проход

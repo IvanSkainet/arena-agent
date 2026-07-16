@@ -7,6 +7,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.handler_context import AlertsHandlerContext
+from arena.handler_helpers import authed, err_json
 
 ALERTS_CONFIG: dict[str, dict[str, Any]] = {
     "bridge_down": {"enabled": True, "threshold_seconds": 30, "description": "Bridge unresponsive for >30s"},
@@ -24,14 +25,11 @@ class AlertHandlers:
 
 
 def make_alert_handlers(ctx: AlertsHandlerContext) -> AlertHandlers:
+    @authed(ctx)
     async def handle_v1_alerts(request: web.Request) -> web.Response:
         """GET /v1/alerts — List alert configurations and current status.
         POST /v1/alerts — Update alert configuration.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
 
         if request.method == "POST":
             try:

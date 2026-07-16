@@ -19,6 +19,7 @@ class HardwareHandlers:
 
 
 def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
+    @authed(ctx)
     async def handle_v1_inventory_registry(request: web.Request) -> web.Response:
         """GET /v1/inventory/registry — machine-readable list of every
         inventory section: name, label, category, show_in_doctor.
@@ -26,10 +27,6 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
         strip and Cards mapping without hand-maintaining a duplicate
         list in JS.
         """
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         from arena.inventory.registry import registry_meta
         return ctx.cors_json_response({"ok": True, "sections": registry_meta()})
 
@@ -48,12 +45,9 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
         result = await loop.run_in_executor(ctx.executor, ctx.inventory_sync, section, fmt, timeout)
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_hardware(request: web.Request) -> web.Response:
         """GET /v1/hardware — Canonical rich hardware/system inventory."""
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             timeout = int(request.query.get("timeout", "45"))
             timeout = min(max(10, timeout), 120)
