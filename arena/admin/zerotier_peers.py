@@ -1,4 +1,4 @@
-"""ZeroTier peer introspection (v4.4.0).
+"""ZeroTier peer introspection (v4.4.0, refined in v4.5.0).
 
 Answers the question **"is my ZeroTier connection direct P2P or is it
 being relayed through a PLANET root?"** — the same question the user
@@ -11,6 +11,15 @@ Public entry point: :func:`zerotier_peers` — returns per-peer
 classification (``direct`` / ``relay`` / ``root`` / ``tunneled`` /
 ``none``) plus a tiny summary the Dashboard's Network Status card
 can render without any extra math.
+
+**v4.5.0 refinement**: real P2P UDP paths always terminate on port
+9993 (or the daemon's ``primaryPort`` when the node uses a non-
+default). Paths on high random ports (23649, 23007, ...) are
+ZeroTier's TCP-relay infrastructure — they *look* non-root but are
+still relayed. The classifier now labels them ``relay`` with
+``relay_via="tcp-infra"`` so the Dashboard can distinguish PLANET-
+relayed peers from TCP-infra-relayed ones. This closes the false
+"direct" reading we saw in the v4.4.0 live smoke.
 
 Cross-platform: uses the same HTTP-preferred / CLI-fallback stack as
 :mod:`arena.admin.zerotier` (``_read_token`` → HTTP ``/peer`` first,
@@ -35,6 +44,12 @@ from arena.admin.zerotier import (
     _run_cli,
 )
 
+# Real ZeroTier P2P UDP paths terminate on the node's primaryPort. That
+# is 9993 by default; nodes can override via localconf but that is
+# vanishingly rare in the wild. We accept a small set of well-known
+# defaults so the classifier keeps working when a node overrides.
+_DIRECT_UDP_PORTS: frozenset[int] = frozenset({9993})
+
 
 def _split_ip_port(address: str) -> tuple[str, str]:
     """``144.202.83.167/21053`` → (``144.202.83.167``, ``21053``).
@@ -52,48 +67,100 @@ def _split_ip_port(address: str) -> tuple[str, str]:
     return host, port
 
 
-def _classify_peer(peer: dict[str, Any], root_ips: set[str]) -> str:
-    """Return one of: ``direct`` | ``relay`` | ``root`` | ``tunneled`` | ``none``.
+def _is_direct_udp_port(port_str: str) -> bool:
+    """True when the port in a ZT path address is a known P2P UDP port
+    (default 9993). Empty / non-numeric strings return False so we err
+    on the side of "not direct" — the classifier will then fall through
+    to the relay branch rather than marking a suspicious path direct.
+    """
+    if not port_str:
+        return False
+    try:
+        return int(port_str) in _DIRECT_UDP_PORTS
+    except (TypeError, ValueError):
+        return False
+
+
+def _classify_peer(peer: dict[str, Any], root_ips: set[str]) -> tuple[str, str | None]:
+    """Return ``(path_kind, relay_via)`` where:
+
+    * ``path_kind`` ∈ ``direct`` / ``relay`` / ``root`` / ``tunneled`` / ``none``
+    * ``relay_via`` ∈ ``"planet"`` / ``"tcp-infra"`` / ``None`` — only
+      meaningful when ``path_kind == "relay"``, otherwise ``None``.
 
     Rules (in order):
 
-    * ``role == "PLANET"`` or ``"MOON"`` → ``root``. Peer *is* the
-      relay, so "relayed through itself" is meaningless.
-    * ``peer.tunneled`` truthy → ``tunneled``. TCP-fallback path
-      via api.zerotier.com:443 or similar — worst case, works over
-      any HTTPS-only network.
-    * No active non-expired path → ``none``. Peer is known but not
-      currently reachable.
-    * Any active path whose host IP is NOT one of the PLANET/MOON
-      IPs → ``direct``. This peer talks to us via P2P UDP.
-    * Otherwise (every active path goes through a root) → ``relay``.
+    * ``role == "PLANET"`` or ``"MOON"`` → (``root``, None).
+      Peer *is* the relay, so "relayed through itself" is meaningless.
+    * ``peer.tunneled`` truthy → (``tunneled``, None). TCP-fallback via
+      api.zerotier.com:443 or similar — worst case, works over any
+      HTTPS-only network.
+    * No active non-expired path → (``none``, None). Peer known but
+      not currently reachable.
+    * Any active path with a non-root IP **and** a known P2P UDP port
+      (default 9993) → (``direct``, None). Real peer-to-peer UDP.
+    * Any active path with a non-root IP but a non-9993 port →
+      (``relay``, ``"tcp-infra"``). This is ZeroTier's TCP-relay
+      infrastructure — looks non-root but is still relayed. Common on
+      hosts behind restrictive NAT / UDP-blocked networks.
+    * Otherwise every active path terminates on a PLANET/MOON IP →
+      (``relay``, ``"planet"``).
+
+    v4.5.0 change: previously any non-root IP was ``direct`` regardless
+    of port, which false-positived on TCP-relay infra. See the module
+    docstring for the full story.
     """
     role = str(peer.get("role") or "").upper()
     if role in {"PLANET", "MOON"}:
-        return "root"
+        return "root", None
     if peer.get("tunneled"):
-        return "tunneled"
+        return "tunneled", None
 
     active_paths = [
         p for p in peer.get("paths") or []
         if p.get("active") and not p.get("expired")
     ]
     if not active_paths:
-        return "none"
+        return "none", None
 
+    saw_non_root = False
     for path in active_paths:
-        host, _ = _split_ip_port(str(path.get("address") or ""))
-        if host and host not in root_ips:
-            return "direct"
-    return "relay"
+        host, port = _split_ip_port(str(path.get("address") or ""))
+        if not host:
+            continue
+        if host in root_ips:
+            continue
+        saw_non_root = True
+        if _is_direct_udp_port(port):
+            return "direct", None
+
+    if saw_non_root:
+        # Non-root host(s) present but none on a P2P UDP port → this is
+        # the TCP-relay infrastructure path.
+        return "relay", "tcp-infra"
+    return "relay", "planet"
 
 
 def _peers_summary(peers: list[dict[str, Any]]) -> dict[str, Any]:
-    """Small counters block for the Network Status card."""
+    """Small counters block for the Network Status card.
+
+    v4.5.0: adds ``relay_via`` breakdown (``leaf_relay_planet`` +
+    ``leaf_relay_tcp_infra``) so the Dashboard can show which flavour
+    of relay dominates. Sum matches the legacy ``leaf_relay`` count.
+    """
     counts = {"direct": 0, "relay": 0, "root": 0, "tunneled": 0, "none": 0}
     leaf_latencies: list[int] = []
+    relay_planet = 0
+    relay_tcp_infra = 0
     for p in peers:
         counts[p.get("path_kind", "none")] = counts.get(p.get("path_kind", "none"), 0) + 1
+        if p.get("path_kind") == "relay":
+            via = p.get("relay_via")
+            if via == "tcp-infra":
+                relay_tcp_infra += 1
+            else:
+                # "planet" or a legacy None -> planet-side accounting.
+                relay_planet += 1
         if p.get("role") == "LEAF":
             # Normalized peers use ``latency_ms``; accept raw
             # ``latency`` too so this helper works on both.
@@ -113,6 +180,8 @@ def _peers_summary(peers: list[dict[str, Any]]) -> dict[str, Any]:
         "leaf_reachable": leaf_reachable,
         "leaf_direct": counts["direct"],
         "leaf_relay": counts["relay"],
+        "leaf_relay_planet": relay_planet,
+        "leaf_relay_tcp_infra": relay_tcp_infra,
         "leaf_tunneled": counts["tunneled"],
         "leaf_unreachable": counts["none"],
         "direct_ratio": (counts["direct"] / leaf_total) if leaf_total else 0.0,
@@ -132,12 +201,20 @@ def _direct_hint(summary: dict[str, Any]) -> str | None:
     Deliberately terse — the Dashboard shows this inline and the
     long form lives in the docs. Focus on the two knobs a normal
     user actually has (UDP 9993 outbound + NAT hole-punching).
+
+    v4.5.0: adds a distinct hint for ZT-TCP-infra-relayed peers so
+    the diagnosis matches the observation. The two relay flavours
+    have the same fix (open UDP 9993) but naming the observed
+    transport makes the message believable.
     """
     leaf_total = summary.get("leaf_total", 0)
     if leaf_total == 0:
         return None
     direct = summary.get("leaf_direct", 0)
     tunneled = summary.get("leaf_tunneled", 0)
+    relay_planet = summary.get("leaf_relay_planet", 0)
+    relay_tcp_infra = summary.get("leaf_relay_tcp_infra", 0)
+
     if tunneled == leaf_total and tunneled > 0:
         return (
             "All LEAF peers are on TCP-tunneled paths (api.zerotier.com:443). "
@@ -145,6 +222,15 @@ def _direct_hint(summary: dict[str, Any]) -> str | None:
             "on this host and any upstream router."
         )
     if direct == 0 and leaf_total > 0:
+        if relay_tcp_infra >= relay_planet and relay_tcp_infra > 0:
+            return (
+                "Every LEAF peer is routed through ZeroTier's TCP-relay "
+                "infrastructure (non-9993 ports on non-PLANET IPs). This "
+                "means UDP is not getting through in at least one direction. "
+                "Allow UDP 9993 outbound on both peers and, if either side "
+                "is behind a strict NAT, enable UPnP / NAT-PMP on the router "
+                "so ZeroTier's hole-punching can succeed."
+            )
         return (
             "Every LEAF peer is routed through a PLANET relay — no direct "
             "P2P paths yet. Allow UDP 9993 outbound on both peers and, if "
@@ -175,7 +261,7 @@ def _normalize_peer(peer: dict[str, Any], root_ips: set[str]) -> dict[str, Any]:
         for p in peer.get("paths") or []
         if p.get("active") and not p.get("expired")
     ]
-    path_kind = _classify_peer(peer, root_ips)
+    path_kind, relay_via = _classify_peer(peer, root_ips)
     latency = peer.get("latency")
     if not isinstance(latency, int):
         latency = -1
@@ -186,6 +272,9 @@ def _normalize_peer(peer: dict[str, Any], root_ips: set[str]) -> dict[str, Any]:
         "latency_ms": latency,
         "tunneled": bool(peer.get("tunneled")),
         "path_kind": path_kind,
+        # v4.5.0: distinguishes PLANET-relayed peers from ZT TCP-infra-
+        # relayed ones. None for direct / root / tunneled / none.
+        "relay_via": relay_via,
         "active_paths": active_paths,
         "path_count": len(peer.get("paths") or []),
         "active_path_count": len(active_paths),
@@ -240,7 +329,7 @@ def _peers_via_cli(cli: str) -> tuple[list[dict[str, Any]] | None, str | None]:
 def zerotier_peers() -> dict[str, Any]:
     """Return classified ZeroTier peers (v4.4.0).
 
-    Response shape (stable):
+    Response shape (stable, v4.5.0):
 
     ::
 
@@ -259,6 +348,7 @@ def zerotier_peers() -> dict[str, Any]:
               "latency_ms": 166,           # -1 if unknown
               "tunneled": false,
               "path_kind": "direct" | "relay" | "root" | "tunneled" | "none",
+              "relay_via": "planet" | "tcp-infra" | None,   # v4.5.0
               "active_paths": [
                 {"address": "...", "last_receive": 1784, "last_send": 1784, "preferred": true}
               ],
@@ -266,7 +356,9 @@ def zerotier_peers() -> dict[str, Any]:
               "active_path_count": 3
             }, ...
           ],
-          "summary": {"peer_count", "counts", "leaf_direct", "leaf_relay", ...},
+          "summary": {"peer_count", "counts", "leaf_direct",
+                      "leaf_relay", "leaf_relay_planet",
+                      "leaf_relay_tcp_infra", ...},
           "hint": str | None
         }
     """
@@ -339,4 +431,5 @@ __all__ = [
     "_peers_summary",
     "_direct_hint",
     "_split_ip_port",
+    "_is_direct_udp_port",
 ]

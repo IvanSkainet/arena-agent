@@ -1,3 +1,108 @@
+## v4.5.0 - 2026-07-16
+
+### Changed - refined ZeroTier peers classifier (direct now means *real* P2P UDP)
+
+Closes the false-positive we hit in the v4.4.0 live smoke: two LEAF
+peers on the bridge were labelled ``direct`` even though both were
+reaching us via ZeroTier's TCP-relay infrastructure (Vultr/GCP IPs
+on high random ports like 23649 and 23007). The paths *were*
+non-root — the v4.4.0 heuristic — but they weren't peer-to-peer
+UDP either.
+
+**New rule:** ``direct`` now requires ``port == 9993`` in addition
+to ``ip != any PLANET/MOON IP``. Real ZeroTier P2P UDP always uses
+the daemon's ``primaryPort`` (9993 by default). Anything else on a
+non-root IP is still relayed, just through the TCP-relay tier
+rather than through a PLANET.
+
+**New field: ``relay_via``** on each peer. When ``path_kind ==
+"relay"`` it takes one of two values:
+
+* ``"planet"``    — every active path terminates at a PLANET/MOON IP.
+                    Classic ZeroTier relay through a root server.
+* ``"tcp-infra"`` — at least one active path is on a non-root IP but
+                    a non-9993 port. ZeroTier's TCP-relay
+                    infrastructure — usually the sign that UDP is
+                    blocked outbound in at least one direction.
+
+For ``direct`` / ``root`` / ``tunneled`` / ``none`` the field is
+``None`` — the flavour makes no sense for those categories.
+
+Priority when multiple active paths coexist:
+
+1. Any P2P UDP path → ``direct`` wins (an established direct link
+   is what matters; ZeroTier keeps the fallback path warm too).
+2. Any non-root non-9993 path → ``relay`` / ``tcp-infra``.
+3. Everything on PLANET IPs → ``relay`` / ``planet``.
+
+### Added - relay_via breakdown in the summary
+
+    "leaf_relay_planet":    1,     # v4.5.0
+    "leaf_relay_tcp_infra": 2      # v4.5.0
+
+Adds up to the existing ``leaf_relay`` count, so no math is lost.
+
+### Changed - hint text now names the observed transport
+
+When every LEAF peer is on a relayed path, the actionable hint is
+picked to match what the peers list actually shows. Previously a
+user with a TCP-infra-relayed connection would read "Every LEAF
+peer is routed through a PLANET relay" while their peer table
+showed non-PLANET IPs — confusing at best. Now:
+
+* All PLANET-relayed → "Every LEAF peer is routed through a PLANET
+  relay — no direct P2P paths yet. Allow UDP 9993 outbound..."
+* All TCP-infra-relayed → "Every LEAF peer is routed through
+  ZeroTier's TCP-relay infrastructure (non-9993 ports on non-PLANET
+  IPs). This means UDP is not getting through in at least one
+  direction. Allow UDP 9993 outbound..."
+
+The fix (open UDP 9993 + hole-punching) is the same either way,
+but naming the observed transport makes the diagnosis believable.
+
+### Tests
+
+1205 → 1211 passed (+6 in ``tests/test_zerotier_peers.py``; 5 of the
+old classifier tests updated to the new tuple return shape):
+
+* ``_classify_peer`` now returns ``(path_kind, relay_via)`` tuple
+* ``_is_direct_udp_port`` accepts only 9993 (guards against future
+  well-known-ports drift)
+* Non-root IP on high port → ``("relay", "tcp-infra")``
+* Direct + tcp-infra both present → direct wins (transition case)
+* Planet + tcp-infra both present → tcp-infra wins (specificity)
+* ``_peers_summary`` splits relays by ``relay_via``; parts sum to
+  the aggregate ``leaf_relay``
+* Hint variants for planet-only, tcp-infra-only, mixed / partial
+  / direct
+
+### Verified live
+
+Bridge on 4.5.0 through the ZeroTier overlay (10.57.152.120:8765).
+The two LEAF peers previously mislabelled ``direct`` are now
+correctly labelled ``relay`` / ``tcp-infra`` — matches the observed
+non-9993 ports (23649, 23007). Hint returns the new TCP-infra text.
+
+### Backward compatibility
+
+* ``path_kind`` values unchanged; the enum did not grow.
+* Existing consumers reading only ``path_kind`` get the corrected
+  value (peers that were *actually* relayed now say ``relay``).
+* New field ``relay_via`` is additive; missing on older clients is
+  the intended default ("planet" is the historical assumption).
+* Summary keys ``leaf_direct`` / ``leaf_relay`` / ``leaf_tunneled``
+  keep their names; ``leaf_relay_planet`` + ``leaf_relay_tcp_infra``
+  are additive.
+
+### Not included
+
+* Auto-detection of a non-default ``primaryPort`` from the node's
+  own ``/status``. Vanishingly rare in the wild; when it lands
+  we'll widen ``_DIRECT_UDP_PORTS`` at daemon-startup based on the
+  local status snapshot rather than at classify time.
+* Extending the classifier to Tailscale/Cloudflared peers. The
+  tunnels_probe subsystem already answers a similar question at
+  the URL level; that's a v4.6 conversation.
 ## v4.4.0 - 2026-07-16
 
 ### Added - GET /v1/zerotier/peers (direct-vs-relay diagnostics)
