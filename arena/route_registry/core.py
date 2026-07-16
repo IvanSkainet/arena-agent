@@ -23,6 +23,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/inventory/registry", h["handle_v1_inventory_registry"])
     app.router.add_get("/v1/ps", h["handle_v1_ps"])
     app.router.add_get("/v1/audit", h["handle_v1_audit"])
+    # v4.9.0: chunked NDJSON audit tail (?follow=1 to live-follow).
+    app.router.add_get("/v1/audit/stream", h["handle_v1_audit_stream"])
     app.router.add_post("/v1/exec", h["handle_v1_exec"])
     # v4.2.0: raw-script endpoint. Accepts multi-line body as-is,
     # picks interpreter via X-Arena-Interpreter header.

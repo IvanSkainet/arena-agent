@@ -115,6 +115,8 @@ ROUTES: list[Route] = [
     ('GET'   , '/v1/inventory/registry'                          , 'handle_v1_inventory_registry'               , 'core', None),
     ('GET'   , '/v1/ps'                                          , 'handle_v1_ps'                               , 'core', None),
     ('GET'   , '/v1/audit'                                       , 'handle_v1_audit'                            , 'core', None),
+    # v4.9.0: NDJSON tail of audit.jsonl (?follow=1 for live-follow).
+    ('GET'   , '/v1/audit/stream'                                , 'handle_v1_audit_stream'                     , 'core', None),
     ('POST'  , '/v1/exec'                                        , 'handle_v1_exec'                             , 'core', None),
     # v4.2.0: raw-script endpoint (multi-line body, interpreter via header).
     ('POST'  , '/v1/exec/script'                                 , 'handle_v1_exec_script'                      , 'core', None),

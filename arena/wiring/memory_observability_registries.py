@@ -48,7 +48,7 @@ def build_memory_observability_registries(g: MutableMapping[str, Any]) -> dict[s
         audit=env.audit,
     )
     observability_handlers = env.make_observability_handlers(observability_handler_ctx)
-    env.export_handler_attrs(registry, observability_handlers, {"handle_v1_audit": "audit", "handle_v1_audit_stats": "audit_stats", "handle_v1_audit_log": "audit_log", "handle_v1_webhooks_get": "webhooks_get", "handle_v1_webhooks_set": "webhooks_set"})
+    env.export_handler_attrs(registry, observability_handlers, {"handle_v1_audit": "audit", "handle_v1_audit_stats": "audit_stats", "handle_v1_audit_log": "audit_log", "handle_v1_webhooks_get": "webhooks_get", "handle_v1_webhooks_set": "webhooks_set", "handle_v1_audit_stream": "audit_stream"})
     registry.update({
         "_memory_handler_ctx": memory_handler_ctx,
         "_memory_handlers": memory_handlers,

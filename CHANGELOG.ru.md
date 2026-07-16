@@ -1,3 +1,147 @@
+\n## v4.9.0 - 2026-07-16
+
+### Добавлено - GET /v1/audit/stream (NDJSON audit tail с live-follow)
+
+Комбинирует chunked-NDJSON transport из v4.3.0
+(``/v1/exec/stream``) с audit-словарём из v4.6.0 (Audit tab
+categorization) в полноценный live-tail endpoint для audit log'а.
+
+Раньше: агенты которые хотели реагировать на audit-события
+(конкретный exec завершился, blocklisted-команда поймана,
+``file_upload`` целится в watched path) должны были polling'ить
+``/v1/audit?lines=...`` в hot loop и diff'ать response. Каждый
+loop платил полную стоимость response body, и cadence polling'а
+определял latency реакции.
+
+Теперь:
+
+    curl -sSN --no-buffer \
+      -H "Authorization: Bearer $TOKEN" \
+      "$ARENA_BRIDGE_URL/v1/audit/stream?follow=1&type=exec_stream"
+
+открывает chunked NDJSON stream. Каждая строка — один JSON:
+
+    {"type": "meta", "audit": "/home/ivan/arena-bridge/audit.jsonl",
+     "follow": true, "lines_history": 100,
+     "filters": {"type_prefix": "exec_stream", "since": null,
+                 "max_duration_sec": 300},
+     "server_ts": "2026-07-16T14:00:00Z"}
+    {"ts": "2026-07-16T13:59:12Z", "type": "exec_stream_start", ...}
+    {"ts": "2026-07-16T13:59:12Z", "type": "exec_stream_done",  ...}
+    ... (live tail продолжается) ...
+    {"type": "exit", "reason": "max_duration",
+     "emitted": 47, "skipped": 213}
+
+### Query параметры
+
+* ``lines`` — сколько history-строк эмитить перед началом follow
+  phase (default 100, cap 5000)
+* ``follow`` — ``1`` / ``true`` / ``yes`` / ``on`` чтобы держать
+  stream открытым и эмитить новые события по мере их появления
+  в ``audit.jsonl`` (default off = history-only mode завершается
+  чисто)
+* ``type`` — substring filter по ``event.type``, те же semantics
+  что Audit tab (``exec`` матчит ``exec_*`` / ``exec_stream_*`` /
+  ``exec_script_*``)
+* ``since`` — ISO-8601 timestamp cursor; события с ``ts`` ``<=``
+  этого значения пропускаются. Идеально для reconnect-and-resume
+  после дропа stream'а клиентом
+* ``max_duration`` — максимум секунд follow-фазы (default 300,
+  cap 300 — забытый агент не может держать worker бесконечно)
+
+### Гарантии контракта
+
+* ``meta`` всегда первое событие (echoes back что клиент попросил
+  — сохранённый capture самоописателен)
+* ``exit`` всегда терминальное; unterminated NDJSON = сервер
+  умер mid-stream
+* History phase читает последние ``lines`` non-empty строк
+  ``audit.jsonl``, применяет ``type`` + ``since`` filters,
+  эмитит выживших в хронологическом порядке
+* Follow phase seek'ается в end-of-file после history — одно и
+  то же событие не эмитится дважды
+* Malformed audit-строки не крашат stream — surface'ятся как
+  ``{"type": "raw", "line": "..."}`` чтобы operator замечал
+  corruption во время follow-сессии
+* Log rotation (файл audit временно missing) толерантен: ``open()``
+  retry на следующем poll вместо краха
+* Client disconnect уважается — finally-блок пишет терминальный
+  ``exit`` с ``reason="client_disconnect"`` когда возможно
+
+### Файлы
+
+* ИЗМЕНЁН ``arena/observability/handlers.py`` (101 -> 327
+  строк) — новый ``handle_v1_audit_stream`` + хелперы
+  (``_parse_stream_since``, ``_match_type_filter``,
+  ``_tail_last_lines``) + tunables
+  (``_STREAM_MAX_DURATION_SEC=300``,
+  ``_STREAM_POLL_INTERVAL_SEC=0.5``,
+  ``_STREAM_MAX_LINES_HISTORY=5000``,
+  ``_STREAM_READ_CHUNK=64KiB``); ``ObservabilityHandlers``
+  dataclass получает поле ``audit_stream``
+* ИЗМЕНЁН ``arena/route_registry/registry.py`` +
+  ``arena/route_registry/core.py`` — ``GET /v1/audit/stream``
+  route в ``core`` group
+* ИЗМЕНЁН ``arena/wiring/memory_observability_registries.py`` —
+  ``handle_v1_audit_stream -> audit_stream`` в export map
+
+### Тесты
+
+1249 -> 1260 passed (+11 в ``tests/test_audit_stream.py``):
+
+* Route registration + wiring + dataclass field guards
+* ``_match_type_filter`` substring semantics
+* ``_parse_stream_since`` empty/whitespace/valid
+* ``_tail_last_lines`` возвращает last N и обрабатывает
+  empty/missing файлы без raise
+* History-only mode эмитит meta + N events + exit (reason
+  ``history_only``); счётчики верные
+* Type-prefix + since filter композируются и skip'ают
+  before/off-type события
+* Follow mode подхватывает строку appended mid-stream и эмитит
+  её до ``exit``
+* ``_STREAM_MAX_DURATION_SEC`` остаётся bounded (regression
+  guard против будущих "просто подними до дня" правок)
+
+End-to-end тесты используют минимальное aiohttp app которое
+регистрирует только audit-stream handler с
+``ObservabilityHandlerContext`` собранным из stubs — никакого
+``unified_bridge.make_app`` churn'а на module-level executors
+(v4.3.0 lesson всё ещё применяется).
+
+Full suite: 1260 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.9.0 через ZeroTier overlay. Три сценария:
+
+1. **History only**: ``GET /v1/audit/stream?lines=5`` вернул
+   ``meta`` + 5 реальных audit-событий + ``exit`` с
+   ``reason=history_only``.
+2. **Type-filter follow**: ``?follow=1&lines=0&type=exec_stream
+   &max_duration=10``. Пока stream был open,
+   ``curl -X POST /v1/exec/stream`` в другой shell'е произвёл
+   два события (``exec_stream_start``, ``exec_stream_done``)
+   которые прилетели в tail в течение ~0.5s и ``exit`` event
+   выстрелил на max_duration с ``emitted=2``.
+3. **Since cursor**: ``?lines=20&since=2026-07-16T14:00:00Z``
+   отбросил каждое history-событие с ts ``<=`` cursor'а —
+   совпадает с client-side v4.6.0 filter behaviour.
+
+### Не включено
+
+* Server-side prefix registry (типа Cloudflared Analytics) —
+  substring filter уже близко к Audit tab UX.
+* Bidirectional streaming (WebSocket). NDJSON поверх chunked
+  HTTP работает через Tailscale funnel + ZeroTier overlay +
+  raw HTTPS без отдельной negotiation; trade-off сработал для
+  ``/v1/exec/stream`` и работает здесь.
+* inotify / kqueue file-change wake-up. 500ms poll стоит одного
+  ``open + seek + read(64KiB)`` на follow-tick, что несущественно
+  рядом с network round-trip; переход на inotify был бы
+  Linux-only path, а cross-platform — hard rule.
+
 \n## v4.8.0 - 2026-07-16
 
 ### Добавлено - Circuit breaker для tunnels_probe (skip мёртвых providers)

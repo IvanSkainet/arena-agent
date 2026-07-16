@@ -1,3 +1,149 @@
+## v4.9.0 - 2026-07-16
+
+### Added - GET /v1/audit/stream (NDJSON audit tail with live-follow)
+
+Combines the chunked-NDJSON transport from v4.3.0
+(``/v1/exec/stream``) with the audit vocabulary from v4.6.0
+(Audit tab category classifier) into a proper live-tail endpoint
+for the audit log.
+
+Before: agents that wanted to react to audit events (a specific
+exec finishing, a blocklisted command being caught, a
+``file_upload`` targeting a watched path) had to poll
+``/v1/audit?lines=...`` in a hot loop and diff the response.
+Every polling loop paid the full response-body cost, and the
+polling cadence bounded the reaction latency.
+
+Now:
+
+    curl -sSN --no-buffer \
+      -H "Authorization: Bearer $TOKEN" \
+      "$ARENA_BRIDGE_URL/v1/audit/stream?follow=1&type=exec_stream"
+
+opens a chunked NDJSON stream. Each line is a single JSON object:
+
+    {"type": "meta", "audit": "/home/ivan/arena-bridge/audit.jsonl",
+     "follow": true, "lines_history": 100,
+     "filters": {"type_prefix": "exec_stream", "since": null,
+                 "max_duration_sec": 300},
+     "server_ts": "2026-07-16T14:00:00Z"}
+    {"ts": "2026-07-16T13:59:12Z", "type": "exec_stream_start", ...}
+    {"ts": "2026-07-16T13:59:12Z", "type": "exec_stream_done",  ...}
+    ... (live tail continues) ...
+    {"type": "exit", "reason": "max_duration",
+     "emitted": 47, "skipped": 213}
+
+### Query parameters
+
+* ``lines`` -- how many history rows to emit before the follow
+  phase begins (default 100, capped at 5000)
+* ``follow`` -- ``1`` / ``true`` / ``yes`` / ``on`` to keep the
+  stream open and emit new events as they land in ``audit.jsonl``
+  (default off = history-only mode terminates cleanly)
+* ``type`` -- substring filter on ``event.type``, same semantics
+  as the Audit tab (``exec`` matches ``exec_*`` /
+  ``exec_stream_*`` / ``exec_script_*``)
+* ``since`` -- ISO-8601 timestamp cursor; events whose ``ts`` is
+  ``<=`` this value are skipped. Perfect for reconnect-and-resume
+  after a client drops the stream
+* ``max_duration`` -- max seconds the follow phase stays open
+  (default 300, capped at 300 -- so a forgotten agent connection
+  can't hold a bridge worker forever)
+
+### Contract guarantees
+
+* ``meta`` is always the first event (echoes back what the
+  client asked for so a saved capture is self-describing)
+* ``exit`` is always the terminal event; unterminated NDJSON =
+  server died mid-stream
+* History phase reads the last ``lines`` non-empty rows of
+  ``audit.jsonl``, applies ``type`` + ``since`` filters, emits
+  survivors in chronological order
+* Follow phase seeks to end-of-file after history so the same
+  event is never emitted twice
+* Malformed audit lines don't crash the stream -- they surface as
+  ``{"type": "raw", "line": "..."}`` so operators can spot
+  corruption during a follow session
+* Log rotation (audit file briefly missing) is tolerated:
+  ``open()`` retried on the next poll rather than crashing the
+  stream
+* Client disconnect is honoured -- the finally block writes a
+  terminal ``exit`` with ``reason="client_disconnect"`` when
+  possible
+
+### Files
+
+* CHANGED ``arena/observability/handlers.py`` (101 -> 327 lines) --
+  new ``handle_v1_audit_stream`` + helpers
+  (``_parse_stream_since``, ``_match_type_filter``,
+  ``_tail_last_lines``) + tunables
+  (``_STREAM_MAX_DURATION_SEC=300``,
+  ``_STREAM_POLL_INTERVAL_SEC=0.5``,
+  ``_STREAM_MAX_LINES_HISTORY=5000``,
+  ``_STREAM_READ_CHUNK=64KiB``); ``ObservabilityHandlers`` dataclass
+  gets an ``audit_stream`` field
+* CHANGED ``arena/route_registry/registry.py`` +
+  ``arena/route_registry/core.py`` -- ``GET /v1/audit/stream``
+  route wired into the ``core`` group
+* CHANGED ``arena/wiring/memory_observability_registries.py`` --
+  ``handle_v1_audit_stream -> audit_stream`` in the export map
+
+### Tests
+
+1249 -> 1260 passed (+11 in ``tests/test_audit_stream.py``):
+
+* Route registration + wiring + dataclass field guards
+* ``_match_type_filter`` substring semantics
+* ``_parse_stream_since`` empty/whitespace/valid
+* ``_tail_last_lines`` returns last N and handles empty/missing
+  files without raising
+* History-only mode emits meta + N events + exit (reason
+  ``history_only``); counters correct
+* Type-prefix + since filter compose correctly and skip
+  before/off-type events
+* Follow mode picks up a line appended mid-stream and emits it
+  before ``exit``
+* ``_STREAM_MAX_DURATION_SEC`` stays bounded (regression guard
+  against future "just bump it to a day" edits)
+
+End-to-end tests use a minimal aiohttp app that registers only
+the audit-stream handler with an ``ObservabilityHandlerContext``
+built from stubs -- no ``unified_bridge.make_app`` churn on the
+module-level executors (the v4.3.0 lesson still applies).
+
+Full suite: 1260 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.9.0 through the ZeroTier overlay. Three scenarios
+tested:
+
+1. **History only**: ``GET /v1/audit/stream?lines=5`` returned
+   ``meta`` + 5 real audit events + ``exit`` with
+   ``reason=history_only``.
+2. **Type-filter follow**: ``?follow=1&lines=0&type=exec_stream
+   &max_duration=10``. While the stream was open a
+   ``curl -X POST /v1/exec/stream`` in another shell produced
+   two events (``exec_stream_start``, ``exec_stream_done``) that
+   arrived in the tail within ~0.5s and the ``exit`` event fired
+   at max_duration with ``emitted=2``.
+3. **Since cursor**: ``?lines=20&since=2026-07-16T14:00:00Z``
+   dropped every history event at or before the cursor, matching
+   the client-side v4.6.0 filter behaviour.
+
+### Not included
+
+* Server-side prefix registry (like Cloudflared Analytics) -- the
+  substring filter is already close enough to the Audit tab UX.
+* Bidirectional streaming (WebSocket). NDJSON over chunked HTTP
+  works through the Tailscale funnel + ZeroTier overlay + raw
+  HTTPS with no separate negotiation; that trade-off held for
+  ``/v1/exec/stream`` and it holds here.
+* inotify / kqueue file-change wake-up. The 500ms poll costs one
+  ``open + seek + read(64KiB)`` per follow-tick, which is
+  negligible next to the network round-trip; upgrading to inotify
+  would be a Linux-only path and cross-platform is a hard rule.
 ## v4.8.0 - 2026-07-16
 
 ### Added - Circuit breaker for tunnels_probe (skip dead providers)
