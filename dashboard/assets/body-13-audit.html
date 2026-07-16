@@ -1,13 +1,95 @@
 <div class="tab" id="tab-audit">
+<style>
+  /* v4.6.0 Audit tab polish -- scoped to #tab-audit so we don't
+     touch shared dashboard.css (avoids the v4.0.x CSS regression).
+     Every rule targets #tab-audit ... so nothing bleeds out.
+
+     Palette: alpha-tint variants of the shared dashboard palette
+     defined here as scoped variables so we do not repeat hex
+     literals inline (test_no_hardcoded_theme_colors guards this).
+     Colors mirror the shared badge/live palette. */
+  #tab-audit{--au-tint-green:#00d67222;--au-tint-red:#e9456033;--au-tint-orange:#ff980033;--au-tint-blue:#4fc3f733;--au-tint-purple:#53348333;--au-tint-lime:#84cc1633;--au-lime:#84cc16;--au-tint-yellow:#ffc10733;--au-tint-mauve:#a78bfa33;--au-mauve:#a78bfa;--au-tint-gray:#88888833}
+  #tab-audit .audit-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px}
+  #tab-audit .audit-toolbar .grow{flex:1;min-width:180px}
+  #tab-audit .audit-toolbar select,
+  #tab-audit .audit-toolbar input[type=number]{width:auto;min-width:80px}
+  #tab-audit .audit-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-audit .audit-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-audit .audit-meta{font-size:11px;color:var(--text3);margin:4px 0 8px 2px}
+  #tab-audit .audit-meta .sep{margin:0 8px;color:var(--accent)}
+  #tab-audit .audit-table{table-layout:fixed}
+  #tab-audit .audit-table th.col-time{width:150px}
+  #tab-audit .audit-table th.col-type{width:170px}
+  #tab-audit .audit-table th.col-actor{width:120px}
+  #tab-audit .audit-table th.col-rid{width:96px}
+  #tab-audit .audit-table th.col-exit{width:64px;text-align:right}
+  #tab-audit .audit-table td.col-exit{text-align:right}
+  #tab-audit .audit-table td{vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  #tab-audit .audit-table tr.audit-row{cursor:pointer}
+  #tab-audit .audit-table tr.audit-row:hover td{background:var(--bg3)}
+  #tab-audit .audit-table tr.audit-detail-row{display:none}
+  #tab-audit .audit-table tr.audit-detail-row.open{display:table-row}
+  #tab-audit .audit-table tr.audit-detail-row td{background:var(--bg3);white-space:pre-wrap;word-break:break-all;font-family:var(--mono);font-size:11px;color:var(--text2);padding:10px 12px;border-bottom:1px solid var(--accent)}
+  /* Event-type badges. Uses the same alpha-tint pattern as .badge
+     but colored per event category. Never touches .badge itself so
+     other tabs stay identical. */
+  #tab-audit .ev-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;font-family:var(--mono);white-space:nowrap}
+  #tab-audit .ev-badge.exec{background:var(--au-tint-green);color:var(--green)}
+  #tab-audit .ev-badge.exec-blocked{background:var(--au-tint-red);color:var(--red)}
+  #tab-audit .ev-badge.exec-timeout{background:var(--au-tint-orange);color:var(--orange)}
+  #tab-audit .ev-badge.exec-stream{background:var(--au-tint-blue);color:var(--blue)}
+  #tab-audit .ev-badge.exec-script{background:var(--au-tint-purple);color:var(--purple)}
+  #tab-audit .ev-badge.file{background:var(--au-tint-lime);color:var(--au-lime)}
+  #tab-audit .ev-badge.admin{background:var(--au-tint-yellow);color:var(--yellow)}
+  #tab-audit .ev-badge.tunnel{background:var(--au-tint-mauve);color:var(--au-mauve)}
+  #tab-audit .ev-badge.error{background:var(--au-tint-red);color:var(--red)}
+  #tab-audit .ev-badge.other{background:var(--au-tint-gray);color:var(--text2)}
+  #tab-audit .ev-exit-ok{color:var(--green);font-family:var(--mono);font-weight:600}
+  #tab-audit .ev-exit-fail{color:var(--red);font-family:var(--mono);font-weight:600}
+  #tab-audit .ev-exit-none{color:var(--text3);font-family:var(--mono)}
+  #tab-audit .audit-pager{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:8px;font-size:12px;color:var(--text2)}
+  #tab-audit .audit-empty{padding:24px;text-align:center;color:var(--text2)}
+  #tab-audit .audit-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-audit .audit-refresh-dot.on{opacity:1;animation:audit-pulse 1.4s infinite}
+  @keyframes audit-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+</style>
 <h1>Audit Log</h1>
-<div class="row">
-<input id="auditLines" type="number" value="50" style="width:100px">
-<select id="auditFilter" style="width:160px"><option value="">All Events</option><option value="exec">Exec</option><option value="memory">Memory</option><option value="mission">Mission</option><option value="browser">Browser</option><option value="error">Error</option><option value="system">System</option></select>
-<button onclick="loadAudit()">Load</button>
-<button class="info" onclick="auditStats()">Stats</button>
+<div class="audit-toolbar">
+  <input id="auditSearch" type="text" placeholder="Search (cmd, path, request_id, actor...)" class="grow">
+  <select id="auditFilter"><option value="">All types</option></select>
+  <select id="auditExit">
+    <option value="">Exit: any</option>
+    <option value="ok">exit 0 only</option>
+    <option value="fail">non-zero exit</option>
+    <option value="killed">killed / timeout</option>
+  </select>
+  <input id="auditLines" type="number" value="200" min="10" max="10000" title="Rows fetched from bridge (server tail)">
+  <select id="auditPageSize" title="Rows per page">
+    <option value="50">50/page</option>
+    <option value="100" selected>100/page</option>
+    <option value="200">200/page</option>
+    <option value="500">500/page</option>
+  </select>
+  <button onclick="loadAudit()">Reload</button>
+  <button class="info" onclick="auditStats()">Stats</button>
+  <label><input type="checkbox" id="auditAuto"> auto-refresh <span class="audit-refresh-dot" id="auditRefreshDot"></span></label>
 </div>
+<div class="audit-meta" id="auditMeta"></div>
 <div id="auditStatsPanel" class="card" style="display:none"></div>
-<table><thead><tr><th>Time</th><th>Type</th><th>Detail</th></tr></thead><tbody id="auditTable"></tbody></table>
+<table class="audit-table">
+  <thead>
+    <tr>
+      <th class="col-time">Time</th>
+      <th class="col-type">Type</th>
+      <th class="col-actor">Actor</th>
+      <th class="col-rid">Req ID</th>
+      <th>Detail</th>
+      <th class="col-exit">Exit</th>
+    </tr>
+  </thead>
+  <tbody id="auditTable"></tbody>
+</table>
+<div class="audit-pager" id="auditPager"></div>
 </div>
 
 <!-- ==================== CONTROL ==================== -->

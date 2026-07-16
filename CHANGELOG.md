@@ -1,3 +1,134 @@
+## v4.6.0 - 2026-07-16
+
+### Changed - Audit tab: full polish (filters, search, pagination, expand, auto-refresh)
+
+The Audit tab was a raw-JSON tail with a three-column table (Time /
+Type / Detail) and one dropdown of hardcoded event groups. The
+audit event vocabulary grew a lot recently (``exec_stream_*`` in
+v4.3.0, ``exec_script_*`` in v4.2.0, per-provider tunnel events,
+ZeroTier admin events) and the old view no longer helped find
+anything -- everything was ``exec_start`` / ``exec_done`` /
+``file_upload`` blurring together.
+
+The new tab is a proper log viewer:
+
+* **Search box** -- case-insensitive substring match across cmd,
+  path, reason, error, matched, actor, request_id, interpreter,
+  action. Same box, so typical grep-style queries just work
+  (``docker``, ``deadbeef1234``, ``systemctl``, ``blocked``).
+* **Type filter** -- rebuilt dynamically from the current fetch, so
+  every event vocabulary a future release adds shows up
+  automatically. Includes coarse prefixes (``exec*``, ``exec_stream*``,
+  ``exec_script*``, ``file_*``, ``admin.*``, ``tunnel``, ``zerotier``)
+  and exact matches for anything currently in the log.
+* **Exit code filter** -- ``exit 0 only`` / ``non-zero exit`` /
+  ``killed / timeout`` (matches SIGKILL -9, SIGTERM -15, and any
+  event whose type contains ``timeout``). Answers "show me the
+  failures" in one click.
+* **Six columns**: Time, Type (colored badge), Actor, Req ID (short,
+  full on hover), Detail (cmd / path / reason / action), Exit
+  (colored: green for 0, red for anything else, grey for "no exit").
+* **Row expand** -- click a row to see the full JSON of that
+  event, dedup'd of the fields already shown in the row. Click
+  again to collapse. Multiple rows can be open at once.
+* **Pagination** -- Prev / Next + "N-M of TOTAL" + "page X/Y".
+  Page size 50 / 100 (default) / 200 / 500. Server tail is
+  separate (default 200, up to 10000) so users can pull a big
+  window without needing to render it all at once.
+* **Auto-refresh** -- checkbox with a green heartbeat dot. 5-second
+  cadence. Turns off on tab-hide (well, on-load rewires; the
+  interval is cleared when the checkbox is unchecked).
+* **Meta line** -- "N fetched | M after filters | last fetch HH:MM:SS"
+  so it's obvious when data is stale or when a filter is hiding
+  most of the log.
+
+### Colored event-type badges
+
+The category → color mapping (via ``__auditCategory`` in the JS)
+groups events by the axis a user cares about at a glance:
+
+* **exec** (green)         -- ``exec_start`` / ``exec_done`` /
+                              ``process_killed``
+* **exec-blocked** (red)   -- ``exec_blocked``,
+                              ``exec_stream_blocked``,
+                              ``exec_script_blocked``,
+                              ``*_blocked_control``
+* **exec-timeout** (orange)-- any ``*_timeout``
+* **exec-stream** (blue)   -- ``exec_stream_*`` (v4.3.0 vocabulary)
+* **exec-script** (purple) -- ``exec_script_*`` (v4.2.0 vocabulary)
+* **file** (lime)          -- ``file_upload`` / ``file_download``
+* **admin** (yellow)       -- ``admin.*``
+* **tunnel** (mauve)       -- ``*_tunnel`` / ``*_funnel`` /
+                              ``zerotier*`` / ``tunnels*``
+* **error** (red)          -- anything with ``error`` in the name
+* **other** (grey)         -- fallthrough (new event names land
+                              here until explicitly categorized)
+
+Any future event vocabulary lands under ``other`` without breaking
+anything -- a safe default that keeps the palette stable.
+
+### Zero shared-CSS surgery (v4.0.x lesson)
+
+Every rule the tab adds lives inside its own ``<style>`` block
+scoped to ``#tab-audit ...``. ``dashboard.css`` is byte-identical
+to v4.5.0. The scoped block also defines new palette variables
+(``--au-tint-green``, ``--au-tint-red``, ...) so no hex literals
+appear inline in HTML/JS -- ``test_no_hardcoded_theme_colors``
+stays green.
+
+The v4.0.1..v4.0.4 CSS regression came from exactly this kind of
+UI-tab work leaking rules into the shared stylesheet. Not this
+time: a new test (``test_dashboard_css_is_not_touched_by_audit_polish``)
+fails the build if any ``audit-*`` / ``ev-badge`` selector shows
+up in ``dashboard.css``. A second test
+(``test_audit_body_scopes_all_new_styles_to_tab_audit``) parses the
+tab's ``<style>`` block and asserts every selector starts with
+``#tab-audit``.
+
+### Tests
+
+1211 -> 1221 passed (+10 new in ``tests/test_audit_tab_polish.py``):
+
+* HTML root and ``loadAudit`` hook survived
+* Every ``getElementById`` id in the JS is present in the body
+  (and vice versa)
+* Six-column table + ``colspan='6'`` in loading/error/empty rows
+* ``dashboard.css`` untouched by audit-polish selectors
+* Every non-keyframe rule in the tab's ``<style>`` is scoped to
+  ``#tab-audit`` (comments and ``@keyframes`` exempted)
+* ``loadAudit`` and ``auditStats`` still global
+* No unescaped ``+ e.<field> +`` interpolations on any line that
+  writes to ``innerHTML`` (XSS guard)
+* Search / type filter / exit filter / page-size / auto-refresh
+  interval + clearInterval all wired
+* Category classifier covers v4.3.0 ``exec_stream_*`` and blocked
+  / timeout buckets
+* Pagination state lives at module scope (survives tab hide/show)
+
+Full suite: 1221 passed, 1 known-flaky failure in
+``test_probe_tcp_timeout_short`` (baseline).
+
+### Verified live
+
+Bridge on 4.6.0. Audit tab tested against real audit.jsonl with
+14 distinct event types and ~1000 events fetched: filters compose,
+search finds ``systemctl`` / ``request_id`` prefixes, exit filter
+isolates the two ``exec_blocked`` events cleanly, row-expand shows
+full JSON with fields sorted alphabetically, pagination advances
+without re-fetching, auto-refresh dot pulses green.
+
+### Not included
+
+* Server-side filtering / cursor pagination -- ``/v1/audit``
+  currently supports only ``lines=N`` tail. For 10k+ audit files
+  we'd want ``since=<ts>`` and ``after=<request_id>`` cursors.
+  Not urgent while the audit is bounded by ``lines``.
+* Column sorting -- events come in chronological order; the tab
+  reverses to newest-first. If someone asks for "sort by exit
+  code" we'll add it, but it's not a natural log-viewer motion.
+* Streaming audit tail (SSE / WebSocket) -- the 5-second auto-
+  refresh is enough for interactive use; heavier hooks belong in
+  a separate ``/v1/audit/stream`` if an agent ever asks.
 ## v4.5.0 - 2026-07-16
 
 ### Changed - refined ZeroTier peers classifier (direct now means *real* P2P UDP)

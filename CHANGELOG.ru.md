@@ -1,3 +1,137 @@
+\n## v4.6.0 - 2026-07-16
+
+### Изменено - Audit tab: полный polish (фильтры, поиск, пагинация, expand, auto-refresh)
+
+Audit tab был raw-JSON tail с трёхколоночной таблицей (Time / Type /
+Detail) и одним dropdown'ом hardcoded event-групп. Событийный
+словарь недавно сильно вырос (``exec_stream_*`` в v4.3.0,
+``exec_script_*`` в v4.2.0, per-provider tunnel events, ZeroTier
+admin events), и старый view уже не помогал ничего найти —
+``exec_start`` / ``exec_done`` / ``file_upload`` сливались в одну
+кашу.
+
+Новый tab — нормальный log viewer:
+
+* **Search box** — case-insensitive substring поиск по cmd, path,
+  reason, error, matched, actor, request_id, interpreter, action.
+  Та же строка, так что grep-запросы работают напрямую
+  (``docker``, ``deadbeef1234``, ``systemctl``, ``blocked``).
+* **Type filter** — динамически перестраивается из текущего
+  fetch'а, так что новый event-словарь автоматически появляется.
+  Включает coarse-prefixes (``exec*``, ``exec_stream*``,
+  ``exec_script*``, ``file_*``, ``admin.*``, ``tunnel``,
+  ``zerotier``) и exact-матчи для всего что сейчас в логе.
+* **Exit code filter** — ``exit 0 only`` / ``non-zero exit`` /
+  ``killed / timeout`` (матчит SIGKILL -9, SIGTERM -15, любой
+  event с ``timeout`` в типе). Отвечает "покажи мне failures"
+  одним кликом.
+* **Шесть колонок**: Time, Type (цветной badge), Actor, Req ID
+  (short, полный на hover), Detail (cmd / path / reason /
+  action), Exit (цветной: green=0, red=иначе, grey="no exit").
+* **Row expand** — click по строке → развёртывается полный JSON
+  события, dedup'нутый по полям которые уже видны в строке.
+  Second click — collapse. Multiple rows могут быть открыты
+  одновременно.
+* **Pagination** — Prev / Next + "N-M of TOTAL" + "page X/Y".
+  Page size 50 / 100 (default) / 200 / 500. Server tail отдельно
+  (default 200, до 10000) — можно тянуть большое окно без
+  рендера всего сразу.
+* **Auto-refresh** — checkbox с green heartbeat-точкой. 5-секундная
+  cadence. Interval clear'ится когда checkbox unchecked.
+* **Meta line** — "N fetched | M after filters | last fetch HH:MM:SS"
+  — сразу очевидно когда данные stale или когда filter скрывает
+  большую часть лога.
+
+### Цветные event-type badges
+
+Категория → цвет (через ``__auditCategory`` в JS) группирует
+события по оси которая интересна пользователю at a glance:
+
+* **exec** (green)         — ``exec_start`` / ``exec_done`` /
+                              ``process_killed``
+* **exec-blocked** (red)   — ``exec_blocked``,
+                              ``exec_stream_blocked``,
+                              ``exec_script_blocked``,
+                              ``*_blocked_control``
+* **exec-timeout** (orange)— любой ``*_timeout``
+* **exec-stream** (blue)   — ``exec_stream_*`` (v4.3.0 словарь)
+* **exec-script** (purple) — ``exec_script_*`` (v4.2.0 словарь)
+* **file** (lime)          — ``file_upload`` / ``file_download``
+* **admin** (yellow)       — ``admin.*``
+* **tunnel** (mauve)       — ``*_tunnel`` / ``*_funnel`` /
+                              ``zerotier*`` / ``tunnels*``
+* **error** (red)          — что угодно с ``error`` в имени
+* **other** (grey)         — fallthrough (новые event-имена
+                              попадают сюда пока не будут явно
+                              категоризованы)
+
+Любой будущий event-словарь падает в ``other`` без поломки —
+безопасный default сохраняющий палитру стабильной.
+
+### Ноль хирургии в shared CSS (урок v4.0.x)
+
+Каждое правило которое добавляет tab живёт в собственном ``<style>``
+блоке scope'нутом на ``#tab-audit ...``. ``dashboard.css``
+byte-identical к v4.5.0. Scoped-блок также определяет новые
+переменные палитры (``--au-tint-green``, ``--au-tint-red``, ...)
+чтобы hex literals не попадали inline в HTML/JS —
+``test_no_hardcoded_theme_colors`` остаётся зелёным.
+
+CSS-регрессия v4.0.1..v4.0.4 случилась именно от такой UI-tab
+работы утекающей правилами в shared stylesheet. Не в этот раз:
+новый тест (``test_dashboard_css_is_not_touched_by_audit_polish``)
+fails билд если любой ``audit-*`` / ``ev-badge`` селектор
+появится в ``dashboard.css``. Второй тест
+(``test_audit_body_scopes_all_new_styles_to_tab_audit``) парсит
+``<style>`` блок таба и утверждает что каждый селектор
+начинается с ``#tab-audit``.
+
+### Тесты
+
+1211 -> 1221 passed (+10 новых в ``tests/test_audit_tab_polish.py``):
+
+* HTML root и ``loadAudit`` hook сохранены
+* Каждый ``getElementById`` id в JS присутствует в body (и наоборот)
+* Six-column table + ``colspan='6'`` в loading/error/empty строках
+* ``dashboard.css`` не тронут селекторами audit-polish
+* Каждое non-keyframe правило в ``<style>`` таба scope'нуто на
+  ``#tab-audit`` (комментарии и ``@keyframes`` exempt)
+* ``loadAudit`` и ``auditStats`` всё ещё global
+* Ни одного unescaped ``+ e.<field> +`` interpolation на строках
+  пишущих в ``innerHTML`` (XSS guard)
+* Search / type filter / exit filter / page-size / auto-refresh
+  interval + clearInterval все wired
+* Классификатор категорий покрывает v4.3.0 ``exec_stream_*`` и
+  blocked / timeout корзины
+* Pagination state живёт в module scope (переживает tab hide/show)
+
+Full suite: 1221 passed, 1 known-flaky failure в
+``test_probe_tcp_timeout_short`` (baseline).
+
+### Проверено live
+
+Bridge на 4.6.0. Audit tab протестирован против реального
+audit.jsonl с 14 distinct event-типами и ~1000 событий:
+фильтры композируются, search находит ``systemctl`` /
+``request_id`` префиксы, exit-filter изолирует два ``exec_blocked``
+события, row-expand показывает полный JSON с fields
+отсортированными alphabetically, pagination advances без
+re-fetch, auto-refresh dot пульсирует green.
+
+### Не включено
+
+* Server-side filtering / cursor pagination — ``/v1/audit``
+  сейчас поддерживает только ``lines=N`` tail. Для 10k+ audit
+  файлов нужны ``since=<ts>`` и ``after=<request_id>`` cursors.
+  Не срочно пока audit bounded by ``lines``.
+* Column sorting — события приходят chronologically; tab
+  reverses to newest-first. Если кто-то попросит "sort by exit
+  code" — добавим, но это не естественная log-viewer motion.
+* Streaming audit tail (SSE / WebSocket) — 5-секундный
+  auto-refresh достаточен для interactive use; heavier hooks
+  принадлежат отдельному ``/v1/audit/stream`` если агент
+  когда-либо попросит.
+
 \n## v4.5.0 - 2026-07-16
 
 ### Изменено - уточнённый классификатор ZeroTier peers (direct теперь означает *реальный* P2P UDP)
