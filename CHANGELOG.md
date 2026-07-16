@@ -1,3 +1,161 @@
+## v4.13.0 - 2026-07-16
+
+### Added - Terminal tab: stream mode (uses /v1/exec/stream)
+
+The Terminal tab has always POSTed to ``/v1/exec`` -- buffered
+response, stdout/stderr arrive after the command finishes. Fine
+for ``ls`` or ``uname -a``; painful for anything that takes more
+than a second (``docker pull``, ``cargo build``, ``git clone`` of
+a big repo, ``pytest``, ``systemctl status --no-pager -l`` on a
+busy box). The user stared at "running..." with no feedback until
+the whole thing wrapped up.
+
+v4.3.0 added ``POST /v1/exec/stream`` (chunked NDJSON); v4.10.0
+built a NDJSON consumer for the Audit tab; v4.13.0 wires the
+same pattern into the Terminal tab.
+
+New second-row checkbox in the Terminal toolbar: **stream mode**.
+Toggling on switches ``runCommand()`` to
+``POST /v1/exec/stream`` and pipes stdout/stderr chunks into the
+same output ``<pre>`` as they arrive. Head row gets a blue pulse
+dot next to a **Kill** button that POSTs ``/v1/kill`` for the
+streamed ``request_id`` -- so a runaway ``sleep 3600`` no longer
+requires SSH access to the bridge host to interrupt.
+
+### Event handling
+
+Every event type v4.3.0 emits is handled explicitly:
+
+* ``meta`` -> capture ``request_id`` for the Kill button
+* ``start`` -> head label switches from "streaming..." to
+              "pid ``N``" so the operator knows the process spawned
+* ``stdout`` -> append to the accumulator + repaint the ``<pre>``
+              + scroll the session pane to keep the tail in view
+* ``stderr`` -> same, rendered under a ``--- STDERR ---`` divider
+* ``exit`` -> capture ``exit_code`` + ``timed_out`` for the final
+             badge
+
+Anything else (server-emitted ``error`` / ``raw`` / future
+control events) is ignored cleanly rather than crashing the
+parser.
+
+### Kill button
+
+The button appears next to the streaming pulse dot the moment
+a command starts. Click:
+
+1. Disables itself + label flips to "killing..."
+2. POST ``/v1/kill {"request_id": "..."}`` (best-effort; falls
+   through to abort on any error)
+3. ``controller.abort()`` tears down the client-side fetch so
+   the browser stops buffering after the server closes
+
+If the Kill button fires before ``meta`` arrives (the request
+was killed within milliseconds of open), the client-side abort
+is the only path -- the server hasn't yet allocated a
+``request_id`` and there's nothing for ``/v1/kill`` to look up.
+
+### Cross-browser + graceful fallback
+
+Feature-detected via ``ReadableStream`` +
+``Response.body.getReader`` at page load. Browsers without
+support get the checkbox rendered ``disabled`` with a helpful
+tooltip -- ``runCommand()`` then falls back to the buffered
+``/v1/exec`` branch which has always worked. No mystery no-op
+when clicked, and no regression for anyone on an old browser.
+
+### Zero shared-CSS surgery (v4.0.x lesson still holds)
+
+* ``dashboard.css`` byte-identical to v4.12.0 (109 lines,
+  baseline).
+* All new styling scoped to ``#tab-terminal ...`` in the tab's
+  own ``<style>`` block.
+* Kill-button ``:hover`` uses a scoped palette variable
+  ``--term-kill-hover`` rather than a bare hex literal, so
+  ``test_no_hardcoded_theme_colors`` stays green while still
+  matching the shared ``.danger`` button pair's darker red.
+
+### Files
+
+* CHANGED ``dashboard/assets/body-02-terminal.html`` (30 -> 40
+  lines) -- scoped ``<style>`` block for ``.term-kill-btn``
+  and ``.term-stream-dot`` (with ``@keyframes term-stream-pulse``);
+  new ``termStream`` checkbox in the second toolbar row.
+* CHANGED ``dashboard/assets/05-terminal-v1-6-2-persistent-shell-like-se.js``
+  (198 -> 389 lines) -- new ``__termStreamSupported`` probe,
+  ``_runStreamedCommand`` helper (fetch + ReadableStream +
+  NDJSON parser + per-chunk repaint + Kill wiring),
+  ``runCommand`` gains a branch that consults the checkbox
+  before choosing stream vs buffered, ``_initStreamToggle`` at
+  script load disables the checkbox on unsupported browsers.
+
+### Tests
+
+1297 -> 1311 passed (+14 new in
+``tests/test_terminal_stream_mode.py``):
+
+Markup:
+* ``termStream`` id + ``.term-stream-dot`` + ``.term-kill-btn``
+  styles present
+* Every non-keyframe rule scoped to ``#tab-terminal``
+
+JS behaviour:
+* ``__termStreamSupported`` + ``_runStreamedCommand`` present
+* Uses ``/v1/exec/stream`` with ``method: "POST"``
+* Handles all five NDJSON event types (meta/start/stdout/stderr/exit)
+* Captures ``request_id`` from meta for ``/v1/kill``
+* Uses ``AbortController`` for clean stop
+* Appends output incrementally (multiple ``slot.out.textContent =``
+  writes inside the stream body -- regression guard against
+  "collect + write once at end")
+* ``ReadableStream`` feature-detect + disabled checkbox on unsupported
+* Buffered ``/v1/exec`` fallback branch still present
+* ``overviewMetrics.execs`` incremented on BOTH paths (guards
+  against a future edit that only ticks one)
+* ``_initStreamToggle`` disables the checkbox at load time
+
+Containment:
+* ``dashboard.css`` untouched
+* Kill hover uses ``var(--term-kill-hover)`` scoped variable,
+  not an inline hex
+
+Full suite: 1311 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.13.0. Opened the Terminal tab through the ZeroTier
+overlay, toggled stream mode on, ran three scenarios:
+
+1. **Fast printf loop**
+   (``for i in 1 2 3 4 5; do echo tick-$i; sleep 0.5; done``) --
+   each tick appeared in the output pane within ~10ms of the
+   server's write; the badge flipped to green "exit 0 · 2.5s ·
+   stream" at the end.
+2. **Streaming stderr**
+   (``for i in 1 2; do echo out-$i; echo err-$i 1>&2; done``) --
+   both streams interleaved live under a ``--- STDERR ---``
+   divider.
+3. **Kill mid-flight** (``sleep 30``) -- clicked Kill after ~2s;
+   the badge flipped to red "exit -15 · 2.1s · stream" and the
+   pulse dot disappeared. ``GET /v1/audit?lines=5`` confirmed a
+   ``process_killed`` audit event fired with the matching
+   ``target_request_id``.
+
+Toggling stream mode off runs the same command via the buffered
+branch as before -- no regression for the default UX.
+
+### Not included
+
+* WebSocket upgrade for interactive input (typing into a running
+  ``python`` REPL). Would need a bidirectional endpoint;
+  ``/v1/exec/stream`` is one-shot output. Deferred.
+* Colour rendering of ANSI escape sequences. Right now they are
+  shown as raw ``\x1b[31m`` etc; a small ANSI-to-HTML pass
+  would land nicely in v4.14 or v4.15 -- filed as follow-up.
+* "Restart" button on the head row to re-run the same command.
+  The history dropdown covers this today; a one-click restart
+  belongs in a broader Terminal-UX pass.
 ## v4.12.0 - 2026-07-16
 
 ### Changed - Audit tab: bounded client-side ring buffer for live-tail

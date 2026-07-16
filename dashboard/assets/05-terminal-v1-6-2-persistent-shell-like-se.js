@@ -78,6 +78,165 @@ function normalizeShellCommand(cmd) {
   return cmd;
 }
 
+// v4.13.0: feature-detect ReadableStream support so old browsers
+// silently fall back to buffered /v1/exec instead of showing a
+// broken stream-mode session. Same probe shape as the audit
+// live-tail detector.
+function __termStreamSupported() {
+  try {
+    return typeof ReadableStream === "function"
+      && typeof Response !== "undefined"
+      && typeof (new Response(new Blob())).body === "object"
+      && typeof (new Response(new Blob())).body.getReader === "function";
+  } catch (_e) {
+    return false;
+  }
+}
+
+// v4.13.0: run a command via POST /v1/exec/stream (chunked NDJSON,
+// v4.3.0 endpoint). Appends stdout/stderr chunks to the slot's
+// <pre> as they arrive; the head badge gets a live pulse dot and
+// a Kill button that POSTs /v1/kill for the streamed request_id.
+async function _runStreamedCommand(c, timeout, slot, t0) {
+  const token = (window.ARENA_TOKEN || "").trim();
+  const controller = new AbortController();
+  let requestId = null;
+
+  // Head: add the live dot + Kill button.
+  if (slot && slot.meta) {
+    slot.meta.innerHTML = "";
+    const dot = document.createElement("span");
+    dot.className = "term-stream-dot";
+    slot.meta.appendChild(dot);
+    const label = document.createElement("span");
+    label.textContent = "streaming...";
+    slot.meta.appendChild(label);
+    const killBtn = document.createElement("button");
+    killBtn.className = "term-kill-btn";
+    killBtn.textContent = "Kill";
+    killBtn.style.marginLeft = "6px";
+    killBtn.onclick = async () => {
+      killBtn.disabled = true;
+      killBtn.textContent = "killing...";
+      // Best-effort: /v1/kill needs the request_id; if we haven't
+      // seen a start event yet, abort the fetch client-side.
+      if (requestId) {
+        try {
+          await api("/v1/kill", {method: "POST",
+                                 body: JSON.stringify({request_id: requestId})});
+        } catch (_e) { /* fall through to abort */ }
+      }
+      try { controller.abort(); } catch (_e) {}
+    };
+    slot.meta.appendChild(killBtn);
+    slot._killBtn = killBtn;
+    slot._headLabel = label;
+  }
+
+  let stdoutText = "";
+  let stderrText = "";
+  let exitCode = null;
+  let timedOut = false;
+
+  try {
+    const resp = await fetch("/v1/exec/stream", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? {"Authorization": "Bearer " + token} : {}),
+      },
+      body: JSON.stringify({cmd: c, timeout}),
+      signal: controller.signal,
+    });
+    if (!resp.ok || !resp.body) {
+      throw new Error("stream HTTP " + resp.status);
+    }
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder("utf-8");
+    let buffer = "";
+    while (true) {
+      let chunk;
+      try { chunk = await reader.read(); }
+      catch (_e) { break; }
+      if (chunk.done) break;
+      buffer += decoder.decode(chunk.value, {stream: true});
+      let idx;
+      while ((idx = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, idx).trim();
+        buffer = buffer.slice(idx + 1);
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line); }
+        catch (_e) { continue; }
+        const t = ev.type;
+        if (t === "meta") {
+          requestId = ev.request_id || null;
+        } else if (t === "start") {
+          if (slot && slot._headLabel) {
+            slot._headLabel.textContent = "pid " + (ev.pid || "?");
+          }
+        } else if (t === "stdout") {
+          stdoutText += ev.data || "";
+          if (slot) {
+            slot.out.textContent = stdoutText +
+              (stderrText ? "\n--- STDERR ---\n" + stderrText : "");
+            const sess = document.getElementById("termSession");
+            if (sess) sess.scrollTop = sess.scrollHeight;
+          }
+        } else if (t === "stderr") {
+          stderrText += ev.data || "";
+          if (slot) {
+            slot.out.textContent = stdoutText +
+              (stderrText ? "\n--- STDERR ---\n" + stderrText : "");
+            const sess = document.getElementById("termSession");
+            if (sess) sess.scrollTop = sess.scrollHeight;
+          }
+        } else if (t === "exit") {
+          exitCode = (ev.exit_code != null) ? ev.exit_code : null;
+          timedOut = !!ev.timed_out;
+        }
+        // Ignore other control events (error, raw, ...).
+      }
+    }
+  } catch (e) {
+    if (e && e.name === "AbortError") {
+      // User clicked Kill or nav'd away. Not an error worth
+      // surfacing in the output.
+    } else {
+      stderrText += "\n[stream error: " + (e.message || e) + "]";
+    }
+  }
+
+  const dur = ((Date.now() - t0) / 1000).toFixed(2);
+  document.getElementById("termDuration").textContent = dur + "s";
+  overviewMetrics.execs++;
+
+  if (slot) {
+    if (!stdoutText && !stderrText) {
+      slot.out.textContent = "(no output)";
+    } else {
+      slot.out.textContent = stdoutText +
+        (stderrText ? "\n--- STDERR ---\n" + stderrText : "");
+    }
+    let status = "ok";
+    if (timedOut) status = "timeout";
+    else if (exitCode == null || exitCode !== 0) status = "fail";
+    const color = status === "ok" ? "var(--green)"
+                : (status === "timeout" ? "var(--yellow,#fbbf24)"
+                                        : "var(--red,#f87171)");
+    slot.meta.innerHTML = "";
+    const tag = document.createElement("span");
+    tag.textContent = "exit " + (exitCode == null ? "?" : exitCode) +
+      (timedOut ? " (timeout)" : "");
+    tag.style.cssText = "color:" + color + ";font-weight:600";
+    slot.meta.appendChild(tag);
+    const dt = document.createElement("span");
+    dt.textContent = " · " + dur + "s · stream";
+    dt.style.color = "var(--text2)";
+    slot.meta.appendChild(dt);
+  }
+}
+
 async function runCommand(cmd) {
   const raw = cmd || termInput.value;
   const c = normalizeShellCommand(raw);
@@ -87,6 +246,27 @@ async function runCommand(cmd) {
 
   const slot = _termAppendEntry(c);
   const t0 = Date.now();
+
+  // v4.13.0: streaming exec via /v1/exec/stream when the toggle is
+  // on. Falls back automatically on browsers without ReadableStream.
+  const streamBox = document.getElementById("termStream");
+  const wantStream = streamBox && streamBox.checked && __termStreamSupported();
+  if (wantStream) {
+    try {
+      await _runStreamedCommand(c, timeout, slot, t0);
+    } finally {
+      // Save history (same shape as the buffered branch below).
+      if (cmdHistory[0] !== c) {
+        cmdHistory.unshift(c);
+        if (cmdHistory.length > 50) cmdHistory.length = 50;
+        localStorage.setItem("arena_cmd_history", JSON.stringify(cmdHistory));
+        renderHistory();
+      }
+      const sess = document.getElementById("termSession");
+      if (sess) sess.scrollTop = sess.scrollHeight;
+    }
+    return;
+  }
 
   try {
     const result = await api("/v1/exec", {method: "POST", body: JSON.stringify({cmd: c, timeout})});
@@ -162,6 +342,17 @@ function renderHistory() {
   });
 }
 renderHistory();
+
+// v4.13.0: gate the stream-mode checkbox on ReadableStream support.
+(function _initStreamToggle() {
+  const box = document.getElementById("termStream");
+  if (!box) return;
+  if (!__termStreamSupported()) {
+    box.disabled = true;
+    box.title = "Stream mode needs a browser with ReadableStream "
+      + "(Chrome 43+, Firefox 65+, Safari 10.1+).";
+  }
+})();
 
 function copyTermOutput() {
   const output = document.getElementById("termSession").innerText;

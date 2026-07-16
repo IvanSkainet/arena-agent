@@ -1,3 +1,159 @@
+\n## v4.13.0 - 2026-07-16
+
+### Добавлено - Terminal tab: stream mode (использует /v1/exec/stream)
+
+Terminal tab всегда POST'ил в ``/v1/exec`` — buffered response,
+stdout/stderr приходят после завершения команды. Fine для ``ls``
+или ``uname -a``; больно для всего что занимает больше секунды
+(``docker pull``, ``cargo build``, ``git clone`` большого репо,
+``pytest``, ``systemctl status --no-pager -l`` на busy box).
+Пользователь смотрел на "running..." без фидбека до самого конца.
+
+v4.3.0 добавил ``POST /v1/exec/stream`` (chunked NDJSON); v4.10.0
+построил NDJSON consumer для Audit tab; v4.13.0 wires тот же
+pattern в Terminal tab.
+
+Новый чекбокс во второй строке Terminal toolbar: **stream mode**.
+Включение переключает ``runCommand()`` на
+``POST /v1/exec/stream`` и качает stdout/stderr chunks в тот же
+output ``<pre>`` по мере прихода. Head row получает синюю pulse
+dot рядом с кнопкой **Kill** которая POST'ит ``/v1/kill`` для
+streamed ``request_id`` — runaway ``sleep 3600`` больше не
+требует SSH access к bridge host для прерывания.
+
+### Event handling
+
+Каждый event type v4.3.0 handled explicitly:
+
+* ``meta`` -> capture ``request_id`` для Kill button
+* ``start`` -> head label переключается с "streaming..." на
+              "pid ``N``" — оператор знает что process spawned
+* ``stdout`` -> append в accumulator + repaint ``<pre>`` +
+              scroll session pane чтобы tail оставался в view
+* ``stderr`` -> same, rendered под ``--- STDERR ---`` divider'ом
+* ``exit`` -> capture ``exit_code`` + ``timed_out`` для final
+             badge
+
+Всё остальное (server-emitted ``error`` / ``raw`` / future
+control events) игнорится cleanly вместо крэша парсера.
+
+### Kill button
+
+Кнопка появляется рядом со streaming pulse dot сразу как команда
+стартует. Клик:
+
+1. Disables self + label flips на "killing..."
+2. POST ``/v1/kill {"request_id": "..."}`` (best-effort;
+   fall'ится через на abort на any error)
+3. ``controller.abort()`` tears down client-side fetch — browser
+   перестаёт buffer'ить после server close
+
+Если Kill fires до прихода ``meta`` (request killed за
+миллисекунды после open) — client-side abort единственный path;
+server ещё не allocated ``request_id`` и ``/v1/kill`` нечего
+искать.
+
+### Cross-browser + graceful fallback
+
+Feature-detected через ``ReadableStream`` +
+``Response.body.getReader`` на page load. Браузеры без поддержки
+получают checkbox rendered ``disabled`` с полезным tooltip'ом —
+``runCommand()`` тогда falls back на buffered ``/v1/exec`` branch
+который всегда работал. Никаких mystery no-op при клике, никакой
+регрессии для тех кто на старом браузере.
+
+### Ноль shared-CSS хирургии (v4.0.x lesson всё ещё держится)
+
+* ``dashboard.css`` byte-identical к v4.12.0 (109 строк,
+  baseline).
+* Все новые стили scoped ``#tab-terminal ...`` в ``<style>``
+  блоке таба.
+* Kill-button ``:hover`` использует scoped palette-переменную
+  ``--term-kill-hover`` вместо bare hex literal —
+  ``test_no_hardcoded_theme_colors`` остаётся green и всё ещё
+  matches shared ``.danger`` button pair's darker red.
+
+### Файлы
+
+* ИЗМЕНЁН ``dashboard/assets/body-02-terminal.html`` (30 -> 40) —
+  scoped ``<style>`` блок для ``.term-kill-btn`` и
+  ``.term-stream-dot`` (с ``@keyframes term-stream-pulse``);
+  новый ``termStream`` checkbox во второй toolbar-row.
+* ИЗМЕНЁН
+  ``dashboard/assets/05-terminal-v1-6-2-persistent-shell-like-se.js``
+  (198 -> 389) — новый ``__termStreamSupported`` probe,
+  ``_runStreamedCommand`` helper (fetch + ReadableStream +
+  NDJSON parser + per-chunk repaint + Kill wiring), ``runCommand``
+  получает branch консультирующийся с checkbox перед выбором
+  stream vs buffered, ``_initStreamToggle`` на script load
+  disables checkbox на unsupported browsers.
+
+### Тесты
+
+1297 -> 1311 passed (+14 в
+``tests/test_terminal_stream_mode.py``):
+
+Markup:
+* ``termStream`` id + ``.term-stream-dot`` + ``.term-kill-btn``
+  стили present
+* Каждое non-keyframe правило scoped на ``#tab-terminal``
+
+JS behaviour:
+* ``__termStreamSupported`` + ``_runStreamedCommand`` present
+* Использует ``/v1/exec/stream`` с ``method: "POST"``
+* Handles все пять NDJSON event types (meta/start/stdout/stderr/exit)
+* Captures ``request_id`` из meta для ``/v1/kill``
+* Использует ``AbortController`` для clean stop
+* Append'ит output incrementally (несколько ``slot.out.textContent =``
+  writes внутри stream body — regression guard против "collect +
+  write once at end")
+* ``ReadableStream`` feature-detect + disabled checkbox на
+  unsupported
+* Buffered ``/v1/exec`` fallback branch всё ещё present
+* ``overviewMetrics.execs`` инкрементится в ОБОИХ путях (guards
+  против будущей правки ticking только one)
+* ``_initStreamToggle`` disables checkbox на load time
+
+Containment:
+* ``dashboard.css`` не тронут
+* Kill hover использует ``var(--term-kill-hover)`` scoped
+  переменную, не inline hex
+
+Full suite: 1311 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.13.0. Открыл Terminal tab через ZeroTier overlay,
+переключил stream mode on, run'нул три сценария:
+
+1. **Fast printf loop**
+   (``for i in 1 2 3 4 5; do echo tick-$i; sleep 0.5; done``) —
+   каждый tick появлялся в output pane в течение ~10ms server's
+   write; badge flipped на green "exit 0 · 2.5s · stream" в конце.
+2. **Streaming stderr**
+   (``for i in 1 2; do echo out-$i; echo err-$i 1>&2; done``) —
+   оба streams interleaved live под ``--- STDERR ---`` divider.
+3. **Kill mid-flight** (``sleep 30``) — clicked Kill после ~2s;
+   badge flipped на red "exit -15 · 2.1s · stream" и pulse dot
+   исчез. ``GET /v1/audit?lines=5`` подтвердил ``process_killed``
+   audit event fired с matching ``target_request_id``.
+
+Переключение stream mode off run'ит ту же команду через buffered
+branch как раньше — никакой регрессии для default UX.
+
+### Не включено
+
+* WebSocket upgrade для interactive input (typing в running
+  ``python`` REPL). Нужен bidirectional endpoint;
+  ``/v1/exec/stream`` one-shot output. Отложено.
+* Colour rendering ANSI escape sequences. Сейчас показываются
+  как raw ``\x1b[31m`` etc; небольшой ANSI-to-HTML pass ляжет
+  nicely в v4.14 или v4.15 — filed как follow-up.
+* "Restart" кнопка на head row для re-run той же команды.
+  History dropdown покрывает это сегодня; one-click restart
+  принадлежит broader Terminal-UX pass'у.
+
 \n## v4.12.0 - 2026-07-16
 
 ### Изменено - Audit tab: bounded client-side ring buffer для live-tail
