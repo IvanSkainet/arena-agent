@@ -250,6 +250,63 @@ class TunnelsBreaker:
 _DEFAULT: TunnelsBreaker | None = None
 
 
+def summarize_snapshot(snapshot: dict[str, dict]) -> dict:
+    """Compact per-provider view of a breaker snapshot (v4.16.0).
+
+    Turns the raw ``{key: record}`` dict into a shape that answers
+    the two questions an agent bootstrap actually cares about:
+
+    1. Which providers should I deprioritise on this dial?
+       (any provider with an ``open`` breaker anywhere)
+    2. Which providers are trending bad?
+       (any ``closed`` record with ``consecutive_failures > 0``)
+
+    The key format is ``"{provider}|{host}:{port}"`` so multiple
+    endpoints of the same provider (e.g. a Cloudflared reissue that
+    moved the URL) collapse to one provider name in the summary.
+
+    Returns:
+      {
+        "open":       ["cloudflared"],   # deduped, sorted, sorted
+        "warn":       ["zerotier"],      # closed but failing
+        "closed_ok":  ["tailscale"],     # closed, 0 failures
+        "total_records": 3,
+        "open_count": 1,
+        "warn_count": 1,
+      }
+    """
+    open_providers: set[str] = set()
+    warn_providers: set[str] = set()
+    closed_ok_providers: set[str] = set()
+    for key, rec in snapshot.items():
+        provider = str(key).split("|", 1)[0]
+        state = rec.get("state") if isinstance(rec, dict) else None
+        fails = 0
+        if isinstance(rec, dict):
+            raw = rec.get("consecutive_failures", 0)
+            fails = int(raw) if isinstance(raw, int) else 0
+        if state == "open":
+            open_providers.add(provider)
+        elif fails > 0:
+            warn_providers.add(provider)
+        else:
+            closed_ok_providers.add(provider)
+    # A provider that is open on ANY endpoint dominates over warn /
+    # closed_ok on another endpoint of the same provider -- the
+    # agent should treat it as deprioritised.
+    warn_providers -= open_providers
+    closed_ok_providers -= open_providers
+    closed_ok_providers -= warn_providers
+    return {
+        "open": sorted(open_providers),
+        "warn": sorted(warn_providers),
+        "closed_ok": sorted(closed_ok_providers),
+        "total_records": len(snapshot),
+        "open_count": len(open_providers),
+        "warn_count": len(warn_providers),
+    }
+
+
 def get_default_breaker() -> TunnelsBreaker:
     global _DEFAULT
     if _DEFAULT is None:
@@ -270,4 +327,5 @@ __all__ = [
     "BreakerRecord",
     "get_default_breaker",
     "reset_default_breaker",
+    "summarize_snapshot",
 ]

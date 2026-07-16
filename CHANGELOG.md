@@ -1,3 +1,171 @@
+## v4.16.0 - 2026-07-16
+
+### Added - GET /v1/agent/config: breaker_summary + deprioritization
+
+The v4.1.0 agent bootstrap endpoint returned an ordered list of
+reachable URLs based on the raw provider priority. Once v4.8.0
+added the circuit breaker, a provider that had failed the last
+few probes still showed up in that list -- the agent's naive
+"try in order" logic would pick a URL known to be broken and pay
+the failure cost on every fresh dial. v4.15.0 CHANGELOG flagged
+this as follow-up; v4.16.0 does the work.
+
+The response now includes two new fields the agent can act on
+without a second round-trip:
+
+* **``breaker_summary``** -- compact per-provider view derived
+  from the ``breaker`` snapshot v4.8.0 embedded in the probe
+  response. Shape:
+
+      {
+        "open":       ["cloudflared"],
+        "warn":       ["zerotier"],
+        "closed_ok":  ["tailscale"],
+        "total_records": 3,
+        "open_count":    1,
+        "warn_count":    1,
+      }
+
+  Provider names are deduplicated (a Cloudflared reissue with a
+  new hostname still counts as one provider) and sorted
+  deterministically so an agent diffing two consecutive
+  responses doesn't see spurious changes.
+
+* **``deprioritized``** -- flat sorted list of provider names
+  that have at least one open breaker. Empty on a fresh bridge.
+  Convenience alias for ``breaker_summary["open"]`` so a caller
+  can ``if config["deprioritized"]: log_warning(...)`` without
+  digging into the summary struct.
+
+### Reordering
+
+If any provider is in ``deprioritized`` the handler also:
+
+1. Rebuilds the ``priority`` list, keeping the original order
+   among non-deprio'd providers, then appending deprio'd ones in
+   their original order at the tail.
+2. Sorts ``urls`` the same way -- healthy URLs first, deprio'd
+   URLs last, ordering within each partition preserved.
+3. Recomputes ``primary`` from ``urls[0]`` so the "first URL to
+   try" always matches the reordered list.
+4. Preserves the pre-reorder priority in ``priority_original``
+   so a diagnosing caller can see what changed and why.
+
+Backward compat: on a fresh bridge (empty breaker) the response
+is byte-identical to v4.15.x except for the two additive fields
+-- ``priority_original`` is ``null``, ``deprioritized`` is
+``[]``, ``breaker_summary`` has zero counts. Nothing existing
+breaks.
+
+### Rule of "open dominates"
+
+A provider with two endpoints (e.g. Cloudflared reissue with a
+new hostname) is treated as **one** provider entry in the
+summary. If **any** endpoint is open, the whole provider is in
+``open``; otherwise if any endpoint has ``consecutive_failures
+> 0`` (closed but trending bad) it lands in ``warn``; else
+``closed_ok``. Regression-guarded by
+``test_summarize_open_dominates_over_warn_for_same_provider``.
+
+### Files
+
+* CHANGED ``arena/admin/tunnels_breaker.py`` (273 -> 331 lines)
+  -- new ``summarize_snapshot(snapshot)`` helper, added to
+  ``__all__``.
+* CHANGED ``arena/admin/handlers.py`` (462 -> 502 lines) --
+  ``handle_v1_agent_config`` now calls ``summarize_snapshot``,
+  rebuilds priority, sorts urls, and includes ``breaker_summary``
+  + ``deprioritized`` + ``priority_original`` in the response.
+
+### Tests
+
+1348 -> 1363 passed (+15 new in
+``tests/test_agent_config_breaker.py``):
+
+Pure helper (``summarize_snapshot``):
+* Empty snapshot returns the documented stable shape
+* Open provider appears in ``open`` list
+* Closed-with-failures appears in ``warn``
+* Closed-zero-failures appears in ``closed_ok``
+* Open dominates over warn for same-provider dual endpoints
+* Provider names sorted deterministically (agent-diff friendly)
+* Multiple providers across all three states classified
+  correctly
+* Tolerates malformed records (empty dict, non-dict, None
+  values) without raising
+
+Handler integration:
+* Response shape includes ``breaker_summary``, ``deprioritized``,
+  ``priority_original``
+* Handler calls ``summarize_snapshot(probe.get("breaker") or {})``
+* Priority reorder keeps non-deprio order, sinks deprio to tail
+* URLs sort by (deprio-flag, effective-priority-index)
+* ``primary`` recomputed from ``urls[0]`` post-reorder
+* No reorder when no open breakers (backward compat)
+* ``summarize_snapshot`` in ``__all__``
+
+Full suite: 1363 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.16.0. Fresh bridge (empty breaker):
+
+    $ curl -sSf ... /v1/agent/config | jq '.breaker_summary, .deprioritized, .priority_original'
+    {
+      "open": [],
+      "warn": [],
+      "closed_ok": ["zerotier"],
+      "total_records": 1,
+      "open_count": 0,
+      "warn_count": 0
+    }
+    []
+    null
+
+Seeded an open breaker via the singleton in a python shell,
+then re-called agent_config: ``deprioritized`` came back as
+``["cloudflared"]``, ``breaker_summary.open_count == 1``,
+``priority`` sunk cloudflared to the tail,
+``priority_original`` echoed the pre-sink order. Reset the
+breaker via ``POST /v1/tunnels/probe/reset`` (v4.14.0) --
+next agent_config had ``deprioritized == []`` and
+``priority_original == null`` again.
+
+### Composition with earlier releases
+
+    tunnels_probe (v4.8.0) ─┐
+                            ├→ breaker snapshot in every probe response
+    breaker records ────────┘                    │
+                                                 ↓
+    summarize_snapshot (v4.16.0) ← this release
+                                                 ↓
+    GET /v1/agent/config → {breaker_summary, deprioritized, ...}
+                                                 ↓
+    agent dial logic: skip deprio'd URLs entirely OR use them
+                      as fallback after the primary set
+
+    tunnels_probe/reset (v4.14.0) ← operator escape hatch
+                                       clears the breaker so
+                                       the next config call
+                                       drops the deprio flag
+
+### Not included
+
+* SLO / cool-down forecasting. The response has
+  ``cools_down_in_sec`` in the raw ``breaker`` field of
+  ``/v1/tunnels/probe``; the agent-config summary doesn't
+  duplicate it because "when will it come back" is a
+  telemetry question, not a bootstrap one. If an agent needs
+  the cooldown time it can hit the probe endpoint directly.
+* Per-endpoint (not per-provider) summary. Would blow the
+  compact shape open for a rare case (multi-endpoint providers
+  are the exception). If an operator asks we'll add a
+  ``breaker_summary_verbose`` opt-in flag.
+* Push-based invalidation (SSE / WebSocket telling agents to
+  reload their config). The polling model (agent re-hits
+  ``/v1/agent/config`` on connection failure) is enough for
+  every case observed so far.
 ## v4.15.0 - 2026-07-16
 
 ### Added - Terminal tab: ANSI SGR colour rendering

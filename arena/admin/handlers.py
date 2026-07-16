@@ -405,15 +405,55 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                     "https" if str(p.get("public_url", "")).startswith("https://")
                     else "http-lan"),
             })
+        # v4.16.0: distill the breaker snapshot v4.8.0 embedded in
+        # probe response into a compact per-provider summary the
+        # agent can act on without a second round-trip.
+        from arena.admin.tunnels_breaker import summarize_snapshot
+        breaker_summary = summarize_snapshot(probe.get("breaker") or {})
+        deprio = set(breaker_summary["open"])
+        # v4.16.0: rebuild priority + reorder urls so any provider
+        # with an open breaker sinks to the tail. Order among
+        # deprio'd providers preserved from the original priority
+        # so a partial recovery still surfaces one usable URL up
+        # top. Non-deprio'd providers keep their original priority
+        # ordering exactly.
+        original_priority = list(probe.get("priority") or ())
+        if deprio and original_priority:
+            keep = [p for p in original_priority if p not in deprio]
+            sink = [p for p in original_priority if p in deprio]
+            effective_priority = keep + sink
+        else:
+            effective_priority = original_priority
+        if deprio and urls:
+            urls.sort(key=lambda u: (
+                1 if u.get("provider") in deprio else 0,
+                effective_priority.index(u.get("provider"))
+                    if u.get("provider") in effective_priority
+                    else len(effective_priority),
+            ))
+        # Recompute primary AFTER the reorder so it matches urls[0].
+        primary = None
+        if urls:
+            primary = {"provider": urls[0].get("provider"),
+                       "public_url": urls[0].get("url")}
+        else:
+            primary = probe.get("active")
         # v4.1.0: constants.VERSION is authoritative.
         from arena.constants import VERSION
         return ctx.cors_json_response({
             "ok": True,
             "version": VERSION,
-            "priority": probe.get("priority"),
+            "priority": effective_priority or probe.get("priority"),
+            "priority_original": original_priority if deprio else None,
             "urls": urls,
-            "primary": probe.get("active"),
+            "primary": primary,
             "reachable_count": probe.get("reachable_count", len(urls)),
+            # v4.16.0: agent-facing summary of the circuit breaker.
+            # Empty (no records) on a fresh bridge; grows as probes
+            # accumulate failures. See summarize_snapshot() for the
+            # shape.
+            "breaker_summary": breaker_summary,
+            "deprioritized": sorted(deprio) if deprio else [],
             "hint": (
                 "Bearer token still required on every call. If no URL is "
                 "reachable, check firewall (bridge listens on all "

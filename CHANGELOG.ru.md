@@ -1,3 +1,169 @@
+\n## v4.16.0 - 2026-07-16
+
+### Добавлено - GET /v1/agent/config: breaker_summary + deprioritization
+
+v4.1.0 agent bootstrap endpoint возвращал ordered список
+reachable URLs based on raw provider priority. После v4.8.0
+circuit breaker'а — provider fail'нувший последние несколько
+probes всё ещё показывался в списке; наивная агентская логика
+"try in order" пикала известно-broken URL и платила failure
+cost на каждом fresh dial. v4.15.0 CHANGELOG flagged это как
+follow-up; v4.16.0 делает работу.
+
+Response теперь содержит два новых поля, на которые агент
+может реагировать без второго round-trip:
+
+* **``breaker_summary``** — компактный per-provider view
+  derived from ``breaker`` snapshot'а который v4.8.0 embed'ит
+  в probe response. Shape:
+
+      {
+        "open":       ["cloudflared"],
+        "warn":       ["zerotier"],
+        "closed_ok":  ["tailscale"],
+        "total_records": 3,
+        "open_count":    1,
+        "warn_count":    1,
+      }
+
+  Provider names dedup'нуты (Cloudflared reissue с новым
+  hostname'ом всё равно one provider) и sorted детерминистично
+  — агент диффящий два подряд response не видит spurious
+  changes.
+
+* **``deprioritized``** — flat sorted список имён providers у
+  которых хотя бы один open breaker. Пусто на fresh bridge.
+  Convenience alias для ``breaker_summary["open"]`` — caller
+  может ``if config["deprioritized"]: log_warning(...)`` без
+  рытья в summary struct.
+
+### Reordering
+
+Если любой provider в ``deprioritized`` — handler также:
+
+1. Rebuild'ит ``priority`` list, keeping original order среди
+   non-deprio'd, потом append'ит deprio'd в их original порядке
+   в хвост.
+2. Sort'ит ``urls`` тем же способом — healthy URLs first,
+   deprio'd последними, ordering внутри partition сохранён.
+3. Recompute'ит ``primary`` из ``urls[0]`` — "первый URL для
+   dial'а" всегда matches reordered list.
+4. Preserve'ит pre-reorder priority в ``priority_original`` —
+   diagnosing caller видит что изменилось и почему.
+
+Backward compat: на fresh bridge (empty breaker) response
+byte-identical к v4.15.x кроме двух additive полей —
+``priority_original`` = ``null``, ``deprioritized`` = ``[]``,
+``breaker_summary`` с zero counts. Ничего existing не ломается.
+
+### Правило "open dominates"
+
+Provider с двумя endpoint'ами (Cloudflared reissue с новым
+hostname'ом) treated как **один** provider entry в summary.
+Если **любой** endpoint open — весь provider в ``open``;
+иначе если любой имеет ``consecutive_failures > 0`` (closed но
+trending bad) — попадает в ``warn``; иначе ``closed_ok``.
+Regression-guarded
+``test_summarize_open_dominates_over_warn_for_same_provider``.
+
+### Файлы
+
+* ИЗМЕНЁН ``arena/admin/tunnels_breaker.py`` (273 -> 331) —
+  новый ``summarize_snapshot(snapshot)`` helper, добавлен в
+  ``__all__``.
+* ИЗМЕНЁН ``arena/admin/handlers.py`` (462 -> 502) —
+  ``handle_v1_agent_config`` теперь вызывает
+  ``summarize_snapshot``, rebuild'ит priority, sort'ит urls,
+  включает ``breaker_summary`` + ``deprioritized`` +
+  ``priority_original`` в response.
+
+### Тесты
+
+1348 -> 1363 passed (+15 в
+``tests/test_agent_config_breaker.py``):
+
+Pure helper (``summarize_snapshot``):
+* Empty snapshot возвращает документированный stable shape
+* Open provider appears в ``open`` list
+* Closed-with-failures appears в ``warn``
+* Closed-zero-failures appears в ``closed_ok``
+* Open dominates over warn для same-provider dual endpoints
+* Provider names sorted детерминистично (agent-diff friendly)
+* Multiple providers через все три states classified корректно
+* Tolerates malformed records (empty dict, non-dict, None
+  values) без raise
+
+Handler integration:
+* Response shape включает ``breaker_summary``,
+  ``deprioritized``, ``priority_original``
+* Handler вызывает
+  ``summarize_snapshot(probe.get("breaker") or {})``
+* Priority reorder keeps non-deprio order, sinks deprio to tail
+* URLs sort by (deprio-flag, effective-priority-index)
+* ``primary`` recomputed из ``urls[0]`` post-reorder
+* No reorder когда нет open breakers (backward compat)
+* ``summarize_snapshot`` в ``__all__``
+
+Full suite: 1363 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.16.0. Fresh bridge (empty breaker):
+
+    $ curl ... /v1/agent/config | jq '.breaker_summary, .deprioritized, .priority_original'
+    {
+      "open": [],
+      "warn": [],
+      "closed_ok": ["zerotier"],
+      "total_records": 1, "open_count": 0, "warn_count": 0
+    }
+    []
+    null
+
+Seeded open breaker через singleton в python shell'e, затем
+re-call agent_config: ``deprioritized`` вернулся как
+``["cloudflared"]``, ``breaker_summary.open_count == 1``,
+``priority`` сунула cloudflared в хвост, ``priority_original``
+echo'нул pre-sink порядок. Reset breaker через
+``POST /v1/tunnels/probe/reset`` (v4.14.0) — next agent_config
+имел ``deprioritized == []`` и ``priority_original == null``
+снова.
+
+### Composition с прошлыми relases
+
+    tunnels_probe (v4.8.0) ─┐
+                            ├→ breaker snapshot в каждом probe response
+    breaker records ────────┘                    │
+                                                 ↓
+    summarize_snapshot (v4.16.0) ← этот релиз
+                                                 ↓
+    GET /v1/agent/config → {breaker_summary, deprioritized, ...}
+                                                 ↓
+    агент dial logic: skip deprio'd URLs entirely ИЛИ используй
+                      их как fallback после primary set
+
+    tunnels_probe/reset (v4.14.0) ← operator escape hatch
+                                       clear'ит breaker — next
+                                       config call drop'ает
+                                       deprio flag
+
+### Не включено
+
+* SLO / cool-down forecasting. Response имеет
+  ``cools_down_in_sec`` в raw ``breaker`` поле
+  ``/v1/tunnels/probe``; agent-config summary не дублирует —
+  "когда вернётся" это telemetry question, не bootstrap.
+  Если агенту нужен cooldown — hit probe endpoint напрямую.
+* Per-endpoint (не per-provider) summary. Раздуло бы compact
+  shape для редкого случая (multi-endpoint providers —
+  исключение). Если operator попросит — добавим
+  ``breaker_summary_verbose`` opt-in flag.
+* Push-based invalidation (SSE / WebSocket говорящий агентам
+  reload config'а). Polling model (агент re-hit'ит
+  ``/v1/agent/config`` на connection failure) достаточен для
+  каждого observed случая.
+
 \n## v4.15.0 - 2026-07-16
 
 ### Добавлено - Terminal tab: ANSI SGR colour rendering
