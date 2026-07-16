@@ -1,3 +1,67 @@
+\n## v4.31.0 - 2026-07-17
+
+### Scoped palette добавлен четырём крупным tab'ам -- Workspace / Doctor / Control / Settings
+
+Четыре крупные вкладки раньше не имели своих scoped ``<style>``-
+блоков. Этот релиз добавляет по одному на каждую tab, следуя
+тому же low-risk incremental-подходу, что и Mobile:
+консолидировать палитру + helper-классы в начале файла,
+оставить существующую разметку и inline-стили нетронутыми,
+чтобы ни один JS loader не мог регрессировать.
+
+На каждую tab редизайн добавляет:
+
+* **Scoped ``<style>``-блок** с palette (``--ws-*`` / ``--dc-*``
+  / ``--ct-*`` / ``--st-*``) объявленной на ``#tab-<name>`` --
+  никогда не утекает в ``:root``.
+* **Униформное оформление section-заголовков** совпадающее с
+  каждой другой редизайнутой tab (``#tab-<name> h2`` --
+  uppercase small-caps с subtle badge).
+* **Helper-классы** (``.<pfx>-toolbar``, ``.<pfx>-meta``,
+  ``.<pfx>-hint``, ``.<pfx>-section-badge``) готовы для
+  будущих патчей мигрировать отдельные секции без изменения
+  каждого id в одном commit.
+
+Сохранение (в этом весь смысл incremental-подхода):
+
+* **Все 62 критичных id сохранены** по четырём вкладкам
+  (14 Workspace + 7 Doctor + 12 Control + 29 Settings) --
+  проверено параметризованным тестом. Каждый JS loader
+  (``01a-workspace.js`` and family, ``14-doctor.js``,
+  ``15b-doctor-*.js``, ``13-control.js``,
+  ``17-settings-*.js``) видит ровно тот же DOM.
+* **Ноль изменений в существующих inline-стилях или
+  handlers** -- существующая разметка не тронута.
+
+Вкладки, оставшиеся без scoped ``<style>``-блока: Live и
+ZeroTier уже несут legacy ``<style>``-блок, но их селекторы
+unscoped (они используют ``.live-*`` / ``.ztc-*`` префиксы,
+которые на практике не конфликтуют с shared-sheet, но обходят
+enforcement урока v4.0.x). Их миграция на правильный
+``#tab-live`` / ``#tab-zerotier`` scoping -- отдельный refactor,
+потому что их JS state machines более запутаны -- tracked для
+будущего релиза.
+
+Тесты: ``tests/test_four_tabs_scoped_palette.py`` (20 тестов)
+-- пять параметризованных проверок на tab: scoped style block
+present, every selector scoped to the tab's id, palette vars
+declared inside the tab, all helper classes declared, all
+critical ids preserved.
+
+Suite: **1789 passed** (было 1769, +20 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-01b-workspace.html`` -- scoped
+  ``<style>``-блок добавлен в начало
+* ``dashboard/assets/body-12-doctor.html`` -- scoped
+  ``<style>``-блок добавлен в начало
+* ``dashboard/assets/body-14-control.html`` -- scoped
+  ``<style>``-блок добавлен в начало
+* ``dashboard/assets/body-15-settings.html`` -- scoped
+  ``<style>``-блок добавлен в начало
+* ``tests/test_four_tabs_scoped_palette.py`` (новый) -- 20 тестов
+
 \n## v4.30.0 - 2026-07-17
 
 ### Batched редизайн семи маленьких tab'ов -- Memory / Recall / Reports / Tasks / Skills / Hooks / Agents

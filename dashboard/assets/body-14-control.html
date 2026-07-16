@@ -1,4 +1,23 @@
 <div class="tab" id="tab-control">
+<style>
+  /* Control tab -- scoped palette + helper classes. Same
+     incremental approach as the Mobile redesign: add scoped
+     palette up top without touching the existing 70+ lines of
+     markup for pause/resume/revoke controls + window inspector.
+     Every id preserved (14-control.js unchanged). */
+  #tab-control{
+    --ct-tint-green:#00d67222;
+    --ct-tint-blue:#4fc3f733;
+    --ct-tint-orange:#ff980033;
+    --ct-tint-red:#e9456033;
+    --ct-tint-gray:#88888833;
+  }
+  #tab-control h2{display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-control h2 .ct-section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--ct-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-control .ct-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-control .ct-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-control .ct-hint{font-size:11px;color:var(--text2);margin:6px 0}
+</style>
 <h1>Agent Control</h1>
 
 <div class="card" style="text-align:center;padding:24px">

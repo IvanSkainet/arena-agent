@@ -1,4 +1,24 @@
 <div class="tab" id="tab-doctor">
+<style>
+  /* Doctor tab -- scoped palette + helper classes. Small tab
+     (~40 lines) but crucial: it's the first place operators
+     look when things are broken, so it should feel consistent
+     with the rest of the redesigned dashboard. Every id
+     preserved (14-doctor.js + 15-doctor-*.js loaders unchanged). */
+  #tab-doctor{
+    --dc-tint-green:#00d67222;
+    --dc-tint-blue:#4fc3f733;
+    --dc-tint-orange:#ff980033;
+    --dc-tint-red:#e9456033;
+    --dc-tint-gray:#88888833;
+  }
+  #tab-doctor h2{display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-doctor h2 .dc-section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--dc-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-doctor .dc-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-doctor .dc-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-doctor .dc-hint{font-size:11px;color:var(--text2);margin:6px 0}
+  #tab-doctor .dc-hint code{background:var(--bg2);padding:1px 4px;border-radius:3px;font-size:11px}
+</style>
 <h1>Doctor</h1>
 <div class="row" style="margin-bottom:12px">
 <button onclick="runDoctor()">Run Diagnostics</button>

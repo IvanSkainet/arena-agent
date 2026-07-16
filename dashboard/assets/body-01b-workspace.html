@@ -1,4 +1,26 @@
 <div class="tab" id="tab-workspace">
+<style>
+  /* Workspace tab -- scoped palette + helper classes. Adds the
+     shared Audit-style visual language without touching the
+     existing markup (~90 lines of goals / lessons / mission
+     lineage forms). Every id preserved. Future patches can
+     migrate individual sections onto .ws-toolbar / .ws-meta /
+     .ws-hint helpers one at a time. */
+  #tab-workspace{
+    --ws-tint-green:#00d67222;
+    --ws-tint-blue:#4fc3f733;
+    --ws-tint-purple:#53348333;
+    --ws-tint-orange:#ff980033;
+    --ws-tint-red:#e9456033;
+    --ws-tint-gray:#88888833;
+  }
+  #tab-workspace h2{display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-workspace h2 .ws-section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--ws-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-workspace .ws-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-workspace .ws-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-workspace .ws-hint{font-size:11px;color:var(--text2);margin:6px 0}
+  #tab-workspace .ws-hint code{background:var(--bg2);padding:1px 4px;border-radius:3px;font-size:11px}
+</style>
 <h1>Workspace <span class="version-tag">Companion Surface</span></h1>
 
 <div class="card">

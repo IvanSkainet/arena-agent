@@ -1,4 +1,28 @@
 <div class="tab" id="tab-settings">
+<style>
+  /* Settings tab -- scoped palette + helper classes. The
+     largest tab getting the incremental treatment (~200 lines
+     of admin controls, tunnel toggles, agent tokens, auto-
+     update controls). Full DOM rewrite would be risky given
+     the number of ids and their interlocking auto-update /
+     tunnel state machines. This scoped block adds the visual
+     language + palette; future patches can migrate individual
+     sections onto helpers. */
+  #tab-settings{
+    --st-tint-green:#00d67222;
+    --st-tint-blue:#4fc3f733;
+    --st-tint-purple:#53348333;
+    --st-tint-orange:#ff980033;
+    --st-tint-red:#e9456033;
+    --st-tint-gray:#88888833;
+  }
+  #tab-settings h2{display:flex;align-items:center;gap:8px;margin-top:14px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-settings h2 .st-section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--st-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-settings .st-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-settings .st-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-settings .st-hint{font-size:11px;color:var(--text2);margin:6px 0}
+  #tab-settings .st-hint code{background:var(--bg2);padding:1px 4px;border-radius:3px;font-size:11px}
+</style>
 <h1>Settings</h1>
 <div class="card">
 <h2>Bridge Info</h2>
