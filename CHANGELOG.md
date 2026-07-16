@@ -1,3 +1,26 @@
+## v4.0.3 - 2026-07-16
+
+### Fixed — v4.0.2 CI failure (test flakiness on slow runners)
+
+v4.0.2 shipped test_tunnels_probe.py::test_tunnels_probe_zerotier_dial_local_server
+which polled a threading.Event via a 500ms sleep loop. On the
+GitHub Actions Python 3.12 runner under load, the polling missed
+the bind window and the probe attempted to connect before the
+test server was actually listening, returning reachable:false.
+
+Fixed by:
+* Threading.Event(ready) signals as soon as the socket is bound,
+  replacing the 50x10ms polling loop with ready.wait(timeout=5.0).
+* Probe timeout in the tests raised from 1.0s to 3.0s so CI runners
+  have head-room even when the whole box is thrashing.
+* The tiny test server loop poll shortened from 3s to 0.5s so
+  stop is observed and the thread joins promptly on teardown.
+
+Ships with the same layout / smartctl-hint fixes as v4.0.2 plus
+these test hardenings. No product behaviour change vs v4.0.2.
+
+Tests: 1153 passed (same suite, more reliable on slow runners).
+
 ## v4.0.2 - 2026-07-16
 
 ### Fixed — v4.0.1 layout fix was insufficient (real fix now applied)

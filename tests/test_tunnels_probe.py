@@ -70,20 +70,24 @@ def test_parse_url_host_port_malformed_returns_default():
 
 # --- TCP probe against a real ephemeral local server -----------------
 
-def _tiny_tcp_server(port_slot: list[int], stop: threading.Event):
-    """Bind to an ephemeral port, accept one connection, exit."""
+def _tiny_tcp_server(port_slot: list[int], ready: threading.Event, stop: threading.Event):
+    """Bind to an ephemeral port, accept connections until stopped.
+    Signals ``ready`` once the port is bound so callers can dial in
+    without polling — this eliminates a race where CI runners under
+    load would probe before the server had actually bound."""
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", 0))
-    srv.listen(4)
-    srv.settimeout(3.0)
+    srv.listen(16)
+    srv.settimeout(0.5)  # short poll so `stop` is observed promptly
     port_slot.append(srv.getsockname()[1])
+    ready.set()
     while not stop.is_set():
         try:
             conn, _ = srv.accept()
             conn.close()
         except socket.timeout:
-            break
+            continue
         except Exception:
             break
     srv.close()
@@ -91,18 +95,17 @@ def _tiny_tcp_server(port_slot: list[int], stop: threading.Event):
 
 def test_probe_tcp_success():
     port_slot: list[int] = []
+    ready = threading.Event()
     stop = threading.Event()
-    t = threading.Thread(target=_tiny_tcp_server, args=(port_slot, stop))
+    t = threading.Thread(target=_tiny_tcp_server, args=(port_slot, ready, stop))
     t.start()
     try:
-        # Wait for the server thread to bind.
-        for _ in range(50):
-            if port_slot:
-                break
-            time.sleep(0.01)
-        assert port_slot, "test server never bound"
-        result = _probe_tcp("127.0.0.1", port_slot[0], timeout=1.0)
-        assert result["ok"] is True
+        # Block until the server signalled ready (or 5s of CI slack).
+        assert ready.wait(timeout=5.0), "test server never signalled ready"
+        assert port_slot, "test server bound but port slot empty"
+        # 3s timeout on the probe itself — CI runners can be slow.
+        result = _probe_tcp("127.0.0.1", port_slot[0], timeout=3.0)
+        assert result["ok"] is True, f"probe failed: {result}"
         assert result["duration_ms"] >= 0
         assert "error" not in result
     finally:
@@ -179,15 +182,12 @@ def test_tunnels_probe_zerotier_dial_local_server(monkeypatch):
     probe should confirm it. Uses a local ephemeral server + a fake
     ZeroTier snapshot pointing at it, so no ZT install needed."""
     port_slot: list[int] = []
+    ready = threading.Event()
     stop = threading.Event()
-    t = threading.Thread(target=_tiny_tcp_server, args=(port_slot, stop))
+    t = threading.Thread(target=_tiny_tcp_server, args=(port_slot, ready, stop))
     t.start()
     try:
-        for _ in range(50):
-            if port_slot:
-                break
-            time.sleep(0.01)
-        assert port_slot
+        assert ready.wait(timeout=5.0), "test server never signalled ready"
         listening_port = port_slot[0]
 
         def fake_zt_status():
@@ -196,19 +196,21 @@ def test_tunnels_probe_zerotier_dial_local_server(monkeypatch):
                 "backend": "cli",
                 "zerotier": {"node_id": "aabbccddee", "connected": True, "online": True},
                 "networks": [{"id": "0123456789abcdef", "active": True,
-                              "assignedAddresses": [f"127.0.0.1/32"]}],
+                              "assignedAddresses": ["127.0.0.1/32"]}],
             }
 
+        # 3s per-probe timeout gives CI plenty of head-room on slow
+        # runners; localhost connect normally completes in <10ms.
         result = tunnels_probe(
             zerotier_status_sync=fake_zt_status,
             port=listening_port,
-            timeout=1.0,
+            timeout=3.0,
             priority=("zerotier",),
         )
         assert result["ok"] is True
         zt_probes = [p for p in result["probes"] if p["provider"] == "zerotier"]
         assert zt_probes, "ZeroTier not in probes"
-        assert zt_probes[0]["reachable"] is True
+        assert zt_probes[0]["reachable"] is True, f"ZT probe failed: {zt_probes[0]}"
         assert result["active"]
         assert result["active"]["provider"] == "zerotier"
     finally:

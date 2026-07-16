@@ -6,6 +6,30 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v4.0.3 - 2026-07-16
+
+### Исправлено — CI failure в v4.0.2 (flakiness теста на медленных runner'ах)
+
+v4.0.2 отгрузил test_tunnels_probe.py::test_tunnels_probe_zerotier_dial_local_server
+который опрашивал threading.Event через 500ms sleep-loop. На
+GitHub Actions Python 3.12 runner'е под нагрузкой polling
+пропустил bind-окно, и probe попытался приконнектиться до того
+как тестовый сервер реально слушал — возвращал reachable:false.
+
+Fix:
+* Threading.Event(ready) сигналит как только socket bind'нулся,
+  заменяет 50x10ms polling loop на ready.wait(timeout=5.0).
+* Timeout probe в тестах поднят с 1.0s до 3.0s — CI runner'ы
+  имеют запас даже при thrashing box'а.
+* Loop poll тестового сервера сокращён с 3s до 0.5s — stop
+  наблюдается быстро, thread join'ится promptly при teardown.
+
+Отгружается с теми же layout / smartctl-hint fix'ами что и v4.0.2
+плюс эти test-hardenings. Product behaviour не менялся по
+сравнению с v4.0.2.
+
+Тесты: 1153 passed (тот же suite, надёжнее на медленных runner'ах).
+
 ## v4.0.2 - 2026-07-16
 
 ### Исправлено — v4.0.1 layout-fix был недостаточен (реальный fix здесь)
