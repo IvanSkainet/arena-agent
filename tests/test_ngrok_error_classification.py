@@ -46,7 +46,7 @@ def _no_real_ngrok_api(monkeypatch):
     the poller returned its URL instead of the expected timeout,
     flipping test assertions."""
     monkeypatch.setattr(ngrok_mod, "_poll_ngrok_url_from_api",
-                        lambda timeout=2.0: None)
+                        lambda **kw: None)
     monkeypatch.setattr(ngrok_mod, "_apply_authtoken",
                         lambda bin_path, subprocess_kwargs: None)
 
@@ -244,7 +244,7 @@ def test_start_ngrok_timeout_path_still_works(monkeypatch, tmp_path):
     # Neuter the API poller so the test doesn't try to hit
     # 127.0.0.1:4040 on the CI runner.
     monkeypatch.setattr(ngrok_mod, "_poll_ngrok_url_from_api",
-                        lambda timeout=2.0: None)
+                        lambda **kw: None)
 
     result = _start_ngrok("/usr/bin/ngrok", 8765,
                           subprocess_kwargs=lambda: {})

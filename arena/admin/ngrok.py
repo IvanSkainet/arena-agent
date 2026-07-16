@@ -160,16 +160,21 @@ def _get_update_hint(source: str, version: str | None) -> str:
 NGROK_LOCAL_API = "http://127.0.0.1:4040/api/tunnels"
 
 
-def _poll_ngrok_url_from_api(timeout: float = 2.0) -> str | None:
-    """Query ngrok's built-in local HTTP API for the current tunnel
-    URL. Returns the first HTTPS public_url found or None.
+def _poll_ngrok_url_from_api(timeout: float = 2.0,
+                              expected_port: int | None = None) -> str | None:
+    """Query ngrok's built-in local HTTP API for OUR tunnel URL.
 
-    ngrok exposes a stable JSON API on 127.0.0.1:4040 whenever any
-    tunnel is running. This is dramatically more robust than
-    grepping stdout the way we do for cloudflared. Response shape::
+    v4.36.1: filter tunnels by ``config.addr`` (must contain
+    ``:<expected_port>``) so we don't accidentally return a URL
+    from an unrelated ngrok session running on the same host.
+    Live-smoke of v4.36.0 caught this: an operator can have a
+    long-running ngrok pointing at port 80, and our probe was
+    returning that URL instead of the one for our bridge port,
+    then the response 502'd because the addr didn't match.
 
-        {"tunnels":[{"name":"...","public_url":"https://xxx.ngrok-free.app",
-                     "proto":"https","config":{...}}, ...]}
+    When ``expected_port`` is None, falls back to the pre-v4.36.1
+    behaviour (any HTTPS tunnel). Preserves backward compat for
+    callers that don't care about port-matching.
     """
     try:
         with urllib.request.urlopen(NGROK_LOCAL_API, timeout=timeout) as resp:
@@ -185,15 +190,28 @@ def _poll_ngrok_url_from_api(timeout: float = 2.0) -> str | None:
     tunnels = payload.get("tunnels") or []
     if not isinstance(tunnels, list):
         return None
-    # Prefer HTTPS tunnel; fall back to any public_url.
+
+    def _matches_our_port(t: dict) -> bool:
+        if expected_port is None:
+            return True
+        cfg = t.get("config") or {}
+        addr = str(cfg.get("addr") or "")
+        # ngrok's addr is usually http://localhost:8765 or
+        # 127.0.0.1:8765 or bare 8765. Check for :<port> substring
+        # occurrence -- guards against false positives like port
+        # 80 accidentally matching 8080.
+        return f":{expected_port}" in addr or addr == str(expected_port)
+
+    # First pass: HTTPS + matches our port.
     for t in tunnels:
         if not isinstance(t, dict):
             continue
         url = t.get("public_url") or ""
-        if url.startswith("https://"):
+        if url.startswith("https://") and _matches_our_port(t):
             return url
+    # Second pass: any protocol + matches our port.
     for t in tunnels:
-        if isinstance(t, dict) and t.get("public_url"):
+        if isinstance(t, dict) and t.get("public_url") and _matches_our_port(t):
             return str(t["public_url"])
     return None
 
@@ -350,7 +368,10 @@ def _start_ngrok(bin_path: str, port: int, *,
     process_died_early = False
     while time.monotonic() < deadline:
         # Prefer the local API which has a stable JSON shape.
-        api_url = _poll_ngrok_url_from_api(timeout=0.5)
+        # v4.36.1: filter by ``expected_port=port`` so we don't
+        # accidentally pick up a URL from another ngrok session
+        # running against a different port on the same host.
+        api_url = _poll_ngrok_url_from_api(timeout=0.5, expected_port=port)
         if api_url:
             NGROK_STATE["url"] = api_url
             break
@@ -426,10 +447,21 @@ def ngrok_action(action: str, port: int, *,
     installed = bin_path is not None
     version = _get_ngrok_version(bin_path) if bin_path else None
 
+    # v4.36.1: if we're NOT running any more but NGROK_STATE["url"]
+    # still holds a stale value (from a prior start that later
+    # died, or from a previous session's API-poll), clear it so
+    # /status doesn't report a URL that leads nowhere. Prevents
+    # the "active:false but url:https://..." contradiction the
+    # live-smoke of v4.36.0 caught.
+    if not running and NGROK_STATE["url"]:
+        NGROK_STATE["url"] = ""
+
     # If we think we're running, double-check by polling the local API.
     # Handles the case where the child was killed out-of-band.
+    # v4.36.1: pass expected_port=port so we only surface OUR tunnel
+    # if another unrelated ngrok session is also live on the box.
     if running and not NGROK_STATE["url"]:
-        api_url = _poll_ngrok_url_from_api(timeout=1.0)
+        api_url = _poll_ngrok_url_from_api(timeout=1.0, expected_port=port)
         if api_url:
             NGROK_STATE["url"] = api_url
 

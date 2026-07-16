@@ -1,3 +1,74 @@
+## v4.36.1 - 2026-07-17
+
+### Fix -- ngrok port filter + stale-URL cleanup (v4.36.0 live-smoke fix)
+
+Live-smoke of v4.36.0 caught two bugs on a bridge that also
+had an unrelated operator-owned ngrok running (pointing at
+port 80 with a reserved domain):
+
+1. **``_poll_ngrok_url_from_api`` returned the FIRST HTTPS
+   tunnel it saw**, regardless of which port it was configured
+   to forward. When another ngrok pointed at port 80, our
+   start call happily "succeeded" with that URL -- and any
+   caller trying to reach our bridge got HTTP 502 because the
+   domain routed to port 80, not our 8765.
+
+2. **``NGROK_STATE["url"]`` held stale values after the child
+   died**. When ``_start_ngrok`` captured that external URL
+   via the poller and then our child later died (fighting the
+   external session for the same authtoken), the URL stayed
+   in state. ``ngrok_action("status")`` then returned
+   ``active:false`` alongside a URL -- self-contradictory
+   payload.
+
+Fixes:
+
+* ``_poll_ngrok_url_from_api`` gains an optional
+  ``expected_port`` kwarg. When set, only tunnels whose
+  ``config.addr`` contains ``:<port>`` are considered. When
+  omitted, falls back to the pre-v4.36.1 "first HTTPS" logic
+  for backward compatibility with old test rigs.
+* ``_start_ngrok`` and ``ngrok_action("status")`` now both
+  pass ``expected_port=port`` when calling the poller. If
+  another ngrok exists on a different port on the same box,
+  we ignore it.
+* ``ngrok_action("status")`` clears ``NGROK_STATE["url"]``
+  when the process is no longer running. Prevents the
+  ``active:false + url:https://...`` contradiction.
+
+Substring-collision guard: the port-match rule looks for
+``":<port>"`` (with the leading colon), so port 80 does NOT
+accidentally match a tunnel whose addr is ``localhost:8080``.
+Guarded by ``test_poll_port_match_avoids_substring_false_positives``.
+
+Tests: ``tests/test_ngrok_port_filter.py`` (9 tests) --
+6 poller tests (expected_port matches, expected_port skips
+non-matching, picks matching when multiple, avoids substring
+false positives, backward compat without expected_port,
+missing-config graceful), 3 status tests (stale URL cleared
+when proc is None, stale URL cleared when proc exited, URL
+preserved when actually running).
+
+Plus test-mock updates:
+* ``tests/test_ngrok_error_classification.py`` -- the auto-use
+  fixture's poller mock now accepts ``**kw`` so the new
+  ``expected_port`` kwarg passes through.
+* ``tests/test_ngrok.py::test_start_uses_local_api_first_then_stdout_fallback``
+  -- the fake API payload now includes ``config.addr`` matching
+  port 8765 so the port-filter accepts the tunnel as ours.
+
+Suite: **1872 passed** (was 1863, +9 new), one baseline flaky.
+
+Files:
+
+* ``arena/admin/ngrok.py`` -- ``_poll_ngrok_url_from_api``
+  gains ``expected_port`` kwarg with substring-safe matcher,
+  ``_start_ngrok`` passes it, ``ngrok_action("status")``
+  passes it and clears stale ``NGROK_STATE["url"]``.
+* ``tests/test_ngrok_port_filter.py`` (new) -- 9 tests.
+* ``tests/test_ngrok_error_classification.py`` -- mock signature.
+* ``tests/test_ngrok.py`` -- fake API payload updated.
+
 ## v4.36.0 - 2026-07-17
 
 ### ngrok: fail-fast + classified error codes (v4.33.1 live-smoke fix)

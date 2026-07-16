@@ -313,9 +313,13 @@ def test_start_uses_local_api_first_then_stdout_fallback(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ngrok_mod.subprocess, "Popen", _StubProc)
 
-    # Fake API response
+    # Fake API response. v4.36.1: include config.addr matching
+    # port 8765 so the port-filter in _poll_ngrok_url_from_api
+    # accepts this tunnel as ours.
     payload = json.dumps({"tunnels": [
-        {"public_url": "https://api-first.ngrok-free.app", "proto": "https"},
+        {"public_url": "https://api-first.ngrok-free.app",
+         "proto": "https",
+         "config": {"addr": "http://localhost:8765"}},
     ]}).encode()
     monkeypatch.setattr(ngrok_mod.urllib.request, "urlopen",
                         _stub_urlopen(payload))

@@ -1,3 +1,57 @@
+\n## v4.36.1 - 2026-07-17
+
+### Fix -- ngrok port-filter + stale-URL cleanup (v4.36.0 live-smoke fix)
+
+Live-smoke v4.36.0 поймал два бага на bridge, где параллельно
+крутился другой (operator-owned) ngrok, указывающий на port 80
+с reserved-domain'ом:
+
+1. **``_poll_ngrok_url_from_api`` возвращал ПЕРВЫЙ HTTPS
+   tunnel**, независимо от того, на какой port он forwarding'ил.
+   Когда чужой ngrok указывал на port 80, наш start-call весело
+   "успешно" возвращал этот URL -- и caller, попытавшийся
+   достучаться до нашего bridge, получал HTTP 502, потому что
+   domain routing'ил на port 80, не на наш 8765.
+
+2. **``NGROK_STATE["url"]`` держал stale-значения после die-child**.
+   Когда ``_start_ngrok`` захватил тот внешний URL через poller,
+   а потом наш child умер (борясь с внешней сессией за один
+   authtoken), URL оставался в state. ``ngrok_action("status")``
+   потом возвращал ``active:false`` рядом с URL -- self-
+   contradictory payload.
+
+Фиксы:
+
+* ``_poll_ngrok_url_from_api`` получает opcional kwarg
+  ``expected_port``. Когда задан, только tunnel'ы, чей
+  ``config.addr`` содержит ``:<port>``, рассматриваются.
+  Когда пропущен -- fallback на pre-v4.36.1 "first HTTPS"
+  логику для backward compat со старыми test rigs.
+* ``_start_ngrok`` и ``ngrok_action("status")`` теперь оба
+  передают ``expected_port=port`` при вызове poller'а.
+* ``ngrok_action("status")`` очищает ``NGROK_STATE["url"]``,
+  когда process не running. Предотвращает
+  ``active:false + url:https://...`` противоречие.
+
+Substring-collision guard: правило port-match ищет ``":<port>"``
+(с leading colon), так что port 80 НЕ случайно матчит tunnel с
+addr'ом ``localhost:8080``.
+
+Тесты: ``tests/test_ngrok_port_filter.py`` (9 тестов) --
+6 poller-тестов + 3 status-теста.
+
+Плюс test-mock обновления в ``tests/test_ngrok_error_classification.py``
+и ``tests/test_ngrok.py``.
+
+Suite: **1872 passed** (было 1863, +9 новых), один baseline flaky.
+
+Файлы:
+
+* ``arena/admin/ngrok.py`` -- три метода обновлены.
+* ``tests/test_ngrok_port_filter.py`` (новый) -- 9 тестов.
+* ``tests/test_ngrok_error_classification.py`` -- mock signature.
+* ``tests/test_ngrok.py`` -- fake API payload updated.
+
 \n## v4.36.0 - 2026-07-17
 
 ### ngrok: fail-fast + classified error codes (v4.33.1 live-smoke fix)
