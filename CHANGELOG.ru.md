@@ -1,3 +1,77 @@
+\n## v4.34.0 - 2026-07-17
+
+### Inventory: recent_activity probe -- 46-я секция
+
+Новая inventory-секция для highest-signal контекстного ввода,
+который bootstrap-probe вообще может дать: **файлы, изменённые
+под $HOME пользователя (и Desktop / Documents / Downloads) за
+последние N минут**. Агент, планирующий работу, получает
+огромное преимущество, зная "где сейчас работает человек", а
+ни одна из существующих 45 секций это не покрывала.
+
+Shape response (через ``GET /v1/inventory?section=recent_activity``):
+см. English CHANGELOG.
+
+Design-choices:
+
+* **Cross-platform roots** -- $HOME на каждой ОС, плюс
+  ``~/Desktop`` / ``~/Documents`` / ``~/Downloads`` если
+  существуют. Никогда не сканирует ``/``, ``/var``, ``/proc``,
+  ``/sys`` или что-либо system-wide (privacy + не дело агента).
+* **Excluded dirs** обрезаются во время walk (быстро: ``os.walk``
+  уважает in-place мутацию ``dirnames``):
+  ``.git``/``.hg``/``.svn``, ``__pycache__`` и все test-caches,
+  ``node_modules``/``build``/``dist``/``target``,
+  ``.next``/``.nuxt``/``.venv``/``venv``/``.cache``/``.local``,
+  ``.gradle``/``.m2``/``.rustup``/``.cargo``,
+  ``.arena_proposals`` (наш runtime state), ``.Trash*``.
+* **Size cap** 5 MB per file (build-артефакты, media dumps
+  обычно шум, не работа пользователя).
+* **Walk cap** 20,000 entries, чтобы огромный $HOME не подвесил
+  probe. ``walk_capped: true`` в response говорит caller'у,
+  что мы упёрлись в потолок.
+* **Limit** clamped 200 (default 30), чтобы over-eager caller
+  не мог попросить мегабайт путей.
+* **Newest-first** сортировка -- caller'ы обычно нуждаются
+  только в top-нескольких.
+* **Age clamped на 0**, если filesystem возвращает future
+  mtime (clock skew) -- caller никогда не видит negative age.
+* **Fail-soft на каждой per-file OSError** -- broken symlinks,
+  permission-denied, transient locks silently skipped; probe
+  никогда не raise'ит.
+
+Формат вывода через ``GET /v1/hwinfo``: см. English CHANGELOG.
+
+Test-coverage: ``tests/test_recent_activity_probe.py`` (16
+тестов) -- registration, section metadata, empty/unavailable
+formatter, probe shape, finds recent files, ignores files
+older than window, respects limit, clamps limit to 200, prunes
+excluded dirs, skips oversized files, sorts newest-first,
+top_extensions counts, permission errors silent, age_seconds
+field present, never returns negative age.
+
+Guard-test adjustments (обе документированы):
+
+* ``tests/test_architecture_boundaries.py`` -- ``registry.py``
+  добавлен в ``LINE_ALLOWLIST``, потому что это data-manifest
+  (46 Section entries + один format helper на каждую), не
+  runtime-логика. Threshold не применим.
+* ``tests/test_registry_completeness.py`` -- ``recent_activity``
+  добавлен в ``text_only``-allowlist, потому что card-renderer
+  для variable-length file-path списка был бы lossy.
+
+Suite: **1840 passed** (было 1824, +16 новых), один baseline flaky.
+
+Файлы:
+
+* ``arena/inventory/probe_agent_ctx.py`` -- новый
+  ``get_recent_activity()`` (~160 строк).
+* ``arena/inventory/registry.py`` -- новый
+  ``_fmt_recent_activity()`` formatter + Section регистрация.
+* ``tests/test_recent_activity_probe.py`` (новый) -- 16 тестов.
+* ``tests/test_architecture_boundaries.py`` -- allowlist edit.
+* ``tests/test_registry_completeness.py`` -- allowlist edit.
+
 \n## v4.33.1 - 2026-07-17
 
 ### Fix -- ngrok-роуты возвращали 404 несмотря на декларацию

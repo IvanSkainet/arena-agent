@@ -146,6 +146,12 @@ def test_every_registry_section_has_matching_card_entry():
         "runtimes", "package_managers", "browsers",
         # Rendered as key/value in the extras area only.
         "displays", "python_env", "env",
+        # v4.34.0: recent_activity is a variable-length list of
+        # file paths -- a card renderer would be either a huge
+        # scrolling block or a lossy summary. Text-only output
+        # via _fmt_recent_activity is the honest surface for now.
+        # A future Overview widget could add a dedicated card.
+        "recent_activity",
     }
     missing = reg_names - card_names - text_only
     assert not missing, (

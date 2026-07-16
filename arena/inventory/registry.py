@@ -421,6 +421,29 @@ def _fmt_error_list(d: dict) -> list[str]:
     return [f"  {e}" for e in errs[:15]]
 
 
+def _fmt_recent_activity(d: dict) -> list[str]:
+    """Formatter for recent_activity (v4.34.0)."""
+    if not d.get("available"):
+        return []
+    files = d.get("files") or []
+    win = d.get("window_minutes", "?")
+    lines = [f"  window: last {win}m  matched={d.get('matched',0)}  returned={d.get('returned',0)}"]
+    exts = d.get("top_extensions") or {}
+    if exts:
+        lines.append("  top ext:  " + "  ".join(f"{k}={v}" for k, v in list(exts.items())[:6]))
+    if not files:
+        lines.append("  (no recent files in window)")
+        return lines
+    for f in files[:15]:
+        age = f.get("age_seconds", 0)
+        age_s = f"{age}s" if age < 60 else (f"{age // 60}m" if age < 3600 else f"{age // 3600}h")
+        size_kb = int((f.get("size_bytes") or 0) / 1024)
+        lines.append(f"  [{age_s:>4}] {size_kb:>6}K  {f.get('path','?')}")
+    if d.get("returned", 0) < d.get("matched", 0):
+        lines.append(f"  ... ({d['matched'] - d['returned']} more not shown)")
+    return lines
+
+
 def _fmt_network(d: dict) -> list[str]:
     if not d: return []
     lines = [f"  hostname: {d.get('hostname')}  fqdn: {d.get('fqdn', '')}"]
@@ -513,6 +536,10 @@ def build_registry() -> list[Section]:
     from arena.inventory.probe_agent_ctx import (
         get_python_venvs, get_git_repos, get_env_secret_names,
         get_crontab_entries,
+        # v4.34.0: newly-modified files under user roots -- huge
+        # context signal for agents deciding where the user is
+        # working right now.
+        get_recent_activity,
     )
     from arena.inventory.probe_agent_sys import (
         get_dns_resolvers, get_dmesg_errors, get_journal_errors,
@@ -564,6 +591,8 @@ def build_registry() -> list[Section]:
         S("python_venvs",     "Python venvs",       "agent",    get_python_venvs,   _fmt_python_venvs),
         S("git_repos",        "Git repos",          "agent",    get_git_repos,      _fmt_git_repos),
         S("crontab_entries",  "Crontab",            "agent",    get_crontab_entries,_fmt_crontab),
+        # v4.34.0: recent-activity signal for agents planning work.
+        S("recent_activity",  "Recent activity",    "agent",    get_recent_activity,_fmt_recent_activity),
         S("dmesg_errors",     "Kernel errors",      "agent",    get_dmesg_errors,   _fmt_error_list),
         S("journal_errors",   "Journal errors",     "agent",    get_journal_errors, _fmt_error_list),
         # Software / environment

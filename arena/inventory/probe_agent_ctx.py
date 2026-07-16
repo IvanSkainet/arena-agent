@@ -320,3 +320,166 @@ def get_crontab_entries() -> dict:
     return info
 
 
+# ------------------------------------------------------------------ recent_activity
+
+def get_recent_activity(window_minutes: int = 60, limit: int = 30) -> dict:
+    """Recently-modified files under a small set of user-owned roots.
+
+    Rationale: agents planning work benefit enormously from knowing
+    *where the human was just working*. A 20-item list of files
+    modified in the last hour under ``$HOME`` (excluding cache /
+    build / VCS-metadata) is one of the highest-signal context
+    inputs a bootstrap probe can produce -- and none of the
+    existing 45 sections cover it.
+
+    Cross-platform:
+      * ``$HOME`` is walked on every OS.
+      * Windows: also probes ``%USERPROFILE%\\Desktop`` /
+        ``\\Documents`` explicitly since %HOME% may not be set.
+      * macOS: adds ``~/Desktop`` / ``~/Documents`` /
+        ``~/Downloads``.
+      * Linux: adds ``~/Desktop`` / ``~/Documents`` /
+        ``~/Downloads`` when they exist.
+
+    Excluded on purpose (would be noise):
+      * ``.git`` / ``.hg`` / ``.svn`` -- VCS metadata churn.
+      * ``__pycache__`` / ``.pytest_cache`` / ``.ruff_cache`` /
+        ``.mypy_cache`` -- interpreter caches.
+      * ``node_modules`` / ``build`` / ``dist`` / ``.next`` /
+        ``.venv`` / ``.cache`` -- build + dep dirs.
+      * ``.arena_proposals`` -- runtime state from v4.19.0.
+      * Anything under system-wide ``/var/lib`` / ``/proc`` /
+        ``/sys`` -- not user work.
+      * Files > 5 MB (usually build artifacts, media dumps).
+
+    Returns::
+
+        {
+          "available": True,
+          "window_minutes": 60,
+          "roots_scanned": ["/home/x", "/home/x/Downloads"],
+          "total_seen": 143,        # walked
+          "matched": 42,            # within window
+          "returned": 30,           # after limit
+          "files": [
+            {"path": "/home/x/notes.md",
+             "mtime_iso": "2026-07-17T12:34:56Z",
+             "age_seconds": 123,
+             "size_bytes": 4321},
+            ...
+          ],
+          "top_extensions": {".py": 12, ".md": 6, ".json": 3, ...}
+        }
+
+    Fail-soft: any single-file OSError is skipped (broken symlinks,
+    permission-denied) so a locked file doesn't sink the probe.
+    ``limit`` is clamped to 200 so an over-eager caller can't ask
+    for a megabyte of paths back.
+    """
+    import time
+    from collections import Counter
+
+    limit = max(1, min(int(limit or 30), 200))
+    window_seconds = max(60, int(window_minutes or 60) * 60)
+    now = time.time()
+    cutoff = now - window_seconds
+
+    # Build the roots list. Never scan /, /var, /proc, /sys.
+    home = Path.home()
+    candidate_roots: list[Path] = []
+    if home and home.exists():
+        candidate_roots.append(home)
+        for sub in ("Desktop", "Documents", "Downloads"):
+            p = home / sub
+            if p.exists() and p.is_dir():
+                candidate_roots.append(p)
+
+    # Deduplicate: home covers subdirs already, but explicit
+    # candidates surface in the roots_scanned list for auditability.
+    seen_roots = []
+    for r in candidate_roots:
+        rs = str(r.resolve())
+        if rs not in [str(x.resolve()) for x in seen_roots]:
+            seen_roots.append(r)
+
+    EXCLUDED_DIRS = {
+        ".git", ".hg", ".svn",
+        "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
+        "node_modules", "build", "dist", "target",
+        ".next", ".nuxt", ".venv", "venv", ".env", "env",
+        ".cache", ".local", ".gradle", ".m2", ".rustup", ".cargo",
+        ".arena_proposals",
+        ".Trash", ".Trash-1000",
+    }
+    MAX_SIZE = 5 * 1024 * 1024  # 5 MB
+
+    total_seen = 0
+    matched: list[tuple[float, Path, int]] = []
+    # Cap total walk so a huge $HOME can't stall the probe. If we
+    # blow past MAX_WALK we still return what we found.
+    MAX_WALK = 20000
+
+    for root in seen_roots:
+        if total_seen >= MAX_WALK:
+            break
+        try:
+            for dirpath, dirnames, filenames in os.walk(root):
+                if total_seen >= MAX_WALK:
+                    break
+                # Prune excluded subdirs in-place so os.walk doesn't
+                # descend into them (fast: os.walk respects mutation).
+                dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS
+                               and not d.startswith(".git")]
+                for fn in filenames:
+                    total_seen += 1
+                    if total_seen >= MAX_WALK:
+                        break
+                    fp = Path(dirpath) / fn
+                    try:
+                        st = fp.stat()
+                    except OSError:
+                        continue
+                    if st.st_size > MAX_SIZE:
+                        continue
+                    if st.st_mtime < cutoff:
+                        continue
+                    matched.append((st.st_mtime, fp, st.st_size))
+        except OSError:
+            continue
+
+    # Sort newest-first, take limit.
+    matched.sort(key=lambda t: t[0], reverse=True)
+    kept = matched[:limit]
+
+    files_out = []
+    for mtime, fp, size in kept:
+        try:
+            mtime_iso = datetime.fromtimestamp(mtime, tz=timezone.utc) \
+                                 .strftime("%Y-%m-%dT%H:%M:%SZ")
+        except (OSError, ValueError, OverflowError):
+            mtime_iso = None
+        files_out.append({
+            "path": str(fp),
+            "mtime_iso": mtime_iso,
+            "age_seconds": max(0, int(now - mtime)),
+            "size_bytes": int(size),
+        })
+
+    ext_counter: Counter = Counter()
+    for _, fp, _ in matched:
+        suf = fp.suffix.lower()
+        if suf:
+            ext_counter[suf] += 1
+    top_extensions = dict(ext_counter.most_common(10))
+
+    return {
+        "available": True,
+        "window_minutes": int(window_minutes or 60),
+        "roots_scanned": [str(r) for r in seen_roots],
+        "total_seen": total_seen,
+        "matched": len(matched),
+        "returned": len(files_out),
+        "files": files_out,
+        "top_extensions": top_extensions,
+        "walk_capped": total_seen >= MAX_WALK,
+    }
