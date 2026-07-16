@@ -52,7 +52,12 @@ NGROK_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
 # ---------------------------------------------------------------------------
 _URL_WAIT_MIN_SECONDS = 1.0
 _URL_WAIT_MAX_SECONDS = 300.0
-_URL_WAIT_DEFAULT_SECONDS = 30.0
+# v4.36.2: bumped from 30s -> 45s. Live-smoke of v4.36.1 saw an
+# ngrok cold start hit exactly 30.0s and only barely make it. The
+# ngrok edge is measurably slower to negotiate a URL than cloudflared
+# on the same box, so we give it more head-room. Same env override
+# available for operators on faster/slower networks.
+_URL_WAIT_DEFAULT_SECONDS = 45.0
 _URL_WAIT_POLL_INTERVAL_SECONDS = 0.5
 _ENV_URL_WAIT = "ARENA_NGROK_URL_WAIT_SECONDS"
 

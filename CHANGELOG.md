@@ -1,3 +1,45 @@
+## v4.36.2 - 2026-07-17
+
+### ngrok URL-wait default bumped 30s -> 45s (live-smoke tuning)
+
+The v4.36.1 live-smoke was the **first successful full ngrok
+E2E** in the project's history: we spawned a tunnel on
+port 8765, watched it appear in ``/v1/agent/config`` alongside
+the three legacy transports, and confirmed the public URL
+served ``/health`` back through the ngrok edge into our
+bridge. All four transports live at once.
+
+But the cold-start took exactly **30.0 s** to negotiate a URL
+-- right at the previous default. Any additional network
+latency and the operator would have seen a false-timeout
+error. The ngrok edge is measurably slower to hand out a URL
+than cloudflared's quick-tunnel on the same box (probably
+because ngrok validates the authtoken + reserved domain
+lookup, whereas cloudflared just spins up an ephemeral
+subdomain), so we give it more head-room.
+
+Change:
+
+* ``_URL_WAIT_DEFAULT_SECONDS`` bumped from **30.0** to
+  **45.0**. Same env override (``ARENA_NGROK_URL_WAIT_SECONDS``,
+  clamped 1-300 s) continues to work.
+
+Nothing else changes. The clamp bounds, poll interval,
+error-classifier, port filter, stale-URL cleanup all stay as
+they were. This is a single-line tuning bump captured from
+observed reality.
+
+Tests: existing ngrok tests continue to pass because they read
+the ``_URL_WAIT_DEFAULT_SECONDS`` constant directly rather than
+hard-coding a value. Nothing to add.
+
+Suite: **1872 passed** (unchanged), one baseline flaky.
+
+Files:
+
+* ``arena/admin/ngrok.py`` -- one-line constant bump with a
+  docstring paragraph explaining why.
+
 ## v4.36.1 - 2026-07-17
 
 ### Fix -- ngrok port filter + stale-URL cleanup (v4.36.0 live-smoke fix)
