@@ -1,3 +1,71 @@
+\n## v4.32.0 - 2026-07-17
+
+### ngrok как четвёртый транспорт -- standalone-модуль (пока не подключён)
+
+Fallback expansion. Отгружает модуль ``arena/admin/ngrok.py``,
+зеркалящий форму ``cloudflared.py``, чтобы downstream-plumbing
+(tunnels_probe, agent_config, breaker, autostart) мог принять
+его без изобретения новой абстракции. Этот релиз landing'ит
+модуль + comprehensive-тесты; проводка в tunnel priority chain
+последует в отдельном релизе.
+
+Дизайн:
+
+* **Тот же public surface, что cloudflared** --
+  ``ngrok_action("start"|"stop"|"status", port, *, root_agent,
+  subprocess_kwargs)`` возвращает тот же dict shape (``ok``,
+  ``action``, ``installed``, ``source``, ``version``, ``active``,
+  ``url``, ``log``, ``waited_seconds``, ``update_hint``).
+  Это позволит tunnels_probe snapshot смерджить ngrok
+  copy-paste-ом ``_cloudflared_snapshot``-helper'а.
+* **Тот же binary-resolution walk**, что cloudflared -- system
+  PATH first, потом well-known install-locations по OS, потом
+  bundled binary в ``root_agent``. Тот же three-value source
+  tag (``system`` / ``bundled`` / ``not_found``).
+* **Тот же URL-wait pattern**, что v4.24.1 cloudflared fix --
+  30 s default, tunable через ``ARENA_NGROK_URL_WAIT_SECONDS``,
+  clamped 1--300 s, typo-safe fallback на default на garbage.
+* **Дифференциатор ngrok: local API polling.** Где cloudflared
+  заставляет grep'ать stdout, ngrok экспозит стабильный JSON
+  endpoint на ``http://127.0.0.1:4040/api/tunnels`` как только
+  запущен любой tunnel. ``_poll_ngrok_url_from_api`` парсит
+  response и предпочитает HTTPS-tunnel. Fallback на stdout
+  capture, если API ещё не поднят.
+
+Env-переменные (все optional, все typo-safe):
+
+* ``ARENA_NGROK_AUTHTOKEN`` -- передаётся в
+  ``ngrok config add-authtoken`` перед start. Free tier требует
+  token (в отличие от cloudflared quick tunnels), так что это
+  общая failure-mode для операторов.
+* ``ARENA_NGROK_URL_WAIT_SECONDS`` -- override URL-wait
+  timeout (default 30 s, clamped 1--300 s).
+* ``ARENA_NGROK_REGION`` -- ``us`` / ``eu`` / ``ap`` / ``au`` /
+  ``sa`` / ``jp`` / ``in``. Absent -> нет ``--region`` flag
+  (ngrok reject'ил бы пустой arg).
+
+Пока не подключено (tracked для следующего релиза):
+
+* Нет entry в ``DEFAULT_PRIORITY`` -- добавление ngrok в
+  Tailscale/ZeroTier/cloudflared list -- отдельное изменение,
+  чтобы four-transport priority order можно было ревьюить
+  независимо.
+* Нет HTTP route -- ``/v1/ngrok/tunnel/{action}`` добавится
+  когда priority-chain примет ngrok.
+* Нет autostart marker file -- когда wired в priority, sibling
+  ``.ngrok_autostart`` последует тем же v4.22.1 pattern-ом.
+* Нет dashboard entry -- Overview network card получит
+  четвёртый badge когда priority-chain примет ngrok.
+
+Тесты: ``tests/test_ngrok.py`` (20 тестов).
+
+Suite: **1809 passed** (было 1789, +20 новых), один baseline flaky.
+
+Файлы:
+
+* ``arena/admin/ngrok.py`` (новый, 371 строка).
+* ``tests/test_ngrok.py`` (новый) -- 20 тестов.
+
 \n## v4.31.0 - 2026-07-17
 
 ### Scoped palette добавлен четырём крупным tab'ам -- Workspace / Doctor / Control / Settings

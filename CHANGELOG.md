@@ -1,3 +1,83 @@
+## v4.32.0 - 2026-07-17
+
+### ngrok as a fourth transport -- standalone module (not yet wired)
+
+Fallback expansion. Ships an ``arena/admin/ngrok.py`` module
+that mirrors the shape of ``cloudflared.py`` so downstream
+plumbing (tunnels_probe, agent_config, breaker, autostart) can
+adopt it without inventing a new abstraction. This release
+lands the module + comprehensive tests; wiring it into the
+tunnel priority chain follows in a subsequent release.
+
+Design:
+
+* **Same public surface as cloudflared** --
+  ``ngrok_action("start"|"stop"|"status", port, *, root_agent,
+  subprocess_kwargs)`` returns the same dict shape (``ok``,
+  ``action``, ``installed``, ``source``, ``version``, ``active``,
+  ``url``, ``log``, ``waited_seconds``, ``update_hint``).
+  This lets the tunnels_probe snapshot merge ngrok in with a
+  copy-paste of the ``_cloudflared_snapshot`` helper.
+* **Same binary-resolution walk** as cloudflared -- system PATH
+  first, then well-known install locations per OS, then the
+  bundled binary in ``root_agent``. Same three-value source tag
+  (``system`` / ``bundled`` / ``not_found``).
+* **Same URL-wait pattern** as the v4.24.1 cloudflared fix --
+  30 s default, tunable via ``ARENA_NGROK_URL_WAIT_SECONDS``,
+  clamped 1--300 s, typo-safe fallback to default on garbage
+  input.
+* **ngrok's differentiator: local API polling.** Where
+  cloudflared forces us to grep stdout, ngrok exposes a stable
+  JSON endpoint on ``http://127.0.0.1:4040/api/tunnels`` as
+  soon as any tunnel is running. ``_poll_ngrok_url_from_api``
+  parses the response and prefers HTTPS tunnels. Falls back to
+  stdout capture if the API isn't up yet (some ngrok versions
+  log the URL to stdout first).
+
+Environment tunables (all optional, all typo-safe):
+
+* ``ARENA_NGROK_AUTHTOKEN`` -- passed to
+  ``ngrok config add-authtoken`` before start. Free tier
+  requires a token (unlike cloudflared quick tunnels), so this
+  is the common failure mode operators will hit.
+* ``ARENA_NGROK_URL_WAIT_SECONDS`` -- override the URL-wait
+  timeout (default 30 s, clamped 1--300 s).
+* ``ARENA_NGROK_REGION`` -- ``us`` / ``eu`` / ``ap`` / ``au`` /
+  ``sa`` / ``jp`` / ``in``. Absent -> no ``--region`` flag
+  passed (ngrok would reject an empty argument).
+
+Not yet wired (tracked for the next release):
+
+* No entry in ``DEFAULT_PRIORITY`` -- adding ngrok to the
+  Tailscale/ZeroTier/cloudflared list is a separate change so
+  the four-transport priority order can be reviewed and voted
+  on independently.
+* No HTTP route -- ``/v1/ngrok/tunnel/{action}`` will get added
+  when the priority chain adopts ngrok.
+* No autostart marker file -- once wired into the priority, the
+  ``.cloudflared_autostart`` sibling ``.ngrok_autostart`` will
+  follow the same v4.22.1 pattern.
+* No dashboard entry -- Overview's network card will grow a
+  fourth badge when the priority chain adopts ngrok.
+
+Tests: ``tests/test_ngrok.py`` (20 tests) -- URL-wait defaults
+match cloudflared, env override respected, garbage/clamp
+behaviour, binary resolution walk (empty PATH -> not_found,
+bundled binary picked up), local API poller (HTTPS preference,
+fallback to any public_url, empty tunnels, network error /
+bad JSON / missing key all swallowed), ``ngrok_action`` shape
+(rejects unknown verb, not-found reports hint, stop is
+idempotent, status when nothing installed graceful), region env
+threading through argv, no-region no-flag guard, local-API-first
+priority proven by returning the API URL while stdout stays empty.
+
+Suite: **1809 passed** (was 1789, +20 new), one baseline flaky.
+
+Files:
+
+* ``arena/admin/ngrok.py`` (new, 371 lines) -- full module.
+* ``tests/test_ngrok.py`` (new) -- 20 tests
+
 ## v4.31.0 - 2026-07-17
 
 ### Scoped palette added to four larger tabs -- Workspace / Doctor / Control / Settings

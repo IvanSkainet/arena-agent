@@ -1,0 +1,371 @@
+"""ngrok tunnel admin runtime helpers (v4.32.0).
+
+Third-party fallback transport alongside Tailscale, ZeroTier,
+and cloudflared. ngrok is the industry-standard tunnel: a single
+static binary, a public HTTPS URL from ``*.ngrok-free.app`` (free
+tier) or a custom domain (paid), and — the differentiator — a
+built-in local HTTP API at ``http://127.0.0.1:4040/api/tunnels``
+that reports the tunnel URL as structured JSON. That means we
+don't have to grep stdout the way we do for cloudflared; we can
+poll the local API and parse a stable response shape.
+
+Environment tunables (all optional, all typo-safe):
+  * ``ARENA_NGROK_AUTHTOKEN``  -- passed to ``ngrok config
+    add-authtoken`` on start if the user hasn't already
+    configured one. Free tier requires an authtoken (unlike
+    cloudflared quick tunnels).
+  * ``ARENA_NGROK_URL_WAIT_SECONDS`` -- override the URL-wait
+    timeout (default 30s, clamped 1--300s -- same defaults as
+    the v4.24.1 cloudflared fix).
+  * ``ARENA_NGROK_REGION`` -- ``us`` / ``eu`` / ``ap`` / ``au`` /
+    ``sa`` / ``jp`` / ``in`` -- passed as ``--region``.
+
+Public API (mirrors cloudflared.py::cloudflared_funnel_action):
+    ngrok_action("start" | "stop" | "status", port, *,
+                 root_agent, subprocess_kwargs) -> dict
+
+State shape identical to cloudflared for uniform snapshot
+consumption downstream:
+    NGROK_STATE = {"proc": Popen | None, "url": str, "log": [str]}
+"""
+from __future__ import annotations
+
+import json
+import os
+import platform
+import re
+import subprocess
+import threading
+import time
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from arena.admin.binaries import which_windows_or_path
+
+NGROK_STATE: dict[str, Any] = {"proc": None, "url": "", "log": []}
+
+# ---------------------------------------------------------------------------
+# Wait-timeout tunable (mirrors v4.24.1 cloudflared clamp/env pattern)
+# ---------------------------------------------------------------------------
+_URL_WAIT_MIN_SECONDS = 1.0
+_URL_WAIT_MAX_SECONDS = 300.0
+_URL_WAIT_DEFAULT_SECONDS = 30.0
+_URL_WAIT_POLL_INTERVAL_SECONDS = 0.5
+_ENV_URL_WAIT = "ARENA_NGROK_URL_WAIT_SECONDS"
+
+
+def _url_wait_seconds() -> float:
+    """Read ARENA_NGROK_URL_WAIT_SECONDS, clamp, return. Same
+    30s default and 1--300s clamp as the v4.24.1 cloudflared fix
+    -- gives cold ngrok launches room to negotiate an
+    ngrok-free.app URL without another live-smoke false negative."""
+    raw = os.environ.get(_ENV_URL_WAIT, "").strip()
+    if not raw:
+        return _URL_WAIT_DEFAULT_SECONDS
+    try:
+        val = float(raw)
+    except ValueError:
+        return _URL_WAIT_DEFAULT_SECONDS
+    if val < _URL_WAIT_MIN_SECONDS:
+        return _URL_WAIT_MIN_SECONDS
+    if val > _URL_WAIT_MAX_SECONDS:
+        return _URL_WAIT_MAX_SECONDS
+    return val
+
+
+# ---------------------------------------------------------------------------
+# Binary resolution -- same system-first / bundled fallback as cloudflared
+# ---------------------------------------------------------------------------
+def _system_candidates() -> list[str]:
+    system = platform.system()
+    if system == "Windows":
+        return [
+            r"C:\Program Files\ngrok\ngrok.exe",
+            r"C:\Program Files (x86)\ngrok\ngrok.exe",
+        ]
+    if system == "Darwin":
+        return [
+            "/usr/local/bin/ngrok",
+            "/opt/homebrew/bin/ngrok",
+        ]
+    return [
+        "/usr/local/bin/ngrok",
+        "/snap/bin/ngrok",
+    ]
+
+
+def _resolve_ngrok_with_source(root_agent: Path) -> tuple[str | None, str]:
+    """Resolve ngrok binary and its source (``system`` /
+    ``bundled`` / ``not_found``)."""
+    system_bin = which_windows_or_path("ngrok", _system_candidates())
+    if system_bin:
+        return system_bin, "system"
+    for candidate in _system_candidates():
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate, "system"
+    local = Path(root_agent) / ("ngrok.exe" if platform.system() == "Windows"
+                                else "ngrok")
+    if local.exists():
+        return str(local), "bundled"
+    return None, "not_found"
+
+
+def _get_ngrok_version(bin_path: str) -> str | None:
+    try:
+        result = subprocess.run(
+            [bin_path, "--version"],
+            capture_output=True, text=True, timeout=5,
+        )
+        # Output: "ngrok version 3.14.0"
+        match = re.search(r"version\s+([\d.]+)", result.stdout or "")
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def _get_update_hint(source: str, version: str | None) -> str:
+    system = platform.system()
+    if source == "system":
+        if system == "Linux":
+            return ("Update via your package manager, or download the latest "
+                    "from https://ngrok.com/download.")
+        if system == "Darwin":
+            return "Update via Homebrew: `brew upgrade ngrok/ngrok/ngrok`."
+        if system == "Windows":
+            return ("Update via `winget upgrade ngrok.ngrok` or download the "
+                    "latest MSI from https://ngrok.com/download")
+        return "Download the latest from https://ngrok.com/download"
+    if source == "bundled":
+        return ("Bundled binary managed by Arena. Run: "
+                "`python3 scripts/update_bundled_tools.py ngrok`")
+    # not_found
+    if system == "Windows":
+        return ("Install ngrok: `winget install --id ngrok.ngrok` or "
+                "`scoop install ngrok`. Docs: https://ngrok.com/download")
+    if system == "Darwin":
+        return ("Install ngrok: `brew install ngrok/ngrok/ngrok`. "
+                "Docs: https://ngrok.com/download")
+    return ("Install ngrok, e.g. `sudo snap install ngrok` or download from "
+            "https://ngrok.com/download")
+
+
+# ---------------------------------------------------------------------------
+# Local API polling -- ngrok's differentiator vs cloudflared
+# ---------------------------------------------------------------------------
+NGROK_LOCAL_API = "http://127.0.0.1:4040/api/tunnels"
+
+
+def _poll_ngrok_url_from_api(timeout: float = 2.0) -> str | None:
+    """Query ngrok's built-in local HTTP API for the current tunnel
+    URL. Returns the first HTTPS public_url found or None.
+
+    ngrok exposes a stable JSON API on 127.0.0.1:4040 whenever any
+    tunnel is running. This is dramatically more robust than
+    grepping stdout the way we do for cloudflared. Response shape::
+
+        {"tunnels":[{"name":"...","public_url":"https://xxx.ngrok-free.app",
+                     "proto":"https","config":{...}}, ...]}
+    """
+    try:
+        with urllib.request.urlopen(NGROK_LOCAL_API, timeout=timeout) as resp:
+            body = resp.read()
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return None
+    except Exception:
+        return None
+    try:
+        payload = json.loads(body.decode("utf-8", "replace"))
+    except Exception:
+        return None
+    tunnels = payload.get("tunnels") or []
+    if not isinstance(tunnels, list):
+        return None
+    # Prefer HTTPS tunnel; fall back to any public_url.
+    for t in tunnels:
+        if not isinstance(t, dict):
+            continue
+        url = t.get("public_url") or ""
+        if url.startswith("https://"):
+            return url
+    for t in tunnels:
+        if isinstance(t, dict) and t.get("public_url"):
+            return str(t["public_url"])
+    return None
+
+
+def _ngrok_monitor_thread(proc: subprocess.Popen, port: int) -> None:
+    """Drain the child stdout so the pipe doesn't fill and block
+    the tunnel. Also captures URLs from stdout as a secondary
+    signal (some ngrok versions log the URL to stdout even before
+    the local API is ready)."""
+    while True:
+        line = proc.stdout.readline() if proc.stdout else ""
+        if not line:
+            break
+        line_str = line.strip()
+        NGROK_STATE["log"].append(line_str)
+        if len(NGROK_STATE["log"]) > 100:
+            NGROK_STATE["log"].pop(0)
+        # Ngrok logs an "url=https://..." field in its structured logs.
+        m = re.search(r"https?://[a-zA-Z0-9-]+\.(?:ngrok-free\.app|ngrok\.io|ngrok\.dev)",
+                      line_str)
+        if m and not NGROK_STATE["url"]:
+            NGROK_STATE["url"] = m.group(0)
+
+
+def _terminate_ngrok(timeout: int = 5) -> None:
+    proc = NGROK_STATE["proc"]
+    if proc and proc.poll() is None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=timeout)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+
+def _apply_authtoken(bin_path: str, subprocess_kwargs: Callable[[], dict[str, Any]]) -> None:
+    """If ARENA_NGROK_AUTHTOKEN is set, run ``ngrok config
+    add-authtoken <TOKEN>`` before start. No-op when already
+    configured -- ngrok is idempotent on this call."""
+    token = os.environ.get("ARENA_NGROK_AUTHTOKEN", "").strip()
+    if not token:
+        return
+    try:
+        subprocess.run(
+            [bin_path, "config", "add-authtoken", token],
+            capture_output=True, timeout=10,
+            **subprocess_kwargs(),
+        )
+    except Exception:
+        pass  # Non-fatal -- ngrok will surface auth errors from `start`.
+
+
+def _start_ngrok(bin_path: str, port: int, *,
+                 subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    if NGROK_STATE["proc"] and NGROK_STATE["proc"].poll() is None:
+        return {"ok": True, "action": "start", "already_running": True,
+                "url": NGROK_STATE["url"]}
+
+    NGROK_STATE["url"] = ""
+    NGROK_STATE["log"].clear()
+
+    _apply_authtoken(bin_path, subprocess_kwargs)
+
+    argv = [bin_path, "http", str(port), "--log=stdout",
+            "--log-format=logfmt"]
+    region = os.environ.get("ARENA_NGROK_REGION", "").strip()
+    if region:
+        argv.extend(["--region", region])
+
+    try:
+        NGROK_STATE["proc"] = subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            **subprocess_kwargs(),
+        )
+    except Exception as e:
+        return {"ok": False, "action": "start", "error": str(e)}
+
+    thread = threading.Thread(
+        target=_ngrok_monitor_thread,
+        args=(NGROK_STATE["proc"], port),
+        daemon=True,
+    )
+    thread.start()
+
+    # Wait for URL to appear -- try the local API first (fast + reliable),
+    # fall back to whatever the stdout monitor captured.
+    total_wait = _url_wait_seconds()
+    deadline = time.monotonic() + total_wait
+    while time.monotonic() < deadline:
+        # Prefer the local API which has a stable JSON shape.
+        api_url = _poll_ngrok_url_from_api(timeout=0.5)
+        if api_url:
+            NGROK_STATE["url"] = api_url
+            break
+        # Fall back to stdout regex capture.
+        if NGROK_STATE["url"]:
+            break
+        if NGROK_STATE["proc"].poll() is not None:
+            break  # process died
+        time.sleep(_URL_WAIT_POLL_INTERVAL_SECONDS)
+
+    if not NGROK_STATE["url"]:
+        _terminate_ngrok(timeout=2)
+        NGROK_STATE["proc"] = None
+        return {
+            "ok": False,
+            "action": "start",
+            "error": f"ngrok timed out generating a tunnel URL after {total_wait:.1f}s",
+            "waited_seconds": total_wait,
+            "log": list(NGROK_STATE["log"]),
+        }
+
+    return {
+        "ok": True,
+        "action": "start",
+        "port": port,
+        "url": NGROK_STATE["url"],
+        "waited_seconds": total_wait,
+        "log": list(NGROK_STATE["log"]),
+    }
+
+
+def ngrok_action(action: str, port: int, *,
+                 root_agent: Path,
+                 subprocess_kwargs: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+    """Same public shape as cloudflared_funnel_action: start / stop / status."""
+    action = (action or "").lower()
+    if action not in ("start", "stop", "status"):
+        return {"ok": False, "error": "action must be start|stop|status"}
+
+    bin_path, source = _resolve_ngrok_with_source(root_agent)
+
+    if action == "start":
+        if not bin_path:
+            return {"ok": False, "error": "ngrok binary not found",
+                    "update_hint": _get_update_hint(source, None)}
+        return _start_ngrok(bin_path, port, subprocess_kwargs=subprocess_kwargs)
+
+    if action == "stop":
+        _terminate_ngrok()
+        NGROK_STATE["proc"] = None
+        NGROK_STATE["url"] = ""
+        return {"ok": True, "action": "stop"}
+
+    # action == "status"
+    proc = NGROK_STATE["proc"]
+    running = proc is not None and proc.poll() is None
+    installed = bin_path is not None
+    version = _get_ngrok_version(bin_path) if bin_path else None
+
+    # If we think we're running, double-check by polling the local API.
+    # Handles the case where the child was killed out-of-band.
+    if running and not NGROK_STATE["url"]:
+        api_url = _poll_ngrok_url_from_api(timeout=1.0)
+        if api_url:
+            NGROK_STATE["url"] = api_url
+
+    result = {
+        "ok": True,
+        "action": "status",
+        "installed": installed,
+        "source": source,
+        "version": version,
+        "active": running,
+        "url": NGROK_STATE["url"],
+        "log": list(NGROK_STATE["log"]) if running else [],
+    }
+    if installed:
+        result["update_hint"] = _get_update_hint(source, version)
+    return result
