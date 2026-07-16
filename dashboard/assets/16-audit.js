@@ -1,16 +1,26 @@
-// ===== AUDIT (v4.6.0 polish; v4.10.0 live-tail) =====
+// ===== AUDIT (v4.6.0 polish; v4.10.0 live-tail; v4.12.0 ring cap) =====
 // State kept module-scope so pagination/filters survive between
 // re-renders without re-fetching. Fresh loadAudit() (Reload button
 // or auto-refresh tick) refills __auditState.raw.
 //
 // v4.10.0: adds a live-tail mode backed by /v1/audit/stream?follow=1.
-// While live, incoming NDJSON events are prepended to
+// While live, incoming NDJSON events are pushed onto
 // __auditState.raw and the current page re-renders in place. The
 // stream is bounded by max_duration on the server (300s); we
 // auto-reconnect with since=<last-known-ts> so no event is lost
 // across the rollover.
+//
+// v4.12.0: bounded client-side ring buffer. A long-running live-tail
+// session used to grow __auditState.raw unbounded -- a Dashboard
+// left open for hours could accumulate tens of thousands of rows in
+// memory. The buffer is now capped at __AUDIT_RING_CAP; when it
+// overflows we drop the oldest entries and increment
+// __auditState.evicted so the meta line can display an "evicted N"
+// counter and operators know history was trimmed.
+const __AUDIT_RING_CAP = 5000;
+
 const __auditState = {
-  raw: [],           // last full fetch from /v1/audit
+  raw: [],           // last full fetch from /v1/audit (or growing live)
   page: 0,           // 0-based current page
   autoTimer: null,   // setInterval handle when auto-refresh is on
   lastFetch: null,   // Date of last successful fetch (for meta line)
@@ -20,7 +30,20 @@ const __auditState = {
   liveLastTs: null,       // last event ts seen, used for since= on reconnect
   liveEvents: 0,          // running counter of events received live
   liveReconnectTimer: null, // setTimeout for the reconnect back-off
+  // v4.12.0 ring buffer:
+  evicted: 0,             // rows dropped from the head to honour the cap
 };
+
+// Trim __auditState.raw to __AUDIT_RING_CAP entries by dropping the
+// oldest events at the head of the array. Returns the number of
+// rows dropped so callers can bump __auditState.evicted. Safe to
+// call any number of times; a no-op when the buffer is under cap.
+function __auditEnforceRingCap() {
+  const over = __auditState.raw.length - __AUDIT_RING_CAP;
+  if (over <= 0) return 0;
+  __auditState.raw.splice(0, over);
+  return over;
+}
 
 // Event-type -> badge category. Keep the mapping tiny; anything
 // unknown falls through to 'other'. New event names added by
@@ -235,6 +258,12 @@ function __auditRenderPage() {
   if (__auditState.liveController) {
     parts.push("live +" + __auditState.liveEvents);
   }
+  // v4.12.0: ring-cap eviction counter. Shown only when > 0 so
+  // typical sessions stay uncluttered; a non-zero value means the
+  // oldest events have scrolled off (cap = 5000 rows).
+  if (__auditState.evicted > 0) {
+    parts.push("evicted " + __auditState.evicted);
+  }
   meta.innerHTML = parts.map(esc).join('<span class="sep">|</span>');
 }
 
@@ -306,6 +335,11 @@ function __auditIngestLiveEvent(ev) {
     __auditState.raw.push(ev);
   }
   __auditState.liveEvents += 1;
+  // v4.12.0: enforce ring cap so a long-running live-tail session
+  // can't accumulate tens of thousands of rows in memory. Dropped
+  // rows are the oldest ones (head of array); the meta line
+  // displays the running "evicted N" counter.
+  __auditState.evicted += __auditEnforceRingCap();
   const ts = ev.ts || ev.timestamp;
   if (ts) __auditState.liveLastTs = ts;
   // Re-render only when the audit tab is the one on screen so we
@@ -492,7 +526,12 @@ async function loadAudit() {
       tbody.innerHTML = '<tr><td colspan="6" class="audit-empty">Error: ' + esc(result.error || "?") + '</td></tr>';
       return;
     }
+    // v4.12.0: a fresh poll replaces the buffer entirely, so the
+    // "evicted" counter resets -- a Reload button click is the
+    // operator's explicit "start over" gesture. The cap still
+    // applies in case an operator asked for lines=10000+ history.
     __auditState.raw = result.events || [];
+    __auditState.evicted = __auditEnforceRingCap();
     __auditState.lastFetch = new Date();
     __auditRebuildTypeSelect(__auditState.raw);
     __auditRenderPage();

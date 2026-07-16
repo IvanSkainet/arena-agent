@@ -1,3 +1,114 @@
+\n## v4.12.0 - 2026-07-16
+
+### Изменено - Audit tab: bounded client-side ring buffer для live-tail
+
+v4.10.0 live-tail toggle prepend'ил каждое NDJSON событие в
+``__auditState.raw`` без границ. Dashboard оставленный открытым
+на часы на busy host мог накопить десятки тысяч rows в этом
+массиве -- стабильный memory growth, без верхнего лимита. v4.10.0
+CHANGELOG flagged это как follow-up work; v4.12.0 делает работу.
+
+**Новое поведение:** ``__auditState.raw`` теперь capped на
+``__AUDIT_RING_CAP = 5000`` записей. Когда live-tail push'ит новое
+событие и buffer overflow'ится -- oldest events в head массива
+drop'аются (настоящий ring buffer) и running total дроп'нутых
+rows track'ается в ``__auditState.evicted``. Meta line показывает
+"evicted N" как дополнительный сегмент когда ``evicted > 0`` --
+operators знают что history trimmed и на сколько:
+
+    3512 fetched | 47 after filters | last fetch 20:44:07 | live +2103 | evicted 843
+
+Trimming happens **сразу** после каждого push, не на next render
+-- burst source (много событий в одном stream chunk) не может
+grow past cap mid-tick. Pagination и filter axes продолжают
+работать на newest 5000-row window; older rows gone до next
+Reload (который re-fetches server-side и сбрасывает counters).
+
+### Reload semantics
+
+Кнопка **Reload** (и любой auto-refresh tick) полностью replace'ит
+buffer. Это explicit "start over" gesture оператора, поэтому
+``evicted`` counter сбрасывается в ноль в тот же момент. Cap
+всё ещё применяется к replacement -- если оператор попросит
+``lines=10000`` history, buffer trimmed до 5000 newest rows,
+``evicted = 5000``, meta line отражает.
+
+### Design notes
+
+* Cap и trim helper (``__auditEnforceRingCap``) живут в module
+  scope в ``dashboard/assets/16-audit.js`` -- будущий оператор
+  raising cap меняет ровно один literal integer.
+* Trim использует ``Array.prototype.splice(0, over)`` -- newest
+  events в tail, drop'аем из head чтобы держать window который
+  оператор действительно хочет видеть. Regression test fail'ится
+  сразу если будущая правка случайно потянется к ``.pop()``
+  или ``splice(-over)``.
+* ``__auditState.evicted`` -- running total по всей live-tail
+  session; **НЕ** reset'ится на max_duration rollover
+  (reconnect invisible оператору, reset там misleadingly
+  занулил бы counter).
+* Ноль CSS изменений -- "evicted N" сегмент reuse'ит тот же
+  ``.sep``-delimited layout который polling/live counters уже
+  использовали. ``dashboard.css`` byte-identical к v4.11.0
+  (109 строк).
+
+### Файлы
+
+* ИЗМЕНЁН ``dashboard/assets/16-audit.js`` (557 -> 596 строк) --
+  новая ``__AUDIT_RING_CAP`` константа + ``__auditEnforceRingCap``
+  хелпер, поле ``evicted`` на ``__auditState``, trim call внутри
+  ``__auditIngestLiveEvent`` после каждого push, reset + trim
+  на manual Reload, meta-line "evicted N" segment.
+
+### Тесты
+
+1289 -> 1297 passed (+8 в ``tests/test_audit_ring_cap.py``):
+
+* ``__AUDIT_RING_CAP`` declared на module scope как literal
+  integer в sane range 500..50000 (guards против silent
+  changes и против runtime-computed caps которые сложно audit'ить)
+* ``__auditEnforceRingCap`` -- standalone function возвращающая
+  drop count (callers могут bump counter)
+* Trim использует ``splice(0, over)`` -- drop'ает из head, не
+  tail (regression guard: drop'ать newest defeats point)
+* ``__auditState.evicted`` стартует с 0
+* Live-tail ingest вызывает trim helper сразу после каждого
+  push и добавляет return value в ``__auditState.evicted``
+* Manual Reload reset'ит counter одновременно с replace buffer
+* Meta line показывает "evicted N" только когда > 0 (uncluttered
+  by default)
+* ``dashboard.css`` не тронут; no ``evicted`` / ``audit-ring`` /
+  ``AUDIT_RING`` tokens leak в shared stylesheet
+
+Full suite: 1297 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.12.0. Открыл Audit tab через ZeroTier overlay с
+live-tail on и запустил ~200 quick ``POST /v1/exec/stream`` calls
+в loop'е из другого shell'а. ``live +N`` counter climbed as
+expected; когда total push'нул ``__auditState.raw`` past 5000 --
+"evicted N" segment появился в meta line и рос примерно на
+same delta по мере прихода дальнейших событий. Table сама
+продолжала рендерить newest 5000 events; older rows unloaded
+silently. Клик Reload обнулил оба counter'а и re-fetched fresh
+history из ``/v1/audit?lines=200``.
+
+### Не включено
+
+* User-configurable cap. Значение 5000 fine для каждого use
+  case observed so far; если оператор попросит -- проведём
+  через ``localStorage`` с settings row.
+* "Load older" pagination. Весь смысл live-tail --
+  newest-events-first; scrolling backwards past cap
+  принадлежит отдельному "historical query" mode который мог
+  бы hit'ать ``/v1/audit?lines=<N>`` с ``since=`` cursor --
+  отложено до запроса.
+* Применение cap к ``__auditRebuildTypeSelect`` dropdown.
+  Helper уже видит только current buffer, так что narrows
+  naturally как old rows evict'аются; отдельный лимит не нужен.
+
 \n## v4.11.0 - 2026-07-16
 
 ### Добавлено - Overview Network Status: circuit breaker indicators
