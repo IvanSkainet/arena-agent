@@ -1,3 +1,93 @@
+\n## v4.39.0 - 2026-07-17
+
+### Persistent URL memory -- agentctl переживает bootstrap-outage
+
+Проблема (наблюдалась вживую в этой сессии, когда Tailscale
+упал): когда bootstrap URL ``ARENA_BRIDGE_URL`` становится
+недоступным (Tailscale TLS drop, ротация cloudflared-домена,
+suspend ноутбука), agentctl-клиент полностью отрезан, хотя
+``/v1/agent/config`` неделями рекламировал три-четыре рабочих
+альтернативы. Эти URL были видны в каждом ответе, но нигде не
+персистились -- в момент, когда bootstrap умирал, Plan B не было.
+
+Этот релиз добавляет Plan B: маленький JSON-snapshot по пути
+``~/.arena/last_urls.json``, пишется на каждый успешный
+``/v1/agent/config``, читается как fallback-bootstrap, когда
+primary URL таймаутится.
+
+Принципы дизайна (каждый с matching-тестом):
+
+* **Чисто additive** -- когда cache свежий, bootstrap работает
+  как раньше; ничего не меняется. Когда cache stale, fallback
+  тихий и диагностический (stderr NOTE говорит оператору,
+  какой URL сработал).
+* **Только клиент** -- никаких server-изменений, никаких
+  новых endpoint'ов. Это hint, который клиент держит для себя.
+* **User-controllable** -- subverb ``bridge cache`` позволяет
+  операторам смотреть и очищать cache. Env-переменная
+  ``ARENA_BRIDGE_URL_CACHE`` (truthy-off: ``0``/``false``/
+  ``no``/``off``) отключает кэширование целиком.
+* **Fail-soft** -- любая I/O-ошибка чтения или записи
+  swallowed. Cache -- hint; его отсутствие никогда не должно
+  ломать bridge-call.
+* **Atomic write** -- .tmp + rename, чтобы прерванная запись
+  не оставила truncated-JSON.
+* **Schema-versioned** -- payload несёт ``version: 1``.
+  Будущие релизы могут поднять; старые клиенты игнорируют
+  несовпадение silently.
+
+Fallback-loop в ``_fetch_config``:
+
+1. Пытаемся ``ARENA_BRIDGE_URL`` первым. На успех --
+   персистим свежий snapshot.
+2. На failure -- загружаем cache, пробуем каждый URL как
+   bootstrap в приоритетном порядке. Первый ответивший
+   побеждает.
+3. На успех fallback'а -- обновляем cache свежим ответом
+   (подхватываем ротированные cloudflared/ngrok URL'ы).
+4. На полный fail -- печатаем ошибку + счётчик tried URLs,
+   exit 1 (как до v4.39.0).
+5. Fallback-loop пропускает bootstrap-URL, если он в cache
+   (частый случай -- ``ARENA_BRIDGE_URL`` обычно И ЕСТЬ первый
+   URL, который сервер отдаёт), чтобы не тратить второй
+   timeout на тот же failing URL.
+
+Новый CLI-verb ``agentctl bridge cache [show|clear] [--json]``:
+
+* ``show`` (по умолчанию) -- печатает cache таблицей или JSON
+  с ``--json``. Также печатает путь и disabled-state, чтобы
+  отличить "нет cache" от "cache disabled".
+* ``clear`` -- удаляет файл. Идемпотентно.
+
+Также refactor: ``_fetch_config`` разбит на
+``_fetch_config_from(url)`` (low-level: fetch с конкретного
+URL, raise на failure) и retry-обёртку.
+
+Покрытие тестами:
+
+* ``tests/test_url_cache.py`` -- 38 unit-тестов (path resolution,
+  disable flag shapes, save/load round-trip, mkdir, empty URLs,
+  malformed / wrong-schema-version, atomic write, dedup, clear
+  idempotent, disable-flag no-op).
+* ``tests/test_url_cache_fallback.py`` -- 13 integration-тестов
+  через subprocess + stub HTTP-servers (успех пишет cache,
+  bootstrap dead + cache saves the day, refresh from new
+  response, all URLs dead -> exit 1, disable-flag skips
+  fallback, bootstrap-URL dedup, cache show/clear/json).
+
+Suite: **2020 passed** (было 1969, +51 новых), один baseline flaky.
+
+Файлы:
+
+* ``arena/agentctl_cli/url_cache.py`` (новый, ~240 строк) --
+  standalone cache-модуль с полными docstring'ами.
+* ``arena/agentctl_cli/agentctl_bridge.py`` -- добавлены
+  импорт ``BRIDGE_URL``, ``_fetch_config_from``, fallback-loop
+  в ``_fetch_config``, verb ``cache``, обновлён ``_HELP``.
+  Теперь 439 строк (было 248), под 700-line лимитом.
+* ``tests/test_url_cache.py`` (новый) -- 38 тестов.
+* ``tests/test_url_cache_fallback.py`` (новый) -- 13 тестов.
+
 \n## v4.38.1 - 2026-07-17
 
 ### Восстановление читаемости кода -- откат v4.38.0-сжатия

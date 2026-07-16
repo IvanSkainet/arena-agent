@@ -1,3 +1,151 @@
+## v4.39.0 - 2026-07-17
+
+### Persistent URL memory -- agentctl survives bootstrap outages
+
+Problem statement (observed live during this session's Tailscale
+outage): when the ``ARENA_BRIDGE_URL`` bootstrap URL becomes
+unreachable (Tailscale TLS drops, cloudflared domain rotates,
+laptop suspends), the agentctl client is completely cut off
+even though ``/v1/agent/config`` has been advertising three or
+four working alternatives for weeks. Those URLs were visible in
+every previous run's response but nowhere persisted -- the
+moment the bootstrap died, there was no Plan B.
+
+This release adds that Plan B: a small JSON snapshot at
+``~/.arena/last_urls.json`` written on every successful
+``/v1/agent/config`` call, read back as a fallback bootstrap
+when the primary URL times out.
+
+Design principles (each with a matching test):
+
+* **Purely additive** -- when the cache is fresh, bootstrap
+  works as before; nothing changes. When the cache is stale,
+  fallback is silent and diagnostic (stderr NOTE tells the
+  operator which URL served).
+* **Client-side only** -- no server changes, no new endpoints.
+  This is a hint the client keeps for itself.
+* **User-controllable** -- ``bridge cache`` subcommand lets
+  operators inspect and clear the cache. An
+  ``ARENA_BRIDGE_URL_CACHE`` env variable (truthy-off values:
+  ``0`` / ``false`` / ``no`` / ``off``) disables caching
+  entirely for operators who prefer no local state.
+* **Fail-soft** -- any I/O error reading or writing the cache
+  is swallowed. The cache is a *hint*; missing it must never
+  break a bridge call.
+* **Atomic write** -- .tmp + rename so an interrupted save
+  cannot leave a truncated JSON file that a future read trips
+  on.
+* **Schema-versioned** -- payload carries ``version: 1``.
+  Future arena-agent releases may bump this; older clients
+  ignore mismatched-version files silently rather than
+  crashing.
+
+Cache format::
+
+    {
+      "version": 1,
+      "saved_at": 1784567890,               // unix epoch, int
+      "bootstrap_url": "https://...",       // ARENA_BRIDGE_URL at capture time
+      "urls": [
+        {"provider": "tailscale", "url": "https://...", "kind": "https"},
+        {"provider": "ngrok",     "url": "https://...", "kind": "https"},
+        ...
+      ]
+    }
+
+Path convention:
+
+* ``$ARENA_URL_CACHE_PATH`` env var, if set, wins (useful for
+  tests and for operators who want the cache in a non-standard
+  location).
+* Otherwise ``~/.arena/last_urls.json``. Parent directory
+  created on first write.
+
+Fallback loop in ``_fetch_config`` (client-side, in
+``arena/agentctl_cli/agentctl_bridge.py``):
+
+1. Try ``ARENA_BRIDGE_URL`` first. On success, persist a fresh
+   cache snapshot before returning (keeps the cache warm even
+   when everything's working).
+2. On failure, load the cache and try each URL as a bootstrap
+   in the priority order the server saved. First one that
+   responds wins.
+3. On fallback success, persist a fresh cache snapshot from
+   the fresh response -- picks up any rotated cloudflared /
+   ngrok URLs automatically.
+4. On total failure, print the original error + a count of
+   fallback URLs also tried, exit 1 (same as pre-v4.39.0).
+5. Fallback loop skips the bootstrap URL when it appears in
+   the cache (very common -- ``ARENA_BRIDGE_URL`` usually IS
+   the first URL the server hands back), so we don't waste a
+   second timeout trying the same failing URL.
+
+New CLI verb ``agentctl bridge cache [show|clear] [--json]``:
+
+* ``show`` (default) -- prints the cache as a table, or as
+  raw JSON with ``--json``. Also prints the cache path +
+  disabled-state so operators can tell apart "no cache yet"
+  from "cache disabled via env var".
+* ``clear`` -- removes the cache file. Idempotent -- no error
+  when absent. Respects the disable flag (no-op when
+  ``ARENA_BRIDGE_URL_CACHE=0``).
+
+Also refactored: ``_fetch_config`` split into
+``_fetch_config_from(url)`` (low-level: fetch from a specific
+URL, raise on failure) and the retry wrapper. Each cached URL
+gets a full ``/v1/agent/config`` attempt with the same
+bearer-auth + SSL context ``bridge_get`` uses. Fifteen-second
+per-URL timeout matches the pre-v4.39.0 bootstrap timeout, so
+a total outage times out at ``(N+1)*15s`` in the worst case.
+
+Test coverage:
+
+* ``tests/test_url_cache.py`` (38 unit tests):
+  * cache path resolution (default + env override)
+  * disable flag truthy-off shapes (parameterized)
+  * save/load round-trip
+  * parent-directory creation on first write
+  * empty URL list -> no snapshot written
+  * missing / malformed / wrong-schema-version files -> silent None
+  * root-not-a-dict -> silent None
+  * atomic write leaves no .tmp file
+  * fallback_bootstrap_urls preserves order + dedupes
+  * clear() idempotent + respects disable flag
+  * disable flag no-op on save/load/clear
+  * skips dicts without a URL when saving
+
+* ``tests/test_url_cache_fallback.py`` (13 integration tests):
+  * successful bootstrap writes cache
+  * bootstrap dead + cache saves the day (the Ivan-outage
+    scenario)
+  * fallback refreshes cache from new response (rotated
+    cloudflared URL picked up automatically)
+  * all URLs dead -> exit 1 with count of tried URLs
+  * ``ARENA_BRIDGE_URL_CACHE=0`` skips fallback
+  * bootstrap-URL dedup in the cache list
+  * ``cache show`` empty state
+  * ``cache show`` populated table
+  * ``cache show --json`` structured output
+  * ``cache clear`` removes file
+  * ``cache clear`` on missing file reports gracefully
+  * unknown sub-verb -> exit 2 with hint
+  * ``bridge help`` mentions the new verb
+
+Suite: **2020 passed** (was 1969, +51 new), one baseline flaky.
+
+Files:
+
+* ``arena/agentctl_cli/url_cache.py`` (new, ~240 lines) --
+  standalone cache module with full docstrings.
+* ``arena/agentctl_cli/agentctl_bridge.py`` -- imports
+  ``BRIDGE_URL``, adds ``_fetch_config_from``, rewrites
+  ``_fetch_config`` as the fallback loop, adds ``cache`` verb,
+  updates ``_HELP`` text with the new verb + env variables +
+  fallback behaviour paragraph. Now 439 lines (was 248) --
+  still well under the 700-line product-file limit.
+* ``tests/test_url_cache.py`` (new) -- 38 tests.
+* ``tests/test_url_cache_fallback.py`` (new) -- 13 tests.
+
 ## v4.38.1 - 2026-07-17
 
 ### Restore code readability -- undo v4.38.0 compression

@@ -41,7 +41,11 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from arena.agentctl_cli.agentctl_common import BRIDGE_TOKEN, bridge_get
+from arena.agentctl_cli.agentctl_common import (
+    BRIDGE_TOKEN,
+    BRIDGE_URL,
+    bridge_get,
+)
 
 
 _HELP = """Usage: agentctl bridge <verb> [args]
@@ -60,17 +64,34 @@ Verbs:
   test [--json] [--timeout SECONDS]
       Same measurement as ``best`` but prints the full table.
 
+  cache [show|clear] [--json]
+      Inspect or wipe the persistent URL memory (v4.39.0).
+      ``show`` (default) prints the last cached snapshot;
+      ``clear`` removes the on-disk file. The cache is what
+      lets bridge commands keep working when the bootstrap
+      URL becomes unreachable (Tailscale outage etc.).
+
   help
       Show this message.
 
 Environment:
-  ARENA_BRIDGE_URL     bootstrap channel used to fetch agent/config
-  ARENA_BRIDGE_TOKEN   bearer used for the health probes
+  ARENA_BRIDGE_URL          bootstrap channel used to fetch agent/config
+  ARENA_BRIDGE_TOKEN        bearer used for the health probes
+  ARENA_BRIDGE_URL_CACHE    set to 0/false/no/off to disable the
+                            persistent URL memory entirely
+  ARENA_URL_CACHE_PATH      override the cache location (default
+                            ~/.arena/last_urls.json)
 
 The probe hits GET /health on every advertised URL with the
 same bearer token. Latency is walltime for the full HTTP round
 trip, so it includes TLS handshake — that's on purpose because
 that is what a real agent pays on every request.
+
+Fallback behaviour (v4.39.0): when the bootstrap URL is
+unreachable, agentctl transparently tries the URLs from the
+last successful /v1/agent/config response (cached locally).
+Which URL served is reported on stderr so scripts consuming
+stdout stay clean.
 """
 
 
@@ -113,13 +134,115 @@ def _probe_url(url: str, timeout: float) -> dict[str, Any]:
                 "status": None, "error": type(e).__name__ + ": " + str(e)[:120]}
 
 
+def _fetch_config_from(url: str) -> dict[str, Any]:
+    """Low-level: fetch ``/v1/agent/config`` from a specific
+    bootstrap URL.
+
+    Separated out from ``_fetch_config`` so the fallback loop
+    (v4.39.0) can try each cached URL as a bootstrap in turn.
+    Raises the underlying exception on failure -- the caller
+    is expected to catch and try the next candidate. Uses the
+    same bearer-auth + SSL context as the module-level
+    ``bridge_get`` helper, but is not tied to
+    ``BRIDGE_URL``.
+    """
+    full = url.rstrip("/") + "/v1/agent/config"
+    req = urllib.request.Request(full)
+    if BRIDGE_TOKEN:
+        req.add_header("Authorization", f"Bearer {BRIDGE_TOKEN}")
+    kwargs: dict[str, Any] = {"timeout": 15}
+    ctx = _ssl_ctx(url)
+    if ctx is not None:
+        kwargs["context"] = ctx
+    with urllib.request.urlopen(req, **kwargs) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def _fetch_config() -> dict[str, Any]:
-    """Call /v1/agent/config, bailing out with exit 1 on failure."""
+    """Call /v1/agent/config, falling back to cached URLs on
+    bootstrap failure, bailing out with exit 1 only when
+    every option is exhausted.
+
+    v4.39.0: this used to be a one-liner that called
+    ``bridge_get`` and exited 1 on any error. That worked
+    fine until the bootstrap URL itself became unreachable
+    (Tailscale outage, cloudflared domain rotation, laptop
+    suspended between sessions), at which point the client
+    was cut off even though every previous run had listed
+    three-plus working alternatives in the response.
+
+    The new flow:
+
+      1. Try ``BRIDGE_URL`` (the bootstrap) first. On success
+         we always persist a fresh cache snapshot before
+         returning -- keeps the cache warm even when
+         everything's working.
+      2. On failure, load the cache and try each URL in it
+         as a bootstrap. First one that responds wins; we
+         also persist a fresh cache snapshot from the fresh
+         response, so a rotated cloudflared URL gets picked
+         up automatically.
+      3. If cache is disabled, absent, or every cached URL
+         also fails: print a diagnostic pointing at the
+         underlying error and exit 1 as before.
+
+    Cache misses are silent (a missing cache is just the
+    normal state for a first run). When a fallback URL
+    actually served, we announce that on stderr so an
+    operator debugging a Tailscale outage can see what
+    happened -- but only on stderr; stdout stays clean for
+    script consumers.
+    """
+    from arena.agentctl_cli import url_cache
+
+    # Attempt 1: the configured bootstrap URL.
     try:
-        return bridge_get("/v1/agent/config", timeout=15)
-    except Exception as e:
-        print(f"ERROR: could not reach /v1/agent/config: {e}", file=sys.stderr)
-        sys.exit(1)
+        cfg = _fetch_config_from(BRIDGE_URL)
+        # Persist on success so a future outage has a warm
+        # cache to lean on. Save is fail-soft -- filesystem
+        # errors are swallowed and never affect this call.
+        url_cache.save(cfg, bootstrap_url=BRIDGE_URL)
+        return cfg
+    except Exception as primary_err:
+        primary_err_str = f"{type(primary_err).__name__}: {primary_err}"
+
+    # Attempt 2..N: URLs from the cache, in priority order.
+    fallback_urls = url_cache.fallback_bootstrap_urls()
+    for candidate in fallback_urls:
+        if candidate == BRIDGE_URL:
+            # Already tried above -- don't burn a second timeout
+            # on the same URL just because it happens to be in
+            # the cache too.
+            continue
+        try:
+            cfg = _fetch_config_from(candidate)
+        except Exception:
+            continue
+        # Report on stderr so scripts consuming stdout stay
+        # happy but the operator sees what saved them.
+        print(
+            f"NOTE: bootstrap {BRIDGE_URL} unreachable "
+            f"({primary_err_str}); succeeded via cached URL {candidate}",
+            file=sys.stderr,
+        )
+        # Refresh the cache from this successful response --
+        # picks up any rotated URLs (cloudflared, ngrok) so the
+        # next run has an updated snapshot to fall back on.
+        url_cache.save(cfg, bootstrap_url=candidate)
+        return cfg
+
+    # All options exhausted. Print the original error (that's
+    # what most users will need to see) and exit 1 to match
+    # pre-v4.39.0 behaviour.
+    print(f"ERROR: could not reach /v1/agent/config: {primary_err_str}",
+          file=sys.stderr)
+    if fallback_urls:
+        print(
+            f"       also tried {len(fallback_urls)} cached URL(s), "
+            "all unreachable.",
+            file=sys.stderr,
+        )
+    sys.exit(1)
 
 
 def _extract_urls(cfg: dict[str, Any]) -> list[dict[str, str]]:
@@ -235,6 +358,76 @@ def test(args: list[str]) -> None:
         sys.exit(3)
 
 
+def cache(args: list[str]) -> None:
+    """``agentctl bridge cache [show|clear] [--json]`` -- inspect
+    or wipe the persistent URL memory (v4.39.0).
+
+    Two sub-verbs:
+
+    * ``show`` (default) -- print the current cache contents
+      as a table, or as raw JSON with ``--json``. Also prints
+      the cache path + disabled-state so operators can tell
+      apart "no cache yet" from "cache disabled via env var".
+    * ``clear`` -- remove the cache file. Idempotent -- no
+      error when the file is absent.
+
+    Exit codes:
+      0  ``show``: cache present or absent (both are OK states)
+      0  ``clear``: whether or not a file was removed
+      2  usage error (unknown sub-verb)
+
+    Note: the cache is disabled entirely when
+    ``ARENA_BRIDGE_URL_CACHE`` is one of ``0`` / ``false`` /
+    ``no`` / ``off``. In that case ``show`` reports the
+    disabled state and ``clear`` is a no-op.
+    """
+    from arena.agentctl_cli import url_cache
+
+    sub = (args[0] if args else "show").lower()
+    remaining = args[1:] if args else []
+
+    if sub == "show":
+        as_json = "--json" in remaining
+        data = url_cache.load()
+        if as_json:
+            print(json.dumps({
+                "ok": True,
+                "path": str(url_cache.cache_path()),
+                "disabled": url_cache.is_disabled(),
+                "cache": data,
+            }, indent=2, ensure_ascii=False))
+            return
+        print(f"path:     {url_cache.cache_path()}")
+        print(f"disabled: {url_cache.is_disabled()}")
+        if data is None:
+            print("(no cache: bootstrap has never succeeded, "
+                  "cache is disabled, or the file was cleared)")
+            return
+        print(f"saved_at: {data.get('saved_at')} "
+              f"(bootstrap was {data.get('bootstrap_url')})")
+        print(f"{'#':>2}  {'provider':<12} {'kind':<10} url")
+        print(f"{'-'*2}  {'-'*12} {'-'*10} {'-'*40}")
+        for i, u in enumerate(data.get("urls") or [], 1):
+            print(f"{i:>2}  {(u.get('provider') or '?'):<12} "
+                  f"{(u.get('kind') or '?'):<10} {u.get('url')}")
+        return
+
+    if sub == "clear":
+        removed = url_cache.clear()
+        if removed:
+            print(f"removed {url_cache.cache_path()}")
+        else:
+            if url_cache.is_disabled():
+                print("cache disabled via env; nothing to clear.")
+            else:
+                print("no cache file to remove.")
+        return
+
+    print(f"ERROR: unknown cache sub-verb {sub!r}. "
+          "Expected 'show' or 'clear'.", file=sys.stderr)
+    sys.exit(2)
+
+
 def help_(args: list[str]) -> None:
     print(_HELP)
 
@@ -243,6 +436,8 @@ DISPATCH = {
     "urls": urls,
     "best": best,
     "test": test,
+    # v4.39.0: cache inspection + wipe verbs.
+    "cache": cache,
     "help": help_,
     "": urls,
 }
