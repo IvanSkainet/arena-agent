@@ -20,6 +20,9 @@ def register_compat_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_post("/v1/traces/export", h["handle_v1_traces_export"])
 
     app.router.add_get("/gui", h["handle_gui"])
+    # v3.91.0: manifest MUST be declared before the wildcard so
+    # /gui/assets/manifest.json doesn't get swallowed as a filename.
+    app.router.add_get("/gui/assets/manifest.json", h["handle_gui_asset_manifest"])
     app.router.add_get("/gui/assets/{path:.*}", h["handle_gui_asset"])
     # v3.86.3: expose docs/ so Dashboard links to /gui/docs/*.md resolve.
     app.router.add_get("/gui/docs/{path:.*}", h["handle_gui_docs"])

@@ -17,6 +17,7 @@ class GuiHandlers:
     gui: object
     gui_v2: object
     gui_asset: object
+    gui_asset_manifest: object
     gui_docs: object
 
 
@@ -32,6 +33,21 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
             return web.Response(text=GUI_LOGIN_HTML, content_type="text/html", charset="utf-8")
         return web.Response(text=DASHBOARD_V2_HTML, content_type="text/html", charset="utf-8")
 
+
+    async def handle_gui_asset_manifest(request: web.Request) -> web.Response:
+        """GET /gui/assets/manifest.json — auto-generated list of every
+        boot-loaded JS + body HTML asset. The dashboard shell fetches
+        this instead of hardcoding the file lists (v3.91.0).
+        """
+        from arena.gui.asset_manifest import build_manifest
+        try:
+            manifest = build_manifest(ctx.bridge_dir)
+            return ctx.cors_json_response(manifest)
+        except Exception as e:  # noqa: BLE001
+            return ctx.cors_json_response(
+                {"ok": False, "error": f"{type(e).__name__}: {e}"},
+                status=500,
+            )
 
     async def handle_gui_asset(request: web.Request) -> web.Response:
         """GET /gui/assets/{path} — static dashboard assets."""
@@ -162,5 +178,6 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         gui=handle_gui,
         gui_v2=handle_gui_v2,
         gui_asset=handle_gui_asset,
+        gui_asset_manifest=handle_gui_asset_manifest,
         gui_docs=handle_gui_docs,
     )

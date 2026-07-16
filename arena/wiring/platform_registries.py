@@ -94,6 +94,7 @@ def build_platform_registries(g: MutableMapping[str, Any]) -> dict[str, Callable
             "handle_gui": "gui",
             "handle_gui_v2": "gui_v2",
             "handle_gui_asset": "gui_asset",
+            "handle_gui_asset_manifest": "gui_asset_manifest",
             "handle_gui_docs": "gui_docs",
         },
     )

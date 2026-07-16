@@ -143,12 +143,22 @@ def test_tab_switching_uses_registry():
     )
 
 
-def test_index_html_loads_tabs_registry_before_tab_switching():
-    idx = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-    i_reg = idx.find("00-tabs-registry.js")
-    i_sw = idx.find("01-tab-switching.js")
-    assert i_reg > 0, "index.html does not load 00-tabs-registry.js"
-    assert i_sw > i_reg, "00-tabs-registry.js must be loaded BEFORE 01-tab-switching.js"
+def test_asset_manifest_loads_tabs_registry_before_tab_switching():
+    """v3.91.0: script order lives in the auto-generated manifest,
+    not in index.html. Natural sort ensures 00-tabs-registry.js is
+    before 01-tab-switching.js."""
+    from arena.gui.asset_manifest import build_manifest
+    m = build_manifest(ROOT)
+    names = [p.rsplit("/", 1)[-1] for p in m["scripts"]]
+    def idx(name):
+        return names.index(name) if name in names else -1
+    i_reg = idx("00-tabs-registry.js")
+    i_sw = idx("01-tab-switching.js")
+    assert i_reg >= 0, "manifest missing 00-tabs-registry.js"
+    assert i_sw > i_reg, (
+        "00-tabs-registry.js must load BEFORE 01-tab-switching.js "
+        "in the manifest (natural sort)"
+    )
 
 
 # ---- Helpers -------------------------------------------------------------

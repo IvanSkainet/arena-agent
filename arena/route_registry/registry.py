@@ -230,6 +230,7 @@ ROUTES: list[Route] = [
     ('GET'   , '/v1/traces/export'                               , 'handle_v1_traces_export'                    , 'compat', None),
     ('POST'  , '/v1/traces/export'                               , 'handle_v1_traces_export'                    , 'compat', None),
     ('GET'   , '/gui'                                            , 'handle_gui'                                 , 'compat', None),
+    ('GET'   , '/gui/assets/manifest.json'                       , 'handle_gui_asset_manifest'                  , 'compat', None),
     ('GET'   , '/gui/assets/{path:.*}'                           , 'handle_gui_asset'                           , 'compat', None),
     ('GET'   , '/gui/docs/{path:.*}'                             , 'handle_gui_docs'                            , 'compat', None),
     ('POST'  , '/mcp'                                            , 'handle_mcp_post'                            , 'compat', None),

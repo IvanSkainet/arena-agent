@@ -7,10 +7,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_workspace_v3_mission_loop_assets_exist_and_are_bootstrapped():
-    index = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    # v3.91.0: script list comes from the manifest, not from index.html.
+    from arena.gui.asset_manifest import build_manifest
+    m = build_manifest(ROOT)
+    scripts = {p.rsplit("/", 1)[-1] for p in m["scripts"]}
     body = (ROOT / "dashboard" / "assets" / "body-01b-workspace.html").read_text(encoding="utf-8")
     js = (ROOT / "dashboard" / "assets" / "26-workspace-v3.js").read_text(encoding="utf-8")
-    assert '/gui/assets/26-workspace-v3.js' in index
+    assert "26-workspace-v3.js" in scripts
     assert 'workspaceMissionId' in body
     assert 'workspaceMissionCatalog' in body
     assert 'workspaceMissionLineage' in body

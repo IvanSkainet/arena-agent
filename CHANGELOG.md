@@ -1,3 +1,93 @@
+## v3.91.0 - 2026-07-16
+
+### Changed — Dashboard asset manifest (auto-generated, single source)
+
+Continues the v3.89/3.90 "one source of truth" theme. Two more
+duplicated declarations gone.
+
+* **`dashboard/index.html`** used to hardcode two arrays:
+  ```
+  ARENA_DASHBOARD_SCRIPTS = [...]   # 51 file paths, hand-listed
+  bodyParts                = [...]   # 18 file paths, hand-listed
+  ```
+  Every new JS module or body-XX.html required editing both.
+
+* **NEW `GET /gui/assets/manifest.json`** endpoint auto-generates
+  the same lists from `dashboard/assets/*.{js,html}` on disk,
+  sorted deterministically:
+  1. Numeric prefix first (`00-` before `01-` before `09b-`
+     before `10-` before `21b-`).
+  2. Alpha within same prefix (`00-core` before `00-tabs`).
+  3. Files without a numeric prefix sort last, alphabetically.
+
+* **`dashboard/index.html`** shrank from 138 → 98 lines. Fetches
+  the manifest at boot; falls back to the hardcoded pair (kept as
+  `window.ARENA_FALLBACK_*`) only when the endpoint is unreachable
+  (partially upgraded bridge).
+
+* **NEW `arena/gui/asset_manifest.py`** (91 lines) — the manifest
+  builder. `EXCLUDED_ASSET_NAMES` set explicitly skips the two
+  CSS files (they're in `<link>`, not `<script>`) and
+  `manifest.json` itself.
+
+* Every JS/HTML file has a **content-addressed signature** in the
+  manifest (SHA-256 first 12 hex of the joined list). Adding /
+  removing / renaming any asset changes it, so future CDN /
+  browser cache logic has a stable version key without touching
+  `{{VERSION}}`.
+
+### Removed — three duplicate HTML-escape functions
+
+Historically the Dashboard had:
+* `esc()` in `03-helpers.js` — DOM-based, cheap, unsafe in
+  attributes.
+* `_hwEsc()` in `03b-hw-cards.js` — 3-char string escape (& < >).
+* `_htmlEscape()` in `39-admin-update.js` and `40-multiagent.js`
+  — 5-char attribute-safe escape.
+
+Now: **one** `esc()` in `03-helpers.js` with attribute-safe
+behaviour (all 5 chars). `_hwEsc` and `_htmlEscape` stay as
+aliases (`var _hwEsc = esc`) so no caller breaks; new code
+should call `esc()` directly.
+
+### Test
+
+New `tests/test_dashboard_asset_manifest.py` (~110 lines, 9 tests):
+* `test_manifest_builder_returns_expected_shape`
+* `test_manifest_covers_every_js_on_disk` — every real .js in
+  `dashboard/assets/` appears in the manifest (or is in the
+  small `EXCLUDED_ASSET_NAMES` set).
+* `test_manifest_covers_every_body_html_on_disk`
+* `test_manifest_only_references_existing_files` — no ghost
+  entries.
+* `test_manifest_sort_order_prefixes_first` — verifies known
+  relative orderings (00-core before 01-tab-switching,
+  09b-* between 09-* and 10-*, etc.).
+* `test_index_html_no_longer_hardcodes_asset_lists` — regression
+  guard: index.html has ≤ 3 hardcoded `/gui/assets/X.js` refs.
+* `test_index_html_fetches_manifest` — must mention
+  `/gui/assets/manifest.json`.
+* `test_manifest_signature_stable_across_calls` — deterministic.
+* `test_excluded_assets_not_in_manifest`.
+
+### Not changed (already unified — audit result)
+
+Audit of `arena/wiring/*_registries.py` (10 files, 1101 lines)
+shows they **already use** the common `env.export_handler_attrs()`
+helper and share `RuntimeEnv` for context construction. What
+remains file-specific is the actual list of dependencies each
+subsystem needs (executor / audit / control_check / etc.) —
+compressing that further would hide dependencies, not clarify
+them. Left as-is.
+
+### Live-verified
+
+`GET /gui/assets/manifest.json` returns 51 scripts + 18 bodies
+in the expected order with a stable signature. Dashboard boots
+identically to v3.90.0 (same visual, same script load order).
+Fallback path exercised by disabling the endpoint and reloading
+— the FALLBACK arrays kick in.
+
 ## v3.90.0 - 2026-07-16
 
 ### Changed — unification of routes + Dashboard tabs

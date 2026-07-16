@@ -1,5 +1,26 @@
 // ===== HELPERS =====
-function esc(s) { const d = document.createElement("div"); d.textContent = String(s); return d.innerHTML; }
+//
+// v3.91.0 unification: one HTML-escape function used everywhere.
+// Historically we had three:
+//   * esc()         -- DOM-based, cheap, doesn't escape " ' (unsafe
+//                      inside attributes).
+//   * _hwEsc()      -- string-based, escapes & < > only.
+//   * _htmlEscape() -- string-based, escapes & < > " ' (attr-safe).
+//
+// The strict flavour is the correct default: it works both as text
+// content AND inside attribute values. The old shorter aliases stay
+// as pointers to the same function so callers don't break.
+function esc(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+// Aliases for legacy call sites. Do not add new ones; call `esc()`.
+var _hwEsc = esc;
+var _htmlEscape = esc;
 function relTime(ts) {
   if (!ts) return "";
   try {

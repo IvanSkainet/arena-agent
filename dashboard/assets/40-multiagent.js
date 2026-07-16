@@ -70,11 +70,7 @@ function _agentsRenderTable() {
   _agentsBadge(_agentsList.length);
 }
 
-function _htmlEscape(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
+// v3.91.0: _htmlEscape is now an alias for esc() from 03-helpers.js.
 
 function _jsEscape(s) {
   return String(s || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");

@@ -17,82 +17,38 @@
 window.ARENA_TOKEN = "{{TOKEN}}";
 window.ARENA_VERSION = "{{VERSION}}";
 window.ARENA_HOST = "{{HOST}}";
-window.ARENA_DASHBOARD_SCRIPTS = [
-    '/gui/assets/00-core.js',
-    '/gui/assets/00-tabs-registry.js',
-    '/gui/assets/01-tab-switching.js',
-    '/gui/assets/02-api-helper.js',
-    '/gui/assets/03-helpers.js',
-    '/gui/assets/03b-hw-cards.js',
-    '/gui/assets/04-overview.js',
-    '/gui/assets/05-terminal-v1-6-2-persistent-shell-like-se.js',
-    '/gui/assets/06-memory.js',
-    '/gui/assets/07-recall.js',
-    '/gui/assets/08-missions.js',
-    '/gui/assets/09-browser-search.js',
-    '/gui/assets/09b-browser-read-dump.js',
-    '/gui/assets/09c-browser-fetch-head.js',
-    '/gui/assets/09d-browser-screenshot.js',
-    '/gui/assets/10-reports.js',
-    '/gui/assets/11-tasks.js',
-    '/gui/assets/12-skills.js',
-    '/gui/assets/13-hooks.js',
-    '/gui/assets/14-agents.js',
-    '/gui/assets/15-doctor-run.js',
-    '/gui/assets/15b-doctor-hardware.js',
-    '/gui/assets/15b-doctor-fix.js',
-    '/gui/assets/16-audit.js',
-    '/gui/assets/17-settings-status.js',
-    '/gui/assets/17b-settings-token-export.js',
-    '/gui/assets/17c-settings-restart.js',
-    '/gui/assets/18-keyboard-shortcuts.js',
-    '/gui/assets/19-auto-refresh.js',
-    '/gui/assets/20-section.js',
-    '/gui/assets/21-slash-commands.js',
-    '/gui/assets/21b-hwinfo-overview-extensions.js',
-    '/gui/assets/22-full-inventory-loader.js',
-    '/gui/assets/22b-full-inventory-format.js',
-    '/gui/assets/23-control-panel.js',
-    '/gui/assets/24-workspace.js',
-    '/gui/assets/25-workspace-v2.js',
-    '/gui/assets/26-workspace-v3.js',
-    '/gui/assets/29-tunnels.js',
-    '/gui/assets/30-mobile.js',
-    '/gui/assets/31-mobile-screen.js',
-    '/gui/assets/32-mobile-gestures.js',
-    '/gui/assets/33-mobile-ui.js',
-    '/gui/assets/34-mobile-info.js',
-    '/gui/assets/35-mobile-input.js',
-    '/gui/assets/36-mobile-devops.js',
-    '/gui/assets/37-mobile-camera.js',
-    '/gui/assets/38-mobile-mirror.js',
-    '/gui/assets/39-admin-update.js',
-    '/gui/assets/40-multiagent.js'
-  ];
 (async function bootArenaDashboard() {
   const root = document.getElementById("arena-dashboard-root");
-  const bodyParts = [
-    '/gui/assets/body-00-shell.html',
-    '/gui/assets/body-01-overview.html',
-    '/gui/assets/body-01b-workspace.html',
-    '/gui/assets/body-02-terminal.html',
-    '/gui/assets/body-03-memory.html',
-    '/gui/assets/body-04-recall.html',
-    '/gui/assets/body-05-missions.html',
-    '/gui/assets/body-06-browser.html',
-    '/gui/assets/body-07-reports.html',
-    '/gui/assets/body-08-tasks.html',
-    '/gui/assets/body-09-skills.html',
-    '/gui/assets/body-10-hooks.html',
-    '/gui/assets/body-11-agents.html',
-    '/gui/assets/body-12-doctor.html',
-    '/gui/assets/body-13-audit.html',
-    '/gui/assets/body-14-control.html',
-    '/gui/assets/body-15-settings.html',
-    '/gui/assets/body-16-mobile.html'
-  ];
   const cacheBust = "?v=" + encodeURIComponent(window.ARENA_VERSION || "dev");
-  const bodyHtml = await Promise.all(bodyParts.map(async p => (await fetch(p + cacheBust, {cache: "no-store"})).text()));
+
+  // v3.91.0: script + body lists come from the server manifest
+  // (auto-generated from the assets directory) instead of being
+  // hardcoded here. Falls back to the legacy hardcoded pair only
+  // if the manifest endpoint is unreachable so a partially-upgraded
+  // bridge still boots.
+  let manifest = null;
+  try {
+    const res = await fetch("/gui/assets/manifest.json" + cacheBust,
+                            {cache: "no-store"});
+    if (res.ok) manifest = await res.json();
+  } catch (_e) { /* fall through to fallback */ }
+
+  const scripts = (manifest && Array.isArray(manifest.scripts))
+    ? manifest.scripts
+    : (window.ARENA_FALLBACK_SCRIPTS || []);
+  const bodyParts = (manifest && Array.isArray(manifest.bodies))
+    ? manifest.bodies
+    : (window.ARENA_FALLBACK_BODIES || ['/gui/assets/body-00-shell.html']);
+
+  if (!scripts.length) {
+    document.body.innerHTML =
+      "<pre style='color:#e94560;padding:2rem'>Dashboard boot failed: "
+      + "asset manifest empty and no fallback list configured.</pre>";
+    return;
+  }
+
+  const bodyHtml = await Promise.all(bodyParts.map(async p =>
+    (await fetch(p + cacheBust, {cache: "no-store"})).text()));
   const placeholders = {
     token: "{{" + "TOKEN" + "}}",
     version: "{{" + "VERSION" + "}}",
@@ -105,7 +61,11 @@ window.ARENA_DASHBOARD_SCRIPTS = [
   const tpl = document.createElement("template");
   tpl.innerHTML = renderedBody;
   root.replaceWith(tpl.content.cloneNode(true));
-  for (const src of window.ARENA_DASHBOARD_SCRIPTS) {
+
+  // Expose the effective list for debugging / tests.
+  window.ARENA_DASHBOARD_SCRIPTS = scripts;
+
+  for (const src of scripts) {
     // v3.85.3: retry twice on transient load failure. Chrome
     // occasionally 0-reads the response body on connection reuse and
     // fires script.onerror even though the second attempt sails

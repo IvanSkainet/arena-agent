@@ -21,7 +21,10 @@ INDEX = ROOT / "dashboard" / "index.html"
 
 # Renderers that MUST live in 03b-hw-cards.js only.
 SHARED_RENDERERS = [
-    "_hwCard", "_hwEsc", "_hwEl", "_hwFmtGB", "_hwFmtSeconds",
+    # `_hwEsc` used to be a locally-defined function in 03b; since
+    # v3.91.0 it's a `var` alias for `esc` from 03-helpers.js so we
+    # don't check it here (a `function` regex wouldn't match).
+    "_hwCard", "_hwEl", "_hwFmtGB", "_hwFmtSeconds",
     "_hwRenderCPU", "_hwRenderMemory", "_hwRenderGPU", "_hwRenderDisks",
     "_hwRenderOS", "_hwRenderMotherboard", "_hwRenderNetwork",
     "_hwRenderThermal", "_hwRenderFans", "_hwRenderBattery",
@@ -77,14 +80,21 @@ def test_22_full_inventory_uses_shared_renderers():
         )
 
 
-def test_index_html_loads_03b_before_15b_and_22():
-    text = INDEX.read_text(encoding="utf-8")
-    idx_03b = text.find("03b-hw-cards.js")
-    idx_15b = text.find("15b-doctor-hardware.js")
-    idx_22 = text.find("22-full-inventory-loader.js")
-    assert idx_03b > 0, "index.html does not link 03b-hw-cards.js"
-    assert idx_15b > idx_03b, "15b must be loaded AFTER 03b"
-    assert idx_22 > idx_03b, "22 must be loaded AFTER 03b"
+def test_asset_manifest_loads_03b_before_15b_and_22():
+    """v3.91.0: script load order lives in the auto-generated
+    manifest, not in index.html. The natural-sort keeps 03b before
+    15b before 22."""
+    from arena.gui.asset_manifest import build_manifest
+    m = build_manifest(ROOT)
+    names = [p.rsplit("/", 1)[-1] for p in m["scripts"]]
+    def idx(name):
+        return names.index(name) if name in names else -1
+    i_03b = idx("03b-hw-cards.js")
+    i_15b = idx("15b-doctor-hardware.js")
+    i_22 = idx("22-full-inventory-loader.js")
+    assert i_03b >= 0, "manifest does not list 03b-hw-cards.js"
+    assert i_15b > i_03b, "15b must load AFTER 03b in the manifest"
+    assert i_22 > i_03b, "22 must load AFTER 03b in the manifest"
 
 
 def test_new_v883_renderers_present():

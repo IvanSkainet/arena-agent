@@ -76,11 +76,7 @@ function _adminUpdateFormatSize(bytes) {
   return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
-function _htmlEscape(s) {
-  return String(s || "")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-}
+// v3.91.0: _htmlEscape is now an alias for esc() from 03-helpers.js.
 
 function _adminUpdateShortSha(sha) {
   // "sha256:abcdef1234...ff00" style, so operators can eyeball

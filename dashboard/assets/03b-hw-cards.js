@@ -19,10 +19,9 @@
 
 function _hwEl(id) { return document.getElementById(id); }
 
-function _hwEsc(s) {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+// v3.91.0: `_hwEsc` now comes from 03-helpers.js (aliased to esc()).
+// This file used to redefine it locally; that duplicate is gone so
+// there's one HTML-escape function in the whole Dashboard.
 
 function _hwFmtNumber(n, digits) {
   if (n == null || Number.isNaN(n)) return "—";
