@@ -1,3 +1,108 @@
+## v4.25.0 - 2026-07-17
+
+### Proposals tab -- UI over the v4.19.0 agent proposal endpoints
+
+The change-proposal endpoints (``POST /submit``, ``GET /status``,
+``GET /list``) have been shipping since v4.19.0, with the v4.20.0
+dogfood bugfix as their first end-to-end proof. Until now they
+were curl-only. This release adds the first real UI on top so
+proposals can be browsed, expanded, and submitted from the
+dashboard.
+
+New sidebar tab: **📝 Proposals** (between Audit and Settings --
+kept with the other meta / admin tabs at the bottom of the nav).
+
+Layout:
+
+* **Toolbar** matching the Audit + Overview redesign pattern --
+  Reload, "➕ New" form toggle, auto-refresh checkbox with
+  pulsing dot, interval selector (5s / 15s / 30s / 60s).
+* **Meta line** under the toolbar reports total count plus per-
+  state chips (``N passed``, ``N failed``, ``N pending``,
+  ``N running``), plus last-refresh time / duration / manual-vs-
+  auto / last error.
+* **Proposals table** -- one row per ledger entry, sorted newest
+  first (preserves the ``/list`` endpoint's order). Columns:
+  short ID, title, state badge, branch, age, actions.
+  Row-click expands a detail row underneath (same UX pattern the
+  Audit tab uses).
+* **Detail row** shows metadata (request_id, client, diff bytes,
+  first 12 chars of sha256, exit_code), rationale in a scrollable
+  monospaced pane, state reason (when set), full ``tests_tail``,
+  and action buttons: Open push URL (when the ledger has one),
+  Copy branch, Copy full ID.
+* **Submit form** (collapsible, hidden by default) -- title
+  input + rationale textarea + diff textarea. Client-side
+  validation for missing title / empty diff before hitting the
+  bridge. Result banner reports success (with the new
+  request_id) or the bridge's rejection reason inline.
+
+Safety / discipline:
+
+* **Every state has a scoped badge** (``passed``, ``failed``,
+  ``pending``, ``running``, ``rejected``, ``applied``) --
+  guarded by a parameterized layout test so missing one would
+  render unstyled and fail CI.
+* **All styles scoped to ``#tab-proposals``** (v4.0.x CSS
+  lesson enforced by ``test_every_style_selector_scoped_to_tab_proposals``).
+* **Palette variables** (``--pr-tint-*``) declared inside the
+  tab -- never leaks to ``:root``.
+* **HTML escaping everywhere** untrusted strings hit
+  ``innerHTML`` -- title, rationale, tests_tail, reason,
+  branch, client, push_url are all escaped. A regression guard
+  (``test_html_escape_prevents_injection``) submits a
+  ``<script>alert(1)</script>`` title and asserts the rendered
+  HTML has ``&lt;script&gt;`` instead of the raw tag.
+* **``window.api()`` for every call** (bearer auth uniform) --
+  regression test ``test_js_uses_api_helper`` asserts no raw
+  ``fetch(`` in the module.
+* **Fail-soft** -- fetch errors keep the last-known table state
+  and only update the meta line's error field. No crash, no
+  banner spam. Same discipline the Overview and Audit tabs use.
+
+Test coverage:
+
+* ``tests/test_proposals_tab_layout.py`` (25 tests) -- every id
+  present, tab wrapper present, state badges for every state,
+  scoped CSS discipline, scoped palette vars, tab registered in
+  ARENA_TABS between audit and settings, JS is an IIFE and
+  exports ``loadProposals`` / ``submitProposal`` /
+  ``toggleProposalForm`` globally, uses ``window.api()`` (no
+  raw fetch), exposes ``__proposalsTab`` diagnostic namespace,
+  escapes untrusted strings, no hardcoded ``setInterval``
+  delays, short-id slice locked at 8 chars.
+* ``tests/test_proposals_tab_js.py`` (9 tests) -- Node
+  integration against realistic ledger shapes: full render
+  produces 2*N rows (main+detail), empty list shows the
+  placeholder, fetch error updates meta + pulses error dot,
+  submit validates missing title, validates missing diff,
+  success posts JSON and reloads the table, bridge rejection
+  reports the reason inline, auto-refresh reads interval from
+  the ``<select>`` (not a constant), form toggle flips
+  visibility class, and the ``<script>``-injection regression
+  guard.
+* ``tests/test_route_registry.py`` -- updated to require the
+  ``proposals`` name in the sidebar registry.
+
+Suite: **1641 passed** (was 1604, +37 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-19-proposals.html`` (new, 125 lines) --
+  scoped ``<style>``, toolbar, meta line, submit form (hidden),
+  proposals table with empty-state.
+* ``dashboard/assets/19-proposals.js`` (new, 347 lines) --
+  loader, table renderer, detail-row renderer, submit handler
+  with validation, auto-refresh timer, ``__proposalsTab``
+  diagnostic namespace, ``_escape`` HTML helper, ``_fmtAge``
+  human-readable age formatter.
+* ``dashboard/assets/00-tabs-registry.js`` -- ``proposals`` tab
+  entry between ``audit`` and ``settings``.
+* ``tests/test_route_registry.py`` -- ``proposals`` added to
+  the expected-tabs list.
+* ``tests/test_proposals_tab_layout.py`` (new) -- 25 tests
+* ``tests/test_proposals_tab_js.py`` (new) -- 9 tests
+
 ## v4.24.1 - 2026-07-17
 
 ### Fix -- cloudflared cold-start timeout was too tight, now tunable

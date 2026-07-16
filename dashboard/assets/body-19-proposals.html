@@ -1,0 +1,125 @@
+<div class="tab" id="tab-proposals">
+<style>
+  /* Proposals tab -- scoped to #tab-proposals so nothing bleeds into
+     shared dashboard.css (the v4.0.x CSS lesson). All rules target
+     #tab-proposals ... so other tabs stay untouched. Palette follows
+     the same scoped-alpha-tint pattern the Audit + Overview tabs
+     established. */
+  #tab-proposals{
+    --pr-tint-green:#00d67222;
+    --pr-tint-blue:#4fc3f733;
+    --pr-tint-orange:#ff980033;
+    --pr-tint-red:#e9456033;
+    --pr-tint-purple:#53348333;
+    --pr-tint-gray:#88888833;
+  }
+  /* toolbar mirroring Audit + Overview */
+  #tab-proposals .pr-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-proposals .pr-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-proposals .pr-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-proposals .pr-toolbar select{width:auto;min-width:80px}
+  #tab-proposals .pr-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-proposals .pr-meta .sep{margin:0 8px;color:var(--accent)}
+  #tab-proposals .pr-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-proposals .pr-refresh-dot.on{opacity:1;animation:pr-pulse 1.4s infinite}
+  #tab-proposals .pr-refresh-dot.err{opacity:1;background:var(--red);animation:pr-pulse 1.4s infinite}
+  @keyframes pr-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+  #tab-proposals h2{display:flex;align-items:center;gap:8px;margin-top:18px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  /* state badges -- one class per proposal state */
+  #tab-proposals .st-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;font-family:var(--mono);white-space:nowrap;text-transform:lowercase}
+  #tab-proposals .st-badge.passed{background:var(--pr-tint-green);color:var(--green)}
+  #tab-proposals .st-badge.failed{background:var(--pr-tint-red);color:var(--red)}
+  #tab-proposals .st-badge.pending{background:var(--pr-tint-blue);color:var(--blue)}
+  #tab-proposals .st-badge.running{background:var(--pr-tint-orange);color:var(--warning-text)}
+  #tab-proposals .st-badge.rejected{background:var(--pr-tint-gray);color:var(--text2)}
+  #tab-proposals .st-badge.applied{background:var(--pr-tint-purple);color:var(--purple)}
+  /* main table */
+  #tab-proposals .pr-table{table-layout:fixed;width:100%}
+  #tab-proposals .pr-table th.col-id{width:96px}
+  #tab-proposals .pr-table th.col-state{width:100px}
+  #tab-proposals .pr-table th.col-branch{width:180px}
+  #tab-proposals .pr-table th.col-age{width:110px}
+  #tab-proposals .pr-table th.col-actions{width:90px}
+  #tab-proposals .pr-table td{vertical-align:top;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  #tab-proposals .pr-table tr.pr-row{cursor:pointer}
+  #tab-proposals .pr-table tr.pr-row:hover td{background:var(--bg3)}
+  #tab-proposals .pr-table tr.pr-detail-row{display:none}
+  #tab-proposals .pr-table tr.pr-detail-row.open{display:table-row}
+  #tab-proposals .pr-table tr.pr-detail-row td{background:var(--bg3);white-space:pre-wrap;word-break:break-word;padding:10px 12px;border-bottom:1px solid var(--accent)}
+  #tab-proposals .pr-detail-block{margin-bottom:10px}
+  #tab-proposals .pr-detail-block h4{margin:0 0 4px 0;font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.03em}
+  #tab-proposals .pr-detail-block .pr-body{font-family:var(--mono);font-size:11px;color:var(--text);line-height:1.4;background:var(--bg2);padding:6px 8px;border-radius:4px;border:1px solid var(--accent);max-height:220px;overflow:auto}
+  #tab-proposals .pr-detail-actions{display:flex;gap:6px;margin-top:6px;flex-wrap:wrap}
+  #tab-proposals .pr-empty{padding:24px;text-align:center;color:var(--text2)}
+  /* submit form (collapsible) */
+  #tab-proposals .pr-form{display:none}
+  #tab-proposals .pr-form.on{display:block}
+  #tab-proposals .pr-form textarea{width:100%;font-family:var(--mono);font-size:12px;min-height:80px}
+  #tab-proposals .pr-form .pr-form-row{margin-bottom:8px}
+  #tab-proposals .pr-form label{display:block;font-size:11px;color:var(--text2);margin-bottom:2px}
+  #tab-proposals .pr-form-result{margin-top:8px;font-family:var(--mono);font-size:11px;padding:6px 8px;border-radius:4px;display:none}
+  #tab-proposals .pr-form-result.ok{display:block;background:var(--pr-tint-green);color:var(--green);border:1px solid var(--border-info)}
+  #tab-proposals .pr-form-result.err{display:block;background:var(--pr-tint-red);color:var(--red);border:1px solid var(--border-error)}
+  /* per-state count chips in the meta line */
+  #tab-proposals .pr-meta .chip{margin-right:6px;padding:1px 6px;border-radius:8px;font-size:10px;font-family:var(--mono)}
+  #tab-proposals .pr-meta .chip.passed{background:var(--pr-tint-green);color:var(--green)}
+  #tab-proposals .pr-meta .chip.failed{background:var(--pr-tint-red);color:var(--red)}
+  #tab-proposals .pr-meta .chip.pending{background:var(--pr-tint-blue);color:var(--blue)}
+  #tab-proposals .pr-meta .chip.running{background:var(--pr-tint-orange);color:var(--warning-text)}
+</style>
+<h1>Proposals</h1>
+
+<div class="pr-toolbar">
+  <button onclick="loadProposals()">Reload</button>
+  <button class="info" onclick="toggleProposalForm()" id="prSubmitToggle">➕ New</button>
+  <label><input type="checkbox" id="proposalsAuto"> auto-refresh <span class="pr-refresh-dot" id="proposalsRefreshDot"></span></label>
+  <select id="proposalsInterval" title="Auto-refresh interval">
+    <option value="5">5s</option>
+    <option value="15" selected>15s</option>
+    <option value="30">30s</option>
+    <option value="60">60s</option>
+  </select>
+</div>
+<div class="pr-meta" id="proposalsMeta">Loading…</div>
+
+<!-- submit form (hidden by default) -->
+<div class="pr-form card" id="proposalsForm">
+  <div class="pr-form-row">
+    <label for="prTitle">Title (max 200 chars)</label>
+    <input type="text" id="prTitle" placeholder="v4.X.Y: short summary of the change">
+  </div>
+  <div class="pr-form-row">
+    <label for="prRationale">Rationale (why this change, expected outcome)</label>
+    <textarea id="prRationale" placeholder="Motivation, expected behaviour, references to related releases..."></textarea>
+  </div>
+  <div class="pr-form-row">
+    <label for="prDiff">Unified diff (git format-patch or git diff output)</label>
+    <textarea id="prDiff" placeholder="diff --git a/foo b/foo&#10;--- a/foo&#10;+++ b/foo&#10;@@ -1 +1 @@&#10;-old&#10;+new" style="min-height:200px"></textarea>
+  </div>
+  <div class="pr-form-row">
+    <button class="success" onclick="submitProposal()" id="prSubmitBtn">Submit</button>
+    <button onclick="toggleProposalForm()">Cancel</button>
+  </div>
+  <div class="pr-form-result" id="prFormResult"></div>
+</div>
+
+<!-- proposals table -->
+<table class="pr-table" id="proposalsTable">
+  <thead>
+    <tr>
+      <th class="col-id">ID</th>
+      <th>Title</th>
+      <th class="col-state">State</th>
+      <th class="col-branch">Branch</th>
+      <th class="col-age">Age</th>
+      <th class="col-actions">Actions</th>
+    </tr>
+  </thead>
+  <tbody id="proposalsTbody">
+    <tr><td colspan="6" class="pr-empty" id="proposalsEmpty">Loading…</td></tr>
+  </tbody>
+</table>
+
+</div>
+
+<!-- ==================== SETTINGS ==================== -->

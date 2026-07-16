@@ -1,3 +1,109 @@
+\n## v4.25.0 - 2026-07-17
+
+### Proposals tab -- UI над agent-proposal endpoint'ами v4.19.0
+
+Endpoint'ы change-proposal (``POST /submit``, ``GET /status``,
+``GET /list``) ходят с v4.19.0, а v4.20.0 dogfood был их первым
+end-to-end proof. До сих пор они были curl-only. Этот релиз
+добавляет первое настоящее UI, чтобы proposals можно было
+листать, разворачивать и submit'ить прямо из dashboard.
+
+Новая sidebar-вкладка: **📝 Proposals** (между Audit и Settings --
+держится с другими meta / admin вкладками внизу навигации).
+
+Layout:
+
+* **Toolbar** в стиле редизайна Audit + Overview -- Reload,
+  переключатель формы "➕ New", checkbox auto-refresh с
+  пульсирующей точкой, selector интервала (5s / 15s / 30s /
+  60s).
+* **Meta line** под toolbar-ом показывает total + per-state
+  chips (``N passed``, ``N failed``, ``N pending``,
+  ``N running``), плюс last-refresh time / duration / manual-vs-
+  auto / last error.
+* **Таблица proposals** -- одна строка на ledger-запись,
+  сортировка newest-first (сохраняет порядок endpoint'а
+  ``/list``). Колонки: short ID, title, state badge, branch,
+  age, actions. Клик по строке разворачивает detail-row снизу
+  (та же UX-паттерн, что и Audit tab).
+* **Detail row** показывает metadata (request_id, client, diff
+  bytes, первые 12 chars sha256, exit_code), rationale в
+  scrollable monospace-панели, state reason (когда есть),
+  полный ``tests_tail``, и action-кнопки: Open push URL (когда
+  ledger содержит), Copy branch, Copy full ID.
+* **Submit form** (collapsible, скрыта по-умолчанию) --
+  title input + rationale textarea + diff textarea.
+  Client-side валидация на missing title / empty diff до
+  hitting bridge. Result banner репортит success (с новым
+  request_id) или rejection-reason bridge inline.
+
+Safety / discipline:
+
+* **Каждое state имеет scoped badge** (``passed``, ``failed``,
+  ``pending``, ``running``, ``rejected``, ``applied``) --
+  guarded параметризованным layout-тестом, missing один рендерился
+  бы unstyled и failed CI.
+* **Все styles scoped на ``#tab-proposals``** (урок v4.0.x
+  CSS enforced ``test_every_style_selector_scoped_to_tab_proposals``).
+* **Palette-переменные** (``--pr-tint-*``) объявлены внутри
+  tab -- никогда не утекают в ``:root``.
+* **HTML escape всюду**, где untrusted-строки попадают в
+  ``innerHTML`` -- title, rationale, tests_tail, reason,
+  branch, client, push_url все escapend. Регрессия-guard
+  (``test_html_escape_prevents_injection``) submit'ит title
+  ``<script>alert(1)</script>`` и asserts, что rendered HTML
+  содержит ``&lt;script&gt;`` вместо raw-тега.
+* **``window.api()`` на каждый call** (bearer-auth uniform) --
+  регрессия ``test_js_uses_api_helper`` asserts, что нет raw
+  ``fetch(`` в модуле.
+* **Fail-soft** -- fetch errors сохраняют last-known состояние
+  table и только обновляют meta line error field. Никакого
+  crash, никакого banner-спама. Та же дисциплина, что Overview
+  и Audit tabs.
+
+Покрытие тестами:
+
+* ``tests/test_proposals_tab_layout.py`` (25 тестов) -- каждый
+  id присутствует, tab wrapper присутствует, state badges для
+  каждого state, scoped CSS discipline, scoped palette vars,
+  tab зарегистрирован в ARENA_TABS между audit и settings, JS
+  это IIFE и экспортит ``loadProposals`` / ``submitProposal`` /
+  ``toggleProposalForm`` globally, использует ``window.api()``
+  (никакой raw fetch), экспозит diagnostic namespace
+  ``__proposalsTab``, escape'ит untrusted strings, никаких
+  hardcoded ``setInterval``-delays, short-id slice locked на
+  8 chars.
+* ``tests/test_proposals_tab_js.py`` (9 тестов) -- Node
+  integration против realistic ledger-shapes: full render
+  produces 2*N rows (main+detail), empty list показывает
+  placeholder, fetch error обновляет meta + пульсирует error
+  dot, submit валидирует missing title, missing diff, success
+  post'ит JSON и reload'ит таблицу, bridge rejection репортит
+  reason inline, auto-refresh читает interval из ``<select>``
+  (не константы), form toggle флипает visibility class, и
+  ``<script>``-injection регрессия.
+* ``tests/test_route_registry.py`` -- обновлён чтобы требовать
+  ``proposals`` name в sidebar registry.
+
+Suite: **1641 passed** (было 1604, +37 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-19-proposals.html`` (новый, 125
+  строк) -- scoped ``<style>``, toolbar, meta line, submit form
+  (скрытая), proposals table с empty-state.
+* ``dashboard/assets/19-proposals.js`` (новый, 347 строк) --
+  loader, table renderer, detail-row renderer, submit handler
+  с validation, auto-refresh timer, ``__proposalsTab``
+  diagnostic namespace, ``_escape`` HTML-helper, ``_fmtAge``
+  human-readable age formatter.
+* ``dashboard/assets/00-tabs-registry.js`` -- ``proposals``
+  tab entry между ``audit`` и ``settings``.
+* ``tests/test_route_registry.py`` -- ``proposals`` добавлен
+  в expected-tabs list.
+* ``tests/test_proposals_tab_layout.py`` (новый) -- 25 тестов
+* ``tests/test_proposals_tab_js.py`` (новый) -- 9 тестов
+
 \n## v4.24.1 - 2026-07-17
 
 ### Fix -- cloudflared cold-start timeout был слишком тесный, теперь tunable
