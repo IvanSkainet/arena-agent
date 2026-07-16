@@ -6,6 +6,90 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v3.97.0 - 2026-07-16
+
+### Изменено — @authed миграция продолжается на /v1/fs/* + /v1/upload,download
+
+Третья пачка серии миграции `arena/handler_helpers.py` (после
+v3.93.0 admin и v3.94.0 exec). Оба file-facing модуля покрыты:
+
+* **`arena/files/handlers.py`** — 5 handler'ов мигрированы на
+  `@authed(ctx, auto_record=False)`: `handle_v1_upload`,
+  `handle_v1_download`, `handle_v1_fs_edit`, `handle_v1_fs_edit_apply`,
+  `handle_v1_fs_edit_rollback`. Каждый делает свой request
+  accounting после audit-события (bytes/replacements/rollback_id),
+  поэтому `auto_record=False` избавляет от двойного учёта. Все
+  локальные `_json_error` теперь под капотом идут через
+  `err_json` из `arena/handler_helpers.py`.
+
+* **`arena/files/fs_view_create.py`** — 2 handler'а мигрированы:
+  `handle_v1_fs_view`, `handle_v1_fs_create`. Девять ручных
+  `ctx.cors_json_response({"ok": False, "error": ...}, status=...)`
+  заменены на `err_json(ctx, ...)` через маленький локальный
+  helper `_err(ctx, msg, status)` — модуль сохраняет свою
+  явную "record error → return response" идиому, но без
+  повторения кода в 10 местах.
+
+Body-parsing в обоих файлах теперь идёт через
+`parse_json_body(request, ctx)` — тот же helper, что уже
+используют admin- и exec-миграции.
+
+Итого: **~51 строка auth/record/try-скаффолдинга удалена** из
+files-подсистемы, все 7 handler'ов идут через тот же централизованный
+`@authed` wrapper, что и остальной мигрированный код. Wire-поведение
+идентично до байта — те же статус-коды (400/403/404/500), те же
+error-сообщения, тот же audit trail (`file_upload`, `file_download`,
+`file_edit`, `file_edit_rollback`, `file_view`, `file_create`), та же
+семантика учёта.
+
+### Добавлено — regression guard'ы для files-миграции
+
+Новый `tests/test_files_authed_migration.py` (67 строк, 3 теста):
+
+* `test_file_handlers_use_authed_decorator` — обходит все 5
+  upload/download/edit handler'ов и проверяет `__wrapped__`.
+* `test_fs_view_create_handlers_use_authed_decorator` — то же
+  для 2 view/create handler'ов.
+* `test_files_modules_free_of_manual_auth_prelude` — парсит
+  оба module source'а и запрещает возвращать
+  `r = ctx.require_auth(request)` (copy-paste guard от будущих
+  регрессий).
+
+### Тесты
+
+**1122 → 1125 passed** (+3 regression guard'а). Существующие 78
+тестов на file handlers + handler_helpers сами по себе проходят
+без изменений — wire-регрессий нет.
+
+### Прогресс миграции
+
+| Релиз    | Модуль                             | Handler'ов | ~Prelude LOC убрано |
+|----------|------------------------------------|------------|---------------------|
+| v3.93.0  | `arena/admin/handlers*.py`         | 14         | ~70                 |
+| v3.94.0  | `arena/exec/handlers.py`           | 3          | ~30                 |
+| v3.97.0  | `arena/files/handlers.py` + `fs_view_create.py` | 7 | ~51 |
+| **Далее**| `arena/mobile/handlers.py`         | ~30        | ~68 prelude'ов (самый крупный hotspot) |
+
+У mobile handler'ов самая богатая per-handler логика (input
+injection, screencap, mirror) — будет мигрировать под-группами
+(input, screen, mirror, camera, devops), чтобы каждый cutover
+проверялся на узком тест-subset, а не одним big-bang на 30
+handler'ов.
+
+### Проверено live
+
+* Bridge на 3.97.0.
+* Все 1125 тестов зелёные.
+* `POST /v1/fs/view {"path": "/etc/hostname"}` возвращает 200 с
+  содержимым файла.
+* `POST /v1/fs/view {}` возвращает 400 с err_json-shaped
+  `{ok:false, error:"path missing or invalid"}`.
+* `POST /v1/fs/view` без auth → **401**.
+* `POST /v1/fs/edit` с non-JSON body → 400 с
+  `{ok:false, error:"invalid JSON body"}` от `parse_json_body`.
+* Asset-manifest signature не изменился; reload Dashboard не нужен.
+
+
 ## v3.96.0 - 2026-07-16
 
 ### Добавлено — управление через ZeroTier Central

@@ -1,3 +1,86 @@
+## v3.97.0 - 2026-07-16
+
+### Changed — @authed migration continues to /v1/fs/* + /v1/upload,download
+
+Third batch of the `arena/handler_helpers.py` migration series
+(v3.93.0 admin, v3.94.0 exec, this release files). Both file-facing
+modules are now covered:
+
+* **`arena/files/handlers.py`** — 5 handlers migrated to
+  `@authed(ctx, auto_record=False)`: `handle_v1_upload`,
+  `handle_v1_download`, `handle_v1_fs_edit`, `handle_v1_fs_edit_apply`,
+  `handle_v1_fs_edit_rollback`. Each does bespoke request accounting
+  after the audit event (bytes/replacements/rollback_id) so
+  `auto_record=False` keeps the wrapper from double-counting. All
+  local `_json_error` calls now delegate to `err_json` from
+  `arena/handler_helpers.py` under the hood.
+
+* **`arena/files/fs_view_create.py`** — 2 handlers migrated:
+  `handle_v1_fs_view`, `handle_v1_fs_create`. Nine hand-crafted
+  `ctx.cors_json_response({"ok": False, "error": ...}, status=...)`
+  responses replaced by `err_json(ctx, ...)` calls, wrapped in a
+  small `_err(ctx, msg, status)` local helper so the module keeps
+  its explicit "record error → return response" idiom without
+  spelling it out in 10 places.
+
+Both files' body-parsing paths now flow through
+`parse_json_body(request, ctx)` — the same helper the admin and
+exec migrations already use.
+
+Net: **~51 auth/record/try-scaffolding lines removed** from the
+files subsystem, all 7 handlers routed through the same central
+`@authed` wrapper as the rest of the migrated code. Wire behaviour
+is byte-for-byte identical — same status codes (400/403/404/500),
+same error messages, same audit trail (`file_upload`,
+`file_download`, `file_edit`, `file_edit_rollback`, `file_view`,
+`file_create`), same accounting semantics.
+
+### Added — regression guards for the files migration
+
+New `tests/test_files_authed_migration.py` (67 lines, 3 tests):
+
+* `test_file_handlers_use_authed_decorator` — walks all 5
+  upload/download/edit handlers and asserts `__wrapped__` is set.
+* `test_fs_view_create_handlers_use_authed_decorator` — same for
+  the 2 view/create handlers.
+* `test_files_modules_free_of_manual_auth_prelude` — parses both
+  module sources and forbids `r = ctx.require_auth(request)` from
+  reappearing (copy-paste guard against future regressions).
+
+### Tests
+
+**1122 → 1125 passed** (+3 regression guards). The pre-existing
+78 tests covering file handlers + handler_helpers itself all still
+pass unchanged — no wire-level regression.
+
+### Migration progress
+
+| Release  | Module                             | Handlers | ~Prelude LOC removed |
+|----------|------------------------------------|----------|----------------------|
+| v3.93.0  | `arena/admin/handlers*.py`         | 14       | ~70                  |
+| v3.94.0  | `arena/exec/handlers.py`           | 3        | ~30                  |
+| v3.97.0  | `arena/files/handlers.py` + `fs_view_create.py` | 7 | ~51 |
+| **Next** | `arena/mobile/handlers.py`         | ~30      | ~68 preludes (biggest hotspot) |
+
+The mobile handler file has the richest per-handler logic (input
+injection, screencap, mirror) — it'll migrate in smaller sub-groups
+(input, screen, mirror, camera, devops) so each cutover can be
+reviewed against a narrow test subset rather than one 30-handler
+big bang.
+
+### Verified live
+
+* Bridge on 3.97.0.
+* All 1125 tests green.
+* `POST /v1/fs/view {"path": "/etc/hostname"}` returns 200 with
+  file contents.
+* `POST /v1/fs/view {}` returns 400 with `err_json`-shaped
+  `{ok:false, error:"path missing or invalid"}` payload.
+* `POST /v1/fs/view` without auth → **401**.
+* `POST /v1/fs/edit` with non-JSON body → 400 with
+  `{ok:false, error:"invalid JSON body"}` from `parse_json_body`.
+* Asset-manifest signature unchanged; no dashboard reload needed.
+
 ## v3.96.0 - 2026-07-16
 
 ### Added — ZeroTier Central management surface
