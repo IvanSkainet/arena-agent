@@ -290,11 +290,20 @@ def _git(repo: Path, *args: str, timeout: int = 60,
     )
 
 
-def _worktree_root(bridge_home: Path, request_id: str) -> Path:
+def _worktree_root(proposal_home: Path, request_id: str) -> Path:
     """Where we materialise the proposal branch's working copy.
     Kept OUTSIDE the main checkout so the running bridge's
-    files never fight the apply."""
-    return bridge_home / ".arena_proposals" / "worktrees" / request_id[:8]
+    files never fight the apply.
+
+    ``proposal_home`` is the already-computed
+    ``<bridge_home>/.arena_proposals`` directory (v4.20.0 fix:
+    v4.19.0 shipped with a double-`.arena_proposals/` path bug
+    caused by this helper re-appending the suffix even though
+    handlers_proposal.py already appended it). The regression
+    guard test_worktree_root_does_not_double_the_arena_proposals
+    below fails immediately if the double-append comes back.
+    """
+    return proposal_home / "worktrees" / request_id[:8]
 
 
 def _branch_name(request_id: str) -> str:

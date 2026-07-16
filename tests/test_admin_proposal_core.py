@@ -372,3 +372,97 @@ def test_branch_name_uses_short_id_prefix(tmp_path):
     from arena.admin.proposal import _branch_name
     assert _branch_name("deadbeef1234abcd") == "proposal/deadbeef"
     assert _branch_name("aaaaBBBBccccDDDD").startswith("proposal/")
+
+
+# ---------------------------------------------------------------------------
+# v4.20.0 regression guards -- both bugs found in v4.19.0 live smoke
+# ---------------------------------------------------------------------------
+
+def test_worktree_root_does_not_double_the_arena_proposals(tmp_path):
+    """v4.19.0 shipped with a double-.arena_proposals bug:
+    handlers_proposal passed ``bridge_home/.arena_proposals`` as
+    ``proposal_home`` and ``_worktree_root`` re-appended
+    ``.arena_proposals`` inside, so worktrees materialised at
+    ``<home>/.arena_proposals/.arena_proposals/worktrees/...``
+    instead of ``<home>/.arena_proposals/worktrees/...``.
+
+    v4.20.0 fix: ``_worktree_root`` takes an already-computed
+    proposal_home and just appends ``worktrees/<short>``. This
+    guard fails immediately if a future edit re-introduces the
+    double suffix."""
+    from arena.admin.proposal import _worktree_root
+    proposal_home = tmp_path / ".arena_proposals"
+    wt = _worktree_root(proposal_home, "deadbeef1234")
+    # Path must be exactly two segments below proposal_home:
+    # <proposal_home>/worktrees/<short>. No extra '.arena_proposals'
+    # segment anywhere in the tail.
+    assert wt == proposal_home / "worktrees" / "deadbeef"
+    parts = wt.relative_to(tmp_path).parts
+    assert parts.count(".arena_proposals") == 1, (
+        f"double-.arena_proposals regression: {wt}"
+    )
+
+
+def test_create_worktree_end_to_end_lands_at_single_arena_proposals(tmp_path):
+    """End-to-end: submit-time helper passes
+    ``proposal_home`` (already ending in ``.arena_proposals``),
+    ``create_worktree`` must land the branch at exactly
+    ``<home>/.arena_proposals/worktrees/<short>/`` -- no doubled
+    segment."""
+    repo = _init_temp_repo(tmp_path)
+    proposal_home = tmp_path / "bridge_home" / ".arena_proposals"
+    wt, err = create_worktree(repo, proposal_home, "cafedeadbabe")
+    assert err is None, err
+    # No doubled segment.
+    assert str(wt).count(".arena_proposals") == 1
+    assert wt.name == "cafedead"
+    assert wt.parent.name == "worktrees"
+    assert wt.parent.parent.name == ".arena_proposals"
+
+
+def test_pick_pytest_python_prefers_interpreter_with_pytest(monkeypatch):
+    """v4.19.0 hard-coded ``sys.executable``. On a bridge running
+    under a uv-managed Python (PEP 668 externally-managed) pytest
+    is often absent from sys.executable but available from
+    ``python3`` on PATH. v4.20.0 fix picks the first interpreter
+    in ``[python3, /usr/bin/python3, sys.executable]`` that has
+    pytest importable.
+
+    We monkey-patch subprocess.run so the test doesn't actually
+    invoke any interpreter -- just proves the candidate order and
+    the "first success wins" logic."""
+    from arena.admin import handlers_proposal as mod
+
+    calls = []
+
+    def _fake_run(argv, **_kw):
+        calls.append(argv[0])
+        # Only /usr/bin/python3 succeeds; python3 (first) fails.
+        rc = 0 if argv[0] == "/usr/bin/python3" else 1
+        class _R:
+            returncode = rc
+        return _R()
+
+    monkeypatch.setattr(mod.subprocess, "run", _fake_run)
+    picked = mod._pick_pytest_python()
+    assert picked == "/usr/bin/python3"
+    # First try must be plain "python3" (PATH lookup), second is
+    # the absolute /usr/bin/python3, sys.executable is last.
+    assert calls[0] == "python3"
+    assert calls[1] == "/usr/bin/python3"
+
+
+def test_pick_pytest_python_falls_back_when_no_candidate_has_pytest(monkeypatch):
+    """If no interpreter has pytest we still return SOMETHING
+    (sys.executable) so ``_run_tests_in_worktree`` can invoke it
+    and produce a clear ModuleNotFoundError in the tests_tail.
+    Silent success would hide the real problem."""
+    import sys as _sys
+    from arena.admin import handlers_proposal as mod
+
+    class _R:
+        returncode = 1
+
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: _R())
+    picked = mod._pick_pytest_python()
+    assert picked == (_sys.executable or "python3")

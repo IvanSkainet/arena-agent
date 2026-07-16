@@ -49,14 +49,43 @@ def _ledger_path(repo: Path) -> Path:
     return _proposal_home(repo) / "proposals.jsonl"
 
 
+def _pick_pytest_python() -> str:
+    """Pick a Python interpreter that has ``pytest`` importable
+    (v4.20.0 fix). v4.19.0 hard-coded ``sys.executable`` -- but
+    on hosts where the bridge is running under a uv-managed
+    Python (PEP 668 externally-managed environment) pytest is
+    typically absent from ``sys.executable`` and available from
+    a system ``python3`` instead. We try each candidate in order
+    until one loads pytest cleanly, falling back to
+    ``sys.executable`` so the historical behaviour survives when
+    no other interpreter has pytest either. The ledger's
+    ``tests_tail`` still records "ModuleNotFoundError" so
+    operators see the real reason a proposal failed.
+    """
+    candidates = ["python3", "/usr/bin/python3", sys.executable or "python3"]
+    for py in candidates:
+        try:
+            r = subprocess.run(
+                [py, "-c", "import pytest"],
+                capture_output=True, timeout=5,
+            )
+            if r.returncode == 0:
+                return py
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            continue
+    return sys.executable or "python3"
+
+
 def _run_tests_in_worktree(worktree: Path, timeout: int
                            ) -> tuple[int, str]:
     """Run pytest inside the worktree and return
-    ``(exit_code, tail_of_output)``. Uses the same Python
-    interpreter the bridge is running under so venv paths etc.
-    match. Tail is capped at 8 KiB so a huge stdout doesn't
-    blow the ledger up."""
-    py = sys.executable or "python3"
+    ``(exit_code, tail_of_output)``. Picks a Python interpreter
+    that has pytest via ``_pick_pytest_python()`` -- v4.19.0
+    hard-coded ``sys.executable`` and failed on hosts where the
+    bridge ran under a uv-managed Python without pytest. Tail
+    is capped at 8 KiB so a huge stdout doesn't blow the ledger
+    up."""
+    py = _pick_pytest_python()
     try:
         proc = subprocess.run(
             [py, "-m", "pytest", "--tb=no", "-q"],
