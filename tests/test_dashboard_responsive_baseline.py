@@ -134,13 +134,17 @@ def test_mobile_inputs_stack_full_width():
 
 
 def test_platform_aware_smartctl_hint():
-    """v3.88.1: probe_sensors._smartctl_permission_hint must branch
-    on platform, not emit a Linux-only command on Windows/macOS."""
+    """v3.88.1 / v4.0.1: probe_sensors._smartctl_permission_hint must
+    branch on platform, not emit a Linux-only command on
+    Windows/macOS. Scans the function body until the next top-level
+    ``def`` so intra-function blank lines (added in v4.0.1) don't
+    truncate the scan."""
     src = (ROOT / "arena" / "inventory" / "probe_sensors.py").read_text(encoding="utf-8")
     assert "_smartctl_permission_hint" in src
-    # The function must reference each platform explicitly.
     fn_start = src.find("def _smartctl_permission_hint")
-    fn_end = src.find("\n\n", fn_start + 1)
+    # Next top-level def or module end.
+    next_def = src.find("\ndef ", fn_start + 1)
+    fn_end = next_def if next_def != -1 else len(src)
     fn_src = src[fn_start:fn_end]
     for platform_name in ("Linux", "Darwin", "Windows"):
         assert platform_name in fn_src, (

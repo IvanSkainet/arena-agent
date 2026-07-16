@@ -233,23 +233,43 @@ def get_audio() -> dict:
 
 def _smartctl_permission_hint() -> str:
     """Platform-appropriate hint for granting smartctl the privileges
-    it needs. Does NOT hardcode a specific path -- the bridge might be
-    installed anywhere. The command uses `command -v` / `where` so
-    the operator's shell resolves the actual smartctl location.
+    it needs. v4.0.1: resolves the real smartctl path server-side so
+    the hint is a runnable command the operator (or an agent via
+    /v1/exec with NOPASSWD sudoers) can paste verbatim. The old
+    ``$(command -v smartctl)`` form only works in an interactive bash
+    session and returns an empty string when smartctl is not on PATH,
+    silently producing an unusable ``sudo setcap ... ""`` command.
     """
     sys_name = platform.system()
+    smartctl_path = _which("smartctl")
+
     if sys_name == "Linux":
+        if smartctl_path:
+            return (
+                f"Grant smartctl the raw-IO capability so it can be run "
+                f"as a regular user:  sudo setcap cap_sys_rawio+ep "
+                f"{smartctl_path}  (persists until smartmontools is "
+                f"reinstalled). Alternative: run the bridge as root, "
+                f"or add ``ALL ALL=(ALL) NOPASSWD: {smartctl_path}`` "
+                f"to a sudoers.d file so agents can invoke "
+                f"``sudo -n {smartctl_path} ...`` on demand."
+            )
         return (
-            "Grant smartctl the raw-IO capability so it can be run as a "
-            "regular user:  sudo setcap cap_sys_rawio+ep \"$(command -v "
-            "smartctl)\"  (persists until the smartmontools package is "
-            "reinstalled). Alternative: run the bridge as root."
+            "smartctl is not on PATH. Install the smartmontools package "
+            "first (Debian/Ubuntu: apt install smartmontools; "
+            "Arch: pacman -S smartmontools; RHEL/Fedora: dnf install "
+            "smartmontools), then grant it the raw-IO capability with "
+            "sudo setcap cap_sys_rawio+ep /usr/sbin/smartctl "
+            "(adjust path if your distro installs elsewhere)."
         )
     if sys_name == "Darwin":
+        binhint = smartctl_path or "/opt/homebrew/bin/smartctl (Homebrew) or /usr/local/bin/smartctl"
         return (
-            "smartctl needs elevated privileges on macOS. Run the bridge "
-            "under sudo, or add a passwordless sudoers rule for "
-            "$(command -v smartctl)."
+            f"smartctl needs elevated privileges on macOS. Add a "
+            f"passwordless sudoers rule for {binhint} so agents can "
+            f"call ``sudo -n smartctl ...``, or run the bridge under "
+            f"sudo. (There is no Linux-style file capability API on "
+            f"Darwin.)"
         )
     if sys_name == "Windows":
         return (

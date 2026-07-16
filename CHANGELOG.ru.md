@@ -6,6 +6,120 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v4.0.1 - 2026-07-16
+
+### Исправлено — UX pain points из отчёта пользователя
+
+Три небольших, но реальных проблемы юзабилити, которые оператор
+поймал в v4.0.0:
+
+* **Вкладки Live и Mobile в Dashboard смещены вправо от центра.**
+  У `.tab.active` не было `max-width` / `margin`, так что широкие
+  табы, использующие `flex-wrap` или `.live-grid` layout, липли к
+  правому краю от sidebar вместо центра main-панели. Добавил
+  `max-width: 1400px; margin: 0 auto` в `.tab.active` в
+  `dashboard/assets/dashboard.css` — теперь каждый таб
+  центрирует своё содержимое во вьюпорте. Overview-табы уже
+  имели неявное центрирование через `card-grid`; там ничего не
+  меняется.
+
+* **`sudo` был полностью заблокирован**, включая non-interactive
+  формы. `arena/security_commands.py` матчил `\bsudo\b`, что
+  убивало `sudo -n`, `sudo -k`, `sudo -u user cmd`, и даже
+  легитимные hint'ы, которые Dashboard сам показывал оператору
+  (``sudo setcap cap_sys_rawio+ep smartctl``). Переработал
+  блоклист — теперь он таргетит только **интерактивную
+  эскалацию shell**: `sudo -i`, `sudo -s`, `sudo -S`,
+  `sudo bash|sh|zsh|fish|pwsh`, `su -`. Non-interactive формы
+  sudo (`sudo -n cmd`, `sudo -u user cmd`, `sudo -v -n`,
+  `sudo -k`) теперь пропускаются в OS, где они либо срабатывают
+  через NOPASSWD sudoers, либо честно падают — политика
+  sudoers оператора остаётся источником истины.
+
+  Новый `tests/test_security_commands.py` (145 строк, 4 теста):
+  27 легитимных команд (включая ровно тот smartctl-hint, что
+  Dashboard показывает) проверены как разрешённые, 40+ опасных
+  команд проверены как заблокированные. Regression guard
+  против проскакивания `sudo -i`/`sudo -s`.
+
+* **`smartctl` permission hint был непригоден.** Старый hint
+  говорил `sudo setcap cap_sys_rawio+ep "$(command -v smartctl)"`.
+  Две проблемы:
+    1. `$(command -v smartctl)` — bash-специфичная конструкция,
+       которую ``/v1/exec`` не раскрывает — передаёт сырую
+       строку в подлежащий shell, который не гарантированно bash.
+    2. Когда ``smartctl`` не на ``PATH``, ``command -v`` печатает
+       пусто, и молча получается ``sudo setcap ... ""``, что
+       падает без объяснения — ровно тот симптом "команда ничего
+       не отображает", что репортил оператор.
+  Переписал ``arena.inventory.probe_sensors._smartctl_permission_hint``:
+  теперь резолвит реальный путь к ``smartctl`` server-side (через
+  ``shutil.which``) и вписывает его в hint. Когда smartctl
+  отсутствует — hint переключается на install-инструкции +
+  дефолтную post-install setcap команду, так что оператор всегда
+  получает runnable next step.
+
+  Новый Linux-hint также явно предлагает sudoers.d вариант для
+  агентов (``ALL ALL=(ALL) NOPASSWD: /path/to/smartctl``), чтобы
+  тот же probe мог работать unattended после однократного setup'а.
+
+### Исправлено — regression в regex блоклиста после переработки sudo
+
+По ходу дела ``rm -rf`` паттерн получил более строгую форму:
+относительные пути (``rm -rf ./tmp/build``, ``rm -rf tmp/build``)
+теперь разрешены (они sandbox-scoped по определению), а
+``rm -rf /``, ``rm -rf ~``, ``rm -rf *`` (bare wildcard) и
+``rm -rf --no-preserve-root /`` остаются заблокированы. Windows
+``format C:``, ``diskpart``, ``bcdedit``, ``reg delete HKLM\\...``,
+``takeown`` остаются заблокированы; POSIX ``mkfs``,
+``dd of=/dev/...``, ``shutdown``, ``reboot``, ``halt``,
+``poweroff`` остаются заблокированы. Reverse-shell shape'ы
+(``nc -e``, ``bash -i >& /dev/tcp/...``, ``curl | bash``,
+``powershell -EncodedCommand``) всё так же детектятся. Доступ
+к credential-файлам через базовые viewer'ы (``cat ~/.ssh/id_rsa``,
+``less ~/.aws/credentials`` и т.д.) остаётся заблокирован, чтобы
+sandbox root и audit trail нельзя было обойти.
+
+### Тесты
+
+**1135 → 1139 passed** (+4 новых в test_security_commands.py;
+3 существующих smartctl-hint теста обновлены под server-side
+резолвинг пути). Все ранее зелёные тесты остаются зелёными.
+
+### Проверено live
+
+* Bridge на 4.0.1.
+* `POST /v1/exec {"cmd":"sudo -n echo test"}` больше не
+  возвращает ``blocked by safety pattern`` — проходит в OS.
+* Вкладки Live и Mobile в Dashboard теперь по центру viewport'а
+  (через новый ``max-width: 1400px; margin: 0 auto`` на
+  ``.tab.active``).
+* `/v1/inventory/registry` возвращает smartctl-permission hint,
+  который прямо копипастится, когда оператор хочет выдать
+  capability.
+
+### Замечания об оставшихся "агентских" pain points
+
+Больше UX-работы запланировано на следующие патчи, с оглядкой
+на фидбек оператора, что мост всё ещё выглядит debug-flavoured:
+
+* v4.1.0 — **ZeroTier как настоящий transport** (не только
+  Central-API консоль), чтобы агенты могли дозваниваться через
+  него так же как через Tailscale Funnel. Именно это было
+  изначальной мотивацией ZeroTier-поверхности, а v3.96.0
+  management API это не покрывает — tunnels-priority list всё
+  ещё маршрутит трафик агента только через Tailscale/Cloudflared.
+* v4.2.0 — более богатые per-agent inventory-факты (с hint'ом
+  указывающим человеку-оператору на CPU-Z / GPU-Z / HWiNFO64 /
+  OCCT / AIDA64 для более глубокого drill-down; мост не должен
+  пытаться заменять их).
+* v4.3.0 — Audit tab polish, чтобы audit.jsonl был реально
+  просматриваемым, а не raw tail-дампом.
+* Постоянно — hardening exec-поверхности, чтобы агентам не
+  пришлось базaseить-uploads или ``bash /tmp/foo.sh`` wrapper'ы
+  для средних скриптов, и чтобы ``;``-метасимвольный блок
+  перестал реджектить безобидные multi-command строки.
+
 ## v4.0.0 - 2026-07-16
 
 ### 🎉 Milestone: единый handler pipeline завершён

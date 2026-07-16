@@ -85,9 +85,12 @@ def test_sections_include_new_agent_probes():
 
 
 def test_smartctl_hint_is_platform_aware():
-    """v3.88.1: hint must not hardcode 'sudo setcap' on Windows/macOS."""
+    """v3.88.1 / v4.0.1: hint must branch per platform. On Linux the
+    setcap suggestion is present; on Darwin it isn't (macOS has no
+    setcap); on Windows the wording says "Administrator"."""
     from arena.inventory.probe_sensors import _smartctl_permission_hint
-    with patch("arena.inventory.probe_sensors.platform") as pm:
+    with patch("arena.inventory.probe_sensors.platform") as pm, \
+            patch("arena.inventory.probe_sensors._which", return_value=None):
         pm.system.return_value = "Linux"
         assert "setcap" in _smartctl_permission_hint()
         pm.system.return_value = "Darwin"
@@ -100,17 +103,29 @@ def test_smartctl_hint_is_platform_aware():
         assert "administrator" in hint_win.lower()
 
 
-def test_smartctl_hint_uses_command_v_not_hardcoded_path():
-    """Regression guard against hardcoded /usr/bin/smartctl paths."""
+def test_smartctl_hint_resolves_path_when_available():
+    """v4.0.1: hint no longer uses the ``$(command -v smartctl)``
+    shell-fragment. Instead it resolves the real path server-side so
+    an agent can copy-paste the command through /v1/exec (which
+    doesn't guarantee an interactive bash to expand $(...)). When
+    smartctl is missing from PATH the hint pivots to install
+    instructions rather than emitting a broken ``setcap ""`` line."""
     from arena.inventory.probe_sensors import _smartctl_permission_hint
     with patch("arena.inventory.probe_sensors.platform") as pm:
         pm.system.return_value = "Linux"
-        hint = _smartctl_permission_hint()
-    # Any /usr/bin, /usr/local/bin, /opt/... in the hint is a red flag.
-    for bad in ("/usr/bin/smartctl", "/usr/local/bin/smartctl",
-                "/opt/smartmontools"):
-        assert bad not in hint, f"hint hardcodes '{bad}': {hint}"
-    assert "command -v" in hint or "which " in hint
+        # When smartctl exists, its path appears literally in the hint.
+        with patch("arena.inventory.probe_sensors._which",
+                   return_value="/opt/custom/bin/smartctl"):
+            hint = _smartctl_permission_hint()
+        assert "/opt/custom/bin/smartctl" in hint
+        assert "$(command -v" not in hint, (
+            "hint must not use $(command -v ...); it's a bash-only "
+            "fragment that /v1/exec doesn't expand")
+        # When smartctl is missing, hint pivots to install advice.
+        with patch("arena.inventory.probe_sensors._which", return_value=None):
+            hint = _smartctl_permission_hint()
+        assert "install" in hint.lower()
+        assert "smartmontools" in hint
 
 
 # ---------- v3.88.3 probes ------------------------------------------------
