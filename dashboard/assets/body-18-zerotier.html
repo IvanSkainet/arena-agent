@@ -1,32 +1,37 @@
 <!-- ==================== ZEROTIER CENTRAL ==================== -->
 <div class="tab" id="tab-zerotier">
 <style>
-/* v3.96.0 — all colors reference the shared --live-* / --* palette. */
-.ztc-status-bar {
+/* Scoped to #tab-zerotier (v4.0.x lesson: never touch shared
+   dashboard.css). Colors continue to reference the shared
+   --live-* / --* CSS variables so a theme swap affects this
+   tab too. */
+#tab-zerotier .ztc-status-bar {
   display: flex;
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
   margin-bottom: 10px;
 }
-.ztc-create-row {
+#tab-zerotier .ztc-create-row {
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
   margin: 10px 0 14px;
 }
-.ztc-create-row input {
+#tab-zerotier .ztc-create-row input {
   flex: 0 1 260px;
 }
-#ztcNetworks table th, #ztcNetworks table td,
-#ztcMembers table th, #ztcMembers table td {
+#tab-zerotier #ztcNetworks table th,
+#tab-zerotier #ztcNetworks table td,
+#tab-zerotier #ztcMembers table th,
+#tab-zerotier #ztcMembers table td {
   padding: 6px 10px;
   vertical-align: middle;
 }
-#ztcNetworks .ztc-net-row td { border-top: 1px solid var(--live-card-border); }
-#ztcNetworks .ztc-net-row:hover td { background: var(--live-canvas-bg); }
-.ztc-members-panel { margin-top: 18px; }
+#tab-zerotier #ztcNetworks .ztc-net-row td { border-top: 1px solid var(--live-card-border); }
+#tab-zerotier #ztcNetworks .ztc-net-row:hover td { background: var(--live-canvas-bg); }
+#tab-zerotier .ztc-members-panel { margin-top: 18px; }
 </style>
 
 <h1>ZeroTier Central</h1>

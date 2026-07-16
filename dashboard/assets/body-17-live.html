@@ -1,41 +1,43 @@
 <!-- ==================== LIVE ==================== -->
 <div class="tab" id="tab-live">
 <style>
-/* v3.95.0 -- inline styles so the Live tab renders correctly
-   inside the sandboxed asset preview iframe too. All theme colors
-   flow through the shared dashboard.css variable palette
-   (--live-*) so future theme swaps affect the sparklines too. */
-.live-grid {
+/* Scoped to #tab-live (v4.0.x lesson: never touch shared
+   dashboard.css). Palette continues to flow through --live-*
+   CSS variables from the shared sheet so a future theme swap
+   affects sparkline strokes too. Sparkline canvases still work
+   inside the sandboxed asset preview iframe because we're not
+   relying on any external stylesheet. */
+#tab-live .live-grid{
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 12px;
   margin-top: 8px;
 }
-.live-card {
+#tab-live .live-card{
   background: var(--live-card-bg);
   border: 1px solid var(--live-card-border);
   border-radius: 8px;
   padding: 12px;
 }
-.live-header {
+#tab-live .live-header{
   display: flex;
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 6px;
 }
-.live-label {
+#tab-live .live-label{
   font-size: 12px;
   font-weight: 600;
   color: var(--live-text);
   letter-spacing: 0.02em;
   text-transform: uppercase;
 }
-.live-value {
+#tab-live .live-value{
   font-size: 22px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
-.live-canvas {
+#tab-live .live-canvas{
   display: block;
   width: 100%;
   height: 60px;
@@ -43,13 +45,13 @@
   border-radius: 4px;
   margin: 4px 0;
 }
-.live-meta {
+#tab-live .live-meta{
   font-size: 11px;
   color: var(--live-text-muted);
   margin-top: 4px;
   font-variant-numeric: tabular-nums;
 }
-.live-dot {
+#tab-live .live-dot{
   display: inline-block;
   width: 8px;
   height: 8px;
@@ -57,14 +59,14 @@
   vertical-align: middle;
   margin-right: 4px;
 }
-.live-controls {
+#tab-live .live-controls{
   margin: 8px 0 12px;
   display: flex;
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
 }
-.livecore {
+#tab-live .livecore{
   display: flex;
   gap: 6px;
   align-items: center;
@@ -72,46 +74,46 @@
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
-.livecore-label {
+#tab-live .livecore-label{
   width: 18px;
   color: var(--live-text-muted);
   text-align: right;
 }
-.livecore-bar {
+#tab-live .livecore-bar{
   flex: 1;
   height: 6px;
   background: var(--live-core-track);
   border-radius: 3px;
   overflow: hidden;
 }
-.livecore-fill {
+#tab-live .livecore-fill{
   height: 100%;
   transition: width 0.4s ease-out;
 }
-.livecore-val {
+#tab-live .livecore-val{
   width: 34px;
   color: var(--live-text);
   text-align: right;
 }
-.live-status-text {
+#tab-live .live-status-text{
   font-size: 12px;
   color: var(--live-text-muted);
 }
-.live-hint {
+#tab-live .live-hint{
   color: var(--live-text-muted);
   margin: -6px 0 12px;
   font-size: 13px;
 }
 /* Accent-per-metric colors on the .live-value spans, so the
    sparkline stroke color matches the numeric readout. */
-.live-value.cpu     { color: var(--live-cpu); }
-.live-value.mem     { color: var(--live-mem); }
-.live-value.swap    { color: var(--live-swap); }
-.live-value.net-rx  { color: var(--live-net-rx); }
-.live-value.net-tx  { color: var(--live-net-tx); }
-.live-value.disk-rd { color: var(--live-disk-rd); }
-.live-value.disk-wr { color: var(--live-disk-wr); }
-.live-dot.stopped { background: var(--live-text-muted); }
+#tab-live .live-value.cpu     { color: var(--live-cpu); }
+#tab-live .live-value.mem     { color: var(--live-mem); }
+#tab-live .live-value.swap    { color: var(--live-swap); }
+#tab-live .live-value.net-rx  { color: var(--live-net-rx); }
+#tab-live .live-value.net-tx  { color: var(--live-net-tx); }
+#tab-live .live-value.disk-rd { color: var(--live-disk-rd); }
+#tab-live .live-value.disk-wr { color: var(--live-disk-wr); }
+#tab-live .live-dot.stopped   { background: var(--live-text-muted); }
 </style>
 
 <h1>Live</h1>

@@ -1,3 +1,55 @@
+\n## v4.35.0 - 2026-07-17
+
+### Закрытие последнего dashboard-scoping gap -- Live + ZeroTier
+
+Live и ZeroTier tab'ы были последними двумя dashboard-вкладками,
+чьи ``<style>``-блоки использовали unscoped-селекторы --
+``.live-*`` и ``.ztc-*`` соответственно. На практике префиксы
+были уникальны, так что leakage не было, но они обходили
+enforcement урока v4.0.x, который уважают все остальные
+редизайнутые tab'ы. Этот релиз scope-ит каждый селектор к
+tab-id, чтобы дисциплина была uniform по всем 20 tab'ам.
+
+Изменения:
+
+* **``body-17-live.html``** -- каждое из 20+ ``.live-*`` /
+  ``.livecore-*``-правил теперь начинается с ``#tab-live``.
+  Comment header обновлён с scoping-rationale. Каждое
+  ``.live-value.<metric>`` тоже prefix'ено.
+* **``body-18-zerotier.html``** -- каждое ``.ztc-*``-правило
+  плюс селекторы ``#ztcNetworks`` / ``#ztcMembers``-таблиц
+  теперь начинаются с ``#tab-zerotier``.
+
+Zero-risk гарантии (те же, что у каждой другой tab):
+
+* **Все id сохранены** -- 16 Live loader-критичных id'ов
+  и ZeroTier ``ztcStatus`` id сохранены.
+* **Все class-имена сохранены** -- каждый ``.live-*``,
+  ``.livecore-*``, ``.ztc-*``-класс, который читает JS для
+  гидрации, всё ещё существует на тех же элементах. Изменение
+  чисто в CSS-блоке: селекторы теперь несут ``#tab-<name>``
+  префикс.
+* **Palette-переменные не тронуты** -- ``--live-*`` продолжает
+  проникать в sparkline strokes и ZeroTier table borders, так
+  что future theme swap продолжает их аффектить.
+
+Это **завершает dashboard-tab scoping arc**, начатый Audit-style
+редизайнами. Все 20 tab'ов теперь уважают урок v4.0.x CSS:
+**каждый ``<style>``-селектор prefix'ен tab-id**.
+
+Тесты: ``tests/test_live_zerotier_scoped_refactor.py`` (10
+тестов).
+
+Suite: **1850 passed** (было 1840, +10 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-17-live.html`` -- ``<style>``-блок
+  переписан.
+* ``dashboard/assets/body-18-zerotier.html`` -- ``<style>``-блок
+  переписан.
+* ``tests/test_live_zerotier_scoped_refactor.py`` (новый) -- 10.
+
 \n## v4.34.0 - 2026-07-17
 
 ### Inventory: recent_activity probe -- 46-я секция

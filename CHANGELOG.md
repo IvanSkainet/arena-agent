@@ -1,3 +1,69 @@
+## v4.35.0 - 2026-07-17
+
+### Close the last dashboard scoping gap -- Live + ZeroTier tabs
+
+The Live and ZeroTier tabs were the last two dashboard tabs
+whose ``<style>`` blocks used unscoped selectors -- ``.live-*``
+and ``.ztc-*`` respectively. In practice the prefixes were
+unique so no leakage happened, but they bypassed the v4.0.x
+lesson enforcement that every other tab in the redesign arc
+respects. This release scopes every selector to the tab id so
+the discipline is uniform across all 20 dashboard tabs.
+
+Changes:
+
+* **``body-17-live.html``** -- every one of the 20+
+  ``.live-*`` / ``.livecore-*`` rules now starts with
+  ``#tab-live``. Comment header updated to reflect the scoping
+  rationale. Every ``.live-value.<metric>`` (cpu / mem / swap /
+  net-rx / net-tx / disk-rd / disk-wr) also prefixed.
+* **``body-18-zerotier.html``** -- every ``.ztc-*`` rule plus
+  the ``#ztcNetworks`` / ``#ztcMembers`` table selectors now
+  start with ``#tab-zerotier``.
+
+Zero-risk guarantees (same as every other tab in the arc):
+
+* **All ids preserved** -- 16 Live loader-critical ids
+  (``liveStatus`` / ``liveCpuValue`` / ``liveCpuChart`` /
+  ``liveCpuMeta`` / ``liveCpuPerCore`` / ``liveMemValue`` /
+  ``liveMemChart`` / ``liveMemMeta`` / ``liveSwapValue`` /
+  ``liveSwapChart`` / ``liveSwapMeta`` / ``liveNetRxValue`` /
+  ``liveNetRxChart`` / ``liveNetTxValue`` / ``liveNetTxChart`` /
+  ``liveNetMeta``) and the ZeroTier ``ztcStatus`` id preserved.
+* **All class names preserved** -- every ``.live-*``,
+  ``.livecore-*``, ``.ztc-*`` class the JS reads for hydration
+  still exists on the same elements. The change is purely in
+  the CSS block: selectors now carry the ``#tab-<name>``
+  prefix.
+* **Palette variables untouched** -- ``--live-*`` continues to
+  flow through to sparkline strokes and ZeroTier table borders
+  so a future theme swap keeps affecting them.
+
+This completes the dashboard-tab scoping arc that started with
+the Audit-style redesigns. All 20 tabs now respect the v4.0.x
+CSS lesson: **every ``<style>`` selector is prefixed with the
+tab's id**.
+
+Tests: ``tests/test_live_zerotier_scoped_refactor.py`` (10
+tests) -- every selector scoped to the tab id (parameterized
+across both tabs), tab wrapper id present, all Live loader-
+critical ids preserved, ZeroTier ids preserved, all Live class
+names preserved, all ZeroTier class names preserved, no bare
+``.live-*`` / ``.livecore-*`` selector outside ``#tab-live``,
+no bare ``.ztc-*`` selector outside ``#tab-zerotier``.
+
+Suite: **1850 passed** (was 1840, +10 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-17-live.html`` -- ``<style>`` block
+  rewritten: 20+ scoped-prefixed selectors, unchanged rules.
+* ``dashboard/assets/body-18-zerotier.html`` -- ``<style>``
+  block rewritten: 5 scoped-prefixed selectors, unchanged
+  rules.
+* ``tests/test_live_zerotier_scoped_refactor.py`` (new) --
+  10 tests.
+
 ## v4.34.0 - 2026-07-17
 
 ### Inventory: recent_activity probe -- 46th section
