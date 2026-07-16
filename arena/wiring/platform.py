@@ -138,6 +138,15 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_admin_update_check":   handlers.update_check,
         "handle_v1_admin_update_apply":   handlers.update_apply,
         "handle_v1_admin_update_restart": handlers.update_restart,
+        # v3.96.0: ZeroTier Central management surface.
+        "handle_v1_zerotier_central_status":            handlers.zt_central_status,
+        "handle_v1_zerotier_central_networks_list":     handlers.zt_central_networks_list,
+        "handle_v1_zerotier_central_networks_create":   handlers.zt_central_networks_create,
+        "handle_v1_zerotier_central_network_get":       handlers.zt_central_network_get,
+        "handle_v1_zerotier_central_network_delete":    handlers.zt_central_network_delete,
+        "handle_v1_zerotier_central_members_list":      handlers.zt_central_members_list,
+        "handle_v1_zerotier_central_member_update":     handlers.zt_central_member_update,
+        "handle_v1_zerotier_central_member_delete":     handlers.zt_central_member_delete,
         # v3.86.0: multi-agent handlers ride the same admin context.
         **_build_multiagent_handlers(admin_ctx),
     }

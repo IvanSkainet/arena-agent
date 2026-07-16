@@ -1,3 +1,135 @@
+## v3.96.0 - 2026-07-16
+
+### Added — ZeroTier Central management surface
+
+The local ZeroTier surface (v3.x) manages *this host's* joined
+networks. This release adds the missing half: **network- and
+member-level operations on the controller** via the ZeroTier
+Central API. Approve or deauthorise members, create and delete
+networks, rename members, pin IP assignments — end-to-end, from
+Dashboard or from any agent that can hit the Bridge.
+
+#### Backend
+
+* **`arena/admin/zerotier_central.py`** (473 lines) — pure Central
+  API client, zero non-stdlib deps. Token discovery follows the
+  same precedence users already know from the local CLI:
+
+  1. `ZEROTIER_CENTRAL_TOKEN` env var
+  2. File pointed to by `ZEROTIER_CENTRAL_TOKEN_FILE`
+  3. Default `~/.zerotier-central-token`
+
+  Public functions all return `{ok, ...}` dicts — no exceptions
+  bubble up. Every failure path carries a `reason` string plus
+  the HTTP `status` when Central answered, so the Dashboard can
+  render a useful error instead of "Internal server error".
+
+  Operations covered:
+
+  - `central_status()` — token-OK probe (`GET /status`)
+  - `list_networks()` — with per-row summary projection
+  - `get_network(nwid)` — full detail
+  - `create_network(name, extra=None)` — accepts partial Central
+    config for IP pools, private/public, etc.
+  - `delete_network(nwid)`
+  - `list_members(nwid)` — summary with authorised count
+  - `update_member(nwid, node, authorized=, name=, description=,
+    ip_assignments=)` — doubles as approve/deauth/rename/pin
+  - `delete_member(nwid, node)`
+
+  All ID inputs are validated with regexes (`[0-9a-f]{16}` for
+  networks, `[0-9a-f]{10}` for members) so invalid IDs never
+  reach Central and never create bogus junk rows.
+
+* **`arena/admin/zerotier_central_handlers.py`** (185 lines) —
+  8 aiohttp handlers, one per operation, all wrapped by
+  `@authed` and using `err_json` / `parse_json_body` from
+  `arena/handler_helpers.py` — same pattern as the v3.93.0
+  admin migration and v3.94.0 exec migration. Each mutating
+  action emits an audit event (`zerotier_central_create_network`,
+  `zerotier_central_delete_network`, `zerotier_central_update_member`,
+  `zerotier_central_delete_member`).
+
+* Routes (all under the standard `core` group in
+  `arena/route_registry/registry.py`):
+
+  ```
+  GET    /v1/zerotier/central/status
+  GET    /v1/zerotier/central/networks
+  POST   /v1/zerotier/central/networks
+  GET    /v1/zerotier/central/networks/{nwid}
+  DELETE /v1/zerotier/central/networks/{nwid}
+  GET    /v1/zerotier/central/networks/{nwid}/members
+  POST   /v1/zerotier/central/networks/{nwid}/members/{node}
+  DELETE /v1/zerotier/central/networks/{nwid}/members/{node}
+  ```
+
+* `arena/wiring/platform.py` — 8 new handler entries in the
+  admin registry, sharing the existing `AdminHandlerContext`
+  (executor, audit, cors, auth) so no new dependencies plumbed
+  through.
+
+#### Frontend
+
+* **`dashboard/assets/00-tabs-registry.js`** — new **ZeroTier**
+  tab (🌐, positioned between Live and Doctor).
+
+* **`dashboard/assets/body-18-zerotier.html`** (61 lines) — token
+  status header, "Create network" input, networks table (ID /
+  name / visibility / auth-count / IP pool / delete button), and
+  a members panel that appears when a network row is clicked.
+  All theme colors resolved through the shared `--live-*` /
+  `--*` CSS variable palette.
+
+* **`dashboard/assets/42-zerotier-central.js`** (261 lines) —
+  full-fetch view with row-click drill-down. Confirms delete
+  operations (network delete is permanent; member removal offers
+  the deauth-instead hint), reloads only the affected panel
+  after mutations. Uses the shared `api()` helper from
+  `02-api-helper.js` so it inherits the CORS + Bearer wiring.
+
+#### Tests
+
+**1102 → 1122 passed** (+20 new).
+
+* **`tests/test_zerotier_central.py`** (316 lines, 18 tests) —
+  every API path exercised against a monkeypatched `urlopen`
+  so the suite runs offline and deterministically. Covers
+  token discovery precedence, Bearer-header + User-Agent
+  wire format, network summarisation, upstream 401 mapping,
+  create/delete flows, member auth toggles, ID validation
+  regressions, and end-to-end route registration under both
+  `ROUTES` and `ub.make_app`.
+
+* `tests/test_route_registry.py::test_tabs_registry_file_exists_and_declares_all_tabs`
+  updated to include the new `zerotier` tab.
+
+### Verified live
+
+* Bridge on 3.96.0, all 1122 tests green.
+* `GET /v1/zerotier/central/status` without a token returns the
+  graceful `{ok:false, central:false, hint:"Create an API
+  token…"}` payload — the Dashboard renders it as a "Token
+  missing" badge rather than crashing.
+* `GET /v1/zerotier/central/networks` returns the same shape.
+* Bad network IDs (`GET .../networks/not-hex/members`) return the
+  validation error dict with 200 (as intended — auth passed, the
+  logical error is in the payload's `ok:false`).
+* `GET /v1/zerotier/central/status` without Bearer token → **401**.
+* Asset manifest auto-discovered `42-zerotier-central.js` and
+  `body-18-zerotier.html` — no manual registration needed.
+
+### Notes on production use
+
+* Central rate-limits free-tier accounts at 20 req/s, paid at
+  100 req/s. The Dashboard's normal usage stays well under this;
+  scripts that poll aggressively should insert their own delay.
+* Deleting a network is **permanent** with no undo. The UI
+  guards this with a `confirm(...)` dialog.
+* All mutating actions land in `audit.jsonl` alongside every
+  other admin action — full trail even when the operator uses
+  the browser UI rather than curl.
+
 ## v3.95.0 - 2026-07-16
 
 ### Added — Live host-metrics + Dashboard sparkline tab

@@ -36,6 +36,7 @@ window.ARENA_TABS = [
   {name: "live",      icon: "📈", label: "Live",
                                     onShow: () => startLiveCharts(),
                                     onHide: () => stopLiveCharts()},
+  {name: "zerotier",  icon: "🌐", label: "ZeroTier", onShow: () => refreshZerotierCentral()},
   {name: "doctor",    icon: "🏥", label: "Doctor",    onShow: () => runDoctor()},
   {name: "audit",     icon: "📜", label: "Audit",     onShow: () => loadAudit()},
   {name: "settings",  icon: "⚙️", label: "Settings",  onShow: () => refreshSettings()},

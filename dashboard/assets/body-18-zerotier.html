@@ -1,0 +1,61 @@
+<!-- ==================== ZEROTIER CENTRAL ==================== -->
+<div class="tab" id="tab-zerotier">
+<style>
+/* v3.96.0 — all colors reference the shared --live-* / --* palette. */
+.ztc-status-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.ztc-create-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 10px 0 14px;
+}
+.ztc-create-row input {
+  flex: 0 1 260px;
+}
+#ztcNetworks table th, #ztcNetworks table td,
+#ztcMembers table th, #ztcMembers table td {
+  padding: 6px 10px;
+  vertical-align: middle;
+}
+#ztcNetworks .ztc-net-row td { border-top: 1px solid var(--live-card-border); }
+#ztcNetworks .ztc-net-row:hover td { background: var(--live-canvas-bg); }
+.ztc-members-panel { margin-top: 18px; }
+</style>
+
+<h1>ZeroTier Central</h1>
+<p class="live-hint">
+  Full management for networks and members via the
+  <a href="https://my.zerotier.com/account" target="_blank"
+     rel="noreferrer">ZeroTier Central</a> API. The token stays on
+  the Bridge host — set <code>ZEROTIER_CENTRAL_TOKEN</code> in the
+  service environment or write <code>~/.zerotier-central-token</code>.
+</p>
+
+<div class="ztc-status-bar">
+  <button onclick="refreshZerotierCentral()">🔄 Refresh</button>
+  <span id="ztcStatus"><span class="muted">…</span></span>
+</div>
+
+<h2>Networks</h2>
+<div class="ztc-create-row">
+  <input type="text" id="ztcNewName" placeholder="new network name (e.g. lab-vpn)">
+  <button class="success" onclick="ztcCreateNetwork()">+ Create network</button>
+</div>
+<div class="card" id="ztcNetworks">
+  <span class="muted">Click Refresh to load networks.</span>
+</div>
+
+<div class="ztc-members-panel" id="ztcMembersPanel" style="display:none">
+  <h2>Members of <code id="ztcMembersTitle" class="mono"></code></h2>
+  <div class="card" id="ztcMembers">
+    <span class="muted">…</span>
+  </div>
+</div>
+</div>

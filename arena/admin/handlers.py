@@ -44,6 +44,15 @@ class AdminHandlers:
     update_check: object
     update_apply: object
     update_restart: object
+    # v3.96.0: ZeroTier Central management surface.
+    zt_central_status: object
+    zt_central_networks_list: object
+    zt_central_networks_create: object
+    zt_central_network_get: object
+    zt_central_network_delete: object
+    zt_central_members_list: object
+    zt_central_member_update: object
+    zt_central_member_delete: object
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
@@ -224,6 +233,11 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
     from arena.admin.handlers_update import make_update_handlers
     _upd = make_update_handlers(ctx)
 
+    # v3.96.0: ZeroTier Central management handlers live in a
+    # sibling module too — same reason.
+    from arena.admin.zerotier_central_handlers import make_zerotier_central_handlers
+    _ztc = make_zerotier_central_handlers(ctx)
+
     return AdminHandlers(
         sys_funnel=handle_v1_sys_funnel,
         token_regenerate=handle_v1_token_regenerate,
@@ -239,4 +253,12 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         update_check=_upd["update_check"],
         update_apply=_upd["update_apply"],
         update_restart=_upd["update_restart"],
+        zt_central_status=_ztc.status,
+        zt_central_networks_list=_ztc.networks_list,
+        zt_central_networks_create=_ztc.networks_create,
+        zt_central_network_get=_ztc.network_get,
+        zt_central_network_delete=_ztc.network_delete,
+        zt_central_members_list=_ztc.members_list,
+        zt_central_member_update=_ztc.member_update,
+        zt_central_member_delete=_ztc.member_delete,
     )
