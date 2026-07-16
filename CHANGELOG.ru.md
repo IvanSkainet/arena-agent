@@ -1,3 +1,145 @@
+\n## v4.11.0 - 2026-07-16
+
+### Добавлено - Overview Network Status: circuit breaker indicators
+
+Показывает ``breaker`` snapshot, добавленный v4.8.0 в
+``/v1/tunnels/probe``, прямо в Overview Network Status card,
+чтобы operators сразу видели когда provider skipped и почему
+— без обращения к raw endpoint из shell.
+
+Новая "Breaker" row рядом с Active Provider / Public URL /
+Providers, по одной маленькой badge на keyed
+``(provider, host, port)``:
+
+* **синий "ok"**            closed, 0 consecutive failures
+* **жёлтый "warn N/3"**     closed но ``N`` consecutive failures
+                            — probe скатывается; следующие N
+                            failures откроют breaker (predictive
+                            сигнал, ещё не блокирует)
+* **красный "cooldown Ns"** open, ``N`` секунд остаётся в 60s
+                            cooldown window до следующей попытки
+
+Hover-tooltip на каждой badge показывает полный ``last_error``
+из probe payload плюс raw key — operator может сразу
+диагностировать конкретный provider без
+``curl /v1/tunnels/probe | jq`` цикла.
+
+Row **скрыта полностью** когда нет записей (probes ещё не
+запускались, или старый bridge без v4.8.0). Хосты с полностью
+здоровым triple тоже ничего лишнего не видят — Overview остаётся
+tidy по умолчанию.
+
+### Fail-soft loader
+
+Тот же design pattern что v4.7.0 ZT peers card:
+``refreshNetBreaker()`` вызывается из ``refreshOverview()``
+внутри ``typeof === "function"`` guard'а и
+``.catch(() => {})`` — transient probe hiccup не может уронить
+весь Overview refresh cycle. Любая ошибка — endpoint
+недостижим, ``ok:false``, missing ``breaker`` — скрывает row
+вместо показа stale значений.
+
+### Файлы
+
+* НОВЫЙ ``dashboard/assets/04c-net-breaker.js`` (106 строк) —
+  ``refreshNetBreaker()`` renderer + private-хелперы
+  (``__netBreakerLabel`` / ``__netBreakerHide`` /
+  ``__netBreakerShow`` / ``__netBreakerRender``).
+* ИЗМЕНЁН ``dashboard/assets/body-01-overview.html`` (117 -> 133)
+  — добавлена разметка row + scoped ``<style>`` блок с
+  правилами ``.net-breaker-row``, ``.net-breaker-list`` и
+  тремя вариантами ``.item.open`` / ``.item.warn`` /
+  ``.item.ok``.
+* ИЗМЕНЁН ``dashboard/assets/04-overview.js`` (195 -> 203) —
+  wires ``refreshNetBreaker()`` в Overview refresh cycle под
+  тем же typeof + catch щитом что и ZT peers card.
+
+Manifest автогенерится из ``dashboard/assets/``, так что
+``04c-net-breaker.js`` встаёт в sorted-список между
+``04b-zt-peers.js`` и ``05-terminal-*`` без правок manifest
+(v4.7.0 lesson).
+
+### Ноль shared-CSS хирургии (v4.0.x lesson всё ещё держится)
+
+* ``dashboard.css`` byte-identical к v4.10.0 (109 строк).
+* Каждое правило новой row scoped на
+  ``#tab-overview #networkCard .net-breaker-...`` в ``<style>``
+  блоке body-таба.
+* Цвета через shared palette-переменные
+  (``var(--surface-error)`` / ``var(--red)`` /
+  ``var(--surface-warning)`` / ``var(--warning-text)`` /
+  ``var(--surface-info)`` / ``var(--blue)``) — ни одного hex
+  literal inline. ``test_no_hardcoded_theme_colors`` green.
+* Tooltip установлен через ``element.title`` (real attribute),
+  никогда через ``innerHTML`` concatenation — предотвращает
+  smuggling HTML через ``last_error`` (который может содержать
+  произвольные символы из provider stderr).
+
+### Тесты
+
+1275 -> 1289 passed (+14 в
+``tests/test_overview_net_breaker.py``):
+
+Markup:
+* Body имеет ``netBreakerRow`` + ``netBreakerList`` ids
+* Row hidden по умолчанию через ``.on`` class toggle
+* Все три визуальных состояния styled (``open`` / ``warn`` / ``ok``)
+
+JS behaviour:
+* ``refreshNetBreaker`` — global
+* Читает ``/v1/tunnels/probe`` (не /status — там нет breaker)
+* Покрывает три классификации явно, ссылки на
+  ``cools_down_in_sec`` + ``consecutive_failures``
+* Fail-soft hide на error, на ``ok:false``, и на missing
+  ``breaker`` field
+* Использует ``.title`` attribute для ``last_error``; ни одного
+  ``+ rec.<field> +`` в innerHTML
+* Sort'ит keys для stable render order (нет визуального
+  jitter между refreshes)
+* ``__netBreakerLabel`` разделяет на ``|`` — provider отдельно
+  от host:port
+
+Overview wiring:
+* ``refreshOverview`` вызывает ``refreshNetBreaker`` внутри
+  ``typeof === "function"`` + ``.catch`` guards
+
+Containment (v4.0.x lesson):
+* ``dashboard.css`` не тронут ``net-breaker-*`` /
+  ``netBreaker`` селекторами
+* Каждый новый селектор в scoped ``<style>`` начинается с
+  ``#tab-overview``
+* Manifest exclusion set не содержит новый файл
+
+Full suite: 1289 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.11.0. Cloudflared не запущен на хосте — его
+public_url пустой -> не считается; ZeroTier и Tailscale
+активны -> breaker для ``zerotier|10.57.152.120:8765``
+показывает синий "ok" (closed, 0 failures) как и ожидалось.
+Force-tested указанием на нереспонсивный endpoint из python
+shell'а против tunnels_probe: resulting breaker snapshot
+рендерится корректно как красный "cooldown Ns" badge с
+``timeout after 1.5s`` error видимым в tooltip'е. Row снова
+скрывается когда snapshot возвращается к empty (после reset'а
+module-singleton через ``reset_default_breaker()``).
+
+### Не включено
+
+* Time-series sparkline breaker state (нужен in-memory ring
+  buffer или bridge-side timeseries; отложено до запроса
+  оператора).
+* Manual "reset" кнопка в row (нужен новый
+  ``/v1/tunnels/probe/reset`` endpoint; пока не стоит surface
+  area — bridge restart сейчас recovery path и работает).
+* Circuit breaker для HTTPS-only providers (Tailscale funnel).
+  v4.8.0 breaker покрывает только TCP-probe branch; https URLs
+  всё ещё trust'ятся из provider's own ``active`` flag.
+  Отложено до pull'а real HTTP client'а (v4.8.0 CHANGELOG
+  уже flagged this).
+
 \n## v4.10.0 - 2026-07-16
 
 ### Добавлено - Audit tab: live-tail toggle (использует /v1/audit/stream?follow=1)

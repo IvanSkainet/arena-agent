@@ -1,3 +1,145 @@
+## v4.11.0 - 2026-07-16
+
+### Added - Overview Network Status: circuit breaker indicators
+
+Surfaces the ``breaker`` snapshot that v4.8.0 added to
+``/v1/tunnels/probe`` right in the Overview Network Status card,
+so operators see at a glance when a provider is being skipped and
+why -- without hitting the raw endpoint from a shell.
+
+New "Breaker" row next to Active Provider / Public URL / Providers,
+one small badge per keyed ``(provider, host, port)``:
+
+* **blue "ok"**             closed, no consecutive failures
+* **yellow "warn N/3"**     closed but ``N`` consecutive failures --
+                            probe is trending bad; the next N
+                            failures will trip the breaker
+                            (predictive signal, not yet blocking)
+* **red "cooldown Ns"**     open, ``N`` seconds remaining in the
+                            60s cooldown window before the next
+                            probe attempts
+
+Hover tooltip on every badge exposes the full ``last_error`` from
+the probe payload plus the raw key so the operator can jump
+straight into diagnosing a specific provider without a
+``curl /v1/tunnels/probe | jq`` cycle.
+
+The row is **hidden entirely** when there are no records (no
+probes have run yet, or an older bridge without v4.8.0). Hosts
+with a completely healthy triple see nothing extra either --
+tidy Overview by default.
+
+### Fail-soft loader
+
+Same design pattern as the v4.7.0 ZT peers card:
+``refreshNetBreaker()`` is called from ``refreshOverview()``
+inside a ``typeof === "function"`` guard and a ``.catch(() => {})``
+so a transient probe hiccup can't take down the whole Overview
+refresh cycle. Any error -- endpoint unreachable, ``ok:false``,
+missing ``breaker`` field -- hides the row rather than showing
+stale numbers.
+
+### Files
+
+* NEW ``dashboard/assets/04c-net-breaker.js`` (106 lines) --
+  ``refreshNetBreaker()`` renderer + private helpers
+  (``__netBreakerLabel`` / ``__netBreakerHide`` /
+  ``__netBreakerShow`` / ``__netBreakerRender``).
+* CHANGED ``dashboard/assets/body-01-overview.html`` (117 -> 133)
+  -- added the row markup + scoped ``<style>`` block defining
+  ``.net-breaker-row``, ``.net-breaker-list``, and the three
+  ``.item.open`` / ``.item.warn`` / ``.item.ok`` variants.
+* CHANGED ``dashboard/assets/04-overview.js`` (195 -> 203) --
+  wires ``refreshNetBreaker()`` into the Overview refresh cycle
+  under the same typeof + catch shield used for the ZT peers card.
+
+The manifest is auto-generated from ``dashboard/assets/`` so
+``04c-net-breaker.js`` slots into the sorted script list between
+``04b-zt-peers.js`` and ``05-terminal-*`` with no manifest edits
+needed (same lesson from v4.7.0).
+
+### Zero shared-CSS surgery (v4.0.x lesson still holds)
+
+* ``dashboard.css`` byte-identical to v4.10.0 (109 lines).
+* Every rule for the new row scoped
+  ``#tab-overview #networkCard .net-breaker-...`` in the tab
+  body's own ``<style>`` block.
+* Colors reference the shared palette variables
+  (``var(--surface-error)`` / ``var(--red)`` /
+  ``var(--surface-warning)`` / ``var(--warning-text)`` /
+  ``var(--surface-info)`` / ``var(--blue)``) so no hex literals
+  appear inline. ``test_no_hardcoded_theme_colors`` stays green.
+* The tooltip is set via ``element.title`` (a real attribute),
+  never via ``innerHTML`` string concatenation -- prevents the
+  ``last_error`` field (which can contain arbitrary characters
+  from provider stderr) from smuggling in HTML.
+
+### Tests
+
+1275 -> 1289 passed (+14 in
+``tests/test_overview_net_breaker.py``):
+
+Markup:
+* Body has ``netBreakerRow`` + ``netBreakerList`` ids
+* Row hidden by default via ``.on`` class toggle
+* All three visual states styled (``open`` / ``warn`` / ``ok``)
+
+JS behaviour:
+* ``refreshNetBreaker`` is a global
+* Reads ``/v1/tunnels/probe`` (not /status -- that has no breaker)
+* Covers the three classifications explicitly, references
+  ``cools_down_in_sec`` + ``consecutive_failures``
+* Fail-soft hide on error, on ``ok:false``, and on missing
+  ``breaker`` field
+* Uses ``.title`` attribute for ``last_error``; no
+  ``+ rec.<field> +`` interpolation into innerHTML
+* Sorts keys for stable render order (no visual jitter across
+  refreshes)
+* ``__netBreakerLabel`` splits at ``|`` to separate provider
+  from host:port
+
+Overview wiring:
+* ``refreshOverview`` calls ``refreshNetBreaker`` inside
+  ``typeof === "function"`` + ``.catch`` guards
+
+Containment (v4.0.x lesson):
+* ``dashboard.css`` untouched by ``net-breaker-*`` /
+  ``netBreaker`` selectors
+* Every new selector in the scoped ``<style>`` starts with
+  ``#tab-overview``
+* Manifest exclusion set does not contain the new file
+
+Full suite: 1289 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` from baseline.
+
+### Verified live
+
+Bridge on 4.11.0. Cloudflared not running on the host so its
+public_url is empty -> not counted; ZeroTier and Tailscale are
+active -> breaker for
+``zerotier|10.57.152.120:8765`` shows blue "ok" (closed, 0
+failures) as expected. Force-tested by pointing at a
+non-responsive endpoint from a python shell against
+tunnels_probe: the resulting breaker snapshot renders correctly
+as a red "cooldown Ns" badge with the ``timeout after 1.5s``
+error visible in the tooltip. Row hides again the moment the
+snapshot returns to empty (after the shared module singleton was
+reset via ``reset_default_breaker()``).
+
+### Not included
+
+* Time-series sparkline of breaker state (would want in-memory
+  ring buffer or a bridge-side timeseries; deferred until an
+  operator asks).
+* Manual "reset" button in the row (would need a new
+  ``/v1/tunnels/probe/reset`` endpoint; not yet worth the
+  surface area -- a bridge restart is the current recovery path
+  and it works).
+* Circuit breaker for HTTPS-only providers (Tailscale funnel).
+  The v4.8.0 breaker only covers the TCP-probe branch;
+  https URLs are still trusted from the provider's own
+  ``active`` flag. Deferred until we pull in a real HTTP
+  client (v4.8.0 CHANGELOG already flagged this).
 ## v4.10.0 - 2026-07-16
 
 ### Added - Audit tab: live-tail toggle (uses /v1/audit/stream?follow=1)

@@ -24,11 +24,27 @@
 <div id="loadAvgRow" class="row" style="display:none"><span style="width:80px;font-size:12px;font-weight:600">Load Avg</span><span id="loadAvgText" class="mono" style="font-size:13px"></span></div>
 </div>
 
+<!-- v4.11.0: circuit breaker indicators. All styling scoped to
+     #tab-overview #networkCard so nothing leaks into shared CSS
+     (v4.0.x lesson). The row is hidden until /v1/tunnels/probe
+     comes back with a non-empty breaker snapshot. -->
+<style>
+  #tab-overview #networkCard .net-breaker-row{display:none}
+  #tab-overview #networkCard .net-breaker-row.on{display:flex}
+  #tab-overview #networkCard .net-breaker-list{display:flex;gap:8px;flex-wrap:wrap;font-size:11px}
+  #tab-overview #networkCard .net-breaker-list .item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:10px;font-family:var(--mono);cursor:default}
+  #tab-overview #networkCard .net-breaker-list .item.open{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
+  #tab-overview #networkCard .net-breaker-list .item.warn{background:var(--surface-warning);color:var(--warning-text);border:1px solid var(--border-warning)}
+  #tab-overview #networkCard .net-breaker-list .item.ok{background:var(--surface-info);color:var(--blue);border:1px solid var(--border-info)}
+</style>
 <h2>Network Status</h2>
 <div class="card" id="networkCard">
 <div class="row"><span style="font-size:12px;font-weight:600;width:120px">Active Provider</span><span id="netActiveProvider" class="badge gray">Unknown</span></div>
 <div class="row"><span style="font-size:12px;font-weight:600;width:120px">Public URL</span><span id="netActiveUrl" class="mono" style="font-size:12px">--</span></div>
 <div class="row" id="netProvidersRow"><span style="font-size:12px;font-weight:600;width:120px">Providers</span><span id="netProvidersList" class="mono" style="font-size:12px;color:var(--text2)">checking...</span></div>
+<!-- v4.11.0: circuit breaker state per (provider, host, port).
+     Hidden until at least one record exists. -->
+<div class="row net-breaker-row" id="netBreakerRow"><span style="font-size:12px;font-weight:600;width:120px">Breaker</span><span id="netBreakerList" class="net-breaker-list"></span></div>
 <!-- Legacy Tailscale-only IDs kept for backward compatibility with older
      scripts that may still update them. New code should use netActive* / netProviders*. -->
 <span id="tsFunnelStatus" class="badge gray" style="display:none">Unknown</span>

@@ -182,6 +182,14 @@ async function refreshOverview() {
       refreshZtPeers().catch(() => {});
     }
 
+    // v4.11.0: circuit breaker indicators in Network Status card.
+    // Same fail-soft pattern as refreshZtPeers -- any error just
+    // hides the row so a transient probe hiccup can't take down
+    // the Overview refresh cycle.
+    if (typeof refreshNetBreaker === "function") {
+      refreshNetBreaker().catch(() => {});
+    }
+
   } catch(e) {
     document.getElementById("pingDot").className = "ping err";
     document.getElementById("pingText").textContent = "Error";
