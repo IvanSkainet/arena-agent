@@ -1,12 +1,25 @@
-// ===== AUDIT (v4.6.0 polish) =====
+// ===== AUDIT (v4.6.0 polish; v4.10.0 live-tail) =====
 // State kept module-scope so pagination/filters survive between
 // re-renders without re-fetching. Fresh loadAudit() (Reload button
 // or auto-refresh tick) refills __auditState.raw.
+//
+// v4.10.0: adds a live-tail mode backed by /v1/audit/stream?follow=1.
+// While live, incoming NDJSON events are prepended to
+// __auditState.raw and the current page re-renders in place. The
+// stream is bounded by max_duration on the server (300s); we
+// auto-reconnect with since=<last-known-ts> so no event is lost
+// across the rollover.
 const __auditState = {
   raw: [],           // last full fetch from /v1/audit
   page: 0,           // 0-based current page
   autoTimer: null,   // setInterval handle when auto-refresh is on
   lastFetch: null,   // Date of last successful fetch (for meta line)
+  // v4.10.0 live-tail state:
+  liveController: null,   // AbortController for the fetch() stream
+  liveReader: null,       // ReadableStreamDefaultReader we're pulling from
+  liveLastTs: null,       // last event ts seen, used for since= on reconnect
+  liveEvents: 0,          // running counter of events received live
+  liveReconnectTimer: null, // setTimeout for the reconnect back-off
 };
 
 // Event-type -> badge category. Keep the mapping tiny; anything
@@ -217,6 +230,11 @@ function __auditRenderPage() {
   if (__auditState.lastFetch) {
     parts.push("last fetch " + __auditState.lastFetch.toLocaleTimeString());
   }
+  // v4.10.0: live-tail counter -- shown only while an active
+  // subscription exists so ordinary polling stays uncluttered.
+  if (__auditState.liveController) {
+    parts.push("live +" + __auditState.liveEvents);
+  }
   meta.innerHTML = parts.map(esc).join('<span class="sep">|</span>');
 }
 
@@ -231,6 +249,10 @@ function __auditToggleAuto() {
   const on = document.getElementById("auditAuto").checked;
   const dot = document.getElementById("auditRefreshDot");
   if (on) {
+    // Auto-refresh and live-tail do the same job; keep exactly one.
+    if (__auditState.liveController) __auditStopLive();
+    const liveBox = document.getElementById("auditLive");
+    if (liveBox) liveBox.checked = false;
     dot.classList.add("on");
     if (__auditState.autoTimer) clearInterval(__auditState.autoTimer);
     __auditState.autoTimer = setInterval(loadAudit, 5000);
@@ -240,6 +262,200 @@ function __auditToggleAuto() {
       clearInterval(__auditState.autoTimer);
       __auditState.autoTimer = null;
     }
+  }
+}
+
+// -------- v4.10.0: live-tail via /v1/audit/stream?follow=1 -------------
+// Detect ReadableStream support at attach time; older browsers get a
+// disabled checkbox rather than a mystery error mid-stream.
+function __auditLiveSupported() {
+  try {
+    // fetch() itself is old news; the streaming reader is the actual
+    // requirement.  ``ReadableStream`` may exist without ``getReader``
+    // (very old polyfills), so poke at that too.
+    return typeof ReadableStream === "function"
+      && typeof Response !== "undefined"
+      && typeof (new Response(new Blob())).body === "object"
+      && typeof (new Response(new Blob())).body.getReader === "function";
+  } catch (_e) {
+    return false;
+  }
+}
+
+function __auditLiveSetStatus(kind) {
+  // kind: "on" | "err" | "off"
+  const dot = document.getElementById("auditLiveDot");
+  if (!dot) return;
+  dot.classList.remove("on", "err");
+  if (kind === "on") dot.classList.add("on");
+  else if (kind === "err") dot.classList.add("err");
+}
+
+function __auditIngestLiveEvent(ev) {
+  // Server-emitted control events (meta / exit / error / raw) are
+  // *not* audit rows; skip them from the table view but use their
+  // ts if present so a since= reconnect can advance.
+  const t = ev && ev.type;
+  if (!t) return;
+  if (t === "meta" || t === "exit" || t === "error") return;
+  if (t === "raw") {
+    // Malformed audit line surfaced by the server -- keep it visible
+    // so operators notice corruption, but tag it clearly.
+    __auditState.raw.push({type: "raw", line: ev.line || ""});
+  } else {
+    __auditState.raw.push(ev);
+  }
+  __auditState.liveEvents += 1;
+  const ts = ev.ts || ev.timestamp;
+  if (ts) __auditState.liveLastTs = ts;
+  // Re-render only when the audit tab is the one on screen so we
+  // don't fight other tabs for CPU.
+  const tab = document.getElementById("tab-audit");
+  if (tab && tab.classList.contains("active")) {
+    __auditRenderPage();
+  }
+}
+
+// Pump a ReadableStreamDefaultReader, split on '\n' and JSON-parse
+// each line. Any parse error is logged to the console but does not
+// tear the stream down -- the next line may still be well-formed.
+async function __auditConsumeStream(reader) {
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  while (true) {
+    let chunk;
+    try {
+      chunk = await reader.read();
+    } catch (e) {
+      // Abort() surfaces as an error here on some browsers. Bail
+      // silently; the caller's finally block handles cleanup.
+      break;
+    }
+    if (chunk.done) break;
+    buffer += decoder.decode(chunk.value, {stream: true});
+    let idx;
+    while ((idx = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, idx).trim();
+      buffer = buffer.slice(idx + 1);
+      if (!line) continue;
+      try {
+        __auditIngestLiveEvent(JSON.parse(line));
+      } catch (e) {
+        console.warn("audit live-tail: bad NDJSON line", e, line);
+      }
+    }
+  }
+  // Flush any trailing bytes (usually empty when the server ended
+  // cleanly with a newline-terminated exit event).
+  buffer += decoder.decode();
+  const tail = buffer.trim();
+  if (tail) {
+    try {
+      __auditIngestLiveEvent(JSON.parse(tail));
+    } catch (_e) { /* ignore trailing garbage on abort */ }
+  }
+}
+
+// Open one /v1/audit/stream?follow=1 request. When the server hits
+// its max_duration the stream ends cleanly; we schedule a reconnect
+// with since=<last-known-ts> so no event is missed across the
+// rollover.
+async function __auditOpenLiveConnection() {
+  const controller = new AbortController();
+  __auditState.liveController = controller;
+  let base = "/v1/audit/stream?follow=1&lines=0&max_duration=300";
+  if (__auditState.liveLastTs) {
+    base += "&since=" + encodeURIComponent(__auditState.liveLastTs);
+  }
+  const token = (window.ARENA_TOKEN || "").trim();
+  try {
+    const resp = await fetch(base, {
+      headers: token ? {"Authorization": "Bearer " + token} : {},
+      signal: controller.signal,
+    });
+    if (!resp.ok || !resp.body) {
+      __auditLiveSetStatus("err");
+      __auditScheduleLiveReconnect(3000);
+      return;
+    }
+    __auditLiveSetStatus("on");
+    __auditState.liveReader = resp.body.getReader();
+    await __auditConsumeStream(__auditState.liveReader);
+  } catch (e) {
+    if (e && e.name === "AbortError") return;   // clean stop
+    __auditLiveSetStatus("err");
+  } finally {
+    __auditState.liveReader = null;
+    if (__auditState.liveController === controller) {
+      __auditState.liveController = null;
+    }
+  }
+  // If the user still wants live and we ended for any reason other
+  // than an abort, reconnect. 250ms is enough to avoid a hot-loop on
+  // an immediate error but small enough to feel seamless during a
+  // clean max_duration rollover.
+  const box = document.getElementById("auditLive");
+  if (box && box.checked) {
+    __auditScheduleLiveReconnect(250);
+  }
+}
+
+function __auditScheduleLiveReconnect(delayMs) {
+  if (__auditState.liveReconnectTimer) {
+    clearTimeout(__auditState.liveReconnectTimer);
+  }
+  __auditState.liveReconnectTimer = setTimeout(() => {
+    __auditState.liveReconnectTimer = null;
+    const box = document.getElementById("auditLive");
+    if (box && box.checked) __auditOpenLiveConnection();
+  }, delayMs);
+}
+
+function __auditStopLive() {
+  const box = document.getElementById("auditLive");
+  if (box) box.checked = false;
+  if (__auditState.liveReconnectTimer) {
+    clearTimeout(__auditState.liveReconnectTimer);
+    __auditState.liveReconnectTimer = null;
+  }
+  if (__auditState.liveController) {
+    try { __auditState.liveController.abort(); } catch (_e) {}
+  }
+  __auditState.liveController = null;
+  __auditState.liveReader = null;
+  __auditLiveSetStatus("off");
+}
+
+async function __auditToggleLive() {
+  const box = document.getElementById("auditLive");
+  if (!box) return;
+  if (!__auditLiveSupported()) {
+    box.checked = false;
+    box.disabled = true;
+    box.title = "Live-tail needs a browser with ReadableStream (Chrome 43+, Firefox 65+, Safari 10.1+).";
+    return;
+  }
+  if (box.checked) {
+    // live-tail wins over auto-refresh: turn polling off.
+    const autoBox = document.getElementById("auditAuto");
+    if (autoBox && autoBox.checked) {
+      autoBox.checked = false;
+      __auditToggleAuto();
+    }
+    // Seed the cursor from the newest row we already have so the
+    // first stream doesn't re-emit the last N events already on
+    // screen. loadAudit() runs before the toggle in the typical UX
+    // flow, so __auditState.raw is usually non-empty.
+    if (!__auditState.liveLastTs && __auditState.raw.length > 0) {
+      for (let i = __auditState.raw.length - 1; i >= 0; i--) {
+        const ts = __auditState.raw[i].ts || __auditState.raw[i].timestamp;
+        if (ts) { __auditState.liveLastTs = ts; break; }
+      }
+    }
+    __auditState.liveEvents = 0;
+    __auditOpenLiveConnection();
+  } else {
+    __auditStopLive();
   }
 }
 
@@ -254,6 +470,17 @@ async function loadAudit() {
     document.getElementById("auditExit").addEventListener("change", () => { __auditState.page = 0; __auditRenderPage(); });
     document.getElementById("auditPageSize").addEventListener("change", () => { __auditState.page = 0; __auditRenderPage(); });
     document.getElementById("auditAuto").addEventListener("change", __auditToggleAuto);
+    // v4.10.0: live-tail checkbox. Disable on browsers without
+    // ReadableStream support so users don't chase a mystery no-op.
+    const liveBox = document.getElementById("auditLive");
+    if (liveBox) {
+      if (!__auditLiveSupported()) {
+        liveBox.disabled = true;
+        liveBox.title = "Live-tail needs a browser with ReadableStream (Chrome 43+, Firefox 65+, Safari 10.1+).";
+      } else {
+        liveBox.addEventListener("change", __auditToggleLive);
+      }
+    }
     loadAudit._wired = true;
   }
   if (!__auditState.raw.length) {

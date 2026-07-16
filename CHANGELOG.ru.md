@@ -1,3 +1,160 @@
+\n## v4.10.0 - 2026-07-16
+
+### Добавлено - Audit tab: live-tail toggle (использует /v1/audit/stream?follow=1)
+
+В v4.6.0 Audit tab был один чекбокс "auto-refresh" который заново
+тянул ``/v1/audit?lines=200`` каждые 5s. Дёшево, но с лагом (до
+5s до появления события) и расточительно (те же 200 rows заново
+маршалятся каждый tick). v4.9.0 добавил
+``GET /v1/audit/stream?follow=1`` — настоящий chunked NDJSON
+tail; v4.10.0 подключает таб к нему.
+
+Новый второй чекбокс в Audit-toolbar: **live-tail** с синей
+heartbeat-точкой рядом. Включение:
+
+1. Выключает auto-refresh (делают одно и то же — держим один).
+2. Seed'ит ``since=<ts>`` cursor из newest row уже на экране,
+   чтобы первый stream не re-эмитил историю.
+3. Открывает ``fetch("/v1/audit/stream?follow=1&lines=0&max_duration=300")``
+   как ``ReadableStream`` и качает NDJSON строки через
+   ``TextDecoder`` + ``JSON.parse``.
+4. Prepend'ит каждое новое audit-событие в ``__auditState.raw``
+   и, если Audit tab сейчас виден — re-render'ит страницу
+   in-place. Фильтры (search / type / exit / page-size)
+   применяются к live событиям так же как к history.
+5. Когда сервер попадает в свой 300s ``max_duration`` stream
+   заканчивается чисто и клиент auto-reconnect'ится через 250ms
+   с ``since=<liveLastTs>`` — ни одно событие не потеряно на
+   rollover.
+
+Цвет точки:
+
+* **синий-solid on** — streaming
+* **красный-пульсирующий on** — connection error (сервер
+  недостижим, auth failed, chunked-encoding сломан); reconnect
+  запланирован
+* **off** — чекбокс не отмечен
+
+Meta-line получает running counter ``live +N`` пока live
+подписка открыта — operators видят что события идут ещё до того
+как таблица перерисовалась (что происходит только когда Audit
+tab активный — CPU-friendly для тех кто держит tab в фоне).
+
+### Cross-browser support
+
+Feature-detect через ``ReadableStream`` +
+``Response.body.getReader`` при attach (Chrome 43+, Firefox 65+,
+Safari 10.1+ — по сути всё с 2018). Браузеры без поддержки
+получают чекбокс rendered ``disabled`` с полезным tooltip'ом —
+никаких mystery no-op при клике.
+
+### Gap-free reconnect
+
+Stream ограничен ``max_duration=300`` server-side (v4.9.0
+default — забытый агент не может держать worker вечно). На
+rollover клиент видит терминальный ``exit`` event, ждёт 250ms и
+переоткрывает с ``since=<liveLastTs>``. Любое событие с
+``ts`` > cursor эмитится; server'ский history-then-follow
+гарантирует ни дубликатов, ни пропусков.
+
+Если reconnect fails (network drop, bridge restart) status dot
+переключается на пульсирующий red и reconnects back off'ится до
+3s — не hot-loop'им по мёртвому endpoint'у. Как только bridge
+снова доступен — следующий reconnect success'ится и dot
+возвращается в blue.
+
+### Ноль shared-CSS хирургии (v4.0.x lesson всё ещё держится)
+
+* ``dashboard.css`` byte-identical к v4.9.0 (109 строк, baseline).
+* Все новые стили scoped на ``#tab-audit .audit-live-dot...`` в
+  ``<style>`` блоке таба.
+* Ни одного hex literal inline
+  (``test_no_hardcoded_theme_colors`` green).
+* Два новых теста охраняют containment
+  (``.audit-live-dot`` никогда в ``dashboard.css``; каждый новый
+  селектор начинается с ``#tab-audit``).
+
+### Файлы
+
+* ИЗМЕНЁН ``dashboard/assets/body-13-audit.html`` (95 -> 101) —
+  новый ``auditLive`` checkbox + ``auditLiveDot`` span в
+  toolbar'е, ``.audit-live-dot`` правила (on / err) в scoped
+  ``<style>`` блоке.
+* ИЗМЕНЁН ``dashboard/assets/16-audit.js`` (330 -> 557) —
+  расширен ``__auditState`` полями ``liveController`` /
+  ``liveReader`` / ``liveLastTs`` / ``liveEvents`` /
+  ``liveReconnectTimer``; новые хелперы
+  ``__auditToggleLive`` / ``__auditOpenLiveConnection`` /
+  ``__auditConsumeStream`` / ``__auditIngestLiveEvent`` /
+  ``__auditStopLive`` / ``__auditScheduleLiveReconnect`` /
+  ``__auditLiveSupported`` / ``__auditLiveSetStatus``. Auto-
+  refresh toggle теперь выключает live-tail (и наоборот).
+
+### Тесты
+
+1260 -> 1275 passed (+15 в ``tests/test_audit_live_tail.py``):
+
+Markup:
+* Checkbox + status dot present в body
+* Оба ``on`` и ``err`` состояния dot'а styled
+
+JS behaviour:
+* State-object расширен live-tail полями
+* Все private-хелперы используют ``__audit...`` prefix
+  (namespace гигиена)
+* Endpoint использует ``follow=1``, bounded ``max_duration``,
+  threaded ``since=`` cursor
+* Auto-reconnect wired (setTimeout на stream end)
+* Auto-refresh и live-tail взаимоисключаемы
+* ``AbortController`` используется для clean stop
+* NDJSON parser выживает malformed строки (JSON.parse в
+  try/catch + ``console.warn``)
+* Gap-free reconnect: cursor seeded из history на первом open,
+  updated из каждого live event
+* ``__auditLiveSupported`` probes ``ReadableStream`` +
+  ``.body.getReader``; disabled tooltip на старых браузерах
+* Ingest helper пропускает ``meta`` / ``exit`` / ``error``
+  control events
+* Table repaint gated на ``tab-audit.active`` — background tabs
+  не жгут CPU
+
+Containment:
+* ``dashboard.css`` не тронут
+* Новые ``.audit-live-dot`` селекторы начинаются с ``#tab-audit``
+
+Full suite: 1275 passed, 1 known-flaky
+``test_probe_tcp_timeout_short`` из baseline.
+
+### Проверено live
+
+Bridge на 4.10.0. Открыл Audit tab через ZeroTier overlay и
+переключил live-tail on. Blue dot пульсировал;
+``__auditState.liveEvents`` счётчик инкрементился когда
+``POST /v1/exec/stream`` вызовы в другом terminal'е производили
+``exec_stream_start`` + ``exec_stream_done`` события; новые
+строки появлялись наверху таблицы через ~500ms (один poll cycle
+на сервере). Включил auto-refresh — live-tail disconnected
+чисто, dot погас, auto-refresh dot стал green. Переключил
+live-tail снова on — auto-refresh unchecked себя, seed'нул из
+newest visible ts, первый subscription начался без re-emit
+только что polled строк.
+
+### Не включено
+
+* Client-side ring buffer cap. Live-tail продолжает prepend'ить
+  бесконечно; сессия на несколько часов может накопить 10k+
+  строк в ``__auditState.raw``. Добавление soft cap (например
+  5000 строк) с индикатором "older events unloaded" — на
+  очереди в v4.11.0 после наблюдения за реальной длинной
+  сессией.
+* Terminal / mobile tab live-tails. Паттерн бы компонировался —
+  ``/v1/exec/stream`` для Terminal, будущий
+  ``/v1/desktop/events`` для mobile — но это отдельная работа.
+* Server-Sent Events framing. NDJSON поверх chunked HTTP был
+  ок для ``/v1/exec/stream`` client'а (v4.3.0) и ок здесь.
+  Если когда-нибудь зашипим ``EventSource``-based client —
+  добавим SSE рядом; сейчас ничего не блочит.
+
 \n## v4.9.0 - 2026-07-16
 
 ### Добавлено - GET /v1/audit/stream (NDJSON audit tail с live-follow)

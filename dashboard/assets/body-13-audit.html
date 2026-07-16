@@ -51,6 +51,11 @@
   #tab-audit .audit-empty{padding:24px;text-align:center;color:var(--text2)}
   #tab-audit .audit-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
   #tab-audit .audit-refresh-dot.on{opacity:1;animation:audit-pulse 1.4s infinite}
+  /* v4.10.0: live-tail (NDJSON) has its own blue dot so operators
+     can tell polling from streaming at a glance. */
+  #tab-audit .audit-live-dot{width:6px;height:6px;border-radius:50%;background:var(--blue);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-audit .audit-live-dot.on{opacity:1;animation:audit-pulse 1.4s infinite}
+  #tab-audit .audit-live-dot.err{opacity:1;background:var(--red);animation:audit-pulse 1.4s infinite}
   @keyframes audit-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
 </style>
 <h1>Audit Log</h1>
@@ -73,6 +78,7 @@
   <button onclick="loadAudit()">Reload</button>
   <button class="info" onclick="auditStats()">Stats</button>
   <label><input type="checkbox" id="auditAuto"> auto-refresh <span class="audit-refresh-dot" id="auditRefreshDot"></span></label>
+  <label title="Live NDJSON tail via /v1/audit/stream?follow=1. Turns auto-refresh off."><input type="checkbox" id="auditLive"> live-tail <span class="audit-live-dot" id="auditLiveDot"></span></label>
 </div>
 <div class="audit-meta" id="auditMeta"></div>
 <div id="auditStatsPanel" class="card" style="display:none"></div>
