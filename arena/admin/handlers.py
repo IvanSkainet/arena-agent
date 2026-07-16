@@ -21,6 +21,7 @@ from arena.admin.runtime import (
     token_regenerate,
     zerotier_status,
     zerotier_network_action,
+    zerotier_peers,
 )
 from arena.admin.tunnels import (
     tunnels_status,
@@ -41,6 +42,8 @@ class AdminHandlers:
     cloudflared_tunnel: object
     zerotier_status: object
     zerotier_network: object
+    # v4.4.0: per-peer classification (direct / relay / root / tunneled).
+    zerotier_peers: object
     tunnels_status: object
     tunnels_active: object
     tunnels_start: object
@@ -171,6 +174,23 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
             network_id,
         )
         ctx.audit({"type": "zerotier_network", "action": action, "ok": result.get("ok")})
+        return ctx.cors_json_response(result)
+
+    @authed(ctx)
+    async def handle_v1_zerotier_peers(request: web.Request) -> web.Response:
+        """GET /v1/zerotier/peers -- per-peer classification.
+
+        Returns each ZeroTier peer with a ``path_kind`` label
+        (``direct`` / ``relay`` / ``root`` / ``tunneled`` / ``none``)
+        so agents and the Dashboard can tell at a glance whether the
+        overlay is running on real P2P UDP paths or being relayed
+        through a PLANET root. Cross-platform: uses the ZeroTier
+        local HTTP API when the authtoken is readable, otherwise
+        falls back to ``zerotier-cli -j peers`` (honouring the
+        optional ``zerotier-cli-wrapper`` sudo helper on Linux).
+        """
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, zerotier_peers)
         return ctx.cors_json_response(result)
 
     @authed(ctx)
@@ -365,6 +385,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         cloudflared_tunnel=handle_v1_cloudflared_tunnel,
         zerotier_status=handle_v1_zerotier_status,
         zerotier_network=handle_v1_zerotier_network,
+        zerotier_peers=handle_v1_zerotier_peers,
         tunnels_status=handle_v1_tunnels_status,
         tunnels_active=handle_v1_tunnels_active,
         tunnels_start=handle_v1_tunnels_start,

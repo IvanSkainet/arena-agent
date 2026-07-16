@@ -129,6 +129,8 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
         "handle_v1_zerotier_status": handlers.zerotier_status,
         "handle_v1_zerotier_network": handlers.zerotier_network,
+        # v4.4.0: per-peer classification (direct / relay / root / tunneled).
+        "handle_v1_zerotier_peers":  handlers.zerotier_peers,
         "handle_v1_tunnels_status": handlers.tunnels_status,
         "handle_v1_tunnels_active": handlers.tunnels_active,
         "handle_v1_tunnels_start": handlers.tunnels_start,

@@ -60,6 +60,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/cloudflared/tunnel/{action}", h["handle_v1_cloudflared_tunnel"])
     app.router.add_get("/v1/cloudflared/tunnel/{action}", h["handle_v1_cloudflared_tunnel"])
     app.router.add_get("/v1/zerotier/status", h["handle_v1_zerotier_status"])
+    # v4.4.0: per-peer classification (direct / relay / root / tunneled).
+    app.router.add_get("/v1/zerotier/peers", h["handle_v1_zerotier_peers"])
     app.router.add_post("/v1/zerotier/network/{action}", h["handle_v1_zerotier_network"])
     app.router.add_get("/v1/zerotier/network/{action}", h["handle_v1_zerotier_network"])
     # v3.96.0: ZeroTier Central management (api.zerotier.com).

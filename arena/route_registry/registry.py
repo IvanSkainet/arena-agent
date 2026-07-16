@@ -146,6 +146,8 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/cloudflared/tunnel/{action}'                 , 'handle_v1_cloudflared_tunnel'               , 'core', None),
     ('GET'   , '/v1/cloudflared/tunnel/{action}'                 , 'handle_v1_cloudflared_tunnel'               , 'core', None),
     ('GET'   , '/v1/zerotier/status'                             , 'handle_v1_zerotier_status'                  , 'core', None),
+    # v4.4.0: per-peer classification -- direct / relay / root / tunneled.
+    ('GET'   , '/v1/zerotier/peers'                              , 'handle_v1_zerotier_peers'                   , 'core', None),
     ('POST'  , '/v1/zerotier/network/{action}'                   , 'handle_v1_zerotier_network'                 , 'core', None),
     ('GET'   , '/v1/zerotier/network/{action}'                   , 'handle_v1_zerotier_network'                 , 'core', None),
     # v3.96.0: ZeroTier Central management via api.zerotier.com.

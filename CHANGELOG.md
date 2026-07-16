@@ -1,3 +1,117 @@
+## v4.4.0 - 2026-07-16
+
+### Added - GET /v1/zerotier/peers (direct-vs-relay diagnostics)
+
+Answers the question **"is my ZeroTier link running on real
+peer-to-peer UDP or is it being relayed through a PLANET root?"** —
+the same question you get after a `zerotier-cli status` prints
+`ONLINE` and you still see 400ms of latency. `GET /v1/zerotier/status`
+told you the node was up; `GET /v1/zerotier/peers` tells you *how*.
+
+Per-peer classification (`path_kind` field):
+
+* `direct`   — at least one active P2P path with a non-root IP. Lowest
+              latency, no third-party hop.
+* `relay`    — every active path terminates at a PLANET/MOON IP. Works
+              everywhere, ~100–500ms round-trip through the root.
+* `tunneled` — the raw `tunneled` flag is set. TCP fallback via
+              api.zerotier.com:443, used when UDP is blocked outright.
+* `root`     — this peer *is* a PLANET or MOON. Classification is
+              meaningless (it can't relay itself), labelled for clarity.
+* `none`     — peer known but no active non-expired paths right now.
+
+Response also includes a `summary` block the Dashboard can render
+without doing its own arithmetic:
+
+    {
+      "peer_count": 6,
+      "counts": {"direct": 0, "relay": 2, "root": 4, "tunneled": 0, "none": 0},
+      "leaf_total": 2, "leaf_reachable": 2,
+      "leaf_direct": 0, "leaf_relay": 2, "leaf_tunneled": 0,
+      "direct_ratio": 0.0,
+      "leaf_latency_ms_min": 159, "leaf_latency_ms_max": 460,
+      "leaf_latency_ms_avg": 309.5
+    }
+
+…and an actionable `hint` when every LEAF is on a relayed path
+("Allow UDP 9993 outbound…") or every LEAF is TCP-tunneled
+("UDP blocked, check the firewall…"). No hint when everything is
+already direct.
+
+### Cross-platform (same story as /v1/zerotier/status)
+
+Reuses the existing HTTP-preferred / CLI-fallback stack from
+`arena.admin.zerotier`:
+
+1. `GET http://127.0.0.1:9993/peer` with the local `authtoken.secret`
+   — works on Linux / macOS / Windows out of the box when the bridge
+   process can read the token.
+2. `zerotier-cli -j peers` fallback — PATH lookup plus the same
+   well-known per-platform locations already used for status
+   (Program Files on Windows, `/Applications` on macOS,
+   `/usr/sbin` on Linux). The optional `zerotier-cli-wrapper`
+   NOPASSWD helper is honoured on Linux only, only after the
+   direct binaries — never invoked from this module directly.
+
+Never calls `sudo` itself; permission-fix guidance goes through the
+same `_permission_hint()` used by /v1/zerotier/status.
+
+### Implementation
+
+* New module `arena/admin/zerotier_peers.py` (338 lines) — pure
+  transport layer, no aiohttp / no wire glue. Classifier
+  (`_classify_peer`, `_split_ip_port`, `_root_ips_from_peers`) is
+  deterministic and needs no daemon.
+* `arena/admin/handlers.py` — new `handle_v1_zerotier_peers`
+  handler, `AdminHandlers.zerotier_peers` field.
+* `arena/admin/runtime.py` — re-exported `zerotier_peers`.
+* `arena/route_registry/registry.py` + `core.py` — new
+  `GET /v1/zerotier/peers` route.
+* `arena/wiring/platform.py` — mapped the new handler.
+
+Design note: peers logic lives in its own module rather than
+piling more into `zerotier.py` (already 575 lines / cap 700). Keeps
+each responsibility on its own page and leaves headroom for future
+work (e.g. Moon management or per-network peer scoping).
+
+### Tests
+
+1187 → 1205 passed (+18 new in `tests/test_zerotier_peers.py`):
+
+* Route registration in `ROUTES`
+* Wiring via `make_app` (path + method present)
+* `AdminHandlers` dataclass exposes `zerotier_peers`
+* `arena/wiring/platform.py` maps `handle_v1_zerotier_peers`
+* Classifier: `root`, `tunneled`, `none`, `relay`, `direct`
+* `_split_ip_port` handles IPv4, IPv6-with-brackets, IPv6-bare,
+  empty, and no-slash inputs
+* `_peers_summary` counts + `direct_ratio` + latency stats
+* `_direct_hint`: all-relayed / all-tunneled (UDP mention) /
+  all-direct (no hint) / partial-direct (mentions ratio) /
+  empty (no hint)
+* `zerotier_peers()` top-level shape with monkey-patched HTTP
+  path — no daemon needed to prove end-to-end classification
+
+### Verified live
+
+Bridge on 4.4.0 through the ZeroTier overlay (`10.57.152.120:8765`).
+`GET /v1/zerotier/peers` classified the current 6 peers correctly:
+4 PLANET roots + 2 LEAF (both relayed, none direct yet — matches
+the current tunneled path this sandbox uses). Hint returned:
+"Every LEAF peer is routed through a PLANET relay — no direct P2P
+paths yet…" — exactly the diagnosis a first-time ZeroTier user
+would want when they see high latency.
+
+### Not included
+
+* Moon (custom root) management — separate ticket. The classifier
+  already treats `role == "MOON"` as `root` so custom moons work
+  transparently once configured, but there's no endpoint to add
+  or remove them yet.
+* Per-network peer scoping (only members of one network). The
+  ZeroTier local API doesn't expose network↔peer membership
+  directly on `/peer`; a real implementation would need a second
+  call plus caching. Deferred until an agent actually asks for it.
 ## v4.3.0 - 2026-07-16
 
 ### Added - POST /v1/exec/stream (chunked NDJSON streaming)
