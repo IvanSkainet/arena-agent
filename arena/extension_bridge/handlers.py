@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import ExtensionBridgeHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -34,20 +35,14 @@ def make_extension_bridge_handlers(ctx: ExtensionBridgeHandlerContext) -> Extens
         status = int(result.pop("status", 200 if result.get("ok") else 400))
         return ctx.cors_json_response(result, status=status)
 
+    @authed(ctx)
     async def handle_policies(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.policies_sync, {})
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_instructions(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         data = {"format": request.query.get("format", "arena"), "style": request.query.get("style", "full")}
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.instructions_sync, data)

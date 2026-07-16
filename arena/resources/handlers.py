@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import ResourceHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -61,11 +62,8 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
                 return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
         return handler
 
+    @authed(ctx)
     async def handle_v1_missions(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             loop = asyncio.get_running_loop()
             missions = await loop.run_in_executor(ctx.executor, ctx.list_missions_sync)
@@ -73,11 +71,8 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    @authed(ctx)
     async def handle_v1_reports(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             loop = asyncio.get_running_loop()
             reports = await loop.run_in_executor(ctx.executor, ctx.list_reports_sync)
@@ -85,11 +80,8 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    @authed(ctx)
     async def handle_v1_mission_show(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         name = parse_qs(request.query_string).get("name", [""])[0]
         if not name:
             ctx.record_request(is_error=True, count_request=False)
@@ -111,11 +103,8 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         result = await loop.run_in_executor(ctx.executor, sync_fn, name)
         return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 404)))
 
+    @authed(ctx)
     async def handle_v1_mission_catalog(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         query = parse_qs(request.query_string)
         payload = {
             "state": query.get("state", [""])[0],
@@ -174,11 +163,8 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
     async def handle_v1_mission_iterate(request: web.Request) -> web.Response:
         return await _post_json(ctx.mission_iterate_sync, request)
 
+    @authed(ctx)
     async def handle_v1_subagents_spawn(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:

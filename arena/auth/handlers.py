@@ -7,6 +7,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 
 from arena.handler_context import UserHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -15,11 +16,8 @@ class UserHandlers:
 
 
 def make_user_handlers(ctx: UserHandlerContext) -> UserHandlers:
+    @authed(ctx)
     async def handle_v1_users(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         is_auth, role = ctx.check_auth_with_role(request)
         if not is_auth or role != "admin":
             return ctx.cors_json_response({"ok": False, "error": "admin role required"}, status=403)

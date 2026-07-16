@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import ControlLeaseHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -30,19 +31,13 @@ def _snapshot(state: dict) -> dict:
 
 
 def make_control_lease_handlers(ctx: ControlLeaseHandlerContext) -> ControlLeaseHandlers:
+    @authed(ctx)
     async def handle_v1_control_status(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         with ctx.control_lock:
             return ctx.cors_json_response(_snapshot(ctx.control_state))
 
+    @authed(ctx)
     async def handle_v1_control_pause(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         reason = None
         try:
             body = await request.json()
@@ -63,11 +58,8 @@ def make_control_lease_handlers(ctx: ControlLeaseHandlerContext) -> ControlLease
         ctx.log_info("[Control] Agent desktop control PAUSED (reason: %s)", reason)
         return ctx.cors_json_response({"ok": True, "control": "paused", "reason": reason, "paused_at": paused_at})
 
+    @authed(ctx)
     async def handle_v1_control_resume(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         with ctx.control_lock:
             prev = ctx.control_state["status"]
             ctx.control_state["status"] = "active"
@@ -78,11 +70,8 @@ def make_control_lease_handlers(ctx: ControlLeaseHandlerContext) -> ControlLease
         ctx.log_info("[Control] Agent desktop control RESUMED (was: %s)", prev)
         return ctx.cors_json_response({"ok": True, "control": "active", "previous_status": prev, "resumed_at": resumed_at})
 
+    @authed(ctx)
     async def handle_v1_control_revoke(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         reason = None
         try:
             body = await request.json()

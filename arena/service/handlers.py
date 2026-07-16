@@ -9,6 +9,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 
 from arena.handler_context import ServiceHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -20,18 +21,11 @@ class ServiceHandlers:
 
 
 def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
+    @authed(ctx)
     async def handle_v1_service_info(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            info = await loop.run_in_executor(ctx.executor, ctx.service_info_sync)
-            return ctx.cors_json_response(info)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        info = await loop.run_in_executor(ctx.executor, ctx.service_info_sync)
+        return ctx.cors_json_response(info)
 
     async def handle_v1_sys_svc(request: web.Request) -> web.Response:
         """GET /v1/sys/svc — Service status."""
@@ -39,13 +33,9 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
         if r:
             return r
         ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.sys_svc_sync)
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.sys_svc_sync)
+        return ctx.cors_json_response(result)
 
     async def handle_v1_capabilities(request: web.Request) -> web.Response:
         """GET /v1/capabilities — Agent-facing capability map."""
@@ -53,19 +43,12 @@ def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:
         if r:
             return r
         ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.capabilities_sync)
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.capabilities_sync)
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_restart(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         cfg = request.app[APP_CFG]
         port = int(cfg.get("port", 8765))
         ctx.audit({"type": "restart_requested"})

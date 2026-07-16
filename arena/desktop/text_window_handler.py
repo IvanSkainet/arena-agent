@@ -5,15 +5,13 @@ from aiohttp import web
 
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 
 def make_desktop_text_window_handler(ctx: DesktopHandlerContext):
+    @authed(ctx)
     async def handle_v1_desktop_resolve_text_target(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             body = await request.json()
         except Exception as e:

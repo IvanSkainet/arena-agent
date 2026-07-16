@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import PlannerHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -15,11 +16,8 @@ class PlannerHandlers:
 
 
 def make_planner_handlers(ctx: PlannerHandlerContext) -> PlannerHandlers:
+    @authed(ctx)
     async def handle_v1_plan(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:

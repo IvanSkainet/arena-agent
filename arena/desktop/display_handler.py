@@ -5,15 +5,13 @@ from aiohttp import web
 
 from arena.desktop.displays import get_displays
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 
 def make_desktop_display_handler(ctx: DesktopHandlerContext):
+    @authed(ctx)
     async def handle_v1_desktop_displays(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         result = await get_displays(desktop_exec=ctx.desktop_exec)
         if not result.get("ok"):
             ctx.record_request(is_error=True, count_request=False)

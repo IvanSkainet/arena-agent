@@ -9,6 +9,7 @@ from aiohttp import web
 
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync
 from arena.handler_context import GatewayHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -52,11 +53,8 @@ def make_gateway_handlers(ctx: GatewayHandlerContext) -> GatewayHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    @authed(ctx)
     async def handle_gateway_run(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception:
@@ -85,11 +83,8 @@ def make_gateway_handlers(ctx: GatewayHandlerContext) -> GatewayHandlers:
         )
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_gateway_tool(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception:

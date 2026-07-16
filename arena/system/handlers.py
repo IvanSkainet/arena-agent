@@ -11,6 +11,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 
 from arena.handler_context import SystemHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -58,11 +59,8 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    @authed(ctx)
     async def handle_v1_config(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         cfg = request.app[APP_CFG]
         return ctx.cors_json_response({
             "ok": True,
@@ -85,37 +83,20 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         })
 
 
+    @authed(ctx)
     async def handle_v1_doctor(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.doctor_sync, request.app[APP_CFG]["token"])
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.doctor_sync, request.app[APP_CFG]["token"])
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_sysinfo(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.sysinfo_sync, request.app[APP_CFG]["root"])
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.sysinfo_sync, request.app[APP_CFG]["root"])
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_beep(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception:

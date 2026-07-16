@@ -9,6 +9,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import ObservabilityHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -21,11 +22,8 @@ class ObservabilityHandlers:
 
 
 def make_observability_handlers(ctx: ObservabilityHandlerContext) -> ObservabilityHandlers:
+    @authed(ctx)
     async def handle_v1_audit(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         qs = parse_qs(request.query_string)
         try:
             n = int(qs.get("lines", ["100"])[0])
@@ -41,24 +39,14 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
                 rows.append({"raw": line})
         return ctx.cors_json_response({"ok": True, "lines": len(rows), "audit": str(ctx.audit_path), "events": rows})
 
+    @authed(ctx)
     async def handle_v1_audit_stats(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.audit_stats_sync)
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.audit_stats_sync)
+        return ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_audit_log(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             lines_count = min(int(request.query.get("lines", "100")), 1000)
             method_filter = request.query.get("method", "").upper()
@@ -84,20 +72,14 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
             "entries": entries,
         })
 
+    @authed(ctx)
     async def handle_v1_webhooks_get(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         loop = asyncio.get_running_loop()
         data = await loop.run_in_executor(ctx.executor, ctx.load_webhooks)
         return ctx.cors_json_response({"ok": True, "webhooks": data})
 
+    @authed(ctx)
     async def handle_v1_webhooks_set(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception:

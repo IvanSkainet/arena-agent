@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MissionLifecycleHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -30,11 +31,8 @@ def _query_bool(value: str) -> bool | None:
 
 
 def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> MissionLifecycleHandlers:
+    @authed(ctx)
     async def handle_v1_mission_family(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         name = parse_qs(request.query_string).get("name", [""])[0]
         if not name:
             ctx.record_request(is_error=True, count_request=False)
@@ -43,11 +41,8 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
         result = await loop.run_in_executor(ctx.executor, ctx.mission_family_sync, name)
         return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 404)))
 
+    @authed(ctx)
     async def handle_v1_mission_schedules(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         loop = asyncio.get_running_loop()
         if request.method == "GET":
             query = parse_qs(request.query_string)
@@ -71,20 +66,14 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
         status = int(result.pop("status", 200 if result.get("ok") else 400))
         return ctx.cors_json_response(result, status=status)
 
+    @authed(ctx)
     async def handle_v1_mission_schedules_state(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.mission_schedule_state_sync)
         return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 400)))
 
+    @authed(ctx)
     async def handle_v1_mission_schedules_tick(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:

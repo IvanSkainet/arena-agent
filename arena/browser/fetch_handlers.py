@@ -8,6 +8,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import BrowserFetchHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -20,11 +21,8 @@ class BrowserFetchHandlers:
 
 
 def make_browser_fetch_handlers(ctx: BrowserFetchHandlerContext) -> BrowserFetchHandlers:
+    @authed(ctx)
     async def handle_v1_browser_search(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         qs = parse_qs(request.query_string)
         query = qs.get("q", [""])[0]
         try:
@@ -34,13 +32,9 @@ def make_browser_fetch_handlers(ctx: BrowserFetchHandlerContext) -> BrowserFetch
         if not query:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing q parameter"}, status=400)
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.browser_search_sync, query, n)
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.browser_search_sync, query, n)
+        return ctx.cors_json_response(result)
 
     def make_url_handler(sync_fn, missing_error: str):
         async def handler(request: web.Request) -> web.Response:

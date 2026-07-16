@@ -8,14 +8,12 @@ from aiohttp import web
 
 from arena.desktop.displays import get_displays, match_display
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
+    @authed(ctx)
     async def handle_v1_desktop_screenshot(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         qs = parse_qs(request.query_string)
         fmt = qs.get("format", ["base64"])[0].lower()
 

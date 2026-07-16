@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import HandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -32,11 +33,8 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
         from arena.inventory.registry import registry_meta
         return ctx.cors_json_response({"ok": True, "sections": registry_meta()})
 
+    @authed(ctx)
     async def handle_v1_inventory(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         section = request.query.get("section")
         fmt = (request.query.get("format") or "text").lower()
         if fmt not in ("text", "json"):
@@ -46,13 +44,9 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
             timeout = min(max(5, timeout), 120)
         except Exception:
             timeout = 30
-        try:
-            loop = asyncio.get_running_loop()
-            result = await loop.run_in_executor(ctx.executor, ctx.inventory_sync, section, fmt, timeout)
-            return ctx.cors_json_response(result)
-        except Exception as e:
-            ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, ctx.inventory_sync, section, fmt, timeout)
+        return ctx.cors_json_response(result)
 
     async def handle_v1_hardware(request: web.Request) -> web.Response:
         """GET /v1/hardware — Canonical rich hardware/system inventory."""

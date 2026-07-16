@@ -6,6 +6,7 @@ from aiohttp import web
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 
@@ -15,11 +16,8 @@ def _truthy(value: str | None) -> bool:
 
 
 def make_desktop_window_handlers(ctx: DesktopHandlerContext):
+    @authed(ctx)
     async def handle_v1_desktop_windows(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         result = await list_desktop_windows(desktop_exec=ctx.desktop_exec, detect_env=ctx.detect_desktop_env, kwin_windows_via_script=ctx.kwin_windows_via_script)
         windows = window_candidates(
             list(result.get("windows") or []),
@@ -42,11 +40,8 @@ def make_desktop_window_handlers(ctx: DesktopHandlerContext):
             payload.pop("displays", None)
         return ctx.cors_json_response(payload)
 
+    @authed(ctx)
     async def handle_v1_desktop_active_window(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         active = await ctx.get_active_window()
         if active:
             return ctx.cors_json_response({"ok": True, **active})

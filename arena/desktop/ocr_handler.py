@@ -8,6 +8,7 @@ from aiohttp import web
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
+from arena.handler_helpers import authed, err_json
 
 
 class DesktopOcrHandlers(tuple):
@@ -106,11 +107,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
             result["display"] = display_info
         return result, None
 
+    @authed(ctx)
     async def handle_v1_desktop_ocr(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json() if request.can_read_body else {}
         except Exception as e:
@@ -119,11 +117,8 @@ def make_desktop_ocr_handlers(ctx: DesktopHandlerContext) -> DesktopOcrHandlers:
         result, error = await _run_ocr(data, query_required=False)
         return error or ctx.cors_json_response(result)
 
+    @authed(ctx)
     async def handle_v1_desktop_find_text(request: web.Request) -> web.Response:
-        r = ctx.require_auth(request)
-        if r:
-            return r
-        ctx.record_request()
         try:
             data = await request.json()
         except Exception as e:

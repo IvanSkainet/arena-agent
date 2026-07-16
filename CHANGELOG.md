@@ -1,3 +1,109 @@
+## v3.99.0 - 2026-07-16
+
+### Changed — @authed migration sweep: 20 more modules in one pass
+
+Fifth (and biggest by file count) batch of the
+`arena/handler_helpers.py` migration series. Previous releases
+targeted one subsystem at a time (admin/exec/files/mobile); this
+release sweeps across the entire remaining codebase in a single
+pass using an automated transformer for the canonical
+prelude-plus-try/except shape.
+
+**20 handler modules migrated in one release:**
+
+| File                                              | Handlers | Try-wraps unwrapped | LOC delta |
+|---------------------------------------------------|---------:|--------------------:|----------:|
+| `arena/observability/handlers.py`                 |        5 |                   1 |       -18 |
+| `arena/resources/handlers.py`                     |        5 |                   0 |       -14 |
+| `arena/memory/handlers.py`                        |        4 |                   2 |       -19 |
+| `arena/system/handlers.py`                        |        4 |                   2 |       -19 |
+| `arena/service/handlers.py`                       |        2 |                   3 |       -17 |
+| `arena/control_handlers.py`                       |        4 |                   0 |       -11 |
+| `arena/resources/mission_lifecycle_handlers.py`   |        4 |                   0 |       -11 |
+| `arena/inventory/handlers.py`                     |        1 |                   1 |        -6 |
+| `arena/browser/fetch_handlers.py`                 |        1 |                   1 |        -6 |
+| `arena/desktop/ocr_handler.py`                    |        2 |                   0 |        -5 |
+| `arena/desktop/window_handlers.py`                |        2 |                   0 |        -5 |
+| `arena/gateway/handlers.py`                       |        2 |                   0 |        -5 |
+| `arena/agentic/handlers.py`                       |        2 |                   0 |        -5 |
+| `arena/extension_bridge/handlers.py`              |        2 |                   0 |        -5 |
+| `arena/auth/handlers.py`                          |        1 |                   0 |        -2 |
+| `arena/desktop/display_handler.py`                |        1 |                   0 |        -2 |
+| `arena/desktop/screenshot_handler.py`             |        1 |                   0 |        -2 |
+| `arena/desktop/text_window_handler.py`            |        1 |                   0 |        -2 |
+| `arena/planner/handlers.py`                       |        1 |                   0 |        -2 |
+| `arena/filewatch/handlers.py`                     |        1 |                   0 |        -2 |
+| **TOTAL**                                         |   **46** |              **10** |  **-158** |
+
+The transformer script (`mass_migrate.py`) matches only the exact
+canonical shape:
+
+```python
+    async def handle_v1_foo(request: web.Request) -> web.Response:
+        r = ctx.require_auth(request)
+        if r:
+            return r
+        ctx.record_request()
+        try:
+            ...
+        except Exception as e:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": str(e)},
+                                          status=500)
+```
+
+Any handler that varies from this shape (docstring between `def`
+and prelude, different indent, custom except-branch, etc.) is left
+untouched for a targeted follow-up. The strict matcher is
+intentional — mass rewriting handlers with bespoke error paths
+would be dangerous.
+
+Wire behaviour is byte-for-byte identical for every migrated
+handler — same status codes, same error messages, same audit trail,
+same request accounting semantics.
+
+### Cumulative migration status
+
+| Release  | Modules                                        | Handlers | Removed LOC |
+|----------|------------------------------------------------|---------:|------------:|
+| v3.93.0  | admin/handlers*.py                             |       14 |         ~70 |
+| v3.94.0  | exec/handlers.py                               |        3 |         ~30 |
+| v3.97.0  | files/{handlers,fs_view_create}.py             |        7 |         ~51 |
+| v3.98.0  | mobile/handlers*.py (4 modules)                |       49 |        ~312 |
+| v3.99.0  | 20 modules across observability/resources/…    |       46 |        ~158 |
+| **Total** | 5 releases · 27 modules                       | **119**  |    **~621** |
+
+**About 119 handlers migrated to `@authed`.** The ~70 remaining
+preludes live in 40 files with slightly different shapes (docstring
+between `def` and prelude, non-standard indent, custom error
+handling); each can be picked off as those files are touched for
+other reasons — the pattern is now proven at scale.
+
+### Tests
+
+**1129 → 1129 passed** (no new tests, no wire-level regressions).
+All 55 mobile/admin/exec/files/observability/resources/etc tests
+still pass unchanged.
+
+### Verified live
+
+* Bridge on 3.99.0.
+* All 1129 tests green.
+* `POST /v1/mission/create {}` still returns proper validation error.
+* `GET /v1/audit/stats` returns audit stats.
+* `POST /v1/service/restart` without auth → **401** (via `@authed`).
+* Asset-manifest signature unchanged; Dashboard reload not needed.
+
+### Notes on the leftover ~70 preludes
+
+Files with docstrings between `def` and prelude (`service_info`,
+`sys_svc`, `capabilities`, most CDP handlers) and files with
+custom exception handling (batch, cluster, mcp, cdp/*) are left
+for targeted patches. The transformer's strict matcher intentionally
+avoids touching those to keep this release's blast radius
+predictable. When those files are next opened for a feature or bug
+fix, migrating them takes ~1 minute per handler manually.
+
 ## v3.98.0 - 2026-07-16
 
 ### Changed — @authed migration lands on the mobile subsystem (the big one)
