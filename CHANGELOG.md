@@ -1,3 +1,145 @@
+## v4.3.0 - 2026-07-16
+
+### Added - POST /v1/exec/stream (chunked NDJSON streaming)
+
+The natural third leg of the exec triad:
+
+* POST /v1/exec         — single command, buffered response (legacy)
+* POST /v1/exec/script  — raw multi-line body, buffered response (v4.2.0)
+* POST /v1/exec/stream  — same request shape as /v1/exec, but the
+                          response is chunked NDJSON emitted as bytes
+                          arrive from the child process (v4.3.0)
+
+Why: any command that takes more than a couple of seconds (``pytest``,
+``docker pull``, ``npm run build``, ``cargo build``, ``git clone`` of
+a big repo, ``systemctl status --no-pager -l`` on a busy box) blocks
+the agent for the entire wall-clock duration under /v1/exec, then
+dumps the whole output at once. With /v1/exec/stream the agent sees
+stdout/stderr line-by-line as it happens and can react (cancel via
+/v1/kill, react to a specific line, tee to a file, etc.) mid-flight.
+
+Wire format:
+
+    curl -sSN --no-buffer \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"cmd":"for i in 1 2 3; do echo tick-$i; sleep 1; done"}' \
+      $ARENA_BRIDGE_URL/v1/exec/stream
+
+Response headers:
+    Transfer-Encoding: chunked
+    Content-Type:      application/x-ndjson
+    Cache-Control:     no-cache
+    X-Accel-Buffering: no        (hint for reverse proxies)
+    X-Arena-Request-Id: <uuid>
+
+Event stream (one JSON object per line, ``\n``-terminated):
+
+    {"type":"meta",   "request_id":"...","cmd":"...","cwd":"...","timeout":60}
+    {"type":"start",  "pid":12345, "request_id":"..."}
+    {"type":"stdout", "data":"tick-1\n", "bytes":7}
+    {"type":"stdout", "data":"tick-2\n", "bytes":7}
+    {"type":"stderr", "data":"warning: ...\n", "bytes":13}
+    {"type":"exit",   "exit_code":0, "duration_sec":3.021,
+                      "stdout_bytes":21, "stderr_bytes":13,
+                      "truncated":false, "timed_out":false, "error":null,
+                      "request_id":"..."}
+
+Contract guarantees:
+* ``meta`` is always the first event (agents can tag the whole
+  stream by ``request_id`` before the child even spawns).
+* ``exit`` is always the terminal event; if the server dies mid-
+  stream the client sees an unterminated NDJSON body, which is a
+  clear signal to retry / mark the job as unknown.
+* stdout and stderr chunks are interleaved in the order the OS
+  produced them (best-effort — two async readers race on a shared
+  queue), so an agent reading line-by-line reconstructs the same
+  ordering it would see on a terminal.
+* ``bytes`` on each chunk is the raw pre-decode length; ``data`` is
+  UTF-8 decoded with the bridge's usual ``replace`` fallback so
+  multi-byte characters spanning chunk boundaries don't blow up
+  the stream.
+* ``max_output`` is enforced per stream: once the byte counter
+  exceeds it the runner stops emitting further chunks but keeps
+  counting so ``exit.stdout_bytes`` / ``exit.stderr_bytes`` still
+  reflect the true totals and ``exit.truncated`` is ``true``.
+* ``timeout`` kills the process on the wall clock exactly like
+  /v1/exec does; the terminal event has ``timed_out: true`` and
+  ``error: "timeout after Ns"``.
+
+Same gates as /v1/exec: @authed, blocklist, control-lease with
+input-injection guard, ``--profile cautious`` allowlist, cwd
+sandboxing (must be under ``--root`` unless ``--allow-any-cwd``),
+shared concurrency semaphore (so /v1/exec + /v1/exec/script +
+/v1/exec/stream all draw from the same ``--max-concurrent`` pool).
+
+Same lifecycle tracking as /v1/exec: the streaming runner
+populates ``ACTIVE_PROCESSES`` with pid + start-time so both
+``GET /v1/ps`` and ``POST /v1/kill {request_id}`` continue to work
+against streamed jobs. Kill a long-running stream mid-flight and
+the client will see the terminal ``exit`` event with a non-zero
+exit code shortly after (the runner drains the pumps briefly then
+records the exit).
+
+Audit trail: ``exec_stream_start`` / ``exec_stream_done`` /
+``exec_stream_timeout`` / ``exec_stream_error`` /
+``exec_stream_blocked`` / ``exec_stream_blocked_control`` — same
+event vocabulary as /v1/exec but namespaced so the Audit tab
+(coming in a later release) can filter streaming vs buffered.
+
+### Implementation notes
+
+New ``arena/exec/runner.py::run_shell_command_stream`` — async
+generator yielding ``{start, stdout, stderr, exit}`` dicts. Two
+``StreamReader`` pumps race on a bounded asyncio queue
+(``maxsize=64``, chunk size 4096 bytes) so a chatty stderr can't
+starve stdout or vice versa. The queue also gives us natural
+backpressure: if the client is slow to consume, the OS pipe
+buffers fill up, the pumps block, and the child process gets
+blocked on write — no unbounded memory growth.
+
+Handler in ``arena/exec/handlers.py`` uses ``web.StreamResponse``
+with ``enable_chunked_encoding()`` and writes one
+``json.dumps(...) + "\n"`` per event. On success or failure the
+response is always flushed via ``write_eof()`` in a ``finally``
+so aiohttp sends the final zero-length chunk.
+
+### Tests
+
+1180 → 1187 passed (+7 new in ``tests/test_exec_stream.py``):
+* route registration in ``ROUTES``
+* wiring via ``make_app`` (path + method present)
+* ``ExecHandlers.stream`` exposed and ``@authed``-wrapped
+* runner emits start + stdout chunks + exit for ``printf``
+* runner captures stderr and exit codes for failing commands
+* runner enforces wall-clock timeout with ``timed_out=true``
+* runner enforces ``max_output`` with ``truncated=true`` and
+  accurate byte counters even past the cap
+* NDJSON serialization is single-line per event (contract guard)
+
+### Verified live
+
+Bridge on 4.3.0 through the ZeroTier overlay
+(``http://10.57.152.120:8765``). Test cases:
+
+* Fast printf loop — meta, start, three stdout chunks, exit=0.
+* ``sleep 5`` with 2s timeout — meta, start, exit with
+  ``timed_out=true`` and ``error="timeout after 2s"``.
+* Long output — ``yes | head -n 5000`` — chunks arrived
+  incrementally (verified by ``--no-buffer`` and timing).
+
+Zero regressions in existing /v1/exec or /v1/exec/script tests.
+
+### Not included
+
+* Server-Sent Events (SSE, ``text/event-stream``) framing: NDJSON
+  is simpler to parse in every language agents actually use and
+  doesn't require the ``event: ...`` / ``data: ...`` prefixes.
+  If a browser-native EventSource client shows up in a future
+  release we can add SSE side-by-side.
+* WebSocket upgrade: same rationale — chunked NDJSON works
+  through the same Tailscale funnel / ZeroTier overlay / raw
+  HTTPS the rest of the bridge uses, no separate WS negotiation.
 ## v4.2.0 - 2026-07-16
 
 ### Added - POST /v1/exec/script (raw multi-line script endpoint)

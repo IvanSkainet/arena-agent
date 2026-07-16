@@ -11,10 +11,19 @@ upload-then-exec them as a temp file dance. Interpreter picked
 via ``X-Arena-Interpreter`` header (default: bash on POSIX,
 powershell on Windows). Body-shape decision: text/plain body =
 script, JSON body = preserve legacy /v1/exec compat.
+
+v4.3.0: Added POST /v1/exec/stream — chunked NDJSON streaming
+endpoint that emits one JSON event per line
+(``start`` → ``stdout``/``stderr`` chunks → ``exit``) as soon as
+bytes arrive from the child process. Same auth / blocklist /
+control-lease / profile / cwd / semaphore / audit gates as
+/v1/exec so agents can watch ``pytest`` or ``docker pull`` live
+instead of blocking on the full response.
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import signal
@@ -26,8 +35,10 @@ from pathlib import Path
 from aiohttp import web
 from arena.app_keys import APP_CFG
 
+from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
+from arena.http import CORS_HEADERS
 
 _BLOCKED_ENV_PATTERNS = [
     "ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
@@ -61,6 +72,8 @@ class ExecHandlers:
     kill: object
     # v4.2.0: raw-script endpoint.
     script: object
+    # v4.3.0: NDJSON streaming endpoint.
+    stream: object
 
 
 def _resolve_interpreter(name: str) -> tuple[str, dict[str, object]] | None:
@@ -385,6 +398,172 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             except Exception:
                 pass
 
+    # v4.3.0 NDJSON streaming endpoint. Same auth + gates as /v1/exec, but
+    # emits one JSON event per line as bytes arrive from the child process
+    # so agents can watch long-running commands (pytest, docker pull, npm
+    # build, ...) live instead of blocking on the full response.
+    @authed(ctx, auto_record=False)
+    async def handle_v1_exec_stream(request: web.Request) -> web.StreamResponse:
+        cfg = request.app[APP_CFG]
+
+        data, jerr = await parse_json_body(request, ctx)
+        if jerr is not None:
+            ctx.record_request(is_error=True, count_request=False)
+            return jerr
+
+        request_id = str(data.get("request_id") or uuid.uuid4())
+        cmd = str(data.get("cmd", "")).strip()
+        if not cmd:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, "missing cmd", status=400, request_id=request_id)
+
+        reason = ctx.blocked_reason(cmd)
+        if reason:
+            ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
+                       "reason": reason, "client": request.remote or "127.0.0.1"})
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, reason, status=403, request_id=request_id)
+
+        ctrl_err = ctx.control_check()
+        if ctrl_err:
+            inj = ctx.is_input_injection_cmd(cmd)
+            if inj:
+                ctx.audit({"type": "exec_stream_blocked_control", "request_id": request_id,
+                           "cmd": cmd, "reason": ctrl_err.get("error"), "matched": inj,
+                           "client": request.remote or "127.0.0.1"})
+                ctx.record_request(is_error=True, count_request=False)
+                err = dict(ctrl_err)
+                err["request_id"] = request_id
+                err["message"] = (
+                    "Desktop input injection blocked while control is "
+                    f"{ctrl_err.get('status')}. Resume control to inject input."
+                )
+                return ctx.cors_json_response(err, status=403)
+
+        profile = cfg["profile"]
+        first = ctx.first_word(cmd)
+        if profile == "cautious" and first not in ctx.cautious_allow:
+            reason = f"command '{first}' not in cautious allowlist; use --profile owner-shell"
+            ctx.audit({"type": "exec_stream_blocked", "request_id": request_id, "cmd": cmd,
+                       "reason": reason, "client": request.remote or "127.0.0.1"})
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, reason, status=403, request_id=request_id)
+
+        root: Path = cfg["root"]
+        cwd_raw = str(data.get("cwd") or root)
+        cwd = Path(cwd_raw).expanduser()
+        if not cwd.is_absolute():
+            cwd = root / cwd
+        if not cfg["allow_any_cwd"] and not ctx.under_root(cwd, root):
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, f"cwd must be under root {root}", status=403, request_id=request_id)
+        if not cwd.exists() or not cwd.is_dir():
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, f"cwd does not exist: {cwd}", status=400, request_id=request_id)
+
+        timeout = min(int(data.get("timeout", cfg["timeout"])), cfg["max_timeout"])
+        max_output = min(int(data.get("max_output", ctx.default_max_output)), cfg["max_output"])
+        env_extra = data.get("env") if isinstance(data.get("env"), dict) else {}
+        env = os.environ.copy()
+        for key in list(env_extra.keys()):
+            for blocked in _BLOCKED_ENV_PATTERNS:
+                if blocked in key.upper():
+                    del env_extra[key]
+                    break
+        env.update({str(k): str(v) for k, v in env_extra.items()})
+
+        sem: asyncio.Semaphore = cfg["semaphore"]
+        if sem.locked() and cfg["active_exec"] >= cfg["max_concurrent"]:
+            ctx.record_request(is_error=True, count_request=False)
+            return err_json(ctx, "too many concurrent exec requests",
+                            status=429, request_id=request_id)
+
+        # NDJSON stream: chunked transfer, one JSON object per line. Setting
+        # X-Accel-Buffering: no is a hint for reverse proxies (nginx) to not
+        # coalesce chunks — matters when the bridge sits behind a Tailscale
+        # funnel or similar. The response itself is unbuffered from aiohttp.
+        headers = dict(CORS_HEADERS)
+        headers["Content-Type"] = "application/x-ndjson"
+        headers["Cache-Control"] = "no-cache"
+        headers["X-Accel-Buffering"] = "no"
+        headers["X-Arena-Request-Id"] = request_id
+        response = web.StreamResponse(status=200, headers=headers)
+        response.enable_chunked_encoding()
+        await response.prepare(request)
+
+        async def _emit(event: dict) -> None:
+            line = (json.dumps(event, ensure_ascii=False) + "\n").encode("utf-8")
+            await response.write(line)
+
+        await sem.acquire()
+        cfg["active_exec"] += 1
+        ctx.audit({"type": "exec_stream_start", "request_id": request_id, "cmd": cmd,
+                   "cwd": str(cwd), "timeout": timeout,
+                   "client": request.remote or "127.0.0.1"})
+        # Header event with request_id — the runner will emit "start" once
+        # the pid is known. Two events is worth it: clients often want to
+        # tag the whole stream by request_id before the child even spawns.
+        await _emit({"type": "meta", "request_id": request_id,
+                     "cmd": cmd, "cwd": str(cwd), "timeout": timeout})
+
+        exit_event: dict | None = None
+        try:
+            async for ev in run_shell_command_stream(
+                request_id=request_id,
+                cmd=cmd,
+                cwd=cwd,
+                env=env,
+                timeout=timeout,
+                max_output=max_output,
+            ):
+                if ev["type"] in ("stdout", "stderr"):
+                    # Decode with the bridge's usual decoder so multi-byte
+                    # UTF-8 that spans chunk boundaries is best-effort
+                    # handled by the same replace policy /v1/exec uses.
+                    payload = ctx.decode_output(ev["data"])
+                    await _emit({"type": ev["type"], "data": payload,
+                                 "bytes": len(ev["data"])})
+                elif ev["type"] == "start":
+                    await _emit({"type": "start", "pid": ev.get("pid"),
+                                 "request_id": request_id})
+                elif ev["type"] == "exit":
+                    exit_event = dict(ev)
+                    exit_event["request_id"] = request_id
+                    await _emit(exit_event)
+                else:
+                    await _emit(ev)
+
+            duration = float(exit_event.get("duration_sec", 0.0)) if exit_event else 0.0
+            timed_out = bool(exit_event.get("timed_out")) if exit_event else False
+            exit_code = exit_event.get("exit_code") if exit_event else None
+            event_type = "exec_stream_timeout" if timed_out else "exec_stream_done"
+            ctx.audit({"type": event_type, "request_id": request_id, "cmd": cmd,
+                       "exit_code": exit_code, "duration": duration,
+                       "truncated": bool(exit_event.get("truncated")) if exit_event else False,
+                       "stdout_bytes": exit_event.get("stdout_bytes") if exit_event else 0,
+                       "stderr_bytes": exit_event.get("stderr_bytes") if exit_event else 0})
+            ctx.record_request(duration=duration, is_exec=True,
+                               is_error=timed_out or (exit_code != 0))
+        except Exception as e:  # noqa: BLE001
+            ctx.audit({"type": "exec_stream_error", "request_id": request_id,
+                       "cmd": cmd, "error": repr(e)})
+            ctx.record_request(duration=0.0, is_exec=True, is_error=True)
+            # Best-effort tail-event so the client sees a terminal marker
+            # even after an internal error.
+            try:
+                await _emit({"type": "error", "request_id": request_id,
+                             "error": "Internal error"})
+            except Exception:
+                pass
+        finally:
+            cfg["active_exec"] -= 1
+            sem.release()
+            try:
+                await response.write_eof()
+            except Exception:
+                pass
+        return response
+
     @authed(ctx, auto_record=False)
     async def handle_v1_kill(request: web.Request) -> web.Response:
         data, jerr = await parse_json_body(request, ctx)
@@ -410,4 +589,5 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         exec=handle_v1_exec,
         kill=handle_v1_kill,
         script=handle_v1_exec_script,
+        stream=handle_v1_exec_stream,
     )

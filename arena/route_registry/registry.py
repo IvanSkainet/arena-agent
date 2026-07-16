@@ -118,6 +118,8 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/exec'                                        , 'handle_v1_exec'                             , 'core', None),
     # v4.2.0: raw-script endpoint (multi-line body, interpreter via header).
     ('POST'  , '/v1/exec/script'                                 , 'handle_v1_exec_script'                      , 'core', None),
+    # v4.3.0: NDJSON streaming endpoint — chunked events as bytes arrive.
+    ('POST'  , '/v1/exec/stream'                                 , 'handle_v1_exec_stream'                      , 'core', None),
     ('POST'  , '/v1/kill'                                        , 'handle_v1_kill'                             , 'core', None),
     ('POST'  , '/v1/upload'                                      , 'handle_v1_upload'                           , 'core', None),
     ('GET'   , '/v1/download'                                    , 'handle_v1_download'                         , 'core', None),
