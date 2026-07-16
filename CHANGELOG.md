@@ -1,3 +1,69 @@
+## v4.29.0 - 2026-07-17
+
+### Mobile tab -- scoped palette + helper classes (low-risk redesign)
+
+Mobile is the largest and most JS-heavy dashboard tab: ~400
+lines of markup, ~60 ids that the ADB / mirror / camera /
+inspector / info loaders read from. A full DOM rewrite the
+way Overview / Proposals / Terminal / Browser / Missions got
+would carry too much regression risk in one commit. This
+release takes a smaller step: a scoped ``<style>`` block with
+the palette + a set of helper classes future patches can
+migrate individual sections onto.
+
+New in this release:
+
+* **Scoped ``<style>`` block** added at the top of the tab. Before
+  this release, Mobile had **zero** scoped ``<style>`` blocks --
+  every style was inline. Now it has one, scoped strictly to
+  ``#tab-mobile`` (v4.0.x lesson enforced by
+  ``test_every_style_selector_scoped_to_tab_mobile``).
+* **Palette variables** (``--mb-tint-green``, ``--mb-tint-blue``,
+  ``--mb-tint-purple``, ``--mb-tint-orange``, ``--mb-tint-red``,
+  ``--mb-tint-gray``) declared on ``#tab-mobile`` -- never leak
+  to ``:root``, cannot clash with other tabs.
+* **Helper classes** ready for future migrations:
+  ``.mb-toolbar``, ``.mb-meta``, ``.mb-hint``,
+  ``.mb-section-badge``, ``.mb-refresh-dot`` -- same visual
+  language as the toolbars in the other redesigned tabs.
+* **``mb-pulse`` keyframes** named specifically for Mobile (not
+  a generic ``@keyframes pulse`` that could clash with other
+  tabs' animations).
+* **Uniform section header treatment** -- ``#tab-mobile h2``
+  gets the same uppercase small-caps + badge treatment as
+  Overview / Proposals / Terminal / Browser / Missions.
+
+Preservation (this is the whole point of the incremental approach):
+
+* **All ~60 existing ids preserved** -- verified by a
+  parameterized test over a representative 40+ id sample
+  covering every subsystem (ADB, APK install, camera, mirror,
+  helper, keyboard, live-view, inspector, info).
+* **Zero changes to existing inline styles** -- the incremental
+  approach means every JS loader (``arena/mobile/*.py`` server
+  side, ``dashboard/assets/*mobile*.js`` client side) sees
+  exactly the same DOM. Future patches can migrate individual
+  sections off inline styles onto the new helper classes one
+  at a time.
+* **Zero changes to any onclick handler** -- the file's
+  interactive wiring is untouched.
+
+Tests: ``tests/test_mobile_tab_layout.py`` (46 tests) covers:
+40 critical ids across every mobile subsystem parameterized,
+tab wrapper + h1, scoped ``<style>`` block present, every
+selector scoped to ``#tab-mobile``, palette vars scoped inside
+tab, helper classes available for future migrations,
+``mb-pulse`` keyframes scoped and referenced.
+
+Suite: **1734 passed** (was 1688, +46 new), one baseline flaky.
+
+Files:
+
+* ``dashboard/assets/body-16-mobile.html`` -- added a scoped
+  ``<style>`` block at the top; the rest of the file (~395
+  lines of existing markup with inline styles) is unchanged.
+* ``tests/test_mobile_tab_layout.py`` (new) -- 46 tests
+
 ## v4.28.0 - 2026-07-17
 
 ### Missions tab redesign -- toolbar + auto-refresh + scoped palette

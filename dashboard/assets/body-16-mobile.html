@@ -1,4 +1,42 @@
 <div class="tab" id="tab-mobile">
+<style>
+  /* Mobile tab -- consolidated scoped palette + class helpers.
+     Scoped to #tab-mobile so nothing bleeds into the shared
+     sheet (v4.0.x lesson). The existing inline styles in this
+     file are left alone -- Mobile has ~60 ids and is the most
+     JS-heavy tab; a full DOM rewrite would risk regressions in
+     the ADB / scrcpy / camera / inspector wiring. Instead, this
+     block declares the palette + a small set of helper classes
+     (.mb-toolbar, .mb-meta, .mb-hint, .mb-section-badge) that
+     future patches can migrate individual sections onto without
+     touching every id in one commit. */
+  #tab-mobile{
+    --mb-tint-green:#00d67222;
+    --mb-tint-blue:#4fc3f733;
+    --mb-tint-purple:#53348333;
+    --mb-tint-orange:#ff980033;
+    --mb-tint-red:#e9456033;
+    --mb-tint-gray:#88888833;
+  }
+  #tab-mobile h2{display:flex;align-items:center;gap:8px;margin-top:18px;margin-bottom:8px;font-size:14px;letter-spacing:0.02em;text-transform:uppercase;color:var(--text2)}
+  #tab-mobile h2 .mb-section-badge{font-size:10px;font-weight:600;padding:2px 6px;border-radius:8px;background:var(--mb-tint-gray);color:var(--text2);text-transform:none;letter-spacing:0}
+  #tab-mobile .mb-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-mobile .mb-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-mobile .mb-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-mobile .mb-toolbar select{width:auto;min-width:100px}
+  #tab-mobile .mb-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-mobile .mb-meta .sep{margin:0 8px;color:var(--accent)}
+  #tab-mobile .mb-hint{font-size:11px;color:var(--text2);margin:6px 0}
+  #tab-mobile .mb-hint code{background:var(--bg2);padding:1px 4px;border-radius:3px;font-size:11px}
+  /* Refresh-dot pattern shared across tabs. Kept here (rather
+     than reused from another tab's block) so Mobile stays fully
+     self-contained -- future JS additions can drop the dot in
+     without cross-tab CSS dependencies. */
+  #tab-mobile .mb-refresh-dot{width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block;margin-right:6px;vertical-align:middle;opacity:0;transition:opacity .3s}
+  #tab-mobile .mb-refresh-dot.on{opacity:1;animation:mb-pulse 1.4s infinite}
+  #tab-mobile .mb-refresh-dot.err{opacity:1;background:var(--red);animation:mb-pulse 1.4s infinite}
+  @keyframes mb-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+</style>
 <h1>Mobile Devices <span id="mobileHeaderBadge" class="badge gray">…</span></h1>
 
 <!-- Global error box: any /v1/mobile/* failure surfaces here with a

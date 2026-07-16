@@ -1,3 +1,71 @@
+\n## v4.29.0 - 2026-07-17
+
+### Mobile tab -- scoped palette + helper-классы (low-risk редизайн)
+
+Mobile -- самая большая и JS-тяжёлая dashboard-вкладка: ~400
+строк разметки, ~60 id, которые читают loader'ы ADB / mirror /
+camera / inspector / info. Полный DOM-rewrite, как получили
+Overview / Proposals / Terminal / Browser / Missions, нёс бы
+слишком большой регрессионный риск в одном коммите. Этот
+релиз делает меньший шаг: scoped ``<style>``-блок с палитрой +
+набор helper-классов, на которые будущие патчи смогут
+мигрировать отдельные секции.
+
+Новое в релизе:
+
+* **Scoped ``<style>``-блок** добавлен в начало tab. До этого
+  релиза у Mobile было **ноль** scoped ``<style>``-блоков --
+  каждый стиль был inline. Теперь есть один, scoped строго на
+  ``#tab-mobile`` (урок v4.0.x enforced
+  ``test_every_style_selector_scoped_to_tab_mobile``).
+* **Palette-переменные** (``--mb-tint-green``, ``--mb-tint-blue``,
+  ``--mb-tint-purple``, ``--mb-tint-orange``, ``--mb-tint-red``,
+  ``--mb-tint-gray``) объявлены на ``#tab-mobile`` -- никогда
+  не утекают в ``:root``, не могут конфликтовать с другими
+  вкладками.
+* **Helper-классы** готовы к будущим миграциям:
+  ``.mb-toolbar``, ``.mb-meta``, ``.mb-hint``,
+  ``.mb-section-badge``, ``.mb-refresh-dot`` -- тот же
+  визуальный язык, что и toolbar'ы других редизайнутых вкладок.
+* **``mb-pulse`` keyframes** названы специально для Mobile
+  (не generic ``@keyframes pulse``, который мог бы конфликтовать
+  с анимациями других вкладок).
+* **Униформное оформление section-заголовков** --
+  ``#tab-mobile h2`` получает то же uppercase small-caps +
+  badge treatment, что и Overview / Proposals / Terminal /
+  Browser / Missions.
+
+Сохранение (в этом весь смысл incremental-подхода):
+
+* **Все ~60 существующих id сохранены** -- проверено
+  параметризованным тестом по representative 40+ id sample,
+  покрывающему каждую subsystem (ADB, APK install, camera,
+  mirror, helper, keyboard, live-view, inspector, info).
+* **Ноль изменений в существующих inline-стилях** --
+  incremental-подход означает, что каждый JS loader
+  (``arena/mobile/*.py`` серверная сторона, ``dashboard/
+  assets/*mobile*.js`` клиентская сторона) видит ровно тот же
+  DOM. Будущие патчи смогут мигрировать отдельные секции с
+  inline-стилей на новые helper-классы по одной за раз.
+* **Ноль изменений в onclick handler-ах** -- interactive
+  wiring файла не тронут.
+
+Тесты: ``tests/test_mobile_tab_layout.py`` (46 тестов):
+40 критичных ids через каждую mobile-subsystem параметризованы,
+tab wrapper + h1, scoped ``<style>``-блок присутствует, каждый
+селектор scoped на ``#tab-mobile``, palette vars scoped внутри
+tab, helper-классы доступны для будущих миграций, ``mb-pulse``
+keyframes scoped и referenced.
+
+Suite: **1734 passed** (было 1688, +46 новых), один baseline flaky.
+
+Файлы:
+
+* ``dashboard/assets/body-16-mobile.html`` -- добавлен scoped
+  ``<style>`` block в начало; остальная часть файла (~395
+  строк существующей разметки с inline-стилями) не тронута.
+* ``tests/test_mobile_tab_layout.py`` (новый) -- 46 тестов
+
 \n## v4.28.0 - 2026-07-17
 
 ### Редизайн Missions tab -- toolbar + auto-refresh + scoped palette
