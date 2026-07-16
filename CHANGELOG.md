@@ -1,3 +1,108 @@
+## v4.0.2 - 2026-07-16
+
+### Fixed — v4.0.1 layout fix was insufficient (real fix now applied)
+
+v4.0.1 added `max-width:1400px; margin:0 auto` on `.tab.active`
+thinking that would centre wide tabs (Live, Mobile) in the viewport.
+It didn't: `.main` is a flex-child of `<body>` sharing width with the
+220-pixel `.sidebar`, so `margin:0 auto` centres each tab **inside**
+`.main` — meaning the tab's centre sits 110 pixels right of the
+viewport centre. Only visible on wide monitors (1920×1080 and up)
+at browser zoom below 200%; at 200% the sidebar takes proportionally
+more space and the mis-centering becomes invisible, which is why v4.0.1
+"passed" my testing but not the user's.
+
+Real fix:
+
+* Sidebar is now `position:fixed; top:0; left:0; height:100vh` so it
+  leaves the normal document flow. It still visually occupies 220px
+  on the left; nothing about its rendering changes.
+* `<body>` no longer needs `display:flex` (removed).
+* `.main` gets `padding-left:244px` (220 sidebar + 24 gutter) so
+  short content still starts to the right of the sidebar.
+* `.tab.active` uses `margin-left:max(0px, calc(50vw - 700px - 244px))`
+  which is a viewport-relative formula: it places the tab's leftmost
+  edge so its centre lines up with `50vw` on any width. Clamped at 0
+  so narrow viewports never overlap the sidebar. Tab `width` is
+  `min(1400px, 100vw - 244px - 24px)` so on narrower windows the
+  content fills the remaining space; on wide windows it caps at
+  1400 px and sits centred.
+
+Verified with the math:
+* 1920 wide → tab starts at 260 px, spans 1400, centre = 960 = viewport/2 ✓
+* 2560 wide → tab starts at 580 px, spans 1400, centre = 1280 ✓
+* 3440 wide → tab starts at 1020 px, spans 1400, centre = 1720 ✓
+* 1200 wide → tab starts at 244 px, spans 932 (clamped by min()) ✓
+
+Responsive (< 900 px viewport) is unaffected: `responsive.css` still
+switches the sidebar to a fixed bottom nav and overrides `.main`'s
+padding, so mobile / tablet layout keeps working exactly as before.
+
+### Fixed — smartctl hint invisible in Rendered inventory view
+
+v4.0.1 fixed the *content* of the hint (real path, no bash-only
+`$(command -v ...)`), but the operator reported the hint still shows
+as empty output. Root cause: `dashboard/assets/22b-full-inventory-format.js`
+(the plain-text renderer for the "Rendered" inventory view) skipped
+`d.error` and `d.hint` entirely — it only printed PASS/FAIL plus
+capacity / hours / wear stats. So when smartctl couldn't open a
+device (permission denied on `/dev/sda`), the renderer emitted just
+`  /dev/sda [?]` and nothing else, which reads as "empty".
+
+Now the Rendered view surfaces both fields per device:
+
+```
+### Disk SMART
+  /dev/sda [?]
+    error: Smartctl open device: /dev/sda failed: Permission denied
+    hint:  Grant smartctl the raw-IO capability so it can be run
+           as a regular user:  sudo setcap cap_sys_rawio+ep
+           /usr/bin/smartctl  (persists until smartmontools is
+           reinstalled). Alternative: run the bridge as root, or add
+           ``ALL ALL=(ALL) NOPASSWD: /usr/bin/smartctl`` to a
+           sudoers.d file so agents can invoke ``sudo -n
+           /usr/bin/smartctl ...`` on demand.
+```
+
+### Added — one-click "Copy fix" button next to hints (Cards view)
+
+`03b-hw-cards.js::_hwHintWithCopy` extracts the first `sudo …`
+snippet from any hint and puts a small `Copy fix` button next to it
+in the SMART card, so the operator can literally click once and paste
+into their terminal. Uses `navigator.clipboard.writeText` guarded
+with a null check so the Card still renders even when the browser
+denies clipboard access (which happens on non-HTTPS contexts).
+
+### Tests
+
+* All 1153 tests still pass. No new tests required — this is
+  entirely a UI / rendering change with no wire behaviour touched.
+* `tests/test_project_modularity.py` still passes:
+  `03b-hw-cards.js` grew to exactly 700 lines (right at the ceiling).
+  If it grows further, the fix is to extract `_hwHintWithCopy` and
+  friends into a sibling `03c-hw-helpers.js` module.
+
+### Verified live
+
+* Bridge on 4.0.2.
+* CSS shipped: `.sidebar` now has `position:fixed`; `.tab.active`
+  uses the `max(0, 50vw − 700 − 244)` viewport-centred formula.
+* Rendered inventory view now includes `error:` and `hint:` lines
+  for every SMART device that couldn't be opened.
+* Cards view now has a `Copy fix` button next to any hint containing
+  a `sudo …` snippet.
+
+### Also — v4.1.0 preview commits already landed
+
+The v4.1.0 ZeroTier-as-transport work is partially on `master` under
+`arena/admin/tunnels.py`: `DEFAULT_PRIORITY` is now
+`("tailscale", "zerotier", "cloudflared")` (ZeroTier ahead of the
+flaky cloudflared), and `tunnels_probe` + `/v1/tunnels/probe` are
+wired for reachability checking. Corresponding tests updated. The
+full v4.1.0 story (auto-join, Dashboard "Which URL should the agent
+use?" hint, ZeroTier public-IP badge in Overview) ships in a
+dedicated release next.
+
 ## v4.0.1 - 2026-07-16
 
 ### Fixed — UX pain points reported by user testing

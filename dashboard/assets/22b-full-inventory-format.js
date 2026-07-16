@@ -137,6 +137,11 @@ function formatInventoryText(inv, onlySections) {
       if (d.available_spare_pct !== undefined) details.push(`${d.available_spare_pct}% spare`);
       if (d.reallocated_sectors !== undefined) details.push(`${d.reallocated_sectors} reallocated`);
       if (details.length) lines.push(`    ${details.join(" · ")}`);
+      // v4.0.2: surface the per-device error + operator hint so the
+      // rendered inventory view isn't a silent "?" when the bridge
+      // lacks permission to read SMART data.
+      if (d.error) lines.push(`    error: ${d.error}`);
+      if (d.hint)  lines.push(`    hint:  ${d.hint}`);
     });
     lines.push("");
   }

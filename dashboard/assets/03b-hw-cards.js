@@ -45,6 +45,14 @@ function _hwFmtSeconds(sec) {
   return m + "m";
 }
 
+// v4.0.2: render an operator hint plus a one-click "Copy fix" button
+// that copies just the ``sudo …`` snippet, not the whole paragraph.
+function _hwHintWithCopy(h) {
+  const m = h.match(/sudo\s+(?:setcap|-n)\s+\S[^.]*\S/), c = m ? m[0] : h;
+  return '<span style="color:var(--warning-text);font-size:11px">' + _hwEsc(h) +
+    '</span> <button class="sm" style="margin-left:6px;font-size:11px" onclick="navigator.clipboard&&navigator.clipboard.writeText(' + JSON.stringify(c) + ')">Copy fix</button>';
+}
+
 function _hwCard(title, rows) {
   const body = rows.map(([k, v]) => {
     if (v === null || v === undefined || v === "" || v === "unknown") {
@@ -271,7 +279,7 @@ function _hwRenderSmart(smart) {
       rows.push(["  error", '<span style="color:var(--red)">' + _hwEsc(d.error) + "</span>"]);
     }
     if (d.hint) {
-      rows.push(["  hint", '<span style="color:var(--warning-text);font-size:11px">' + _hwEsc(d.hint) + "</span>"]);
+      rows.push(["  hint", _hwHintWithCopy(d.hint)]);
     }
   });
   return rows.length ? _hwCard("Disk SMART", rows) : "";
@@ -472,7 +480,6 @@ function _hwRenderExtra(hw) {
   }
   return extras.join("");
 }
-
 
 // v3.88.4 renderers -------------------------------------------------
 

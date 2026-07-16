@@ -1,17 +1,52 @@
 *{margin:0;padding:0;box-sizing:border-box}
 :root{--bg:#0f0f23;--bg2:#1a1a2e;--bg3:#16213e;--accent:#0f3460;--purple:#533483;--red:#e94560;--green:#00d672;--yellow:#ffc107;--blue:#4fc3f7;--orange:#ff9800;--text:#e0e0e0;--text2:#a0a0b0;--text3:#7a7a8a;--text-inverse:#fff;--black-abs:#000;--yellow-soft:#ffe066;--warning-text:#ffd54f;--red-soft:#f87171;--surface-error:rgba(233,69,96,.10);--border-error:rgba(233,69,96,.35);--surface-info:rgba(79,195,247,.10);--surface-info-strong:rgba(79,195,247,.16);--border-info:rgba(79,195,247,.30);--surface-warning:rgba(255,193,7,.12);--border-warning:rgba(255,193,7,.40);--surface-inset:rgba(255,255,255,.04);--surface-inset-strong:rgba(255,255,255,.08);--overlay-strong:rgba(0,0,0,.65);--overlay-mid:rgba(0,0,0,.6);--overlay-heavy:rgba(0,0,0,.75);--warning-text-dim:#856404;--border:#0f3460;--mono:'Cascadia Code','Consolas','Courier New',monospace;--sans:'Segoe UI',system-ui,-apple-system,sans-serif;--live-card-bg:rgba(30,41,59,.5);--live-card-border:rgba(148,163,184,.15);--live-canvas-bg:rgba(15,23,42,.4);--live-core-track:rgba(148,163,184,.12);--live-text:#cbd5e1;--live-text-muted:#94a3b8;--live-cpu:#4ade80;--live-mem:#60a5fa;--live-swap:#a78bfa;--live-net-rx:#22d3ee;--live-net-tx:#f59e0b;--live-disk-rd:#f472b6;--live-disk-wr:#f87171;--live-gpu:#84cc16;--live-gpu-mem:#eab308}
-body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;min-height:100vh}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh}
 #arena-dashboard-root{display:contents}
-.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--accent);padding:0;flex-shrink:0;display:flex;flex-direction:column}
+.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--accent);padding:0;flex-shrink:0;display:flex;flex-direction:column;position:fixed;top:0;left:0;height:100vh;z-index:10}
 .sidebar h2{padding:16px;font-size:14px;color:var(--purple);border-bottom:1px solid var(--accent);letter-spacing:1px}
 .sidebar nav{flex:1;padding:8px 0;overflow-y:auto}
 .sidebar nav a{display:flex;align-items:center;gap:10px;padding:10px 16px;color:var(--text2);text-decoration:none;font-size:13px;transition:all .2s;border-left:3px solid transparent;cursor:pointer}
 .sidebar nav a:hover{background:var(--bg3);color:var(--text)}
 .sidebar nav a.active{background:var(--accent);color:#fff;border-left-color:var(--purple)}
 .sidebar nav a .icon{width:18px;text-align:center;font-size:14px}
-.main{flex:1;padding:24px;overflow-y:auto;max-height:100vh}
+/* v4.0.2: .main centres its tab-children relative to the VIEWPORT,
+   not relative to its own remaining width (which is offset by the
+   220px sidebar). We shift .main left by half the sidebar width so
+   its centre coincides with the viewport centre, then constrain each
+   tab to `max-width:1400px; margin:0 auto` so on wide monitors the
+   content sits centred; on narrower monitors the sidebar-compensation
+   negative margin is clamped so the content never overflows.
+   The sidebar itself is unaffected because it has flex-shrink:0. */
+/* v4.0.2 layout fix for wide viewports (1920px and up on <200% zoom).
+   Previously body was flex-row and every tab lived inside `.main`, so
+   `.tab.active {margin:0 auto}` centred each tab inside `.main` --
+   but `.main`'s centre sits 110px right of the viewport centre
+   because the sidebar takes 220px on the left. That was plainly
+   visible on Live/Mobile tabs whose flex-wrap layouts fill the whole
+   available width. Fix (above): pin `.sidebar` with `position:fixed`
+   so it leaves the flow, then apply `margin-left:220px` on `.main`
+   so `.main` spans the full viewport minus the sidebar column but
+   its `margin:0 auto` children now centre relative to the whole
+   viewport. Sidebar width unchanged (220px), no responsive overrides
+   need touching. */
+/* v4.0.2: sidebar is now position:fixed and takes no flow width, so
+   .main spans the full viewport (padding-top/right/bottom apply;
+   padding-left leaves room for the sidebar so short content still
+   doesn't slip under it). Each tab is capped at 1400px and centred
+   through the viewport centre using max()/calc(): when the viewport
+   is wide enough the tab sits at (viewport/2 - 700px); when the
+   viewport is narrow enough that this would land inside the sidebar,
+   margin-left clamps to the sidebar+padding so nothing overlaps.
+   Result: on 1920, 2560, 3440, 3840 (and any zoom) the tab centre
+   coincides with the viewport centre. */
+.main{padding:24px 24px 24px 244px;overflow-y:auto;max-height:100vh;min-width:0}
 .tab{display:none}
-.tab.active{display:block;max-width:1400px;margin:0 auto}
+.tab.active{
+  display:block;
+  width:min(1400px, 100vw - 244px - 24px);
+  margin-left:max(0px, calc(50vw - 700px - 244px));
+  margin-right:auto;
+}
 h1{font-size:22px;margin-bottom:16px;color:var(--text)}
 h2{font-size:16px;margin:16px 0 8px;color:var(--purple)}
 h3{font-size:14px;margin:12px 0 6px;color:var(--blue)}

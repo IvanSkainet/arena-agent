@@ -6,6 +6,111 @@
 Полная построчная история всех релизов (включая ранние v2.x–v3.1.x) ведётся в
 [англоязычном CHANGELOG.md](CHANGELOG.md).
 
+## v4.0.2 - 2026-07-16
+
+### Исправлено — v4.0.1 layout-fix был недостаточен (реальный fix здесь)
+
+v4.0.1 добавил `max-width:1400px; margin:0 auto` на `.tab.active`
+думая, что это отцентрирует широкие табы (Live, Mobile) во viewport'е.
+Не отцентрировало: `.main` — flex-child `<body>`, делящий ширину с
+220-пиксельным `.sidebar`, поэтому `margin:0 auto` центрирует таб
+**внутри** `.main` — центр таба сидит на 110 пикселей правее центра
+viewport'а. Заметно только на широких мониторах (1920×1080 и выше)
+при масштабе браузера меньше 200%; при 200% sidebar относительно
+шире и mis-centering невидим — вот почему v4.0.1 "прошёл" мой тест,
+но не пользовательский.
+
+Настоящий fix:
+
+* Sidebar теперь `position:fixed; top:0; left:0; height:100vh` —
+  выходит из normal document flow. Визуально всё так же занимает
+  220px слева; ничего в его рендеринге не меняется.
+* `<body>` больше не требует `display:flex` (убрано).
+* `.main` получает `padding-left:244px` (220 sidebar + 24 gutter),
+  чтобы короткий контент всё так же начинался справа от sidebar'а.
+* `.tab.active` использует `margin-left:max(0px, calc(50vw - 700px - 244px))`
+  — viewport-относительная формула: помещает левую границу таба так,
+  что его центр совпадает с `50vw` при любой ширине. Clamped на 0,
+  чтобы узкие viewport'ы никогда не пересекались с sidebar. Ширина
+  таба `min(1400px, 100vw - 244px - 24px)` — на узких окнах контент
+  заполняет остаток; на широких — capped 1400 px и центрирован.
+
+Проверено математикой:
+* 1920 wide → tab начинается на 260 px, ширина 1400, центр = 960 = viewport/2 ✓
+* 2560 wide → tab начинается на 580 px, ширина 1400, центр = 1280 ✓
+* 3440 wide → tab начинается на 1020 px, ширина 1400, центр = 1720 ✓
+* 1200 wide → tab начинается на 244 px, ширина 932 (clamped через min()) ✓
+
+Responsive (< 900 px viewport) не затронут: `responsive.css` всё
+так же переключает sidebar на bottom nav и переопределяет padding
+`.main`, поэтому mobile / tablet layout работает как раньше.
+
+### Исправлено — smartctl hint невидим во вкладке Rendered inventory
+
+v4.0.1 починил *содержимое* hint (реальный путь, без bash-only
+`$(command -v ...)`), но пользователь отчитал, что hint всё ещё
+показывается как пустой вывод. Root cause:
+`dashboard/assets/22b-full-inventory-format.js` (plain-text рендерер
+для "Rendered" inventory view) пропускал `d.error` и `d.hint`
+целиком — только печатал PASS/FAIL плюс capacity / hours / wear
+статистику. Так что когда smartctl не мог открыть device (permission
+denied на `/dev/sda`), рендерер выдавал только `  /dev/sda [?]` и
+ничего больше, что и читается как "пустой".
+
+Теперь Rendered view показывает оба поля per device:
+
+```
+### Disk SMART
+  /dev/sda [?]
+    error: Smartctl open device: /dev/sda failed: Permission denied
+    hint:  Grant smartctl the raw-IO capability so it can be run
+           as a regular user:  sudo setcap cap_sys_rawio+ep
+           /usr/bin/smartctl  (persists until smartmontools is
+           reinstalled). Alternative: run the bridge as root, or add
+           ``ALL ALL=(ALL) NOPASSWD: /usr/bin/smartctl`` to a
+           sudoers.d file so agents can invoke ``sudo -n
+           /usr/bin/smartctl ...`` on demand.
+```
+
+### Добавлено — one-click "Copy fix" кнопка рядом с hint'ами (Cards view)
+
+`03b-hw-cards.js::_hwHintWithCopy` вытаскивает первый `sudo …`
+snippet из любого hint и ставит маленькую кнопку `Copy fix` рядом
+с ним в SMART-карточке — оператор может кликнуть и вставить в
+терминал. Использует `navigator.clipboard.writeText` с null-check,
+чтобы карточка рендерилась даже когда браузер запрещает clipboard
+(на non-HTTPS контекстах, например).
+
+### Тесты
+
+* Все 1153 теста всё так же проходят. Новые тесты не требуются —
+  это чисто UI / rendering change без изменения wire behaviour.
+* `tests/test_project_modularity.py` всё ещё зелёный: `03b-hw-cards.js`
+  вырос до ровно 700 строк (на пределе). Если ещё вырастет — fix
+  вынести `_hwHintWithCopy` и friends в sibling `03c-hw-helpers.js`.
+
+### Проверено live
+
+* Bridge на 4.0.2.
+* CSS отгружен: `.sidebar` теперь `position:fixed`; `.tab.active`
+  использует `max(0, 50vw − 700 − 244)` viewport-центрированную
+  формулу.
+* Rendered inventory view теперь содержит строки `error:` и `hint:`
+  для каждого SMART device, который не удалось открыть.
+* Cards view теперь имеет `Copy fix` кнопку рядом с любым hint,
+  содержащим `sudo …` snippet.
+
+### Также — v4.1.0 preview коммиты уже в master
+
+Часть v4.1.0 ZeroTier-as-transport работы уже в `master` под
+`arena/admin/tunnels.py`: `DEFAULT_PRIORITY` теперь
+`("tailscale", "zerotier", "cloudflared")` (ZeroTier перед
+глючащим cloudflared), и `tunnels_probe` + `/v1/tunnels/probe`
+подключены для reachability-проверки. Соответствующие тесты
+обновлены. Полная v4.1.0 (auto-join, Dashboard "Какой URL агенту
+использовать?" hint, ZeroTier public-IP badge в Overview)
+шипается отдельным релизом далее.
+
 ## v4.0.1 - 2026-07-16
 
 ### Исправлено — UX pain points из отчёта пользователя

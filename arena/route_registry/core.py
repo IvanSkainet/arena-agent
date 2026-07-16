@@ -69,6 +69,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/tunnels/active", h["handle_v1_tunnels_active"])
     app.router.add_post("/v1/tunnels/start", h["handle_v1_tunnels_start"])
     app.router.add_post("/v1/tunnels/stop", h["handle_v1_tunnels_stop"])
+    # v4.1.0: reachability probe for the active transport.
+    app.router.add_get("/v1/tunnels/probe", h["handle_v1_tunnels_probe"])
     # --- v3.85.0: auto-update ---
     app.router.add_get("/v1/admin/update/status",   h["handle_v1_admin_update_status"])
     app.router.add_post("/v1/admin/update/check",   h["handle_v1_admin_update_check"])

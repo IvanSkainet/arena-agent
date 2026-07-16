@@ -70,7 +70,10 @@ def _stub_zt_off():
 
 # ---------------------------------------------------------------------------
 def test_default_priority_order():
-    assert DEFAULT_PRIORITY == ("tailscale", "cloudflared", "zerotier")
+    """v4.1.0: ZeroTier is now second (ahead of cloudflared) because
+    cloudflared quick-tunnels routinely drop on flaky ISP links. The
+    stable overlay is preferred as long as Tailscale isn't available."""
+    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared")
 
 
 def test_priority_env_override(monkeypatch):
@@ -113,11 +116,23 @@ def test_status_picks_highest_priority_active():
 
 
 def test_status_failover_to_next():
-    """When tailscale down but cloudflared up, cloudflared is chosen."""
+    """v4.1.0: when Tailscale is down but ZeroTier is up, ZeroTier
+    wins (it's second in the default priority ahead of cloudflared)."""
     snap = tunnels_status(
         sys_funnel_status_sync=_stub_ts_off,
         cloudflared_status_sync=_stub_cf_ok,
         zerotier_status_sync=_stub_zt_ok,
+    )
+    assert snap["active"]["provider"] == "zerotier"
+
+
+def test_status_failover_to_cloudflared_when_zerotier_absent():
+    """When Tailscale AND ZeroTier are down, cloudflared is the
+    fallback of last resort (it's still in the default priority)."""
+    snap = tunnels_status(
+        sys_funnel_status_sync=_stub_ts_off,
+        cloudflared_status_sync=_stub_cf_ok,
+        zerotier_status_sync=_stub_zt_off,
     )
     assert snap["active"]["provider"] == "cloudflared"
 

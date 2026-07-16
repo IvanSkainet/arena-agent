@@ -29,15 +29,26 @@ network.
 from __future__ import annotations
 
 import os
+import socket
 from collections.abc import Callable
 from typing import Any
 
 
-DEFAULT_PRIORITY = ("tailscale", "cloudflared", "zerotier")
+# v4.1.0: ZeroTier moved ahead of cloudflared in the default order.
+# Cloudflared quick-tunnels routinely disconnect on flaky ISP links,
+# leaving agents stuck; ZeroTier's overlay is far more stable
+# (persistent UDP session, works over NAT/CGNAT, no reliance on a
+# public CDN). Tailscale Funnel stays first because it's the
+# lowest-friction path when it's available (public HTTPS URL, no
+# client config needed on the agent side beyond a Bearer token).
+#
+# Override with ARENA_TUNNEL_PRIORITY=zerotier,tailscale,cloudflared
+# (any subset; missing providers append in the built-in order).
+DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared")
 
 
 def _priority_from_env() -> tuple[str, ...]:
-    """Optional override via ARENA_TUNNEL_PRIORITY=tailscale,cloudflared,zerotier."""
+    """Optional override via ARENA_TUNNEL_PRIORITY=tailscale,zerotier,cloudflared."""
     raw = os.environ.get("ARENA_TUNNEL_PRIORITY", "").strip()
     if not raw:
         return DEFAULT_PRIORITY
@@ -117,7 +128,20 @@ def _cloudflared_snapshot(cloudflared_status_sync: Callable[[], dict[str, Any]] 
     }
 
 
-def _zerotier_snapshot(zerotier_status_sync: Callable[[], dict[str, Any]] | None) -> dict[str, Any]:
+def _zerotier_snapshot(
+    zerotier_status_sync: Callable[[], dict[str, Any]] | None,
+    port: int = 8765,
+) -> dict[str, Any]:
+    """Return a ZeroTier transport snapshot.
+
+    v4.1.0: also collects every assigned IP (not just the first) so the
+    Dashboard/agents can pick an IPv4 explicitly when both v4 and v6
+    are handed out, and returns ``public_urls`` as a list of ready-to-
+    use ``http://<ip>:<port>`` endpoints for every active network the
+    node is a member of. ``public_url`` (singular) stays as the first
+    IPv4 endpoint for backwards compatibility with the v3.86.x
+    tunnels-status shape.
+    """
     if zerotier_status_sync is None:
         return {"provider": "zerotier", "available": False, "reason": "provider callable not wired"}
     try:
@@ -127,30 +151,182 @@ def _zerotier_snapshot(zerotier_status_sync: Callable[[], dict[str, Any]] | None
     zt = raw.get("zerotier") or {}
     networks = raw.get("networks") or []
     active_nets = [n for n in networks if n.get("active")]
-    # Public "URL" for ZeroTier is the assigned IP on any active network.
-    public_ip = None
+
+    # Collect every assigned IP across every active network. Prefer IPv4
+    # first (agents typically dial that), then IPv6.
+    ipv4_addrs: list[str] = []
+    ipv6_addrs: list[str] = []
     for net in active_nets:
-        addrs = net.get("assignedAddresses") or []
-        if addrs:
-            # Prefer plain IPv4 without /prefix.
-            first = addrs[0]
-            public_ip = first.split("/")[0] if "/" in first else first
-            break
+        for addr in net.get("assignedAddresses") or []:
+            ip = addr.split("/")[0] if "/" in addr else addr
+            if ":" in ip:
+                ipv6_addrs.append(ip)
+            else:
+                ipv4_addrs.append(ip)
+    all_ips = ipv4_addrs + ipv6_addrs
+
+    public_urls = [
+        (f"http://[{ip}]:{port}" if ":" in ip else f"http://{ip}:{port}")
+        for ip in all_ips
+    ]
+    public_url = public_urls[0] if public_urls else None
+
     return {
         "provider": "zerotier",
         "installed": bool(raw.get("installed")),
         "backend": raw.get("backend"),
         "cli_source": raw.get("cli_source"),
         "connected": bool(zt.get("connected")),
-        "active": bool(zt.get("connected")) and bool(active_nets),
-        "public_url": (f"http://{public_ip}:8765" if public_ip else None),
+        "active": bool(zt.get("connected")) and bool(active_nets) and bool(all_ips),
+        "public_url": public_url,
+        "public_urls": public_urls,
         "public_kind": "http-lan",
         "node_id": zt.get("node_id"),
         "version": zt.get("version"),
+        "assigned_ipv4": ipv4_addrs,
+        "assigned_ipv6": ipv6_addrs,
         "networks": active_nets,
         "manageable": True,
         "hint": raw.get("hint"),
         "raw": raw,
+    }
+
+
+# ---------------------------------------------------------------------------
+# v4.1.0: transport reachability probes
+# ---------------------------------------------------------------------------
+
+def _probe_tcp(host: str, port: int, timeout: float = 1.5) -> dict[str, Any]:
+    """Quick TCP-connect probe. Returns
+    ``{"ok": bool, "duration_ms": int, "error"?: str}``. Used to
+    verify a transport is *actually reachable* rather than just
+    "the provider says it started".
+
+    Timeout is deliberately short (1.5s default): a Dashboard tab
+    that polls every few seconds shouldn't block on a dead endpoint.
+    """
+    import time
+    start = time.monotonic()
+    sock = None
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+        elapsed = (time.monotonic() - start) * 1000
+        return {"ok": True, "duration_ms": int(elapsed)}
+    except (socket.timeout, TimeoutError):
+        return {"ok": False, "error": f"timeout after {timeout}s", "duration_ms": int(timeout * 1000)}
+    except OSError as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}", "duration_ms": int((time.monotonic() - start) * 1000)}
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+
+def _parse_url_host_port(url: str, default_port: int = 8765) -> tuple[str, int]:
+    """Extract (host, port) from ``http[s]://host[:port]/...`` or
+    ``http://[ipv6]:port/`` and return them.
+
+    Scheme-default ports are honoured: an https URL without an explicit
+    port returns 443, an http URL returns 80 (not the bridge's 8765).
+    Returns ``("", default_port)`` when the URL doesn't have a scheme
+    at all so callers can short-circuit without raising.
+    """
+    try:
+        from urllib.parse import urlparse
+        u = urlparse(url)
+        host = u.hostname or ""
+        if u.port:
+            return host, int(u.port)
+        # Fall back on scheme default so `https://foo/` reports 443.
+        scheme_defaults = {"http": 80, "https": 443, "ws": 80, "wss": 443}
+        if u.scheme in scheme_defaults:
+            return host, scheme_defaults[u.scheme]
+        return host, default_port
+    except Exception:
+        return "", default_port
+
+
+def tunnels_probe(
+    *,
+    sys_funnel_status_sync: Callable[[], dict[str, Any]] | None = None,
+    cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
+    zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
+    priority: tuple[str, ...] | None = None,
+    port: int = 8765,
+    timeout: float = 1.5,
+) -> dict[str, Any]:
+    """v4.1.0: check that each provider's advertised public URL is
+    actually reachable from the bridge host.
+
+    Handy for agents: they can call this once to figure out which
+    transport is currently useful, rather than trusting the provider's
+    self-report (Cloudflared quick-tunnel in particular says "active"
+    long after its websocket to Cloudflare has silently died).
+    """
+    snap = tunnels_status(
+        sys_funnel_status_sync=sys_funnel_status_sync,
+        cloudflared_status_sync=cloudflared_status_sync,
+        zerotier_status_sync=zerotier_status_sync,
+        priority=priority,
+    )
+    probes = []
+    for provider in snap.get("providers", []):
+        url = provider.get("public_url")
+        if not url:
+            probes.append({
+                "provider": provider.get("provider"),
+                "public_url": None,
+                "reachable": False,
+                "skip_reason": "no public_url",
+            })
+            continue
+        host, port_from_url = _parse_url_host_port(url, default_port=port)
+        if not host:
+            probes.append({
+                "provider": provider.get("provider"),
+                "public_url": url,
+                "reachable": False,
+                "skip_reason": "malformed URL",
+            })
+            continue
+        # For https URLs, skip TCP probe — a working port doesn't mean
+        # the TLS/HTTP layer works, and we can't do a full HTTP probe
+        # without pulling requests in. Tailscale funnel's public_url
+        # is https; trust its own "active" flag there.
+        if url.startswith("https://"):
+            probes.append({
+                "provider": provider.get("provider"),
+                "public_url": url,
+                "reachable": bool(provider.get("active")),
+                "note": "https endpoint — trusted from provider's active flag",
+            })
+            continue
+        result = _probe_tcp(host, port_from_url, timeout=timeout)
+        probes.append({
+            "provider": provider.get("provider"),
+            "public_url": url,
+            "host": host,
+            "port": port_from_url,
+            "reachable": bool(result["ok"]),
+            "duration_ms": result["duration_ms"],
+            "error": result.get("error"),
+        })
+
+    reachable = [p for p in probes if p.get("reachable")]
+    # Preserve priority order (probes are already in priority order
+    # because tunnels_status returns them that way).
+    active = reachable[0] if reachable else None
+    return {
+        "ok": True,
+        "priority": snap.get("priority"),
+        "probes": probes,
+        "active": {
+            "provider": active["provider"],
+            "public_url": active["public_url"],
+        } if active else None,
+        "reachable_count": len(reachable),
     }
 
 
@@ -163,14 +339,20 @@ def tunnels_status(
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
+    port: int = 8765,
 ) -> dict[str, Any]:
-    """Return a snapshot of every provider plus a suggested active endpoint."""
+    """Return a snapshot of every provider plus a suggested active endpoint.
+
+    ``port`` (v4.1.0) is used to build the ZeroTier ``http://<ip>:<port>``
+    URL — defaults to the bridge's canonical 8765 so existing callers
+    keep working unchanged.
+    """
     order = priority or _priority_from_env()
 
     snapshots: dict[str, dict[str, Any]] = {
         "tailscale": _tailscale_snapshot(sys_funnel_status_sync),
         "cloudflared": _cloudflared_snapshot(cloudflared_status_sync),
-        "zerotier": _zerotier_snapshot(zerotier_status_sync),
+        "zerotier": _zerotier_snapshot(zerotier_status_sync, port=port),
     }
 
     ordered = [snapshots[name] for name in order if name in snapshots]
@@ -199,6 +381,7 @@ def tunnels_active(
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
+    port: int = 8765,
 ) -> dict[str, Any]:
     """Return only the currently active endpoint (or an empty object)."""
     snap = tunnels_status(
@@ -206,6 +389,7 @@ def tunnels_active(
         cloudflared_status_sync=cloudflared_status_sync,
         zerotier_status_sync=zerotier_status_sync,
         priority=priority,
+        port=port,
     )
     return {"ok": True, "active": snap.get("active"), "priority": snap.get("priority")}
 

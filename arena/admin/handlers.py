@@ -22,7 +22,13 @@ from arena.admin.runtime import (
     zerotier_status,
     zerotier_network_action,
 )
-from arena.admin.tunnels import tunnels_status, tunnels_active, tunnels_start, tunnels_stop
+from arena.admin.tunnels import (
+    tunnels_status,
+    tunnels_active,
+    tunnels_start,
+    tunnels_stop,
+    tunnels_probe,
+)
 from arena.handler_context import AdminHandlerContext
 from arena.handler_helpers import authed
 
@@ -39,6 +45,8 @@ class AdminHandlers:
     tunnels_active: object
     tunnels_start: object
     tunnels_stop: object
+    # v4.1.0: reachability probe for the active transport.
+    tunnels_probe: object
     # v3.85.0: cross-platform auto-update.
     update_status: object
     update_check: object
@@ -165,11 +173,14 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
 
     @authed(ctx)
     async def handle_v1_tunnels_status(request: web.Request) -> web.Response:
+        cfg = request.app[APP_CFG]
+        port = cfg.get("port", 8765)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             ctx.executor,
             functools.partial(
                 tunnels_status,
+                port=port,
                 sys_funnel_status_sync=ctx.sys_funnel_status_sync,
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
@@ -179,11 +190,14 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
 
     @authed(ctx)
     async def handle_v1_tunnels_active(request: web.Request) -> web.Response:
+        cfg = request.app[APP_CFG]
+        port = cfg.get("port", 8765)
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             ctx.executor,
             functools.partial(
                 tunnels_active,
+                port=port,
                 sys_funnel_status_sync=ctx.sys_funnel_status_sync,
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
@@ -228,6 +242,39 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ctx.audit({"type": "tunnels_stop"})
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
+    async def handle_v1_tunnels_probe(request: web.Request) -> web.Response:
+        """GET /v1/tunnels/probe — TCP-connect reachability check for
+        every transport's advertised public URL.
+
+        v4.1.0: this is the endpoint agents should call to decide which
+        URL to actually dial. ``/v1/tunnels/active`` trusts the
+        provider's self-report; ``/v1/tunnels/probe`` proves the
+        provider is really reachable end-to-end.
+        """
+        cfg = request.app[APP_CFG]
+        port = cfg.get("port", 8765)
+        # Query params: ?timeout=SECONDS overrides the default 1.5s
+        # per-provider TCP timeout (agents can dial it down when
+        # polling frequently, or up on high-latency links).
+        try:
+            timeout = float(request.query.get("timeout", "1.5"))
+        except (TypeError, ValueError):
+            timeout = 1.5
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(
+            ctx.executor,
+            functools.partial(
+                tunnels_probe,
+                port=port,
+                timeout=timeout,
+                sys_funnel_status_sync=ctx.sys_funnel_status_sync,
+                cloudflared_status_sync=ctx.cloudflared_status_sync,
+                zerotier_status_sync=ctx.zerotier_status_sync,
+            ),
+        )
+        return ctx.cors_json_response(result)
+
     # v3.85.0: auto-update handlers live in a sibling module to keep
     # this file small.
     from arena.admin.handlers_update import make_update_handlers
@@ -249,6 +296,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tunnels_active=handle_v1_tunnels_active,
         tunnels_start=handle_v1_tunnels_start,
         tunnels_stop=handle_v1_tunnels_stop,
+        tunnels_probe=handle_v1_tunnels_probe,
         update_status=_upd["update_status"],
         update_check=_upd["update_check"],
         update_apply=_upd["update_apply"],
