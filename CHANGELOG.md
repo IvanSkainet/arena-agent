@@ -1,3 +1,123 @@
+## v3.90.0 - 2026-07-16
+
+### Changed — unification of routes + Dashboard tabs
+
+Continues the v3.89.0 "one source of truth" pattern (inventory
+registry). Two more places had duplicated declarations across
+multiple files. Now unified.
+
+### Added — `arena/route_registry/registry.py`
+
+Single declarative source for every HTTP route in the bridge.
+270 routes across the 5 legacy files (`core.py`, `compat.py`,
+`desktop.py`, `domain.py`, `cdp.py`) are now discoverable through
+a single `ROUTES` list + `all_routes()` function. Adding a new
+endpoint = **one tuple** in `ROUTES`.
+
+The registry uses a compact `Route` tuple:
+`(method, path, handler_name, group, opts)`. The `opts` slot is
+reserved for future per-route metadata (auth policy, rate limit
+tier, OpenAPI description) so we can retire hand-written docs and
+attach it right on the route.
+
+CDP has 36 routes = 18 endpoints × 2 canonical prefixes
+(`/v1/browser/cdp` and `/v1/cdp`). Declared once as
+`_CDP_ENDPOINTS` and expanded automatically.
+
+Backward-compat: **legacy per-group files stay as-is**. Nothing
+in wiring breaks; existing tests keep passing. The registry
+introspects those files during import so registrations declared
+there still count.
+
+Three registration APIs:
+* `register_group(app, h, "core")` — thin drop-in for the wiring
+  code that used to call `register_core_routes(app, h)`.
+* `register_all(app, h)` — one-shot registration when the whole
+  handler dict is available.
+* `all_routes()` — introspection: complete route table with
+  method, path, handler, group.
+
+### Added — `dashboard/assets/00-tabs-registry.js`
+
+Every Dashboard tab is now declared once as
+`window.ARENA_TABS = [{name, icon, label, onShow, onHide}, ...]`
+in this new file. Historically the same list was duplicated
+across three places:
+1. `body-00-shell.html` — hardcoded `<a data-tab="X">📊 Label</a>`
+   nav items × 17.
+2. `01-tab-switching.js` — hardcoded `if (tabName === "X") loadX()`
+   dispatcher chain × 17.
+3. `dashboard/index.html` — `body-XX-name.html` in `bodyParts`
+   array (still needed for dynamic asset loading; a guard test
+   asserts every ARENA_TABS entry has a matching file).
+
+Adding a new Dashboard tab is now:
+* One `{name, icon, label, onShow}` entry in
+  `00-tabs-registry.js`.
+* One new `body-XX-name.html` file.
+
+Nav sidebar auto-builds at boot from the registry. The
+per-tab-switch dispatcher uses `onShow` / `onHide` callbacks
+declared right next to each tab.
+
+### Changed
+
+* `body-00-shell.html` — hardcoded `<nav>` links replaced with an
+  empty `<nav id="arenaSidebarNav">` placeholder that
+  `01-tab-switching.js` fills at boot from the registry.
+* `01-tab-switching.js` — reads from the registry; uses event
+  delegation instead of manual `.forEach(a => a.addEventListener)`
+  so any nav rebuild picks up event handling automatically.
+* Zero backend routes changed; the legacy `register_*_routes`
+  functions still exist and still work.
+
+### Test
+
+New `tests/test_route_registry.py` (~140 lines) locks the
+invariants:
+* `test_route_registry_no_duplicates` — no two routes share
+  `(method, path)`.
+* `test_route_registry_covers_all_legacy_registrations` — every
+  route in the 5 legacy files also appears in `all_routes()`.
+  Prevents drift when someone edits a legacy file directly.
+* `test_route_registry_group_names_are_known` — no typos in
+  `group` field.
+* `test_route_registry_methods_are_valid` — only real HTTP verbs.
+* `test_route_paths_start_with_slash`.
+* `test_tabs_registry_is_single_source_of_truth` —
+  `body-00-shell.html` has 0 hardcoded `<a data-tab>` links.
+* `test_tabs_registry_file_exists_and_declares_all_tabs`.
+* `test_tab_switching_uses_registry` — `01-tab-switching.js`
+  reads from `window.ARENA_TABS`; fewer than 3 hardcoded
+  `tabName === "X"` checks.
+* `test_index_html_loads_tabs_registry_before_tab_switching` —
+  script order matters.
+
+### Not changed (already unified)
+
+* **MCP tools** are already declaratively registered in
+  `arena/mcp/tool_registry.py::MCP_TOOLS` and
+  `tool_registry_mission.py::MISSION_MCP_TOOLS`. Adding a new
+  MCP tool is already a single-list-append; no work needed here.
+
+### Deferred
+
+The 10-module `arena/wiring/*_registries.py` layer (10 files
+declaring which handler goes where in the app dict) still has
+some duplication in the `export_handler_attrs` calls, but it's
+already a thin adapter layer and the risk of breaking bridge
+startup during a refactor outweighs the value right now. Left
+for a follow-up (v3.90.x) after the routes/tabs unification
+proves itself in production.
+
+### Live-verified
+
+Bridge at v3.90.0 responds on every endpoint the legacy files
+declared (route table introspection matches). Dashboard sidebar
+renders all 17 tabs, clicks fire the right loader (Overview →
+refreshOverview, Tasks → loadTasks + startTaskRefresh, etc.).
+Tab-switching to Tasks and away fires onHide → stopTaskRefresh.
+
 ## v3.89.0 - 2026-07-16
 
 ### Changed — unified inventory registry (single source of truth)

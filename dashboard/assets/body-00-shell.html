@@ -1,23 +1,9 @@
 <div class="sidebar">
 <h2>ARENA BRIDGE</h2>
-<nav>
-<a class="active" data-tab="overview">📊 Overview</a>
-<a data-tab="workspace">🧭 Workspace</a>
-<a data-tab="terminal">💻 Terminal</a>
-<a data-tab="memory">🧠 Memory</a>
-<a data-tab="recall">🔍 Recall</a>
-<a data-tab="missions">⭐ Missions</a>
-<a data-tab="browser">🌐 Browser</a>
-<a data-tab="reports">📁 Reports</a>
-<a data-tab="tasks">📋 Tasks</a>
-<a data-tab="skills">🧩 Skills</a>
-<a data-tab="hooks">🪝 Hooks</a>
-<a data-tab="agents">🤖 Agents</a>
-<a data-tab="control">🛡️ Control</a>
-<a data-tab="mobile">📱 Mobile</a>
-<a data-tab="doctor">🏥 Doctor</a>
-<a data-tab="audit">📜 Audit</a>
-<a data-tab="settings">⚙️ Settings</a>
+<nav id="arenaSidebarNav">
+<!-- v3.90.0: populated at boot from window.ARENA_TABS (see
+     00-tabs-registry.js). Empty here so adding/reordering tabs
+     is a one-line edit in one file. -->
 </nav>
 <div class="sidebar-footer">
 <span class="ping ok" id="pingDot"></span> <span id="pingText">Connected</span><br>
