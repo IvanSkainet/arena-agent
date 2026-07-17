@@ -1,3 +1,116 @@
+## v4.48.1 - 2026-07-17
+
+### Chrome extension — adapter sweep after real-world scan-report review
+
+Point release. Uses live scan-report diagnostics collected across 12+
+chat sites (ChatGPT / Claude / Gemini / Perplexity / Grok / OpenRouter /
+DeepSeek / Kimi / Qwen / t3chat / z.ai / Mistral / GitHub Copilot) to
+close six concrete bugs the v4.48.0 Shadow-DOM refactor did not touch.
+Extension bumped `0.14.0 → 0.14.1`.
+
+#### The six bugs closed
+
+* **Version drift.** `content.js` and `insert_strategies.js` both had
+  hard-coded `'0.13.27'` version constants that were not bumped when
+  `manifest.json` moved to `0.14.0` in v4.48.0. Every scan-report and
+  every Command Center history entry rendered
+  `manifest 0.14.0 · content 0.13.27 · insert 0.13.27` — cosmetically
+  wrong and made "which content-script bundle is actually running?"
+  much harder to answer during debugging. Both constants now bumped to
+  `'0.14.1'` and a `test_chat_extension_assets.py` guard was added
+  that requires the constant to match the file version so future
+  releases cannot repeat the drift.
+* **`www.kimi.com` fell through to the generic adapter.** The user's
+  real URL is `https://www.kimi.com/chat/...` but `manifest.json` and
+  `adapter_sites.js` only listed the bare `kimi.com`, so the content
+  script neither loaded on the `www.*` subdomain nor picked up Kimi's
+  site-specific composer / submit selectors when it did. Both aliases
+  now covered.
+* **`chat.mistral.ai` fell through to the generic adapter.** Site was
+  in `host_permissions` since the v0.13.x era but no entry existed in
+  `adapter_sites.js`. Scan-report showed the composer is a ProseMirror
+  div and the submit lives inside a `<form>` with `type="submit"` —
+  Claude-shaped — so the new adapter uses those selectors as its
+  model. Result: adapter reports `mistral` instead of `generic`.
+* **`github.com/copilot` fell through to the generic adapter.** Same
+  fix pattern. Composer is `<textarea aria-label="Ask anything or
+  type @ to add context">`; scan-report reported
+  `buttons-present-no-submit-match` because the submit is an
+  icon-only button with no aria-label. New adapter tries `data-testid`
+  variants first, falls through to the "last visible button in form"
+  heuristic. Adapter now reports `copilot` on `github.com` paths that
+  land on Copilot's chat surface.
+* **DeepSeek / Qwen scans returned 0 candidate_nodes.** Both SPAs
+  render the composer + reply lazily inside deeper containers than
+  the pre-v0.14.1 selectors reached. Broadened `messageSelectors` to
+  include `section` / `pre` / `code` / `[class*="markdown"]` /
+  `[class*="prose"]` so fenced `jsonl` blocks are picked up on first
+  paint. Also added Chinese variants (`aria-label*="发送"`) to
+  `submitSelectors` for both since their button labels localise.
+* **Perplexity parsed 0 blocks even when the assistant reply was
+  visible.** Their reply lives inside `main`-level divs rather than
+  `<article>`, so the pre-v0.14.1 selectors only matched the outer
+  wrapper. Added `pre` / `code` / `[class*="prose"]` /
+  `[class*="markdown"]` to `messageSelectors` so the fenced
+  `jsonl` blocks match on the first scan.
+
+#### Bonus tightening (based on real scan-reports)
+
+* **Grok** — added `button[data-testid="chat-submit"]` and
+  `form button[type="submit"]` explicitly (was working via the
+  generic Send fallback, now dispatches through the first-choice
+  selector).
+* **OpenRouter** — added `button[data-testid="send-button"]` +
+  `button[aria-label="Send message"]` as the first selectors so
+  scan-report's `submit_selected_sample` reports the intended
+  button rather than the last-resort match.
+
+#### Files touched
+
+* **`chat_extension/adapter_sites.js`** — three new adapters
+  (`mistral`, `copilot`, plus `www.kimi.com` host alias on the
+  existing `kimi` entry), broadened selectors on four existing
+  adapters (`deepseek`, `qwen`, `perplexity`, `kimi`), tightened
+  submit selectors on two (`grok`, `openrouter`), header docstring
+  updated to explain the "why now" (real scan-report data).
+* **`chat_extension/manifest.json`** — version bumped
+  `0.14.0 → 0.14.1`; new `https://www.kimi.com/*` entry in
+  `host_permissions` (was blocking the content script from ever
+  loading on the URL Kimi actually uses).
+* **`chat_extension/content.js`** — `ARENA_CONTENT_SCRIPT_VERSION`
+  bumped to `'0.14.1'` (was frozen at `'0.13.27'` since before the
+  Shadow DOM refactor).
+* **`chat_extension/insert_strategies.js`** — `arenaInsertScriptVersion()`
+  return value bumped to `'0.14.1'` (same drift).
+* **`chat_extension/README.md`** — version banner, per-site list
+  refreshed (`www.kimi.com` alias called out, Mistral + Copilot
+  added, t3chat and z.ai were already covered but not listed).
+
+#### Tests
+
+* **`tests/test_chat_extension_assets.py`** — added six assertions:
+  the manifest version pin (`0.14.1`), the internal
+  `ARENA_CONTENT_SCRIPT_VERSION` pin (regression-guard against the
+  drift that shipped in v4.48.0), presence checks for the three new
+  adapter host / name entries (`www.kimi.com`, `chat.mistral.ai`,
+  `copilot`), and a check that `www.kimi.com` is listed in
+  `host_permissions` so the content script actually loads there.
+* **`tests/test_chat_extension_adapter_flow.py`** — README-version
+  assertion bumped to `0.14.1`.
+* Sweep passes at **2388**.
+
+#### What is not in this release
+
+* Extension-side RemoteConfigManager (still queued for v4.49.0 as
+  the standalone `/v1/extension/adapters` endpoint + background-
+  script fetch loop). Once that lands, this kind of adapter sweep
+  can be shipped as a config push rather than a full extension
+  rebuild.
+* Deeper OpenRouter / Kimi coverage. Both currently work at the
+  "insert + submit" level; a follow-up would add JSON-shape guards
+  around the assistant reply so `parsed_blocks` never regresses to
+  zero on those two even when they redesign their UI.
+
 ## v4.48.0 - 2026-07-17
 
 ### Chrome extension — Shadow DOM toolbar isolation

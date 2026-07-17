@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.0"
+    assert manifest["version"] == "0.14.1"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -132,6 +132,24 @@ def test_chat_extension_scaffold_exists():
     assert "chat.deepseek.com" in adapter_sites
     assert "kimi.com" in adapter_sites
     assert "chat.qwen.ai" in adapter_sites
+    # v0.14.1: three sites added after real-world scan-report review.
+    assert "www.kimi.com" in adapter_sites, "www.kimi.com host alias missing -- Kimi's real URL uses the www.* subdomain"
+    assert "chat.mistral.ai" in adapter_sites, "chat.mistral.ai adapter missing -- was falling back to generic"
+    # GitHub Copilot lives under github.com/copilot/*; its hosts list
+    # includes the bare github.com and a Copilot-only URL guard would
+    # need the JS-side path check that adapter selection already does.
+    assert "'copilot'" in adapter_sites or '"copilot"' in adapter_sites, \
+        "copilot adapter name missing -- github.com/copilot was falling back to generic"
+    # Version banner inside content.js and insert_strategies.js must
+    # follow the extension version (was drifting at 0.13.27 while
+    # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.1'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.1"' in content
+    assert (base / "manifest.json").exists()
+    # Ensure www.kimi.com is listed in host_permissions too, otherwise
+    # the content script would not even load on the URL the user hits.
+    assert "https://www.kimi.com/*" in manifest["host_permissions"], \
+        "www.kimi.com missing from host_permissions"
     assert "arenaMessageFingerprint" in adapters
     assert "arenaPayloadFingerprint" in adapters
     assert "arenaPayloadSemanticFingerprint" in adapters

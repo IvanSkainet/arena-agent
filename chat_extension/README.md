@@ -1,7 +1,10 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.0` (v4.48.0 bridge release — Shadow DOM
-toolbar isolation).
+Current extension version: `0.14.1` (v4.48.1 bridge release — adapter
+sweep after real-world scan-report review: version-drift fix,
+www.kimi.com host alias, new Mistral / Copilot adapters, wider
+messageSelectors for DeepSeek / Qwen / Perplexity, sharper submit
+selectors for Grok / OpenRouter).
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the
@@ -20,8 +23,12 @@ Baseline adapters currently cover:
 - Perplexity;
 - OpenRouter;
 - DeepSeek;
-- Kimi;
+- Kimi (both `kimi.com` and `www.kimi.com` since v0.14.1);
 - Qwen;
+- t3chat;
+- z.ai;
+- Mistral (added v0.14.1 — `chat.mistral.ai`);
+- GitHub Copilot chat (added v0.14.1 — `github.com/copilot/*`);
 - generic fallback.
 
 Adapters are intentionally conservative: detection and insertion should be
