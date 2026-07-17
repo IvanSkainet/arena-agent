@@ -235,18 +235,26 @@ def validate_download_target(target: str, *, root: Path, home: Path) -> tuple[Pa
     target_path, err, status = resolve_home_path(target, root=root, home=home)
     if err:
         return None, err, status
-    if not target_path.exists() or not target_path.is_file():
-        return None, "file not found", 404
     # v4.42.0 critical fix: pre-v4.42.0 this function skipped
     # the sensitivity check that its sibling ``validate_view_target``
     # performed. Any authed caller could
     # ``GET /v1/download?path=token.txt`` and pull the master
     # bearer token -- turning the multi-agent narrow-scope
     # tokens introduced in v3.86.0 into a full-privilege
-    # escalation path. Same check as view now.
+    # escalation path.
+    #
+    # Sensitivity check runs BEFORE the existence check so a
+    # 403 "downloading X is not allowed" answer is returned
+    # regardless of whether the file happens to exist -- otherwise
+    # an attacker could probe existence via the 403-vs-404 side
+    # channel (e.g. know from a 403 that ``~/.aws/credentials``
+    # exists on this box). Same discipline that view/edit already
+    # follow.
     sens = _sensitivity_error(target_path, home, action="downloading")
     if sens is not None:
         return None, sens[0], sens[1]
+    if not target_path.exists() or not target_path.is_file():
+        return None, "file not found", 404
     return target_path, None, 200
 
 

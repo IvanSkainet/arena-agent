@@ -124,6 +124,24 @@ def test_download_refuses_ssh_private_key(sandbox):
     assert "download" in err.lower()
 
 
+def test_download_refuses_sensitive_even_when_absent(sandbox):
+    """The sensitivity check must run BEFORE the exists check --
+    otherwise an attacker could distinguish "file exists but
+    blocked" (403) from "file does not exist" (404) and use
+    that side channel to enumerate credential material on the
+    bridge host."""
+    home = sandbox["home"]
+    # Delete the file so it doesn't exist.
+    (home / ".aws" / "credentials").unlink()
+    _, err, status = validate_download_target(
+        ".aws/credentials", root=home, home=home)
+    assert status == 403, (
+        f"expected 403 even though file was removed; got {status} {err!r}. "
+        "The sensitivity check must precede the existence check to close the "
+        "exists-vs-blocked side channel."
+    )
+
+
 def test_download_refuses_aws_credentials(sandbox):
     home = sandbox["home"]
     _, err, status = validate_download_target(

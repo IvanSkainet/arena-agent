@@ -1,3 +1,37 @@
+## v4.42.1 - 2026-07-17
+
+### Точечный фикс: закрываем exists-vs-blocked side channel в fs.download
+
+Пойман на v4.42.0 live-smoke. v4.42.0 fix ставил sensitivity
+check ПОСЛЕ file-existence check в
+``validate_download_target``, что означало caller мог
+различить "file exists but is blocked" (403) от "file does
+not exist" (404) -- exists-oracle side channel по credential
+namespace. Attacker с authed narrow-scope bearer мог
+enumerate ровно какие credential файлы живут на bridge host
+(``~/.aws/credentials`` есть? ``~/.gnupg/private-keys-v1.d/``
+есть?) никогда не видя contents.
+
+Фикс: переместить ``_sensitivity_error`` выше ``exists()``
+check так что 403 answer возвращается независимо от того,
+находится ли файл там. Та же discipline, которую
+``validate_view_target`` и ``validate_edit_target`` уже
+следовали pre-v4.42.0. Новый regression тест
+``test_download_refuses_sensitive_even_when_absent`` фиксирует
+порядок.
+
+Тронутые файлы:
+
+* ``arena/files/sandbox.py`` -- один 6-строчный reorder в
+  ``validate_download_target``.
+* ``arena/constants.py`` + ``pyproject.toml`` -- version bump.
+* ``tests/test_files_sandbox_v442_hardening.py`` -- один новый
+  regression тест.
+
+Test suite: 2136 -> 2137 unit + 15 fallback E2E = 2152 total.
+Zero broken masters, zero rollbacks.
+
+
 ## v4.42.0 - 2026-07-17
 
 ### Security hardening pack 2: sandbox parity, расширенный blocklist, TOCTOU-safe tempfile, XXE gate
