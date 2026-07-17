@@ -88,7 +88,7 @@ into the relevant `arena/<domain>/` package, not into `unified_bridge.py`.
 | Wiring the sync callables into `AdminHandlerContext` | `arena/wiring/bridge_runtime.py`, `arena/wiring/platform.py`, `arena/wiring/system_public_admin_registries.py` |
 | Route registration `/v1/tunnels/*`, `/v1/zerotier/*`, `/v1/cloudflared/*`, `/v1/tailscale/*` | `arena/route_registry/core.py` |
 | Capabilities map fields for `.network` / `.browser` | `arena/capabilities.py`, `arena/service/capabilities.py` |
-| Dashboard Tunnels & Remote Access card | `dashboard/assets/29-tunnels.js`, `dashboard/assets/body-15-settings.html` |
+| Dashboard Transports tab (Tailscale, ZeroTier, cloudflared, ngrok, bore) | `dashboard/assets/20-transports.js`, `dashboard/assets/body-20-transports.html` |
 
 **Priority override:** set `ARENA_TUNNEL_PRIORITY=cloudflared,zerotier` (unmentioned
 providers stay at their default position, nothing is dropped).

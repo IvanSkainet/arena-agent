@@ -1,3 +1,95 @@
+## v4.47.2 - 2026-07-17
+
+### Settings → Transports migration + docs sweep
+
+Second point release in the v4.47.x bore-polish arc. Removes the
+duplicate tunnel-controls block that had been living on the Settings
+tab since before the dedicated Transports tab existed, and brings the
+public documentation in line with what the dashboard actually shows.
+
+#### Why this release
+
+For several releases the Settings tab carried both the *old* per-transport
+Start/Stop buttons AND a warning banner pointing users at the new
+Transports tab. Two problems with that:
+
+* **The old buttons still worked** — `tsFunnelToggle()` and
+  `cfFunnelToggle()` were live, plus per-transport badges kept polling
+  `/v1/tailscale/funnel/status` and `/v1/cloudflared/tunnel/status` on
+  every Settings refresh. Users had two places to do the same thing,
+  neither aware of ngrok or (after v4.47.0) bore.
+* **README/README.ru still described the Settings location.** Two
+  release notes ("Settings → Tunnels & Remote Access card") were
+  cosmetically wrong now that the real controls sit on their own tab.
+
+This release removes the Settings-side controls, replaces them with a
+one-line "Go to Transports tab →" deep-link button, and rewrites the
+matching README paragraphs (both en + ru).
+
+#### Files changed
+
+* **`dashboard/assets/body-15-settings.html`** — the entire "Tunnels &
+  Remote Access" card (Active endpoint row, per-transport Start/Stop
+  buttons for Tailscale / Cloudflare / ZeroTier, and the ZeroTier
+  networks `<details>` block) collapses to a 12-line info banner with
+  a single "Go to Transports tab →" button. The button uses the same
+  sidebar-tab click trick every other cross-tab link uses (finds
+  `nav a[data-tab="transports"]` and clicks it, with a hash-fallback
+  when the sidebar isn't rendered yet).
+* **`dashboard/assets/17-settings-status.js`** — `refreshSettings()`
+  no longer queries `/v1/tailscale/funnel/status` or
+  `/v1/cloudflared/tunnel/status`, and no longer paints
+  `#tsToggleStatus` / `#cfToggleStatus` / `#cfUrl` DOM ids that don't
+  exist any more. `tsFunnelToggle()`, `cfFunnelToggle()` and their
+  shared `_humanTunnelError()` helper are removed rather than shimmed
+  — silent stubs would fake a migration.
+* **`dashboard/assets/29-tunnels.js`** — **deleted**. Its
+  `tunnelsRefresh()` / `renderTailscale` / `renderCloudflared` /
+  `renderZerotier` / `setActiveEndpoint` / `ztNetworkAction` all bound
+  to Settings-side ids that no longer exist. The bridge's asset
+  manifest is auto-generated (`arena/gui/asset_manifest.py`), so the
+  file simply disappears from `/gui/assets/manifest.json` after the
+  next boot with no manifest edits required. Every function from this
+  file is either dead or already re-implemented in
+  `20-transports.js` (which has been the actual Transports-tab source
+  since v4.36.x).
+* **`README.md`** + **`README.ru.md`** — capability row "Dashboard"
+  now names the "🔌 Transports tab" instead of the retired card.
+  The prose paragraph after the tunnel-priority section describes
+  what the Transports tab actually shows (per-transport buttons,
+  autostart checkbox, env-override pill, log tail for
+  cloudflared / ngrok / bore) instead of the retired card. ZeroTier
+  network management pointer moved to its own **🌐 ZeroTier** tab.
+* **`docs/MODULE_MAP.md`** — updated the dashboard-module row to
+  point at `dashboard/assets/20-transports.js` +
+  `dashboard/assets/body-20-transports.html` (was
+  `29-tunnels.js` + `body-15-settings.html`).
+
+#### Tests
+
+No test file needed to change. The suite that would have caught a
+broken deletion — `tests/test_dashboard_asset_manifest.py` — walks
+`dashboard/assets/` at runtime, so removing a file is caught (and
+proven safe) automatically. Pytest sweep: **2388 passed** (unchanged
+from v4.47.1; no test lists the removed file explicitly).
+
+#### Migration
+
+* **User-facing.** Users who bookmarked the Settings tab will still
+  see it work — the tab shows a card pointing them at Transports
+  with a single click. No JavaScript errors: the removed functions
+  are no longer called from anywhere in the dashboard.
+* **Operators.** Anyone who bookmarked `POST /v1/tailscale/funnel/*` or
+  `POST /v1/cloudflared/tunnel/*` in a shell script keeps working —
+  the *API* endpoints are unchanged, only the two duplicate button
+  handlers in Settings-side JS went away.
+* **Custom dashboards.** Any local mod that imports
+  `tsFunnelToggle` / `cfFunnelToggle` / `tunnelsRefresh` from the
+  page's global scope will get a `ReferenceError`. Fix: call the
+  corresponding Transports-tab function
+  (`transportStart('tailscale')` etc.) or hit the JSON endpoint
+  directly.
+
 ## v4.47.1 - 2026-07-17
 
 ### Dashboard + installer polish for the v4.47.0 bore transport

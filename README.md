@@ -84,7 +84,7 @@ result flows back — optionally straight into the chat composer.
 | **Tasks** | Background task queue for long-running work |
 | **Browser** | Chrome DevTools Protocol control for real browser automation, plus stealth workflows via [BrowserAct](#optional-components) |
 | **Desktop** | Screenshots and input automation where the platform supports it |
-| **Dashboard** | Built-in web UI at `/gui` with a **Tunnels & Remote Access** card that manages all providers side by side |
+| **Dashboard** | Built-in web UI at `/gui` with a dedicated **🔌 Transports** tab that manages every provider side by side (per-transport start/stop, autostart-on-boot toggle, live log tail) |
 | **Extension** | Connects ordinary AI chats to the local bridge with a lifecycle Command Center |
 | **Remote access** | Unified [`/v1/tunnels/*` facade](#remote-access-providers): Tailscale, Cloudflare Quick Tunnel and ZeroTier as a single failover-aware pool |
 | **Skills** | Discovers and lists tool-skill packages (Arena core + upstream [`superpowers`][obra] + [`browseract`](#optional-components)) via `/v1/skills` |
@@ -226,10 +226,13 @@ bore (v4.47.0) is the zero-account fallback: `cargo install bore-cli` or a
 GitHub release binary drop — no signup, no dashboard cookie; TCP-only relay
 through `bore.pub` (override via `ARENA_BORE_SERVER` for self-hosted).
 
-The dashboard's **Settings → Tunnels & Remote Access** card exposes the same
-facade with Start-all / Stop-all buttons and a ZeroTier network management
-panel (join/leave by nwid, list of joined networks, install/permission hints
-inline).
+The dashboard's dedicated **🔌 Transports** tab exposes the same facade with
+per-transport start/stop buttons, autostart-on-boot toggles (with an
+`env-override` pill when `ARENA_<TRANSPORT>_AUTOSTART` is set from the service
+unit), copy-URL buttons and a live log tail on transports that stream stdout
+(cloudflared / ngrok / bore). ZeroTier network membership (join/leave by nwid,
+list of joined networks, install/permission hints) has its own **🌐 ZeroTier**
+tab.
 
 ---
 

@@ -40,8 +40,6 @@ TAB_SPECS = [
         "setVersion", "setUptime", "setRequests", "setErrors",
         "setToken", "setWebhookUrls", "setWebhookEvents",
         "setServiceMode", "envInfo",
-        "tsFunnelStart", "tsFunnelStop", "tsToggleStatus",
-        "cfFunnelStart", "cfFunnelStop", "cfToggleStatus", "cfUrl",
         "agentsBadge", "agentsTableBody", "agentsNewId",
         "agentsNewToken", "agentsNewTokenBox",
         "adminUpdateBadge", "adminUpdateStatus",

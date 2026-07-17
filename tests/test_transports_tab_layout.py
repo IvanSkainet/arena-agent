@@ -244,16 +244,31 @@ def test_js_reads_agent_config_and_per_transport_status(js_text: str):
 
 
 # ---------------------------------------------------------------------------
-# Settings deprecation notice (v4.37.0)
+# Settings deprecation notice (v4.37.0 -> full migration in v4.47.2)
 # ---------------------------------------------------------------------------
 def test_settings_shows_deprecation_notice():
-    """Old Tunnels panel in Settings must carry a visible pointer
-    to the new Transports tab so operators discover the move."""
+    """The Settings tab must still carry a visible pointer to the
+    Transports tab so operators who reach for the old location find
+    the new one. As of v4.47.2 the legacy per-transport DOM ids
+    (tsFunnelStart / tsFunnelStop / cfFunnelStart / cfFunnelStop /
+    tsToggleStatus / cfToggleStatus / cfUrl) are gone -- the block
+    collapsed to a one-line info banner with a "Go to Transports
+    tab" deep-link button, and the JS handlers that used those
+    ids were removed rather than shimmed."""
     settings = (_REPO / "dashboard" / "assets"
                 / "body-15-settings.html").read_text(encoding="utf-8")
+    # Explicit pointer text present and easy to grep for.
     assert "Transports" in settings
-    # And still keeps the original ids for back-compat -- the
-    # legacy JS in 17-settings-status.js should keep working.
-    for legacy_id in ("tsFunnelStart", "tsFunnelStop",
-                      "cfFunnelStart", "cfFunnelStop"):
-        assert f'id="{legacy_id}"' in settings
+    # The deep-link button must be present -- it is the whole
+    # migration path now.
+    assert "Go to Transports tab" in settings
+    # The retired ids must NOT come back by accident (would resurrect
+    # a duplicate control surface). Same list as tests/test_four_tabs_scoped_palette.py
+    # dropped in v4.47.2.
+    for retired_id in ("tsFunnelStart", "tsFunnelStop", "tsToggleStatus",
+                       "cfFunnelStart", "cfFunnelStop", "cfToggleStatus",
+                       "cfUrl"):
+        assert f'id="{retired_id}"' not in settings, (
+            f"Retired Settings-side tunnel id {retired_id!r} came back; "
+            "it belongs on body-20-transports.html as a tr-* id now."
+        )

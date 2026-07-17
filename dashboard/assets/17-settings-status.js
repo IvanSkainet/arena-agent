@@ -41,30 +41,11 @@ async function refreshSettings() {
     // Metrics
     document.getElementById("setRequests").textContent = overviewMetrics.requests;
     document.getElementById("setErrors").textContent = overviewMetrics.errors;
-    // Tailscale status
-    const fn = await api("/v1/tailscale/funnel/status");
-    if (fn && fn.ok) {
-      const badge = document.getElementById("tsToggleStatus");
-      const active = !!fn.active;
-      badge.className = "badge " + (active ? "ok" : "fail");
-      badge.textContent = active ? "Active" : "Inactive";
-    }
-    // Cloudflare status
-    const cf = await api("/v1/cloudflared/tunnel/status");
-    if (cf && cf.ok) {
-      const badge = document.getElementById("cfToggleStatus");
-      const active = !!cf.active;
-      badge.className = "badge " + (active ? "ok" : "fail");
-      badge.textContent = active ? "Active" : "Inactive";
-      const aUrl = document.getElementById("cfUrl");
-      if (active && cf.url) {
-        aUrl.href = cf.url;
-        aUrl.textContent = cf.url;
-        aUrl.style.display = "inline-block";
-      } else {
-        aUrl.style.display = "none";
-      }
-    }
+    // Tunnel status per-transport now lives on the Transports tab; this
+    // block used to query /v1/tailscale/funnel/status and
+    // /v1/cloudflared/tunnel/status to paint tsToggleStatus / cfToggleStatus
+    // badges, but the Settings card was reduced to a "Go to Transports tab"
+    // link so those DOM ids no longer exist. See dashboard/assets/20-transports.js.
     // Webhooks
     const wh = await api("/v1/webhooks");
     if (wh && wh.ok && wh.webhooks) {
@@ -102,47 +83,14 @@ async function saveWebhooks() {
   }
 }
 
-function _humanTunnelError(result) {
-  if (!result) return "empty response";
-  // The API returns `error`, but some paths return `stderr` / `stdout` /
-  // `exit_code` instead — show whatever is available in priority order so
-  // the alert is never a bare "?".
-  const parts = [];
-  if (result.error) parts.push(String(result.error));
-  const stderr = String(result.stderr || "").trim();
-  const stdout = String(result.stdout || "").trim();
-  if (stderr) parts.push(stderr);
-  else if (stdout) parts.push(stdout);
-  if (typeof result.exit_code === "number" && result.exit_code !== 0) {
-    parts.push("(exit " + result.exit_code + ")");
-  }
-  return parts.join(" — ") || "unknown error";
-}
+// _humanTunnelError removed along with the tsFunnelToggle / cfFunnelToggle
+// callers that were its only consumers. The Transports tab surfaces its own
+// per-transport hint text via the tr-hint slot in each card.
 
-async function tsFunnelToggle(action) {
-  try {
-    const result = await api("/v1/tailscale/funnel/" + action, {method: "POST"});
-    if (result && result.ok) {
-      refreshOverview();
-      if (typeof tunnelsRefresh === "function") tunnelsRefresh();
-    } else {
-      alert("Tailscale funnel " + action + " failed:\n" + _humanTunnelError(result));
-    }
-  } catch(e) {
-    alert("Error toggling Tailscale funnel: " + (e.message||"Unknown error"));
-  }
-}
-
-async function cfFunnelToggle(action) {
-  try {
-    const result = await api("/v1/cloudflared/tunnel/" + action, {method: "POST"});
-    if (result && result.ok) {
-      refreshOverview();
-      if (typeof tunnelsRefresh === "function") tunnelsRefresh();
-    } else {
-      alert("Cloudflare tunnel " + action + " failed:\n" + _humanTunnelError(result));
-    }
-  } catch(e) {
-    alert("Error toggling Cloudflare tunnel: " + (e.message||"Unknown error"));
-  }
-}
+// tsFunnelToggle / cfFunnelToggle removed in the Settings-migration cleanup.
+// Their functionality now lives on the Transports tab as transportStart('tailscale') /
+// transportStart('cloudflared') in dashboard/assets/20-transports.js.
+// If a bookmarked script still calls the old names it will get a ReferenceError;
+// operators should open the Transports tab and use the per-transport Start/Stop
+// buttons there. Removed here rather than shimmed because keeping named
+// stubs would silently pretend to work and hide the migration from users.

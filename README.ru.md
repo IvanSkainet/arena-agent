@@ -84,7 +84,7 @@ REST, один под управление браузером, один под w
 | **Задачи** | Очередь фоновых задач для долгих операций |
 | **Браузер** | Управление через Chrome DevTools Protocol, плюс stealth-сценарии через [BrowserAct](#optional-components) |
 | **Desktop** | Скриншоты и input automation там, где поддерживается платформой |
-| **Dashboard** | Встроенный web UI на `/gui` с карточкой **Tunnels & Remote Access** для управления всеми провайдерами сразу |
+| **Dashboard** | Встроенный web UI на `/gui` с отдельной вкладкой **🔌 Transports** для управления каждым провайдером (per-transport start/stop, autostart-on-boot toggle, live log tail) |
 | **Extension** | Соединяет обычные AI-чаты с bridge через Command Center с lifecycle |
 | **Remote access** | Единый [`/v1/tunnels/*` фасад](#провайдеры-удалённого-доступа): Tailscale, Cloudflare Quick Tunnel и ZeroTier как один пул с автоматическим failover |
 | **Skills** | Автоматическое обнаружение skill-пакетов (Arena core + upstream [`superpowers`][obra] + [`browseract`](#optional-components)) через `/v1/skills` |
@@ -227,9 +227,12 @@ HTTP API на `127.0.0.1:9993` с fallback на `zerotier-cli` из PATH, Progra
 `/Library/Application Support/`, `/usr/sbin/` и т.д. Install/update-подсказки
 Cloudflared подстроены под платформу (`winget`/`scoop`/`brew`/`pacman`/`apt`).
 
-Карточка **Settings → Tunnels & Remote Access** в dashboard даёт тот же фасад с
-кнопками Start-all / Stop-all и панелью управления ZeroTier-сетями (join/leave
-по nwid, список подключённых сетей, install/permission hints inline).
+Отдельная вкладка **🔌 Transports** в dashboard даёт тот же фасад с
+per-transport start/stop кнопками, autostart-on-boot toggles (с `env-override`
+pill когда `ARENA_<TRANSPORT>_AUTOSTART` задан в сервис-юните), copy-URL
+кнопками и live log tail на транспортах, которые стримят stdout (cloudflared /
+ngrok / bore). ZeroTier network membership (join/leave по nwid, список сетей,
+install/permission hints) переехал в отдельную вкладку **🌐 ZeroTier**.
 
 ---
 
