@@ -21,7 +21,7 @@ def make_run_sd(*, bin_dir: Any, subprocess_kwargs: Callable[[], dict[str, Any]]
     def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
         """Run command via sd-exec (Linux) or directly (Windows)."""
         if platform.system() == "Windows":
-            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **subprocess_kwargs())
+            p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True, **subprocess_kwargs())  # nosec B602 -- Windows-only branch; argv[0] is a fixed sd-exec binary path (no operator interpolation).
             return p.returncode, p.stdout, p.stderr
         sd = os.path.join(bin_dir, "sd-exec")
         p = subprocess.run([sd, "--timeout", str(timeout), "--"] + argv,

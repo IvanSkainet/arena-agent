@@ -101,7 +101,7 @@ def resolve_bind(
                 log_info("[auto-bind] %s", reason)
             except Exception:
                 pass
-        return "0.0.0.0", reason
+        return "0.0.0.0", reason  # nosec B104 -- 0.0.0.0 bind is deliberate: chosen after overlay-interface detection (see log_info above); tightening to a specific interface is the operator opt-in
 
     reason = "no overlay interface found; staying on 127.0.0.1"
     if log_info:

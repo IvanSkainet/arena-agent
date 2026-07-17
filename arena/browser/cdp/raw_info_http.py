@@ -10,7 +10,7 @@ from arena.handler_context import CdpDiagnosticHandlerContext
 
 
 def _fetch_json(path: str, port: int):
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5) as response:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=5) as response:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)
         raw = response.read().decode()
         return json.loads(raw), raw
 

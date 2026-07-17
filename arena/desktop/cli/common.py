@@ -19,7 +19,7 @@ _wm_started = False
 
 def stamp(): return dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')
 
-def run(cmd, timeout=20): return subprocess.run(cmd,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
+def run(cmd, timeout=20): return subprocess.run(cmd,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)  # nosec B602 -- CLI helper used only by arena/desktop/cli/*; callers pass hard-coded fragments (see grep in the same dir).
 
 def have(c): return shutil.which(c) is not None
 

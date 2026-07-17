@@ -62,7 +62,7 @@ def http_get_json(url: str) -> Any:
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com URL for release lookup
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -107,7 +107,7 @@ def fetch_asset_size(asset_url: str) -> int | None:
                 req2 = urllib.request.Request(
                     loc, method="HEAD",
                     headers={"User-Agent": _user_agent()})
-                resp2 = urllib.request.urlopen(req2, timeout=_HTTP_TIMEOUT)
+                resp2 = urllib.request.urlopen(req2, timeout=_HTTP_TIMEOUT)  # nosec B310 -- fixed api.github.com URL for release lookup
                 cl = resp2.headers.get("Content-Length")
                 return int(cl) if cl else None
             return None
@@ -148,7 +148,7 @@ def fetch_changelog_section(repo: str, tag: str,
         try:
             req = urllib.request.Request(
                 url, headers={"User-Agent": _user_agent()})
-            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com URL for release lookup
                 text = resp.read().decode("utf-8", "replace")
         except Exception:
             continue

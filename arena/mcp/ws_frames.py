@@ -18,7 +18,19 @@ from arena.mcp.standalone_common import VERSION
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 def _accept_key(key: str) -> str:
-    return base64.b64encode(hashlib.sha1((key + GUID).encode()).digest()).decode()
+    # v4.43.0: SHA-1 here is spec-mandated by RFC 6455 §4.2.2 --
+    # the WebSocket handshake proof is literally
+    # ``base64(SHA1(client-key || GUID))``. We are not using
+    # SHA-1 for a security decision (integrity, authentication,
+    # signature); this is a protocol identifier. Passing
+    # ``usedforsecurity=False`` tells hashlib exactly that, and
+    # also silences bandit B324 on FIPS builds where SHA-1 is
+    # blocked from security-use but still allowed for identifier
+    # purposes.
+    return base64.b64encode(
+        hashlib.sha1((key + GUID).encode(),
+                     usedforsecurity=False).digest()
+    ).decode()
 
 def _read_exact(sock: socket.socket, n: int) -> bytes:
     buf = b""

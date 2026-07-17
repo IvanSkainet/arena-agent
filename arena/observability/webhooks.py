@@ -57,8 +57,24 @@ def normalize_webhooks_config(data: dict[str, Any]) -> tuple[dict[str, Any] | No
 
 
 def _send_one(url: str, payload: bytes) -> None:
+    # v4.43.0: opt-in outbound-SSRF hardening. Webhook URLs are
+    # operator-configured and legitimately can point at private
+    # addresses (local dev harness, home-network Discord relay,
+    # etc.), so we do NOT block RFC1918 by default. Operators
+    # who want strict outbound filtering set
+    # ARENA_WEBHOOK_STRICT=1 and get the browser-fetch SSRF-guard
+    # behaviour: metadata IMDS, ``.internal``, ``.local``,
+    # RFC1918 all rejected.
+    import os as _os
+    if _os.environ.get("ARENA_WEBHOOK_STRICT", "").strip().lower() in (
+            "1", "true", "yes", "on"):
+        from arena.security_ssrf import _validate_url
+        err = _validate_url(url)
+        if err:
+            raise ValueError(
+                f"webhook URL rejected by strict SSRF check: {err}")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=5):
+    with urllib.request.urlopen(req, timeout=5):  # nosec B310 -- operator-configured webhook URL; ARENA_WEBHOOK_STRICT=1 enables SSRF filtering
         pass
 
 

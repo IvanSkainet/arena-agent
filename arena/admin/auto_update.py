@@ -286,9 +286,32 @@ def download_release(*, asset_url: str, asset_name: str,
     dest.mkdir(parents=True, exist_ok=True)
     zip_path = dest / asset_name
     try:
+        # v4.43.0: SSRF + size-cap defence for the release
+        # download. asset_url is fed from the /v1/update  # nosec B310 -- inspected -- fixed / SSRF-guarded URL
+        # endpoint which already restricts sources, but a
+        # compromised upstream (or a badly-configured
+        # allowlist) shouldn't be able to stream unlimited
+        # bytes into the operator's disk. 512 MiB is well over
+        # a real release (~3 MB); an archive that big is
+        # already something we don't want to install.
+        from arena.security_ssrf import _validate_url
+        ssrf_err = _validate_url(asset_url)
+        if ssrf_err:
+            return _err(f"asset_url rejected: {ssrf_err}",
+                        asset_url=asset_url)
         req = urllib.request.Request(asset_url, headers={"User-Agent": _USER_AGENT})
-        with urllib.request.urlopen(req, timeout=60) as resp, zip_path.open("wb") as out:
-            shutil.copyfileobj(resp, out, length=1 << 20)
+        _MAX = 512 * 1024 * 1024
+        with urllib.request.urlopen(req, timeout=60) as resp, zip_path.open("wb") as out:  # nosec B310 -- SSRF-validated above; scheme forced to http/https by _validate_url
+            written = 0
+            while True:
+                chunk = resp.read(1 << 20)
+                if not chunk:
+                    break
+                written += len(chunk)
+                if written > _MAX:
+                    return _err("release zip exceeded 512 MiB size cap",
+                                asset_url=asset_url)
+                out.write(chunk)
     except Exception as e:
         return _err(f"download failed: {e!r}", asset_url=asset_url)
 

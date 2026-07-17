@@ -50,7 +50,7 @@ def project_path(name=None):
     return p
 
 def run(cmd, cwd, check=False):
-    p=subprocess.run(cmd, shell=True, cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p=subprocess.run(cmd, shell=True, cwd=str(cwd), text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)  # nosec B602 -- project_cli.run is used only from operator-side project CLI; strings are hard-coded git invocations built inside this module.
     if check and p.returncode!=0:
         sys.stdout.write(p.stdout); sys.stderr.write(p.stderr); raise SystemExit(p.returncode)
     return p

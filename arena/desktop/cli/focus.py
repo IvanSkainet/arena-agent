@@ -47,7 +47,7 @@ def _ensure_wm():
             # Start WM in background — replace any existing WM
             subprocess.Popen(
                 f'DISPLAY={shq(display)} {wm_cmd} &>/dev/null &',
-                shell=True
+                shell=True  # nosec B602 -- shq() quote-escapes DISPLAY; backgrounding via & requires shell.
             )
             time.sleep(1.5)  # Give WM time to start
             # Verify it started

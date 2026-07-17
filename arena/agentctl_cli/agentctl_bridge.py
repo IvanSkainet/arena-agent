@@ -199,7 +199,7 @@ def _probe_url(url: str, timeout: float) -> dict[str, Any]:
         kwargs["context"] = ctx
     t0 = time.monotonic()
     try:
-        with urllib.request.urlopen(req, **kwargs) as resp:
+        with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py
             _ = resp.read(64)
             latency = (time.monotonic() - t0) * 1000.0
             return {"url": url, "ok": True, "latency_ms": round(latency, 1),
@@ -233,7 +233,7 @@ def _fetch_config_from(url: str) -> dict[str, Any]:
     ctx = _ssl_ctx(url)
     if ctx is not None:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:
+    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py
         return json.loads(resp.read().decode("utf-8"))
 
 

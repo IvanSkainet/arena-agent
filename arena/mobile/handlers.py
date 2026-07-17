@@ -460,7 +460,7 @@ def make_mobile_handlers(ctx) -> MobileHandlers:
         swipe=handle_swipe,
         type_text=handle_type,
         key_event=handle_key,
-        shell=handle_shell,
+        shell=handle_shell,  # nosec B604 -- false positive: shell= here is the "shell" keyword argument of a dataclass, not shell=True on a subprocess call
         packages=handle_packages,
         gesture=handle_gesture,
         ui_dump=handle_ui_dump,

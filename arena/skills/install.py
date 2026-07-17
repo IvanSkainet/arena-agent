@@ -32,14 +32,45 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
             try:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
                     tmp_path = tmp.name
-                if os.path.exists(url):
-                    shutil.copy(url, tmp_path)
-                elif url.startswith("file://"):
-                    local_p = url[7:]
-                    if os.path.exists(local_p):
-                        shutil.copy(local_p, tmp_path)
-                    else:
-                        return {"ok": False, "error": f"zip file not found: {local_p}"}
+                if os.path.exists(url) or url.startswith("file://"):
+                    # v4.43.0: local-file branch runs the
+                    # sensitivity-blocklist check whenever the
+                    # source path lives under $HOME. Pre-v4.43.0
+                    # an authed admin could pass
+                    # ``file:///home/ivan/arena-bridge/token.txt``
+                    # and shutil.copy would happily stage the
+                    # master token into ``tmp_path`` (extraction
+                    # would then fail as not-a-zip, but the tmp
+                    # file remained until the finally block ran).
+                    #
+                    # Sources OUTSIDE $HOME (a mounted volume,
+                    # ``/data/skills/foo.zip``) are allowed
+                    # without the sensitivity check because such
+                    # paths are outside the "user's private
+                    # credential space" the blocklist is meant
+                    # to guard. The zip-slip / zip-bomb guard
+                    # still fires later in ``safe_extract_zip``.
+                    local_p = url[7:] if url.startswith("file://") else url
+                    from pathlib import Path as _P
+                    abs_p = _P(local_p).expanduser().resolve()
+                    home = _P.home().resolve()
+                    try:
+                        abs_p.relative_to(home)
+                        under_home = True
+                    except ValueError:
+                        under_home = False
+                    if under_home:
+                        from arena.files.sandbox import _sensitivity_error
+                        sens = _sensitivity_error(
+                            abs_p, home,
+                            action="installing as skill",
+                        )
+                        if sens is not None:
+                            return {"ok": False, "error": sens[0]}
+                    if not abs_p.exists():
+                        return {"ok": False,
+                                "error": f"zip file not found: {abs_p}"}
+                    shutil.copy(str(abs_p), tmp_path)
                 else:
                     # v4.42.2: route external URLs through the
                     # SSRF guard so ``install skill`` cannot be
@@ -56,8 +87,9 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     # Add a small timeout so a hostile server
                     # cannot hang the install indefinitely.
                     import urllib.request as _ur
-                    with _ur.urlopen(url, timeout=60) as _r, \
-                            open(tmp_path, "wb") as _out:
+                    # SSRF-validated via arena.security_ssrf._validate_url (see v4.42.2)
+                    _r = _ur.urlopen(url, timeout=60)  # nosec B310 -- SSRF-validated above
+                    with _r, open(tmp_path, "wb") as _out:
                         # Cap at 128 MiB so a malicious server
                         # streaming /dev/urandom can't fill disk.
                         _total = 0

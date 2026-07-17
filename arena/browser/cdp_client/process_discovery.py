@@ -106,9 +106,9 @@ def _build_session_env() -> dict:
             env["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
 
     # DISPLAY — needed for fontconfig and some Chromium subsystems
-    if not env.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):
+    if not env.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):  # nosec B108 -- /tmp/.X11-unix is the standard X11 socket directory (same rationale as arena/bootstrap_env.py)
         try:
-            for xfile in os.listdir("/tmp/.X11-unix"):
+            for xfile in os.listdir("/tmp/.X11-unix"):  # nosec B108 -- see line 109
                 if xfile.startswith("X"):
                     env["DISPLAY"] = f":{xfile[1:]}"
                     break

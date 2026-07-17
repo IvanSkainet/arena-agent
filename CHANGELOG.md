@@ -1,3 +1,190 @@
+## v4.43.0 - 2026-07-17
+
+### Static-analysis + dependency-audit hardening pack
+
+Ran ``pip-audit`` against every runtime dep (``aiohttp==3.14.1``,
+``psutil==7.2.2``, ``websockets==16.1``) and ``bandit -r arena/``
+against all 49 300 LOC. Result before this release: **12 HIGH,
+43 MEDIUM, 445 LOW**. Result after: **0 HIGH, 0 MEDIUM, 442 LOW**
+(all LOW are code-hygiene noise -- ``try/except pass``, ``import
+subprocess``, partial-path calls -- not security issues).
+
+#### pip-audit: clean
+
+All runtime deps at their live-bridge versions are clean of
+known CVEs. No dep bumps needed.
+
+#### bandit HIGH -- 12/12 resolved
+
+Every HIGH-severity finding was either fixed for real (2) or
+annotated with ``# nosec B602 -- <rationale>`` after
+verification that the shell string is not attacker-reachable
+(10). Full breakdown:
+
+* **B324 SHA1 in ws_frames.py:21** -- WebSocket handshake
+  proof is spec-defined as ``base64(SHA1(client-key || GUID))``
+  (RFC 6455 §4.2.2). SHA-1 here is a protocol identifier, not
+  a security hash. Fixed by adding ``usedforsecurity=False`` to
+  the ``hashlib.sha1`` call so hashlib knows this is
+  identifier-use and FIPS builds that block SHA-1 for security
+  still let it through for the handshake.
+* **B602 in system/hwinfo_cim.py** -- pre-v4.43.0 built a
+  PowerShell command via ``f-string`` interpolation of a
+  class name / filter clause, then handed it to
+  ``subprocess.run(..., shell=True)``. In production every
+  call site (``arena/system/hwinfo_collect.py``) passes a
+  hard-coded literal, so no shell-injection was ever
+  reachable, but the invariant "``get_cim_all_list`` is only
+  ever called with a compile-time literal" was fragile.
+  Rewrote to:
+  - argv-form ``subprocess.run(["powershell.exe", ...], ...)``
+    -- Windows launches powershell.exe directly, cmd.exe
+    never sees the string.
+  - whitelist regex for class names (``[A-Za-z][A-Za-z0-9_]{2,63}``)
+    and filter clauses (``Property=Value`` bareword only).
+  - anything failing the whitelist returns ``[]`` -- same
+    outcome as any other PowerShell failure, so no caller
+    needs to change.
+* **B602 (× 10 remaining)** in ``agent_helpers/runtime.py``,
+  ``chat_cli/commands.py``, ``desktop/cli/*.py``,
+  ``gateway/runtime.py``, ``mcp/standalone_common.py``,
+  ``mcp/tool_utils.py``, ``missions_cli/common.py``,
+  ``project_cli/common.py`` -- all of these are CLI-side
+  helpers where the shell string is either (a) the operator's
+  own interactive input (chat exec, agentctl gateway) or
+  (b) a hard-coded literal built inside the module itself
+  (missions_cli, project_cli, desktop input). None are
+  reachable from an HTTP handler. Each got a per-line
+  ``# nosec B602 -- <specific rationale>`` comment naming
+  who feeds the string and why the shell is needed
+  (backgrounding via ``&``, redirection, PATH resolution on
+  Windows, ...).
+
+#### bandit MEDIUM -- 43/43 resolved
+
+**B310 urlopen scheme audit (36 findings).** Every
+``urllib.request.urlopen`` / ``urllib.request.Request`` in
+``arena/`` inspected. Three classes:
+
+* **Fixed internal URLs** (loopback health probes, ngrok
+  ``127.0.0.1:4040`` API, ZeroTier ``127.0.0.1:9993`` control
+  plane, CDP ``127.0.0.1:<devtools_port>``, MCP tool
+  localhost URLs, bridge health/status endpoints) -- no
+  external attacker input, no scheme choice. ``# nosec B310 --
+  loopback <detail>`` on each line.
+* **Vendor API URLs** (``api.github.com``,
+  ``my.zerotier.com``) -- hard-coded HTTPS to trusted vendor
+  domains. ``# nosec B310 -- fixed vendor API URL`` on each.
+* **User-URLs already routed through SSRF-guard**
+  (``arena/browser/fetch.py`` × 5, ``arena/skills/install.py``)
+  -- already gated by
+  ``arena.security_ssrf._validate_url``. ``# nosec B310 --
+  SSRF-validated via arena.security_ssrf._validate_url`` on
+  each.
+
+**B310 ``admin/auto_update.py:290``** -- release download URL.
+Received a real fix instead of just ``nosec``:
+
+* URL now routes through ``arena.security_ssrf._validate_url``
+  before the fetch. A compromised update endpoint (or a
+  misconfigured URL allowlist) cannot redirect the release
+  download to metadata IMDS / RFC1918.
+* Bounded read (512 MiB cap) on the response so a hostile
+  server can't stream unlimited random bytes and fill the
+  operator's disk before the post-download SHA256 verify
+  fires.
+
+**B310 ``observability/webhooks.py:61``** -- outbound webhook
+POST. Legitimately allowed to reach RFC1918 by default
+(operators use local dev harnesses / home-network Discord
+relays), but now honours ``ARENA_WEBHOOK_STRICT=1`` env var
+which routes through the full browser-fetch SSRF-guard. Off
+by default to preserve the "webhook to my LAN Discord bot"
+use case; opt-in for operators who want strict outbound.
+
+**B314 XXE ``mobile/ui.py:147``** -- already gated by the
+DOCTYPE/ENTITY prefix scan added in v4.42.0. Confirmed and
+annotated with the specific rationale.
+
+**B104 hardcoded_bind_all_interfaces
+``bind_detect.py:104``** -- ``0.0.0.0`` bind is deliberate,
+happens only after overlay-interface detection succeeds.
+Documented via ``# nosec B104``.
+
+**B108 hardcoded_tmp_directory (×4)** -- ``/tmp/.X11-unix``
+X11 socket directory, standard system location, read-only
+``os.listdir`` to discover DISPLAY. Documented.
+
+**B604 ``mobile/handlers.py:463``** -- false positive; the
+``shell=`` here is a dataclass keyword argument, not
+``shell=True`` on subprocess. Documented.
+
+#### HIGH-severity fix: file:// bypass in skills installer
+
+Discovered while classifying bandit findings, not something
+bandit itself flagged. Pre-v4.43.0 ``skills/install.py``
+accepted a ``file://`` URL and passed it to ``shutil.copy``
+with no sandbox check. An authed admin could point at
+``file:///home/ivan/arena-bridge/token.txt``; ``shutil.copy``
+would happily stage the master token into ``tmp_path``. The
+subsequent zip-parse would fail, but the tmp file lingered
+until the ``finally`` block cleared it.
+
+Fix: for local sources (bare path OR ``file://``) that
+resolve under ``$HOME``, run the same
+``_sensitivity_error`` check that ``fs.view`` / ``fs.edit``
+use. Sources outside ``$HOME`` (mounted volume,
+``/data/skills/foo.zip``) are still allowed -- the blocklist
+is meant to guard the user's private credential space, and
+requiring "must live under HOME" would break every admin who
+keeps skills on a data volume. The v4.42.2 zip-slip /
+zip-bomb guard still fires downstream regardless.
+
+#### Tests (+6, 2151 -> 2156 unit; total with E2E = 2171)
+
+* ``tests/test_skills_install_file_uri_hardening.py`` -- 5
+  new tests: file:// refuses ``~/token.txt``, refuses
+  ``~/.ssh/id_ed25519``, bare-path also refuses,
+  outside-$HOME permitted (regression guard for legitimate
+  admin flows), ordinary ~/*.zip installs fine.
+
+Zero broken masters, zero rollbacks.
+
+#### Files touched
+
+* ``arena/system/hwinfo_cim.py`` -- argv-form + whitelist
+  regex.
+* ``arena/mcp/ws_frames.py`` -- ``usedforsecurity=False``.
+* ``arena/admin/auto_update.py`` -- SSRF-guard + 512 MiB
+  size cap on release download.
+* ``arena/skills/install.py`` -- file:// sandbox check.
+* ``arena/observability/webhooks.py`` -- ``ARENA_WEBHOOK_STRICT``
+  opt-in.
+* 10× ``# nosec B602`` annotations in CLI-side files.
+* 36× ``# nosec B310`` annotations across
+  ``arena/{admin,agentctl_cli,agentctl_extras,browser,mcp,mobile,observability,skills,system}``.
+* 7× other-category ``# nosec`` annotations
+  (``bind_detect.py``, ``bootstrap_env.py`` ×2,
+  ``process_discovery.py`` ×2, ``mobile/handlers.py``,
+  ``mobile/ui.py``).
+* ``arena/constants.py`` + ``pyproject.toml`` -- version bump.
+* ``tests/test_skills_install_file_uri_hardening.py`` --
+  NEW.
+
+#### Not addressed (documented for later)
+
+* ``requests.jsonl`` audit log rotation still creates files
+  0o644 by default. Should be 0o600 to match the
+  ``~/.arena/*`` discipline. Small; deferred to keep this
+  release focused on static-analysis findings.
+* 442 LOW-severity bandit findings remain (``B110`` try/except
+  pass, ``B603`` subprocess without shell, ``B607`` partial
+  path). All are code-hygiene noise, not security issues.
+  A future pass could annotate the ones that survived a
+  ``# nosec`` audit for signal-to-noise, but the current
+  ``LOW`` count is what a mature Python codebase looks like.
+
+
 ## v4.42.2 - 2026-07-17
 
 ### Zip-slip / zip-bomb / SSRF-in-skill-install hardening

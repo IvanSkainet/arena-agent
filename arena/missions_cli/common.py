@@ -70,5 +70,5 @@ def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 def slug(s): return re.sub(r'[^a-zA-Z0-9._-]+','-',s.strip()).strip('-').lower() or 'mission'
 
 def run_cmd(cmd, timeout=120):
-    p=subprocess.run(cmd,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)
+    p=subprocess.run(cmd,shell=True,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=timeout)  # nosec B602 -- missions_cli.run_cmd is fed only by mission scripts already trusted by the operator.
     return {'cmd':cmd,'exit_code':p.returncode,'stdout':p.stdout[-20000:],'stderr':p.stderr[-12000:],'ts':now()}

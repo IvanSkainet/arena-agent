@@ -40,9 +40,9 @@ def ensure_session_env() -> None:
         if os.path.exists(dbus_path):
             os.environ["DBUS_SESSION_BUS_ADDRESS"] = f"unix:path={dbus_path}"
 
-    if not os.environ.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):
+    if not os.environ.get("DISPLAY") and os.path.exists("/tmp/.X11-unix"):  # nosec B108 -- /tmp/.X11-unix is the standard X11 socket directory; read-only listdir to discover DISPLAY
         try:
-            for xfile in os.listdir("/tmp/.X11-unix"):
+            for xfile in os.listdir("/tmp/.X11-unix"):  # nosec B108 -- see line 43
                 if xfile.startswith("X"):
                     os.environ["DISPLAY"] = f":{xfile[1:]}"
                     break

@@ -46,7 +46,7 @@ def cmd_run(arg: str, mode: str) -> tuple[int, str]:
             if cand.is_dir():
                 cwd = cand
     try:
-        cp = subprocess.run(arg, shell=True, capture_output=True, text=True,
+        cp = subprocess.run(arg, shell=True, capture_output=True, text=True,  # nosec B602 -- chat exec is an interactive CLI command; the shell string is the operator's own input by design.
                             timeout=600, cwd=cwd)
         out = (cp.stdout or "")
         if cp.stderr:

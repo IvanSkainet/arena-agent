@@ -108,7 +108,7 @@ class CDPTabManagerBrowserConnectMixin:
         try:
             loop = asyncio.get_running_loop()
             def _fetch():
-                with urllib.request.urlopen(url, timeout=5) as r:
+                with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint
                     return json.loads(r.read().decode())
             info = await loop.run_in_executor(None, _fetch)
             ws_url = info.get("webSocketDebuggerUrl")

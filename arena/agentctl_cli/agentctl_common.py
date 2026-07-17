@@ -103,7 +103,7 @@ def bridge_get(path: str, token: bool = True, timeout: int = 15) -> Any:
     kwargs: dict[str, Any] = {"timeout": timeout}
     if ctx:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:
+    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py
         return json.loads(resp.read().decode())
 
 
@@ -117,7 +117,7 @@ def bridge_post(path: str, data: dict, token: bool = True, timeout: int = 20) ->
     kwargs: dict[str, Any] = {"timeout": timeout}
     if ctx:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:
+    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py
         return json.loads(resp.read().decode())
 
 

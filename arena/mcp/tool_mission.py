@@ -18,7 +18,7 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, metho
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool
             return json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")

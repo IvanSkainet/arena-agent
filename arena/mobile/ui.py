@@ -144,7 +144,7 @@ def dump_ui(
                     "not allowed in uiautomator dumps",
                     duration_ms=duration_ms)
     try:
-        tree = ET.fromstring(raw)
+        tree = ET.fromstring(raw)  # nosec B314 -- input is gated by DOCTYPE/ENTITY prefix scan above (v4.42.0); reintroducing defusedxml would need a required-deps addition for one call site
     except ET.ParseError as e:
         return _err(f"ui XML parse failed: {e}",
                     duration_ms=duration_ms)

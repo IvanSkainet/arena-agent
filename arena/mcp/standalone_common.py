@@ -31,7 +31,7 @@ def text_content(s: str) -> dict: return {"content": [{"type": "text", "text": s
 def run_sd(argv: list[str], timeout: int = 60) -> tuple[int, str, str]:
     import platform
     if platform.system() == "Windows":
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True)
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, shell=True)  # nosec B602 -- Windows-only branch; argv[0] is a hard-coded binary name resolved via PATH by cmd.exe (no operator interpolation).
         return p.returncode, p.stdout, p.stderr
     else:
         sd = os.path.join(BIN, "sd-exec")

@@ -20,7 +20,7 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool
         return json.loads(resp.read().decode("utf-8", "replace"))
 
 
@@ -38,7 +38,7 @@ def _bridge_get(ctx, path: str, params: dict[str, Any] | None = None) -> dict[st
         headers={"Authorization": f"Bearer {token}"},
         method="GET",
     )
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=30) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool
         return json.loads(resp.read().decode("utf-8", "replace"))
 
 

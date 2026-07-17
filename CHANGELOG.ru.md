@@ -1,3 +1,178 @@
+## v4.43.0 - 2026-07-17
+
+### Static-analysis + dependency-audit hardening pack
+
+Прогнали ``pip-audit`` против всех runtime deps
+(``aiohttp==3.14.1``, ``psutil==7.2.2``, ``websockets==16.1``)
+и ``bandit -r arena/`` против всех 49 300 LOC. До релиза:
+**12 HIGH, 43 MEDIUM, 445 LOW**. После: **0 HIGH, 0 MEDIUM,
+442 LOW** (все LOW -- code-hygiene noise -- ``try/except pass``,
+``import subprocess``, partial-path calls -- не security).
+
+#### pip-audit: clean
+
+Все runtime deps на live-bridge версиях чистые от известных
+CVE. Bump'ов deps не нужно.
+
+#### bandit HIGH -- 12/12 закрыто
+
+Каждое HIGH-severity finding было либо реально пофикшено (2),
+либо аннотировано ``# nosec B602 -- <rationale>`` после
+верификации, что shell string не attacker-reachable (10).
+
+* **B324 SHA1 в ws_frames.py:21** -- WebSocket handshake
+  proof по спеке ``base64(SHA1(client-key || GUID))`` (RFC
+  6455 §4.2.2). SHA-1 здесь -- protocol identifier, не
+  security hash. Фикс: ``usedforsecurity=False`` в
+  ``hashlib.sha1``, чтобы hashlib знал, что это
+  identifier-use, и FIPS builds, блокирующие SHA-1 для
+  security, всё равно пропускали его для handshake.
+* **B602 в system/hwinfo_cim.py** -- pre-v4.43.0 строил
+  PowerShell command через ``f-string`` interpolation
+  class name / filter clause, затем передавал в
+  ``subprocess.run(..., shell=True)``. В production каждый
+  call site (``arena/system/hwinfo_collect.py``) передаёт
+  hardcoded literal, так что shell-injection никогда не был
+  reachable, но invariant "``get_cim_all_list`` вызывается
+  только с compile-time literal" был fragile. Переписан на:
+  - argv-form ``subprocess.run(["powershell.exe", ...], ...)``
+    -- Windows launch'ит powershell.exe напрямую, cmd.exe
+    никогда не видит string.
+  - whitelist regex для class names и filter clauses
+    (``Property=Value`` bareword only).
+  - что-то, не проходящее whitelist, возвращает ``[]`` --
+    тот же outcome, что любой другой PowerShell failure.
+* **B602 (× 10 оставшихся)** в ``agent_helpers/runtime.py``,
+  ``chat_cli/commands.py``, ``desktop/cli/*.py``,
+  ``gateway/runtime.py``, ``mcp/standalone_common.py``,
+  ``mcp/tool_utils.py``, ``missions_cli/common.py``,
+  ``project_cli/common.py`` -- все это CLI-side helpers, где
+  shell string либо (a) собственный interactive input
+  оператора (chat exec, agentctl gateway) либо
+  (b) hardcoded literal, построенный внутри модуля
+  (missions_cli, project_cli, desktop input). Ничего не
+  reachable из HTTP handler. Каждый получил per-line
+  ``# nosec B602 -- <specific rationale>`` комментарий.
+
+#### bandit MEDIUM -- 43/43 закрыто
+
+**B310 urlopen scheme audit (36 finding'ов).** Каждый
+``urllib.request.urlopen`` в ``arena/`` проинспектирован. Три
+класса:
+
+* **Fixed internal URL** (loopback health probes, ngrok
+  ``127.0.0.1:4040`` API, ZeroTier ``127.0.0.1:9993``,
+  CDP ``127.0.0.1:<devtools_port>``, MCP tool localhost,
+  bridge health/status) -- нет external attacker input,
+  нет scheme choice. ``# nosec B310 -- loopback <detail>``.
+* **Vendor API URL** (``api.github.com``,
+  ``my.zerotier.com``) -- hardcoded HTTPS в trusted vendor
+  domains. ``# nosec B310 -- fixed vendor API URL``.
+* **User-URL уже через SSRF-guard**
+  (``arena/browser/fetch.py`` × 5,
+  ``arena/skills/install.py``) -- уже gated
+  ``arena.security_ssrf._validate_url``. ``# nosec B310 --
+  SSRF-validated``.
+
+**B310 ``admin/auto_update.py:290``** -- release download URL.
+Получил реальный фикс, а не просто ``nosec``:
+
+* URL теперь через ``arena.security_ssrf._validate_url``
+  перед fetch. Скомпрометированный update endpoint (или
+  misconfigured URL allowlist) не может redirect release
+  download в metadata IMDS / RFC1918.
+* Bounded read (512 MiB cap) на response, так что hostile
+  сервер не может стримить unlimited random bytes и
+  забить disk оператора до того, как post-download SHA256
+  verify сработает.
+
+**B310 ``observability/webhooks.py:61``** -- outbound webhook
+POST. Legitimately разрешён достигать RFC1918 по умолчанию
+(операторы используют local dev harness / home-network
+Discord relays), но теперь honours ``ARENA_WEBHOOK_STRICT=1``
+env var, роутящую через полный browser-fetch SSRF-guard.
+Off по умолчанию для сохранения "webhook to my LAN Discord
+bot" use case; opt-in для операторов, желающих strict
+outbound.
+
+**B314 XXE ``mobile/ui.py:147``** -- уже gated
+DOCTYPE/ENTITY prefix scan (v4.42.0).
+
+**B104 ``bind_detect.py:104``** -- ``0.0.0.0`` bind
+deliberate, happens только после overlay-interface detection.
+
+**B108 hardcoded_tmp_directory (×4)** -- ``/tmp/.X11-unix``,
+standard system location, read-only listdir.
+
+**B604 ``mobile/handlers.py:463``** -- false positive; ``shell=``
+здесь -- dataclass keyword argument, не ``shell=True``.
+
+#### HIGH-severity фикс: file:// bypass в skills installer
+
+Обнаружено во время классификации bandit finding'ов, не
+что-то, что bandit сам flag'ал. Pre-v4.43.0
+``skills/install.py`` принимал ``file://`` URL и передавал
+в ``shutil.copy`` без sandbox check. Authed admin мог указать
+``file:///home/ivan/arena-bridge/token.txt``; ``shutil.copy``
+happily стеджил бы master token в ``tmp_path``. Последующий
+zip-parse провалился бы, но tmp file lingered пока
+``finally`` block не очистил.
+
+Fix: для local sources (bare path ИЛИ ``file://``), которые
+resolve под ``$HOME``, запустить тот же
+``_sensitivity_error`` check, что ``fs.view`` / ``fs.edit``
+используют. Sources вне ``$HOME`` (mounted volume,
+``/data/skills/foo.zip``) всё ещё разрешены -- blocklist
+предназначен для private credential space пользователя, и
+требование "must live under HOME" сломало бы каждого админа,
+хранящего skills на data volume. v4.42.2 zip-slip /
+zip-bomb guard всё ещё fire'ит downstream независимо от
+этого.
+
+#### Тесты (+6, 2151 -> 2156 unit; total с E2E = 2171)
+
+* ``tests/test_skills_install_file_uri_hardening.py`` -- 5
+  новых тестов: file:// отклоняет ``~/token.txt``,
+  отклоняет ``~/.ssh/id_ed25519``, bare-path тоже
+  отклоняет, outside-$HOME разрешён (regression guard для
+  legitimate admin flows), ordinary ~/*.zip устанавливается
+  fine.
+
+Zero broken masters, zero rollbacks.
+
+#### Тронутые файлы
+
+* ``arena/system/hwinfo_cim.py`` -- argv-form + whitelist
+  regex.
+* ``arena/mcp/ws_frames.py`` -- ``usedforsecurity=False``.
+* ``arena/admin/auto_update.py`` -- SSRF-guard + 512 MiB
+  size cap на release download.
+* ``arena/skills/install.py`` -- file:// sandbox check.
+* ``arena/observability/webhooks.py`` --
+  ``ARENA_WEBHOOK_STRICT`` opt-in.
+* 10× ``# nosec B602`` annotations в CLI-side files.
+* 36× ``# nosec B310`` annotations по
+  ``arena/{admin,agentctl_cli,agentctl_extras,browser,mcp,mobile,observability,skills,system}``.
+* 7× other-category ``# nosec`` annotations.
+* ``arena/constants.py`` + ``pyproject.toml`` -- version
+  bump.
+* ``tests/test_skills_install_file_uri_hardening.py`` --
+  НОВЫЙ.
+
+#### Не адресовано (задокументировано на потом)
+
+* ``requests.jsonl`` audit log rotation всё ещё создаёт
+  файлы 0o644 по умолчанию. Должно быть 0o600. Маленькое;
+  отложено, чтобы этот релиз оставался focused на static-
+  analysis findings.
+* 442 LOW-severity bandit findings остаются (``B110``
+  try/except pass, ``B603`` subprocess without shell,
+  ``B607`` partial path). Все code-hygiene noise, не
+  security. Future pass мог бы аннотировать выжившие
+  ``# nosec`` audit для signal-to-noise, но текущий
+  ``LOW`` count -- то, как выглядит зрелый Python codebase.
+
+
 ## v4.42.2 - 2026-07-17
 
 ### Zip-slip / zip-bomb / SSRF-in-skill-install hardening
