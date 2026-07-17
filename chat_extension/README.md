@@ -1,11 +1,14 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.3` (v4.48.3 bridge release — structure-
-preserving insert fallback for Perplexity / Kimi / plain contenteditable
-composers that collapse `\n` into spaces, chained
-`nativeInsertText → paragraphFallback → directDomBlocks` plan with
-per-strategy composer clear between attempts, Qwen toolbar-position
-fix via `<div>`-wrapped-`<pre>` hoist in `controlsHost`).
+Current extension version: `0.14.4` (v4.48.4 bridge release —
+regression fixes after v4.48.3: pared-back user-authored filter
+(v0.14.2/3 form/composer ancestor heuristics were skipping every
+Grok / DuckAI reply), plain-contenteditable insert plan reordered
+to `directDomBlocks` first (Perplexity / Kimi double-insert fix
+from the wipe-between-strategies chain), generic adapter now
+`passive` so unlisted sites like a GitHub README never mount a
+toolbar, Enter-key fallback now also focuses target + retries
+after 120 ms for delegated-listener composers like Qwen).
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the

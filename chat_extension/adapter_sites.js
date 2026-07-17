@@ -174,7 +174,15 @@ const ARENA_SITE_ADAPTERS = [
     submitSelectors: ['form button[type="submit"]', 'button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
   },
   {
+    // v0.14.4: generic is now `passive` -- it never mounts toolbars
+    // by itself. Was catching GitHub README code fences that quoted
+    // MCP JSONL (bug #9 in the v0.14.3 scan-report). To enable a new
+    // chat site, add an explicit entry above; generic exists only
+    // to give scan-page diagnostics a shape when the operator opens
+    // the popup on an unlisted site, so they can see the composer
+    // is detectable and file a feature request.
     name: 'generic',
+    passive: true,
     hosts: [],
     messageSelectors: ['article', 'main', 'section', 'pre', 'code'],
     composerSelectors: ['textarea', 'input[type="text"]', '[contenteditable="true"]'],

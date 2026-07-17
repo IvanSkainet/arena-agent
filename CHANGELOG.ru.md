@@ -1,3 +1,90 @@
+## v4.48.4 - 2026-07-17
+
+### Chrome-расширение — regression-фиксы после v4.48.2 / v4.48.3
+
+Пятый релиз в arc v4.48.x. Откатывает / сужает несколько guard-ов
+из v4.48.2 и v4.48.3, которые закрыли одну проблему, но открыли
+несколько других в scan-report из daily use. Расширение bumped
+`0.14.3 → 0.14.4`.
+
+#### Пять закрытых регрессий
+
+* **Grok / DuckAI перестали mount-ить toolbar вообще.** v4.48.2
+  `arenaIsInUserAuthoredNode` ходил по ancestors в поиске `<form>`
+  или composer-selector-совпадения, что на этих сайтах покрывало
+  каждый chat-блок — scan-reports показали
+  `mounted_controls=0, dismissed_controls=2` с
+  `skip_user_authored` events. Filter теперь урезан до явных
+  user-role attributes и узкого class-substring set. Form-ancestor
+  и composer-selector эвристики убраны — они были слишком широкими.
+* **Kimi / Perplexity double-insert.** v4.48.3 план цеплял
+  `nativeInsertText → paragraphFallback → directDomBlocks` с шагом
+  "wipe composer между attempts". Wipe был ненадёжным на plain-
+  contenteditable composers, поэтому вторая стратегия дописывала
+  дубликат вместо overwrite. Plan теперь `directDomBlocks →
+  paragraphFallback → nativeInsertText` для plain contenteditable
+  (Perplexity, Kimi) и остаётся `nativeInsertText` для ProseMirror
+  composers (Claude, Grok, Mistral), которые честно уважают
+  `execCommand('insertText')`. Wipe-between-strategies убран —
+  run-loop снова breaks на первой `changed` попытке.
+* **Ложный detect на README GitHub.** v4.48.2 copilot
+  `pathPrefix: '/copilot'` исправил copilot-adapter, но fallback
+  `generic` adapter всё равно срабатывал на README code-fences,
+  цитирующих MCP JSONL. Generic adapter теперь помечен
+  `passive: true`, и `mountControls` short-circuit-ит когда
+  `adapter.passive`. Unlisted сайты теперь дают чистый
+  `mounted_controls=0` от scan-page вместо случайного toolbar
+  на первом `<pre>`.
+* **Qwen Enter fallback молча промахивался.** Synthetic Enter
+  keydown диспатчился на composer, но Qwen слушает делегированный
+  document-listener, который срабатывает только когда target —
+  activeElement. Fallback теперь focus-ит target перед dispatch и
+  повторяет Enter через 120 ms, чтобы composers, которые
+  debounce первую нажатую клавишу, тоже увидели retry.
+* **Version-баннеры были правильны через три компонента с v0.14.1,
+  но внутренний content-version pin в тестовом guard теперь
+  `0.14.4`.**
+
+#### Затронутые файлы
+
+* **`chat_extension/adapters.js`** — `arenaIsInUserAuthoredNode`
+  сведён к attribute + class-substring matching; walk cap
+  оставлен 20 hops.
+* **`chat_extension/adapter_sites.js`** — generic adapter помечен
+  `passive: true` с inline-rationale комментарием.
+* **`chat_extension/content.js`** — `mountControls` short-circuit-ит
+  на `adapter.passive`; `ARENA_CONTENT_SCRIPT_VERSION` bumped на
+  `0.14.4`.
+* **`chat_extension/insert_strategies.js`** — `arenaInsertPlan`
+  развернул multi-line план для plain contenteditable
+  (`directDomBlocks` первым); wipe-between-strategies убран из
+  `arenaInsertResult`; Enter-fallback focus-ит target + retry
+  через 120 ms; `arenaInsertScriptVersion` bumped на `0.14.4`;
+  `arenaStructureMatches` оставлен как diagnostic-only metadata
+  (больше не gate-ит `settled`).
+* **`chat_extension/manifest.json`** — extension-version bumped
+  `0.14.3 → 0.14.4`.
+* **`chat_extension/README.md`** — version-баннер обновлён.
+
+#### Тесты
+
+* **`tests/test_chat_extension_assets.py`** — 4 новых assertions,
+  покрывающих plan-ordering fix, generic-passive флаг, отсутствие
+  form-ancestor эвристики, и `passive` skip в content.js.
+  Внутренний content-version pin bumped на `0.14.4`.
+* **`tests/test_chat_extension_adapter_flow.py`** — README-version
+  bumped на `0.14.4`.
+* Sweep проходит на **2390**.
+
+#### Что остаётся отложенным
+
+* Preview-button flash на Kimi / Qwen — по-прежнему нет repro.
+* Qwen toolbar drift — `<div>`-wrapped-`<pre>` hoist на месте, но
+  layout Qwen имеет floating action-menu сверху; visual-fix
+  скорее всего требует настоящую DOM-inspection сессию.
+* Arena.ai battle / side-by-side / agent-mode варианты.
+* Extension-side RemoteConfigManager (queued для v4.49.0).
+
 ## v4.48.3 - 2026-07-17
 
 ### Chrome-расширение — structure-preserving insert + fix позиции Qwen toolbar

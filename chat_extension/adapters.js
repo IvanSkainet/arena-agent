@@ -31,83 +31,40 @@ function getArenaAdapter() {
   return _cachedAdapter;
 }
 
-// ---------------------------------------------------------------------------
-// v0.14.2: user-authored node filter.
-//
-// Multiple sites (Grok, Copilot, DuckAI, Arena.ai) were surfacing
-// "detected tool_call" toolbars on assistant blocks that were actually
-// echoes of the *user's* own message -- e.g. Grok mirrors the user prompt
-// back into the transcript with the same code-fence style. Injecting a
-// Run button on the user's own text makes no semantic sense (there is
-// nothing to run against; the block came from us, not the model).
-//
-// Detection strategy: walk ancestors up to <body> and stop early on any
-// attribute / class combo the major sites use to mark user-authored
-// content. Kept intentionally conservative -- a false negative (missing
-// a rare user-message shape) is much better than a false positive
-// (skipping a real assistant reply). When in doubt we treat the node
-// as an assistant node and let the toolbar mount as before.
-// ---------------------------------------------------------------------------
+// v0.14.4: user-authored node filter -- pared back after v0.14.2/3
+// caused massive false-positive SKIPS on Grok / DuckAI where every
+// chat block sits under a form/composer ancestor (see scan-report
+// mounted_controls=0, dismissed_controls=2 with skip_user_authored
+// events). We now only trust explicit user-role attributes and a
+// very narrow class-substring set. Composer / form / textarea
+// ancestor heuristics are gone -- they were too broad.
 const _USER_AUTHOR_ATTRS = [
   ['data-message-author-role', 'user'],
   ['data-author-role', 'user'],
   ['data-role', 'user'],
   ['data-sender', 'user'],
   ['data-testid', 'user-message'],
-  ['role', 'form'],  // GitHub / composer wrappers occasionally match this
 ];
-
-// Class-name substrings that reliably mean "user message" across the
-// sites we scanned. Case-insensitive prefix / substring match. Very
-// short strings ("me") are avoided to stop unrelated site DOM from
-// tripping the filter.
 const _USER_AUTHOR_CLASS_SUBSTRINGS = [
-  'user-message',
-  'human-message',
-  'usermessage',
-  'humanmessage',
-  'user-turn',
-  'user_turn',
+  'user-message', 'human-message', 'usermessage', 'humanmessage',
+  'user-turn', 'user_turn',
 ];
 
 function arenaIsInUserAuthoredNode(node) {
   if (!node) return false;
-  // Anything inside the composer itself is authored by the user.
-  const adapter = getArenaAdapter();
-  const composerSelectors = (adapter && adapter.composerSelectors) || [];
-  // Walk up to <body>. Cap at 20 hops so a badly-formed page cannot
-  // burn cycles here.
   let el = node;
   for (let i = 0; el && i < 20; i++) {
     if (el.nodeType !== 1) { el = el.parentNode; continue; }
-    // Attribute match
     for (const [attr, val] of _USER_AUTHOR_ATTRS) {
       const v = el.getAttribute && el.getAttribute(attr);
       if (v && String(v).toLowerCase().includes(val)) return true;
     }
-    // Class match
     const cls = el.className;
     if (cls && typeof cls === 'string') {
       const lc = cls.toLowerCase();
       for (const needle of _USER_AUTHOR_CLASS_SUBSTRINGS) {
         if (lc.includes(needle)) return true;
       }
-    }
-    // Composer / textarea / input parent -- the block is being typed
-    // right now, not received from the model. Also matches when the
-    // adapter's composerSelector points at a wrapper div (ProseMirror,
-    // rich-textarea, etc.).
-    const tag = String(el.tagName || '').toLowerCase();
-    if (tag === 'textarea' || tag === 'input') return true;
-    if (tag === 'form') {
-      // A form ancestor is a strong hint we're inside the composer
-      // (assistant messages generally live outside any form).
-      return true;
-    }
-    for (const sel of composerSelectors) {
-      try {
-        if (el.matches && el.matches(sel)) return true;
-      } catch (_e) { /* invalid selector -- ignore */ }
     }
     el = el.parentNode;
   }

@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.3';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.4';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -267,6 +267,8 @@ function previewSummary(result) {
 // remount the same toolbar across DOM churn.
 // ---------------------------------------------------------------------------
 function mountControls(host, payload, adapter) {
+  // v0.14.4: generic adapter is passive -- never mount on unlisted sites.
+  if (adapter && adapter.passive) return;
   host = controlsHost(host);
 
   const fingerprint = typeof arenaMessageFingerprint === 'function'

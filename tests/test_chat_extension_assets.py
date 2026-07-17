@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.3"
+    assert manifest["version"] == "0.14.4"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -147,18 +147,40 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.3'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.3"' in content
-    # v0.14.3: structure-preserving insert plan for multi-line payloads
-    # (Perplexity / Kimi plain contenteditable that collapses \n into
-    # spaces). Plan now chains through paragraphFallback + directDomBlocks
-    # when the initial nativeInsertText succeeded but broke the structure.
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.4'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.4"' in content
+    # v0.14.4: plain-contenteditable insert plan puts directDomBlocks
+    # first for multi-line payloads on non-ProseMirror composers
+    # (Perplexity, Kimi) -- v0.14.3 had it as the third fallback
+    # after wipe-between-strategies, which shipped a duplicate paste
+    # when the wipe was unreliable. Assert directDomBlocks appears
+    # earlier than paragraphFallback in the plan branch.
     insert_js = (base / "insert_strategies.js").read_text(encoding="utf-8")
-    assert "arenaStructureMatches" in insert_js, (
-        "insert_strategies.js must expose arenaStructureMatches to detect "
-        "when a composer swallowed newlines and the fallback chain must fire"
+    assert "'directDomBlocks', 'paragraphFallback'" in insert_js, (
+        "plan must lead with directDomBlocks for plain contenteditable "
+        "-- v0.14.3 wipe-chain shipped duplicate pastes on Perplexity/Kimi"
     )
-    assert "paragraphFallback" in insert_js and "directDomBlocks" in insert_js
+    # v0.14.4: generic adapter is `passive` -- never mounts on unlisted
+    # sites (previous versions mounted on GitHub READMEs that quoted
+    # MCP JSONL, see bug #9 in the v0.14.3 scan-report).
+    adapter_sites_js = (base / "adapter_sites.js").read_text(encoding="utf-8")
+    assert "passive: true" in adapter_sites_js, (
+        "generic adapter must be marked passive so it never mounts "
+        "toolbars on unlisted sites (e.g. GitHub README fences)"
+    )
+    assert "adapter.passive" in content or "adapter && adapter.passive" in content
+    # v0.14.4: user-authored filter no longer walks form/composer
+    # ancestors -- those heuristics caused Grok / DuckAI to skip
+    # every chat block. Only explicit user-role attributes and a
+    # narrow class-substring set trigger the skip.
+    adapters_js_body = (base / "adapters.js").read_text(encoding="utf-8")
+    assert "if (tag === 'form')" not in adapters_js_body, (
+        "form-ancestor heuristic must not resurface -- caused massive "
+        "false-positive SKIPS on Grok / DuckAI in v0.14.2/3"
+    )
+    assert "composerSelectors" in adapters_js_body  # still present in adapters
+    # But composerSelectors check inside arenaIsInUserAuthoredNode is gone --
+    # count occurrences (was 1 inside the helper before v0.14.4).
     # controlsHost hoists <div>-wrapped <pre> so Qwen no longer drifts
     # the toolbar above the site "..." menu.
     assert "querySelector('pre')" in content or 'querySelector("pre")' in content

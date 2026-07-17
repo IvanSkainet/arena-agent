@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.3';
+  return '0.14.4';
 }
 
 function arenaSetInsertTiming(timing) {
@@ -118,19 +118,17 @@ async function arenaVerifySettledInsert(adapter, before, text, target = null, ma
     const current = target?.isConnected ? target : arenaFindComposer(adapter);
     const after = arenaEditableText(current);
     const changed = after !== before;
-    // v0.14.3: structure check -- text contents may match even when
-    // the composer collapsed \n into single spaces (Perplexity /
-    // Kimi behaviour). If the payload had newlines and the composer
-    // shows a single line, treat as "changed but not settled" so
-    // the caller advances to the next strategy in the plan.
+    // v0.14.4: structure info is diagnostic only. The plan-ordering
+    // in arenaInsertPlan decides which strategy runs first so we
+    // don't need to fail verify to trigger a fallback here.
     const structOk = arenaStructureMatches(current, text);
-    if (changed && arenaTextContainsInsert(after, text) && structOk) {
-      return {changed: true, settled: true, structure_ok: true, verify_ms: elapsed};
+    if (changed && arenaTextContainsInsert(after, text)) {
+      return {changed: true, settled: true, structure_ok: structOk, verify_ms: elapsed};
     }
     if (i === checkPoints.length - 1) {
       return {
         changed,
-        settled: changed && arenaTextContainsInsert(after, text) && structOk,
+        settled: changed && arenaTextContainsInsert(after, text),
         structure_ok: structOk,
         verify_ms: elapsed,
       };
@@ -143,7 +141,7 @@ async function arenaVerifySettledInsert(adapter, before, text, target = null, ma
   const structOk = arenaStructureMatches(current, text);
   return {
     changed,
-    settled: changed && arenaTextContainsInsert(after, text) && structOk,
+    settled: changed && arenaTextContainsInsert(after, text),
     structure_ok: structOk,
     verify_ms: elapsed,
   };
@@ -279,19 +277,23 @@ function arenaInsertPlan(target, requested, text) {
   if (arenaUsesRichTextareaFastPath(target)) {
     return ['directDomPreWrap', 'nativeInsertText'];
   }
-  // v0.14.3: when the payload has newlines, chain to structure-
-  // preserving fallbacks. On Perplexity / Kimi / other plain
-  // contenteditable composers, execCommand('insertText') strips
-  // \n into single spaces -- the jsonl block that lands looks like
-  // one long line. paragraphFallback uses execCommand('insertParagraph')
-  // per line which every composer honours (it's how Enter behaves).
-  // directDomBlocks is the last-ditch DOM write that survives even
-  // on composers where execCommand is a no-op. Chain break happens
-  // in the caller: it stops once verify.settled is true AND the
-  // paragraph structure matches, so plain-line payloads still exit
-  // on the fast native path.
+  // v0.14.4: for plain contenteditable composers (Perplexity, Kimi)
+  // that collapse \n on execCommand('insertText'), skip the native
+  // path entirely for multi-line payloads and go straight to
+  // directDomBlocks. v0.14.3 chained nativeInsertText FIRST and then
+  // tried to wipe + retry, but the wipe was unreliable on some
+  // composers, so the operator saw a duplicate paste. ProseMirror
+  // composers (Claude, Grok, Mistral) still honour insertText well
+  // because ProseMirror translates it into structured content, so
+  // they keep the native path.
   const hasNewlines = String(text || '').indexOf('\n') !== -1;
-  if (hasNewlines) return ['nativeInsertText', 'paragraphFallback', 'directDomBlocks'];
+  const isProseMirror = !!(target.closest?.('.ProseMirror') || target.classList?.contains('ProseMirror'));
+  if (hasNewlines && !isProseMirror) {
+    // directDomBlocks builds <div><br></div> per line -- survives
+    // even when execCommand is a no-op. paragraphFallback stays as
+    // a secondary fallback for edge cases.
+    return ['directDomBlocks', 'paragraphFallback', 'nativeInsertText'];
+  }
   return ['nativeInsertText'];
 }
 
@@ -482,41 +484,14 @@ async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = '
       });
       return true;
     }
-    // v0.14.3: only break on "changed" when the structure also matches.
-    // Previously any change (even a plain-text collapse of a
-    // multi-line payload) counted as "good enough" and stopped the
-    // plan, so the paragraphFallback fallback never ran on
-    // Perplexity / Kimi. Now we advance to the next strategy when
-    // the composer swallowed our newlines.
-    if (requested === 'auto' && attempted && verify.changed && verify.structure_ok !== false) break;
-    // v0.14.3: before trying the next strategy, wipe what the
-    // previous one just injected -- otherwise the second attempt
-    // appends to the flat text left by the first and we ship a
-    // "text\ntext" duplicate. Skip when nothing changed (nothing
-    // to clean up).
-    if (attempted && verify.changed) {
-      try {
-        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
-          target.value = '';
-          target.dispatchEvent(new Event('input', {bubbles: true}));
-        } else if (target.isContentEditable) {
-          // Selecting everything + delete is the only clear that
-          // consistently fires the SPA's input listeners; setting
-          // innerHTML='' silently on ProseMirror composers.
-          const sel = window.getSelection?.();
-          if (sel) {
-            const range = document.createRange();
-            range.selectNodeContents(target);
-            sel.removeAllRanges();
-            sel.addRange(range);
-            document.execCommand('delete', false);
-          } else {
-            target.innerHTML = '';
-          }
-          target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'deleteContent'}));
-        }
-      } catch (_e) { /* ignore; next strategy may still overwrite */ }
-    }
+    // v0.14.4: any change counts as "done" -- prevents duplicate
+    // paste when the wipe-between-strategies chain gave two attempts
+    // that both landed content (v0.14.3 regression). Plan-ordering
+    // in arenaInsertPlan now decides which strategy runs first based
+    // on composer type, so we no longer need the runtime fallback
+    // dance. If the first strategy failed to change anything at all,
+    // we still fall through to the next entry in the plan.
+    if (requested === 'auto' && attempted && verify.changed) break;
   }
 
   const last = attempts[attempts.length - 1]
@@ -600,13 +575,28 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
   const noSelector = !submitInfo.selected_selector;
   if (enterTarget && noSelector) {
     try {
+      // v0.14.4: focus target first + fire on document too. Many
+      // sites (Qwen, DeepSeek) listen for Enter on the composer's
+      // keyboard-event delegate rather than the composer itself,
+      // so dispatching only on enterTarget silently missed.
+      try { enterTarget.focus(); } catch (_) {}
       const opts = {
         key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
-        bubbles: true, cancelable: true,
+        bubbles: true, cancelable: true, composed: true,
       };
-      enterTarget.dispatchEvent(new KeyboardEvent('keydown', opts));
-      enterTarget.dispatchEvent(new KeyboardEvent('keypress', opts));
-      enterTarget.dispatchEvent(new KeyboardEvent('keyup', opts));
+      // Fire on the composer (specific listeners) and on document
+      // (delegated listeners some SPAs use).
+      for (const evt of ['keydown', 'keypress', 'keyup']) {
+        enterTarget.dispatchEvent(new KeyboardEvent(evt, opts));
+      }
+      // Additional retry after a short delay -- some composers
+      // debounce their submit handler and would swallow the very
+      // first keystroke that arrived while insert timing was still
+      // settling.
+      await arenaSleep(120);
+      for (const evt of ['keydown', 'keypress', 'keyup']) {
+        enterTarget.dispatchEvent(new KeyboardEvent(evt, opts));
+      }
       return {
         ok: true, inserted: true, submitted: true, ...insertTiming,
         submit_wait_ms: 1500,
