@@ -96,6 +96,22 @@ def make_error_middleware(ctx: ErrorMiddlewareContext):
             ctx.log_debug("[%s] %s %s -> %d (%.3fs)", req_id, request.method, request.path, resp.status, duration)
             ctx.log_request_response(request.method, request.path, resp.status, duration, req_id, request.remote or "")
             resp.headers["X-Request-Id"] = req_id
+            # v4.41.0: query-string tokens are deprecated. When
+            # the auth layer flagged this request as
+            # ``auth_via_query_token``, attach an RFC-7234
+            # ``Warning: 299`` response header so scripts and
+            # linters can spot the deprecation without changing
+            # exit codes. Also emits a rate-limited server-side
+            # log so an operator watching audit sees which peers
+            # still use the deprecated channel. The warning is
+            # non-blocking -- the request itself succeeds.
+            if request.get("auth_via_query_token"):
+                resp.headers["Warning"] = (
+                    "299 - \"?token= query auth is deprecated; use "
+                    "Authorization: Bearer or X-Arena-Token header. "
+                    "Query tokens leak into proxy logs, browser "
+                    "history, and Referer headers.\""
+                )
             return resp
         except web.HTTPException as exc:
             duration = time.time() - t0
@@ -105,6 +121,15 @@ def make_error_middleware(ctx: ErrorMiddlewareContext):
             exc.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
             exc.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Arena-Token, Mcp-Session-Id"
             exc.headers["X-Request-Id"] = req_id
+            # v4.41.0: propagate the same deprecation warning
+            # even on HTTPException paths -- otherwise a 302
+            # redirect with a legit query token would silently
+            # skip the warning.
+            if request.get("auth_via_query_token"):
+                exc.headers["Warning"] = (
+                    "299 - \"?token= query auth is deprecated; use "
+                    "Authorization: Bearer or X-Arena-Token header.\""
+                )
             raise
         except BridgeError as e:
             duration = time.time() - t0

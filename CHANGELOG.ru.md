@@ -1,3 +1,214 @@
+## v4.41.0 - 2026-07-17
+
+### Security hardening pack: TLS verify по умолчанию, ?token= deprecation, log redaction, token-loader priority fix
+
+Второй pass security-аудита, начатого в v4.40.0 (signed URL
+cache). Этот релиз закрывает оставшиеся четыре открытых
+пункта из ``SECURITY_AUDIT_v4.39.0.md`` одним
+координированным пакетом -- отдельный релиз от v4.40.0,
+потому что трогать каждый CLI request-path -- более крупное
+изменение, чем подписать один cache-файл.
+
+#### #2 -- TLS-верификация включена по умолчанию (условно-breaking)
+
+До v4.41.0 и ``agentctl_common.py``, и ``agentctl_bridge.py``
+имели приватные хелперы, возвращавшие SSL-context с
+``check_hostname=False`` + ``verify_mode=CERT_NONE`` для
+каждого ``https://`` URL. Это MITM-open по умолчанию: любой
+атакующий на сетевом пути мог подменить сертификат bridge'а
+и прочитать заголовок ``Authorization: Bearer <token>`` на
+каждом запросе. На публичных транспортах (Tailscale,
+cloudflared, ngrok) это был реальный риск, потому что все
+они отдают валидные Let's Encrypt сертификаты, которые
+верифицировались бы без проблем.
+
+Оба хелпера теперь -- тонкие обёртки над единым
+``arena/agentctl_cli/tls.py::build_ssl_context()``, который:
+
+* возвращает ``None`` для ``http://`` URL (без изменений --
+  ZeroTier LAN + loopback продолжают работать);
+* возвращает **strict** ``ssl.create_default_context()`` для
+  ``https://`` URL по умолчанию (новое -- валидирует по
+  системному trust-store, проверяет hostname);
+* возвращает insecure context (совпадает с pre-v4.41.0
+  поведением) только когда ``ARENA_INSECURE_TLS`` --
+  ``1`` / ``true`` / ``yes`` / ``on`` (регистронезависимо);
+* выводит одну строку ``WARNING: TLS verification disabled ...``
+  на stderr первый раз, когда insecure context строится в
+  процессе, чтобы скрипт, случайно отключивший верификацию,
+  не мог провалиться тихо.
+
+Для операторов с self-signed сертификатами на приватном
+bridge'е (``arena/tls/`` это поддерживает) явно ставим
+``ARENA_INSECURE_TLS=1``. Или -- лучше -- указывать
+``SSL_CERT_FILE`` на свой CA bundle;
+``ssl.create_default_context`` автоматически его подхватит.
+
+#### #3 -- ``?token=`` query auth теперь deprecated (не-breaking)
+
+Auth-слой всё ещё принимает ``?token=<value>`` для обратной
+совместимости с WebSocket-клиентами, которые не могут
+установить header ``Authorization`` из браузера (см.
+``dashboard/assets/41-live-charts.js``). Query-токены
+утекают в логи proxy, browser history и ``Referer`` header
+на каждый исходящий клик, поэтому просто убрать code-path
+без ломания живых браузеров нельзя -- но можно сделать
+deprecation громким:
+
+* ``arena/auth/runtime.py::_presented_tokens`` теперь
+  помечает request как ``request["auth_via_query_token"] = True``
+  когда токен пришёл через query И не пришёл также через
+  header.
+* ``arena/errors.py::error_middleware`` видит флаг на
+  исходящем response и добавляет RFC-7234
+  ``Warning: 299 - "?token= query auth is deprecated; use
+  Authorization: Bearer or X-Arena-Token header. Query tokens
+  leak into proxy logs, browser history, and Referer
+  headers."`` header. Response body и status не меняются, так
+  что существующие скрипты работают.
+* Флаг специально НЕ ставится когда header-токен тоже был
+  представлен (query был избыточен, warning был бы шумом) и
+  когда auth провалился через header (query никогда не
+  читали).
+
+Полное удаление планируется в будущей major version после
+того, как скриптовые вызовы успеют мигрировать. UI-вызовы,
+которым нужен query-token для WebSocket'ов (единственный
+легитимный use-case), получат специальный short-lived ticket
+механизм в это время.
+
+#### #4 -- URL redaction в captured stderr
+
+``arena/agentctl_cli/agentctl_bridge.py::_fetch_config``
+раньше печатал два полных URL verbatim в stderr в fallback-
+диагностике::
+
+    NOTE: bootstrap https://cachyos-x8664.tail328f18.ts.net
+    unreachable (...); succeeded via cached URL
+    https://pout-shingle-mystify.ngrok-free.dev
+
+Это утекает Tailscale hostnames (кодируют имя машины + id
+tailnet'а), ngrok reserved-domain'ы (per-account), и
+ротирующиеся cloudflared subdomains в любое место, где
+stderr захватывается: CI job logs, tmux scrollback, bug-
+report'ы. Ничего из этого не секрет в смысле "один запрос и
+ты внутри", но позволяет атакующему бесплатно fingerprint'ить
+инфраструктуру.
+
+Новый хелпер ``_redact_url_for_log(url)``:
+
+* пропускает URL без изменений когда ``sys.stderr.isatty()``
+  (оператор, смотрящий в свой терминал, уже знает свою
+  инфру; redaction только бесил бы);
+* пропускает URL без изменений для localhost, RFC1918,
+  169.254.\*, и hostname'ов короче 12 символов (нечего
+  скрывать);
+* иначе заменяет netloc на
+  ``<scheme>://<8-char-prefix>...<tld>`` -- сохраняет
+  достаточно, чтобы человек различил "ngrok URL" от "CF URL"
+  с одного взгляда, но убирает fingerprint'уемую середину;
+* уважает ``ARENA_AGENTCTL_LOG_FULL_URLS=1`` для случая "мне
+  реально нужен полный URL в этом логе".
+
+Обе строки -- fallback ``NOTE:`` и terminal ``ERROR:`` --
+теперь идут через redactor.
+
+#### #8 -- Token loader продвигает env выше disk (сюрприз-фикс)
+
+``arena/agentctl_cli/agentctl_common.py::_load_token`` раньше
+резолвил токен в таком порядке:
+``ARENA_TOKEN_FILE`` > ``$ARENA_AGENT_HOME/token.txt`` >
+``~/arena-bridge/token.txt`` > ``ARENA_BRIDGE_TOKEN`` env.
+
+Обнаружено при написании v4.40.0 fallback-тестов: на live
+bridge'е (CachyOS box Ivan'а) реальный ``token.txt`` на
+диске молча перекрывал ``ARENA_BRIDGE_TOKEN=stub-token``,
+который тесты экспортировали. v4.40.0 test suite обошёл это,
+указывая ``ARENA_TOKEN_FILE`` на per-test файл. Это был
+правильный escape hatch, но underlying-приоритет удивлял:
+оператор, запустивший
+``ARENA_BRIDGE_TOKEN=$(cat other-token) agentctl ...``, получил
+бы неправильный токен без диагностики.
+
+Новый порядок:
+
+1. ``ARENA_TOKEN_FILE`` explicit file (высший -- не изменён);
+2. **``ARENA_BRIDGE_TOKEN`` env var (повышен)** --
+   экспортированный env теперь побеждает stale ``token.txt``;
+3. ``$ARENA_AGENT_HOME/token.txt``;
+4. ``~/arena-bridge/token.txt`` fallback для нестандартного
+   ``ARENA_AGENT_HOME``.
+
+Пустые значения на каждом уровне падают на следующий (так что
+``export ARENA_BRIDGE_TOKEN=""`` в rc-файле не молча ломает
+каждый запрос). Пустые файлы на диске трактуются как "not
+present" -- пустая строка никогда не возвращается пока
+буквально ничего не разрешилось.
+
+#### Тесты (+54 всего; 2054 -> 2108)
+
+* ``tests/test_agentctl_tls.py`` -- 15 тестов: env-shape
+  matrix (13 truthy/falsy shapes), scheme + env behaviour
+  matrix, warn-once semantics, http-in-insecure-mode-does-not-
+  warn, ``reset_warning_guard_for_tests`` sanity.
+* ``tests/test_agentctl_bridge_redaction.py`` -- 14 тестов:
+  TTY vs non-TTY, три реальные production URL shape
+  (Tailscale / ngrok / cloudflared), env override, 6 non-
+  sensitive host'ов pass-through, malformed input tolerance,
+  broken ``isatty()`` defensive.
+* ``tests/test_agentctl_token_loader.py`` -- 8 тестов:
+  каждый priority-level transition (explicit > env >
+  disk-home > disk-fallback), empty-env fall-through,
+  empty-file rejection, multiline first-non-empty-line,
+  missing explicit file falls through, all-absent returns "".
+* ``tests/test_query_token_deprecation.py`` -- 10 тестов:
+  auth всё ещё работает через все три канала, флаг ставится
+  только для query-only auth, both-channels не флагает
+  (noise prevention), failed-query всё ещё флагает (rate-
+  limit visibility), no-subscript request double не
+  крашится.
+* ``tests/test_errors.py`` -- 2 новых теста: middleware
+  добавляет ``Warning: 299`` когда флаг стоит, нет header'а
+  когда флаг отсутствует.
+
+Test suite: 2054 -> 2108 (+54). Zero broken masters. Zero
+rollbacks.
+
+#### Тронутые файлы
+
+* ``arena/agentctl_cli/tls.py`` -- НОВЫЙ, 168 строк.
+* ``arena/agentctl_cli/agentctl_common.py`` -- делегирует
+  ``_ssl_context`` в shared хелпер; ``_load_token``
+  переписан с env-above-disk приоритетом.
+* ``arena/agentctl_cli/agentctl_bridge.py`` -- делегирует
+  ``_ssl_ctx`` в shared хелпер; добавляет
+  ``_redact_url_for_log``; два диагностических ``print()``
+  идут через redactor.
+* ``arena/auth/runtime.py`` -- ``_presented_tokens`` ставит
+  ``auth_via_query_token`` флаг на query-only auth.
+* ``arena/errors.py`` -- middleware добавляет ``Warning: 299``
+  когда флаг стоит (на success и HTTPException путях).
+* ``arena/constants.py`` -- VERSION 4.40.0 -> 4.41.0.
+* ``pyproject.toml`` -- version 4.40.0 -> 4.41.0.
+
+#### Не адресовано (задокументировано на потом)
+
+* ``shell=True`` в ``arena/system/hwinfo_*.py`` +
+  ``arena/mcp/*.py`` + ``arena/desktop/cli/*.py``. Параметры
+  сегодня -- фиксированные строки; не эксплуатируемо, но
+  fragile. Уборка -- отдельный проект.
+* SSRF-guard (``arena/security_ssrf.py``) подключён только к
+  browser-endpoint'ам; system tunnels / autostart не берут
+  внешние URL сегодня, но defence-in-depth pass мог бы
+  унифицировать.
+* Rate-limited server-side WARN log для query-token usage был
+  упомянут в аудите, но специально опущен в этом релизе --
+  ``Warning: 299`` response header уже даёт оператору тот
+  же сигнал, а добавление дублирующей audit-строки только
+  зашумит ``audit.jsonl`` для (большого) количества
+  легитимных WebSocket-вызывающих на deprecated-канале.
+
+
 ## v4.40.0 - 2026-07-17
 
 ### Security hardening -- подписанный URL-кэш предотвращает утечку токена

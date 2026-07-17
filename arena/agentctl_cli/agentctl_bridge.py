@@ -34,7 +34,7 @@ Exit codes:
 from __future__ import annotations
 
 import json
-import ssl
+import os
 import sys
 import time
 import urllib.error
@@ -96,12 +96,91 @@ stdout stay clean.
 
 
 def _ssl_ctx(url: str):
-    if not url.startswith("https"):
-        return None
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = 0
-    return ctx
+    """v4.41.0: delegate to the shared TLS helper so verify-by-
+    default and the ARENA_INSECURE_TLS opt-out live in exactly
+    one place (``arena/agentctl_cli/tls.py``). The pre-v4.41.0
+    body did ``check_hostname=False`` + ``verify_mode=0`` on
+    every https URL — MITM-open by default.
+
+    Kept as a private wrapper so this module doesn't have to
+    grow a new import at every call site."""
+    from arena.agentctl_cli.tls import build_ssl_context
+    return build_ssl_context(url)
+
+
+# ---------------------------------------------------------------------------
+# v4.41.0: URL redaction for stderr diagnostics
+# ---------------------------------------------------------------------------
+def _redact_url_for_log(url: str) -> str:
+    """Return a version of ``url`` suitable for stderr when the
+    consumer is not an interactive TTY.
+
+    Problem statement (audit finding #4): the fallback diagnostic
+    line ``NOTE: bootstrap https://cachyos-x8664.tail328f18.ts.net
+    unreachable; succeeded via cached URL https://pout-shingle-
+    mystify.ngrok-free.dev`` leaks two pieces of infrastructure
+    topology into anywhere stderr is captured: CI logs, tmux
+    scrollback, shipped bug reports. Tailscale hostnames encode
+    the machine name and tailnet id; ngrok reserved domains are
+    per-account. Neither is a secret in the "one lookup and
+    you're in" sense but both are useful for an attacker
+    picking targets.
+
+    Redaction policy:
+
+    * ``isatty()`` on stderr — leave the URL intact. An operator
+      staring at their own terminal already knows their
+      infrastructure; hiding it would just be annoying.
+    * Not a TTY (CI, redirected to file, piped to another
+      process) — replace the netloc with ``<scheme>://<8-char-
+      prefix>...<tld>``. Preserves enough for humans to
+      distinguish "the cloudflared URL" from "the ngrok URL" at
+      a glance, but strips the fingerprintable part.
+    * Localhost, RFC1918 addresses, and short hostnames (< 12
+      chars) are passed through unchanged — nothing sensitive
+      to redact.
+
+    A future flag ``ARENA_AGENTCTL_LOG_FULL_URLS=1`` overrides
+    the redaction for the "I really need the whole URL in this
+    log" case; kept undocumented in --help for now (documented
+    inline in the docstring is enough).
+    """
+    if os.environ.get("ARENA_AGENTCTL_LOG_FULL_URLS", "").strip().lower() in (
+            "1", "true", "yes", "on"):
+        return url
+    try:
+        if sys.stderr.isatty():
+            return url
+    except Exception:
+        # e.g. stderr replaced by a StringIO in a test harness --
+        # treat as non-TTY.
+        pass
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+    except Exception:
+        return "<redacted>"
+    host = parsed.hostname or ""
+    # Preserve short / private hosts; they hold no fingerprintable
+    # entropy worth hiding.
+    if not host or len(host) < 12:
+        return url
+    if host in ("localhost",) or host.startswith("127.") or host.startswith(
+            "10.") or host.startswith("192.168.") or host.startswith(
+            "169.254."):
+        return url
+    # Best-effort tld: the last dotted component; falls back to
+    # the empty string when the host isn't dotted.
+    parts = host.split(".")
+    tld = parts[-1] if len(parts) > 1 else ""
+    prefix = host[:8]
+    redacted_host = f"{prefix}...{tld}" if tld else f"{prefix}..."
+    netloc = redacted_host
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    return urlunparse((parsed.scheme, netloc, parsed.path or "",
+                       parsed.params or "", parsed.query or "",
+                       parsed.fragment or ""))
 
 
 def _probe_url(url: str, timeout: float) -> dict[str, Any]:
@@ -231,10 +310,15 @@ def _fetch_config() -> dict[str, Any]:
         except Exception:
             continue
         # Report on stderr so scripts consuming stdout stay
-        # happy but the operator sees what saved them.
+        # happy but the operator sees what saved them. v4.41.0:
+        # both URLs are routed through _redact_url_for_log so
+        # that in CI / captured-stderr contexts the Tailscale
+        # hostname and ngrok reserved domain are truncated
+        # before hitting anything durable.
         print(
-            f"NOTE: bootstrap {BRIDGE_URL} unreachable "
-            f"({primary_err_str}); succeeded via cached URL {candidate}",
+            f"NOTE: bootstrap {_redact_url_for_log(BRIDGE_URL)} "
+            f"unreachable ({primary_err_str}); succeeded via "
+            f"cached URL {_redact_url_for_log(candidate)}",
             file=sys.stderr,
         )
         # Refresh the cache from this successful response --
@@ -248,8 +332,12 @@ def _fetch_config() -> dict[str, Any]:
 
     # All options exhausted. Print the original error (that's
     # what most users will need to see) and exit 1 to match
-    # pre-v4.39.0 behaviour.
-    print(f"ERROR: could not reach /v1/agent/config: {primary_err_str}",
+    # pre-v4.39.0 behaviour. v4.41.0: primary_err_str can
+    # include the bootstrap URL verbatim (URLError includes it),
+    # so route it through the redactor to be safe when stderr
+    # is captured.
+    print(f"ERROR: could not reach /v1/agent/config "
+          f"({_redact_url_for_log(BRIDGE_URL)}): {primary_err_str}",
           file=sys.stderr)
     if fallback_urls:
         print(

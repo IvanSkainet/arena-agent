@@ -1,3 +1,213 @@
+## v4.41.0 - 2026-07-17
+
+### Security hardening pack: TLS verify by default, ?token= deprecation, log redaction, token-loader priority fix
+
+Second pass of the security audit that started with v4.40.0
+(signed URL cache). This release closes the remaining four
+open findings from ``SECURITY_AUDIT_v4.39.0.md`` in one
+coordinated pack -- separate release from v4.40.0 because
+touching every CLI request path is a bigger change than
+signing a cache file.
+
+#### #2 -- TLS verification is on by default (breaking-ish)
+
+Pre-v4.41.0 both ``agentctl_common.py`` and ``agentctl_bridge.py``
+had private helpers that returned an SSL context with
+``check_hostname=False`` + ``verify_mode=CERT_NONE`` for
+every ``https://`` URL. That is MITM-open by default: any
+attacker on the network path could substitute the bridge's
+certificate and read the ``Authorization: Bearer <token>``
+header on every request. On the public transports
+(Tailscale, cloudflared, ngrok) this was a real risk because
+they all serve valid Let's Encrypt certificates that would
+have verified fine.
+
+The two helpers are now thin wrappers around a single
+``arena/agentctl_cli/tls.py::build_ssl_context()`` that:
+
+* returns ``None`` for ``http://`` URLs (unchanged --
+  ZeroTier LAN + loopback keep working);
+* returns a **strict** ``ssl.create_default_context()`` for
+  ``https://`` URLs by default (new -- validates against
+  the system trust store, checks hostname);
+* returns an insecure context (matching pre-v4.41.0
+  behaviour) only when ``ARENA_INSECURE_TLS`` is one of
+  ``1`` / ``true`` / ``yes`` / ``on`` (case-insensitive);
+* emits a single ``WARNING: TLS verification disabled ...``
+  line on stderr the first time an insecure context is built
+  in a process, so a script that unwittingly disables
+  verification cannot fail silently.
+
+For operators with self-signed certificates on a private
+bridge (``arena/tls/`` supports this), set
+``ARENA_INSECURE_TLS=1`` explicitly. Or -- better -- point
+``SSL_CERT_FILE`` at your CA bundle;
+``ssl.create_default_context`` honours it automatically.
+
+#### #3 -- ``?token=`` query auth is now deprecated (non-breaking)
+
+The auth layer still accepts ``?token=<value>`` for backward
+compatibility with WebSocket clients that cannot set an
+``Authorization`` header from the browser (see
+``dashboard/assets/41-live-charts.js``). Query tokens leak
+into proxy logs, browser history, and ``Referer`` headers on
+every outbound click, so we can't just remove the code path
+without breaking live browsers -- but we can make the
+deprecation loud:
+
+* ``arena/auth/runtime.py::_presented_tokens`` now flags the
+  request with ``request["auth_via_query_token"] = True``
+  when the token was presented via query AND not also via
+  header.
+* ``arena/errors.py::error_middleware`` sees the flag on the
+  outgoing response and attaches an RFC-7234
+  ``Warning: 299 - "?token= query auth is deprecated; use
+  Authorization: Bearer or X-Arena-Token header. Query tokens
+  leak into proxy logs, browser history, and Referer
+  headers."`` header. The response body and status are
+  unchanged, so existing scripts keep working.
+* The flag is deliberately NOT set when a header token was
+  also presented (query was redundant, warning would be
+  noise) or when auth failed via header (query was never
+  read).
+
+Full removal is planned for a future major version once
+scripted callers have had time to migrate off the deprecation
+warning. UI callers that need query-token auth for WebSockets
+(the one legitimate use case) will get a dedicated short-lived
+ticket mechanism at that time.
+
+#### #4 -- URL redaction on captured stderr
+
+``arena/agentctl_cli/agentctl_bridge.py::_fetch_config`` used
+to print two full URLs verbatim on stderr in the fallback
+diagnostic::
+
+    NOTE: bootstrap https://cachyos-x8664.tail328f18.ts.net
+    unreachable (...); succeeded via cached URL
+    https://pout-shingle-mystify.ngrok-free.dev
+
+That leaks Tailscale hostnames (which encode machine name +
+tailnet id), ngrok reserved-domain names (per-account), and
+rotating cloudflared subdomains into anywhere stderr is
+captured: CI job logs, tmux scrollback, shipped bug reports.
+None of those are secrets in the "one lookup and you're in"
+sense, but they let an attacker fingerprint infrastructure
+without effort.
+
+New ``_redact_url_for_log(url)`` helper:
+
+* passes URLs through unchanged when ``sys.stderr.isatty()``
+  (an operator staring at their own terminal already knows
+  their infra; redaction would just be annoying);
+* passes URLs through unchanged for localhost, RFC1918,
+  169.254.\*, and hostnames shorter than 12 characters
+  (nothing sensitive to redact);
+* otherwise replaces the netloc with
+  ``<scheme>://<8-char-prefix>...<tld>`` -- preserves enough
+  for humans to distinguish "the ngrok URL" from "the CF URL"
+  at a glance but strips the fingerprintable middle;
+* respects ``ARENA_AGENTCTL_LOG_FULL_URLS=1`` for the "I
+  really need the whole URL in this log" case.
+
+Both the fallback ``NOTE:`` line and the terminal ``ERROR:``
+line now route through the redactor.
+
+#### #8 -- Token loader promotes env above disk (surprise-fix)
+
+``arena/agentctl_cli/agentctl_common.py::_load_token`` used to
+resolve tokens in this order:
+``ARENA_TOKEN_FILE`` > ``$ARENA_AGENT_HOME/token.txt`` >
+``~/arena-bridge/token.txt`` > ``ARENA_BRIDGE_TOKEN`` env.
+
+Discovered while writing the v4.40.0 fallback tests: on the
+live bridge (Ivan's CachyOS box) the real ``token.txt`` on
+disk silently overrode the ``ARENA_BRIDGE_TOKEN=stub-token``
+that the tests were exporting. The v4.40.0 test suite worked
+around this by pointing ``ARENA_TOKEN_FILE`` at a per-test
+file. That was the right escape hatch, but the underlying
+priority was surprising: an operator running
+``ARENA_BRIDGE_TOKEN=$(cat other-token) agentctl ...`` would
+get the wrong token with no diagnostic.
+
+New order:
+
+1. ``ARENA_TOKEN_FILE`` explicit file (highest -- unchanged);
+2. **``ARENA_BRIDGE_TOKEN`` env var (promoted)** -- an
+   exported env now beats a stale ``token.txt``;
+3. ``$ARENA_AGENT_HOME/token.txt``;
+4. ``~/arena-bridge/token.txt`` fallback for non-standard
+   ``ARENA_AGENT_HOME``.
+
+Empty values at each level fall through to the next (so
+``export ARENA_BRIDGE_TOKEN=""`` in an rc file doesn't silently
+break every request). Empty disk files are treated as "not
+present" -- an empty string is never returned unless literally
+nothing was resolvable.
+
+#### Tests (+54 total; 2054 -> 2108)
+
+* ``tests/test_agentctl_tls.py`` -- 15 tests: env-shape
+  matrix (13 truthy/falsy shapes), scheme + env behaviour
+  matrix, warn-once semantics, http-in-insecure-mode-does-not-
+  warn, ``reset_warning_guard_for_tests`` sanity.
+* ``tests/test_agentctl_bridge_redaction.py`` -- 14 tests:
+  TTY vs non-TTY, three real production URL shapes (Tailscale
+  / ngrok / cloudflared), env override, 6 non-sensitive
+  hosts pass-through, malformed input tolerance, broken
+  ``isatty()`` defensive.
+* ``tests/test_agentctl_token_loader.py`` -- 8 tests: every
+  priority-level transition (explicit > env > disk-home >
+  disk-fallback), empty-env fall-through, empty-file
+  rejection, multiline first-non-empty-line, missing explicit
+  file falls through, all-absent returns "".
+* ``tests/test_query_token_deprecation.py`` -- 10 tests:
+  auth still works via all three channels, flag set only for
+  query-only auth, both-channels doesn't flag (noise
+  prevention), failed-query still flags (rate-limit
+  visibility), no-subscript request double doesn't crash.
+* ``tests/test_errors.py`` -- 2 new tests: middleware
+  attaches ``Warning: 299`` when flag set, no header when
+  flag absent.
+
+Test suite: 2054 -> 2108 (+54). Zero broken masters. Zero
+rollbacks.
+
+#### Files touched
+
+* ``arena/agentctl_cli/tls.py`` -- NEW, 168 lines.
+* ``arena/agentctl_cli/agentctl_common.py`` -- delegates
+  ``_ssl_context`` to shared helper; ``_load_token`` rewrote
+  with env-above-disk priority.
+* ``arena/agentctl_cli/agentctl_bridge.py`` -- delegates
+  ``_ssl_ctx`` to shared helper; adds ``_redact_url_for_log``;
+  two diagnostic ``print()`` calls route through the redactor.
+* ``arena/auth/runtime.py`` -- ``_presented_tokens`` sets the
+  ``auth_via_query_token`` flag on query-only auth.
+* ``arena/errors.py`` -- middleware attaches ``Warning: 299``
+  when flag set (on both success and HTTPException paths).
+* ``arena/constants.py`` -- VERSION 4.40.0 -> 4.41.0.
+* ``pyproject.toml`` -- version 4.40.0 -> 4.41.0.
+
+#### Not addressed (documented for later)
+
+* ``shell=True`` in ``arena/system/hwinfo_*.py`` +
+  ``arena/mcp/*.py`` + ``arena/desktop/cli/*.py``. Parameters
+  are fixed strings today; not exploitable but fragile.
+  Cleanup is a standalone project.
+* SSRF-guard (``arena/security_ssrf.py``) is only wired into
+  browser endpoints; system tunnels / autostart don't take
+  external URLs today but a defence-in-depth pass could
+  unify.
+* The rate-limited server-side WARN log for query-token
+  usage was mentioned in the audit but deliberately omitted
+  from this release -- the ``Warning: 299`` response header
+  already gives operators the same signal, and adding a
+  duplicate audit-log line would just noise up ``audit.jsonl``
+  for the (large) number of legitimate WebSocket callers still
+  on the deprecated channel.
+
+
 ## v4.40.0 - 2026-07-17
 
 ### Security hardening -- signed URL cache prevents token exfiltration

@@ -82,3 +82,38 @@ def test_error_middleware_unhandled_response_and_audit():
     assert response.status == 500
     assert body["error_code"] == "INTERNAL_ERROR"
     assert any(e[0] == "audit" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# v4.41.0 -- ?token= deprecation Warning header
+# ---------------------------------------------------------------------------
+def test_error_middleware_adds_deprecation_warning_when_flag_set():
+    """When the auth layer marks a request as having presented
+    the token via ?token= (audit finding #3), the error
+    middleware attaches an RFC-7234 Warning: 299 header so
+    scripts and CI linters can spot the deprecation."""
+    async def handler(request):
+        return web.json_response({"ok": True})
+
+    req = _Request()
+    # The auth layer would normally set this; simulate it.
+    req["auth_via_query_token"] = True
+    response = asyncio.run(make_error_middleware(_ctx())(req, handler))
+    assert response.status == 200
+    assert response.headers.get("Warning", "").startswith("299"), (
+        f"expected Warning: 299 header, got {response.headers.get('Warning')!r}"
+    )
+    assert "deprecated" in response.headers.get("Warning", "").lower()
+
+
+def test_error_middleware_no_warning_when_flag_absent():
+    """Header-based auth (or any request without the query-token
+    flag) must not receive the deprecation Warning -- otherwise
+    every request gets a spurious warning."""
+    async def handler(request):
+        return web.json_response({"ok": True})
+
+    req = _Request()
+    # NB: flag NOT set.
+    response = asyncio.run(make_error_middleware(_ctx())(req, handler))
+    assert response.headers.get("Warning") is None

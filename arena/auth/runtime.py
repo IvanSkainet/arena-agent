@@ -41,7 +41,22 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
     def _presented_tokens(request: web.Request) -> list[str]:
         """Every token the caller might have presented, in preference
         order. Order matters because we short-circuit on the first
-        constant-time match."""
+        constant-time match.
+
+        v4.41.0: query-string tokens (``?token=...``) are still
+        accepted for backward compatibility with WebSocket
+        clients that cannot set an Authorization header from
+        the browser (see ``dashboard/assets/41-live-charts.js``),
+        but we now flag the request with
+        ``request["auth_via_query_token"] = True`` so the
+        error middleware can attach a ``Warning: 299`` response
+        header and the request-level audit log records that
+        the token entered via a deprecated channel. That gives
+        operators a way to notice their own leaky scripts before
+        we remove the code path entirely in a future release.
+        Header-based tokens do not set the flag — they are the
+        canonical path and stay silent.
+        """
         out: list[str] = []
         auth = request.headers.get("Authorization", "")
         if auth.startswith("Bearer "):
@@ -57,6 +72,19 @@ def make_auth_runtime(ctx: AuthRuntimeContext) -> AuthRuntime:
                 qt = ""
             if qt:
                 out.append(qt)
+                # Mark the request so the error middleware can
+                # attach a deprecation Warning header. Skip when
+                # a header-based token was also presented -- in
+                # that case the query token was redundant, and
+                # attaching a warning would be noisy.
+                if not auth.startswith("Bearer ") and not xt:
+                    try:
+                        request["auth_via_query_token"] = True
+                    except (AttributeError, TypeError):
+                        # Test doubles that don't support
+                        # subscript assignment silently skip
+                        # the annotation.
+                        pass
         return out
 
     def check_auth(request: web.Request) -> bool:

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import json
 import os
-import ssl
 import subprocess
 import sys
 import urllib.request
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.constants import VERSION
+from arena.agentctl_cli.tls import build_ssl_context
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 BRIDGE_URL = os.environ.get("ARENA_BRIDGE_URL", "http://127.0.0.1:8765")
 BIN = ROOT / "bin"
@@ -18,23 +18,80 @@ SCRIPTS = ROOT / "scripts"
 
 
 def _load_token() -> str:
-    for token_path in (Path(os.environ.get("ARENA_TOKEN_FILE", "")) if os.environ.get("ARENA_TOKEN_FILE") else None,
-                       ROOT / "token.txt",
+    """Resolve the bearer token from (in priority order):
+
+    1. ``ARENA_TOKEN_FILE`` env var pointing at a file (highest
+       priority — used by tests and by operators who keep the
+       token in a password manager mount).
+    2. ``ARENA_BRIDGE_TOKEN`` env var directly. **v4.41.0
+       change**: this used to be the lowest-priority source,
+       which meant a stale ``token.txt`` in the user's home
+       silently overrode a freshly-exported env var. That was
+       an unpleasant surprise — everything from tests to
+       ``ARENA_BRIDGE_TOKEN=$(cat other-token)`` broke without
+       any diagnostic. Env now wins over disk. Disk still wins
+       over the env-empty case so out-of-the-box behaviour
+       (``token.txt`` present, no env set) is unchanged.
+    3. ``$ARENA_AGENT_HOME/token.txt`` (defaults to
+       ``~/arena-bridge/token.txt``).
+    4. Fixed ``~/arena-bridge/token.txt`` fallback for the case
+       where ``ARENA_AGENT_HOME`` points somewhere else but the
+       standard install location still has a token.
+
+    An empty file counts as "not present" — we don't want to
+    return an empty string from a corrupted install and then
+    have every request fail 401.
+    """
+    # 1. Explicit file wins over everything.
+    explicit = os.environ.get("ARENA_TOKEN_FILE", "").strip()
+    if explicit:
+        p = Path(explicit).expanduser()
+        if p.exists():
+            tok = _read_first_line(p)
+            if tok:
+                return tok
+    # 2. Env variable next -- v4.41.0 promoted this above disk
+    # so an operator can override a stale ``token.txt`` without
+    # editing files.
+    env_tok = os.environ.get("ARENA_BRIDGE_TOKEN", "").strip()
+    if env_tok:
+        return env_tok
+    # 3. Disk fallback, standard locations.
+    for token_path in (ROOT / "token.txt",
                        Path.home() / "arena-bridge" / "token.txt"):
-        if token_path and token_path.exists():
-            return token_path.read_text(encoding="utf-8", errors="replace").strip().split("\n")[0].strip()
-    return os.environ.get("ARENA_BRIDGE_TOKEN", "")
+        if token_path.exists():
+            tok = _read_first_line(token_path)
+            if tok:
+                return tok
+    return ""
+
+
+def _read_first_line(path: Path) -> str:
+    """Read a token file's first non-empty line. Extracted so
+    _load_token stays readable and every disk-read applies the
+    same stripping rules."""
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    for line in raw.splitlines():
+        s = line.strip()
+        if s:
+            return s
+    return ""
 
 
 BRIDGE_TOKEN = _load_token()
 
 
 def _ssl_context(url: str):
-    ctx = ssl.create_default_context() if url.startswith("https") else None
-    if ctx:
-        ctx.check_hostname = False
-        ctx.verify_mode = 0
-    return ctx
+    """Backward-compat wrapper -- v4.41.0 delegates every SSL
+    context construction to ``arena/agentctl_cli/tls.py`` so
+    verify-by-default and the ARENA_INSECURE_TLS opt-out live
+    in exactly one place. Kept as a private name so any legacy
+    caller still importing ``_ssl_context`` from this module
+    keeps working."""
+    return build_ssl_context(url)
 
 
 def bridge_get(path: str, token: bool = True, timeout: int = 15) -> Any:
