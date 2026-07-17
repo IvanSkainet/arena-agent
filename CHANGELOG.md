@@ -1,3 +1,79 @@
+## v4.48.6 - 2026-07-17
+
+### Chrome extension — root-cause fix for Grok / DuckAI + Qwen toolbar overlap
+
+Seventh release in the v4.48.x arc. The v4.48.5 diagnostic-first
+pass paid off: `events_recent[].reason` on Grok and DuckAI both
+reported `attr:data-testid=user-message@DIV`. Inspection of the
+actual DOM on scan-report data showed those sites use that
+`data-testid` on the message-list container that holds BOTH user
+and assistant blocks, not just user turns -- so every mount got
+short-circuited by our filter. That single testid rule is now
+removed. Extension bumped `0.14.5 → 0.14.6`.
+
+Also fixes the Qwen toolbar overlap seen on the operator
+screenshot: our toolbar was rendering underneath Qwen's own
+like / dislike / share / refresh action row directly below the
+code block. The shadow host now sits above site UI via
+`position: relative; z-index: 2147483000; margin-top: 6px;
+isolation: isolate;` on `:host`.
+
+#### Two concrete changes
+
+* **`data-testid="user-message"` removed from `_USER_AUTHOR_ATTRS`.**
+  Kept the four role-explicit attributes
+  (`data-message-author-role`, `data-author-role`, `data-role`,
+  `data-sender`) which every scanned site uses only on the actual
+  user turn. The removed rule is regression-guarded: a new test
+  asserts the tuple must not come back.
+* **Qwen toolbar overlap.** `chat_extension/shadow_toolbar.css`
+  `:host` gained four properties: `position: relative` +
+  `z-index: 2147483000` (max int-safe -- above every site action
+  row we've seen so far) + `margin-top: 6px` (breathing room from
+  the code block) + `isolation: isolate` (creates a new stacking
+  context so nested content cannot escape).
+* Claude adapter still uses the same `data-testid="user-message"`
+  in its own `arenaIsAssistantNode` code path -- that is a
+  Claude-specific site check where the testid really does mean
+  "user only", so it stays.
+
+#### Files touched
+
+* **`chat_extension/adapters.js`** -- one tuple removed from
+  `_USER_AUTHOR_ATTRS`; header rationale updated.
+* **`chat_extension/shadow_toolbar.css`** -- `:host` rule gains
+  position / z-index / margin-top / isolation.
+* **`chat_extension/content.js`** --
+  `ARENA_CONTENT_SCRIPT_VERSION` bumped to `0.14.6`.
+* **`chat_extension/insert_strategies.js`** --
+  `arenaInsertScriptVersion` bumped to `0.14.6`. No behaviour
+  change.
+* **`chat_extension/manifest.json`** -- extension version bumped
+  `0.14.5 → 0.14.6`.
+* **`chat_extension/README.md`** -- version banner refreshed.
+
+#### Tests
+
+* **`tests/test_chat_extension_assets.py`** -- 5 new / updated
+  assertions covering: content-version pin (0.14.6);
+  regression guard against `['data-testid', 'user-message']`
+  coming back into the attr list; three assertions for the
+  Qwen overlap fix (`z-index: 2147483000`, `position: relative`,
+  `isolation: isolate` all in the CSS).
+* **`tests/test_chat_extension_adapter_flow.py`** -- README-version
+  bumped to `0.14.6`.
+* Sweep passes at **2390**.
+
+#### What is still deferred
+
+* Kimi / Perplexity `submit` 2-second delay -- this is by design
+  (directDomBlocks polls verify after each of 30 + 80 + 180ms
+  before firing Enter). Faster would need a per-adapter timing
+  override. Not urgent.
+* Arena.ai multi-model (battle / side-by-side) variants -- the
+  base adapter now works, only the battle-mode multiplex is left.
+* Extension-side RemoteConfigManager (still queued for v4.49.0).
+
 ## v4.48.5 - 2026-07-17
 
 ### Chrome extension — user-authored filter: strict-equal + WHY reporting + composer cache invalidation

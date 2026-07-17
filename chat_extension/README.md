@@ -1,15 +1,15 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.5` (v4.48.5 bridge release —
-diagnostic-first pass: user-authored filter now records WHY it
-skipped (`events_recent[].reason`) so the operator can see which
-attr / class hit; strict-equal matching on attribute values
-(v0.14.2..4 used `.includes()` which false-positive matched
-`class="user-listing"` and similar); walk cap tightened 20 → 8;
-detached composer target is cleared from the last-composer cache
-(Qwen re-renders on model switch and left a stale reference).
-Grok / DuckAI regressions from v0.14.2/3 should now surface a
-clear cause in the ring buffer.
+Current extension version: `0.14.6` (v4.48.6 bridge release —
+concrete narrow fix based on the v0.14.5 diagnostic reason
+strings. `data-testid="user-message"` was matching Grok / DuckAI
+message-list containers (parents of BOTH user + assistant blocks),
+so every mount short-circuited. That single testid rule is now
+removed; only the four role-explicit attributes stay. Qwen
+toolbar overlap fixed by giving the shadow host `position:
+relative; z-index: 2147483000; margin-top: 6px; isolation:
+isolate;` so it sits above the site's own like / dislike /
+share / refresh action row instead of underneath it.
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the

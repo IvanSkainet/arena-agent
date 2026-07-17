@@ -38,12 +38,17 @@ function getArenaAdapter() {
 // events). We now only trust explicit user-role attributes and a
 // very narrow class-substring set. Composer / form / textarea
 // ancestor heuristics are gone -- they were too broad.
+// v0.14.6: data-testid="user-message" removed after scan-reports on
+// Grok / DuckAI / Arena.ai showed the sites use that testid on the
+// message-list container (parent of BOTH user and assistant blocks),
+// not just on user messages. That single attribute short-circuited
+// every mount. The remaining four attributes are role-explicit and
+// only ever appear on the actual user turn in every scanned site.
 const _USER_AUTHOR_ATTRS = [
   ['data-message-author-role', 'user'],
   ['data-author-role', 'user'],
   ['data-role', 'user'],
   ['data-sender', 'user'],
-  ['data-testid', 'user-message'],
 ];
 const _USER_AUTHOR_CLASS_SUBSTRINGS = [
   'user-message', 'human-message', 'usermessage', 'humanmessage',

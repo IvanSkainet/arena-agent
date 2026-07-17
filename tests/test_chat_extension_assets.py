@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.5"
+    assert manifest["version"] == "0.14.6"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -147,8 +147,27 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.5'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.5"' in content
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.6'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.6"' in content
+    # v0.14.6: data-testid="user-message" removed from user-authored
+    # attr list -- scan-reports on Grok / DuckAI / Arena.ai showed the
+    # sites use that testid on the MESSAGE LIST CONTAINER, not just
+    # on user turns, and every mount short-circuited. Regression guard:
+    # the tuple ['data-testid', 'user-message'] must NOT be back in
+    # the _USER_AUTHOR_ATTRS list. (Claude's `arenaIsAssistantNode`
+    # still uses the same testid, but that is a Claude-specific site
+    # check where the site really does honour the semantic.)
+    adapters_body_v6 = (base / "adapters.js").read_text(encoding="utf-8")
+    assert "['data-testid', 'user-message']" not in adapters_body_v6, (
+        "data-testid='user-message' must not be in _USER_AUTHOR_ATTRS "
+        "-- Grok / DuckAI use it on the whole message list container"
+    )
+    # v0.14.6: Qwen toolbar overlap fix -- shadow host now sits above
+    # site action rows via position:relative + max int-safe z-index.
+    shadow_css_v6 = (base / "shadow_toolbar.css").read_text(encoding="utf-8")
+    assert "z-index: 2147483000" in shadow_css_v6
+    assert "position: relative" in shadow_css_v6
+    assert "isolation: isolate" in shadow_css_v6
     # v0.14.5: user-authored filter reports WHY it matched so scan-page
     # events_recent tells us which ancestor / attribute / class hit.
     # Also switched to strict-equal on attr values (was includes(), which

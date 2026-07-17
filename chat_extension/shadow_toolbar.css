@@ -33,6 +33,15 @@
   color-scheme: light dark;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
                Oxygen, Ubuntu, sans-serif;
+  /* v0.14.6: sit above site action rows (Qwen has like/dislike/share/
+     refresh directly below the code block that overlapped our toolbar).
+     `position: relative` + max int-safe z-index keeps us on top; the
+     6-pixel top margin makes sure we do not butt against the code
+     block on sites that render tight padding. */
+  position: relative;
+  z-index: 2147483000;
+  margin-top: 6px;
+  isolation: isolate;
 }
 
 .arena-toolbar {
