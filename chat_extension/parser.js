@@ -52,6 +52,25 @@ function arenaPayloadFromJsonl(text) {
         arguments: {},
         source_format: 'mcp-superassistant-jsonl',
       };
+      // v0.14.2: some models emit arguments inline on the start
+      // event (a valid MCP SuperAssistant variant). Previously the
+      // parser only listened for separate `type:"parameter"` rows
+      // and silently dropped inline args, which surfaced as
+      // "ERROR: missing 'path' argument" from the bridge when the
+      // caller thought they had passed one.
+      if (row.arguments && typeof row.arguments === 'object' && !Array.isArray(row.arguments)) {
+        for (const [k, v] of Object.entries(row.arguments)) {
+          current.arguments[k] = v;
+        }
+      }
+      // Same story for a top-level `params` alias -- some models
+      // emit that shape too. Treated as merge-in, so an explicit
+      // `parameter` row later still wins.
+      if (row.params && typeof row.params === 'object' && !Array.isArray(row.params)) {
+        for (const [k, v] of Object.entries(row.params)) {
+          if (!(k in current.arguments)) current.arguments[k] = v;
+        }
+      }
       return;
     }
     if (!current) return;

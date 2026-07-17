@@ -1,3 +1,113 @@
+## v4.48.2 - 2026-07-17
+
+### Chrome-расширение — user-message фильтр, Copilot path-guard, Enter-fallback
+
+Третий релиз в arc v4.48.x полировки расширения. Фокус на реальных
+проблемах, всплывших в scan-report на 12+ chat-сайтах после v4.48.1:
+
+* **Ложные detected tool-call на сообщениях пользователя.** Grok /
+  Copilot / DuckAI / Arena.ai эхом возвращают prompt пользователя
+  в transcript тем же code-fence-стилем, что assistant reply.
+  Pre-v4.48.2 scanner ловил их и предлагал "run" на собственный
+  текст пользователя. Новый helper `arenaIsInUserAuthoredNode`
+  (adapters.js) ходит по ancestors, ищет
+  `data-message-author-role="user"`, human/user-message-классы,
+  form/textarea/composer-ancestors — любой hit short-circuit mount
+  и пишет diagnostic event.
+* **Copilot протёк на весь github.com.** v4.48.1 adapter имел
+  `hosts: ['github.com']` без path-guard, поэтому обычные README
+  репозиториев, цитирующие MCP JSONL (например,
+  `srbhptl39/MCP-SuperAssistant`), превращали каждый code-fence в
+  "detected function_call" toolbar. Схема adapter теперь
+  поддерживает `pathPrefix: '/copilot'`; selection в
+  `getArenaAdapter()` проверяет его против `location.pathname`.
+* **Submit-кнопка живёт вне всех scored ancestors на Kimi /
+  Perplexity / Copilot.** Existing `arenaInsertAndSubmit` polling
+  не находит click-target — вставка остаётся в composer без
+  submit'а. Новый синтетический `Enter`-keydown fallback
+  срабатывает только когда poll закончился без выбора submit
+  селектора (не срабатывает когда есть disabled submit — это
+  значит сайт валидирует input). Отчёт:
+  `submit_selector: 'enter-key-fallback'` /
+  `submit_scope: 'keyboard'`.
+* **Inline `arguments` на `function_call_start` молча терялся.**
+  MCP SuperAssistant формат позволяет модели emit-ить arguments
+  либо отдельными `type: "parameter"` строками, либо inline на
+  start-event. Наш парсер читал только первое, поэтому вызов
+  `{"type":"function_call_start","name":"fs.view","call_id":"3","arguments":{"path":"."}}`
+  доходил до моста с пустым arguments-dict и возвращался как
+  `ERROR: missing 'path' argument`, хотя caller передал его.
+  Парсер теперь мерджит оба варианта.
+* **`fs.view` на директории всплывал как HTTP 500.** MCP-handler
+  пробовал `read_text` на директории (uncaught
+  `IsADirectoryError`) вместо того чтобы вернуть подсказку. Теперь
+  возвращает структурированную ошибку, называющую `fs.list` как
+  правильный verb.
+* **Arena.ai и DuckAI adapters** добавлены, чтобы оба перестали
+  падать в `generic`. Arena.ai baseline покрывает `/c/` chat-
+  surface; battle / side-by-side / agent-mode варианты отложены на
+  follow-up. DuckAI adapter пинится на `/chat` через
+  `pathPrefix`, чтобы не hijack'ить search / news-страницы.
+* **Scan-Page diagnostics ring buffer.** Новый массив
+  `events_recent` в payload (последние 20 событий, capped) surface'ит
+  user-message-skip, late-submit-rescan-wait и будущую
+  инструментацию без network hop.
+
+#### Затронутые файлы
+
+* **`chat_extension/adapter_sites.js`** — copilot получил
+  `pathPrefix`, arena.ai + duckai новые entries, header rationale
+  обновлён.
+* **`chat_extension/adapters.js`** — новый `arenaPath` helper +
+  `getArenaAdapter` pathPrefix branch; новый
+  `arenaIsInUserAuthoredNode` helper с attribute / class / ancestor
+  эвристикой.
+* **`chat_extension/content.js`** — `ARENA_CONTENT_SCRIPT_VERSION`
+  bumped на `0.14.2`; новый `_arenaDiagPushEvent` ring buffer +
+  `arenaWaitForSubmit` late-submit poller (также exposed на window
+  для дебага); user-authored skip branch в `mountControls`;
+  `events_recent` добавлен в payload `scanPageDiagnostics`.
+* **`chat_extension/insert_strategies.js`** —
+  `arenaInsertScriptVersion` bumped на `0.14.2`; Enter-key
+  синтетический keydown fallback в `arenaInsertAndSubmit` когда
+  poll не нашёл submit-селектор.
+* **`chat_extension/parser.js`** — `arenaPayloadFromJsonl` мерджит
+  inline `arguments` и `params` со start-event.
+* **`chat_extension/manifest.json`** — version bumped
+  `0.14.1 → 0.14.2`; новые host_permissions записи для
+  `arena.ai`, `www.arena.ai`, `duck.ai`, `duckduckgo.com`.
+* **`chat_extension/README.md`** — version-баннер обновлён.
+* **`arena/mcp/tool_fs.py`** — `_handle_fs_view` получает
+  `is_dir()` short-circuit + `IsADirectoryError` catch.
+
+#### Тесты
+
+* **`tests/test_chat_extension_assets.py`** — 8 новых assertions:
+  manifest-version, внутренний content-version, copilot pathPrefix
+  presence, arena.ai + duckai adapter presence, host_permissions
+  coverage для обоих новых сайтов, `arenaIsInUserAuthoredNode` /
+  `events_recent` / `arenaWaitForSubmit` / `enter-key-fallback` /
+  `row.arguments` presence checks.
+* **`tests/test_chat_extension_adapter_flow.py`** — README-version
+  bump на `0.14.2`.
+* **`tests/test_fs_view_create.py`** — 2 новых теста, локирующие
+  directory-guard поведение (`test_mcp_fs_view_directory_returns_hint`
+  + `test_mcp_fs_view_dot_path`).
+* Sweep проходит на **2390** (2388 + 2 fs.view теста).
+
+#### Чего нет в этом релизе
+
+* Plain-text (paragraph-preserving) вставка на Perplexity + Kimi
+  (сейчас вставляет как single-line blob, потому что composer
+  contenteditable удаляет newlines).
+* Qwen toolbar layout drift когда он появляется над floating
+  action menu — нужен `controlsHost` ancestor-walk fix.
+* Preview-button flash на Kimi / Qwen (transient; repro пока
+  не найден).
+* Arena.ai battle / side-by-side / multi-model варианты — нужен
+  per-surface adapter split.
+* Extension-side RemoteConfigManager (по-прежнему queued для v4.49.0).
+
 ## v4.48.1 - 2026-07-17
 
 ### Chrome-расширение — sweep адаптеров по результатам живых scan-report

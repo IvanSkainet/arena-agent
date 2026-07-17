@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Arena Chat Bridge MVP",
-  "version": "0.14.1",
+  "version": "0.14.2",
   "description": "Detects arena-tool blocks in web chats and executes them through a local Arena Unified Bridge.",
   "permissions": [
     "storage",
@@ -31,7 +31,11 @@
     "https://kimi.com/*",
     "https://www.kimi.com/*",
     "https://chat.qwen.ai/*",
-    "https://chat.z.ai/*"
+    "https://chat.z.ai/*",
+    "https://arena.ai/*",
+    "https://www.arena.ai/*",
+    "https://duck.ai/*",
+    "https://duckduckgo.com/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -55,6 +59,7 @@
         "settings.js",
         "insert_history.js",
         "shadow_toolbar.js",
+        "diag.js",
         "content.js"
       ],
       "run_at": "document_idle"

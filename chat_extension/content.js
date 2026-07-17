@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.1';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.2';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -8,6 +8,11 @@ const executionResults = new Map();
 const dismissedControls = new Set();
 const detectedPayloads = new Set();
 let scanTimer = null;
+
+// v0.14.2: diag ring buffer + late-submit poller live in diag.js.
+const _arenaDiagPushEvent = (typeof window._arenaDiagPushEvent === 'function')
+  ? window._arenaDiagPushEvent : function () {};
+const _arenaDiagEvents = window._arenaDiagEvents || [];
 
 // ---------------------------------------------------------------------------
 // Config cache (5s TTL). Avoids a chrome.runtime IPC round-trip on every
@@ -77,9 +82,8 @@ function resultToText(result) {
 }
 
 function makeButton(label, onClick, primary = false) {
-  // v4.48.0: delegates to arenaShadowToolbarButton (shadow_toolbar.js)
-  // when available; the fallback keeps the extension usable if the
-  // loader order was broken by a local mod.
+  // v4.48.0: delegates to arenaShadowToolbarButton; fallback path
+  // covers heavily-modded installs that dropped shadow_toolbar.js.
   if (typeof arenaShadowToolbarButton === 'function') {
     return arenaShadowToolbarButton(label, onClick, { primary });
   }
@@ -295,6 +299,16 @@ function mountControls(host, payload, adapter) {
     || hostHasToolbar(host)
   ) return;
 
+  // v0.14.2: skip user-authored blocks (Grok / Copilot / DuckAI /
+  // Arena.ai echo user prompts inside code fences). Helper in
+  // adapters.js walks ancestors for canonical user-message markers.
+  if (typeof arenaIsInUserAuthoredNode === 'function' && arenaIsInUserAuthoredNode(host)) {
+    dismissedControls.add(fingerprint);
+    dismissedControls.add(semanticFingerprint);
+    _arenaDiagPushEvent({kind: 'skip_user_authored', adapter: adapter.name, fingerprint});
+    return;
+  }
+
   const firstSeen = !processed.has(fingerprint);
   const firstPayloadSeen = !detectedPayloads.has(semanticFingerprint);
   processed.add(fingerprint);
@@ -323,11 +337,7 @@ function mountControls(host, payload, adapter) {
 
   let lastExecutionText = executionResults.get(semanticFingerprint) || '';
 
-  // v4.48.0: mount toolbar in a Shadow DOM host so page CSS cannot
-  // restyle it. shadowHost is positioned by attachControls(); bar
-  // is the inner .arena-toolbar node inside the shadow root. The
-  // fallback keeps a working toolbar when shadow_toolbar.js is
-  // absent (mod / cached bundle / unit-test scope stub).
+  // v4.48.0: Shadow DOM host isolates toolbar from page CSS.
   let shadowHost = null;
   let bar;
   if (typeof arenaCreateShadowToolbar === 'function') {
@@ -612,6 +622,8 @@ function scanPageDiagnostics() {
     tools: [...tools],
     selector_hits: selectorHits,
     samples,
+    // v0.14.2: last 20 diag events (skip / late-submit / etc).
+    events_recent: _arenaDiagEvents.slice(),
   };
 }
 

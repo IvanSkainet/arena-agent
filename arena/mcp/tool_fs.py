@@ -110,10 +110,27 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
 
 def _handle_fs_view(path: Path, args: dict[str, Any]) -> dict[str, Any]:
     view_range = args.get("view_range")
+    # v4.48.2: guard directory targets up front. Previously a call
+    # like ``fs.view {"path": "."}`` reached ``read_text`` with a
+    # directory path, which raised ``IsADirectoryError`` -- not one
+    # of the catches below -- and bubbled out as an uncaught 500
+    # from the MCP dispatcher. The model then saw a bare HTTP 500
+    # with no hint that ``fs.list`` was the right verb. The message
+    # names both the mistake and the fix so a follow-up call can
+    # succeed without another round trip.
+    if path.is_dir():
+        return {"isError": True, "content": [{"type": "text",
+            "text": f"ERROR: {path} is a directory; use fs.list for directories, fs.view is for files"}]}
     try:
         content = path.read_text(encoding="utf-8")
     except FileNotFoundError:
         return {"isError": True, "content": [{"type": "text", "text": "ERROR: file not found"}]}
+    except IsADirectoryError:
+        # Defence-in-depth in case is_dir() was racy (rare on
+        # network filesystems where the entry flips between file
+        # and directory).
+        return {"isError": True, "content": [{"type": "text",
+            "text": f"ERROR: {path} is a directory; use fs.list for directories"}]}
     except PermissionError:
         return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
     except UnicodeDecodeError:

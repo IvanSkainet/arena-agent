@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.1"
+    assert manifest["version"] == "0.14.2"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -38,7 +38,11 @@ def test_chat_extension_scaffold_exists():
     # before shadow_toolbar or content see them.
     assert manifest["content_scripts"][0]["js"][:6] == ["adapter_sites.js", "parser.js", "adapters.js", "insert_strategies.js", "settings.js", "insert_history.js"]
     assert manifest["content_scripts"][0]["js"][6] == "shadow_toolbar.js"
-    assert manifest["content_scripts"][0]["js"][7] == "content.js"
+    # v0.14.2: diag.js sibling module carries the ring buffer +
+    # late-submit poller so content.js stays under the 700-line
+    # product-modularity threshold. Must load before content.js.
+    assert manifest["content_scripts"][0]["js"][7] == "diag.js"
+    assert manifest["content_scripts"][0]["js"][8] == "content.js"
     # v4.48.0: shadow_toolbar.css must be reachable from a content
     # script via chrome.runtime.getURL(); web_accessible_resources
     # publishes it against <all_urls>.
@@ -143,8 +147,44 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.1'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.1"' in content
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.2'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.2"' in content
+    # v0.14.2 additions -- assert the new machinery is wired in.
+    # (a) copilot must be pinned to the /copilot path prefix; the
+    #     bare github.com hosts entry alone lets the adapter false-
+    #     positive on any repository README that quotes MCP JSONL.
+    assert "pathPrefix: '/copilot'" in adapter_sites
+    # (b) arena.ai + duckai adapters must exist so they stop falling
+    #     to the generic adapter (both were reported in scan-reports).
+    assert "'arenaai'" in adapter_sites and "'arena.ai'" in adapter_sites
+    assert "'duckai'" in adapter_sites and "'duck.ai'" in adapter_sites
+    # (c) manifest must permit the new hosts so the content script
+    #     actually loads there.
+    for host_glob in ('https://arena.ai/*', 'https://duck.ai/*'):
+        assert host_glob in manifest["host_permissions"], \
+            f"{host_glob} missing from host_permissions"
+    # (d) user-authored-node filter must be present -- guards against
+    #     the false-positive "detected on user message" pattern seen
+    #     on Grok / Copilot / DuckAI / Arena.ai scan-reports.
+    adapters_js = (base / "adapters.js").read_text(encoding="utf-8")
+    assert "arenaIsInUserAuthoredNode" in adapters_js
+    # (e) diagnostics ring buffer + late-submit rescan + Enter fallback.
+    #     Ring buffer + poller live in the diag.js sibling module
+    #     (content.js consumes them off window to stay under the
+    #     700-line product-modularity threshold).
+    diag_js = (base / "diag.js").read_text(encoding="utf-8")
+    assert "_arenaDiagPushEvent" in diag_js
+    assert "arenaWaitForSubmit" in diag_js
+    assert "events_recent" in content   # still surfaced via scanPageDiagnostics
+    assert "enter-key-fallback" in (base / "insert_strategies.js").read_text(encoding="utf-8")
+    # (f) parser must accept the inline `arguments` variant on the
+    # start event (some models emit it that way instead of separate
+    # `parameter` rows) -- caught in scan-report as "missing 'path'
+    # argument" even though the payload had one.
+    assert "row.arguments" in parser, (
+        "parser.js must read arguments from function_call_start rows, "
+        "not only from separate `type:\"parameter\"` rows"
+    )
     assert (base / "manifest.json").exists()
     # Ensure www.kimi.com is listed in host_permissions too, otherwise
     # the content script would not even load on the URL the user hits.

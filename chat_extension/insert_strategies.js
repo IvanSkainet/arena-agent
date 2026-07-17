@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.1';
+  return '0.14.2';
 }
 
 function arenaSetInsertTiming(timing) {
@@ -493,6 +493,37 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
     const delay = pollDelays[Math.min(pollIndex, pollDelays.length - 1)];
     pollIndex++;
     await arenaSleep(delay);
+  }
+
+  // v0.14.2: Enter-key fallback. On sites where the submit button lives
+  // outside every ancestor we can score (Kimi, Perplexity, sometimes
+  // Copilot), the polling loop above cannot find a click target even
+  // after the composer has content. Dispatching a synthetic Enter
+  // keydown on the composer is the fallback almost every chat UI
+  // honours (Shift+Enter usually inserts a newline, plain Enter
+  // submits). Not fired when a submit button exists but is still
+  // disabled -- that means the site is validating input and clicking
+  // would fail anyway; we should not spam Enter.
+  const enterTarget = composerInfo.target;
+  const noSelector = !submitInfo.selected_selector;
+  if (enterTarget && noSelector) {
+    try {
+      const opts = {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+        bubbles: true, cancelable: true,
+      };
+      enterTarget.dispatchEvent(new KeyboardEvent('keydown', opts));
+      enterTarget.dispatchEvent(new KeyboardEvent('keypress', opts));
+      enterTarget.dispatchEvent(new KeyboardEvent('keyup', opts));
+      return {
+        ok: true, inserted: true, submitted: true, ...insertTiming,
+        submit_wait_ms: 1500,
+        submit_candidates: 0,
+        submit_selector: 'enter-key-fallback',
+        submit_scope: 'keyboard',
+        total_ms: Math.round(performance.now() - started),
+      };
+    } catch (_err) { /* fall through to the not-submitted return */ }
   }
 
   return {

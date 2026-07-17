@@ -173,3 +173,45 @@ def test_fs_create_schema():
     tool = next(t for t in MCP_TOOLS if t["name"] == "fs.create")
     assert "path" in tool["inputSchema"]["required"]
     assert "content" in tool["inputSchema"]["required"]
+
+
+# ============================================================
+# v4.48.2: directory-guard regression tests
+# ============================================================
+# Before v4.48.2 a caller that passed ``{"path": "."}`` (a directory)
+# to fs.view got an uncaught IsADirectoryError from ``path.read_text``
+# which bubbled out as a bare HTTP 500 with no hint that fs.list was
+# the right verb. Now the tool detects the shape up front and returns
+# a structured error message that names the fix.
+
+def test_mcp_fs_view_directory_returns_hint(tmp_path):
+    """fs.view on a directory returns a friendly error pointing at fs.list."""
+    ctx = _MockCtx(tmp_path)
+    (tmp_path / "sub").mkdir()
+    result = handle_fs_tool("fs.view", {"path": str(tmp_path / "sub")}, ctx=ctx)
+    assert result is not None
+    assert result.get("isError") is True
+    text = result["content"][0]["text"]
+    assert "directory" in text.lower()
+    assert "fs.list" in text, (
+        "error message must name fs.list as the right verb for directories"
+    )
+
+
+def test_mcp_fs_view_dot_path(tmp_path, monkeypatch):
+    """fs.view with path='.' resolves to a directory and is caught.
+
+    This is the exact shape the v4.48.1 scan-report bug reproduced:
+    the model emitted {"path": "."} and the tool returned an opaque
+    "missing 'path' argument" error even though the argument was
+    present. v4.48.2 catches the directory case explicitly.
+    """
+    ctx = _MockCtx(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    result = handle_fs_tool("fs.view", {"path": "."}, ctx=ctx)
+    assert result is not None
+    assert result.get("isError") is True
+    text = result["content"][0]["text"]
+    # Either the directory guard fires or the path validation catches
+    # it -- either way, no bare 500 / IsADirectoryError should leak.
+    assert "directory" in text.lower() or "path" in text.lower()

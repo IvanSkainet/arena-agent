@@ -1,10 +1,11 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.1` (v4.48.1 bridge release — adapter
-sweep after real-world scan-report review: version-drift fix,
-www.kimi.com host alias, new Mistral / Copilot adapters, wider
-messageSelectors for DeepSeek / Qwen / Perplexity, sharper submit
-selectors for Grok / OpenRouter).
+Current extension version: `0.14.2` (v4.48.2 bridge release — user-
+message filter to stop false-positive detection on user's own text,
+Copilot pathPrefix guard, Arena.ai + DuckAI adapters, Enter-key
+fallback for sites where the submit button lives outside every
+scored ancestor, inline `arguments` parser fix, diagnostics ring
+buffer via `events_recent` in Scan Page).
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the

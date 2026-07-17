@@ -148,10 +148,9 @@ def test_chat_extension_adapter_helpers_exist():
 
 def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
-    # v4.48.0 bumped the extension to 0.14.0 alongside the Shadow DOM
-    # toolbar refactor; v4.48.1 tightened selectors + version drift
-    # fixes and pushed to 0.14.1.
-    assert 'Current extension version: `0.14.1`' in readme
+    # v4.48.2 continues the extension polish arc; version banner
+    # follows the release.
+    assert 'Current extension version: `0.14.2`' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme

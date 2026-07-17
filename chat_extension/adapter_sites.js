@@ -132,9 +132,46 @@ const ARENA_SITE_ADAPTERS = [
     // the generic scan already tries.
     name: 'copilot',
     hosts: ['github.com'],
+    // v0.14.2: copilot only exists at github.com/copilot/*.
+    // Without the path guard the adapter matched every github.com
+    // page and started injecting "detected function_call" toolbars
+    // into ordinary repository READMEs whenever a README quoted
+    // an MCP-style JSONL example (like srbhptl39/MCP-SuperAssistant
+    // does on its own landing page). pathPrefix is a new adapter
+    // field consumed by getArenaAdapter() in adapters.js.
+    pathPrefix: '/copilot',
     messageSelectors: ['main [class*="prose"]', 'main [class*="markdown"]', 'main pre', 'main code', 'main article', 'main', 'article', 'pre', 'code'],
     composerSelectors: ['textarea[aria-label*="Ask anything"]', 'textarea[aria-label*="type @"]', 'textarea', '[contenteditable="true"]'],
     submitSelectors: ['button[data-testid="send-button"]', 'button[data-testid*="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Submit"]', 'form button[type="submit"]', 'button[type="submit"]'],
+  },
+  {
+    // v0.14.2: Arena.ai has multiple surfaces (chat / battle /
+    // side-by-side / agent-mode / search / video / image /
+    // code-fullstack). Baseline entry mirrors the ChatGPT shape --
+    // enough to stop the site falling to `generic`. Battle-mode
+    // multi-model handling is deferred to a follow-up; scan-report
+    // showed the composer + submit are single-textarea + single-
+    // submit-button on the /c/ URL so this baseline works for the
+    // /c/ path today. Follow-up will add pathPrefix branches or
+    // per-surface adapter variants.
+    name: 'arenaai',
+    hosts: ['arena.ai', 'www.arena.ai'],
+    messageSelectors: ['main article', 'main [data-testid]', 'main', 'section', 'pre', 'code', '[class*="prose"]', '[class*="markdown"]'],
+    composerSelectors: ['textarea', 'div[contenteditable="true"][role="textbox"]', '[contenteditable="true"]'],
+    submitSelectors: ['button[aria-label="Send message"]', 'button[aria-label*="Send"]', 'form button[type="submit"]', 'button[type="submit"]'],
+  },
+  {
+    // v0.14.2: DuckDuckGo AI chat -- scan-report showed a plain
+    // textarea composer + form-wrapped submit with a locale-aware
+    // aria-label ("Отправить" on the RU locale, "Send" on EN).
+    // pathPrefix keeps the adapter from hijacking the rest of
+    // duck.ai (search, news, etc.) which use different DOM.
+    name: 'duckai',
+    hosts: ['duck.ai', 'duckduckgo.com'],
+    pathPrefix: '/chat',
+    messageSelectors: ['main article', 'main [data-testid]', 'main', 'section', 'pre', 'code', '[class*="prose"]', '[class*="markdown"]'],
+    composerSelectors: ['textarea', '[contenteditable="true"]'],
+    submitSelectors: ['form button[type="submit"]', 'button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
   },
   {
     name: 'generic',
