@@ -1,3 +1,92 @@
+## v4.48.5 - 2026-07-17
+
+### Chrome-расширение — user-authored фильтр: strict-equal + WHY-reporting + composer cache invalidation
+
+Шестой релиз в arc v4.48.x. Grok и DuckAI всё ещё репортили
+`mounted_controls=0, dismissed_controls=2` с `skip_user_authored`
+events после v4.48.4 narrowing, поэтому этот релиз переключается
+на diagnostic-first подход: filter теперь записывает WHY он
+сматчил, и сам matching ужат до `===` на attribute values.
+Расширение bumped `0.14.4 → 0.14.5`.
+
+#### Три конкретных изменения
+
+* **`arenaWhyUserAuthored(node)` → `{matched, reason}`.** Новый
+  helper возвращает ancestor-tag + какой attr/class сработал в
+  виде короткой строки (например `attr:data-role=user@DIV`,
+  `class:human-message@ARTICLE`). `arenaIsInUserAuthoredNode`
+  становится тонкой обёрткой. `mountControls` в `content.js`
+  записывает reason в diagnostic ring buffer, поэтому scan-page
+  `events_recent` наконец называет виновника вместо голого
+  `skip_user_authored`. Как только reason появится в следующем
+  scan-report, мы точно знаем, какой селектор ужать дальше.
+* **Strict-equal на attribute values.** v0.14.2 - v0.14.4
+  использовали `String(v).toLowerCase().includes(val)` на
+  атрибутах, что false-positive матчило shapes вроде
+  `class="user-listing"` или `role="userlist"` — именно такие
+  контейнеры Grok / DuckAI оборачивают чат-блоки. Теперь
+  attribute match — `lv === val` OR
+  `lv.split(/\s+/).indexOf(val) !== -1` (space-separated
+  token equality для combined-role значений типа
+  `"user assistant"`). Class substring matching остаётся,
+  потому что class needles (`user-message`, `human-message`, ...)
+  достаточно specific, чтобы быть безопасными.
+* **Ancestor walk cap ужат 20 → 8.** User-role marker всегда
+  должен быть в пределах 8 DOM-hops от body сообщения. 20-cap
+  делал редкие-но-безобидные parent-декорации триггерами filter.
+* **Eviction detached composer target.** Qwen re-render-ит
+  весь chat-пан на model switch и оставлял
+  `window.__arenaLastComposerTarget` указывающим на floating
+  detached-ноду. `arenaComposerSelection` теперь null-ит
+  cached hint перед scoring candidates, когда обнаруживает,
+  что target больше не connected. Fresh scan-report должен
+  показывать `cached_match: false` (или true с живой нодой)
+  вместо `cached_match: true` на target'e с `isConnected: false`.
+
+#### Затронутые файлы
+
+* **`chat_extension/adapters.js`** — новый `arenaWhyUserAuthored`,
+  `arenaIsInUserAuthoredNode` становится wrapper, strict-equal
+  attr match, walk cap 20 → 8, detached-composer eviction в
+  `arenaComposerSelection`.
+* **`chat_extension/content.js`** — `mountControls` использует
+  `arenaWhyUserAuthored` и записывает `reason` в diag ring
+  buffer; `ARENA_CONTENT_SCRIPT_VERSION` bumped на `0.14.5`.
+* **`chat_extension/insert_strategies.js`** —
+  `arenaInsertScriptVersion` bumped на `0.14.5`. Insert-путь
+  без изменений; v0.14.4 plan ordering подтверждён рабочим на
+  Kimi / Perplexity по scan-report оператора (submit с 2-
+  секундной задержкой через directDomBlocks + Enter fallback).
+* **`chat_extension/manifest.json`** — extension-version bumped
+  `0.14.4 → 0.14.5`.
+* **`chat_extension/README.md`** — version-баннер обновлён с
+  diagnostic-first описанием.
+
+#### Тесты
+
+* **`tests/test_chat_extension_assets.py`** — 4 новых
+  assertions на `arenaWhyUserAuthored` presence, strict-equal
+  attr match, detached-composer eviction, и внутренний
+  content-version pin (0.14.5).
+* **`tests/test_chat_extension_adapter_flow.py`** — README-version
+  bumped на `0.14.5`.
+* Sweep проходит на **2390**.
+
+#### Что остаётся отложенным (нужен свежий scan-report)
+
+* Grok / DuckAI toolbar не появляется — v0.14.5 записывает
+  reason в `events_recent[].reason`. Пожалуйста, отсканируй
+  заново и пришли reason-строку; это разблокирует финальный
+  узкий fix.
+* Qwen submit не срабатывает — stale-composer eviction должен
+  помочь, но Qwen icon-only submit живёт вне всех scored
+  ancestors. Если Enter fallback всё ещё missed, events_recent
+  покажет `submit_late_missing` и можно расширить poller.
+* Arena.ai user echo всё ещё сматчен — та же история: reason
+  в events_recent назовёт нарушающий attr/class.
+* Qwen toolbar visual drift — без изменений; нужна
+  DOM-inspection сессия, которую я не могу сделать remote.
+
 ## v4.48.4 - 2026-07-17
 
 ### Chrome-расширение — regression-фиксы после v4.48.2 / v4.48.3

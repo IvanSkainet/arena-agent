@@ -1,14 +1,15 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.4` (v4.48.4 bridge release —
-regression fixes after v4.48.3: pared-back user-authored filter
-(v0.14.2/3 form/composer ancestor heuristics were skipping every
-Grok / DuckAI reply), plain-contenteditable insert plan reordered
-to `directDomBlocks` first (Perplexity / Kimi double-insert fix
-from the wipe-between-strategies chain), generic adapter now
-`passive` so unlisted sites like a GitHub README never mount a
-toolbar, Enter-key fallback now also focuses target + retries
-after 120 ms for delegated-listener composers like Qwen).
+Current extension version: `0.14.5` (v4.48.5 bridge release —
+diagnostic-first pass: user-authored filter now records WHY it
+skipped (`events_recent[].reason`) so the operator can see which
+attr / class hit; strict-equal matching on attribute values
+(v0.14.2..4 used `.includes()` which false-positive matched
+`class="user-listing"` and similar); walk cap tightened 20 → 8;
+detached composer target is cleared from the last-composer cache
+(Qwen re-renders on model switch and left a stale reference).
+Grok / DuckAI regressions from v0.14.2/3 should now surface a
+clear cause in the ring buffer.
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the

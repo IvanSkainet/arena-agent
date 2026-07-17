@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.4"
+    assert manifest["version"] == "0.14.5"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -147,8 +147,24 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.4'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.4"' in content
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.5'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.5"' in content
+    # v0.14.5: user-authored filter reports WHY it matched so scan-page
+    # events_recent tells us which ancestor / attribute / class hit.
+    # Also switched to strict-equal on attr values (was includes(), which
+    # made class="user-listing" trip the check).
+    adapters_js_body_v5 = (base / "adapters.js").read_text(encoding="utf-8")
+    assert "arenaWhyUserAuthored" in adapters_js_body_v5, (
+        "adapters.js must expose arenaWhyUserAuthored so events_recent "
+        "records the reason a block was skipped"
+    )
+    # Strict-equal or token match, no bare includes on attribute values.
+    assert "lv === val" in adapters_js_body_v5
+    # Composer target that was detached from the DOM must be cleared
+    # from the cache (Qwen re-render on model switch).
+    assert "__arenaLastComposerTarget = null" in adapters_js_body_v5, (
+        "arenaComposerSelection must null out a detached last-composer hint"
+    )
     # v0.14.4: plain-contenteditable insert plan puts directDomBlocks
     # first for multi-line payloads on non-ProseMirror composers
     # (Perplexity, Kimi) -- v0.14.3 had it as the third fallback

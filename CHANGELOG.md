@@ -1,3 +1,92 @@
+## v4.48.5 - 2026-07-17
+
+### Chrome extension — user-authored filter: strict-equal + WHY reporting + composer cache invalidation
+
+Sixth release in the v4.48.x arc. Grok and DuckAI still reported
+`mounted_controls=0, dismissed_controls=2` with `skip_user_authored`
+events after v4.48.4 narrowed the filter, so this release shifts
+to a diagnostic-first approach: the filter now records WHY it
+matched, and the matching itself is tightened to `===` on
+attribute values. Extension bumped `0.14.4 → 0.14.5`.
+
+#### Three concrete changes
+
+* **`arenaWhyUserAuthored(node)` -> `{matched, reason}`.** New
+  helper returns the ancestor tag + which attr/class hit as a
+  short string (e.g. `attr:data-role=user@DIV`, `class:human-message@ARTICLE`).
+  `arenaIsInUserAuthoredNode` becomes a thin wrapper. `mountControls`
+  in `content.js` records the reason into the diagnostic ring
+  buffer so scan-page's `events_recent` finally names the culprit
+  instead of a bare `skip_user_authored`. Once the reason lands
+  in the next scan-report we know exactly which selector to
+  narrow further.
+* **Strict equal on attribute values.** v0.14.2 - v0.14.4 used
+  `String(v).toLowerCase().includes(val)` on attributes, which
+  false-positive matched shapes like `class="user-listing"` or
+  `role="userlist"` -- exactly the kind of container Grok / DuckAI
+  wrap chat blocks in. Now the attribute match is `lv === val` OR
+  `lv.split(/\s+/).indexOf(val) !== -1` (space-separated token
+  equality for combined-role values like `"user assistant"`).
+  Class substring matching stays because our class needles
+  (`user-message`, `human-message`, ...) are distinctive enough
+  to be safe.
+* **Ancestor walk cap tightened 20 → 8.** A user-role marker
+  should always be within 8 DOM hops of the message body. The
+  20-cap made rare-but-innocent parent decorations trip the
+  filter.
+* **Detached composer target eviction.** Qwen re-renders the
+  entire chat pane on model switch and left
+  `window.__arenaLastComposerTarget` pointing at a floating
+  detached node. `arenaComposerSelection` now nulls out the
+  cached hint before scoring candidates when it discovers the
+  target is no longer connected. Fresh scan-report should show
+  `cached_match: false` (or true with a live node) instead of
+  `cached_match: true` on a target whose `isConnected` is false.
+
+#### Files touched
+
+* **`chat_extension/adapters.js`** -- new `arenaWhyUserAuthored`,
+  `arenaIsInUserAuthoredNode` becomes a wrapper, strict-equal
+  attr match, walk cap 20 → 8, detached-composer eviction in
+  `arenaComposerSelection`.
+* **`chat_extension/content.js`** -- `mountControls` uses
+  `arenaWhyUserAuthored` and records `reason` in the diag ring
+  buffer; `ARENA_CONTENT_SCRIPT_VERSION` bumped to `0.14.5`.
+* **`chat_extension/insert_strategies.js`** --
+  `arenaInsertScriptVersion` bumped to `0.14.5`. No behaviour
+  change in the insert path; v0.14.4 plan ordering is confirmed
+  working on Kimi / Perplexity per operator scan-reports
+  (submits with a 2-second delay via directDomBlocks + Enter
+  fallback).
+* **`chat_extension/manifest.json`** -- extension version bumped
+  `0.14.4 → 0.14.5`.
+* **`chat_extension/README.md`** -- version banner refreshed
+  with the diagnostic-first framing.
+
+#### Tests
+
+* **`tests/test_chat_extension_assets.py`** -- 4 new assertions
+  covering `arenaWhyUserAuthored` presence, strict-equal attr
+  match, detached-composer eviction, and the internal
+  content-version pin (0.14.5).
+* **`tests/test_chat_extension_adapter_flow.py`** -- README-version
+  bumped to `0.14.5`.
+* Sweep passes at **2390**.
+
+#### What is still deferred (needs a fresh scan-report)
+
+* Grok / DuckAI toolbar not appearing -- v0.14.5 records the
+  reason in `events_recent[].reason`. Please rescan and share
+  the reason string; that unblocks the final narrow fix.
+* Qwen submit not firing -- the stale composer eviction should
+  help but Qwen's icon-only submit lives outside every scored
+  ancestor. If Enter fallback still misses, the events_recent
+  will show `submit_late_missing` and I can widen the poller.
+* Arena.ai user echo still matched -- same story: reason in
+  events_recent will name the offending attr / class.
+* Qwen toolbar visual drift -- unchanged; needs a DOM inspection
+  session I cannot do remotely.
+
 ## v4.48.4 - 2026-07-17
 
 ### Chrome extension — regression fixes after v4.48.2 / v4.48.3

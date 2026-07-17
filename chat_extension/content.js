@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.4';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.5';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -303,11 +303,11 @@ function mountControls(host, payload, adapter) {
     || hostHasToolbar(host)
   ) return;
 
-  // v0.14.2: skip user-authored blocks (Grok/Copilot/DuckAI echo user prompts).
-  if (typeof arenaIsInUserAuthoredNode === 'function' && arenaIsInUserAuthoredNode(host)) {
-    dismissedControls.add(fingerprint);
-    dismissedControls.add(semanticFingerprint);
-    _arenaDiagPushEvent({kind: 'skip_user_authored', adapter: adapter.name, fingerprint});
+  // v0.14.5: skip user-authored, record REASON for scan-report diag.
+  const _wu = (typeof arenaWhyUserAuthored === 'function') ? arenaWhyUserAuthored(host) : {matched: false, reason: ''};
+  if (_wu.matched) {
+    dismissedControls.add(fingerprint); dismissedControls.add(semanticFingerprint);
+    _arenaDiagPushEvent({kind: 'skip_user_authored', adapter: adapter.name, fingerprint, reason: _wu.reason});
     return;
   }
 

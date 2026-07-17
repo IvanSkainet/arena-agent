@@ -50,25 +50,46 @@ const _USER_AUTHOR_CLASS_SUBSTRINGS = [
   'user-turn', 'user_turn',
 ];
 
-function arenaIsInUserAuthoredNode(node) {
-  if (!node) return false;
+// v0.14.5: return {matched: bool, reason: string} instead of bare bool
+// so the caller can log WHY a block was skipped -- Grok / DuckAI still
+// report skip_user_authored in scan-reports after the v0.14.4 narrowing,
+// and without knowing which attr / class hit we cannot fix it without
+// another guessing round. The bool-returning wrapper below preserves
+// the existing call site.
+//
+// Matching is STRICT-equal for attributes (a container tag with class
+// "user-name" or role="userlist" was matching includes('user') even
+// though it had nothing to do with an authored user message). Class
+// substrings stay case-insensitive substring match because the class
+// tokens we look for (`user-message`, `human-message`, ...) are
+// distinctive enough to be safe.
+function arenaWhyUserAuthored(node) {
+  if (!node) return {matched: false, reason: ''};
   let el = node;
-  for (let i = 0; el && i < 20; i++) {
+  for (let i = 0; el && i < 8; i++) {   // cap tightened 20 -> 8
     if (el.nodeType !== 1) { el = el.parentNode; continue; }
     for (const [attr, val] of _USER_AUTHOR_ATTRS) {
       const v = el.getAttribute && el.getAttribute(attr);
-      if (v && String(v).toLowerCase().includes(val)) return true;
+      if (!v) continue;
+      const lv = String(v).toLowerCase();
+      // Strict equal or space-separated token equal ("user assistant" -> tokens).
+      if (lv === val) return {matched: true, reason: `attr:${attr}=${val}@${el.tagName}`};
+      if (lv.split(/\s+/).indexOf(val) !== -1) return {matched: true, reason: `attr:${attr}~${val}@${el.tagName}`};
     }
     const cls = el.className;
     if (cls && typeof cls === 'string') {
       const lc = cls.toLowerCase();
       for (const needle of _USER_AUTHOR_CLASS_SUBSTRINGS) {
-        if (lc.includes(needle)) return true;
+        if (lc.includes(needle)) return {matched: true, reason: `class:${needle}@${el.tagName}`};
       }
     }
     el = el.parentNode;
   }
-  return false;
+  return {matched: false, reason: ''};
+}
+
+function arenaIsInUserAuthoredNode(node) {
+  return arenaWhyUserAuthored(node).matched;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +382,14 @@ function arenaComposerSelection(adapter = getArenaAdapter()) {
     return _cachedComposerResult;
   }
 
+  // v0.14.5: also invalidate the "last composer target" hint when it
+  // got detached from the DOM (Qwen re-renders the whole chat pane on
+  // model switch; the cached selector then pointed at a floating node
+  // that .isConnected=false and every insert missed).
+  if (window.__arenaLastComposerTarget
+      && !window.__arenaLastComposerTarget.isConnected) {
+    window.__arenaLastComposerTarget = null;
+  }
   const cached = window.__arenaLastComposerTarget;
   const ranked = arenaComposerCandidates(adapter)
     .map((item) => ({...item, score: arenaScoreComposerCandidate(item.node)}))
