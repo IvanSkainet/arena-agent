@@ -169,6 +169,12 @@ optional; defaults are the safe posture.
 | `ARENA_WEBHOOK_STRICT` | (unset) | `1`/`true`/`yes`/`on` routes outbound webhook URLs through the full SSRF guard (rejects RFC1918, metadata, etc). Off by default to preserve LAN-webhook use cases |
 | `ARENA_APK_STAGING` | `~/.arena/apk-staging` | Override APK upload staging directory (e.g. to point at a larger volume) |
 | `ARENA_AGENT_HOME` | `~/arena-bridge` | Bridge installation root; token / audit / logs live here |
+| `ARENA_BORE_SERVER` *(v4.47.0)* | `bore.pub` | bore relay host; override to point at a self-hosted `bore server` |
+| `ARENA_BORE_SECRET` *(v4.47.0)* | (unset) | Shared secret for self-hosted bore servers; passed as `--secret <value>` only when set, never logged |
+| `ARENA_BORE_LOCAL_HOST` *(v4.47.0)* | `localhost` | Loopback host bore should forward to |
+| `ARENA_BORE_REMOTE_PORT` *(v4.47.0)* | `0` | Preferred remote port; 0 lets the server pick. Out-of-range / non-numeric values fall back to 0 |
+| `ARENA_BORE_URL_WAIT_SECONDS` *(v4.47.0)* | `30` | URL-negotiation wait, clamped 1..300 (same shape as ngrok / cloudflared) |
+| `ARENA_BORE_AUTOSTART` *(v4.47.0)* | (unset) | Truthy value autostarts bore on bridge boot (same shape as `ARENA_NGROK_AUTHTOKEN` counterparts) |
 | `SSL_CERT_FILE` | (OS default) | Standard stdlib env; point at private CA bundle instead of using `ARENA_INSECURE_TLS` |
 
 ### Recommended production preset

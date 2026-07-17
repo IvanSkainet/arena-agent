@@ -2,9 +2,11 @@
 
 The Bridge can expose itself to the outside world through several providers:
 
-  * ``tailscale``  — Tailscale Funnel (public HTTPS through Tailnet's edge)
+  * ``tailscale``   — Tailscale Funnel (public HTTPS through Tailnet's edge)
   * ``cloudflared`` — Cloudflare quick tunnel (public HTTPS via *.trycloudflare.com)
-  * ``zerotier``   — ZeroTier overlay network (private IP over ZeroTier)
+  * ``zerotier``    — ZeroTier overlay network (private IP over ZeroTier)
+  * ``ngrok``       — ngrok tunnel (public HTTPS via *.ngrok-free.app / paid)
+  * ``bore``        — bore relay (raw TCP through bore.pub, no account, v4.47.0)
 
 Each provider has independent semantics and reliability characteristics.
 Historically the Bridge exposed them as separate endpoints, which meant
@@ -47,7 +49,12 @@ from typing import Any
 # v4.33.0: ngrok added as a fourth transport, placed last so
 # existing operators see the same primary/secondary order they
 # had before. Override with ARENA_TUNNEL_PRIORITY to reorder.
-DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared", "ngrok")
+# v4.47.0: bore added as a fifth transport, placed after ngrok so
+# existing priority behaviour is preserved. bore is picked last on
+# purpose -- it is TCP-only (no HTTPS terminate at the relay) and
+# leans on the bridge's own self-signed cert + pinning story, so
+# it's meant as a zero-account fallback rather than a primary path.
+DEFAULT_PRIORITY = ("tailscale", "zerotier", "cloudflared", "ngrok", "bore")
 
 
 def _priority_from_env() -> tuple[str, ...]:
@@ -126,6 +133,38 @@ def _cloudflared_snapshot(cloudflared_status_sync: Callable[[], dict[str, Any]] 
         "public_url": raw.get("url") or None,
         "public_kind": "https",
         "manageable": True,
+        "update_hint": raw.get("update_hint"),
+        "raw": raw,
+    }
+
+
+def _bore_snapshot(bore_status_sync: Callable[[], dict[str, Any]] | None) -> dict[str, Any]:
+    """v4.47.0: fifth transport snapshot. Same shape as the
+    cloudflared / ngrok snapshots so downstream code (dashboard,
+    agentctl, probe) doesn't have to special-case bore.
+
+    ``public_kind`` is reported as ``"https"`` because the
+    outward-facing URL is ``https://<server>:<remote_port>`` --
+    bore itself only relays raw TCP, but the bridge terminates
+    TLS on the other end of that TCP pipe.
+    """
+    if bore_status_sync is None:
+        return {"provider": "bore", "available": False,
+                "reason": "provider callable not wired"}
+    try:
+        raw = bore_status_sync() or {}
+    except Exception as e:
+        return {"provider": "bore", "available": False, "error": str(e)[:200]}
+    return {
+        "provider": "bore",
+        "installed": bool(raw.get("installed")),
+        "cli_source": raw.get("source"),
+        "version": raw.get("version"),
+        "active": bool(raw.get("active")),
+        "public_url": raw.get("url") or None,
+        "public_kind": "https",
+        "manageable": True,
+        "server": raw.get("server"),
         "update_hint": raw.get("update_hint"),
         "raw": raw,
     }
@@ -284,6 +323,7 @@ def tunnels_probe(
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
     ngrok_status_sync: Callable[[], dict[str, Any]] | None = None,
+    bore_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
     timeout: float = 1.5,
@@ -315,6 +355,7 @@ def tunnels_probe(
         cloudflared_status_sync=cloudflared_status_sync,
         zerotier_status_sync=zerotier_status_sync,
         ngrok_status_sync=ngrok_status_sync,
+        bore_status_sync=bore_status_sync,
         priority=priority,
         port=port,
     )
@@ -409,6 +450,7 @@ def tunnels_status(
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
     ngrok_status_sync: Callable[[], dict[str, Any]] | None = None,
+    bore_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
 ) -> dict[str, Any]:
@@ -421,6 +463,9 @@ def tunnels_status(
     ``ngrok_status_sync`` (v4.33.0) is optional -- callers that predate
     the fourth-transport wiring can omit it and ngrok will report
     ``available: False`` in the snapshot.
+
+    ``bore_status_sync`` (v4.47.0) is optional -- same back-compat
+    story as ngrok. When omitted, bore reports ``available: False``.
     """
     order = priority or _priority_from_env()
 
@@ -429,6 +474,7 @@ def tunnels_status(
         "cloudflared": _cloudflared_snapshot(cloudflared_status_sync),
         "zerotier": _zerotier_snapshot(zerotier_status_sync, port=port),
         "ngrok": _ngrok_snapshot(ngrok_status_sync),
+        "bore": _bore_snapshot(bore_status_sync),
     }
 
     ordered = [snapshots[name] for name in order if name in snapshots]
@@ -457,6 +503,7 @@ def tunnels_active(
     cloudflared_status_sync: Callable[[], dict[str, Any]] | None = None,
     zerotier_status_sync: Callable[[], dict[str, Any]] | None = None,
     ngrok_status_sync: Callable[[], dict[str, Any]] | None = None,
+    bore_status_sync: Callable[[], dict[str, Any]] | None = None,
     priority: tuple[str, ...] | None = None,
     port: int = 8765,
 ) -> dict[str, Any]:
@@ -466,6 +513,7 @@ def tunnels_active(
         cloudflared_status_sync=cloudflared_status_sync,
         zerotier_status_sync=zerotier_status_sync,
         ngrok_status_sync=ngrok_status_sync,
+        bore_status_sync=bore_status_sync,
         priority=priority,
         port=port,
     )

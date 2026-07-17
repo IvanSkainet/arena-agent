@@ -1,3 +1,199 @@
+## v4.47.0 - 2026-07-17
+
+### bore -- пятый транспорт, zero-account TCP relay через bore.pub
+
+Первый **feature-релиз** после arc из девяти security-релизов
+v4.40.0 → v4.46.1. Добавляет `bore`
+(https://github.com/ekzhang/bore, MIT, автор Eric Zhang) как
+пятый транспорт удалённого доступа, размещённый после
+tailscale / zerotier / cloudflared / ngrok в default priority.
+Выбран потому, что это единственный туннель в top-13
+awesome-tunneling, удовлетворяющий всем трём критериям, под
+которые проект оптимизируется с v4.33.0:
+
+* **Не требует аккаунт.** `bore.pub` -- бесплатный публичный
+  relay, поддерживаемый проектом. Без регистрации, authtoken,
+  cookie дашборда. Закрывает нишу "поставил бинарник --
+  работает", которую requirement ngrok на authtoken до сих пор
+  оставляет пустой.
+* **Один статичный Rust-бинарник.** Та же стратегия "system-
+  first / bundled fallback", уже используемая для cloudflared
+  и ngrok, работает как есть -- один бинарник ставится через
+  `cargo install bore-cli` или release-drop c GitHub.
+* **TCP-only, без TLS-терминации на middlebox.** Мост уже
+  говорит HTTPS на порту 8765; клиент, дозвонившийся до
+  `https://bore.pub:<port>`, получает настоящий self-signed
+  cert моста, который агенты могут запинить через v4.45.0
+  `ARENA_BRIDGE_PIN_SHA256`. Ни один CDN не сможет
+  незаметно подменить cert так, как это мог бы сделать
+  полноценный HTTPS reverse proxy.
+
+#### Новый файл
+
+* **`arena/admin/bore.py`** (~446 строк) -- структурное зеркало
+  `arena/admin/ngrok.py`:
+  - `bore_action("start" | "stop" | "status", port, ...)`
+    публичная entry-point, та же сигнатура что у `ngrok_action`
+    и `cloudflared_funnel_action`, чтобы дашборд, autostart-hook
+    и wiring-слой обрабатывали все пять транспортов одинаково.
+  - `BORE_STATE = {"proc", "url", "log"}` -- идентичная форма
+    NGROK_STATE / CLOUDFLARED_STATE.
+  - `_resolve_bore_with_source()` -- system-first / bundled
+    fallback, cross-platform (Windows + Darwin + Linux/BSD).
+    Список Linux-путей включает `~/.cargo/bin/bore`, чтобы
+    инсталляции через `cargo install bore-cli` подхватывались
+    без вмешательства оператора.
+  - `_bore_monitor_thread()` -- парсит первую строку
+    `listening at <server>:<port>` из stdout и публикует
+    внешний URL как `https://<server>:<remote_port>`.
+    `re.IGNORECASE` locked in unit-тестом, чтобы будущее
+    изменение формата логов было поймано.
+  - `_classify_error()` -- три fingerprint: `invalid_secret`,
+    `server_unreachable`, `remote_port_conflict`. Каждый несёт
+    человеческий hint с именем конкретной env-переменной для
+    правки. Fallback на `unknown` + docs-ссылка, если ничего
+    не совпало.
+  - Fail-fast при раннем выходе процесса: тот же паттерн, что
+    v4.36.0 ngrok-fix -- `process_died_early` reported отдельно
+    от timeout, чтобы операторы видели реальную причину.
+  - Четыре env-настройки, все опциональные, все typo-safe:
+    * `ARENA_BORE_SERVER` (default `bore.pub`) -- указать на
+      self-hosted `bore server`.
+    * `ARENA_BORE_URL_WAIT_SECONDS` (default 30, clamp 1--300)
+      -- та же форма, что v4.24.1 cloudflared-clamp и
+      v4.36.2 ngrok-clamp.
+    * `ARENA_BORE_LOCAL_HOST` (default `localhost`).
+    * `ARENA_BORE_SECRET` -- opt-in shared secret для self-hosted
+      серверов; передаётся как `--secret <value>` только когда
+      задан, никогда не логируется.
+    * `ARENA_BORE_REMOTE_PORT` -- опциональный preferred remote
+      port, 0 = "пусть сервер выберет". Значения вне диапазона
+      и не-числовые fallback к 0, а не raise.
+  - Argv-form `Popen` only (никакого `shell=True`), server /
+    secret / port берутся из env-переменных, санитизированных
+    в readers.
+
+#### Wiring-интеграции
+
+* **`arena/admin/tunnels.py`** -- `DEFAULT_PRIORITY` расширен до
+  пяти записей; новый `_bore_snapshot()` mirroring
+  `_ngrok_snapshot`; параметр `bore_status_sync` пробрасывается
+  через `tunnels_status`, `tunnels_active`, `tunnels_probe`.
+  Оставлен опциональным (default `None`), чтобы
+  pre-v4.47.0 callers продолжали работать.
+* **`arena/admin/autostart.py`** -- tuple `TRANSPORTS` расширен
+  на `"bore"`; marker `ROOT_AGENT/.bore_autostart` авто-
+  создаётся при успешном start / удаляется при успешном stop
+  общим helper `persist_after_action`.
+* **`arena/admin/handlers.py`** -- новый handler
+  `handle_v1_bore_tunnel` (POST + GET
+  `/v1/bore/tunnel/{action}`); autostart-persistence + audit-
+  log entry следуют v4.22.1 cloudflared / v4.38.0 ngrok
+  паттерну без изменений.
+* **`arena/admin/sync_factories.py`** -- новый factory
+  `make_bore_status_sync`, структурный clone
+  `make_ngrok_status_sync`.
+* **`arena/contexts/platform.py`** -- `AdminHandlerContext`
+  получает опциональное поле
+  `bore_status_sync: Any = None`.
+* **`arena/wiring/bridge_runtime.py`** -- wires
+  `_bore_status_sync` в глобальный state-graph рядом с
+  `_ngrok_status_sync`.
+* **`arena/wiring/system_public_admin_registries.py`** --
+  передаёт `bore_status_sync=env._bore_status_sync` в admin
+  wiring-context.
+* **`arena/wiring/platform.py`** -- `AdminWiringContext`
+  получает поле `bore_status_sync`; dispatcher маппит
+  `"handle_v1_bore_tunnel"` -> `handlers.bore_tunnel`, чтобы
+  route table мог его резолвить.
+* **`arena/wiring/app_lifecycle.py`** -- новое замыкание
+  `_bore_autostart()`, та же форма, что `_ngrok_autostart`
+  (вызывает shared autostart-модуль + `bore_action` напрямую,
+  отдельный `bore_autostart` sibling-модуль не нужен).
+* **`arena/lifecycle.py`** -- `LifecycleContext` получает
+  callable `bore_autostart`; loop, который стреляет каждый
+  autostart на boot моста, получает запись
+  `("Bore", ctx.bore_autostart)` для консистентного log-line
+  с четырьмя другими транспортами.
+* **`arena/route_registry/registry.py`** -- декларативная route-
+  table получает POST + GET `/v1/bore/tunnel/{action}` ->
+  `handle_v1_bore_tunnel`.
+* **`arena/route_registry/core.py`** -- реальные
+  `app.router.add_post` / `add_get` вызовы добавлены рядом с
+  ngrok-парой (v4.33.1 regression-паттерн залочен через
+  `tests/test_bore_route_registration.py`).
+
+#### Тесты (+69)
+
+* **`tests/test_bore.py`** (~440 строк) -- URL-wait clamp,
+  env-readers (server / local_host / secret / remote_port
+  включая fall-back на out-of-range и не-числовые),
+  binary-resolution через три платформы с тремя исходами
+  "system / bundled / not_found", version-extraction,
+  update-hint сообщения, monitor-thread ловящий
+  `listening at bore.pub:PORT` и строящий внешний URL,
+  error-classifier hitting каждый из трёх fingerprint +
+  unknown-fallback, `bore_action` dispatch shell (unknown
+  verb / start-without-binary / stop-idempotent / status-
+  when-not-running / status очищает stale URL / status
+  reports server field), spawn-failure path, "already running"
+  fast path, argv-shape assertions для `--secret` / `--port`
+  threading.
+* **`tests/test_bore_wiring.py`** (~200 строк) --
+  DEFAULT_PRIORITY имеет bore пятой записью, `_bore_snapshot`
+  shape (unwired / wired / raising / empty URL),
+  `tunnels_status` мержит bore и выбирает его active когда он
+  единственный wired provider, поле `AdminHandlers` dataclass
+  present, поле `AdminHandlerContext` present, autostart
+  TRANSPORTS содержит bore, marker path использует
+  `.bore_autostart`, `wiring/platform.py` string-check на
+  entry в handler-map, `make_bore_status_sync` возвращает
+  callable, переживающий отсутствие бинарника.
+* **`tests/test_bore_route_registration.py`** (~60 строк) --
+  локирует v4.33.1-style инвариант "и registry.py, и core.py
+  должны согласовываться" для новых endpoint.
+
+#### Architecture-guard update
+
+* **`tests/test_architecture_boundaries.py`** -- добавляет
+  `arena/admin/tunnels.py` в `LINE_ALLOWLIST` с параграфом
+  rationale (файл -- намеренный fan-in facade "одно место,
+  где виден каждый транспорт"; пятый provider добавил ~45
+  строк параллельной ceremony; паттерн однородный, поэтому
+  split бы только перенёс provider-список из одного
+  центрального места в пять sibling-модулей, каждый из
+  которых дублировал бы ceremony). Reviewer note зашита в
+  комментарий: если когда-нибудь придёт **шестой** транспорт,
+  вынести `_<provider>_snapshot` в per-transport sibling-
+  модули, а здесь оставить только dispatch shell.
+
+#### Миграция & compat
+
+* **Пользователям не нужна миграция.** Каждый новый
+  параметр opt-in с default `None`; каждая новая env-
+  переменная имеет безопасный fallback; четыре старых
+  транспорта ведут себя идентично v4.46.1.
+* **`ARENA_TUNNEL_PRIORITY`** по-прежнему уважает
+  пользовательский override; отсутствующие provider
+  append в built-in order, поэтому оператор, писавший
+  `ARENA_TUNNEL_PRIORITY=cloudflared,tailscale` до
+  v4.47.0, после upgrade получает
+  `cloudflared, tailscale, zerotier, ngrok, bore` -- bore
+  тихо appended в хвост.
+* **Публичный API в остальном byte-compatible с v4.46.1**
+  -- клиент, говорящий только `/v1/tunnels/*`, видит
+  одну дополнительную запись в списке `providers` и не
+  требует изменений кода.
+
+#### Follow-up, отложенные в последующие релизы
+
+* v4.48.0 -- refactor Chrome-расширения на Shadow DOM
+  (изолирует CSS страницы от инжектированного UI; соответствует
+  паттерну MCP SuperAssistant, изученному в
+  `RESEARCH_2026-07-17.md`).
+* v4.49.0 -- remote extension config endpoint.
+* v5.0.0 -- нативное Flutter mobile app в отдельном репо.
+
 ## v4.46.1 - 2026-07-17
 
 ### Documentation sweep -- каждый markdown-файл обновлён под security-posture v4.40.0 → v4.46.0

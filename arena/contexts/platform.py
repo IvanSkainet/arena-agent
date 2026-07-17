@@ -112,5 +112,9 @@ class AdminHandlerContext:
     # new field keeps working -- handlers already fall back via
     # getattr(ctx, "ngrok_status_sync", None).
     ngrok_status_sync: Any = None
+    # v4.47.0: bore wired as fifth transport. Same optional /
+    # getattr fall-back story as ngrok so pre-v4.47.0 fixtures
+    # keep working without touching every call-site.
+    bore_status_sync: Any = None
 
 __all__ = ['ServiceHandlerContext', 'DesktopHandlerContext', 'ControlLeaseHandlerContext', 'SystemHandlerContext', 'UserHandlerContext', 'AdminHandlerContext']

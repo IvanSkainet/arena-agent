@@ -42,6 +42,8 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
         cloudflared_funnel_action_sync=env._cloudflared_funnel_action_sync,
         # v4.33.0: ngrok as fourth transport.
         ngrok_status_sync=env._ngrok_status_sync,
+        # v4.47.0: bore as fifth transport.
+        bore_status_sync=env._bore_status_sync,
     ))
     registry.update(_admin_handler_registry)
 

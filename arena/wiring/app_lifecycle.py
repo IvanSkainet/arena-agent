@@ -100,6 +100,42 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
             duration_sec=round(_time.monotonic() - t0, 3),
         )
 
+    def _bore_autostart():
+        # v4.47.0: same shape as ngrok. bore has no separate
+        # autostart module -- we call the shared unified
+        # autostart layer + bore_action directly.
+        from arena.admin import autostart as _autostart
+        from arena.admin.cloudflared_autostart import AutostartOutcome
+        import time as _time
+        root_agent = g.get("ROOT_AGENT")
+        subprocess_kwargs_fn = g.get("_subprocess_kwargs")
+        if root_agent is None or subprocess_kwargs_fn is None:
+            return None
+        if not _autostart.is_enabled("bore", root_agent):
+            return AutostartOutcome(attempted=False, ok=False, url="",
+                                    reason="no marker, env unset",
+                                    duration_sec=0.0)
+        from arena.admin.bore import bore_action
+        t0 = _time.monotonic()
+        try:
+            result = bore_action("start", _resolved_port(),
+                                 root_agent=root_agent,
+                                 subprocess_kwargs=subprocess_kwargs_fn)
+        except Exception as e:  # noqa: BLE001
+            return AutostartOutcome(
+                attempted=True, ok=False, url="",
+                reason=f"start call raised: {type(e).__name__}: {str(e)[:200]}",
+                duration_sec=round(_time.monotonic() - t0, 3),
+            )
+        ok = bool(result.get("ok"))
+        return AutostartOutcome(
+            attempted=True, ok=ok,
+            url=str(result.get("url", "")),
+            reason=("started" if ok else
+                    str(result.get("error", "unknown"))[:200]),
+            duration_sec=round(_time.monotonic() - t0, 3),
+        )
+
     def _tailscale_autostart():
         # v4.38.0: same shape as cloudflared / ngrok. tailscale
         # doesn't use subprocess_kwargs but takes the same
@@ -154,6 +190,7 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         cloudflared_autostart=_cloudflared_autostart,
         ngrok_autostart=_ngrok_autostart,
         tailscale_autostart=_tailscale_autostart,
+        bore_autostart=_bore_autostart,
     )
     lifecycle_runtime = env.make_lifecycle(lifecycle_ctx)
     registry.update({

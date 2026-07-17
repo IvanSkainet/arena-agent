@@ -92,6 +92,27 @@ def make_ngrok_status_sync(
     return _ngrok_status_sync
 
 
+def make_bore_status_sync(
+    *,
+    root_agent: Path,
+    subprocess_kwargs_fn: Callable[[], dict[str, Any]],
+):
+    """v4.47.0: factory for the bore status snapshot. Mirrors
+    make_ngrok_status_sync so the wiring block treats all five
+    transports (tailscale / cloudflared / zerotier / ngrok / bore)
+    uniformly."""
+    from arena.admin.bore import bore_action
+
+    def _bore_status_sync() -> dict[str, Any]:
+        return bore_action(
+            "status", 0,
+            root_agent=root_agent,
+            subprocess_kwargs=subprocess_kwargs_fn,
+        )
+
+    return _bore_status_sync
+
+
 def make_cloudflared_funnel_action_sync(
     *,
     cloudflared_funnel_action_fn: Callable[..., dict[str, Any]],

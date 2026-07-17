@@ -212,12 +212,17 @@ curl -sH "Authorization: Bearer $(cat ~/arena-bridge/token.txt)" \
   -X POST http://127.0.0.1:8765/v1/tunnels/start
 ```
 
-По умолчанию приоритет — `tailscale > cloudflared > zerotier`; можно переопределить
-через `ARENA_TUNNEL_PRIORITY=cloudflared,zerotier` (провайдеры, не указанные в
-env, добавляются в конец с их default-позиции).
+По умолчанию приоритет — `tailscale > zerotier > cloudflared > ngrok > bore`
+(v4.47.0); можно переопределить через
+`ARENA_TUNNEL_PRIORITY=cloudflared,zerotier` (провайдеры, не указанные в env,
+добавляются в конец с их default-позиции).
 
-Каждый провайдер работает из коробки на Windows, macOS и Linux — без sudo-обёрток
-и платформозависимых хаков по умолчанию. ZeroTier обнаруживается через локальный
+Каждый провайдер работает из коробки на Windows, macOS и GNU/Linux — без
+sudo-обёрток и платформозависимых хаков по умолчанию. ngrok читает
+`ARENA_NGROK_AUTHTOKEN` (free tier требует authtoken). bore (v4.47.0) —
+zero-account fallback: `cargo install bore-cli` или release-бинарник с
+GitHub — без регистрации и cookie-дашборда; TCP-only relay через `bore.pub`
+(override через `ARENA_BORE_SERVER` для self-hosted). ZeroTier обнаруживается через локальный
 HTTP API на `127.0.0.1:9993` с fallback на `zerotier-cli` из PATH, Program Files,
 `/Library/Application Support/`, `/usr/sbin/` и т.д. Install/update-подсказки
 Cloudflared подстроены под платформу (`winget`/`scoop`/`brew`/`pacman`/`apt`).
@@ -239,6 +244,8 @@ Bridge работает локально на одном Python и `aiohttp`. Н
 | **Tailscale** | Zero-config HTTPS exposure через Funnel | System-level: <https://tailscale.com/download> |
 | **cloudflared** | Cloudflare Quick Tunnel fallback | `winget install Cloudflare.cloudflared` / `brew install cloudflared` / `pacman -S cloudflared` |
 | **ZeroTier** | Приватная overlay-сеть как backup-провайдер | System-level: <https://www.zerotier.com/download/> |
+| **ngrok** | Публичный HTTPS через `*.ngrok-free.app` (free tier требует authtoken) | `winget install ngrok.ngrok` / `brew install ngrok/ngrok/ngrok` / `snap install ngrok` |
+| **bore** *(v4.47.0)* | Zero-account TCP relay через `bore.pub` (или self-hosted) | `cargo install bore-cli` или release-бинарник с <https://github.com/ekzhang/bore/releases> |
 | **BrowserAct** | Stealth-CLI для браузерной автоматизации (Arena `skills/browseract/`) | `uv tool install browser-act-cli --python 3.12` |
 | **Camoufox** | Anti-fingerprinting Firefox для BrowserAct | Автоматически ставится с `browser-act-cli` |
 | **ydotool / xdotool** | Linux desktop input automation | `pacman -S ydotool` или `apt install xdotool` |
@@ -380,6 +387,8 @@ Extension bridge:
 | `POST` | `/v1/tunnels/stop` | Остановка туннелей, запущенных bridge (ZeroTier не трогает) |
 | `GET/POST` | `/v1/tailscale/funnel/{action}` | Tailscale Funnel primitives |
 | `GET/POST` | `/v1/cloudflared/tunnel/{action}` | Cloudflare Quick Tunnel primitives |
+| `GET/POST` | `/v1/ngrok/tunnel/{action}` | ngrok tunnel primitives (четвёртый транспорт) |
+| `GET/POST` | `/v1/bore/tunnel/{action}` | bore relay primitives (пятый транспорт, v4.47.0) |
 | `GET` | `/v1/zerotier/status` | Полный snapshot ZeroTier (backend, networks, hints) |
 | `GET/POST` | `/v1/zerotier/network/{action}` | Join / leave / status networks |
 

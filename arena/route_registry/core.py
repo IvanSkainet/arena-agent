@@ -64,6 +64,9 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     # v4.33.0: ngrok as fourth transport.
     app.router.add_post("/v1/ngrok/tunnel/{action}", h["handle_v1_ngrok_tunnel"])
     app.router.add_get("/v1/ngrok/tunnel/{action}", h["handle_v1_ngrok_tunnel"])
+    # v4.47.0: bore as fifth transport (zero-account TCP relay).
+    app.router.add_post("/v1/bore/tunnel/{action}", h["handle_v1_bore_tunnel"])
+    app.router.add_get("/v1/bore/tunnel/{action}", h["handle_v1_bore_tunnel"])
     # v4.38.0: unified autostart across all transports.
     app.router.add_get("/v1/autostart", h["handle_v1_autostart_get"])
     app.router.add_post("/v1/autostart/{transport}", h["handle_v1_autostart_set"])

@@ -212,16 +212,19 @@ curl -sH "Authorization: Bearer $(cat ~/arena-bridge/token.txt)" \
   -X POST http://127.0.0.1:8765/v1/tunnels/start
 ```
 
-Priority defaults to `tailscale > cloudflared > zerotier` and can be overridden
-with `ARENA_TUNNEL_PRIORITY=cloudflared,zerotier` (unmentioned providers keep
-their default position).
+Priority defaults to `tailscale > zerotier > cloudflared > ngrok > bore` (v4.47.0)
+and can be overridden with e.g. `ARENA_TUNNEL_PRIORITY=cloudflared,zerotier`
+(unmentioned providers keep their default position).
 
-Each provider works out of the box on Windows, macOS, and Linux — no sudo
+Each provider works out of the box on Windows, macOS, and GNU/Linux — no sudo
 wrappers or platform-specific hacks required. ZeroTier is discovered via the
 local HTTP API at `127.0.0.1:9993` with fallback to `zerotier-cli` from PATH,
 Program Files, `/Library/Application Support/`, `/usr/sbin/`, etc. Cloudflared
 install/update hints are tailored per platform (`winget`/`scoop`/`brew`/
-`pacman`/`apt`).
+`pacman`/`apt`). ngrok reads `ARENA_NGROK_AUTHTOKEN` (free tier requires one).
+bore (v4.47.0) is the zero-account fallback: `cargo install bore-cli` or a
+GitHub release binary drop — no signup, no dashboard cookie; TCP-only relay
+through `bore.pub` (override via `ARENA_BORE_SERVER` for self-hosted).
 
 The dashboard's **Settings → Tunnels & Remote Access** card exposes the same
 facade with Start-all / Stop-all buttons and a ZeroTier network management
@@ -240,6 +243,8 @@ tools — and none of them are installed silently; the installer always asks fir
 | **Tailscale** | Zero-config HTTPS exposure via Funnel | System-level: <https://tailscale.com/download> |
 | **cloudflared** | Cloudflare Quick Tunnel fallback | `winget install Cloudflare.cloudflared` / `brew install cloudflared` / `pacman -S cloudflared` |
 | **ZeroTier** | Private overlay network as a backup provider | System-level: <https://www.zerotier.com/download/> |
+| **ngrok** | Public HTTPS via `*.ngrok-free.app` (free tier needs an authtoken) | `winget install ngrok.ngrok` / `brew install ngrok/ngrok/ngrok` / `snap install ngrok` |
+| **bore** *(v4.47.0)* | Zero-account TCP relay through `bore.pub` (or self-hosted) | `cargo install bore-cli` or a GitHub release binary from <https://github.com/ekzhang/bore/releases> |
 | **BrowserAct** | Stealth browser automation CLI (Arena `skills/browseract/`) | `uv tool install browser-act-cli --python 3.12` |
 | **Camoufox** | Anti-fingerprinting Firefox for BrowserAct | Auto-installed with `browser-act-cli` |
 | **ydotool / xdotool** | Linux desktop input automation | `pacman -S ydotool` or `apt install xdotool` |
@@ -381,6 +386,8 @@ Remote access / tunnels:
 | `POST` | `/v1/tunnels/stop` | Stop tunnels the Bridge started (ZeroTier untouched) |
 | `GET/POST` | `/v1/tailscale/funnel/{action}` | Tailscale Funnel primitives |
 | `GET/POST` | `/v1/cloudflared/tunnel/{action}` | Cloudflare Quick Tunnel primitives |
+| `GET/POST` | `/v1/ngrok/tunnel/{action}` | ngrok tunnel primitives (fourth transport) |
+| `GET/POST` | `/v1/bore/tunnel/{action}` | bore relay primitives (fifth transport, v4.47.0) |
 | `GET` | `/v1/zerotier/status` | Full ZeroTier snapshot (backend, networks, hints) |
 | `GET/POST` | `/v1/zerotier/network/{action}` | Join / leave / status networks |
 

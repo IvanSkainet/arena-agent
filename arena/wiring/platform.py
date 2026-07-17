@@ -104,6 +104,9 @@ class AdminWiringContext:
     # context built by older tests keeps working without touching
     # every fixture.
     ngrok_status_sync: Any = None
+    # v4.47.0: bore as fifth transport. Same optional /
+    # back-compat story as ngrok.
+    bore_status_sync: Any = None
 
 
 def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any]]:
@@ -125,6 +128,7 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         tailscale_funnel_action_sync=ctx.tailscale_funnel_action_sync,
         cloudflared_funnel_action_sync=ctx.cloudflared_funnel_action_sync,
         ngrok_status_sync=ctx.ngrok_status_sync,
+        bore_status_sync=ctx.bore_status_sync,
     )
     handlers = make_admin_handlers(admin_ctx)
     return {
@@ -134,6 +138,8 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_cloudflared_tunnel": handlers.cloudflared_tunnel,
         # v4.33.0: ngrok as fourth transport.
         "handle_v1_ngrok_tunnel": handlers.ngrok_tunnel,
+        # v4.47.0: bore as fifth transport.
+        "handle_v1_bore_tunnel": handlers.bore_tunnel,
         # v4.38.0: unified autostart endpoints.
         "handle_v1_autostart_get": handlers.autostart_get,
         "handle_v1_autostart_set": handlers.autostart_set,

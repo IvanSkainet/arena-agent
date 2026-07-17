@@ -51,7 +51,9 @@ from pathlib import Path
 
 # Transports that actually have a start/stop verb. ZeroTier
 # absent by design (see module docstring).
-TRANSPORTS: tuple[str, ...] = ("tailscale", "cloudflared", "ngrok")
+# v4.47.0: bore added as the fifth transport with the same
+# start/stop verb story as cloudflared / ngrok.
+TRANSPORTS: tuple[str, ...] = ("tailscale", "cloudflared", "ngrok", "bore")
 
 
 def _marker_filename(transport: str) -> str:

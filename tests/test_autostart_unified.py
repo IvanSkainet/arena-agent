@@ -38,7 +38,7 @@ ENV_NG = "ARENA_NGROK_AUTOSTART"
 def test_registered_transports_exclude_zerotier():
     """ZeroTier deliberately absent -- membership is long-lived
     across restarts, no per-bridge start/stop verb."""
-    assert set(autostart.TRANSPORTS) == {"tailscale", "cloudflared", "ngrok"}
+    assert set(autostart.TRANSPORTS) == {"tailscale", "cloudflared", "ngrok", "bore"}
 
 
 def test_unknown_transport_raises_on_marker_path():

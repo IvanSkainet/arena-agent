@@ -42,6 +42,8 @@ class AdminHandlers:
     cloudflared_tunnel: object
     # v4.33.0: ngrok as fourth transport (POST /v1/ngrok/tunnel/{action}).
     ngrok_tunnel: object
+    # v4.47.0: bore as fifth transport (POST /v1/bore/tunnel/{action}).
+    bore_tunnel: object
     zerotier_status: object
     zerotier_network: object
     # v4.4.0: per-peer classification (direct / relay / root / tunneled).
@@ -203,6 +205,34 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         ctx.audit({"type": "ngrok_tunnel", "action": action, "ok": result.get("ok")})
         return ctx.cors_json_response(result)
 
+    async def handle_v1_bore_tunnel(request: web.Request) -> web.Response:
+        """POST /v1/bore/tunnel/{action} -- bore as the fifth
+        transport (v4.47.0). Same start / stop / status shape as
+        cloudflared and ngrok so the dashboard can treat all five
+        as siblings.
+
+        Autostart persistence mirrors the ngrok handler: marker at
+        ``ROOT_AGENT/.bore_autostart`` created on successful start,
+        removed on successful stop.
+        """
+        action = request.match_info.get("action", "status")
+        cfg = request.app[APP_CFG]
+        port = cfg.get("port", 8765)
+        loop = asyncio.get_running_loop()
+        from arena.admin.bore import bore_action
+        result = await loop.run_in_executor(
+            ctx.executor,
+            lambda: bore_action(
+                action,
+                port,
+                root_agent=ctx.root_agent,
+                subprocess_kwargs=ctx.subprocess_kwargs,
+            ),
+        )
+        _autostart_persist("bore", action, result.get("ok"), port, result)
+        ctx.audit({"type": "bore_tunnel", "action": action, "ok": result.get("ok")})
+        return ctx.cors_json_response(result)
+
     # v4.38.0: unified autostart handlers live in a sibling module
     # to keep this file under the runtime line threshold.
     from arena.admin.handlers_autostart import make_autostart_handlers
@@ -298,6 +328,9 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 # v4.33.0: opt-in ngrok context; getattr keeps back-
                 # compat with older ctx snapshots from tests.
                 ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
+                # v4.47.0: opt-in bore context; same getattr fall-
+                # back so pre-v4.47.0 test fixtures keep working.
+                bore_status_sync=getattr(ctx, "bore_status_sync", None),
             ),
         )
         return ctx.cors_json_response(result)
@@ -316,6 +349,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
                 ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
+                bore_status_sync=getattr(ctx, "bore_status_sync", None),
             ),
         )
         return ctx.cors_json_response(result)
@@ -391,6 +425,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
                 ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
+                bore_status_sync=getattr(ctx, "bore_status_sync", None),
             ),
         )
         return ctx.cors_json_response(result)
@@ -492,6 +527,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
                 cloudflared_status_sync=ctx.cloudflared_status_sync,
                 zerotier_status_sync=ctx.zerotier_status_sync,
                 ngrok_status_sync=getattr(ctx, "ngrok_status_sync", None),
+                bore_status_sync=getattr(ctx, "bore_status_sync", None),
             ),
         )
         # Distill probe output down to a compact url-list for the agent.
@@ -586,6 +622,7 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         tailscale_funnel=handle_v1_tailscale_funnel,
         cloudflared_tunnel=handle_v1_cloudflared_tunnel,
         ngrok_tunnel=handle_v1_ngrok_tunnel,
+        bore_tunnel=handle_v1_bore_tunnel,
         zerotier_status=handle_v1_zerotier_status,
         zerotier_network=handle_v1_zerotier_network,
         zerotier_peers=handle_v1_zerotier_peers,

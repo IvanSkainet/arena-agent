@@ -46,6 +46,8 @@ class LifecycleContext:
     # by older tests keeps working without touching every fixture.
     ngrok_autostart: Callable[[], Any] | None = None
     tailscale_autostart: Callable[[], Any] | None = None
+    # v4.47.0: bore as fifth transport -- same shape as ngrok.
+    bore_autostart: Callable[[], Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -90,6 +92,8 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             ("Cloudflared", ctx.cloudflared_autostart),
             ("Ngrok",       ctx.ngrok_autostart),
             ("Tailscale",   ctx.tailscale_autostart),
+            # v4.47.0: bore as fifth transport.
+            ("Bore",        ctx.bore_autostart),
         ]
         for label, hook in autostart_hooks:
             if hook is None:

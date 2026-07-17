@@ -31,7 +31,7 @@ def test_default_priority_puts_zerotier_ahead_of_cloudflared():
     v4.33.0: ngrok added as the fourth transport (tail). The zerotier-
     ahead-of-cloudflared invariant this test guards is unaffected.
     """
-    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared", "ngrok")
+    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared", "ngrok", "bore")
 
 
 def test_env_override_preserves_all_providers(monkeypatch):

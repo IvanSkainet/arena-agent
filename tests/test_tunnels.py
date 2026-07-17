@@ -77,7 +77,7 @@ def test_default_priority_order():
     v4.33.0: ngrok added as the fourth entry so existing operators
     see the same primary/secondary order they had before. Override
     with ARENA_TUNNEL_PRIORITY to reorder."""
-    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared", "ngrok")
+    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared", "ngrok", "bore")
 
 
 def test_priority_env_override(monkeypatch):
@@ -109,7 +109,7 @@ def test_status_contract_shape():
     # the invariant that every provider in DEFAULT_PRIORITY shows
     # up in the snapshot (even when unwired -- it reports
     # available:false).
-    assert providers == {"tailscale", "cloudflared", "zerotier", "ngrok"}
+    assert providers == {"tailscale", "cloudflared", "zerotier", "ngrok", "bore"}
     assert snap["active"] is None  # nothing running
 
 

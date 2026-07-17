@@ -83,6 +83,7 @@ from arena.admin.sync_factories import (  # noqa: E402,F401
     make_cloudflared_status_sync,
     make_cloudflared_funnel_action_sync,
     make_ngrok_status_sync,
+    make_bore_status_sync,
     make_sys_funnel_sync,
     make_tailscale_funnel_action_sync,
     make_token_path,

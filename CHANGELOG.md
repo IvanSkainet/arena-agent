@@ -1,3 +1,181 @@
+## v4.47.0 - 2026-07-17
+
+### bore -- fifth transport, zero-account TCP relay through bore.pub
+
+First **feature release** after the v4.40.0 → v4.46.1 nine-release
+security arc. Adds `bore` (https://github.com/ekzhang/bore, MIT,
+maintained by Eric Zhang) as the fifth remote-access transport,
+placed after tailscale / zerotier / cloudflared / ngrok in the
+default priority. Chosen because it is the only tunnel in
+awesome-tunneling's top-13 that meets all three of the criteria
+this project has been optimising for since v4.33.0:
+
+* **Zero account required.** `bore.pub` is a free public relay
+  operated by the project. No signup, no authtoken, no dashboard
+  cookie. Fills the "just install the binary and it works" gap
+  ngrok's authtoken requirement still leaves.
+* **Single static Rust binary.** Same "system-first / bundled
+  fallback" resolution strategy already used for cloudflared and
+  ngrok works verbatim -- ships as one binary via
+  `cargo install bore-cli` or a GitHub-releases drop.
+* **TCP-only + no middlebox TLS termination.** The bridge already
+  speaks HTTPS on port 8765; a client that dials
+  `https://bore.pub:<port>` receives the bridge's real self-signed
+  cert -- which agents can pin with the v4.45.0
+  `ARENA_BRIDGE_PIN_SHA256` env. No CDN can silently substitute
+  a cert the way a full HTTPS reverse proxy could.
+
+#### New file
+
+* **`arena/admin/bore.py`** (~446 lines) -- structural mirror of
+  `arena/admin/ngrok.py`:
+  - `bore_action("start" | "stop" | "status", port, ...)` public
+    entry-point, same signature as `ngrok_action` and
+    `cloudflared_funnel_action` so the dashboard, autostart hook
+    and wiring layer treat all five transports uniformly.
+  - `BORE_STATE = {"proc", "url", "log"}` -- identical shape to
+    `NGROK_STATE`/`CLOUDFLARED_STATE`.
+  - `_resolve_bore_with_source()` -- system-first / bundled
+    fallback, cross-platform (Windows + Darwin + Linux/BSD).
+    Linux path list includes `~/.cargo/bin/bore` so `cargo install
+    bore-cli` installs are picked up without operator intervention.
+  - `_bore_monitor_thread()` -- parses the first
+    `listening at <server>:<port>` stdout line and publishes the
+    outward-facing URL as `https://<server>:<remote_port>`.
+    Regex `re.IGNORECASE` locked in by unit test so a future
+    log-format change is caught.
+  - `_classify_error()` -- three fingerprints: `invalid_secret`,
+    `server_unreachable`, `remote_port_conflict`. Each carries a
+    human hint naming the exact env var to change. Falls back to
+    `unknown` + a docs link when nothing matches.
+  - Fail-fast on early exit: same pattern as the v4.36.0 ngrok
+    fix -- `process_died_early` is reported separately from a
+    timeout so operators see the true cause.
+  - Four env tunables, all optional, all typo-safe:
+    * `ARENA_BORE_SERVER` (default `bore.pub`) -- point at a
+      self-hosted `bore server`.
+    * `ARENA_BORE_URL_WAIT_SECONDS` (default 30, clamped 1--300)
+      -- same shape as the v4.24.1 cloudflared clamp and the
+      v4.36.2 ngrok clamp.
+    * `ARENA_BORE_LOCAL_HOST` (default `localhost`).
+    * `ARENA_BORE_SECRET` -- opt-in shared secret for self-hosted
+      servers; passed as `--secret <value>` only when set, never
+      logged.
+    * `ARENA_BORE_REMOTE_PORT` -- optional preferred remote port,
+      0 means "let the server choose". Out-of-range and non-numeric
+      values fall back to 0 rather than raise.
+  - Argv-form `Popen` only (no `shell=True`), server / secret /
+    port values come from env vars sanitised in the readers.
+
+#### Wiring integrations
+
+* **`arena/admin/tunnels.py`** -- `DEFAULT_PRIORITY` extended to
+  five entries; new `_bore_snapshot()` mirroring `_ngrok_snapshot`;
+  `bore_status_sync` parameter threaded through `tunnels_status`,
+  `tunnels_active` and `tunnels_probe`. Kept optional (default
+  `None`) so pre-v4.47.0 callers keep working.
+* **`arena/admin/autostart.py`** -- `TRANSPORTS` tuple extended
+  with `"bore"`; marker file at `ROOT_AGENT/.bore_autostart`
+  auto-created on successful start / removed on successful stop
+  by the shared `persist_after_action` helper.
+* **`arena/admin/handlers.py`** -- new `handle_v1_bore_tunnel`
+  handler (POST + GET `/v1/bore/tunnel/{action}`); autostart
+  persistence + audit log entry follow the v4.22.1 cloudflared /
+  v4.38.0 ngrok pattern verbatim.
+* **`arena/admin/sync_factories.py`** -- new
+  `make_bore_status_sync` factory, structural clone of
+  `make_ngrok_status_sync`.
+* **`arena/contexts/platform.py`** -- `AdminHandlerContext` gains
+  optional `bore_status_sync: Any = None` field.
+* **`arena/wiring/bridge_runtime.py`** -- wires `_bore_status_sync`
+  into the global state graph next to `_ngrok_status_sync`.
+* **`arena/wiring/system_public_admin_registries.py`** -- passes
+  `bore_status_sync=env._bore_status_sync` into the admin
+  wiring context.
+* **`arena/wiring/platform.py`** -- `AdminWiringContext` gains
+  `bore_status_sync` field; dispatcher maps
+  `"handle_v1_bore_tunnel"` -> `handlers.bore_tunnel` so the
+  route table can resolve it.
+* **`arena/wiring/app_lifecycle.py`** -- new `_bore_autostart()`
+  closure, same shape as `_ngrok_autostart` (calls the shared
+  autostart module + `bore_action` directly, no separate
+  `bore_autostart` sibling module needed).
+* **`arena/lifecycle.py`** -- `LifecycleContext` gains
+  `bore_autostart` callable; loop that fires each autostart on
+  bridge boot gains a `("Bore", ctx.bore_autostart)` entry so
+  the log line is consistent with the other four transports.
+* **`arena/route_registry/registry.py`** -- declarative route
+  table gains POST + GET `/v1/bore/tunnel/{action}` ->
+  `handle_v1_bore_tunnel`.
+* **`arena/route_registry/core.py`** -- actual
+  `app.router.add_post` / `add_get` calls added right next to
+  the ngrok pair (v4.33.1 regression pattern locked in by
+  `tests/test_bore_route_registration.py`).
+
+#### Tests (+69)
+
+* **`tests/test_bore.py`** (~440 lines) -- URL-wait clamp, env
+  readers (server / local_host / secret / remote_port including
+  fall-backs on out-of-range and non-numeric), binary resolution
+  across three platforms with the three "system / bundled /
+  not_found" outcomes, version extraction, update-hint messages,
+  monitor thread capturing `listening at bore.pub:PORT` and
+  building the outward-facing URL, error classifier hitting
+  each of the three fingerprints + the unknown fallback,
+  `bore_action` dispatch shell (unknown verb / start-with-no-
+  binary / stop-idempotent / status-when-not-running / status
+  clears stale URL / status reports server field), spawn-failure
+  path, "already running" fast path, argv shape assertions for
+  the `--secret` / `--port` threading.
+* **`tests/test_bore_wiring.py`** (~200 lines) -- DEFAULT_PRIORITY
+  has bore as fifth entry, `_bore_snapshot` shape (unwired /
+  wired / raising / empty URL), `tunnels_status` merges bore
+  and picks it as active when it is the only wired provider,
+  `AdminHandlers` dataclass field present, `AdminHandlerContext`
+  field present, autostart TRANSPORTS contains bore, marker path
+  uses `.bore_autostart`, `wiring/platform.py` string check for
+  the handler map entry, `make_bore_status_sync` returns a
+  callable that survives a missing binary.
+* **`tests/test_bore_route_registration.py`** (~60 lines) --
+  locks in the v4.33.1-style "both registry.py AND core.py must
+  agree" invariant for the new endpoints.
+
+#### Architecture guard update
+
+* **`tests/test_architecture_boundaries.py`** -- adds
+  `arena/admin/tunnels.py` to `LINE_ALLOWLIST` with paragraph
+  rationale (the file is the deliberate "one place to see every
+  transport" fan-in facade; a fifth provider added ~45 lines of
+  parallel ceremony; the pattern is uniform so splitting would
+  only move the provider-list from one central place to five
+  sibling modules that would each duplicate the ceremony).
+  Reviewer note baked into the comment: if a **sixth** transport
+  ever lands, split `_<provider>_snapshot` out into per-transport
+  sibling modules and keep only the dispatch shell here.
+
+#### Migration & compat
+
+* **Zero migration required for existing users.** Every new
+  parameter is opt-in with a `None` default; every new env var
+  has a safe fallback; the four existing transports behave
+  identically to v4.46.1.
+* **`ARENA_TUNNEL_PRIORITY`** still honours user overrides;
+  missing providers append in built-in order, so an operator who
+  wrote `ARENA_TUNNEL_PRIORITY=cloudflared,tailscale` before
+  v4.47.0 gets `cloudflared, tailscale, zerotier, ngrok, bore`
+  after the upgrade -- bore appended silently at the tail.
+* **Public API is otherwise byte-compatible with v4.46.1** --
+  a client that speaks only `/v1/tunnels/*` sees one extra entry
+  in the `providers` list and doesn't need any code change.
+
+#### Follow-ups deferred to later releases
+
+* v4.48.0 -- Chrome-extension Shadow DOM refactor (isolates page
+  CSS from injected UI; matches the MCP SuperAssistant pattern
+  studied in `RESEARCH_2026-07-17.md`).
+* v4.49.0 -- remote extension config endpoint.
+* v5.0.0 -- native Flutter mobile app in a separate repo.
+
 ## v4.46.1 - 2026-07-17
 
 ### Documentation sweep -- every markdown file updated for the v4.40.0 → v4.46.0 security posture

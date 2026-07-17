@@ -34,7 +34,10 @@ from arena.admin.tunnels import (
 def test_default_priority_contains_ngrok_as_fourth():
     """Order preserved: tailscale, zerotier, cloudflared come
     first (back-compat), ngrok is the new tail entry."""
-    assert DEFAULT_PRIORITY == ("tailscale", "zerotier", "cloudflared", "ngrok")
+    # v4.47.0: bore appended after ngrok; keep the sibling-check permissive
+    # so this test survives future transports (each new transport lands as
+    # the tail entry to preserve existing operators' priority order).
+    assert DEFAULT_PRIORITY[:4] == ("tailscale", "zerotier", "cloudflared", "ngrok")
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +113,9 @@ def test_tunnels_status_includes_ngrok_in_providers():
     providers = [p["provider"] for p in result["providers"]]
     assert "ngrok" in providers
     # Default priority: tail entry.
-    assert providers[-1] == "ngrok"
+    # v4.47.0: tail entry is now bore; check ngrok is present and
+    # sits after cloudflared per default priority order.
+    assert providers.index("ngrok") == providers.index("cloudflared") + 1
 
 
 def test_tunnels_status_default_priority_is_four_transports():
