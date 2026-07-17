@@ -74,7 +74,7 @@ def _send_one(url: str, payload: bytes) -> None:
             raise ValueError(
                 f"webhook URL rejected by strict SSRF check: {err}")
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json"}, method="POST")
-    with urllib.request.urlopen(req, timeout=5):  # nosec B310 -- operator-configured webhook URL; ARENA_WEBHOOK_STRICT=1 enables SSRF filtering
+    with urllib.request.urlopen(req, timeout=5):  # nosec B310 -- operator-configured webhook URL; ARENA_WEBHOOK_STRICT=1 enables SSRF filtering  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         pass
 
 

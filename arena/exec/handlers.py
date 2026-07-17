@@ -321,7 +321,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
             # Make the script executable so `sh <path>` works even when
             # umask is unusually restrictive.
             try:
-                os.chmod(tmp_path, 0o700)
+                os.chmod(tmp_path, 0o700)  # nosemgrep: insecure-file-permissions -- 0o700 is owner-only rwx; the script needs exec bit to run via `sh <path>` and no other user should read/execute it (see mkstemp above which already produced 0o600)
             except Exception:
                 pass
 

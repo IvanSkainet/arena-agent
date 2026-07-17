@@ -6,7 +6,7 @@ from arena.agent_helpers.files import *  # noqa: F401,F403
 def run_local(cmd: str | list[str], timeout: int = 60,
               cwd: Path | str | None = None) -> tuple[int, str]:
     if isinstance(cmd, str):
-        cp = subprocess.run(cmd, shell=True, capture_output=True,  # nosec B602 -- run_local's str-form input is only invoked by operator-side CLI tooling (agentctl), never by an HTTP handler; the list-form (safe) is used for programmatic paths.
+        cp = subprocess.run(cmd, shell=True, capture_output=True,  # nosec B602 -- run_local's str-form input is only invoked by operator-side CLI tooling (agentctl), never by an HTTP handler; the list-form (safe) is used for programmatic paths.  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
                             text=True, timeout=timeout,
                             cwd=str(cwd) if cwd else None)
     else:

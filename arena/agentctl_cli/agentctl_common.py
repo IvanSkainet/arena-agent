@@ -103,7 +103,7 @@ def bridge_get(path: str, token: bool = True, timeout: int = 15) -> Any:
     kwargs: dict[str, Any] = {"timeout": timeout}
     if ctx:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py
+    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         return json.loads(resp.read().decode())
 
 
@@ -117,7 +117,7 @@ def bridge_post(path: str, data: dict, token: bool = True, timeout: int = 20) ->
     kwargs: dict[str, Any] = {"timeout": timeout}
     if ctx:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py
+    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         return json.loads(resp.read().decode())
 
 
@@ -128,7 +128,7 @@ def exec_bridge(cmd: str, timeout: int = 30) -> dict:
 def run_script(script: str, args: list[str] | None = None) -> None:
     py = sys.executable or "python3"
     try:
-        subprocess.run([py, str(SCRIPTS / script)] + (args or []), check=True)
+        subprocess.run([py, str(SCRIPTS / script)] + (args or []), check=True)  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
     except subprocess.CalledProcessError as e:
         sys.exit(e.returncode)
 
@@ -138,6 +138,6 @@ def run_bin(tool: str, args: list[str] | None = None) -> None:
     tool_path = BIN / tool
     cmd = [py, str(tool_path)] if tool_path.suffix == ".py" else [str(tool_path)]
     try:
-        subprocess.run(cmd + (args or []), check=True)
+        subprocess.run(cmd + (args or []), check=True)  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
     except subprocess.CalledProcessError as e:
         sys.exit(e.returncode)

@@ -18,7 +18,7 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, metho
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=data, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool
+        with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310 -- loopback bridge URL for local MCP tool  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             return json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", "replace")

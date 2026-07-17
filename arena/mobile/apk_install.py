@@ -71,13 +71,13 @@ def _ensure_staging_root() -> None:
     import os as _os
     STAGING_ROOT.mkdir(parents=True, exist_ok=True)
     try:
-        _os.chmod(STAGING_ROOT, 0o700)
+        _os.chmod(STAGING_ROOT, 0o700)  # nosemgrep: insecure-file-permissions -- 0o700 on a DIRECTORY is the tightest owner-only mode; execute bit here is directory traversal, not file execution
     except OSError:
         pass
     # Tighten the parent too when we just created it -- ~/.arena
     # might not exist yet on a fresh install.
     try:
-        _os.chmod(STAGING_ROOT.parent, 0o700)
+        _os.chmod(STAGING_ROOT.parent, 0o700)  # nosemgrep: insecure-file-permissions -- 0o700 on a DIRECTORY is the tightest owner-only mode; execute bit here is directory traversal, not file execution
     except OSError:
         pass
 

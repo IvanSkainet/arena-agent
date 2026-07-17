@@ -8,7 +8,7 @@ def run_status(args=[]):
     import subprocess
     print("### bridge health local")
     try:
-        r = urllib.request.urlopen("http://127.0.0.1:8765/health", timeout=2)  # nosec B310 -- loopback bridge URL for local status check
+        r = urllib.request.urlopen("http://127.0.0.1:8765/health", timeout=2)  # nosec B310 -- loopback bridge URL for local status check  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         print(r.read().decode().strip())
     except Exception as e:
         print(f"local health error: {e}")
@@ -30,7 +30,7 @@ def run_status(args=[]):
             req = urllib.request.Request("http://127.0.0.1:8765/mcp",
                 data=json.dumps({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"health-check","version":"1.0"}}}).encode(),
                 headers={"Content-Type":"application/json"})
-            r = urllib.request.urlopen(req, timeout=2)  # nosec B310 -- loopback bridge URL for local status check
+            r = urllib.request.urlopen(req, timeout=2)  # nosec B310 -- loopback bridge URL for local status check  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             mcp_ok = r.status == 200
             print(f"  MCP Streamable HTTP: {'OK' if mcp_ok else 'FAIL'}")
         except Exception: print("  MCP Streamable HTTP: FAIL")

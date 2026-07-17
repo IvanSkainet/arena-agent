@@ -35,7 +35,7 @@ def gw_run_sync(
     try:
         p = subprocess.run(
             cmd,
-            shell=True,  # nosec B602 -- gateway.run_cmd is fed only by operator-side tooling; HTTP paths go through arena/exec/handler.py which uses argv-form.
+            shell=True,  # nosec B602 -- gateway.run_cmd is fed only by operator-side tooling; HTTP paths go through arena/exec/handler.py which uses argv-form.  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
             capture_output=True,
             text=True,
             timeout=timeout,

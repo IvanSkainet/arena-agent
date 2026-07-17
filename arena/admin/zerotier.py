@@ -140,7 +140,7 @@ def _permission_hint(missing_reason: str) -> str:
 def _http_get(path: str, token: str) -> dict[str, Any] | list[Any] | None:
     req = urllib.request.Request(f"{HTTP_API}{path}", headers={"X-ZT1-Auth": token})
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # nosec B310 -- loopback zerotier-one control-plane URL (127.0.0.1:9993)
+        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # nosec B310 -- loopback zerotier-one control-plane URL (127.0.0.1:9993)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             body = resp.read().decode("utf-8", "replace")
         return json.loads(body)
     except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, ConnectionError, json.JSONDecodeError):
@@ -495,7 +495,7 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
                     data=b"{}",
                     headers={"X-ZT1-Auth": token, "Content-Type": "application/json"},
                 )
-                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # nosec B310 -- loopback zerotier-one control-plane URL (127.0.0.1:9993)
+                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # nosec B310 -- loopback zerotier-one control-plane URL (127.0.0.1:9993)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                     body = resp.read().decode("utf-8", "replace")
                 return {"ok": True, "action": "join", "backend": "http", "network_id": network_id, "response": body[:500]}
             if action == "leave":
@@ -504,7 +504,7 @@ def zerotier_network_action(action: str, network_id: str | None = None) -> dict[
                     method="DELETE",
                     headers={"X-ZT1-Auth": token},
                 )
-                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # nosec B310 -- loopback zerotier-one control-plane URL (127.0.0.1:9993)
+                with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # nosec B310 -- loopback zerotier-one control-plane URL (127.0.0.1:9993)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                     body = resp.read().decode("utf-8", "replace")
                 return {"ok": True, "action": "leave", "backend": "http", "network_id": network_id, "response": body[:500]}
             if action == "status":

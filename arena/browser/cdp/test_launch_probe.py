@@ -16,7 +16,7 @@ def is_port_open(port: int, *, host: str = "127.0.0.1", timeout: float = 1.0) ->
 
 
 def fetch_json(path: str, port: int, timeout: float = 3.0):
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout) as response:  # nosec B310 -- loopback CDP endpoint
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{path}", timeout=timeout) as response:  # nosec B310 -- loopback CDP endpoint  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         return json.loads(response.read().decode())
 
 

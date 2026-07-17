@@ -28,7 +28,7 @@ def _accept_key(key: str) -> str:
     # blocked from security-use but still allowed for identifier
     # purposes.
     return base64.b64encode(
-        hashlib.sha1((key + GUID).encode(),
+        hashlib.sha1((key + GUID).encode(),  # nosemgrep: insecure-hash-algorithm-sha1 -- RFC 6455 §4.2.2 protocol identifier, not a security decision; usedforsecurity=False makes hashlib treat it that way too
                      usedforsecurity=False).digest()
     ).decode()
 

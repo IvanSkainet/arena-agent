@@ -88,7 +88,7 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     # cannot hang the install indefinitely.
                     import urllib.request as _ur
                     # SSRF-validated via arena.security_ssrf._validate_url (see v4.42.2)
-                    _r = _ur.urlopen(url, timeout=60)  # nosec B310 -- SSRF-validated above
+                    _r = _ur.urlopen(url, timeout=60)  # nosec B310 -- SSRF-validated above  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                     with _r, open(tmp_path, "wb") as _out:
                         # Cap at 128 MiB so a malicious server
                         # streaming /dev/urandom can't fill disk.

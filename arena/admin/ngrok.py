@@ -182,7 +182,7 @@ def _poll_ngrok_url_from_api(timeout: float = 2.0,
     callers that don't care about port-matching.
     """
     try:
-        with urllib.request.urlopen(NGROK_LOCAL_API, timeout=timeout) as resp:
+        with urllib.request.urlopen(NGROK_LOCAL_API, timeout=timeout) as resp:  # nosec B310 -- loopback ngrok API URL (127.0.0.1:4040)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             body = resp.read()
     except (urllib.error.URLError, TimeoutError, OSError):
         return None
@@ -263,7 +263,7 @@ def _apply_authtoken(bin_path: str, subprocess_kwargs: Callable[[], dict[str, An
         return
     try:
         subprocess.run(
-            [bin_path, "config", "add-authtoken", token],
+            [bin_path, "config", "add-authtoken", token],  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
             capture_output=True, timeout=10,
             **subprocess_kwargs(),
         )

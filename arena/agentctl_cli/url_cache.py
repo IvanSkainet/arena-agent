@@ -333,7 +333,7 @@ def save(cfg: dict[str, Any], *, bootstrap_url: str,
         # Tighten the parent directory too -- if we're creating
         # ~/.arena for the first time, don't leave it 0o755.
         try:
-            os.chmod(path.parent, 0o700)
+            os.chmod(path.parent, 0o700)  # nosemgrep: insecure-file-permissions -- 0o700 on a DIRECTORY is the tightest owner-only mode; execute bit here is directory traversal, not file execution
         except OSError:
             pass
         tmp = path.with_suffix(path.suffix + ".tmp")

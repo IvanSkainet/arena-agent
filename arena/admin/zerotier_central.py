@@ -110,7 +110,7 @@ def _request(
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- fixed my.zerotier.com Central API URL
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- fixed my.zerotier.com Central API URL  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             raw = resp.read().decode("utf-8", "replace")
             status = resp.status
     except urllib.error.HTTPError as e:

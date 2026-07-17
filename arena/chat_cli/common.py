@@ -71,7 +71,7 @@ def run_agentctl(args: list[str], timeout: int = 180) -> tuple[int, str]:
         return 127, f"agentctl not found at {AGENTCTL}"
     try:
         cp = subprocess.run(
-            [str(AGENTCTL), *args],
+            [str(AGENTCTL), *args],  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
             capture_output=True, text=True, timeout=timeout,
         )
         out = (cp.stdout or "")

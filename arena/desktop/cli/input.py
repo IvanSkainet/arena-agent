@@ -7,7 +7,7 @@ from arena.desktop.cli.focus import _ensure_wm, _focus_active_window, _focus_win
 def ensure_ydotool():
     if not have('ydotool'): return False
     if run('pgrep -x ydotoold').returncode!=0 and have('ydotoold'):
-        sock=os.environ.get('XDG_RUNTIME_DIR','/run/user/1000')+'/.ydotool_socket'; subprocess.Popen(f'ydotoold --socket-path={shq(sock)} >/tmp/ydotoold.log 2>&1',shell=True)  # nosec B602 -- shq() escapes the socket path; redirection to log requires shell.; time.sleep(.5)
+        sock=os.environ.get('XDG_RUNTIME_DIR','/run/user/1000')+'/.ydotool_socket'; subprocess.Popen(f'ydotoold --socket-path={shq(sock)} >/tmp/ydotoold.log 2>&1',shell=True); time.sleep(.5)  # nosec B602 # nosemgrep: subprocess-shell-true,dangerous-subprocess-use-tainted-env-args -- shq() escapes the socket path; redirection to log requires shell; XDG_RUNTIME_DIR is a system-managed env var not attacker-writable in a legit desktop session
     return True
 
 def move(args):

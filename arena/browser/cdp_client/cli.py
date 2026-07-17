@@ -66,7 +66,7 @@ def main():
         tab_id = sys.argv[2]
         try:
             url = f"http://127.0.0.1:{DEFAULT_PORT}/json/activate/{tab_id}"
-            with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint
+            with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                 result = r.read().decode().strip()
                 if result == "Target activated":
                     print(f"[OK] Tab {tab_id} activated.")

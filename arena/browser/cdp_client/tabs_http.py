@@ -7,7 +7,7 @@ def list_tabs(port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
     """List all browser tabs via the HTTP debug endpoint."""
     url = f"http://127.0.0.1:{port}/json/list"
     try:
-        with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)
+        with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             return json.loads(r.read().decode())
     except Exception:
         return []
@@ -29,13 +29,13 @@ def get_new_tab_url(port: int = DEFAULT_PORT) -> Optional[str]:
     url = f"http://127.0.0.1:{port}/json/new"
     try:
         req = urllib.request.Request(url, method="PUT")
-        with urllib.request.urlopen(req, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)
+        with urllib.request.urlopen(req, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             tab = json.loads(r.read().decode())
             return tab.get("webSocketDebuggerUrl")
     except Exception:
         # Fallback: try GET (some older Chromium versions)
         try:
-            with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)
+            with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                 tab = json.loads(r.read().decode())
                 return tab.get("webSocketDebuggerUrl")
         except Exception:
@@ -45,7 +45,7 @@ def close_tab(tab_id: str, port: int = DEFAULT_PORT) -> bool:
     """Close a tab by its id."""
     url = f"http://127.0.0.1:{port}/json/close/{tab_id}"
     try:
-        with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)
+        with urllib.request.urlopen(url, timeout=5) as r:  # nosec B310 -- loopback CDP endpoint (127.0.0.1:<devtools_port>)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             return r.read().decode().strip() == "Target is closing"
     except Exception:
         return False

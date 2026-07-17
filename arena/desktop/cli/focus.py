@@ -46,8 +46,8 @@ def _ensure_wm():
         if have(wm_cmd):
             # Start WM in background — replace any existing WM
             subprocess.Popen(
-                f'DISPLAY={shq(display)} {wm_cmd} &>/dev/null &',
-                shell=True  # nosec B602 -- shq() quote-escapes DISPLAY; backgrounding via & requires shell.
+                f'DISPLAY={shq(display)} {wm_cmd} &>/dev/null &',  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
+                shell=True  # nosec B602 -- shq() quote-escapes DISPLAY; backgrounding via & requires shell.  # nosemgrep: subprocess-shell-true -- legitimate CLI-side helper (see bandit B602 nosec on the same line for the specific rationale)
             )
             time.sleep(1.5)  # Give WM time to start
             # Verify it started

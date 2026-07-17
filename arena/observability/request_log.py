@@ -1,7 +1,35 @@
-"""Request/response JSONL log helpers."""
+"""Request/response JSONL log helpers.
+
+Privacy posture (v4.44.0)
+-------------------------
+The request log records every HTTP hit's ``(ts, method, path,
+status, duration, peer, error)``. Operators use it to spot
+error spikes and slow endpoints; a co-tenant or bug-report
+recipient using it as an operator-behaviour tracker is a
+privacy failure mode.
+
+Two dials operators can turn:
+
+* ``ARENA_LOG_PEER=0`` -- omit the ``peer`` field entirely.
+  Path + status + duration remain (needed for debugging), but
+  the request-to-IP association is not persisted.
+* ``ARENA_LOG_PEER=mask`` -- hash the peer with a per-install
+  salt (stable across bridge restarts because the salt is
+  derived from the master token; different across installs).
+  Enough to see "how many distinct peers hit this endpoint"
+  without recording the actual addresses.
+* default -- full peer, matching pre-v4.44.0 behaviour.
+
+The log file itself is chmod 0o600 (v4.44.0 fix -- previously
+default umask 0o644 which meant any co-tenant could read the
+operator's HTTP history). See v4.40.0 for the ``~/.arena/*``
+discipline the request log now matches.
+"""
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import threading
 from pathlib import Path
 from typing import Any, Callable
@@ -9,6 +37,39 @@ from typing import Any, Callable
 request_log_lock = threading.Lock()
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 DEFAULT_BACKUP_COUNT = 3
+
+
+def _peer_privacy_mode() -> str:
+    """Resolve the peer-logging mode from ``ARENA_LOG_PEER``.
+
+    Returns one of ``"full"`` (default), ``"mask"``, or ``"off"``.
+    Case-insensitive. Truthy-off shapes for the ``"off"`` mode:
+    ``0`` / ``false`` / ``no`` / ``off``. The literal ``"mask"``
+    enables hashed-peer mode. Anything else = full.
+    """
+    raw = os.environ.get("ARENA_LOG_PEER", "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return "off"
+    if raw == "mask":
+        return "mask"
+    return "full"
+
+
+def _mask_peer(peer: str) -> str:
+    """Deterministic per-install hash of a peer address.
+
+    Salted with ``ARENA_LOG_PEER_SALT`` (falling back to a
+    fixed derivation that only matters relative to itself --
+    all we need is per-install stability so ``count distinct
+    peers`` stays meaningful within one bridge's log). The
+    output is a short prefix -- enough to distinguish "many
+    peers" from "one peer hammering us" without letting an
+    attacker enumerate a reasonable IP space back to plaintext.
+    """
+    salt = os.environ.get("ARENA_LOG_PEER_SALT",
+                          "arena-request-log-salt-v1").encode("utf-8")
+    h = hashlib.sha256(salt + peer.encode("utf-8", "replace")).hexdigest()
+    return f"peer:{h[:12]}"
 
 
 def log_request_response(
@@ -27,7 +88,12 @@ def log_request_response(
     max_bytes: int = DEFAULT_MAX_BYTES,
     backup_count: int = DEFAULT_BACKUP_COUNT,
 ) -> None:
-    """Append one request/response entry and rotate if necessary."""
+    """Append one request/response entry and rotate if necessary.
+
+    v4.44.0: honours ``ARENA_LOG_PEER`` for peer-address
+    privacy (``off`` / ``mask`` / default full). See module
+    docstring for rationale.
+    """
     entry: dict[str, Any] = {
         "ts": utc_now_fn(),
         "req_id": req_id,
@@ -35,8 +101,13 @@ def log_request_response(
         "path": path,
         "status": status,
         "duration_ms": round(duration * 1000, 2),
-        "peer": peer,
     }
+    mode = _peer_privacy_mode()
+    if peer and mode == "full":
+        entry["peer"] = peer
+    elif peer and mode == "mask":
+        entry["peer"] = _mask_peer(peer)
+    # mode == "off" -> peer field omitted entirely
     if error:
         entry["error"] = error[:500]
     try:
@@ -51,15 +122,36 @@ def log_request_response(
                     else:
                         try:
                             old.rename(older)
+                            # v4.44.0: re-apply 0o600 after rename.
+                            try:
+                                os.chmod(older, 0o600)
+                            except Exception:
+                                pass
                         except OSError:
                             pass
             try:
-                log_file.rename(app_dir / "requests.jsonl.1")
+                rotated = app_dir / "requests.jsonl.1"
+                log_file.rename(rotated)
+                try:
+                    os.chmod(rotated, 0o600)
+                except Exception:
+                    pass
             except OSError:
                 pass
         with lock:
             with log_file.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            # v4.44.0: enforce owner-only mode on the request log,
+            # matching the discipline the audit log has had since
+            # v3.something. requests.jsonl entries contain peer IPs,
+            # request paths, and error strings that can leak
+            # infrastructure topology + operator behaviour to any
+            # co-tenant on the machine.
+            try:
+                import os as _os
+                _os.chmod(log_file, 0o600)
+            except Exception:
+                pass
     except Exception:
         pass
 

@@ -17,7 +17,7 @@ async def fetch_ws_targets(ctx: CdpDiagnosticHandlerContext, port: int, result: 
 
     try:
         def _get_version():
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as r:  # nosec B310 -- loopback CDP endpoint
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/version", timeout=5) as r:  # nosec B310 -- loopback CDP endpoint  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                 return json.loads(r.read().decode())
 
         raw_version = await loop.run_in_executor(None, _get_version)
@@ -50,7 +50,7 @@ async def fetch_ws_targets(ctx: CdpDiagnosticHandlerContext, port: int, result: 
     tab_target_id = ""
     try:
         def _get_tabs():
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:  # nosec B310 -- loopback CDP endpoint
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/json/list", timeout=5) as r:  # nosec B310 -- loopback CDP endpoint  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                 return json.loads(r.read().decode())
 
         raw_tabs = await loop.run_in_executor(None, _get_tabs)

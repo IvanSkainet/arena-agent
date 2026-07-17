@@ -19,7 +19,7 @@ downscope by passing a `path=` filter that only returns matching nodes.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
+import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml -- input is gated by DOCTYPE/ENTITY prefix scan in dump_ui (v4.42.0); pulling defusedxml into required deps for one call site would be excessive
 from typing import Any
 
 from arena.mobile.adb import AdbNotFoundError, find_adb, run

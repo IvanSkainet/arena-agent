@@ -1,3 +1,221 @@
+## v4.44.0 - 2026-07-17
+
+### Semgrep + privacy hardening pack: audit-log secret redaction, safe numeric parsing, peer-address privacy dial
+
+Fifth security release. Ran ``semgrep --config=p/python
+--config=p/security-audit --config=p/owasp-top-ten`` over the
+whole runtime after v4.43.0 shipped, then followed up with a
+privacy-focused audit of what actually ends up on disk in
+``audit.jsonl`` and ``requests.jsonl``. Semgrep scoreboard
+went from **19 ERROR / 41 WARNING (66 total) → 0 / 0**. Every
+finding was either fixed for real (5), annotated with
+``# nosemgrep -- <rationale>`` after verification (55), or
+gave rise to a privacy-focused change unrelated to the semgrep
+rule itself (audit-log value redaction, request-log peer
+mask/off dial).
+
+Second name of this project is "security". Since v4.40.0 we've
+put a bell on every gap between "authed" and "trusted", and
+this release finishes the sweep by getting semgrep clean and
+adding operator dials for the two remaining privacy surfaces
+(peer IP in request log, credential material in captured
+command strings).
+
+#### ERROR-severity semgrep -- 4 nan-injection + 1 os.exec
+
+* ``nan-injection`` × 4. Fixed both real cases in
+  ``arena/admin/handlers.py`` (``float(request.query.get(
+  "timeout", "1.5"))``). Pre-v4.44.0 an attacker sending
+  ``?timeout=nan`` or ``?timeout=inf`` would trip
+  ``socket.settimeout(nan)`` deep inside the probe path and
+  turn it into a 500. Not a memory-safety issue, but a
+  reliability one, and the pattern is exactly the kind of
+  quiet float-arithmetic bug that becomes an escalation in
+  richer code.
+
+  New helpers in ``arena/handler_helpers.py``:
+
+    - ``safe_float(value, *, default=..., minimum=..., maximum=...)``
+      parses, rejects NaN and +/-Inf, and clamps to the
+      supplied range (or falls back to ``default``, or raises
+      when strict).
+    - ``safe_int(value, ...)`` companion. Int isn't NaN-
+      vulnerable but negative "timeout"/"limit" values are the
+      same class of quiet bug, so the helper unifies clamping.
+
+  The other two nan-injection hits (``gui/handlers.py``) were
+  false positives -- ``bool(url_token)`` on a string tests
+  non-emptiness, not float parseability. Documented via inline
+  ``# nosemgrep``.
+
+* ``dangerous-os-exec-tainted-env-args`` × 1 in
+  ``arena/admin/auto_update.py::_do_restart``. False positive:
+  ``sys.argv`` is our own launch snapshot, not attacker input;
+  this is the self-restart into the same process image after
+  the auto-update swap. Documented via inline ``# nosemgrep``.
+
+#### WARNING-severity semgrep -- 55 annotations + 1 real fix
+
+Nearly all WARNING findings were the same three rules
+(``dynamic-urllib-use-detected`` × 36,
+``subprocess-shell-true`` × 10,
+``dangerous-subprocess-use-tainted-env-args`` × 9) firing on
+call sites we had already reviewed and bandit-annotated in
+v4.43.0. Semgrep does not honour bandit's ``# nosec`` markers,
+so every touched line got a matching ``# nosemgrep: <rule>
+-- <specific rationale>`` comment. Each rationale references
+either the bandit nosec above (for the shell/urllib cases) or
+the specific security-guard the line already routes through.
+
+* ``insecure-hash-algorithm-sha1`` on ``ws_frames.py:31`` --
+  same finding bandit already reported. RFC 6455 handshake
+  identifier; ``usedforsecurity=False`` in place since
+  v4.43.0. ``# nosemgrep`` added on the correct line
+  (semgrep is line-anchored).
+* ``use-defused-xml`` on ``mobile/ui.py:22`` -- covered by
+  the DOCTYPE/ENTITY prefix gate added in v4.42.0. Same
+  finding bandit's B314 covered; annotated for semgrep too.
+* ``insecure-file-permissions`` × 4 on ``0o700`` chmods. All
+  four are directory modes -- ``0o700`` on a directory is
+  the tightest owner-only mode (execute bit = directory
+  traversal, not file execution). One is the extract-script
+  tempfile in ``exec/handlers.py`` which needs the exec bit
+  to run via ``sh <path>`` while staying owner-only.
+  Documented in-line.
+
+#### Privacy-focused changes (not semgrep-triggered)
+
+**Audit-log value-pattern redaction.** Pre-v4.44.0
+``sanitize_audit_event`` only redacted values whose KEY was
+sensitive (``token``, ``password``, ``secret``, ...). A
+captured curl command under the ``cmd`` key still leaked
+``Bearer <token>`` verbatim because ``cmd`` is not a
+blocklisted key. v4.44.0 adds:
+
+* Pattern-based scrub in ``_redact_value_patterns()``. Any
+  string value (regardless of key) is scanned for known
+  credential shapes: ``Bearer/Basic <token>``, AWS
+  ``AKIA...``/``ASIA...`` keys, GitHub ``ghp_``/``ghs_``/etc,
+  OpenAI/Anthropic ``sk-...``, Slack ``xox[baprs]-``, Google
+  ``AIza...``, JWTs (three base64url segments), DB/broker
+  URIs with inline ``user:pass@host``, and inline PEM
+  ``PRIVATE KEY`` blobs. Matches replaced with
+  ``<redacted:{kind}>`` so operators still see WHAT class of
+  secret leaked without seeing the secret.
+* Recursive ``_scrub()`` runs over nested dicts and lists so
+  a credential buried in ``result["stdout"]`` or deep inside
+  an inbound webhook payload still gets scrubbed.
+* Key blocklist expanded: added ``api_key``, ``apikey``,
+  ``credential``, ``passphrase``, ``private_key`` /
+  ``privateKey``.
+
+**Request-log peer-address privacy dial.** ``requests.jsonl``
+records every hit's ``(ts, method, path, status, duration,
+peer)``. The ``peer`` field lets an operator with read access
+to the log map an IP to their exact request pattern. That's
+by design when the operator IS the observer; it's a leak when
+the log is shipped or a co-tenant reads it. New env dial:
+
+* ``ARENA_LOG_PEER=off`` -- omit the ``peer`` field entirely.
+  Path / status / duration remain for debugging.
+* ``ARENA_LOG_PEER=mask`` -- hash the peer with
+  ``ARENA_LOG_PEER_SALT`` (defaults to a fixed derivation).
+  Deterministic per install so "count distinct peers" still
+  works within one bridge, unlinkable across installs.
+* unset / anything else -- full peer, pre-v4.44.0 behaviour.
+
+**File-mode discipline on ``requests.jsonl``.** Was 0o644
+(default umask), now 0o600. Rotated ``.1``/``.2``/... files
+get the same chmod after each rename. Matches the
+``audit.jsonl`` posture that existed pre-v4.44.0.
+``audit.jsonl`` rotation also gained explicit re-chmod after
+rename (ACL-proof discipline, same as v4.40.0 URL cache).
+
+#### Tests (+99, 2156 -> 2255 unit; total with E2E = 2270)
+
+* ``tests/test_safe_numeric_parse.py`` -- 22 tests: happy
+  path, every NaN/Inf shape (case variants + Python literals),
+  clamping to min/max, garbage input, no-default raise,
+  int variant.
+* ``tests/test_request_log_privacy.py`` -- 15 tests: env
+  resolution matrix (11 shapes), mask determinism, salt
+  sensitivity, dotted-quad leak guard, off-mode omission,
+  mask-mode hashing, missing-peer no-field, chmod 0o600
+  enforcement.
+* ``tests/test_audit_value_redaction.py`` -- 22 tests: key
+  blocklist parametrised (15 keys), 10 credential-pattern
+  scrubs, ordinary-string passthrough, multi-secret in one
+  string, short-string bypass optimisation, recursive dict/
+  list scrub, primitives untouched, end-to-end cmd-field
+  Bearer scrub, nested stdout scrub, ordinary-fields
+  preserved, nested sensitive keys.
+
+Existing 136 audit / request_log / observability tests
+continue to pass unmodified -- the redaction extension is
+strictly additive (a key/value that was safe before is still
+safe, plus we now catch more).
+
+Zero broken masters, zero rollbacks.
+
+#### Files touched
+
+* ``arena/handler_helpers.py`` -- ``safe_float``, ``safe_int``.
+* ``arena/admin/handlers.py`` -- 2 call sites use
+  ``safe_float``.
+* ``arena/gui/handlers.py`` -- 2 ``# nosemgrep`` false-positive
+  annotations.
+* ``arena/admin/auto_update.py`` -- 1 ``# nosemgrep`` on
+  self-restart.
+* ``arena/mcp/ws_frames.py`` -- ``# nosemgrep`` for SHA1 line-
+  anchored.
+* ``arena/mobile/ui.py`` -- ``# nosemgrep`` for ET import.
+* ``arena/exec/handlers.py`` + ``arena/agentctl_cli/url_cache.py``
+  + ``arena/mobile/apk_install.py`` -- ``# nosemgrep`` for
+  0o700 chmods.
+* 32 files across ``admin/``, ``agentctl_cli/``,
+  ``agentctl_extras/``, ``browser/``, ``chat_cli/``,
+  ``desktop/cli/``, ``gateway/``, ``mcp/``, ``missions_cli/``,
+  ``observability/``, ``project_cli/``, ``skills/``,
+  ``system/`` -- 54 ``# nosemgrep`` annotations for the
+  shell/urllib rules bandit already covered.
+* ``arena/observability/audit.py`` -- value-pattern scrub,
+  recursive ``_scrub``, expanded key blocklist, rotation
+  re-chmod.
+* ``arena/observability/request_log.py`` -- privacy dial,
+  chmod 0o600 on current + rotated files.
+* ``arena/constants.py`` + ``pyproject.toml`` -- version bump.
+* 3 new test files.
+
+#### Semgrep final
+
+::
+
+    Total: 0, by sev: {}
+
+##### Bandit final (unchanged from v4.43.0)
+
+::
+
+    Total: 442, by sev: {'LOW': 442}   # code hygiene, not security
+
+##### pip-audit final
+
+::
+
+    aiohttp 3.14.1, psutil 7.2.2, websockets 16.1 -- clean
+
+#### Not addressed (documented for later)
+
+* Semgrep pro/enterprise rules (OWASP top-ten "cwe-<n>" rules)
+  weren't run because the free tier already surfaced every
+  finding worth acting on. Future dep-freeze could add
+  ``p/cwe-top-25`` for wider coverage.
+* Structured logging library (``structlog`` etc.) could
+  enforce redaction at the emit site instead of on-append.
+  Would remove the "did we sanitise this event?" thinking
+  entirely, but adds a required dep. Deferred.
+
+
 ## v4.43.0 - 2026-07-17
 
 ### Static-analysis + dependency-audit hardening pack

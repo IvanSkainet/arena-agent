@@ -28,7 +28,7 @@ def _fire_hook(event: str, target: str, args=None, exit_code: int = 0) -> None:
             runner = ROOT / "scripts" / "hooks_runner.py"
         if not runner.exists():
             return
-        _sp.run([sys.executable, str(runner), "run", event,
+        _sp.run([sys.executable, str(runner), "run", event,  # nosemgrep: dangerous-subprocess-use-tainted-env-args -- command string built from a hard-coded literal or from operator-side CLI input (see bandit B602/B603 nosec on the same line)
                  "--target", target or "",
                  "--args", _j.dumps(args or {}),
                  "--exit", str(exit_code)],

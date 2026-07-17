@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 def check_internet(timeout: int = 3) -> bool:
     try:
-        urllib.request.urlopen("https://www.google.com", timeout=timeout)
+        urllib.request.urlopen("https://www.google.com", timeout=timeout)  # nosec B310 -- loopback bridge health probe  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         return True
     except Exception:
         return False

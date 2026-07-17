@@ -31,7 +31,7 @@ from arena.admin.tunnels import (
     tunnels_probe,
 )
 from arena.handler_context import AdminHandlerContext
-from arena.handler_helpers import authed
+from arena.handler_helpers import authed, safe_float
 
 
 @dataclass(frozen=True)
@@ -372,10 +372,14 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         # Query params: ?timeout=SECONDS overrides the default 1.5s
         # per-provider TCP timeout (agents can dial it down when
         # polling frequently, or up on high-latency links).
-        try:
-            timeout = float(request.query.get("timeout", "1.5"))
-        except (TypeError, ValueError):
-            timeout = 1.5
+        # v4.44.0: safe_float rejects NaN/Inf and clamps to a
+        # reasonable range so a query-string ``?timeout=nan`` cannot
+        # trip a socket.settimeout(nan) 500 downstream (see semgrep
+        # nan-injection rule).
+        timeout = safe_float(
+            request.query.get("timeout", "1.5"),
+            default=1.5, minimum=0.05, maximum=30.0,
+        )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(
             ctx.executor,
@@ -469,10 +473,14 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         """
         cfg = request.app[APP_CFG]
         port = cfg.get("port", 8765)
-        try:
-            timeout = float(request.query.get("timeout", "1.5"))
-        except (TypeError, ValueError):
-            timeout = 1.5
+        # v4.44.0: safe_float rejects NaN/Inf and clamps to a
+        # reasonable range so a query-string ``?timeout=nan`` cannot
+        # trip a socket.settimeout(nan) 500 downstream (see semgrep
+        # nan-injection rule).
+        timeout = safe_float(
+            request.query.get("timeout", "1.5"),
+            default=1.5, minimum=0.05, maximum=30.0,
+        )
         loop = asyncio.get_running_loop()
         probe = await loop.run_in_executor(
             ctx.executor,

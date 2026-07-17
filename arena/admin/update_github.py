@@ -62,7 +62,7 @@ def http_get_json(url: str) -> Any:
     if tok:
         headers["Authorization"] = f"Bearer {tok}"
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com URL for release lookup
+    with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com URL for release lookup  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
         return json.loads(resp.read().decode("utf-8"))
 
 
@@ -107,7 +107,7 @@ def fetch_asset_size(asset_url: str) -> int | None:
                 req2 = urllib.request.Request(
                     loc, method="HEAD",
                     headers={"User-Agent": _user_agent()})
-                resp2 = urllib.request.urlopen(req2, timeout=_HTTP_TIMEOUT)  # nosec B310 -- fixed api.github.com URL for release lookup
+                resp2 = urllib.request.urlopen(req2, timeout=_HTTP_TIMEOUT)  # nosec B310 -- fixed api.github.com URL for release lookup  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                 cl = resp2.headers.get("Content-Length")
                 return int(cl) if cl else None
             return None
@@ -148,7 +148,7 @@ def fetch_changelog_section(repo: str, tag: str,
         try:
             req = urllib.request.Request(
                 url, headers={"User-Agent": _user_agent()})
-            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com URL for release lookup
+            with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT) as resp:  # nosec B310 -- fixed api.github.com URL for release lookup  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
                 text = resp.read().decode("utf-8", "replace")
         except Exception:
             continue

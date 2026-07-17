@@ -301,7 +301,7 @@ def download_release(*, asset_url: str, asset_name: str,
                         asset_url=asset_url)
         req = urllib.request.Request(asset_url, headers={"User-Agent": _USER_AGENT})
         _MAX = 512 * 1024 * 1024
-        with urllib.request.urlopen(req, timeout=60) as resp, zip_path.open("wb") as out:  # nosec B310 -- SSRF-validated above; scheme forced to http/https by _validate_url
+        with urllib.request.urlopen(req, timeout=60) as resp, zip_path.open("wb") as out:  # nosec B310 -- SSRF-validated above; scheme forced to http/https by _validate_url  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             written = 0
             while True:
                 chunk = resp.read(1 << 20)
@@ -529,6 +529,7 @@ def restart_process(*, delay_sec: float = 0.5) -> dict[str, Any]:
     def _do_restart():
         time.sleep(max(0.05, delay_sec))
         try:
+            # nosemgrep: dangerous-os-exec-tainted-env-args -- sys.argv is our own launch argv snapshot, not attacker input; this is a self-restart into the same process image after the auto-update swap.
             os.execv(sys.executable, [sys.executable, *sys.argv])
         except Exception:
             os._exit(0)
