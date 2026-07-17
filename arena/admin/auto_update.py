@@ -327,10 +327,20 @@ _WIN = platform.system().lower() == "windows"
 
 def _extract(zip_path: Path, dest: Path) -> Path:
     """Extract the zip and return the top-level directory inside it
-    (release zips wrap everything in `arena-agent/`)."""
+    (release zips wrap everything in `arena-agent/`).
+
+    v4.42.2: routed through ``arena.files.safe_extract.safe_extract_zip``
+    which rejects path-traversal / symlink / zip-bomb archives
+    before writing any byte. The auto-update flow downloads the
+    zip from a GitHub release URL that has already passed a
+    signature-ish check (via the update endpoint's URL allowlist),
+    but relying on ``ZipFile.extractall`` alone means one
+    compromise upstream would turn every arena bridge into a
+    remote code execution vector. Belt+suspenders.
+    """
+    from arena.files.safe_extract import safe_extract_zip
     dest.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path) as zf:
-        zf.extractall(dest)
+    safe_extract_zip(zip_path, dest)
     # Find the single top-level directory.
     entries = [p for p in dest.iterdir() if p.is_dir()]
     if len(entries) == 1:

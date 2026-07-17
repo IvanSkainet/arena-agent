@@ -41,24 +41,60 @@ def install_skill(name: str, url: str, *, skills_dir: Path) -> dict[str, Any]:
                     else:
                         return {"ok": False, "error": f"zip file not found: {local_p}"}
                 else:
-                    urllib.request.urlretrieve(url, tmp_path)
+                    # v4.42.2: route external URLs through the
+                    # SSRF guard so ``install skill`` cannot be
+                    # used as a probe into internal networks
+                    # (metadata IMDS, private subnets, ...).
+                    # Skills that legitimately live on local
+                    # LAN can use ``file://`` -- that branch is
+                    # above and unchanged.
+                    from arena.security_ssrf import _validate_url
+                    ssrf_err = _validate_url(url)
+                    if ssrf_err:
+                        return {"ok": False,
+                                "error": f"skill URL rejected: {ssrf_err}"}
+                    # Add a small timeout so a hostile server
+                    # cannot hang the install indefinitely.
+                    import urllib.request as _ur
+                    with _ur.urlopen(url, timeout=60) as _r, \
+                            open(tmp_path, "wb") as _out:
+                        # Cap at 128 MiB so a malicious server
+                        # streaming /dev/urandom can't fill disk.
+                        _total = 0
+                        _MAX = 128 * 1024 * 1024
+                        while True:
+                            chunk = _r.read(64 * 1024)
+                            if not chunk:
+                                break
+                            _total += len(chunk)
+                            if _total > _MAX:
+                                return {"ok": False,
+                                        "error": "skill zip exceeded 128 MiB size cap"}
+                            _out.write(chunk)
+                # v4.42.2: switched from zip_ref.extractall(...)
+                # to safe_extract_zip(), which rejects
+                # path-traversal / symlink / zip-bomb archives
+                # before writing any byte. Skill zips come from
+                # arbitrary URLs the user supplies -- treating
+                # them as fully trusted was optimistic.
+                from arena.files.safe_extract import safe_extract_zip
                 with zipfile.ZipFile(tmp_path, "r") as zip_ref:
                     non_junk_names = [
                         p for p in zip_ref.namelist()
                         if p and not any(part.startswith(".") or part in ("__MACOSX", "desktop.ini", "Thumbs.db") for part in p.split("/"))
                     ]
                     root_names = set(p.split("/")[0] for p in non_junk_names if p)
-                    if len(root_names) == 1:
-                        root = list(root_names)[0]
-                        temp_ext = target_dir.parent / (name + "_temp")
-                        zip_ref.extractall(temp_ext)
-                        if (temp_ext / root).exists():
-                            os.rename(temp_ext / root, target_dir)
-                        else:
-                            zip_ref.extractall(target_dir)
-                        shutil.rmtree(temp_ext, ignore_errors=True)
+                if len(root_names) == 1:
+                    root = list(root_names)[0]
+                    temp_ext = target_dir.parent / (name + "_temp")
+                    safe_extract_zip(tmp_path, temp_ext)
+                    if (temp_ext / root).exists():
+                        os.rename(temp_ext / root, target_dir)
                     else:
-                        zip_ref.extractall(target_dir)
+                        safe_extract_zip(tmp_path, target_dir)
+                    shutil.rmtree(temp_ext, ignore_errors=True)
+                else:
+                    safe_extract_zip(tmp_path, target_dir)
             finally:
                 if tmp_path:
                     try:

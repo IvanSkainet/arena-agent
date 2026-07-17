@@ -1,3 +1,121 @@
+## v4.42.2 - 2026-07-17
+
+### Zip-slip / zip-bomb / SSRF-in-skill-install hardening
+
+Второй sweep всего runtime после v4.42.1. Этот закрывает
+archive-extraction и download-URL issues, от которых Python's
+stdlib не защищает по умолчанию. Каждый фикс наслаивается на
+существующую v4.42.1 sandbox posture, тот же
+"belt+suspenders" паттерн.
+
+#### HIGH -- Zip-slip в двух горячих extraction путях
+
+**Проблема.** ``arena/admin/auto_update.py::_extract``
+(auto-update flow, устанавливающий скачанный arena-agent
+release) и ``arena/skills/install.py`` (skills marketplace
+installer) оба вызывали ``zipfile.ZipFile.extractall(dest)``.
+Python's stdlib не проверяет archive members на path traversal
+(CVE-2007-4559 / PEP 706, всё ещё open для zip после того как
+PEP 706 адресовал только tar). Hostile archive с member
+``../../etc/systemd/user/backdoor.service`` пишет куда
+bridge user может достать.
+
+Auto-update path был частично защищён URL allowlist на
+update endpoint, но полагаться на один gate превращает любую
+upstream компрометацию в RCE на каждом arena bridge. Skills
+installer берёт URL от authed caller напрямую -- нулевая
+защита.
+
+**Фикс.** Новый модуль ``arena/files/safe_extract.py``.
+``safe_extract_zip(zip_path, dest)`` делает:
+
+* pre-scan каждого member name до записи любого байта;
+* reject absolute paths (POSIX и Windows drive-letter);
+* reject любого member с ``..`` в parts, включая sneaky
+  ``prefix/../../../etc/x`` формы;
+* reject symlink members (проверяется через S_IFLNK в
+  high 16 bits ``external_attr``);
+* reject NUL bytes в member names;
+* cap total uncompressed size (default 4 GiB) и per-member
+  size (default 1 GiB) чтобы defeat zip bombs;
+* post-check каждого extracted path через ``resolve()``-
+  relative-to-dest, так что filesystem-quirk-based escapes
+  (case-insensitive FS, unicode-normalisation traps) всё
+  ещё пойманы.
+
+Оба call site (``auto_update._extract``,
+``skills/install.py`` все три ``extractall`` вызова)
+теперь идут через helper.
+
+**Гарантия:** если ``safe_extract_zip`` raise'ит
+``UnsafeArchiveError``, ни один member не был записан --
+two-pass design полностью валидирует до trogaния disk.
+
+#### MEDIUM -- APK manifest read не имел size cap
+
+``arena/mobile/apk_install.py`` читает
+``AndroidManifest.xml`` из uploaded APK чтобы извлечь
+package name. Uncapped: hostile APK с 2 GiB manifest'ом
+раздул бы bridge memory во время package-name lookup.
+Роутится через ``read_zip_member_safe(..., max_bytes=16 MiB)``
+-- реальные Android manifest'ы single-digit KiB, 16 MiB это
+три порядка над реальностью.
+
+#### MEDIUM -- Skill installer SSRF-open
+
+``skills/install.py::install_skill`` передавал user-supplied
+URL прямо в ``urllib.request.urlretrieve`` без валидации и
+без timeout. Любой authed caller мог зондировать internal
+networks (metadata IMDS, private subnets) через skill-install
+path. Теперь роутится через
+``arena.security_ssrf._validate_url`` (тот же guard, что
+browser-fetch endpoints используют с v3.something), плюс
+60-секундный timeout, плюс cap download size на 128 MiB,
+чтобы hostile сервер не мог забить disk, streaming random
+bytes.
+
+#### Тесты (+14 новых, 2137 -> 2151; total с E2E = 2166)
+
+* ``tests/test_safe_extract.py`` -- 14 тестов: happy path
+  extract, absolute-path rejection, ``..`` traversal, mid-
+  path ``..``, Windows drive-letter, backslash-normalised
+  traversal, NUL byte, symlink member rejection, per-member
+  size cap, total-size cap, atomic no-partial-write
+  guarantee, ``read_zip_member_safe`` ordinary read + cap +
+  NUL guard.
+* Существующие 53 skills / install теста продолжают
+  проходить без модификации.
+
+Zero broken masters, zero rollbacks.
+
+#### Тронутые файлы
+
+* ``arena/files/safe_extract.py`` -- НОВЫЙ, 190 строк.
+* ``arena/admin/auto_update.py`` -- ``_extract`` идёт
+  через ``safe_extract_zip``.
+* ``arena/skills/install.py`` -- три ``extractall`` sites
+  идут через helper; ``urlretrieve`` заменён на bounded
+  ``urlopen`` + SSRF guard.
+* ``arena/mobile/apk_install.py`` -- AndroidManifest.xml
+  read через ``read_zip_member_safe``.
+* ``arena/constants.py`` + ``pyproject.toml`` -- version
+  bump 4.42.1 -> 4.42.2.
+
+#### Не адресовано (задокументировано на потом)
+
+* Skill install сейчас применяет SSRF-guard только на
+  ``http(s)://`` ветви; ``file://`` bypass'ит его
+  (оставлен intentional для local skill dev, но помечен).
+* ``arena/admin/auto_update.py`` всё ещё использует
+  ``urllib.request.urlretrieve`` для release download.
+  Тот же treatment как skills затянул бы это; отложено,
+  потому что update-endpoint URL allowlist уже даёт
+  первую линию защиты.
+* ``requests.jsonl`` audit log rotation всё ещё создаёт
+  файлы 0o644 по умолчанию; должно быть 0o600 чтобы matched
+  ``~/.arena/*`` discipline.
+
+
 ## v4.42.1 - 2026-07-17
 
 ### Точечный фикс: закрываем exists-vs-blocked side channel в fs.download

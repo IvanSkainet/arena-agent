@@ -334,11 +334,26 @@ def _extract_package_name(apk_bytes: bytes) -> str | None:
     `raw_value_idx` pointing at "com.example" in the string pool.
     """
     import zipfile
+    # v4.42.2: read AndroidManifest.xml through
+    # ``read_zip_member_safe`` which caps the declared member
+    # size. A hostile APK with a 2 GiB manifest would otherwise
+    # bloat bridge memory during package-name lookup.
+    from arena.files.safe_extract import (
+        UnsafeArchiveError,
+        read_zip_member_safe,
+    )
     try:
         with zipfile.ZipFile(io_bytes(apk_bytes), "r") as z:
             try:
-                manifest = z.read("AndroidManifest.xml")
-            except KeyError:
+                # 16 MiB manifest cap -- real Android manifests
+                # are single-digit KiB; a few tens of KiB in
+                # complex apps. 16 MiB is 3 orders of magnitude
+                # over reality.
+                manifest = read_zip_member_safe(
+                    z, "AndroidManifest.xml",
+                    max_bytes=16 * 1024 * 1024,
+                )
+            except (KeyError, UnsafeArchiveError):
                 return None
     except Exception:
         return None
