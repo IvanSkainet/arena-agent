@@ -1,3 +1,75 @@
+## v4.48.7 -- Dashboard hotfix: manifest retry + fallback + layout overflow guard
+
+Live-reported after v4.48.6:
+
+* `Dashboard boot failed: asset manifest empty and no fallback list
+  configured.` shown on repeated reload, forcing the user to hard-refresh
+  several times before the Dashboard came up.
+* Transports and Live tabs "slid to the right" so their content was
+  partially cut off / the sidebar visually offset.
+* An alleged 1.4 GB memory leak in the bridge process. Confirmed with
+  6 x 5-second RSS samples: RSS is stable at ~80 MB, systemd cgroup
+  Memory is 215 MB (bridge + bore + cloudflared + ngrok combined).
+  The 1.4 GB figure is `VmSize` (virtual memory: 18 threads x stack
+  reservation + mmapped shared libraries + asyncio buffer pools),
+  which for a threaded Python process on GNU/Linux is always much
+  larger than actual RAM in use and is not a leak. No code change
+  required for this one -- documenting here so it doesn't come back
+  as a "regression".
+
+### Fixed
+
+* **Dashboard shell now retries the manifest fetch 3 times** with
+  250/500 ms backoff, mirroring the existing `<script>` retry loop
+  from v3.85.3. Chromium occasionally 0-reads a reused HTTP/1.1
+  connection and the first `fetch("/gui/assets/manifest.json")`
+  resolves `!res.ok` even though the second attempt sails through.
+* **Sync fallback list embedded in the shell.** If the manifest
+  endpoint is genuinely unreachable (bridge partially upgraded,
+  reverse proxy misconfigured, etc.) the Dashboard now still boots
+  with the 5 entry scripts (`00-core`, `00-tabs-registry`,
+  `01-tab-switching`, `02-api-helper`, `03-helpers`) + the shell
+  body, and surfaces an orange top-of-page banner telling the
+  operator to reload. Before: bare `<pre>` with just the error
+  string.
+* **`.main` layout no longer overflows horizontally.** Added
+  `min-width:0;overflow-x:hidden;max-width:100%` to `.main` and
+  `.main .tab` in `dashboard.css`. Root cause: the flex child
+  defaulted to `min-width:auto`, and `#tab-transports .tr-grid`
+  uses `grid-template-columns:repeat(auto-fit,minmax(340px,1fr))`
+  which then resolves to content-width and blows past 100 vw on
+  narrow viewports (laptop with sidebars, tablet split-screen).
+
+### Regression guards
+
+Five new asserts in `tests/test_dashboard_boot_hardening.py`:
+
+* manifest fetch must live inside a retryable helper with 3
+  attempts and exponential backoff
+* `SYNC_FALLBACK_SCRIPTS` / `SYNC_FALLBACK_BODIES` must list the
+  five entry scripts + body-00-shell
+* `ARENA_DASHBOARD_USING_FALLBACK` flag + visible warning banner
+  must be present
+* `dashboard.css` must contain the exact `.main` and `.main .tab`
+  overflow-clamp rules
+* the "asset manifest empty" bail-out message stays as the
+  last-resort branch for code review greppability
+
+### Not changed
+
+Extension (0.14.6) is deliberately unchanged in this release. Live
+Grok / DuckAI / Qwen data is needed before another iteration on the
+user-authored filter and Qwen toolbar position -- guessing without
+`events_recent` output regressed us in v4.48.5 and v4.48.6.
+
+### Files touched
+
+* `dashboard/index.html` -- 99 -> 175 lines (retry + fallback + banner)
+* `dashboard/assets/dashboard.css` -- 109 -> 119 lines (2 appended rules)
+* `tests/test_dashboard_boot_hardening.py` -- new, 5 asserts
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.48.6 - 2026-07-17
 
 ### Chrome extension — root-cause fix for Grok / DuckAI + Qwen toolbar overlap

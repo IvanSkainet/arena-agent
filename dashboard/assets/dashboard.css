@@ -107,3 +107,13 @@ pre.mono-inset{background:var(--surface-inset);color:var(--green);padding:6px;ma
 .md-render-in-pre a{color:var(--blue);text-decoration:underline}
 .md-render-in-pre strong{color:var(--text);font-weight:600}
 .md-render-in-pre hr{border:0;border-top:1px solid var(--accent);margin:8px 0}
+/* v4.48.7 -- horizontal-overflow guard for the main content area.
+   Before: flex row (body -> .sidebar + .main). Default child
+   min-width was `auto`, so any grid card with `minmax(340px,1fr)`
+   or a wide table would push .main past 100vw and shift the whole
+   sidebar visually leftward ("Transports and Live tabs slide to the
+   right" report from live testing). Adding min-width:0 + overflow-x
+   :hidden lets the grid actually respect its 1fr constraint and
+   collapse gracefully on narrow viewports. */
+.main{min-width:0;overflow-x:hidden;max-width:100%}
+.main .tab{max-width:100%;min-width:0}

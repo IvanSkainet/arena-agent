@@ -23,28 +23,86 @@ window.ARENA_HOST = "{{HOST}}";
 
   // v3.91.0: script + body lists come from the server manifest
   // (auto-generated from the assets directory) instead of being
-  // hardcoded here. Falls back to the legacy hardcoded pair only
-  // if the manifest endpoint is unreachable so a partially-upgraded
-  // bridge still boots.
-  let manifest = null;
-  try {
-    const res = await fetch("/gui/assets/manifest.json" + cacheBust,
-                            {cache: "no-store"});
-    if (res.ok) manifest = await res.json();
-  } catch (_e) { /* fall through to fallback */ }
+  // hardcoded here.
+  //
+  // v4.48.7: two hardening fixes for repeated-reload boot failures
+  // reported live ("Dashboard boot failed: asset manifest empty and
+  // no fallback list configured."):
+  //   1. Retry manifest fetch up to 3x with 250/500 ms backoff --
+  //      Chrome intermittently 0-reads a reused connection and the
+  //      first fetch resolves !res.ok even though the second call
+  //      sails through (same class of bug as script-tag onerror
+  //      that already had its own retry).
+  //   2. Ship a *sync* minimal fallback (just body-00-shell.html +
+  //      the two entry scripts needed for the tab registry) so
+  //      even if the manifest endpoint is genuinely down the shell
+  //      renders and the user sees a real error next to a real
+  //      sidebar instead of a bare <pre>.
+  async function fetchManifest() {
+    const attempts = 3;
+    let lastErr = null;
+    for (let i = 1; i <= attempts; i++) {
+      try {
+        const res = await fetch("/gui/assets/manifest.json" + cacheBust,
+                                {cache: "no-store"});
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.scripts) && data.scripts.length) return data;
+          lastErr = new Error("manifest ok but scripts=[]");
+        } else {
+          lastErr = new Error("manifest HTTP " + res.status);
+        }
+      } catch (e) { lastErr = e; }
+      if (i < attempts) {
+        await new Promise(r => setTimeout(r, 250 * i));
+      }
+    }
+    console.warn("[arena] manifest fetch failed after " + attempts +
+                 " tries: " + (lastErr && lastErr.message));
+    return null;
+  }
+  const manifest = await fetchManifest();
 
-  const scripts = (manifest && Array.isArray(manifest.scripts))
+  // Synchronous last-resort fallback: enough to render the shell
+  // + tab registry + api helpers. Ships as a *string list* so it
+  // works even when /gui/assets/manifest.json 500s. Deliberately
+  // narrow -- the goal is "user sees the sidebar and a real error
+  // message", not "every tab works offline". Full functionality
+  // still requires the manifest.
+  const SYNC_FALLBACK_SCRIPTS = [
+    "/gui/assets/00-core.js",
+    "/gui/assets/00-tabs-registry.js",
+    "/gui/assets/01-tab-switching.js",
+    "/gui/assets/02-api-helper.js",
+    "/gui/assets/03-helpers.js",
+  ];
+  const SYNC_FALLBACK_BODIES = [
+    "/gui/assets/body-00-shell.html",
+  ];
+
+  const scripts = (manifest && Array.isArray(manifest.scripts) && manifest.scripts.length)
     ? manifest.scripts
-    : (window.ARENA_FALLBACK_SCRIPTS || []);
-  const bodyParts = (manifest && Array.isArray(manifest.bodies))
+    : (Array.isArray(window.ARENA_FALLBACK_SCRIPTS) && window.ARENA_FALLBACK_SCRIPTS.length
+        ? window.ARENA_FALLBACK_SCRIPTS
+        : SYNC_FALLBACK_SCRIPTS);
+  const bodyParts = (manifest && Array.isArray(manifest.bodies) && manifest.bodies.length)
     ? manifest.bodies
-    : (window.ARENA_FALLBACK_BODIES || ['/gui/assets/body-00-shell.html']);
+    : (Array.isArray(window.ARENA_FALLBACK_BODIES) && window.ARENA_FALLBACK_BODIES.length
+        ? window.ARENA_FALLBACK_BODIES
+        : SYNC_FALLBACK_BODIES);
 
   if (!scripts.length) {
     document.body.innerHTML =
       "<pre style='color:#e94560;padding:2rem'>Dashboard boot failed: "
       + "asset manifest empty and no fallback list configured.</pre>";
     return;
+  }
+
+  // Warn the user when we're running on the sync-fallback list --
+  // most tabs will be missing and they should know why.
+  const usingFallback = !(manifest && manifest.scripts && manifest.scripts.length);
+  if (usingFallback) {
+    console.warn("[arena] booting from sync fallback -- most tabs unavailable");
   }
 
   const bodyHtml = await Promise.all(bodyParts.map(async p =>
@@ -64,6 +122,7 @@ window.ARENA_HOST = "{{HOST}}";
 
   // Expose the effective list for debugging / tests.
   window.ARENA_DASHBOARD_SCRIPTS = scripts;
+  window.ARENA_DASHBOARD_USING_FALLBACK = usingFallback;
 
   for (const src of scripts) {
     // v3.85.3: retry twice on transient load failure. Chrome
@@ -90,6 +149,18 @@ window.ARENA_HOST = "{{HOST}}";
       }
     }
     if (!loaded) throw lastErr;
+  }
+
+  if (usingFallback) {
+    // Surface a subtle warning banner once the shell is up so the
+    // user knows to check the manifest endpoint.
+    const warn = document.createElement("div");
+    warn.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;"
+      + "background:#ff9800;color:#000;padding:6px 12px;font-size:12px;"
+      + "font-family:system-ui,sans-serif;text-align:center";
+    warn.textContent = "Dashboard booted in fallback mode -- /gui/assets/manifest.json unreachable. "
+      + "Only the shell is loaded; reload to retry.";
+    document.body.appendChild(warn);
   }
 })().catch(err => {
   document.body.innerHTML = "<pre style='color:#e94560;padding:2rem'>Dashboard boot failed: " + String(err) + "</pre>";

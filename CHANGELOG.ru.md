@@ -1,3 +1,74 @@
+## v4.48.7 -- Хотфикс Dashboard: retry манифеста + fallback + фикс горизонтального overflow
+
+Живые репорты после v4.48.6:
+
+* `Dashboard boot failed: asset manifest empty and no fallback list
+  configured.` появляется при повторных перезагрузках, приходится
+  жёстко обновлять несколько раз чтобы Dashboard поднялся.
+* Вкладки Transports и Live "уезжают вправо", контент частично
+  обрезан / сайдбар визуально смещён.
+* Якобы утечка памяти на 1,4 ГБ в мосте. Проверил 6-ю замерами RSS
+  с шагом 5 секунд: RSS стабильно ~80 МБ, systemd cgroup Memory =
+  215 МБ (мост + bore + cloudflared + ngrok вместе). 1,4 ГБ -- это
+  `VmSize` (виртуальная память: 18 потоков x зарезервированный
+  stack + mmap-ные разделяемые библиотеки + пулы буферов asyncio),
+  что для многопоточного Python на GNU/Linux всегда сильно больше
+  реального RAM и утечкой не является. Кода не трогал -- фиксирую
+  здесь, чтобы это не всплывало заново как "регрессия".
+
+### Исправлено
+
+* **Оболочка дашборда теперь ретраит fetch манифеста 3 раза** с
+  задержкой 250/500 мс, повторяя логику ретрая `<script>` тегов
+  из v3.85.3. Chromium иногда получает 0 байт при переиспользовании
+  HTTP/1.1-коннекта, и первый `fetch("/gui/assets/manifest.json")`
+  резолвится как `!res.ok`, хотя второй запрос уже проходит.
+* **Синхронный fallback-список встроен в оболочку.** Если endpoint
+  манифеста действительно недоступен (частично обновлённый мост,
+  сломанная reverse-proxy и т.п.), Dashboard теперь всё равно
+  поднимется с 5 обязательными скриптами (`00-core`, `00-tabs-registry`,
+  `01-tab-switching`, `02-api-helper`, `03-helpers`) + телом шелла,
+  и покажет оранжевую полосу сверху, требующую перезагрузки.
+  Раньше был голый `<pre>` с одной строкой ошибки.
+* **Раскладка `.main` больше не переполняется по горизонтали.**
+  Добавил `min-width:0;overflow-x:hidden;max-width:100%` для `.main`
+  и `.main .tab` в `dashboard.css`. Корень: flex-ребёнок по
+  умолчанию получает `min-width:auto`, а `#tab-transports .tr-grid`
+  использует `grid-template-columns:repeat(auto-fit,minmax(340px,1fr))`,
+  что резолвится до ширины контента и вылетает за 100vw на узких
+  вьюпортах (ноутбук с боковыми панелями, планшет в split-screen).
+
+### Регрессионные guard-тесты
+
+Пять новых asserts в `tests/test_dashboard_boot_hardening.py`:
+
+* fetch манифеста должен жить в retryable-хелпере с 3 попытками и
+  экспоненциальной задержкой
+* `SYNC_FALLBACK_SCRIPTS` / `SYNC_FALLBACK_BODIES` должны содержать
+  пять entry-скриптов + body-00-shell
+* флаг `ARENA_DASHBOARD_USING_FALLBACK` + видимый предупреждающий
+  баннер должны присутствовать
+* `dashboard.css` должен содержать точные правила overflow-clamp
+  для `.main` и `.main .tab`
+* сообщение "asset manifest empty" остаётся как последняя ветка --
+  для findability в code review
+
+### Не менялось
+
+Extension (0.14.6) в этом релизе намеренно не трогаю. Нужны свежие
+данные Grok / DuckAI / Qwen (events_recent + скриншот) прежде чем
+делать очередную итерацию фильтра user-authored и позиции тулбара
+Qwen -- гадать без реальных данных нас уже подводило в v4.48.5 и
+v4.48.6.
+
+### Изменённые файлы
+
+* `dashboard/index.html` -- 99 -> 175 строк (retry + fallback + баннер)
+* `dashboard/assets/dashboard.css` -- 109 -> 119 строк (2 добавленных правила)
+* `tests/test_dashboard_boot_hardening.py` -- новый, 5 asserts
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.48.6 - 2026-07-17
 
 ### Chrome-расширение — root-cause fix для Grok / DuckAI + Qwen toolbar overlap
