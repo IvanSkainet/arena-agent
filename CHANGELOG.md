@@ -1,3 +1,80 @@
+## v4.48.8 -- Dashboard self-DoS fix: exempt static assets from rate limiter + immutable caching
+
+Live-reported after v4.48.7:
+
+    Dashboard boot failed: Error: Failed to load /gui/assets/00-core.js
+    {"ok": false, "error": "rate limit exceeded", "retry_after_s": 0.4}
+
+This is what the "1.4 GB memory leak" was actually caused by (the
+1.4 GB was VmSize as documented in v4.48.7 -- but the Dashboard
+being unable to load after 3-4 reloads made the process LOOK
+broken). Root cause was staring at me the whole time:
+
+* One Dashboard reload = **58 JS files + 22 body HTML fragments +
+  manifest + a handful of REST calls = ~85 requests**.
+* Every static asset was served with `Cache-Control: no-store`, so
+  Chromium re-downloaded all of them on every reload.
+* The per-IP rate limiter is **300 requests / 60 seconds**.
+* After 3-4 reloads in a minute the shell got HTTP 429 responses
+  for random `.js` files. The v3.85.3 script-tag retry loop tried
+  three times, but the rate limiter's 60-second window meant the
+  retries were still throttled. Result: cascading boot failure.
+
+### Fixed
+
+* **`/gui/assets/*` and `/gui/docs/*` exempted from the rate
+  limiter.** These paths serve read-only static files with strict
+  path-traversal guards and cannot mutate any state. The auth /
+  API / mutation endpoints stay rate-limited. Change in
+  `arena/errors.py::error_middleware` -- one `_RL_SKIP_PREFIXES`
+  tuple and a `startswith` check gate the existing rate-limit
+  call.
+* **Static asset `Cache-Control` changed from `no-store` to
+  `public, max-age=3600, immutable`.** The asset URLs already carry
+  a `?v={{VERSION}}` cache-buster (see `dashboard/index.html`), so
+  any real upgrade forces a fresh fetch. Reloads within the same
+  version now hit the browser cache -- one reload after the first
+  costs ~1 request (the HTML shell itself), not 85. Change in
+  `arena/gui/handlers.py::handle_gui_asset`.
+
+### Regression guards
+
+Four new asserts in `tests/test_dashboard_asset_rate_limit_exemption.py`:
+
+* `/gui/assets/` and `/gui/docs/` MUST be in the skip-prefix tuple
+* the pre-existing exempt paths (`/health`, `/metrics`, `/gui`,
+  `/favicon.ico`, `/api-docs`) MUST still be listed, and the
+  rate-limit call MUST still fire for non-exempt paths
+* `handle_gui_asset` MUST send `public, max-age=3600, immutable`
+* the old bare `Cache-Control: no-store` `FileResponse(...)` call
+  MUST NOT come back
+
+### What this does NOT touch
+
+Chrome extension stays at 0.14.6. Fresh Scan Page data from
+Grok / DuckAI / Qwen (which the operator provided in this session)
+shows the v4.48.6 filter is working -- toolbars mount, but display
+issues differ per site and need a dedicated release. That is queued
+for v4.48.9 so this hotfix can ship immediately without extension
+regressions confusing the diagnostic picture.
+
+### Files touched
+
+* `arena/errors.py` -- 166 -> 184 lines (+18 skip-prefix guard)
+* `arena/gui/handlers.py` -- 185 -> 203 lines (+18 immutable
+  cache-control)
+* `tests/test_dashboard_asset_rate_limit_exemption.py` -- new, 4
+  asserts
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
+### Tests
+
+* 4 new asserts pass in `tests/test_dashboard_asset_rate_limit_exemption.py`
+* 17 pass in `tests/test_gui_handlers.py`
+* 6 pass in `tests/test_rate_limit.py` + `tests/test_rate_limit_handlers.py`
+* Full sweep: **2399 passed, 0 failed** (2395 baseline + 4 new)
+
 ## v4.48.7 -- Dashboard hotfix: manifest retry + fallback + layout overflow guard
 
 Live-reported after v4.48.6:

@@ -81,7 +81,25 @@ def make_error_middleware(ctx: ErrorMiddlewareContext):
     @web.middleware
     async def error_middleware(request: web.Request, handler):
         """Catch unhandled exceptions, return structured JSON, log stack traces."""
-        if request.path not in ("/health", "/metrics", "/gui", "/", "/favicon.ico", "/api-docs"):
+        # v4.48.8: Dashboard-shell burst-request storm was tripping the
+        # per-IP rate limiter (300 req / 60 s) after 3-4 reloads
+        # because ONE reload = 58 JS files + 22 body HTML fragments +
+        # manifest + a handful of REST calls (~85 requests) and every
+        # asset was served with Cache-Control:no-store. The visible
+        # symptom was "Dashboard boot failed: Error: Failed to load
+        # /gui/assets/00-core.js -- {ok:false,error:'rate limit
+        # exceeded',retry_after_s:0.4}". Static dashboard assets
+        # (/gui/assets/*, /gui/docs/*) are already served with strict
+        # path-traversal + read-only guards and cannot mutate state,
+        # so exempting them from the rate limiter is safe and stops
+        # the Dashboard from DoSing itself. The auth / mutation
+        # endpoints stay rate-limited.
+        _RL_SKIP_PREFIXES = ("/gui/assets/", "/gui/docs/")
+        _skip_rate_limit = (
+            request.path in ("/health", "/metrics", "/gui", "/", "/favicon.ico", "/api-docs")
+            or any(request.path.startswith(p) for p in _RL_SKIP_PREFIXES)
+        )
+        if not _skip_rate_limit:
             rl = ctx.check_rate_limit_v2(request) or ctx.check_rate_limit(request)
             if rl:
                 return rl

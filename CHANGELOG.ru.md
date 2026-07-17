@@ -1,3 +1,83 @@
+## v4.48.8 -- Фикс "Dashboard сам себя DoS-ит": исключение статики из rate limiter + immutable кэширование
+
+Живой репорт после v4.48.7:
+
+    Dashboard boot failed: Error: Failed to load /gui/assets/00-core.js
+    {"ok": false, "error": "rate limit exceeded", "retry_after_s": 0.4}
+
+Именно ЭТО и создавало впечатление "утечки на 1,4 ГБ" (сама VmSize
+раздута по причине из v4.48.7, но неспособность дашборда загрузиться
+после 3-4 перезагрузок делала процесс ВЫГЛЯДЯЩИМ как сломанный).
+Корень был очевиден, я его пропустил:
+
+* Одна перезагрузка Dashboard = **58 JS-файлов + 22 body HTML +
+  manifest + REST-запросы = ~85 запросов**.
+* Каждый статический ассет отдавался с `Cache-Control: no-store`,
+  так что Chromium перекачивал всё это на каждой перезагрузке.
+* Rate limiter на IP -- **300 запросов / 60 секунд**.
+* После 3-4 перезагрузок в минуту оболочка получала HTTP 429 на
+  случайные `.js` файлы. Ретрай-цикл на script-тегах из v3.85.3
+  честно пробовал 3 раза, но окно rate limiter'а на 60 секунд
+  означало, что ретраи тоже упирались в лимит. Итог: каскадный
+  отказ загрузки.
+
+### Исправлено
+
+* **`/gui/assets/*` и `/gui/docs/*` исключены из rate limiter'а.**
+  Эти пути отдают read-only статические файлы со строгими guard'ами
+  против path traversal и не могут мутировать состояние. Auth /
+  API / mutation endpoint'ы остаются под лимитом. Правка в
+  `arena/errors.py::error_middleware` -- один tuple
+  `_RL_SKIP_PREFIXES` и проверка `startswith` перед вызовом
+  rate limiter'а.
+* **`Cache-Control` для статики изменён с `no-store` на
+  `public, max-age=3600, immutable`.** URL'ы ассетов уже содержат
+  `?v={{VERSION}}` (см. `dashboard/index.html`), так что реальный
+  апгрейд форсит fresh fetch. Перезагрузки в рамках одной версии
+  теперь попадают в кэш браузера -- одна перезагрузка после первой
+  стоит ~1 запрос (HTML shell), а не 85. Правка в
+  `arena/gui/handlers.py::handle_gui_asset`.
+
+### Регрессионные guard-тесты
+
+Четыре новых asserts в `tests/test_dashboard_asset_rate_limit_exemption.py`:
+
+* `/gui/assets/` и `/gui/docs/` ДОЛЖНЫ быть в skip-prefix tuple
+* существовавшие исключения (`/health`, `/metrics`, `/gui`,
+  `/favicon.ico`, `/api-docs`) ДОЛЖНЫ остаться в списке, и вызов
+  rate limiter'а ДОЛЖЕН по-прежнему срабатывать для неисключённых
+  путей
+* `handle_gui_asset` ДОЛЖЕН отдавать `public, max-age=3600, immutable`
+* старый голый вызов `Cache-Control: no-store` `FileResponse(...)`
+  НЕ ДОЛЖЕН вернуться
+
+### Чего этот релиз НЕ трогает
+
+Chrome extension остаётся на 0.14.6. Свежие Scan Page данные с
+Grok / DuckAI / Qwen (которые ты прислал в этой сессии) показывают,
+что фильтр из v4.48.6 работает -- toolbar'ы монтируются, но
+отображаются по-разному на каждом сайте, и это требует отдельного
+релиза. Забронировано на v4.48.9, чтобы этот hotfix мог уехать
+немедленно, не смешивая диагностику с потенциальными регрессиями
+экстеншена.
+
+### Изменённые файлы
+
+* `arena/errors.py` -- 166 -> 184 строк (+18 skip-prefix guard)
+* `arena/gui/handlers.py` -- 185 -> 203 строк (+18 immutable
+  cache-control)
+* `tests/test_dashboard_asset_rate_limit_exemption.py` -- новый,
+  4 asserts
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
+### Тесты
+
+* 4 новых asserts зелёные в `tests/test_dashboard_asset_rate_limit_exemption.py`
+* 17 зелёных в `tests/test_gui_handlers.py`
+* 6 зелёных в `tests/test_rate_limit.py` + `tests/test_rate_limit_handlers.py`
+* Полный прогон: **2399 passed, 0 failed** (2395 baseline + 4 новых)
+
 ## v4.48.7 -- Хотфикс Dashboard: retry манифеста + fallback + фикс горизонтального overflow
 
 Живые репорты после v4.48.6:

@@ -69,7 +69,25 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
             ".svg": "image/svg+xml",
             ".png": "image/png",
         }.get(suffix, "application/octet-stream")
-        return web.FileResponse(asset_path, headers={"Access-Control-Allow-Origin": "*", "Cache-Control": "no-store"})
+        # v4.48.8: assets are served via URLs cache-busted with
+        # ?v={{VERSION}} (see dashboard/index.html). Every version
+        # bump forces a fresh URL, so browsers may safely cache the
+        # response for the whole session. Cache-Control:no-store was
+        # forcing Chromium to re-download all 58 JS + 22 body HTML
+        # fragments on every reload -- combined with the per-IP rate
+        # limiter (300 req/60 s) this produced HTTP 429s ("Failed
+        # to load /gui/assets/00-core.js -- rate limit exceeded")
+        # after 3-4 reloads. `immutable` keeps the browser from
+        # re-validating; ?v= parameter still guarantees a real
+        # upgrade breaks the cache.
+        cache_ctrl = "public, max-age=3600, immutable"
+        return web.FileResponse(
+            asset_path,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Cache-Control": cache_ctrl,
+            },
+        )
 
     async def handle_gui_docs(request: web.Request) -> web.Response:
         """GET /gui/docs/{path} — expose the repo's docs/ directory
