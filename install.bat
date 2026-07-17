@@ -294,6 +294,81 @@ if exist "%BRIDGE_DIR%\cloudflared.exe" (
 )
 :cloudflared_done
 
+REM --- bore (v4.47.0 - zero-account TCP relay through bore.pub) ---
+REM Not bundled. Two install paths on Windows:
+REM   1. If Rust's cargo is present, 'cargo install bore-cli' (~30s build).
+REM   2. Otherwise fetch the release zip and unpack bore.exe into
+REM      %BRIDGE_DIR%. System-first resolution in arena/admin/bore.py
+REM      finds either source (PATH or %BRIDGE_DIR%\bore.exe).
+set "BORE_BIN="
+where bore >nul 2>&1
+if not errorlevel 1 (
+    for /f "delims=" %%p in ('where bore 2^>nul') do if not defined BORE_BIN set "BORE_BIN=%%p"
+)
+if not defined BORE_BIN if exist "%BRIDGE_DIR%\bore.exe" set "BORE_BIN=%BRIDGE_DIR%\bore.exe"
+if defined BORE_BIN (
+    set "BORE_VERSION="
+    for /f "delims=" %%v in ('"%BORE_BIN%" --version 2^>nul') do if not defined BORE_VERSION set "BORE_VERSION=%%v"
+    echo [OK] bore present: !BORE_VERSION!
+    goto :bore_done
+)
+
+REM Try cargo first when available (always latest, no version pinning).
+where cargo >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Rust detected. Installing bore via 'cargo install bore-cli' - about 30 seconds.
+    set "BORE_CARGO_CONFIRM="
+    set /p "BORE_CARGO_CONFIRM=Install bore via cargo? [Y/n]: "
+    if /I "!BORE_CARGO_CONFIRM!"=="N" goto :bore_download
+    if /I "!BORE_CARGO_CONFIRM!"=="No" goto :bore_download
+    cargo install bore-cli >nul 2>&1
+    if not errorlevel 1 (
+        echo [OK] bore installed via cargo - available on PATH via ~/.cargo/bin
+        goto :bore_done
+    )
+    echo [WARN] cargo install bore-cli failed - falling back to release download.
+)
+
+:bore_download
+echo [INFO] bore not found. Installs INSIDE the bridge directory.
+echo       Path: %BRIDGE_DIR%\bore.exe - about 2 MB.
+echo       bore is the zero-account TCP relay through bore.pub - no signup needed.
+set "BORE_CONFIRM="
+set /p "BORE_CONFIRM=Download bore.exe - about 2 MB - to bridge dir? [y/N]: "
+if /I not "%BORE_CONFIRM%"=="Y" (
+    echo [INFO] bore skipped. Get it later from:
+    echo        https://github.com/ekzhang/bore/releases
+    goto :bore_done
+)
+
+REM Resolve latest tag via GitHub API; fall back to a known-good pin.
+set "BORE_TAG="
+for /f "delims=" %%t in ('curl --max-time 20 -fsSL "https://api.github.com/repos/ekzhang/bore/releases/latest" 2^>nul ^| "%PYTHON_EXE%" -c "import json,sys; print(json.load(sys.stdin).get('tag_name',''))" 2^>nul') do if not defined BORE_TAG set "BORE_TAG=%%t"
+if not defined BORE_TAG set "BORE_TAG=v0.6.0"
+
+set "BORE_ZIP=%TEMP%\bore-%BORE_TAG%.zip"
+set "BORE_URL=https://github.com/ekzhang/bore/releases/download/%BORE_TAG%/bore-%BORE_TAG%-x86_64-pc-windows-msvc.zip"
+
+echo [INFO] Downloading bore %BORE_TAG% for Windows x86_64...
+curl --max-time 120 -fsSL "%BORE_URL%" -o "%BORE_ZIP%" 2>nul
+if not exist "%BORE_ZIP%" (
+    echo [WARN] bore download failed - network/GitHub unavailable. Get it later: https://github.com/ekzhang/bore/releases
+    goto :bore_done
+)
+
+REM Windows 10 1803+ has a built-in tar that unpacks zips.
+tar -xf "%BORE_ZIP%" -C "%BRIDGE_DIR%" 2>nul
+if exist "%BRIDGE_DIR%\bore.exe" (
+    set "BORE_BIN=%BRIDGE_DIR%\bore.exe"
+    for /f "delims=" %%v in ('"%BRIDGE_DIR%\bore.exe" --version 2^>nul') do if not defined BORE_VERSION set "BORE_VERSION=%%v"
+    echo [OK] bore %BORE_TAG% installed at %BRIDGE_DIR%\bore.exe - !BORE_VERSION!
+) else (
+    echo [WARN] bore zip downloaded but extraction failed. Older Windows without built-in tar?
+    echo        Unzip %BORE_ZIP% manually and place bore.exe in %BRIDGE_DIR%
+)
+del "%BORE_ZIP%" >nul 2>&1
+:bore_done
+
 REM --- SuperPowers ---
 if exist "%BRIDGE_DIR%\skills\superpowers\skills" goto :sp_exists
 echo [INFO] SuperPowers is a 14-skill agentic framework - TDD, debugging, planning.

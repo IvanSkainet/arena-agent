@@ -1,3 +1,96 @@
+## v4.47.1 - 2026-07-17
+
+### Dashboard + installer polish для транспорта bore из v4.47.0
+
+Point-релиз. Закрывает "хвосты" после v4.47.0:
+
+* **Вкладка Transports теперь показывает пять карточек, не четыре.**
+  После v4.47.0 API + wiring для bore уже работал, но вкладка
+  Transports в дашборде (`body-20-transports.html` +
+  `20-transports.js`) знала только про tailscale / cloudflared /
+  zerotier / ngrok. Операторы видели транспорт в
+  `curl /v1/tunnels/status`, но UI для start / stop /
+  autostart-toggle не было. Теперь у bore отдельная карточка в
+  том же визуальном языке, что у соседей: start / stop /
+  copy-URL / autostart-checkbox / env-override pill / log tail
+  — без special-case, модуль изначально писался под произвольное
+  количество транспортов, ему нужен был только пятый entry.
+* **Инсталлер ставит bore.** `install.sh` и `install.bat`
+  получили bore install-блок, скопированный с v4.24.x
+  cloudflared-паттерна: system-first (проверяет `PATH` и
+  `~/.cargo/bin`), предпочитает `cargo install bore-cli` если
+  Rust есть (всегда latest, ставится в `~/.cargo/bin`, который
+  system-first path resolver моста уже покрывает), fallback на
+  ~2 MB GitHub-release tarball / zip. Opt-in prompt для обоих
+  путей; `ARENA_ASSUME_YES=1` bypass промптов для unattended
+  installs. `install.sh` и `install.bat` сохранили baseline-
+  синтаксис (`bash -n` чистый; все `goto`-label сбалансированы).
+
+#### Файлы дашборда
+
+* `dashboard/assets/body-20-transports.html` -- добавлена пятая
+  карточка в хвост `.tr-grid`. `#tr-card-bore`, `#tr-badge-bore`,
+  `#tr-url-bore`, `#tr-installed-bore`, `#tr-hint-bore`,
+  `#tr-log-bore`, `#tr-autostart-bore`, `#tr-env-bore` — та же
+  DOM-форма, что у `#tr-card-ngrok`, поэтому существующий
+  dispatch `_renderCard()` обрабатывает её без special-case.
+  Header-docstring обновлён на "one card per transport (v4.47.1:
+  five cards)".
+* `dashboard/assets/20-transports.js` -- `TRANSPORTS` и
+  `AUTOSTART_TRANSPORTS` растут на одну запись каждый. `_ROUTE`
+  получает `bore: "/v1/bore/tunnel/"`. `loadTransports()`
+  фетчит `/v1/bore/tunnel/status` в том же `Promise.all`
+  батче и мержит snapshot в `_lastState.bore` (добавляет поле
+  `server`, чтобы badge мог показать `bore.pub` vs self-hosted
+  host). Header docstring + inline comment про log-tail
+  rendering обновлены под bore.
+
+#### Файлы инсталлера
+
+* `install.sh` -- новый блок "6a-ter" после cloudflared
+  (`# --- 6a-ter: bore ...`). Cross-platform (Linux amd64/arm64/
+  armv7, Darwin arm64 + x86_64) с двух-путевой стратегией выше.
+  Использует GitHub releases API для резолва последнего тега
+  (fallback на v0.6.0 когда API недоступен). `tar -xzf`
+  extraction в `mktemp -d` staging-директорию, потом `mv` в
+  `$INSTALL_DIR`. Обрабатывает оба возможных layout tarball
+  (single top-level `bore` binary и per-target directory
+  prefix). Bash-syntax проверен через `bash -n` перед выпуском.
+* `install.bat` -- новая bore-секция между `:cloudflared_done`
+  и `REM --- SuperPowers ---`. Target Windows x86_64.
+  Использует встроенный `tar` из Windows 10 1803+ для
+  распаковки zip. Такая же cargo-first / release-fallback
+  форма. Два новых label: `:bore_download` (skip-to-download
+  когда cargo-путь отвергнут / провален) и `:bore_done`
+  (post-install fallthrough). Каждый `goto` сбалансирован с
+  определёнными labels; проверено перед выпуском.
+
+#### Тесты (+2 параметризации, 2386 -> 2388)
+
+* `tests/test_autostart_unified.py` -- расширенные
+  `test_marker_filename_convention` и
+  `test_env_var_name_convention` parametrise-списки получили
+  пару записей `("bore", ...)`, поэтому конвенции filename /
+  env-var залочены и для пятого транспорта. Три других
+  параметризованных теста (`test_neither_signal_disabled`,
+  `test_marker_alone_enabled`, `test_env_alone_enabled`)
+  проходят по `autostart.TRANSPORTS` напрямую и подхватили
+  bore бесплатно — правки не понадобились.
+
+#### Compat / миграция
+
+* **Миграция не нужна.** Существующие установки подхватывают
+  новую UI-карточку при первом refresh дашборда после upgrade;
+  bore-шаг инсталлера opt-in с default "N" на обеих
+  платформах, поэтому ничего не ставится молча.
+* **API не меняется.** Всё, что добавляет point-релиз —
+  cosmetic (UI) или advisory (installer prompt).
+* **Зависимости не меняются.** bore остаётся опциональным;
+  мост продолжает загружаться и обслуживать четыре
+  транспорта даже когда bore не установлен.
+  `/v1/bore/tunnel/status` возвращает `installed: false` +
+  per-platform install hint, ровно как в v4.47.0.
+
 ## v4.47.0 - 2026-07-17
 
 ### bore -- пятый транспорт, zero-account TCP relay через bore.pub

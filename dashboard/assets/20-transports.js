@@ -1,13 +1,13 @@
 // ===== TRANSPORTS TAB =====
 //
 // Unified control surface for every transport (Tailscale,
-// ZeroTier, cloudflared, ngrok). Before this release, controls
+// ZeroTier, cloudflared, ngrok, bore). Before this release, controls
 // were scattered:
 //   - Settings tab: start/stop for TS + CF
 //   - Doctor tab: TS diagnostic (read-only)
 //   - ZeroTier Central tab: ZT network + member admin
-//   - terminal: ngrok curl-only, no UI at all
-// Now one place, four cards, one refresh, one auto-refresh,
+//   - terminal: ngrok / bore curl-only, no UI at all
+// Now one place, five cards, one refresh, one auto-refresh,
 // one meta line -- same visual language as Audit / Overview /
 // Proposals redesigns.
 //
@@ -16,12 +16,14 @@
 //   /v1/tailscale/funnel/status   -- TS installed/active/url
 //   /v1/cloudflared/tunnel/status -- CF installed/active/url/log
 //   /v1/ngrok/tunnel/status       -- NG installed/active/url/log
+//   /v1/bore/tunnel/status        -- BO installed/active/url/log (v4.47.1)
 //   /v1/zerotier/status           -- ZT installed/reachable
 //
 // Start/stop endpoints per transport:
 //   POST /v1/tailscale/funnel/start|stop
 //   POST /v1/cloudflared/tunnel/start|stop
 //   POST /v1/ngrok/tunnel/start|stop
+//   POST /v1/bore/tunnel/start|stop   (v4.47.1 -- zero-account TCP relay)
 //   ZT does not have a start/stop verb -- membership is managed
 //   through the ZeroTier Central tab; we surface a link there.
 //
@@ -42,11 +44,12 @@
   var _lastDurationMs = null;
   var _lastState = {};  // { transport: { active, url, log, ... } }
 
-  var TRANSPORTS = ["tailscale", "zerotier", "cloudflared", "ngrok"];
+  var TRANSPORTS = ["tailscale", "zerotier", "cloudflared", "ngrok", "bore"];
   // Transports that have a real autostart marker. ZeroTier
   // absent by design -- membership is long-lived across bridge
   // restarts, so there is nothing to autostart for it.
-  var AUTOSTART_TRANSPORTS = ["tailscale", "cloudflared", "ngrok"];
+  // v4.47.1: bore joins the autostart list (same shape as ngrok).
+  var AUTOSTART_TRANSPORTS = ["tailscale", "cloudflared", "ngrok", "bore"];
 
   function _q(id) { return document.getElementById(id); }
 
@@ -159,7 +162,8 @@
       }
     }
 
-    // Log tail -- only for CF + NG which stream stdout.
+    // Log tail -- shown for CF + NG + BO which stream stdout.
+    // (v4.47.1: bore joined; same shape.)
     if (logEl) {
       var log = snap.log || [];
       if (Array.isArray(log) && log.length > 0) {
@@ -247,6 +251,8 @@
         window.api("/v1/zerotier/status"),
         // v4.38.0: unified autostart snapshot.
         window.api("/v1/autostart"),
+        // v4.47.1: bore as fifth transport.
+        window.api("/v1/bore/tunnel/status"),
       ]);
       var cfg = results[0] || {};
       var urlByProv = {};
@@ -259,6 +265,7 @@
       var ngRaw = results[3] || {};
       var ztRaw = results[4] || {};
       var autoRaw = results[5] || {};
+      var boRaw = results[6] || {};
       var autoByTransport = (autoRaw && autoRaw.transports) || {};
 
       // Tailscale
@@ -297,11 +304,25 @@
         url: urlByProv.zerotier || "",
       };
 
+      // v4.47.1: bore -- zero-account TCP relay. Same shape as
+      // cloudflared / ngrok; the `server` field surfaces which
+      // relay was used (bore.pub by default, or self-hosted).
+      var boSnap = {
+        active: !!boRaw.active,
+        installed: !!boRaw.installed,
+        version: boRaw.version || null,
+        url: boRaw.url || urlByProv.bore || "",
+        log: boRaw.log || [],
+        server: boRaw.server || null,
+        update_hint: boRaw.installed ? null : boRaw.update_hint,
+      };
+
       _lastState = {
         tailscale: tsSnap,
         zerotier: ztSnap,
         cloudflared: cfSnap,
         ngrok: ngSnap,
+        bore: boSnap,
       };
 
       TRANSPORTS.forEach(function (t) { _renderCard(t, _lastState[t]); });
@@ -327,6 +348,8 @@
     tailscale:   "/v1/tailscale/funnel/",
     cloudflared: "/v1/cloudflared/tunnel/",
     ngrok:       "/v1/ngrok/tunnel/",
+    // v4.47.1: bore as fifth transport (zero-account TCP relay).
+    bore:        "/v1/bore/tunnel/",
     // ZT deliberately absent -- no start/stop verb.
   };
 
@@ -339,7 +362,9 @@
     }
     var hintEl = _q("tr-hint-" + name);
     if (hintEl) {
-      hintEl.textContent = "Starting… (ngrok cold start may take up to 45s)";
+      // bore usually comes up in <1s; ngrok cold-start can hit ~45s;
+      // cloudflared sits in between. One hint fits all.
+      hintEl.textContent = "Starting… (bore typically <1s, ngrok cold start may take up to 45s)";
       hintEl.className = "tr-hint";
       hintEl.style.display = "";
     }

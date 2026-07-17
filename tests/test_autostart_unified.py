@@ -53,6 +53,8 @@ def test_unknown_transport_raises_on_marker_path():
     ("tailscale",   ".tailscale_autostart"),
     ("cloudflared", ".cloudflared_autostart"),
     ("ngrok",       ".ngrok_autostart"),
+    # v4.47.1: bore joined as the fifth transport.
+    ("bore",        ".bore_autostart"),
 ])
 def test_marker_filename_convention(tmp_path, transport, expected):
     p = autostart.marker_path(transport, tmp_path)
@@ -64,6 +66,8 @@ def test_marker_filename_convention(tmp_path, transport, expected):
     ("tailscale",   "ARENA_TAILSCALE_AUTOSTART"),
     ("cloudflared", "ARENA_CLOUDFLARED_AUTOSTART"),
     ("ngrok",       "ARENA_NGROK_AUTOSTART"),
+    # v4.47.1: bore joined as the fifth transport.
+    ("bore",        "ARENA_BORE_AUTOSTART"),
 ])
 def test_env_var_name_convention(monkeypatch, transport, expected):
     monkeypatch.setenv(expected, "1")

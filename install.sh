@@ -564,6 +564,136 @@ if [ -n "${CF_CURRENT:-}" ]; then
     [ -n "$CF_LATEST" ] && info "cloudflared latest release: $CF_LATEST" || warn "Could not verify cloudflared latest release (network/GitHub unavailable)"
 fi
 
+# --- 6a-ter: bore (v4.47.0 — zero-account TCP relay through bore.pub) ---
+# Not bundled in the repo (~2 MB static Rust binary). Two install paths:
+#   1. If Rust's cargo is present, `cargo install bore-cli` (~30s, always
+#      latest) — installs to ~/.cargo/bin/bore which the bridge already
+#      searches in arena/admin/bore.py::_system_candidates().
+#   2. Otherwise fetch a static release tarball from
+#      github.com/ekzhang/bore/releases and drop the extracted binary in
+#      the install directory (~2 MB).
+# System-first resolution in the bridge means either source works.
+BORE_BIN="$INSTALL_DIR/bore"
+BORE_CURRENT=""
+if command -v bore >/dev/null 2>&1; then
+    BORE_CURRENT="$(bore --version 2>/dev/null || true)"
+    ok "bore found on PATH${BORE_CURRENT:+ — $BORE_CURRENT}"
+elif [ -f "$BORE_BIN" ]; then
+    BORE_CURRENT="$("$BORE_BIN" --version 2>/dev/null || true)"
+    ok "bore present in install directory${BORE_CURRENT:+ — $BORE_CURRENT}"
+else
+    UNAME_S="$(uname -s)"
+    UNAME_M="$(uname -m)"
+    BORE_URL=""
+    BORE_ARCHIVE_PREFIX=""
+    # bore ships versioned release tarballs; we resolve the latest tag first
+    # so we don't hardcode a version that goes stale.
+    BORE_TAG=""
+    if command -v curl >/dev/null 2>&1; then
+        BORE_TAG="$(curl -fsSL --max-time 20 https://api.github.com/repos/ekzhang/bore/releases/latest 2>/dev/null | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("tag_name", ""))' 2>/dev/null || true)"
+    fi
+    # Fall back to a known-good version if the API is unreachable — better
+    # to install a slightly older release than to bail out entirely.
+    [ -z "$BORE_TAG" ] && BORE_TAG="v0.6.0"
+    BORE_VER="${BORE_TAG#v}"
+
+    case "$UNAME_S" in
+        Linux)
+            case "$UNAME_M" in
+                x86_64|amd64)
+                    BORE_URL="https://github.com/ekzhang/bore/releases/download/${BORE_TAG}/bore-${BORE_TAG}-x86_64-unknown-linux-musl.tar.gz"
+                    BORE_ARCHIVE_PREFIX="bore-${BORE_TAG}-x86_64-unknown-linux-musl"
+                    ;;
+                aarch64|arm64)
+                    BORE_URL="https://github.com/ekzhang/bore/releases/download/${BORE_TAG}/bore-${BORE_TAG}-aarch64-unknown-linux-musl.tar.gz"
+                    BORE_ARCHIVE_PREFIX="bore-${BORE_TAG}-aarch64-unknown-linux-musl"
+                    ;;
+                armv7l|armhf)
+                    BORE_URL="https://github.com/ekzhang/bore/releases/download/${BORE_TAG}/bore-${BORE_TAG}-arm-unknown-linux-musleabi.tar.gz"
+                    BORE_ARCHIVE_PREFIX="bore-${BORE_TAG}-arm-unknown-linux-musleabi"
+                    ;;
+            esac
+            ;;
+        Darwin)
+            case "$UNAME_M" in
+                arm64|aarch64)
+                    BORE_URL="https://github.com/ekzhang/bore/releases/download/${BORE_TAG}/bore-${BORE_TAG}-aarch64-apple-darwin.tar.gz"
+                    BORE_ARCHIVE_PREFIX="bore-${BORE_TAG}-aarch64-apple-darwin"
+                    ;;
+                x86_64|amd64)
+                    BORE_URL="https://github.com/ekzhang/bore/releases/download/${BORE_TAG}/bore-${BORE_TAG}-x86_64-apple-darwin.tar.gz"
+                    BORE_ARCHIVE_PREFIX="bore-${BORE_TAG}-x86_64-apple-darwin"
+                    ;;
+            esac
+            ;;
+    esac
+
+    # Prefer `cargo install bore-cli` if Rust is already present — always
+    # gets the latest release and installs to ~/.cargo/bin which is
+    # covered by the bridge's system-first path resolver. Requires no
+    # network beyond crates.io. Skipped when cargo is not on PATH.
+    if command -v cargo >/dev/null 2>&1; then
+        if [ "${ARENA_ASSUME_YES:-}" = "1" ] || ask "Install bore via 'cargo install bore-cli'? (Rust detected, ~30s build)"; then
+            info "Installing bore via cargo (this compiles the crate, please wait)..."
+            if cargo install bore-cli >/dev/null 2>&1; then
+                ok "bore installed via cargo — ~/.cargo/bin/bore"
+                BORE_URL=""  # skip release-tarball path below
+            else
+                warn "cargo install bore-cli failed; falling back to release tarball"
+            fi
+        fi
+    fi
+
+    if [ -n "$BORE_URL" ]; then
+        if [ "${ARENA_ASSUME_YES:-}" = "1" ] || ask "Download bore ${BORE_TAG} (~2 MB) for zero-account TCP relay via bore.pub?"; then
+            info "Downloading bore ${BORE_TAG} for $UNAME_S/$UNAME_M ..."
+            BORE_TMP="$(mktemp -d 2>/dev/null || mktemp -d -t arena-bore)"
+            BORE_TARBALL="$BORE_TMP/bore.tar.gz"
+            DL_OK=0
+            if command -v curl >/dev/null 2>&1; then
+                curl -fsSL "$BORE_URL" -o "$BORE_TARBALL" 2>/dev/null && DL_OK=1
+            elif command -v wget >/dev/null 2>&1; then
+                wget -qO "$BORE_TARBALL" "$BORE_URL" 2>/dev/null && DL_OK=1
+            else
+                warn "Neither curl nor wget found; skipping bore download"
+            fi
+            if [ "$DL_OK" = "1" ] && [ -s "$BORE_TARBALL" ]; then
+                if tar -xzf "$BORE_TARBALL" -C "$BORE_TMP" 2>/dev/null; then
+                    # The tarball extracts a single ``bore`` binary at the top
+                    # level (no wrapping directory in most releases). Fall back
+                    # to the prefix directory if that layout ever changes.
+                    if [ -f "$BORE_TMP/bore" ]; then
+                        mv "$BORE_TMP/bore" "$BORE_BIN" && chmod +x "$BORE_BIN" && ok "bore ${BORE_TAG} installed at $BORE_BIN"
+                    elif [ -f "$BORE_TMP/$BORE_ARCHIVE_PREFIX/bore" ]; then
+                        mv "$BORE_TMP/$BORE_ARCHIVE_PREFIX/bore" "$BORE_BIN" && chmod +x "$BORE_BIN" && ok "bore ${BORE_TAG} installed at $BORE_BIN"
+                    else
+                        warn "bore tarball extracted but binary not found; skipping"
+                    fi
+                else
+                    warn "bore tarball extraction failed (tar not available?); skipping"
+                fi
+            else
+                warn "bore download failed (network/GitHub unavailable); you can install it later with 'cargo install bore-cli' or from https://github.com/ekzhang/bore/releases"
+            fi
+            rm -rf "$BORE_TMP" 2>/dev/null || true
+        else
+            info "bore skipped. Install later with 'cargo install bore-cli' or download from https://github.com/ekzhang/bore/releases"
+        fi
+    fi
+
+    if [ -z "$BORE_URL" ] && ! command -v cargo >/dev/null 2>&1 && [ ! -f "$BORE_BIN" ]; then
+        # Cross-platform message for unsupported arch / macOS without cargo path taken.
+        case "$UNAME_S" in
+            Darwin)
+                info "bore not installed. On macOS: 'cargo install bore-cli' (needs Rust) or download from https://github.com/ekzhang/bore/releases"
+                ;;
+            *)
+                info "bore skipped. Install later with 'cargo install bore-cli' or from https://github.com/ekzhang/bore/releases"
+                ;;
+        esac
+    fi
+fi
+
 # --- 6b: SuperPowers (agentic skills framework) ---
 SP_DIR="$INSTALL_DIR/skills/superpowers/skills"
 if [ -d "$SP_DIR" ]; then

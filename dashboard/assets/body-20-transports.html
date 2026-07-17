@@ -1,16 +1,18 @@
 <div class="tab" id="tab-transports">
 <style>
   /* Transports tab -- unified control surface for every
-     transport (Tailscale / ZeroTier / cloudflared / ngrok). Scoped
-     to #tab-transports so nothing bleeds into shared dashboard.css
-     (v4.0.x lesson). Palette + helpers follow the same Audit-style
-     visual language every other redesigned tab respects.
+     transport (Tailscale / ZeroTier / cloudflared / ngrok / bore).
+     Scoped to #tab-transports so nothing bleeds into shared
+     dashboard.css (v4.0.x lesson). Palette + helpers follow the
+     same Audit-style visual language every other redesigned tab
+     respects.
 
-     Design goal: before this release operators had to hunt across
-     Settings (TS/CF start/stop), Doctor (diagnostic), ZeroTier
-     Central (network admin), and the terminal (ngrok curl-only)
-     to see + control the four transports. One tab, four cards,
-     one refresh, one auto-refresh, one meta line. */
+     Design goal: before the Transports tab landed, operators had
+     to hunt across Settings (TS/CF start/stop), Doctor (diagnostic),
+     ZeroTier Central (network admin), and the terminal (ngrok /
+     bore curl-only) to see + control the transports. Now: one tab,
+     one card per transport, one refresh, one auto-refresh, one meta
+     line. bore is the current fifth card (zero-account TCP relay). */
   #tab-transports{
     --tr-tint-green:#00d67222;
     --tr-tint-red:#e9456033;
@@ -67,7 +69,7 @@
   #tab-transports .tr-hint.err{background:var(--surface-error);color:var(--red);border:1px solid var(--border-error)}
   #tab-transports .tr-hint code{background:var(--bg3);padding:1px 4px;border-radius:3px;font-size:11px}
   #tab-transports .tr-hint a{color:var(--blue)}
-  /* Log tail -- shown on ngrok/cloudflared cards */
+  /* Log tail -- shown on ngrok / cloudflared / bore cards */
   #tab-transports .tr-log{margin-top:8px;max-height:120px;overflow:auto;font-family:var(--mono);font-size:10px;color:var(--text2);background:var(--bg3);padding:6px 8px;border-radius:4px;line-height:1.4;white-space:pre-wrap;word-break:break-all}
   #tab-transports .tr-log:empty{display:none}
 </style>
@@ -155,6 +157,25 @@
     </div>
     <div class="tr-hint" id="tr-hint-ngrok" style="display:none"></div>
     <pre class="tr-log" id="tr-log-ngrok"></pre>
+  </div>
+
+  <!-- bore card -- zero-account TCP relay through bore.pub -->
+  <div class="tr-card" id="tr-card-bore">
+    <h3><span class="tr-icon">🕳️</span>bore<span class="tr-badge down" id="tr-badge-bore">unknown</span></h3>
+    <div class="tr-row"><span class="tr-label">Public URL</span><span class="tr-url" id="tr-url-bore">—</span></div>
+    <div class="tr-row"><span class="tr-label">Installed</span><span class="tr-val mono" id="tr-installed-bore">?</span></div>
+    <div class="tr-row"><span class="tr-label">Type</span><span class="tr-val muted">Zero-account TCP relay (bore.pub or self-hosted, TLS end-to-end via bridge cert)</span></div>
+    <div class="tr-actions">
+      <button class="info" onclick="transportStart('bore')">Start</button>
+      <button class="danger" onclick="transportStop('bore')">Stop</button>
+      <button onclick="transportCopyUrl('bore')">Copy URL</button>
+    </div>
+    <div class="tr-autostart">
+      <label><input type="checkbox" id="tr-autostart-bore" onchange="transportAutostartToggle('bore', this.checked)"> auto-start on bridge restart</label>
+      <span class="env-pill" id="tr-env-bore" title="ARENA_BORE_AUTOSTART is set in the service unit and forces autostart on. Unset it there to disable.">env-override</span>
+    </div>
+    <div class="tr-hint" id="tr-hint-bore" style="display:none"></div>
+    <pre class="tr-log" id="tr-log-bore"></pre>
   </div>
 </div>
 

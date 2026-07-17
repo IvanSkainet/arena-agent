@@ -1,3 +1,92 @@
+## v4.47.1 - 2026-07-17
+
+### Dashboard + installer polish for the v4.47.0 bore transport
+
+Point release. Closes the loose ends left by v4.47.0:
+
+* **Transports tab now shows five cards, not four.** After v4.47.0
+  the API + wiring for bore was live, but the dashboard's Transports
+  tab (`body-20-transports.html` + `20-transports.js`) only knew
+  about tailscale / cloudflared / zerotier / ngrok. Operators saw
+  the transport in `curl /v1/tunnels/status` but had no UI to
+  start / stop / autostart-toggle it. Now bore has a dedicated
+  card in the same visual language as its siblings, with start /
+  stop / copy-URL / autostart-checkbox / env-override pill / log
+  tail — no special-casing, the module was built for arbitrary
+  transport counts and just needed the fifth entry.
+* **Installer bundles bore.** `install.sh` and `install.bat` grew
+  a bore install block modelled on the v4.24.x cloudflared pattern:
+  system-first (checks `PATH` and `~/.cargo/bin`), prefers
+  `cargo install bore-cli` when Rust is available (always latest,
+  installs to `~/.cargo/bin` which the bridge's system-first path
+  resolver already covers), falls back to the ~2 MB GitHub-release
+  tarball / zip. Opt-in prompt for both paths; `ARENA_ASSUME_YES=1`
+  bypasses the prompts for unattended installs. `install.sh` and
+  `install.bat` retain baseline syntax (`bash -n` clean; every
+  `goto`-label balanced).
+
+#### Dashboard files touched
+
+* `dashboard/assets/body-20-transports.html` -- added the fifth
+  card at the tail of `.tr-grid`. `#tr-card-bore`, `#tr-badge-bore`,
+  `#tr-url-bore`, `#tr-installed-bore`, `#tr-hint-bore`,
+  `#tr-log-bore`, `#tr-autostart-bore`, `#tr-env-bore` — same DOM
+  shape as `#tr-card-ngrok` so the existing `_renderCard()`
+  dispatch handles it without a special case. Header docstring
+  updated to mention "one card per transport (v4.47.1: five cards)".
+* `dashboard/assets/20-transports.js` -- `TRANSPORTS` and
+  `AUTOSTART_TRANSPORTS` grow one entry each. `_ROUTE` gains
+  `bore: "/v1/bore/tunnel/"`. `loadTransports()` fetches
+  `/v1/bore/tunnel/status` in the same `Promise.all` batch and
+  merges the snapshot into `_lastState.bore` (adds the `server`
+  field so the badge can show `bore.pub` vs a self-hosted host).
+  Header docstring + inline comment on log-tail rendering updated
+  to include bore.
+
+#### Installer files touched
+
+* `install.sh` -- new "6a-ter" block after cloudflared (`# --- 6a-ter:
+  bore ...`). Cross-platform (Linux amd64/arm64/armv7, Darwin arm64
+  + x86_64) with the two-path strategy above. Uses the GitHub
+  releases API to resolve the latest tag (with a v0.6.0 pin as
+  fallback when the API is unreachable). `tar -xzf` extraction into
+  a `mktemp -d` staging directory, then `mv` into `$INSTALL_DIR`.
+  Handles both possible tarball layouts (single top-level `bore`
+  binary and per-target directory prefix). Bash syntax verified
+  via `bash -n` before ship.
+* `install.bat` -- new bore section between `:cloudflared_done`
+  and `REM --- SuperPowers ---`. Windows x86_64 target. Uses
+  Windows 10 1803+ built-in `tar` for zip extraction. Same
+  cargo-first / release-fallback shape. Two new labels:
+  `:bore_download` (skip-to-download when cargo path declined /
+  failed) and `:bore_done` (post-install fallthrough). Every
+  `goto` balanced against defined labels; verified pre-ship.
+
+#### Tests (+2 parametrisations, 2386 -> 2388)
+
+* `tests/test_autostart_unified.py` -- extended
+  `test_marker_filename_convention` and `test_env_var_name_convention`
+  parametrise lists with the `("bore", ...)` entry pair so the
+  filename / env-var conventions are locked in for the fifth
+  transport too. The three other parametrised tests
+  (`test_neither_signal_disabled`, `test_marker_alone_enabled`,
+  `test_env_alone_enabled`) walk `autostart.TRANSPORTS` directly
+  and picked up bore for free — no changes needed.
+
+#### Compat / migration
+
+* **Zero migration.** Existing installations pick up the new UI
+  card on first dashboard refresh after upgrade; the installer
+  bore step is opt-in with a default of "N" on both platforms,
+  so nothing installs silently.
+* **No API changes.** Everything the point release adds is
+  cosmetic (UI) or advisory (installer prompt).
+* **No dependency changes.** bore stays optional; the bridge
+  continues to boot and serve four transports even when bore is
+  not installed. `/v1/bore/tunnel/status` reports
+  `installed: false` + a per-platform install hint, exactly as
+  in v4.47.0.
+
 ## v4.47.0 - 2026-07-17
 
 ### bore -- fifth transport, zero-account TCP relay through bore.pub
