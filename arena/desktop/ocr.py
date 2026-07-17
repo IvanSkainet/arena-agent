@@ -85,7 +85,16 @@ async def ocr_desktop(
     )
     if not shot.get("ok"):
         return shot
-    tmp = Path(tempfile.mktemp(suffix=".png", prefix="arena_ocr_"))
+    # v4.42.0: tempfile.mktemp() is TOCTOU-racy -- an attacker
+    # with local access can predict the name and pre-create a
+    # symlink at that path, redirecting our write to an arbitrary
+    # file the bridge user can touch. NamedTemporaryFile(delete=False)
+    # opens+creates atomically with O_EXCL, and we clean up in
+    # the finally block below.
+    tf = tempfile.NamedTemporaryFile(
+        suffix=".png", prefix="arena_ocr_", delete=False)
+    tf.close()
+    tmp = Path(tf.name)
     try:
         tmp.write_bytes(shot["bytes"])
         cmd = f"tesseract {shlex.quote(str(tmp))} stdout --psm {int(psm or 11)} tsv"

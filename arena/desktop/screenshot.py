@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -9,6 +10,25 @@ from typing import Any
 DesktopExec = Callable[[str, float], Awaitable[dict[str, Any]]]
 DetectEnv = Callable[[], dict[str, Any]]
 AuditFn = Callable[[dict[str, Any]], None]
+
+
+def _rm_tmp_dir(path: str) -> None:
+    """Remove a per-invocation temp directory best-effort.
+
+    v4.42.0: extracted from inline try/except so both the
+    success and failure paths call the same cleanup helper. We
+    use ``shutil.rmtree(ignore_errors=True)`` rather than
+    ``os.unlink + os.rmdir`` because grim/spectacle sometimes
+    leaves auxiliary files (thumbnails, .swp) alongside the
+    screenshot on Wayland compositors, and orphaning them in
+    ``/tmp`` would slowly balloon the temp directory. The
+    ``ignore_errors`` flag ensures a partial cleanup never
+    fails an otherwise-successful capture.
+    """
+    try:
+        shutil.rmtree(path, ignore_errors=True)
+    except Exception:
+        pass
 
 
 async def capture_desktop_screenshot(
@@ -33,7 +53,16 @@ async def capture_desktop_screenshot(
     """
     fmt = (fmt or "base64").lower()
     quality = max(1, min(100, int(quality or 80)))
-    tmp_path = tempfile.mktemp(suffix=".png", prefix="arena_desktop_")
+    # v4.42.0: tempfile.mktemp() is TOCTOU-racy and predictable
+    # (mode 0o644 shared /tmp). Screenshot tools (spectacle,
+    # grim, scrot) create the file themselves, so we cannot use
+    # NamedTemporaryFile directly -- but we CAN put the target
+    # inside a per-invocation 0o700 directory so a co-tenant
+    # cannot pre-plant a symlink at the exact path we're about
+    # to hand to the tool. The directory is torn down (with the
+    # file) in the finally block after we've read the bytes.
+    tmp_dir = tempfile.mkdtemp(prefix="arena_desktop_")
+    tmp_path = os.path.join(tmp_dir, "shot.png")
     env = detect_env()
 
     cmd = None
@@ -50,20 +79,14 @@ async def capture_desktop_screenshot(
 
     result = await desktop_exec(cmd, timeout=15)
     if not result.get("ok") or not os.path.exists(tmp_path):
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _rm_tmp_dir(tmp_dir)
         return {"ok": False, "error": f"Screenshot failed: {result.get('stderr', result.get('error', 'unknown'))}"}
 
     try:
         with open(tmp_path, "rb") as f:
             img_bytes = f.read()
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        _rm_tmp_dir(tmp_dir)
 
     if not img_bytes:
         return {"ok": False, "error": "Screenshot file is empty"}

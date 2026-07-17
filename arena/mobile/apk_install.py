@@ -34,7 +34,52 @@ from arena.mobile.adb import AdbNotFoundError, find_adb, run
 # The bridge's writable staging area for uploaded APKs. Anything the
 # client points at MUST already resolve under this root — no arbitrary
 # host paths get pushed to the phone.
-STAGING_ROOT = Path("/tmp/arena-apk-staging")
+#
+# v4.42.0: moved from ``/tmp/arena-apk-staging`` (shared,
+# world-listable, symlink-attack-prone -- a co-tenant could
+# pre-plant ``/tmp/arena-apk-staging`` as a symlink to any
+# directory the bridge user could write, causing uploaded APKs
+# to land wherever the attacker chose) to ``~/.arena/apk-staging``.
+# The parent ``~/.arena`` directory is already 0o700 after
+# v4.40.0's URL-cache work; the apk-staging subdirectory gets
+# the same treatment on first use via ``_ensure_staging_root``.
+# ``$ARENA_APK_STAGING`` env var overrides for operators who
+# want the staging area on a larger volume.
+def _default_staging_root() -> Path:
+    from pathlib import Path as _P
+    import os as _os
+    override = _os.environ.get("ARENA_APK_STAGING", "").strip()
+    if override:
+        return _P(override).expanduser()
+    return _P.home() / ".arena" / "apk-staging"
+
+
+STAGING_ROOT = _default_staging_root()
+
+
+def _ensure_staging_root() -> None:
+    """Create the staging directory with owner-only mode. Idempotent.
+
+    Called lazily inside ``persist_uploaded_apk`` and
+    ``ensure_apk_ready`` rather than at import time so a bridge
+    that never touches APKs never creates the directory.
+    Applies chmod after mkdir because mkdir's ``mode=`` argument
+    is masked by the process umask (often 0o022, which would
+    downgrade our request to 0o755). The explicit chmod is the
+    same ACL-proof pattern the v4.40.0 URL cache uses.
+    """
+    import os as _os
+    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    try:
+        _os.chmod(STAGING_ROOT, 0o700)
+    except OSError:
+        pass
+    # Tighten the parent too when we just created it -- ~/.arena
+    # might not exist yet on a fresh install.
+    try:
+        _os.chmod(STAGING_ROOT.parent, 0o700)
+    except OSError:
+        pass
 
 # APK package-name regex from android.content.pm.PackageParser.
 # Broad enough for real apps, strict enough to reject obvious junk.
@@ -69,7 +114,7 @@ def _resolve_apk_path(client_path: str) -> Path | dict[str, Any]:
     """
     if not isinstance(client_path, str) or not client_path.strip():
         return _err("apk_path is required")
-    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    _ensure_staging_root()
     p = Path(client_path).expanduser()
     if not p.is_absolute():
         p = STAGING_ROOT / p
@@ -125,7 +170,7 @@ def save_upload(filename: str, data: bytes) -> dict[str, Any]:
             "(missing PK\\x03\\x04 magic)",
             got_prefix=data[:4].hex(),
         )
-    STAGING_ROOT.mkdir(parents=True, exist_ok=True)
+    _ensure_staging_root()
     dest = STAGING_ROOT / filename
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(bytes(data))

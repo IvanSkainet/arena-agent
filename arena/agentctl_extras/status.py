@@ -101,7 +101,24 @@ def run_status(args=[]):
     print()
     print("### services (unified bridge)")
     if platform.system() == "Linux" and shutil.which("systemctl"):
-        os.system("systemctl --user --no-pager status arena-unified-bridge.service 2>/dev/null | head -n 100 || true")
+        # v4.42.0: was os.system(...). Switched to argv-form
+        # subprocess so refactors that add a variable into the
+        # command cannot accidentally introduce shell injection.
+        # We still want the "|| true" behaviour (do not raise if
+        # the unit doesn't exist), so check=False is explicit.
+        # The pipe-to-head-100 is replaced with a Python-side
+        # slice since we no longer have a shell.
+        try:
+            _sc = subprocess.run(
+                ["systemctl", "--user", "--no-pager", "status",
+                 "arena-unified-bridge.service"],
+                capture_output=True, text=True, check=False, timeout=10,
+            )
+            out = _sc.stdout or ""
+            for line in out.splitlines()[:100]:
+                print(line)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
     elif platform.system() == "Windows":
         for svc_info in [
             ("ArenaUnifiedBridge", "unified-bridge (all services on :8765)"),

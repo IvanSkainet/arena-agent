@@ -129,6 +129,20 @@ def dump_ui(
     if end >= 0:
         raw = raw[: end + len("</hierarchy>")]
 
+    # v4.42.0: defence-in-depth against a rogue uiautomator dump.
+    # Legitimate dumps never carry a DOCTYPE / DTD; if one is
+    # present it is either a malformed dump (harmless) or a
+    # malicious app trying to trip a billion-laughs / external-
+    # entity attack against the bridge. Reject early. The
+    # stdlib ET is not resolver-safe by default (Python does
+    # not ship defusedxml in the required deps), so a static
+    # substring check on the raw bytes is the simplest safe
+    # gate that avoids a hard dependency.
+    _lowered = raw.lstrip()[:512].lower()
+    if "<!doctype" in _lowered or "<!entity" in _lowered:
+        return _err("ui XML rejected: DOCTYPE/entity declarations "
+                    "not allowed in uiautomator dumps",
+                    duration_ms=duration_ms)
     try:
         tree = ET.fromstring(raw)
     except ET.ParseError as e:

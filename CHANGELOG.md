@@ -1,3 +1,205 @@
+## v4.42.0 - 2026-07-17
+
+### Security hardening pack 2: sandbox parity, sensitive-file blocklist expansion, TOCTOU-safe tempfiles, XXE gate
+
+Third security release in the arc that started with v4.40.0.
+This one comes from a proactive full-runtime sweep (not just
+the v4.39.0 findings), and closes four newly-discovered issues
+plus polishes two low-risk pre-existing ones:
+
+#### HIGH -- fs.download and fs.upload gained a token.txt loophole
+
+**The problem.** ``validate_view_target`` refused
+``token.txt`` + ``.env`` + private SSH keys, but its sibling
+``validate_download_target`` (used by ``GET /v1/download``) and
+``validate_upload_target`` (used by ``POST /v1/upload``) did
+not run the same sensitivity check. Any authed caller with a
+narrow-scope multi-agent bearer could just download the master
+``token.txt`` and escalate to full-privilege in one request,
+or upload a replacement ``token.txt``  /
+``.ssh/authorized_keys`` for the same effect from the other
+direction.
+
+**The fix.** ``validate_download_target`` and
+``validate_upload_target`` now call the same
+``_sensitivity_error`` helper as view/edit/create. Same
+blocklist, same 403 status, same error-message shape.
+Endpoint-parity is now enforced by shared code, not by
+convention -- a future refactor cannot silently re-introduce
+the asymmetry without turning a test red.
+
+#### HIGH -- sensitive-file blocklist was basename-only
+
+**The problem.** ``SENSITIVE_FILE_BASENAMES`` blocked
+``id_ed25519`` but not ``.ssh/authorized_keys``, blocked
+``.env`` but not ``.aws/credentials``,
+``.gnupg/private-keys-v1.d/*``, ``.docker/config.json``,
+``.kube/config``, ``.config/gh/hosts.yml`` (GitHub CLI OAuth
+tokens), browser password stores, or shell history files that
+routinely contain pasted secrets.
+
+**The fix.** Two additions to ``arena/files/sandbox.py``:
+
+* ``SENSITIVE_FILE_BASENAMES`` expanded with
+  ``.git-credentials``, ``.pypirc``, ``.npmrc``, ``.dockercfg``,
+  ``.gitconfig``, ``.bash_history`` /
+  ``.zsh_history`` / ``.fish_history`` /
+  ``.python_history`` / ``.psql_history`` / ``.mysql_history``
+  / ``.rediscli_history`` / ``.sqlite_history`` /
+  ``.node_repl_history``, and the ``.pub`` variants of the
+  SSH keys.
+* New ``SENSITIVE_DIR_PREFIXES`` frozen-set covering
+  ``.ssh``, ``.aws``, ``.gnupg``, ``.docker``, ``.kube``,
+  ``.config/gh``, ``.config/git``, ``.mozilla``,
+  ``.config/google-chrome``, ``.config/chromium``. Both
+  single-segment (``.ssh`` anywhere in the path) and
+  multi-segment (``.config/gh`` as consecutive segments)
+  matches are recognised.
+
+The prefix scan runs after ``resolve()``, so a rogue symlink
+inside ``$HOME`` cannot be used to smuggle a sensitive path
+through: the resolved target either falls inside a blocked
+prefix or it does not.
+
+**Rationale for prefix scan being anywhere-in-path.** A
+sensitive directory NAME (``.ssh``) is treated as sensitive
+regardless of location -- an attacker staging a rogue
+``~/projects/.ssh/authorized_keys`` would otherwise squeak
+through. Multi-segment prefixes (``.config/gh``) are
+consecutive-segment matches because ``.config`` alone is
+mostly benign (``.config/htop``, ``.config/nvim``) and
+overblocking it would break every developer's daily flow.
+
+#### MEDIUM -- tempfile.mktemp() TOCTOU races in desktop code
+
+**The problem.** ``arena/desktop/ocr.py`` and
+``arena/desktop/screenshot.py`` both used
+``tempfile.mktemp()`` -- deprecated since Python 2.3 for
+exactly this reason. It returns a predictable name in a
+shared ``/tmp`` and hands it to a subsequent open/write
+call. A co-tenant on the same box can pre-create a symlink
+at the exact name (``/tmp/arena_ocr_<random>.png``) between
+the two calls, redirecting the bridge's write to any file
+the bridge user can touch.
+
+**The fix.**
+
+* OCR uses ``tempfile.NamedTemporaryFile(delete=False)`` which
+  is atomic ``O_EXCL`` create, closes the file, and hands us
+  the path. Cleanup still lives in the existing ``finally``
+  block.
+* Screenshot uses ``tempfile.mkdtemp()`` to get a per-invocation
+  0o700 directory and writes ``shot.png`` inside it. We cannot
+  use ``NamedTemporaryFile`` here because the screenshot tools
+  (spectacle / grim / scrot) need to create the file
+  themselves; putting the target inside a 0o700 parent stops a
+  co-tenant from pre-planting a symlink at the exact path.
+  Cleanup extracted into ``_rm_tmp_dir()`` so both the success
+  and failure paths call the same helper.
+
+#### MEDIUM -- APK staging root lived in shared /tmp
+
+**The problem.** ``arena/mobile/apk_install.py`` hard-coded
+``STAGING_ROOT = Path("/tmp/arena-apk-staging")``. Same
+symlink-attack surface as the tempfile issue above, worse
+because the directory is long-lived and world-listable
+(exposes package names of every APK the operator uploaded).
+
+**The fix.** Default moved to ``~/.arena/apk-staging`` with
+lazy 0o700 chmod on both the directory and its ``~/.arena``
+parent (same ACL-proof pattern the v4.40.0 URL cache uses).
+``ARENA_APK_STAGING`` env override for operators who want
+staging on a large volume. ``_ensure_staging_root()`` is
+idempotent and called from every persist / lookup path.
+
+#### LOW -- os.system() replaced with argv-form subprocess.run
+
+Three call sites in ``arena/agentctl_extras/`` (Darwin beep
+via ``osascript``, Linux ``systemctl status``) were still on
+``os.system()``. Arguments are fixed strings today so nothing
+is exploitable, but ``os.system`` spawns a shell -- a future
+refactor that interpolates any variable into the command
+string would silently open a shell-injection door. Switched
+all three to argv-form ``subprocess.run(..., check=False)``.
+The ``systemctl status | head -100`` pipe became a
+Python-side ``.splitlines()[:100]``.
+
+#### LOW -- billion-laughs / XXE gate on uiautomator dumps
+
+``arena/mobile/ui.py::dump_ui`` feeds adb ``uiautomator dump``
+output straight into ``xml.etree.ElementTree.fromstring``.
+Python's stdlib ET does not protect against billion-laughs
+entity expansion (defusedxml would, but pulling it into the
+required deps for one call site is excessive). Instead, a
+static prefix scan on the raw bytes rejects any input that
+starts with ``<!DOCTYPE`` or ``<!ENTITY`` before the parser
+sees it. Legitimate uiautomator dumps never carry a DOCTYPE,
+so the gate is behaviourally invisible for real use; the only
+callers it blocks are malicious apps trying to abuse the fact
+that the bridge is inside the trust boundary of an
+uiautomator UI dump.
+
+#### Tests (+51 unit, 2054 -> 2136; fallback E2E +0 = 2151 total)
+
+* ``tests/test_files_sandbox_v442_hardening.py`` -- 30 tests:
+  prefix-scan positive/negative parametrized, download refuses
+  every credential class, upload symmetric, view/edit/create
+  parity, verb-injection in error message.
+* ``tests/test_desktop_secure_tempfile.py`` -- 3 tests: OCR
+  uses NamedTemporaryFile, screenshot uses mkdtemp, cleanup
+  helper exists. Comment-aware source scan so the rationale
+  comments naming the deprecated API don't trip the check.
+* ``tests/test_apk_staging_hardening.py`` -- 6 tests: default
+  under ~/.arena, not /tmp, env override wins, mode 0o700
+  on both directory and parent, idempotent.
+* ``tests/test_mobile_ui_xxe_hardening.py`` -- 4 tests: gate
+  appears before ET.fromstring in source, billion-laughs
+  rejected, external-entity rejected, ordinary hierarchy
+  still parses.
+* Plus the existing 32 sandbox / fs REST tests continue to
+  pass unmodified -- the shared ``_sensitivity_error`` helper
+  is fully behaviour-compatible with the pre-v4.42.0 basename
+  check.
+
+Test suite: 2108 -> 2136 unit (+28) + 15 fallback E2E =
+**2151 total**. Zero broken masters. Zero rollbacks.
+
+#### Files touched
+
+* ``arena/files/sandbox.py`` -- expanded blocklist,
+  ``SENSITIVE_DIR_PREFIXES``, ``_path_hits_sensitive_prefix``,
+  ``_sensitivity_error`` shared helper, ``validate_download_target``
+  + ``validate_upload_target`` now call it too.
+* ``arena/desktop/ocr.py`` -- NamedTemporaryFile.
+* ``arena/desktop/screenshot.py`` -- mkdtemp + ``_rm_tmp_dir``
+  cleanup helper.
+* ``arena/mobile/apk_install.py`` -- STAGING_ROOT under
+  ``~/.arena/apk-staging``, ``_ensure_staging_root()``,
+  ``ARENA_APK_STAGING`` env override.
+* ``arena/mobile/ui.py`` -- DOCTYPE/ENTITY prefix gate.
+* ``arena/agentctl_extras/actions.py`` -- subprocess.run.
+* ``arena/agentctl_extras/integrations.py`` -- subprocess.run.
+* ``arena/agentctl_extras/status.py`` -- subprocess.run + Python-
+  side ``head -100`` equivalent.
+* ``arena/constants.py`` -- VERSION 4.41.0 -> 4.42.0.
+* ``pyproject.toml`` -- version 4.41.0 -> 4.42.0.
+
+#### Not addressed (documented for later)
+
+* ``shell=True`` in ``arena/system/hwinfo_*.py``,
+  ``arena/mcp/*.py``, ``arena/desktop/cli/*.py``. Parameters
+  are fixed strings today; not exploitable. Standalone cleanup.
+* SSRF-guard (``arena/security_ssrf.py``) is only wired into
+  browser-fetch endpoints. System tunnels / autostart don't
+  take external URLs today but a defence-in-depth pass could
+  unify.
+* CORS wildcard (``Access-Control-Allow-Origin: *``) on gui/
+  files/ desktop/ endpoints. The bridge is bearer-authenticated
+  so CORS doesn't add much (browser will refuse credentialled
+  cross-origin anyway), but tightening to a specific origin
+  list would be defence-in-depth.
+
+
 ## v4.41.0 - 2026-07-17
 
 ### Security hardening pack: TLS verify by default, ?token= deprecation, log redaction, token-loader priority fix

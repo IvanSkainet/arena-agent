@@ -1,3 +1,207 @@
+## v4.42.0 - 2026-07-17
+
+### Security hardening pack 2: sandbox parity, расширенный blocklist, TOCTOU-safe tempfile, XXE gate
+
+Третий security-релиз в дуге, начавшейся с v4.40.0. Этот
+пришёл из proactive full-runtime sweep (не только v4.39.0
+finding'и), и закрывает четыре свежих проблемы плюс
+полирует две low-risk pre-existing:
+
+#### HIGH -- fs.download и fs.upload имели token.txt-loophole
+
+**Проблема.** ``validate_view_target`` отклонял
+``token.txt`` + ``.env`` + SSH private keys, но его сиблинг
+``validate_download_target`` (используется
+``GET /v1/download``) и ``validate_upload_target`` (используется
+``POST /v1/upload``) не выполняли ту же sensitivity-проверку.
+Любой authed caller с narrow-scope multi-agent bearer мог
+просто скачать master ``token.txt`` и эскалировать до
+full-privilege одним запросом, или загрузить replacement
+``token.txt`` / ``.ssh/authorized_keys`` для того же
+эффекта в другую сторону.
+
+**Фикс.** ``validate_download_target`` и
+``validate_upload_target`` теперь вызывают тот же
+``_sensitivity_error`` helper, что view/edit/create. Тот же
+blocklist, тот же 403 status, та же error-message form.
+Endpoint-parity теперь обеспечивается shared code, а не
+convention -- будущий рефакторинг не может тихо
+переввести асимметрию без покраснения теста.
+
+#### HIGH -- sensitive-file blocklist был basename-only
+
+**Проблема.** ``SENSITIVE_FILE_BASENAMES`` блокировал
+``id_ed25519``, но не ``.ssh/authorized_keys``, блокировал
+``.env``, но не ``.aws/credentials``,
+``.gnupg/private-keys-v1.d/*``, ``.docker/config.json``,
+``.kube/config``, ``.config/gh/hosts.yml`` (GitHub CLI OAuth
+tokens), browser password stores, или shell history файлы,
+которые routinely содержат pasted секреты.
+
+**Фикс.** Два добавления в ``arena/files/sandbox.py``:
+
+* ``SENSITIVE_FILE_BASENAMES`` расширен с
+  ``.git-credentials``, ``.pypirc``, ``.npmrc``, ``.dockercfg``,
+  ``.gitconfig``, ``.bash_history`` /
+  ``.zsh_history`` / ``.fish_history`` /
+  ``.python_history`` / ``.psql_history`` /
+  ``.mysql_history`` / ``.rediscli_history`` /
+  ``.sqlite_history`` / ``.node_repl_history``, и ``.pub``
+  вариантами SSH keys.
+* Новый ``SENSITIVE_DIR_PREFIXES`` frozen-set покрывает
+  ``.ssh``, ``.aws``, ``.gnupg``, ``.docker``, ``.kube``,
+  ``.config/gh``, ``.config/git``, ``.mozilla``,
+  ``.config/google-chrome``, ``.config/chromium``. Оба
+  single-segment (``.ssh`` где угодно в пути) и
+  multi-segment (``.config/gh`` как consecutive сегменты)
+  matches признаны.
+
+Prefix-scan запускается после ``resolve()``, так что
+rogue symlink внутри ``$HOME`` не может быть использован для
+smuggling sensitive path через: resolved target либо падает
+внутрь blocked prefix либо нет.
+
+**Rationale для anywhere-in-path.** Sensitive directory NAME
+(``.ssh``) трактуется как sensitive независимо от locations
+-- attacker, staging rogue ``~/projects/.ssh/authorized_keys``
+иначе проскочил бы. Multi-segment prefixes (``.config/gh``) --
+consecutive-segment matches, потому что ``.config`` в
+одиночку в основном безобиден (``.config/htop``,
+``.config/nvim``), а overblocking его сломает daily flow
+любого dev'а.
+
+#### MEDIUM -- tempfile.mktemp() TOCTOU races в desktop code
+
+**Проблема.** ``arena/desktop/ocr.py`` и
+``arena/desktop/screenshot.py`` оба использовали
+``tempfile.mktemp()`` -- deprecated с Python 2.3 ровно по
+этой причине. Возвращает predictable name в shared ``/tmp``
+и передаёт его в последующий open/write. Co-tenant на той же
+машине может pre-create symlink по exact name
+(``/tmp/arena_ocr_<random>.png``) между двумя вызовами,
+redirect'уя bridge's write в любой файл, к которому bridge
+user имеет доступ.
+
+**Фикс.**
+
+* OCR использует ``tempfile.NamedTemporaryFile(delete=False)`` --
+  atomic ``O_EXCL`` create, закрывает file и отдаёт нам
+  path. Cleanup всё ещё живёт в существующем ``finally``.
+* Screenshot использует ``tempfile.mkdtemp()`` чтобы
+  получить per-invocation 0o700 directory и пишет
+  ``shot.png`` внутри. Мы не можем использовать
+  ``NamedTemporaryFile`` здесь, потому что screenshot tools
+  (spectacle / grim / scrot) сами создают file; putting
+  target внутри 0o700 parent останавливает co-tenant от
+  pre-planting symlink по exact path. Cleanup вынесен в
+  ``_rm_tmp_dir()``, так что оба success и failure paths
+  зовут тот же helper.
+
+#### MEDIUM -- APK staging root жил в shared /tmp
+
+**Проблема.** ``arena/mobile/apk_install.py`` hard-code'ил
+``STAGING_ROOT = Path("/tmp/arena-apk-staging")``. Тот же
+symlink-attack surface, что и tempfile issue выше, хуже,
+потому что directory long-lived и world-listable
+(exposes package names каждого APK, который operator upload'ил).
+
+**Фикс.** Default перенесён на ``~/.arena/apk-staging`` с
+lazy 0o700 chmod на directory и его ``~/.arena`` parent
+(тот же ACL-proof паттерн, что v4.40.0 URL cache использует).
+``ARENA_APK_STAGING`` env-override для operators, кому нужен
+staging на большом volume. ``_ensure_staging_root()``
+idempotent и вызывается из каждого persist / lookup path.
+
+#### LOW -- os.system() заменён на argv-form subprocess.run
+
+Три call site в ``arena/agentctl_extras/`` (Darwin beep
+через ``osascript``, Linux ``systemctl status``) были всё ещё
+на ``os.system()``. Arguments сегодня fixed-strings, так что
+ничего не exploitable, но ``os.system`` spawn'ит shell --
+будущий рефакторинг, интерполирующий любую переменную в
+command string, тихо откроет shell-injection door. Переключены
+все три на argv-form ``subprocess.run(..., check=False)``.
+``systemctl status | head -100`` pipe стал Python-side
+``.splitlines()[:100]``.
+
+#### LOW -- billion-laughs / XXE gate на uiautomator dumps
+
+``arena/mobile/ui.py::dump_ui`` кормит adb ``uiautomator dump``
+output прямо в ``xml.etree.ElementTree.fromstring``. Stdlib
+ET Python'а не защищает от billion-laughs entity expansion
+(defusedxml бы да, но пулить его в required deps ради
+одного call site избыточно). Вместо этого static
+prefix-scan на raw bytes отклоняет любой input, начинающийся
+с ``<!DOCTYPE`` или ``<!ENTITY`` до того, как parser его
+увидит. Legitimate uiautomator dumps никогда не несут
+DOCTYPE, так что gate behaviourally invisible для real use;
+единственные callers, которые он блокирует, -- malicious
+apps, пытающиеся abuse тот факт, что bridge внутри trust
+boundary uiautomator UI dump.
+
+#### Тесты (+51 unit, 2054 -> 2136; fallback E2E +0 = 2151 всего)
+
+* ``tests/test_files_sandbox_v442_hardening.py`` -- 30 тестов:
+  prefix-scan positive/negative parametrized, download
+  отклоняет каждый credential class, upload симметрично,
+  view/edit/create parity, verb-injection в error message.
+* ``tests/test_desktop_secure_tempfile.py`` -- 3 теста: OCR
+  использует NamedTemporaryFile, screenshot использует
+  mkdtemp, cleanup helper существует. Comment-aware source
+  scan, так что rationale comments, называющие deprecated
+  API, не трипают check.
+* ``tests/test_apk_staging_hardening.py`` -- 6 тестов:
+  default под ~/.arena, не /tmp, env-override побеждает,
+  mode 0o700 на directory и parent, idempotent.
+* ``tests/test_mobile_ui_xxe_hardening.py`` -- 4 теста:
+  gate появляется перед ET.fromstring в source, billion-
+  laughs отклонён, external-entity отклонён, ordinary
+  hierarchy всё ещё парсится.
+* Плюс существующие 32 sandbox / fs REST теста продолжают
+  проходить без модификации -- shared ``_sensitivity_error``
+  helper полностью behaviour-compatible с pre-v4.42.0
+  basename check.
+
+Test suite: 2108 -> 2136 unit (+28) + 15 fallback E2E =
+**2151 всего**. Zero broken masters. Zero rollbacks.
+
+#### Тронутые файлы
+
+* ``arena/files/sandbox.py`` -- расширенный blocklist,
+  ``SENSITIVE_DIR_PREFIXES``, ``_path_hits_sensitive_prefix``,
+  ``_sensitivity_error`` shared helper,
+  ``validate_download_target`` + ``validate_upload_target``
+  теперь тоже вызывают его.
+* ``arena/desktop/ocr.py`` -- NamedTemporaryFile.
+* ``arena/desktop/screenshot.py`` -- mkdtemp + ``_rm_tmp_dir``
+  cleanup helper.
+* ``arena/mobile/apk_install.py`` -- STAGING_ROOT под
+  ``~/.arena/apk-staging``, ``_ensure_staging_root()``,
+  ``ARENA_APK_STAGING`` env override.
+* ``arena/mobile/ui.py`` -- DOCTYPE/ENTITY prefix gate.
+* ``arena/agentctl_extras/actions.py`` -- subprocess.run.
+* ``arena/agentctl_extras/integrations.py`` -- subprocess.run.
+* ``arena/agentctl_extras/status.py`` -- subprocess.run +
+  Python-side ``head -100`` эквивалент.
+* ``arena/constants.py`` -- VERSION 4.41.0 -> 4.42.0.
+* ``pyproject.toml`` -- version 4.41.0 -> 4.42.0.
+
+#### Не адресовано (задокументировано на потом)
+
+* ``shell=True`` в ``arena/system/hwinfo_*.py``,
+  ``arena/mcp/*.py``, ``arena/desktop/cli/*.py``. Parameters
+  сегодня fixed-strings; не exploitable. Standalone cleanup.
+* SSRF-guard (``arena/security_ssrf.py``) подключён только к
+  browser-fetch endpoint'ам. System tunnels / autostart не
+  берут external URL сегодня, но defence-in-depth pass мог
+  бы унифицировать.
+* CORS wildcard (``Access-Control-Allow-Origin: *``) на
+  gui/ files/ desktop/ endpoint'ах. Bridge bearer-
+  authenticated, так что CORS не добавляет много (browser
+  всё равно откажет credentialled cross-origin), но
+  затяжка до specific origin list была бы defence-in-depth.
+
+
 ## v4.41.0 - 2026-07-17
 
 ### Security hardening pack: TLS verify по умолчанию, ?token= deprecation, log redaction, token-loader priority fix

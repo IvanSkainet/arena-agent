@@ -101,8 +101,11 @@ def cmd_beep(args: list[str]) -> int:
                     time.sleep(0.05)
                     winsound.Beep(659, 150)
         elif platform.system() == "Darwin":
-            import os
-            os.system('osascript -e "beep"')
+            # v4.42.0: switched from os.system() -- see the same
+            # change in arena/agentctl_extras/actions.py for the
+            # rationale (no-shell subprocess.run is refactor-safe).
+            import subprocess
+            subprocess.run(['osascript', '-e', 'beep'], check=False)
         else:
             sys.stdout.write("\a")
             sys.stdout.flush()

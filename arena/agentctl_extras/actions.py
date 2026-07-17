@@ -11,8 +11,13 @@ def play_notification_sound():
             import winsound
             winsound.MessageBeep(winsound.MB_ICONASTERISK)
         elif platform.system() == "Darwin":
-            import os
-            os.system('osascript -e "beep"')
+            # v4.42.0: was ``os.system(...)`` which spawns a shell
+            # and could be tainted by future refactors that
+            # accidentally interpolate a variable into the string.
+            # Switched to argv-form subprocess.run for the same
+            # reason the rest of the codebase avoids os.system.
+            import subprocess
+            subprocess.run(["osascript", "-e", "beep"], check=False)
         else:
             sys.stdout.write("\a")
             sys.stdout.flush()
