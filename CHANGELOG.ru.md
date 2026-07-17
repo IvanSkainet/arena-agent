@@ -1,3 +1,147 @@
+## v4.40.0 - 2026-07-17
+
+### Security hardening -- подписанный URL-кэш предотвращает утечку токена
+
+Follow-up к v4.39.0 (persistent URL memory). Self-audit после
+v4.39.0 выявил одну medium-serьёзную проблему: on-disk cache
+по пути ``~/.arena/last_urls.json`` не имел integrity-защиты,
+не имел mode-ограничений, а URL из него не валидировались на
+загрузке. Любой процесс с write-доступом в home пользователя
+мог подменить URL, и когда bootstrap в следующий раз упадёт
+(наблюдаемый триггер -- Tailscale-outage), agentctl бы
+спокойно отправил ``Authorization: Bearer <BRIDGE_TOKEN>`` на
+URL, выбранный атакующим. Умножено на pre-existing
+``verify_mode=0`` в CLI -- это чистая утечка мастер-токена
+bridge'а. Impact был ограниченный (у атакующего с write в home
+уже есть доступ к ``token.txt``), но локальный риск
+нетривиальный и дешёвый в починке.
+
+Три уровня защиты, каждый достаточен в большинстве threat-
+model, layered потому что write-access в home достаточно
+страшен чтобы стоило перестраховаться:
+
+1. **HMAC-SHA256 подпись** над payload snapshot'а, keyed
+   SHA-256-derivate от bearer-токена. Write в save, verify в
+   load. Атакующий с write-доступом не может форжать валидную
+   подпись без знания токена -- а если он знает токен, то у
+   него уже есть то, что отравленный кэш хотел бы украсть.
+   Constant-time сравнение через ``hmac.compare_digest``.
+2. **URL allowlist** применяется и при записи (``save()``
+   молча дропает disallowed-entries), и при чтении
+   (``fallback_bootstrap_urls()`` фильтрует ещё раз). Reject
+   не-http/https схем и известных SSRF-trap хостов:
+   ``localhost``, ``.internal``, ``.local``,
+   ``metadata.google.internal``, ``169.254.169.254`` (AWS/GCP/
+   Azure IMDS). Специально НЕ блокирует RFC1918-адреса,
+   потому что ZeroTier-fallback URL -- это ровно приватный
+   адрес (``http://10.57.152.120:8765`` в LAN'е Ivan'а).
+3. **``chmod 0o600``** на cache-файле и ``chmod 0o700`` на
+   родительской директории ``~/.arena``. Mode устанавливается
+   до атомарного ``.tmp`` rename И повторно после (ACL-proof
+   discipline из ``arena/agent_helpers/files.py``). Не даёт
+   со-tenants на той же машине читать список URL (это утекает
+   инфраструктуру: Tailscale-hostnames, ngrok reserved-domains,
+   ротирующиеся cloudflared-subdomains).
+
+Новый envelope-формат (schema version 2, envelope version 1)::
+
+    {
+      "envelope_version": 1,
+      "sig": "<64 hex char: HMAC-SHA256 над payload>",
+      "payload": {
+        "version": 2,
+        "saved_at": <epoch>,
+        "bootstrap_url": "https://...",
+        "urls": [{...}, ...]
+      }
+    }
+
+Подпись покрывает только детерминистически сериализованный
+``payload`` (``sort_keys=True, separators=(",",":")``), так
+что новые payload-поля становятся signature-covered
+автоматически. Envelope сам по себе НЕ подписан -- правка
+``envelope_version`` или ``sig`` инвалидирует подпись и файл
+дискарается.
+
+Обратная совместимость: v4.39.0 писал unsigned version-1
+snapshots. При первом же ``bridge``-вызове после апгрейда
+такие файлы silently reject как "no cache" (envelope-check
+падает), и следующий успешный bootstrap перезаписывает cache
+в новой подписанной форме. Это upgrade-safety story: старые
+кэши не доверяются, не мигрируются молча.
+
+CLI-facing изменения:
+
+* ``agentctl bridge urls|best|test|cache`` -- работают
+  без изменения аргументов. Подпись невидима для
+  пользователя -- CLI внутри передаёт ``BRIDGE_TOKEN`` в
+  ``save()``/``load()``. Если bearer-токен ротировали
+  (``regenerate_token.sh``), старый cache молча становится
+  непригодным и переписывается на следующий успешный
+  bootstrap.
+* ``bridge cache show`` показывает "no cache" когда
+  signature не верифицируется -- различать "файл есть но
+  недоверенный" от "файла нет" утечёт слишком много про
+  signature-check outcome атакующему через ``strace``.
+
+Новые тесты (33 всего, 18 юнит + 2 E2E новые + 13
+существующих E2E обновлены под signed envelope):
+
+* ``test_url_cache.py``: 18 новых тестов, покрывают
+  ``save()``/``load()`` без secret (оба refuse),
+  HMAC-mismatch (reject), payload-tampering (reject),
+  signature-tampering (reject), refuse v4.39.0-unsigned-file,
+  envelope-version-mismatch, URL-allowlist параметризован
+  по 11 SSRF-trap URL'ам, RFC1918-acceptance,
+  chmod-0o600/chmod-0o700 verification (POSIX-only),
+  constant-time compare через ``hmac.compare_digest``,
+  determinism HMAC key derivation.
+* ``test_url_cache_fallback.py``: 2 новых E2E-теста:
+  ``test_poisoned_cache_is_refused_end_to_end`` (атакующий
+  подменяет cache wrong-signed URL'ами; ассерт что stub-сервер
+  атакующего получил НОЛЬ запросов, т.е. bearer-токен не
+  утёк), и ``test_v4_39_unsigned_cache_is_refused``
+  (upgrade-safety -- оставшийся v4.39.0-файл не доверяется
+  даже если поверхностно парсится). Существующие 13 fallback-
+  тестов мигрировали на ``_prime_cache`` helper, который
+  пишет v4.40.0-signed envelope, сохраняя subprocess-level
+  покрытие.
+
+Test suite: 2020 -> 2053 (+33). Zero broken masters. Zero
+rollbacks.
+
+Тронутые файлы:
+
+* ``arena/agentctl_cli/url_cache.py`` -- HMAC, allowlist,
+  chmod, envelope-формат. +150 строк (в пределах
+  MAX_RUNTIME_LINES).
+* ``arena/agentctl_cli/agentctl_bridge.py`` -- три call-site
+  обновлены чтобы прокидывать ``secret=BRIDGE_TOKEN`` через
+  ``save()``/``load()``/``fallback_bootstrap_urls()``.
+* ``arena/constants.py`` -- VERSION 4.39.0 -> 4.40.0.
+* ``pyproject.toml`` -- version 4.39.0 -> 4.40.0.
+* ``tests/test_url_cache.py`` -- 68 тестов, все зелёные.
+* ``tests/test_url_cache_fallback.py`` -- 15 тестов, все
+  зелёные.
+
+НЕ адресовано в этом релизе (задокументировано для следующего
+security-hardening pass):
+
+* CLI-wide TLS-verification всё ещё выключена
+  (``verify_mode=0`` в ``agentctl_cli/agentctl_common.py``).
+  Надо переключить на opt-in ``--insecure`` /
+  ``ARENA_INSECURE_TLS=1`` с strict-verify по умолчанию.
+  Отдельный релиз потому что затрагивает каждый CLI-request-
+  path.
+* ``?token=`` в query-string всё ещё принимается
+  ``arena/auth/runtime.py``. Query-string токены утекают в
+  логи proxy; medium-term deprecation с warning-header --
+  правильный ход.
+* Diagnostic stderr fallback-loop всё ещё содержит полный
+  cached URL; будущий релиз должен truncate Tailscale/ngrok
+  hostnames когда stderr -- не TTY.
+
+
 \n## v4.39.0 - 2026-07-17
 
 ### Persistent URL memory -- agentctl переживает bootstrap-outage

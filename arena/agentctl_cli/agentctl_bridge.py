@@ -201,13 +201,25 @@ def _fetch_config() -> dict[str, Any]:
         # Persist on success so a future outage has a warm
         # cache to lean on. Save is fail-soft -- filesystem
         # errors are swallowed and never affect this call.
-        url_cache.save(cfg, bootstrap_url=BRIDGE_URL)
+        # v4.40.0: pass the bearer token so the snapshot is
+        # HMAC-signed. Without a token we cannot verify the
+        # signature on load, so we also cannot write a trusted
+        # snapshot -- url_cache.save() will no-op in that case
+        # (defence-in-depth against cache-poisoning; see
+        # arena/agentctl_cli/url_cache.py docstring).
+        url_cache.save(cfg, bootstrap_url=BRIDGE_URL, secret=BRIDGE_TOKEN)
         return cfg
     except Exception as primary_err:
         primary_err_str = f"{type(primary_err).__name__}: {primary_err}"
 
     # Attempt 2..N: URLs from the cache, in priority order.
-    fallback_urls = url_cache.fallback_bootstrap_urls()
+    # v4.40.0: fallback_bootstrap_urls verifies the HMAC of the
+    # on-disk snapshot against our BRIDGE_TOKEN. A mismatched
+    # signature (poisoned cache) returns [] just like an absent
+    # cache -- the client then falls through to the "everything
+    # unreachable" branch below rather than talking to a URL an
+    # attacker chose.
+    fallback_urls = url_cache.fallback_bootstrap_urls(secret=BRIDGE_TOKEN)
     for candidate in fallback_urls:
         if candidate == BRIDGE_URL:
             # Already tried above -- don't burn a second timeout
@@ -228,7 +240,10 @@ def _fetch_config() -> dict[str, Any]:
         # Refresh the cache from this successful response --
         # picks up any rotated URLs (cloudflared, ngrok) so the
         # next run has an updated snapshot to fall back on.
-        url_cache.save(cfg, bootstrap_url=candidate)
+        # v4.40.0: same signed-write discipline as the primary
+        # path -- the fresh snapshot inherits the bearer-token
+        # signature.
+        url_cache.save(cfg, bootstrap_url=candidate, secret=BRIDGE_TOKEN)
         return cfg
 
     # All options exhausted. Print the original error (that's
@@ -388,7 +403,13 @@ def cache(args: list[str]) -> None:
 
     if sub == "show":
         as_json = "--json" in remaining
-        data = url_cache.load()
+        # v4.40.0: pass the bearer token so load() can verify the
+        # HMAC signature. Without it the cache is refused as
+        # "unsigned/untrusted" -- which is the correct answer, and
+        # the CLI reports it as "(no cache)" via the None branch
+        # below so operators see immediately when their cache is
+        # unusable (e.g. after a token rotation).
+        data = url_cache.load(secret=BRIDGE_TOKEN)
         if as_json:
             print(json.dumps({
                 "ok": True,

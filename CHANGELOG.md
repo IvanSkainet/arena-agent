@@ -1,3 +1,149 @@
+## v4.40.0 - 2026-07-17
+
+### Security hardening -- signed URL cache prevents token exfiltration
+
+Follow-up to the v4.39.0 persistent URL memory feature. A
+self-audit ran after v4.39.0 shipped surfaced one medium-severity
+issue: the on-disk cache at ``~/.arena/last_urls.json`` was
+neither integrity-protected nor mode-restricted, and its URLs
+were not validated on load. Any process that could write into
+the user's home directory could substitute those URLs, and the
+next time the real bootstrap flapped (Tailscale outage was the
+observed trigger), agentctl would happily send
+``Authorization: Bearer <BRIDGE_TOKEN>`` to a URL of the
+attacker's choosing. Compounded by the CLI's pre-existing
+``verify_mode=0`` on TLS, that path leaks the bridge master
+token cleanly. Impact was bounded (an attacker with home write
+already has access to ``token.txt``), but the local risk was
+non-trivial and cheap to fix.
+
+Three layered defences, each independently sufficient in most
+threat models, layered because home-directory write access is
+scary enough to warrant belt+suspenders:
+
+1. **HMAC-SHA256 signature** over the snapshot payload, keyed
+   by a SHA-256-derived value of the bearer token. Save-time
+   write and load-time verify. An attacker who can write to
+   the cache cannot forge a valid signature without knowing
+   the token -- and if they know the token, they already have
+   what the poisoned cache would steal. Constant-time
+   comparison via ``hmac.compare_digest``.
+2. **URL allowlist** applied at both write time (``save()``
+   silently drops disallowed entries) and read time
+   (``fallback_bootstrap_urls()`` filters again). Rejects
+   non-http/https schemes and known SSRF-trap hosts:
+   ``localhost``, ``.internal``, ``.local``,
+   ``metadata.google.internal``, ``169.254.169.254`` (AWS/GCP/
+   Azure IMDS). Deliberately does NOT block RFC1918 addresses
+   because ZeroTier's fallback URL is exactly a private
+   address (``http://10.57.152.120:8765`` in Ivan's LAN).
+3. **``chmod 0o600``** on the cache file and ``chmod 0o700``
+   on the ``~/.arena`` parent directory. The mode is set
+   before the atomic ``.tmp`` rename AND re-applied after
+   (ACL-proof discipline established in
+   ``arena/agent_helpers/files.py``). Prevents co-tenants on
+   the same machine from reading the URL list (which leaks
+   infrastructure topology: Tailscale hostnames, ngrok
+   reserved domains, rotating cloudflared subdomains).
+
+New envelope format (schema version 2, envelope version 1)::
+
+    {
+      "envelope_version": 1,
+      "sig": "<64 hex chars: HMAC-SHA256 over payload>",
+      "payload": {
+        "version": 2,
+        "saved_at": <epoch>,
+        "bootstrap_url": "https://...",
+        "urls": [{...}, ...]
+      }
+    }
+
+The signature covers only the deterministically-serialised
+``payload`` object (``sort_keys=True, separators=(",",":")``),
+so new payload fields become signature-covered automatically.
+The envelope itself is intentionally NOT signed -- editing
+``envelope_version`` or ``sig`` invalidates the signature and
+the file is discarded.
+
+Backward compatibility: v4.39.0 wrote unsigned version-1
+snapshots. On the first ``bridge`` call after upgrading, those
+files are silently rejected as "no cache" (envelope check
+fails), and the next successful bootstrap rewrites the cache
+in the new signed shape. This is the upgrade-safety story:
+old caches are not trusted, not silently migrated.
+
+CLI-facing changes:
+
+* ``agentctl bridge urls|best|test|cache`` all continue to
+  work with no argument change. The signature is invisible to
+  the user -- the CLI internally passes ``BRIDGE_TOKEN`` to
+  ``save()``/``load()``. If the bearer token was rotated
+  (``regenerate_token.sh``), the old cache silently becomes
+  unusable and is repopulated on next successful bootstrap.
+* ``bridge cache show`` reports "no cache" when the signature
+  fails to verify -- distinguishing "file present but
+  untrusted" from "file absent" would leak too much about the
+  signature-check outcome to an attacker inspecting via
+  ``strace``.
+
+New tests (33 total, 18 unit + 2 E2E new + 13 existing E2E
+updated to use the signed envelope):
+
+* ``test_url_cache.py``: 18 new tests covering
+  ``save()``/``load()`` without a secret (both refuse),
+  HMAC mismatch (rejected), payload tampering (rejected),
+  signature tampering (rejected), v4.39.0 unsigned-file
+  refusal, envelope version mismatch, URL allowlist parametrized
+  over 11 SSRF-trap URLs, RFC1918 acceptance,
+  chmod-0o600/chmod-0o700 verification (POSIX-only),
+  constant-time compare via ``hmac.compare_digest``,
+  and HMAC key derivation determinism.
+* ``test_url_cache_fallback.py``: 2 new end-to-end tests:
+  ``test_poisoned_cache_is_refused_end_to_end`` (attacker
+  substitutes cache with wrong-signed URLs; asserts the
+  attacker's stub server received ZERO requests, i.e. no
+  bearer token leaked), and
+  ``test_v4_39_unsigned_cache_is_refused`` (upgrade safety --
+  a leftover v4.39.0 file is not trusted even if it superficially
+  parses). The existing 13 fallback tests migrated to a
+  ``_prime_cache`` helper that writes the v4.40.0-signed
+  envelope, keeping subprocess-level coverage stable.
+
+Test suite: 2020 -> 2053 (+33). Zero broken masters. Zero
+rollbacks.
+
+Files touched:
+
+* ``arena/agentctl_cli/url_cache.py`` -- HMAC, allowlist,
+  chmod, envelope format. +150 lines (well within
+  MAX_RUNTIME_LINES).
+* ``arena/agentctl_cli/agentctl_bridge.py`` -- three call
+  sites updated to thread ``secret=BRIDGE_TOKEN`` through
+  ``save()``/``load()``/``fallback_bootstrap_urls()``.
+* ``arena/constants.py`` -- VERSION 4.39.0 -> 4.40.0.
+* ``pyproject.toml`` -- version 4.39.0 -> 4.40.0.
+* ``tests/test_url_cache.py`` -- 68 tests, all pass.
+* ``tests/test_url_cache_fallback.py`` -- 15 tests, all pass.
+
+Not addressed in this release (documented for the next
+security-hardening pass):
+
+* CLI-wide TLS verification is still off
+  (``verify_mode=0`` in ``agentctl_cli/agentctl_common.py``).
+  Should switch to opt-in ``--insecure`` /
+  ``ARENA_INSECURE_TLS=1`` while keeping strict verify by
+  default. Separate release because it touches every CLI
+  request path.
+* ``?token=`` query-string auth is still accepted by
+  ``arena/auth/runtime.py``. Query-string tokens leak into
+  proxy logs; medium-term deprecation with a warning header
+  is the right move.
+* Diagnostic stderr from the fallback loop still includes
+  the full cached URL; a future release should truncate
+  Tailscale/ngrok hostnames when stderr is not a TTY.
+
+
 ## v4.39.0 - 2026-07-17
 
 ### Persistent URL memory -- agentctl survives bootstrap outages
