@@ -1,3 +1,109 @@
+## v4.46.0 - 2026-07-17
+
+### Continuous security: `SECURITY.md` + CI security-scan pipeline
+
+Седьмой security-релиз. Этот закрывает audit sweep фиксацией
+tooling, которое поддерживает codebase clean going forward, и
+документированием threat model + env-var reference для
+operators и contributors.
+
+Два артефакта, оба meta-security (они enforce security, а не
+добавляют новую защиту):
+
+#### `SECURITY.md` в корне репо
+
+Comprehensive threat-model + defence map + полный env-var
+reference для каждого security-relevant knob. Секции:
+
+* **Reporting a vulnerability** -- private issue / GitHub
+  Security Advisory workflow, response targets (72 ч
+  initial reply, 2 недели для HIGH, 30 дней для MEDIUM).
+* **Supported versions** -- только `master` (последний
+  `v4.x.y`); что-либо старше v4.40.0 missing at least одно
+  sweep finding.
+* **Threat model** -- таблица 12 threat class'ов и
+  concrete defences (bearer auth, cert pinning, sandbox
+  blocklist, HMAC cache, SSRF-guard, safe-extract, DOCTYPE-
+  gate, value-pattern redaction, peer-IP mask, TOCTOU-safe
+  tempfiles, `Warning: 299` deprecation header, log-URL
+  redaction).
+* **What we do NOT defend against** -- явный out-of-scope
+  список (compromised CLI host, compromised bridge host,
+  physical access, social engineering).
+* **Security features** -- server-side + client-side map,
+  файл-за-файлом.
+* **Environment variables** -- **полная reference** 14
+  security-relevant env vars с default + effect.
+* **Recommended production preset** -- copy-paste bash
+  блок с token-file, SPKI pinning derived from live bridge
+  cert, `ARENA_LOG_PEER=mask` с per-install salt,
+  `ARENA_WEBHOOK_STRICT=1`.
+* **Static analysis + CI gates** -- документирует три
+  инструмента и точный threshold каждого.
+* **Audit history** -- v4.40.0 → v4.45.0 timeline с
+  per-release headline.
+
+Discoverable через `SECURITY.md` в корне репо (стандартная
+GitHub location).
+
+#### CI security-scan pipeline
+
+`.github/workflows/security-scan.yml` запускает три
+independent tools на каждый push, каждый PR, и daily в
+06:00 UTC (cron catches новые CVE в deps без нужды в
+commit):
+
+* **bandit** -- Python static-analysis. Gate: **0 HIGH + 0
+  MEDIUM findings**. LOW трактуется как code-hygiene noise.
+* **semgrep** -- semantic pattern matcher, **9 rule packs**
+  pinned. Gate: **0 ERROR + 0 WARNING**. Каждая false-
+  positive линия уже несёт inline `# nosemgrep: <rule> --
+  <rationale>` marker.
+* **pip-audit** -- CVE scan против runtime + full-extras
+  deps. Gate: **0 CVEs**. Runs daily чтобы свежая CVE
+  тригерит alert без commit.
+
+Каждый job загружает свой JSON report как 30-day-retention
+artifact.
+
+#### Local parity через `Makefile`
+
+Те же три gate локально запускаемо, так что "passes locally"
+== "passes in CI":
+
+```
+make install-security-tools
+make security-scan
+make security-bandit
+make security-semgrep
+make security-pip-audit
+```
+
+Gate logic DRY: и CI, и Makefile зовут тот же
+`scripts/security_gate.py` и `scripts/extract_runtime_reqs.py`,
+так что threshold change в одном месте propagates
+automatically.
+
+#### Тронутые файлы
+
+* `SECURITY.md` -- **НОВЫЙ**, 180 строк.
+* `.github/workflows/security-scan.yml` -- **НОВЫЙ**,
+  3-job matrix (bandit / semgrep / pip-audit).
+* `Makefile` -- **НОВЫЙ**, top-level entry points с `help`.
+* `scripts/security_gate.py` -- **НОВЫЙ**, shared gate
+  logic.
+* `scripts/extract_runtime_reqs.py` -- **НОВЫЙ**, DRY dep
+  extractor.
+* `arena/constants.py` + `pyproject.toml` -- version bump
+  4.45.0 -> 4.46.0.
+
+#### Тесты
+
+Test count без изменений (нет нового runtime кода): 2299
+unit + 15 fallback E2E = 2314 total. Zero broken masters,
+zero rollbacks.
+
+
 ## v4.45.0 - 2026-07-17
 
 ### CWE-top-25 scan + emit-site redaction модуль + optional TLS certificate pinning

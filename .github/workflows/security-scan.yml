@@ -1,0 +1,138 @@
+name: Security scan
+
+# Runs on every push to master and every PR, plus daily at 06:00 UTC
+# so a new CVE in one of our deps trips the alert even without a
+# new commit.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: "0 6 * * *"
+
+concurrency:
+  group: security-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bandit:
+    name: bandit (must be 0 HIGH / 0 MEDIUM)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install bandit
+        run: pip install "bandit>=1.7"
+
+      - name: Run bandit
+        # -r arena/  = recursive scan of the runtime module.
+        # --skip B101 = ignore assert-used; we use asserts inside tests.
+        # We do NOT scan tests/ so per-line # nosec markers on test
+        # fixtures don't need to be re-annotated (test fixtures often
+        # need deliberately-vulnerable shapes to prove they get
+        # rejected).
+        run: |
+          bandit -r arena/ --skip B101 -f json -o bandit.json || true
+
+      - name: Gate on HIGH + MEDIUM (LOW allowed as code hygiene)
+        # Delegates to the shared gate script so CI and `make
+        # security-scan` locally apply the exact same threshold.
+        run: python3 scripts/security_gate.py bandit bandit.json
+
+      - name: Upload bandit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-report
+          path: bandit.json
+          retention-days: 30
+
+  semgrep:
+    name: semgrep (9 rule packs, must be 0 findings)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install semgrep
+        run: pip install "semgrep>=1.170"
+
+      - name: Run semgrep
+        # Every finding must be a real ERROR/WARNING. Rule that fires
+        # on an OK line is silenced via inline
+        # `# nosemgrep: <rule> -- <reason>`, which each existing
+        # annotation follows. New nosemgrep additions in a PR require
+        # a rationale (grep-visible in code review).
+        run: |
+          semgrep \
+            --config=p/python \
+            --config=p/security-audit \
+            --config=p/owasp-top-ten \
+            --config=p/cwe-top-25 \
+            --config=p/insecure-transport \
+            --config=p/command-injection \
+            --config=p/xss \
+            --config=p/secrets \
+            --config=p/gitleaks \
+            --error --severity=ERROR --severity=WARNING \
+            --json --output=semgrep.json \
+            arena/ || true
+
+      - name: Gate on any ERROR + WARNING
+        run: python3 scripts/security_gate.py semgrep semgrep.json
+
+      - name: Upload semgrep report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep.json
+          retention-days: 30
+
+  pip-audit:
+    name: pip-audit (0 CVE in runtime deps)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install pip-audit
+        run: pip install "pip-audit>=2.7"
+
+      - name: Extract runtime deps from pyproject.toml
+        # Same helper the Makefile uses, so drift between local +
+        # CI runs is impossible.
+        run: python3 scripts/extract_runtime_reqs.py > runtime-reqs.txt
+
+      - name: Run pip-audit
+        run: |
+          pip-audit --requirement runtime-reqs.txt --format json \
+              --output pip-audit.json || true
+
+      - name: Gate on any CVE
+        run: python3 scripts/security_gate.py pip-audit pip-audit.json
+
+      - name: Upload pip-audit report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pip-audit-report
+          path: pip-audit.json
+          retention-days: 30

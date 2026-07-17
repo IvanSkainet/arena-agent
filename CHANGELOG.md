@@ -1,3 +1,165 @@
+## v4.46.0 - 2026-07-17
+
+### Continuous security: `SECURITY.md` + CI security-scan pipeline
+
+Seventh security release. This one closes the audit sweep by
+locking in the tooling that keeps the codebase clean going
+forward, and documenting the threat model + env-var reference
+for operators and contributors.
+
+Two artefacts, both meta-security (they enforce security rather
+than add a new defence):
+
+#### `SECURITY.md` at repo root
+
+Comprehensive threat-model + defence map + full env-var
+reference for every security-relevant knob. Sections:
+
+* **Reporting a vulnerability** -- private issue / GitHub
+  Security Advisory workflow, response targets (72 h initial
+  reply, 2 weeks for HIGH, 30 days for MEDIUM).
+* **Supported versions** -- only `master` (latest `v4.x.y`);
+  anything older than v4.40.0 is missing at least one sweep
+  finding.
+* **Threat model** -- table of 12 threat classes and the
+  concrete defences (bearer auth, cert pinning, sandbox
+  blocklist, HMAC cache, SSRF-guard, safe-extract,
+  DOCTYPE-gate, value-pattern redaction, peer-IP mask,
+  TOCTOU-safe tempfiles, `Warning: 299` deprecation header,
+  log-URL redaction).
+* **What we do NOT defend against** -- explicit out-of-scope
+  list (compromised CLI host, compromised bridge host,
+  physical access, social engineering) so operators know
+  where the perimeter ends.
+* **Security features** -- server-side + client-side map,
+  file-by-file with the specific module + guarantee each
+  provides.
+* **Environment variables** -- **complete reference** of 14
+  security-relevant env vars with default + effect:
+  `ARENA_BRIDGE_TOKEN`, `ARENA_TOKEN_FILE`,
+  `ARENA_BRIDGE_URL`, `ARENA_INSECURE_TLS`,
+  `ARENA_BRIDGE_PIN_SHA256`, `ARENA_BRIDGE_PIN_KIND`,
+  `ARENA_BRIDGE_URL_CACHE`, `ARENA_URL_CACHE_PATH`,
+  `ARENA_AGENTCTL_LOG_FULL_URLS`, `ARENA_LOG_PEER`,
+  `ARENA_LOG_PEER_SALT`, `ARENA_WEBHOOK_STRICT`,
+  `ARENA_APK_STAGING`, `ARENA_AGENT_HOME`,
+  `SSL_CERT_FILE`.
+* **Recommended production preset** -- copy-paste bash block
+  wiring token-file, SPKI pinning derived from the live
+  bridge cert, `ARENA_LOG_PEER=mask` with a per-install
+  salt, and `ARENA_WEBHOOK_STRICT=1`.
+* **Static analysis + CI gates** -- documents the three
+  tools (bandit / semgrep / pip-audit) and the exact
+  threshold each enforces.
+* **Audit history** -- v4.40.0 → v4.45.0 timeline with
+  per-release headline.
+
+Discoverable via `SECURITY.md` at the repo root (GitHub's
+standard location) so a would-be reporter sees the disclosure
+policy without hunting.
+
+#### CI security-scan pipeline
+
+`.github/workflows/security-scan.yml` runs three independent
+tools on every push, every PR, and daily at 06:00 UTC (cron
+catches new CVEs in deps without needing a commit):
+
+* **bandit** -- Python static-analysis. Gate: **0 HIGH + 0
+  MEDIUM findings**. LOW is treated as code-hygiene noise
+  (try/except-pass, subprocess-without-shell, partial-path)
+  and tolerated. `--skip B101` because we use asserts in
+  test code and a handful of runtime invariants.
+* **semgrep** -- semantic pattern matcher, **9 rule packs**
+  pinned: `p/python`, `p/security-audit`,
+  `p/owasp-top-ten`, `p/cwe-top-25`,
+  `p/insecure-transport`, `p/command-injection`, `p/xss`,
+  `p/secrets`, `p/gitleaks`. Gate: **0 ERROR + 0 WARNING**.
+  Every false-positive line already carries an inline
+  `# nosemgrep: <rule> -- <rationale>` marker; new findings
+  in a PR need either a fix or a new nosemgrep with a
+  code-review-visible rationale.
+* **pip-audit** -- CVE scan against runtime + full-extras
+  deps (`aiohttp`, `psutil`, `websockets` today). Gate:
+  **0 CVEs**. Runs daily so a fresh CVE trips the alert
+  even without a commit.
+
+Each job uploads its JSON report as a 30-day-retention
+artifact for post-mortem / dashboard visualisation.
+
+#### Local parity via `Makefile`
+
+Same three gates runnable locally so "passes locally" ==
+"passes in CI":
+
+```
+make install-security-tools   # one-time: bandit + semgrep + pip-audit
+make security-scan            # runs all three
+make security-bandit          # bandit only (fast iteration)
+make security-semgrep         # semgrep only
+make security-pip-audit       # pip-audit only
+```
+
+The gate logic is DRY: both CI and Makefile call the same
+`scripts/security_gate.py` and `scripts/extract_runtime_reqs.py`
+so a threshold change in one place propagates automatically.
+
+`scripts/security_gate.py` (150 lines, stdlib-only, no deps)
+parses the tool JSON and exits non-zero when the threshold is
+breached. Same script CI uses, same messages CI shows -- if a
+contributor sees "FAIL: bandit found 1 HIGH finding" locally,
+that's exactly what will appear in the CI log too.
+
+`scripts/extract_runtime_reqs.py` reads dep specs from
+`pyproject.toml::[project].dependencies` +
+`.[project.optional-dependencies].full` and prints one per
+line, suitable for `pip-audit --requirement -`. Used by both
+the Makefile and the CI workflow so we never audit a dep set
+that drifted from `pyproject.toml`.
+
+#### Discoverability
+
+Also updated `CONTRIBUTING.md` link in `SECURITY.md` and
+noted `make security-scan` as a "before-you-push" check in
+the developer flow. The Makefile `help` target lists every
+security target with a one-line description so
+`make help | grep security` is the discovery path.
+
+#### Files touched
+
+* `SECURITY.md` -- **NEW**, 180 lines, comprehensive.
+* `.github/workflows/security-scan.yml` -- **NEW**, 3-job
+  matrix (bandit / semgrep / pip-audit), cron + PR + push
+  triggers.
+* `Makefile` -- **NEW**, top-level entry points with `help`
+  discovery.
+* `scripts/security_gate.py` -- **NEW**, shared gate logic.
+* `scripts/extract_runtime_reqs.py` -- **NEW**, DRY dep
+  extractor.
+* `arena/constants.py` + `pyproject.toml` -- version bump
+  4.45.0 -> 4.46.0.
+
+#### Tests (unchanged from v4.45.0)
+
+No new runtime code, so test count stays at 2299 unit + 15
+fallback E2E = 2314 total (2319 on bridge with `cryptography`
+for full pinning E2E). Zero broken masters, zero rollbacks.
+
+#### Not addressed (documented for later)
+
+* No SARIF upload to GitHub Advanced Security -- would give
+  the nice per-file annotation on PRs but requires the
+  `security-events: write` permission that gets flaky on
+  fork PRs. Kept as a follow-up when we start accepting
+  outside contributions.
+* No SBOM generation (CycloneDX / SPDX) -- would be useful
+  for downstream consumers but out of scope for this release.
+  `pip-audit --format=cyclonedx-json` would be a one-line
+  addition.
+* `pre-commit-hooks.yaml` for local pre-push wiring is not
+  yet included -- the `make security-scan` target covers
+  the same ground manually and is documented in `SECURITY.md`.
+
+
 ## v4.45.0 - 2026-07-17
 
 ### CWE-top-25 scan + emit-site redaction module + optional TLS certificate pinning
