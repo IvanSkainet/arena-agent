@@ -83,6 +83,57 @@ Per-provider primitives remain available (`/v1/tailscale/funnel/*`,
 `/v1/cloudflared/tunnel/*`, `/v1/zerotier/*`) for cases where you want
 granular control.
 
+## Hardening the client side (v4.40.0 → v4.46.0)
+
+Once you have chosen a tunnel and pointed a client at it, the CLI
+(`agentctl`) has three security levers you should consider before
+going into production. Full reference in [`SECURITY.md`](../SECURITY.md);
+this section is the "what do I actually set" short list.
+
+**1. TLS certificate pinning (v4.45.0).** By default the client trusts
+any cert signed by any of the OS's ~150 CAs. Pin the bridge cert to
+tighten that anchor to exactly the certificate you expect:
+
+```bash
+# Compute the SPKI (public-key) fingerprint. Survives cert rotation
+# as long as the same private key is reused, which Tailscale does.
+export ARENA_BRIDGE_PIN_SHA256=$(
+  openssl s_client -connect your-bridge.tailnet.ts.net:443 </dev/null 2>/dev/null \
+    | openssl x509 -pubkey -noout \
+    | openssl pkey -pubin -outform DER \
+    | sha256sum | cut -d' ' -f1
+)
+export ARENA_BRIDGE_PIN_KIND=spki
+```
+
+Multi-pin is supported (comma-separated) for rotation-safe
+deployments — pin the current cert plus a spare and rotate lazily.
+
+**2. Signed URL cache (v4.40.0).** Automatically enabled. On every
+successful `/v1/agent/config` call the CLI writes an HMAC-signed
+snapshot to `~/.arena/last_urls.json` (0o600). When the bootstrap
+URL is unreachable, the CLI falls back to a URL from the cache —
+but only if the signature verifies against the current bearer token.
+An attacker with write access to your home can't poison this cache
+because they don't have the token needed to forge the signature.
+Disable with `ARENA_BRIDGE_URL_CACHE=0` if you prefer no persistent
+state; you'll lose the offline-fallback behaviour.
+
+**3. Peer-address logging privacy (v4.44.0).** `requests.jsonl`
+records every request's peer IP by default. When shipping logs off
+the box (bug reports, log aggregation) that's a fingerprint of every
+client. Turn it into a hash or drop it entirely:
+
+```bash
+# Deterministic per-install hash — count-distinct still works,
+# actual IPs never persist. Rotate the salt to invalidate old logs.
+export ARENA_LOG_PEER=mask
+export ARENA_LOG_PEER_SALT=$(openssl rand -hex 16)
+
+# Or omit the field altogether:
+export ARENA_LOG_PEER=off
+```
+
 ## General operating advice
 
 1. Treat Arena as the **tool substrate**, not necessarily the model provider.

@@ -1,3 +1,95 @@
+## v4.46.1 - 2026-07-17
+
+### Documentation sweep -- every markdown file updated for the v4.40.0 → v4.46.0 security posture
+
+Docs-only patch release. No runtime or test changes. Brings the
+public-facing documentation in line with what the code actually
+does after 9 security releases in one session.
+
+#### Updates
+
+* **`README.md`** -- rewrote the "Security model" section from
+  the pre-v4.40.0 seven-bullet summary to a full defence map
+  covering authentication, transport, filesystem access, data
+  at rest, logs, common attack classes closed, and continuous
+  protection. Added `Security` row to the "What it can do"
+  table (bearer + TLS pinning + HMAC cache + emit-site
+  redaction + sandbox blocklist). Added `make security-scan`
+  to the Development section. Added `SECURITY.md` as the
+  first row of the Documentation map. Same for `README.ru.md`.
+* **`CONTRIBUTING.md`** -- new "Security scan (required
+  before push)" section documenting the three CI gates and
+  how to run them locally. Expanded "Security-sensitive
+  areas" from 8 bullets to 14 with file-level pointers and
+  explicit invariants each contributor must preserve.
+* **`AGENTS.md`** -- added a "Security (non-negotiable)" block
+  to the Hard rules: no bare `zipfile.ZipFile.extractall`, no
+  `tempfile.mktemp`, no `os.system`, no inline credential-
+  shape test fixtures (must build at runtime via prefix +
+  suffix concat -- GitHub secret-scanning push protection
+  will reject the commit otherwise), every `# nosec` and
+  `# nosemgrep` must carry a rationale, redaction lives in
+  one place (`arena/observability/redact.py`), file-mode
+  discipline on `~/.arena/`. Also added
+  `make security-scan` to the validation section.
+* **`RELEASE.md`** -- inserted `make security-scan` as step
+  1b of the TL;DR, updated the pre-release checklist with
+  the security-scan gate + the "no credential-shape literals
+  in test fixtures" check, updated the post-release checklist
+  with the CI security-scan workflow status link. Bumped the
+  quoted test-count baseline from 690 to 2319.
+* **`docs/INTEGRATIONS.md`** -- new "Hardening the client
+  side" section with the three levers (cert pinning, signed
+  URL cache, peer-address privacy dial) plus the exact
+  shell recipe to compute an SPKI fingerprint from a live
+  Tailscale bridge.
+* **`docs/AI_CODEBASE_NAVIGATION.md`** -- added the new
+  runtime modules (`sandbox.py`, `safe_extract.py`, `tls.py`,
+  `pinning.py`, `url_cache.py`, `redact.py`,
+  `handler_helpers.safe_float/safe_int`) to the ownership
+  table + a new "Security-critical hotspots" table pointing
+  contributors at the exact file that owns each defence.
+
+#### Files touched
+
+* `README.md` -- Security model rewrite + Documentation map
+  addition + Development section addition.
+* `README.ru.md` -- parallel changes to `README.md`.
+* `CONTRIBUTING.md` -- Security scan section + expanded
+  Security-sensitive areas.
+* `AGENTS.md` -- Security hard rules + security-scan
+  validation.
+* `RELEASE.md` -- security-scan in TL;DR + pre/post-release
+  checklists + test-count baseline bump.
+* `docs/INTEGRATIONS.md` -- Hardening the client side.
+* `docs/AI_CODEBASE_NAVIGATION.md` -- updated ownership +
+  Security-critical hotspots.
+* `arena/constants.py` + `pyproject.toml` -- version bump
+  4.46.0 -> 4.46.1.
+
+#### Tests (unchanged)
+
+No runtime code, no test changes. 2299 unit + 15 fallback
+E2E = 2314 total / 2319 on bridge with `cryptography`. All
+CI security-scan gates still clean (bandit 0 HIGH/MEDIUM,
+semgrep 0 across 9 packs, pip-audit 0 CVEs).
+
+#### Not addressed
+
+* `AGENTS.md` still mentions "600-line limit" in one bullet
+  that predates the LINE_ALLOWLIST additions (`handlers.py`,
+  `registry.py`, `templates.py`, `mobile/handlers.py`); the
+  facts are correct but the phrasing could be tightened.
+  Deferred to next cleanup pass.
+* `chat_extension/README.md` unchanged -- the extension
+  doesn't participate in bridge-side security features and
+  its own security surface (Chrome MV3 permissions) is
+  documented inline.
+* Older `docs/*.md` files (roadmap, postmortem, stress-test
+  notes) not touched -- they are historical / design notes,
+  not user-facing entry points.
+
+
 ## v4.46.0 - 2026-07-17
 
 ### Continuous security: `SECURITY.md` + CI security-scan pipeline

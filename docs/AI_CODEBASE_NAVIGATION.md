@@ -33,6 +33,9 @@ adding compatibility glue or large new files.
 | Context dataclasses | `arena/contexts/*` |
 | Auth/users/tokens | `arena/auth/*`, `arena/admin/token.py` |
 | Exec/safety | `arena/exec/*`, `arena/security_*.py` |
+| Sandbox path validation | `arena/files/sandbox.py`, `arena/files/safe_extract.py` |
+| CLI TLS + pinning | `arena/agentctl_cli/tls.py`, `arena/agentctl_cli/pinning.py`, `arena/agentctl_cli/url_cache.py` |
+| Handler helpers (safe_float/safe_int, redaction wiring) | `arena/handler_helpers.py` |
 | Desktop | `arena/desktop/*` |
 | Browser fetch/read | `arena/browser/fetch*.py`, `arena/browser/browse*.py` |
 | CDP REST handlers | `arena/browser/cdp/*` |
@@ -43,8 +46,31 @@ adding compatibility glue or large new files.
 | Skills | `arena/skills/*` |
 | MCP | `arena/mcp/*` |
 | GUI/dashboard | `arena/gui/*`, `dashboard/assets/*` |
-| Observability | `arena/observability/*`, `arena/watchdog/*` |
+| Observability + shared redaction | `arena/observability/*` (audit / request_log / redact / webhooks) |
 | Service/restart/capabilities | `arena/service/*` |
+
+## Security-critical hotspots
+
+When touching any of these files, run `make security-scan` and read
+[SECURITY.md](../SECURITY.md) first:
+
+| Concern | Owner file(s) |
+|---|---|
+| Bearer auth + rate limit + `?token=` deprecation flag | `arena/auth/runtime.py` |
+| Response `Warning: 299` header wiring | `arena/errors.py` |
+| Path traversal + sensitive-file blocklist | `arena/files/sandbox.py` |
+| Zip-slip + zip-bomb + symlink-member rejection | `arena/files/safe_extract.py` |
+| TLS strict verify + `ARENA_INSECURE_TLS` opt-out | `arena/agentctl_cli/tls.py` |
+| Cert pinning (`ARENA_BRIDGE_PIN_SHA256`) | `arena/agentctl_cli/pinning.py` |
+| HMAC-signed URL cache | `arena/agentctl_cli/url_cache.py` |
+| Credential-shape regex battery | `arena/observability/redact.py` |
+| Peer-IP privacy dial (`ARENA_LOG_PEER`) | `arena/observability/request_log.py` |
+| Audit-log sanitiser (uses `redact.py`) | `arena/observability/audit.py` |
+| SSRF guard | `arena/security_ssrf.py` |
+| DOCTYPE/ENTITY gate on mobile UI XML | `arena/mobile/ui.py` |
+| PowerShell argv+whitelist (Windows hwinfo) | `arena/system/hwinfo_cim.py` |
+| `safe_float()` / `safe_int()` numeric parsing | `arena/handler_helpers.py` |
+| Continuous-security gates | `.github/workflows/security-scan.yml`, `scripts/security_gate.py`, `scripts/extract_runtime_reqs.py`, `Makefile` |
 
 ## Dashboard layout
 

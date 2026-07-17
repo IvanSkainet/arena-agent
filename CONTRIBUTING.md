@@ -67,6 +67,41 @@ If `ruff` is available:
 ruff check .
 ```
 
+## Security scan (required before push)
+
+CI enforces three security gates on every push and PR — bandit, semgrep
+(9 rule packs), and pip-audit. Run the same three locally before pushing:
+
+```bash
+make install-security-tools   # one-time: bandit + semgrep + pip-audit
+make security-scan            # umbrella target
+# or, for iteration:
+make security-bandit
+make security-semgrep
+make security-pip-audit
+```
+
+The gates:
+
+- **bandit**: 0 HIGH and 0 MEDIUM findings required. LOW is tolerated as
+  code hygiene (`try/except pass`, `subprocess-without-shell`,
+  `partial-path`). If bandit flags a legitimate line as HIGH/MEDIUM, add
+  a per-line `# nosec <ID> -- <specific rationale>` comment naming who
+  feeds the input and why the check is safe.
+- **semgrep**: 0 findings across `p/python`, `p/security-audit`,
+  `p/owasp-top-ten`, `p/cwe-top-25`, `p/insecure-transport`,
+  `p/command-injection`, `p/xss`, `p/secrets`, `p/gitleaks`. False
+  positives get an inline `# nosemgrep: <rule> -- <rationale>`.
+- **pip-audit**: 0 CVEs in runtime + `full` extras deps. If a CVE is
+  reported, upgrade the pinned dep in `pyproject.toml` before merging.
+
+Because CI and the Makefile both call `scripts/security_gate.py`, "passes
+locally" == "passes in CI". If you're touching security-sensitive code
+(auth, path validators, subprocess call sites, TLS, redaction rules,
+extraction, deserialization), also read [SECURITY.md](SECURITY.md) first
+— it lists the threat model each defence covers so you know which
+invariant your change must preserve.
+
 ## Browser extension workflow
 
 1. Edit files in `chat_extension/`.
@@ -113,20 +148,49 @@ must not include runtime state, credentials, logs, databases, or keys.
 
 Be especially careful with changes touching:
 
-- authentication and Bearer-credential handling;
-- `/v1/exec` and command safety patterns;
-- file upload/download/edit path checks;
-- desktop automation pause/resume/revoke controls;
-- extension auto-execution policy;
-- release packaging exclusions;
-- installer pip strategies (`install.sh` / `install.bat`) — never silently
-  swallow `pip install` failures; always **verify** `import aiohttp` after
-  the last strategy runs;
-- tunnel-provider modules (`arena/admin/{tunnels,tailscale,cloudflared,zerotier}.py`) —
-  never invoke `sudo` directly, keep platform detection explicit, degrade
-  gracefully on hosts where a provider is absent.
+- **Authentication** (`arena/auth/*.py`) — Bearer-credential handling,
+  rate-limit, `hmac.compare_digest`, multi-agent token registry.
+- **`/v1/exec` and command safety patterns** (`arena/exec/*.py`) —
+  guarded command execution, injection blocklist.
+- **File upload/download/edit path checks**
+  (`arena/files/sandbox.py`) — sensitivity check must run BEFORE
+  existence check to close the exists-vs-blocked side channel
+  (v4.42.1). New sensitive-file classes go into
+  `SENSITIVE_FILE_BASENAMES` (basename) or `SENSITIVE_DIR_PREFIXES`
+  (directory tree) with a test in
+  `tests/test_files_sandbox_v442_hardening.py`.
+- **Archive extraction** (`arena/files/safe_extract.py`) — always
+  use `safe_extract_zip()`, never bare `ZipFile.extractall()`.
+  `# nosec` around the raw call means an audit finding will be
+  reintroduced.
+- **TLS + certificate pinning** (`arena/agentctl_cli/tls.py` +
+  `arena/agentctl_cli/pinning.py`) — strict-verify is the default;
+  any new call site must route through `build_ssl_context()` /
+  `build_pinned_opener()`, not construct its own `ssl.SSLContext`.
+- **Redaction rules** (`arena/observability/redact.py`) — the
+  regex battery is the shared source of truth for audit + request
+  log + future sinks. When adding a new credential shape, add its
+  regex here plus a test in `tests/test_observability_redact.py`.
+- **Desktop automation** pause/resume/revoke controls
+  (`arena/desktop/*.py`).
+- **Extension auto-execution policy**.
+- **Release packaging exclusions** (`scripts/make_release_zip.py`) —
+  runtime state, `token.txt`, credentials, logs, databases, keys
+  must never be included.
+- **Installer pip strategies** (`install.sh` / `install.bat`) — never
+  silently swallow `pip install` failures; always **verify**
+  `import aiohttp` after the last strategy runs.
+- **Tunnel-provider modules**
+  (`arena/admin/{tunnels,tailscale,cloudflared,zerotier,ngrok}.py`) —
+  never invoke `sudo` directly, keep platform detection explicit,
+  degrade gracefully on hosts where a provider is absent.
 
-Report security issues privately instead of opening a public issue.
+Every one of these has a corresponding test in `tests/`; if you
+change the module, run at least the targeted tests plus
+`make security-scan` before opening the PR.
+
+Report security issues privately (see [SECURITY.md](SECURITY.md)) instead
+of opening a public issue.
 
 ## Pull requests
 

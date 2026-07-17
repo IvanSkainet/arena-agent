@@ -1,3 +1,81 @@
+## v4.46.1 - 2026-07-17
+
+### Documentation sweep -- каждый markdown-файл обновлён под security-posture v4.40.0 → v4.46.0
+
+Docs-only patch release. Нет изменений runtime или тестов.
+Приводит публично-facing documentation в соответствие с тем,
+что код реально делает после 9 security-релизов за одну сессию.
+
+#### Обновления
+
+* **`README.md`** -- переписал "Security model" секцию с
+  pre-v4.40.0 семиточечной сводки на полную defence map
+  (аутентификация, транспорт, filesystem, data at rest,
+  логи, закрытые классы атак, continuous protection).
+  Добавил строку `Security` в таблицу "What it can do".
+  Добавил `make security-scan` в Development. Добавил
+  `SECURITY.md` первой строкой в Documentation map. То же
+  для `README.ru.md`.
+* **`CONTRIBUTING.md`** -- новая секция "Security scan
+  (required before push)" документирующая три CI-gate и
+  как их запустить локально. Расширил "Security-sensitive
+  areas" с 8 пунктов до 14 с file-level указателями и
+  явными invariants, которые каждый contributor должен
+  сохранить.
+* **`AGENTS.md`** -- добавил блок "Security (non-negotiable)"
+  в Hard rules: никакого bare `zipfile.ZipFile.extractall`,
+  никакого `tempfile.mktemp`, никакого `os.system`, никаких
+  inline credential-shape test fixtures (нужно строить
+  runtime через prefix + suffix concat -- иначе GitHub
+  secret-scanning push protection reject коммит), каждый
+  `# nosec` и `# nosemgrep` должен нести rationale,
+  redaction живёт в одном месте
+  (`arena/observability/redact.py`), file-mode discipline на
+  `~/.arena/`. Также добавил `make security-scan` в
+  validation.
+* **`RELEASE.md`** -- вставил `make security-scan` шагом 1b
+  в TL;DR, обновил pre-release checklist с security-scan
+  gate + "no credential-shape literals in test fixtures"
+  check, обновил post-release checklist с CI security-scan
+  workflow status link. Поднял quoted test-count baseline
+  с 690 до 2319.
+* **`docs/INTEGRATIONS.md`** -- новая секция "Hardening
+  the client side" с тремя levers (cert pinning, signed
+  URL cache, peer-address privacy dial) плюс точный shell
+  recipe для computation SPKI fingerprint из живого
+  Tailscale bridge.
+* **`docs/AI_CODEBASE_NAVIGATION.md`** -- добавил новые
+  runtime modules (`sandbox.py`, `safe_extract.py`,
+  `tls.py`, `pinning.py`, `url_cache.py`, `redact.py`,
+  `handler_helpers.safe_float/safe_int`) в ownership table
+  + новая "Security-critical hotspots" table указывающая
+  contributors на точный файл, владеющий каждой защитой.
+
+#### Тронутые файлы
+
+* `README.md` -- Security model rewrite + Documentation map
+  addition + Development section addition.
+* `README.ru.md` -- параллельные изменения.
+* `CONTRIBUTING.md` -- Security scan section + расширенная
+  Security-sensitive areas.
+* `AGENTS.md` -- Security hard rules + security-scan
+  validation.
+* `RELEASE.md` -- security-scan в TL;DR + pre/post-release
+  checklists + test-count baseline bump.
+* `docs/INTEGRATIONS.md` -- Hardening the client side.
+* `docs/AI_CODEBASE_NAVIGATION.md` -- обновлённый ownership
+  + Security-critical hotspots.
+* `arena/constants.py` + `pyproject.toml` -- version bump
+  4.46.0 -> 4.46.1.
+
+#### Тесты (без изменений)
+
+Нет runtime кода, нет test изменений. 2299 unit + 15
+fallback E2E = 2314 total / 2319 on bridge. Все CI
+security-scan gates всё ещё clean (bandit 0 HIGH/MEDIUM,
+semgrep 0 across 9 packs, pip-audit 0 CVEs).
+
+
 ## v4.46.0 - 2026-07-17
 
 ### Continuous security: `SECURITY.md` + CI security-scan pipeline

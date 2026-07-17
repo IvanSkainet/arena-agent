@@ -5,6 +5,8 @@ compatibility entrypoints or large catch-all files.
 
 ## Hard rules
 
+**Architecture**
+
 - Keep `unified_bridge.py` a thin compatibility/CLI entrypoint.
 - Keep wrapper scripts in `scripts/` and `bin/` thin; real logic belongs under `arena/`.
 - Product files must stay under the modularity limit enforced by
@@ -22,6 +24,58 @@ compatibility entrypoints or large catch-all files.
   `pip install ... 2>/dev/null || true`.
 - Never store per-release scratch notes in the repository; use `/tmp/` when
   driving `gh release create --notes-file`.
+
+**Security (added v4.46.0 -- these are non-negotiable)**
+
+- **Every change must pass `make security-scan` locally before commit.**
+  The same three gates (bandit / semgrep / pip-audit) run in CI and will
+  block the push regardless. Local iteration is faster.
+- **Never delete a `# nosec` or `# nosemgrep` annotation without also
+  verifying the underlying finding is genuinely no longer applicable.**
+  Each existing annotation carries a specific-rationale comment; if you
+  refactor the line and the annotation is stale, remove it and re-run
+  the scan to confirm the rule no longer fires. If it does fire, either
+  fix the finding or write a new annotation with a fresh rationale.
+- **New `# nosec` / `# nosemgrep` in a PR requires a rationale after
+  the marker** in the shape `# nosec B602 -- <who feeds this input,
+  why the shell/whatever is safe here>`. Reviewers grep for the
+  rationale text; a bare `# nosec` will bounce.
+- **Never inline a credential-shape string as a test fixture** (raw
+  `ghp_...`, `xoxb-...`, `AKIA...`, etc.). GitHub secret-scanning push
+  protection will reject the commit even for legitimate redaction-test
+  fixtures. Build the fixture at runtime via concatenation
+  (`"ghp" + "_" + suffix`) — this is the pattern in
+  `tests/test_observability_redact.py` and
+  `tests/test_audit_value_redaction.py`.
+- **Never use `tempfile.mktemp()`** — TOCTOU-racy since Python 2.3.
+  Use `tempfile.NamedTemporaryFile(delete=False)` for a single file or
+  `tempfile.mkdtemp()` (which returns 0o700) when a downstream tool
+  needs to create the file itself.
+- **Never use bare `zipfile.ZipFile.extractall()`** — route through
+  `arena.files.safe_extract.safe_extract_zip()` which does the
+  pre-scan for zip-slip / symlinks / zip-bomb.
+- **Never use `os.system()`** — always argv-form
+  `subprocess.run([...], check=False)`. `shell=True` is allowed only
+  for CLI-side helpers (operator-fed input) with a per-line
+  `# nosec B602 -- <specific rationale>` naming who feeds the string.
+- **Redaction lives in one place**:
+  `arena/observability/redact.py`. If you add a new credential shape,
+  extend `_VALUE_PATTERNS` there AND add a test in
+  `tests/test_observability_redact.py`. Never inline the regex in a
+  new emit site.
+- **Any new HTTP handler that takes a numeric query/body parameter**
+  must use `arena.handler_helpers.safe_float()` or `safe_int()`, not
+  raw `float()` / `int()` — that closes the NaN/±Inf-injection class.
+- **File-mode discipline** on anything under `~/.arena/`,
+  `~/arena-bridge/`, or tempfile paths: `chmod 0o600` on files,
+  `chmod 0o700` on directories, and re-apply after `rename()` because
+  some filesystems reset the mode across rename (ACL-proof pattern
+  established in `arena/agentctl_cli/url_cache.py::save`).
+
+See [SECURITY.md](SECURITY.md) for the full threat model and
+env-variable reference. [CONTRIBUTING.md](CONTRIBUTING.md) has the
+"Security-sensitive areas" section pointing at every file that carries
+one of these invariants.
 
 ## Where things live
 
@@ -70,7 +124,16 @@ Skill packages (vendored, cross-platform):
 python -m py_compile scripts/*.py bin/*.py arena/**/*.py
 python -m ruff check . --select F821,F811
 pytest -q
+
+# NON-NEGOTIABLE: security gate. Same three checks CI enforces on push.
+make security-scan
 ```
+
+Skipping `make security-scan` because "it's just docs" is a common
+temptation and always wrong -- the scan is fast (~30 s bandit + ~30 s
+semgrep + ~5 s pip-audit on a warm cache) and it catches new nosec
+markers that need rationales, plus fresh CVEs in deps that landed
+between your last pull and now.
 
 For live bridge changes, also run endpoint smoke and
 `dev/stress-test-v4.py --restart`.

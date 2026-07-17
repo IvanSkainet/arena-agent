@@ -88,6 +88,7 @@ result flows back — optionally straight into the chat composer.
 | **Extension** | Connects ordinary AI chats to the local bridge with a lifecycle Command Center |
 | **Remote access** | Unified [`/v1/tunnels/*` facade](#remote-access-providers): Tailscale, Cloudflare Quick Tunnel and ZeroTier as a single failover-aware pool |
 | **Skills** | Discovers and lists tool-skill packages (Arena core + upstream [`superpowers`][obra] + [`browseract`](#optional-components)) via `/v1/skills` |
+| **Security** | Bearer auth with rate-limit + TLS strict verify by default + optional cert pinning + HMAC-signed URL cache + emit-site log redaction + sandbox blocklist for `.ssh/`/`.aws/`/`.gnupg/`/credentials — see [`SECURITY.md`](SECURITY.md) |
 
 See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
@@ -253,18 +254,88 @@ the Bridge — every optional feature degrades gracefully.
 ## Security model
 
 Arena Unified Bridge can take powerful actions on the host, so the security model
-is intentionally explicit:
+is intentionally explicit. The v4.40.0 → v4.46.0 sweep closed **31 findings** and
+locked in a continuous-security pipeline (see [`SECURITY.md`](SECURITY.md) for
+the full threat model, environment-variable reference, and audit history).
 
-- every non-local client authenticates with the bearer credential from `token.txt`;
-- upload / download / edit paths are restricted;
-- common dangerous shell patterns and secret reads are blocked;
-- desktop automation has pause / resume / revoke controls;
-- extension policies classify every tool by risk before auto-execution;
-- public exposure must use HTTPS and a private credential;
-- never paste credentials into an untrusted chat, log, or public issue.
+**Authentication.**
 
-> Found a security issue? Please report it privately instead of opening a public
-> issue.
+- Every non-local client authenticates with the bearer credential from
+  `token.txt`. Comparison is constant-time (`hmac.compare_digest`) and
+  rate-limited (10 failed attempts / 60 s / IP → HTTP 429 with `Retry-After`).
+- Multi-agent bearer tokens (`agent-<id>-<hex>`) let sub-agents run with
+  narrower scope than the master token.
+- `?token=` query-string auth still works for legacy WebSocket clients but is
+  deprecated — every response served through it now carries a
+  `Warning: 299 - "?token= query auth is deprecated..."` header.
+
+**Transport.**
+
+- TLS is verified strictly by default (v4.41.0). System trust store, hostname
+  checked. `ARENA_INSECURE_TLS=1` opts out with a one-time stderr warning.
+- **Optional certificate pinning** (v4.45.0): set
+  `ARENA_BRIDGE_PIN_SHA256=<sha256-hex>` to tighten the trust anchor from
+  "any of the OS's ~150 CAs" to "this specific bridge cert (or its public
+  key)". Both cert-hash and SPKI-hash checked on every handshake; a pin
+  mismatch tears the connection down **before** the bearer token is sent.
+
+**Filesystem access.**
+
+- Every `/v1/fs/*` verb (view / edit / create / upload / **download**) routes
+  through the same sandbox validator. Sensitive files are blocked by both
+  basename (`token.txt`, `.env`, `id_rsa`, `.git-credentials`, `.pypirc`,
+  `.npmrc`, `.bash_history`, shell history in general) and directory prefix
+  (`.ssh/`, `.aws/`, `.gnupg/`, `.docker/`, `.kube/`, `.config/gh/`, browser
+  profiles). Sensitivity check runs **before** the existence check so a 403
+  vs 404 side channel can't leak file-presence.
+- Archive extraction (release download, skill install, APK inspect) goes
+  through `arena/files/safe_extract.py` which rejects path-traversal, symlink
+  members, and zip-bomb ratios in a pre-scan pass — **no bytes are written
+  before validation completes**.
+
+**Data at rest.**
+
+- `token.txt` is `chmod 0o600`.
+- `~/.arena/last_urls.json` (persistent fallback URL cache) is HMAC-signed
+  keyed on the bearer token so cache-poisoning attacks can't redirect the
+  client to an attacker's URL. Also `chmod 0o600`; parent `~/.arena/` is
+  `chmod 0o700`.
+- `audit.jsonl` + `requests.jsonl` are `chmod 0o600` (v4.44.0), rotated files
+  get re-chmod on rename.
+
+**Logs.**
+
+- Both audit and request logs run every string value through
+  `arena/observability/redact.py::redact_string`, which scrubs Bearer tokens,
+  AWS AKIA keys, GitHub `ghp_`, OpenAI `sk-`, Slack `xox[baprs]-`, Google
+  `AIza`, JWTs, DB URIs with inline credentials, and PEM `PRIVATE KEY`
+  blocks. Matches become `<redacted:kind>` so operators still see what
+  class of secret leaked without the secret itself.
+- Peer-IP logging is dial-able: `ARENA_LOG_PEER=full` (default), `mask`
+  (SHA-256 hash with per-install salt, unlinkable across installs), or
+  `off` (field omitted entirely).
+
+**Common attack classes explicitly closed.**
+
+- SSRF — guard on browser fetch, skill install, auto-update; opt-in strict
+  mode for webhooks (`ARENA_WEBHOOK_STRICT=1`).
+- Zip-slip / zip-bomb — `safe_extract_zip()` 2-pass validation.
+- XXE / billion-laughs — DOCTYPE / ENTITY prefix gate in mobile UI dump.
+- TOCTOU tempfile races — `NamedTemporaryFile` / `mkdtemp` with 0o700.
+- Nan-injection — `safe_float()` rejects NaN / ±Inf, clamps to a range.
+- Symlink escape via `~/malicious-link` — `resolve()`-based path validation.
+
+**Continuous protection.**
+
+- Every push, every PR, and a daily cron trigger a CI security scan
+  (`bandit` + `semgrep` across 9 rule packs + `pip-audit`). Any HIGH/MEDIUM
+  bandit finding, any semgrep ERROR/WARNING, or any CVE in a runtime dep
+  blocks the merge. Run the same three gates locally with
+  `make security-scan`.
+
+> Found a security issue? See [`SECURITY.md`](SECURITY.md) for the private
+> disclosure workflow. **Never paste credentials into an untrusted chat, log,
+> or public issue.**
 
 ---
 
@@ -344,7 +415,17 @@ pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py
           tests/test_browseract.py tests/test_superpowers_layout.py
 ```
 
-Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [RELEASE.md](RELEASE.md).
+Before pushing, run the same security gates CI runs:
+
+```bash
+make install-security-tools   # one-time: bandit + semgrep + pip-audit
+make security-scan            # 0 HIGH+MEDIUM bandit, 0 semgrep findings, 0 CVEs
+```
+
+If it passes locally it passes in CI — the Makefile and the CI workflow both
+call the same `scripts/security_gate.py`.
+
+Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [RELEASE.md](RELEASE.md) · Security posture: [SECURITY.md](SECURITY.md).
 
 ---
 
@@ -352,12 +433,13 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Document | What's inside |
 | --- | --- |
+| [SECURITY.md](SECURITY.md) | **Threat model, environment-variable reference (14 knobs), recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Read this before exposing the bridge to any network.** |
 | [CHANGELOG.md](CHANGELOG.md) · [ru](CHANGELOG.ru.md) | Release history |
 | [RELEASE.md](RELEASE.md) | Release packaging and publishing checklist |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, tests, workflow |
-| [AGENTS.md](AGENTS.md) | Hard rules for AI maintainers — where things live, what not to add |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, tests, workflow, `make security-scan` gate |
+| [AGENTS.md](AGENTS.md) | Hard rules for AI maintainers — where things live, what not to add, security-annotation rules |
 | [chat_extension/README.md](chat_extension/README.md) | Browser extension details |
-| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Integration notes — Tailscale / cloudflared / ZeroTier / MCP |
+| [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Integration notes — Tailscale / cloudflared / ZeroTier / MCP + cert pinning |
 | [docs/SUPERPOWERS.md](docs/SUPERPOWERS.md) | Superpowers vendored copy: layout + update flow |
 | [docs/MODULE_MAP.md](docs/MODULE_MAP.md) | Codebase / module map |
 | [docs/V3_MODULAR_ARCHITECTURE.md](docs/V3_MODULAR_ARCHITECTURE.md) | Modular architecture notes |

@@ -19,6 +19,13 @@ bash -n install.sh
 python -m py_compile arena/**/*.py
 # Extension work also runs the targeted JS/asset checks (see README "Development").
 
+# 1b) Security gate (added v4.46.0 -- CI runs the same three checks and will
+#     block the tag push if any of them are red)
+make security-scan
+#   - bandit:   0 HIGH + 0 MEDIUM
+#   - semgrep:  0 findings across 9 rule packs
+#   - pip-audit: 0 CVEs in runtime + full-extras deps
+
 # 2) Bump the version:
 #    - arena/constants.py            (VERSION = "x.y.z")
 #    - pyproject.toml                (version = "x.y.z")
@@ -158,15 +165,23 @@ Omit a sub-section if it has no entries for this release.
 ## Pre-release checklist
 
 - [ ] Full test suite passes (`python -m pytest -q`) — currently the
-      baseline is **690 passed** on `master`.
+      baseline is **2319 passed** on `master` (as of v4.46.0).
 - [ ] Targeted extension checks pass (see README "Development").
 - [ ] Targeted remote-access checks pass:
       `pytest -q tests/test_tunnels.py tests/test_zerotier.py tests/test_cloudflared.py tests/test_browseract.py tests/test_superpowers_layout.py`.
 - [ ] `bash -n install.sh` — syntax OK.
 - [ ] `python -m py_compile` on changed files — no syntax errors.
+- [ ] **`make security-scan` clean** — bandit 0 HIGH/MEDIUM, semgrep 0
+      findings across 9 packs, pip-audit 0 CVEs. This is the same gate
+      the CI workflow enforces on push and tag; a red gate blocks the
+      release from being published even if the master push succeeds.
 - [ ] `arena/constants.py` `VERSION` matches `pyproject.toml` `version`.
 - [ ] `CHANGELOG.md` and `CHANGELOG.ru.md` have a new top entry with today's date.
+- [ ] If the release adds or removes a security-relevant env variable,
+      update the reference table in `SECURITY.md`.
 - [ ] No private tunnel hostnames leaked into tracked files.
+- [ ] No credential-shape literals in test fixtures (build at runtime
+      via prefix + suffix concat -- see AGENTS.md "Security" hard rules).
 - [ ] Working tree clean, on `master`, up to date with `origin/master`.
 
 ## Post-release checklist
@@ -184,6 +199,15 @@ Omit a sub-section if it has no entries for this release.
 - [ ] The versioned URL works:
       `curl -sIL https://github.com/IvanSkainet/arena-agent/releases/download/vX.Y.Z/arena-agent-vX.Y.Z.zip`
       returns HTTP 200.
+- [ ] The `Security scan` GitHub Actions workflow is green on the tag
+      commit (blocks daily-cron regressions from silently accumulating):
+      <https://github.com/IvanSkainet/arena-agent/actions/workflows/security-scan.yml>.
+- [ ] Live smoke against the running bridge: bearer auth still accepts
+      the token, `/v1/agent/config` responds, `agentctl bridge cache show`
+      confirms the HMAC-signed cache is unaffected by the upgrade
+      (empty cache = OK, populated cache = OK). If the release changed
+      any CLI-side security surface (TLS context, pinning, url_cache),
+      verify with a targeted smoke script under `dev/`.
 
 ## Why not a GitHub Action?
 
