@@ -77,13 +77,15 @@ function resultToText(result) {
 }
 
 function makeButton(label, onClick, primary = false) {
+  // v4.48.0: delegates to arenaShadowToolbarButton (shadow_toolbar.js)
+  // when available; the fallback keeps the extension usable if the
+  // loader order was broken by a local mod.
+  if (typeof arenaShadowToolbarButton === 'function') {
+    return arenaShadowToolbarButton(label, onClick, { primary });
+  }
   const btn = document.createElement('button');
   btn.textContent = label;
-  const bg = primary ? '#2563eb' : 'rgba(15,23,42,.72)';
-  const border = primary ? '#3b82f6' : 'rgba(148,163,184,.38)';
-  btn.style.cssText = `padding:5px 10px;font-size:12px;cursor:pointer;border-radius:999px;`
-    + `border:1px solid ${border};background:${bg};color:#f8fafc;line-height:1.2;font-weight:600;`;
-  // Keep the composer focused; blur/focus churn slows some chat UIs.
+  btn.className = 'arena-btn' + (primary ? ' arena-btn--primary' : '');
   btn.addEventListener('pointerdown', (event) => event.preventDefault());
   btn.addEventListener('mousedown', (event) => event.preventDefault());
   btn.addEventListener('click', onClick);
@@ -275,7 +277,9 @@ function mountControls(host, payload, adapter) {
   const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
   if (semanticOwner && semanticOwner !== fingerprint) {
     const previous = mountedControls.get(semanticOwner);
-    previous?.bar?.remove();
+    // v4.48.0: remove shadowHost (v4.48+) or bar (older mount).
+    if (previous?.shadowHost) previous.shadowHost.remove();
+    else previous?.bar?.remove();
     if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
     mountedControls.delete(semanticOwner);
     mountedPayloadSemantics.delete(semanticFingerprint);
@@ -319,15 +323,25 @@ function mountControls(host, payload, adapter) {
 
   let lastExecutionText = executionResults.get(semanticFingerprint) || '';
 
-  const bar = document.createElement('div');
-  bar.dataset.arenaToolControls = '1';
-  bar.style.cssText = 'display:flex;gap:7px;align-items:center;flex-wrap:wrap;'
-    + 'margin:8px 0 12px 0;padding:7px 9px;border:1px solid rgba(148,163,184,.34);'
-    + 'border-radius:12px;background:rgba(15,23,42,.92);box-shadow:0 6px 18px rgba(15,23,42,.18);'
-    + 'box-sizing:border-box;max-width:100%;clear:both;backdrop-filter:blur(8px);';
+  // v4.48.0: mount toolbar in a Shadow DOM host so page CSS cannot
+  // restyle it. shadowHost is positioned by attachControls(); bar
+  // is the inner .arena-toolbar node inside the shadow root. The
+  // fallback keeps a working toolbar when shadow_toolbar.js is
+  // absent (mod / cached bundle / unit-test scope stub).
+  let shadowHost = null;
+  let bar;
+  if (typeof arenaCreateShadowToolbar === 'function') {
+    const parts = arenaCreateShadowToolbar(host);
+    shadowHost = parts.shadowHost;
+    bar = parts.toolbar;
+  } else {
+    bar = document.createElement('div');
+    bar.dataset.arenaToolControls = '1';
+    bar.className = 'arena-toolbar';
+  }
 
   const status = document.createElement('span');
-  status.style.cssText = 'font-size:12px;color:#bfdbfe;font-weight:700;margin-right:2px;';
+  status.className = 'arena-toolbar-status';
   status.textContent = lastExecutionText
     ? `Arena · ${adapter.name} · result ready`
     : `Arena · ${adapter.name}`;
@@ -417,15 +431,25 @@ function mountControls(host, payload, adapter) {
   bar.appendChild(makeButton('×', () => {
     dismissedControls.add(fingerprint);
     dismissedControls.add(semanticFingerprint);
-    bar.remove();
+    // v4.48.0: remove the shadow host (owner) rather than the inner
+    // .arena-toolbar node; fallback path removes bar directly.
+    if (shadowHost) {
+      if (typeof arenaDestroyShadowToolbar === 'function') arenaDestroyShadowToolbar(shadowHost);
+      else shadowHost.remove();
+    } else {
+      bar.remove();
+    }
     host.dataset.arenaToolControlsMounted = '';
     mountedControls.delete(fingerprint);
     mountedPayloadSemantics.delete(semanticFingerprint);
     mountedSemanticOwners.delete(semanticFingerprint);
   }));
 
-  attachControls(host, bar);
-  mountedControls.set(fingerprint, {host, bar, semanticFingerprint});
+  // v4.48.0: position the shadow host (or bar on fallback).
+  attachControls(host, shadowHost || bar);
+  // Track shadowHost too so semantic-eviction can call .remove() on
+  // the correct node; `bar` is kept for back-compat.
+  mountedControls.set(fingerprint, {host, bar, shadowHost, semanticFingerprint});
   mountedSemanticOwners.set(semanticFingerprint, fingerprint);
 
   runAutoModes(request, adapter, status, semanticFingerprint, (text) => {

@@ -1,0 +1,104 @@
+/* Arena Chat Bridge — injected toolbar styles, scoped to Shadow DOM.
+ *
+ * Before v4.48.0 the toolbar was created as a bare <div> in the page's
+ * light DOM with all styling done via `bar.style.cssText = "..."` in
+ * chat_extension/content.js. That worked, but every page's own CSS
+ * (ChatGPT / Claude / Gemini) could still reach in and reset any of
+ * our declarations that had lower specificity than a `!important` rule
+ * on the site side, and our data-attribute selector
+ * `[data-arena-tool-controls]` could accidentally match a page rule.
+ *
+ * v4.48.0 moves the toolbar into a Shadow DOM host per anchor. The
+ * shadow root is `mode: open` (matches the pattern MCP SuperAssistant
+ * uses in `BaseSidebarManager.tsx::attachShadow({mode:'open'})`) so
+ * Scan Page diagnostics can still poke at it for debugging. The CSS
+ * below is fetched via `chrome.runtime.getURL('shadow_toolbar.css')`,
+ * declared in web_accessible_resources of manifest.json, and injected
+ * as a <style> node into the shadow root by shadow_toolbar.js.
+ *
+ * Rules:
+ *   * `:host` scoping — the host div itself gets the layout box so
+ *     the toolbar behaves like any other block inserted after a
+ *     message. Positioning still happens in the light DOM (the host
+ *     is appended by attachControls in content.js).
+ *   * All colours come from CSS custom properties so a future theme
+ *     patch changes them in one place. Fallback values match the
+ *     v0.13.27 inline styles byte-for-byte so anyone comparing an
+ *     upgraded install to an older one sees no visual drift.
+ */
+
+:host {
+  display: block;
+  all: initial;   /* Neutralise inheritance so page fonts/colors don't bleed in. */
+  color-scheme: light dark;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+               Oxygen, Ubuntu, sans-serif;
+}
+
+.arena-toolbar {
+  --arena-tb-bg:       rgba(15, 23, 42, 0.92);
+  --arena-tb-border:   rgba(148, 163, 184, 0.34);
+  --arena-tb-status:   #bfdbfe;
+  --arena-btn-bg:      rgba(15, 23, 42, 0.72);
+  --arena-btn-bg-hi:   #2563eb;
+  --arena-btn-border:  rgba(148, 163, 184, 0.38);
+  --arena-btn-border-hi: #3b82f6;
+  --arena-btn-fg:      #f8fafc;
+
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 8px 0 12px 0;
+  padding: 7px 9px;
+  border: 1px solid var(--arena-tb-border);
+  border-radius: 12px;
+  background: var(--arena-tb-bg);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.18);
+  box-sizing: border-box;
+  max-width: 100%;
+  clear: both;
+  backdrop-filter: blur(8px);
+}
+
+.arena-toolbar-status {
+  font-size: 12px;
+  color: var(--arena-tb-status);
+  font-weight: 700;
+  margin-right: 2px;
+}
+
+.arena-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 999px;
+  border: 1px solid var(--arena-btn-border);
+  background: var(--arena-btn-bg);
+  color: var(--arena-btn-fg);
+  line-height: 1.2;
+  font-weight: 600;
+  /* Reset inherited form-control defaults from some pages (e.g. Gemini's
+     button reset that removed our border in v0.13.27). */
+  appearance: none;
+  -webkit-appearance: none;
+  font-family: inherit;
+}
+
+.arena-btn--primary {
+  background: var(--arena-btn-bg-hi);
+  border-color: var(--arena-btn-border-hi);
+}
+
+.arena-btn:hover {
+  filter: brightness(1.15);
+}
+
+.arena-btn:active {
+  filter: brightness(0.92);
+}
+
+.arena-btn:focus-visible {
+  outline: 2px solid var(--arena-btn-border-hi);
+  outline-offset: 2px;
+}

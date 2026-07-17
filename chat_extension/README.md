@@ -1,6 +1,7 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.13.22`.
+Current extension version: `0.14.0` (v4.48.0 bridge release — Shadow DOM
+toolbar isolation).
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the
@@ -116,5 +117,12 @@ When debugging a site:
 - `insert_strategies.js` — composer insertion strategies.
 - `insert_history.js` — insert/submit history event recording.
 - `content.js` — toolbar controls and page scanning.
+- `shadow_toolbar.js` / `shadow_toolbar.css` — Shadow DOM host + scoped
+  stylesheet for the injected toolbar (v4.48.0). Isolates our controls
+  from page CSS so ChatGPT / Claude / Gemini theme rules cannot restyle
+  our buttons. Pattern mirrored from MCP SuperAssistant's
+  `BaseSidebarManager` (`attachShadow({mode:'open'})` with a CSS file
+  fetched via `chrome.runtime.getURL` and injected as `<style>` into
+  the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.

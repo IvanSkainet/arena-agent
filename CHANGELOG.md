@@ -1,3 +1,167 @@
+## v4.48.0 - 2026-07-17
+
+### Chrome extension — Shadow DOM toolbar isolation
+
+Feature release focused on the browser extension side of the project.
+Ships extension `0.14.0` (bumped from `0.13.27`) with the injected
+toolbar moved into a Shadow DOM host per message anchor, so page CSS
+from ChatGPT / Claude / Gemini / etc. can no longer reach in and
+restyle our controls. Bridge-side wiring is unchanged (no API surface
+changes) — this release is pure client-side hardening.
+
+#### Why this release
+
+Before v0.14.0 the extension mounted its toolbar as a bare `<div>` in
+the page's light DOM with all styling done via
+`bar.style.cssText = "..."` in `chat_extension/content.js`. Two
+problems with that:
+
+* **Page CSS could win specificity wars.** ChatGPT's `!important`
+  button reset, Gemini's font-inheritance rules, and Claude's
+  message-bubble padding could all reach into our toolbar and reset
+  properties we had declared as inline styles. Users occasionally
+  saw the toolbar's border-radius collapse to 0 on certain sites,
+  or the buttons drift by a pixel because a parent flex container
+  reflowed them.
+* **Selector coupling.** Our `[data-arena-tool-controls="1"]`
+  attribute could accidentally match a page rule, and vice versa.
+  The page could target our elements even without knowing they were
+  ours.
+
+Both classes of problem disappear when the toolbar lives inside a
+Shadow DOM host: page selectors don't cross the shadow boundary in
+either direction. The pattern is the same one MCP SuperAssistant
+uses in its `BaseSidebarManager` (`attachShadow({mode:'open'})` with
+a CSS file fetched via `chrome.runtime.getURL` and injected as a
+`<style>` node into the shadow root); we picked it after a code-
+level review of their `pages/content/src/utils/shadowDom.ts` and
+`components/sidebar/base/BaseSidebarManager.tsx`.
+
+#### Files touched
+
+##### New files
+
+* **`chat_extension/shadow_toolbar.js`** (~170 lines) — three
+  public helpers exposed on `window`:
+  - `arenaCreateShadowToolbar(hostAnchor, options)` returns
+    `{shadowHost, shadowRoot, toolbar}`. `shadowHost` is the
+    light-DOM anchor the caller positions; `toolbar` is the inner
+    `.arena-toolbar` element that gets the buttons.
+  - `arenaDestroyShadowToolbar(shadowHost)` idempotent remove.
+  - `arenaShadowToolbarButton(label, onClick, {primary})` — button
+    factory with the same pointer-preserving handlers the pre-v0.14
+    `makeButton()` had (blur/focus churn was slowing some chat UIs).
+  - CSS is fetched once per content-script instance and cached; the
+    fetch result is injected as `<style>` into every shadow root.
+    Non-blocking: if the fetch fails (very slow network on first
+    mount) the toolbar renders unstyled rather than not at all.
+* **`chat_extension/shadow_toolbar.css`** (~100 lines) — all
+  toolbar / button styles scoped to `:host` and `.arena-toolbar` /
+  `.arena-btn` / `.arena-btn--primary`. Uses CSS custom properties
+  (`--arena-tb-*`, `--arena-btn-*`) so future theme patches can
+  change the palette in one place. Fallback values match the
+  pre-v0.14 inline styles byte-for-byte so an upgraded install
+  looks identical to the older one.
+
+##### Modified files
+
+* **`chat_extension/manifest.json`** — version bumped
+  `0.13.27 → 0.14.0`; content-script list gains
+  `shadow_toolbar.js` as the seventh entry (right before
+  `content.js` so the helpers are on `window` before
+  `mountControls()` needs them); new `web_accessible_resources`
+  block publishing `shadow_toolbar.css` to `<all_urls>` so the
+  content script can fetch it via `chrome.runtime.getURL(...)`.
+* **`chat_extension/content.js`** — `makeButton()` delegates to
+  `arenaShadowToolbarButton` when it is available (defensive
+  fallback to a bare light-DOM button when it is not, for loader-
+  ordering edge cases). `mountControls()` creates a shadow host
+  via `arenaCreateShadowToolbar(host)` instead of a bare `<div>`,
+  drops the ~800-byte `bar.style.cssText = "…"` and
+  `status.style.cssText = "…"` inline styles in favour of the
+  `.arena-toolbar` / `.arena-toolbar-status` CSS classes injected
+  into the shadow root. The `mountedControls` map gains a
+  `shadowHost` field alongside the existing `bar` so the
+  semantic-eviction path and the close-`×` handler both remove
+  the correct node (the shadow host). Every pre-v0.14 tracking id
+  (`data-arena-tool-controls="1"`,
+  `data-arena-tool-controls-mounted="1"`, `data-arena-tool-fingerprint`)
+  is preserved unchanged so `cleanupStaleControls()`,
+  `hostHasToolbar()`, the MutationObserver ignore filter, and
+  `scanPageDiagnostics()` all keep working with zero adjustment.
+* **`chat_extension/README.md`** — version banner + new "Important
+  files" entry for `shadow_toolbar.js` / `shadow_toolbar.css` with
+  a one-paragraph explanation of the Shadow DOM pattern.
+
+##### Tests
+
+* **`tests/test_chat_extension_assets.py`** — extended the manifest
+  guard to lock in the new script slot (`content_scripts[0].js[6]`
+  must be `shadow_toolbar.js`, `[7]` must be `content.js`), a
+  `web_accessible_resources` check that publishes
+  `shadow_toolbar.css` to `<all_urls>`, and a new assertion block
+  that reads both new files and confirms:
+  - `arenaCreateShadowToolbar` / `arenaDestroyShadowToolbar` /
+    `arenaShadowToolbarButton` are all defined in
+    `shadow_toolbar.js`
+  - `attachShadow` with `mode: 'open'` is used (matches MCP
+    SuperAssistant's `BaseSidebarManager` recipe)
+  - `:host`, `.arena-toolbar`, `.arena-btn` all appear in
+    `shadow_toolbar.css`
+  - `content.js` calls `arenaCreateShadowToolbar` and no longer
+    uses the pre-v0.14 `bar.style.cssText` inline-style pattern
+    (regression guard against re-introducing light-DOM styling).
+
+Bridge test suite remains at **2388 passed** (+ any new assertions
+in the extension-assets test); no bridge-side runtime files touched.
+
+#### Design decisions worth flagging
+
+* **`mode: 'open'`.** Matches MCP SuperAssistant. Trade-off: page
+  scripts *can* still walk `shadowHost.shadowRoot`, so a hostile
+  site could technically read our button labels. That is fine — we
+  never put anything sensitive in the toolbar (labels are literals
+  like "Preview" / "Run"), and open mode lets Scan Page diagnostics
+  keep inspecting the toolbar for debugging.
+* **CSS in a separate `.css` file** (rather than inlined into JS).
+  Also matches MCP SuperAssistant. Rationale: keeps `content.js`
+  and `shadow_toolbar.js` slim, lets browser devtools show
+  meaningful line numbers when styling breaks, and preserves the
+  option to hot-swap the stylesheet from a future
+  RemoteConfigManager (v4.49.0 territory) without touching JS.
+* **No React, no Zustand, no Tailwind.** MCP SuperAssistant uses
+  all three, but our toolbar is 6 buttons and a status line — the
+  vanilla-JS + inline-CSS-file approach is 250 total LOC vs. the
+  ~1500 LOC React harness they carry. Kept the door open (nothing
+  in the shadow-host contract precludes mounting a React root
+  inside it later).
+* **Loader-ordering safety net.** `makeButton` and `mountControls`
+  both `typeof …=== 'function'` check for the shadow helpers and
+  fall through to the pre-v0.14 light-DOM path if they're missing.
+  In practice manifest.json guarantees `shadow_toolbar.js` loads
+  before `content.js`, but the fallback keeps the extension usable
+  in three edge cases: (a) a heavily-modded local install where
+  someone removed `shadow_toolbar.js` from the file list, (b) an
+  in-flight upgrade where an old cached content-script bundle
+  still runs against a new manifest, (c) unit-test contexts that
+  stub the module scope.
+
+#### What is not in this release
+
+* Extension-side RemoteConfigManager (fetch adapter selectors from
+  the bridge instead of hard-coding them in `adapter_sites.js`).
+  That was the other MCP-SuperAssistant idea worth stealing, but
+  it needs a `/v1/extension/adapters` endpoint on the bridge side
+  and a background-script fetch loop, both of which are their own
+  meaningful surface. Planned for **v4.49.0** as a standalone
+  release; the Shadow DOM refactor stands on its own and shipping
+  the two together would have hidden the small-surface release
+  under a bigger diff.
+* Zustand-style reactive state for the popup / sidepanel. Same
+  reasoning as "no React": our state is `chrome.storage.sync` +
+  `chrome.storage.local` + an in-page `Map`, and event-passing
+  works fine over `chrome.runtime.sendMessage`. Not planned.
+
 ## v4.47.2 - 2026-07-17
 
 ### Settings → Transports migration + docs sweep

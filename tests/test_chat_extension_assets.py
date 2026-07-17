@@ -25,12 +25,29 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.13.27"
+    assert manifest["version"] == "0.14.0"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
     assert manifest["side_panel"]["default_path"] == "sidepanel.html"
+    # v4.48.0 adds shadow_toolbar.js as the 7th content script (before
+    # content.js) to expose window.arenaCreateShadowToolbar /
+    # arenaDestroyShadowToolbar / arenaShadowToolbarButton to content.js.
+    # The first 6 stay locked to preserve script ordering guarantees --
+    # parser/adapters/strategies/settings/history must all be evaluated
+    # before shadow_toolbar or content see them.
     assert manifest["content_scripts"][0]["js"][:6] == ["adapter_sites.js", "parser.js", "adapters.js", "insert_strategies.js", "settings.js", "insert_history.js"]
+    assert manifest["content_scripts"][0]["js"][6] == "shadow_toolbar.js"
+    assert manifest["content_scripts"][0]["js"][7] == "content.js"
+    # v4.48.0: shadow_toolbar.css must be reachable from a content
+    # script via chrome.runtime.getURL(); web_accessible_resources
+    # publishes it against <all_urls>.
+    war = manifest.get("web_accessible_resources", [])
+    assert any(
+        "shadow_toolbar.css" in (entry.get("resources") or [])
+        and "<all_urls>" in (entry.get("matches") or [])
+        for entry in war
+    ), "shadow_toolbar.css must be listed in web_accessible_resources"
     assert "arena.preview" in background
     assert "arena.execute" in background
     assert "arena.testConnection" in background
@@ -141,3 +158,39 @@ def test_chat_extension_scaffold_exists():
     assert "attemptsSummary" in content
     assert "Auto used" in content
     assert "/v1/extension/execute" in readme
+
+    # v4.48.0: Shadow DOM toolbar helpers must exist and expose the
+    # three public entry-points content.js relies on.
+    shadow_js = (base / "shadow_toolbar.js").read_text(encoding="utf-8")
+    shadow_css = (base / "shadow_toolbar.css").read_text(encoding="utf-8")
+    assert "arenaCreateShadowToolbar" in shadow_js
+    assert "arenaDestroyShadowToolbar" in shadow_js
+    assert "arenaShadowToolbarButton" in shadow_js
+    # attachShadow with mode:'open' is the recipe MCP SuperAssistant
+    # uses; we picked it for the same debugging-friendliness reason.
+    assert "attachShadow" in shadow_js
+    assert "mode: 'open'" in shadow_js or 'mode: "open"' in shadow_js
+    # CSS must scope its rules to :host so a page that dropped the
+    # extension's shadow root into an outer selector cannot bleed
+    # into our own styling.
+    assert ":host" in shadow_css
+    assert ".arena-toolbar" in shadow_css
+    assert ".arena-btn" in shadow_css
+
+    # content.js must call the shadow-toolbar factory and stop using
+    # the pre-v4.48.0 inline-style pattern for the injected bar.
+    assert "arenaCreateShadowToolbar" in content
+    assert "arenaShadowToolbarButton" in content or "arena-btn" in content
+    # Explicit inline styles like `bar.style.cssText = ...` were
+    # removed in v4.48.0; a regression that re-introduces them would
+    # leak page styles back into the toolbar. Strip JS comment lines
+    # first so a docstring mentioning the removed pattern (e.g. the
+    # rationale block above makeButton) does not false-positive.
+    import re as _re
+    content_no_comments = _re.sub(r"^\s*//.*$", "", content, flags=_re.MULTILINE)
+    content_no_comments = _re.sub(r"/\*.*?\*/", "", content_no_comments, flags=_re.DOTALL)
+    assert "bar.style.cssText" not in content_no_comments, (
+        "content.js still assigns bar.style.cssText outside comments -- "
+        "the Shadow DOM refactor collapsed toolbar styling into "
+        "shadow_toolbar.css and this leak resurrects light-DOM styles."
+    )

@@ -1,3 +1,167 @@
+## v4.48.0 - 2026-07-17
+
+### Chrome-расширение — изоляция toolbar через Shadow DOM
+
+Feature-релиз, сфокусированный на browser extension. Поднимает
+расширение `0.14.0` (bumped с `0.13.27`); injected toolbar теперь
+живёт в Shadow DOM-хосте per-message anchor, поэтому CSS страницы
+ChatGPT / Claude / Gemini и т.п. больше не может дотянуться и
+переопределить стили наших контролов. Bridge-side wiring не тронут
+(без изменений API surface) — релиз чисто client-side hardening.
+
+#### Зачем этот релиз
+
+До v0.14.0 расширение монтировало toolbar как обычный `<div>` в
+light DOM страницы, а стили ставились через
+`bar.style.cssText = "..."` в `chat_extension/content.js`. Две
+проблемы:
+
+* **CSS страницы мог выиграть specificity-войну.** `!important`
+  reset кнопок в ChatGPT, font-inheritance правила Gemini, padding
+  message-bubble в Claude — всё могло дотянуться до нашего toolbar
+  и переопределить inline-стили. Пользователи периодически видели,
+  как border-radius toolbar схлопывается в 0 на некоторых сайтах,
+  либо кнопки съезжают на пиксель из-за flex-родителя.
+* **Coupling селекторов.** Наш `[data-arena-tool-controls="1"]`
+  атрибут мог случайно матчить page-правило, и наоборот. Страница
+  могла таргетить наши элементы, не подозревая, что они наши.
+
+Оба класса проблем исчезают, когда toolbar живёт в Shadow DOM: page-
+селекторы не пересекают shadow-границу ни в одну сторону. Паттерн
+взят у MCP SuperAssistant из `BaseSidebarManager`
+(`attachShadow({mode:'open'})` + CSS-файл, фетчащийся через
+`chrome.runtime.getURL` и инжектящийся `<style>`-нодой в shadow
+root); выбран после кодового разбора их
+`pages/content/src/utils/shadowDom.ts` и
+`components/sidebar/base/BaseSidebarManager.tsx`.
+
+#### Затронутые файлы
+
+##### Новые файлы
+
+* **`chat_extension/shadow_toolbar.js`** (~170 строк) — три
+  публичных helper, exposed на `window`:
+  - `arenaCreateShadowToolbar(hostAnchor, options)` возвращает
+    `{shadowHost, shadowRoot, toolbar}`. `shadowHost` — light-DOM
+    anchor, который caller позиционирует; `toolbar` — внутренний
+    `.arena-toolbar` элемент, куда пойдут кнопки.
+  - `arenaDestroyShadowToolbar(shadowHost)` — idempotent remove.
+  - `arenaShadowToolbarButton(label, onClick, {primary})` —
+    factory для кнопок с теми же pointer-preserving handlers, что
+    у pre-v0.14 `makeButton()` (blur/focus-churn тормозил некоторые
+    chat UI).
+  - CSS фетчится один раз per-content-script и кэшируется; результат
+    инжектится `<style>`-нодой в каждый shadow root. Non-blocking:
+    если fetch провалился (очень медленная сеть на первом mount),
+    toolbar рендерится без стилей, а не отсутствует.
+* **`chat_extension/shadow_toolbar.css`** (~100 строк) — все
+  toolbar / button стили scoped через `:host` и `.arena-toolbar` /
+  `.arena-btn` / `.arena-btn--primary`. Использует CSS custom
+  properties (`--arena-tb-*`, `--arena-btn-*`) — future theme
+  patches меняют палитру в одном месте. Fallback-значения match
+  pre-v0.14 inline styles byte-for-byte, поэтому upgraded install
+  выглядит идентично старому.
+
+##### Изменённые файлы
+
+* **`chat_extension/manifest.json`** — version bumped
+  `0.13.27 → 0.14.0`; content-script list получил
+  `shadow_toolbar.js` как 7-ю запись (прямо перед `content.js`,
+  чтобы helpers были на `window` до вызова `mountControls()`);
+  новый `web_accessible_resources` блок публикует
+  `shadow_toolbar.css` на `<all_urls>`, чтобы content script мог
+  фетчить его через `chrome.runtime.getURL(...)`.
+* **`chat_extension/content.js`** — `makeButton()` делегирует в
+  `arenaShadowToolbarButton` когда он доступен (защитный fallback
+  на bare light-DOM button, когда нет — для loader-ordering
+  edge cases). `mountControls()` создаёт shadow-host через
+  `arenaCreateShadowToolbar(host)` вместо bare `<div>`, убирает
+  ~800-байтовые inline-styles `bar.style.cssText = "…"` и
+  `status.style.cssText = "…"` в пользу классов `.arena-toolbar` /
+  `.arena-toolbar-status`, инжектящихся в shadow root. Map
+  `mountedControls` получает поле `shadowHost` рядом с существующим
+  `bar`, чтобы semantic-eviction path и close-`×` handler оба
+  удаляли правильную ноду (shadow host). Все pre-v0.14 tracking-id
+  (`data-arena-tool-controls="1"`,
+  `data-arena-tool-controls-mounted="1"`,
+  `data-arena-tool-fingerprint`) сохранены, поэтому
+  `cleanupStaleControls()`, `hostHasToolbar()`, MutationObserver
+  ignore-фильтр и `scanPageDiagnostics()` продолжают работать без
+  правок.
+* **`chat_extension/README.md`** — version-баннер + новая запись
+  в "Important files" для `shadow_toolbar.js` / `shadow_toolbar.css`
+  с одностраничным объяснением Shadow DOM-паттерна.
+
+##### Тесты
+
+* **`tests/test_chat_extension_assets.py`** — расширил manifest-
+  guard: залочил новый слот (`content_scripts[0].js[6]` должен
+  быть `shadow_toolbar.js`, `[7]` — `content.js`),
+  `web_accessible_resources` check публикует `shadow_toolbar.css`
+  на `<all_urls>`, и новый блок ассертов, читающий оба новых
+  файла и проверяющий:
+  - `arenaCreateShadowToolbar` / `arenaDestroyShadowToolbar` /
+    `arenaShadowToolbarButton` определены в `shadow_toolbar.js`
+  - используется `attachShadow` с `mode: 'open'` (соответствует
+    рецепту MCP SuperAssistant из `BaseSidebarManager`)
+  - `:host`, `.arena-toolbar`, `.arena-btn` присутствуют в
+    `shadow_toolbar.css`
+  - `content.js` вызывает `arenaCreateShadowToolbar` и больше не
+    использует pre-v0.14 `bar.style.cssText` inline-style паттерн
+    (regression-guard от возвращения light-DOM styling).
+
+Bridge test suite остаётся на **2388 passed** (+ новые ассерты
+в extension-assets тесте); ни один bridge-side runtime-файл не
+тронут.
+
+#### Design-решения достойные упоминания
+
+* **`mode: 'open'`.** Матчит MCP SuperAssistant. Trade-off:
+  page-scripts *могут* ходить по `shadowHost.shadowRoot`, поэтому
+  враждебный сайт технически может прочитать наши button-labels.
+  Это ок — мы не кладём в toolbar ничего чувствительного (labels
+  — литералы вроде "Preview" / "Run"), а open mode позволяет
+  Scan Page diagnostics продолжать инспектировать toolbar для
+  дебага.
+* **CSS в отдельном `.css`-файле** (а не inline-в-JS). Тоже
+  матчит MCP SuperAssistant. Rationale: `content.js` и
+  `shadow_toolbar.js` остаются slim, browser devtools показывают
+  осмысленные line numbers когда styling ломается, и сохраняется
+  возможность hot-swap stylesheet из будущего RemoteConfigManager
+  (v4.49.0 territory) без правок JS.
+* **Без React, без Zustand, без Tailwind.** MCP SuperAssistant
+  использует все три, но наш toolbar — 6 кнопок и status-line;
+  vanilla-JS + inline-CSS-file подход даёт 250 total LOC против
+  ~1500 LOC React-harness у них. Дверь оставлена открытой:
+  ничто в контракте shadow-host не мешает mount React-root
+  внутри позже.
+* **Loader-ordering safety net.** `makeButton` и `mountControls`
+  оба через `typeof …=== 'function'` проверяют shadow-helpers и
+  fallback на pre-v0.14 light-DOM path если они отсутствуют.
+  На практике manifest.json гарантирует загрузку
+  `shadow_toolbar.js` до `content.js`, но fallback держит
+  extension работоспособным в трёх edge-case: (a) heavily-modded
+  local install где кто-то удалил `shadow_toolbar.js` из
+  file-list, (b) in-flight upgrade где старый закэшированный
+  content-script bundle запущен против нового manifest, (c)
+  unit-test контексты, stubbing module scope.
+
+#### Чего нет в этом релизе
+
+* Extension-side RemoteConfigManager (фетч adapter-селекторов с
+  bridge вместо хардкода в `adapter_sites.js`). Была вторая
+  MCP-SuperAssistant идея worth stealing, но она требует
+  `/v1/extension/adapters` endpoint на bridge и background-script
+  fetch-loop, оба своя meaningful surface. Планируется на
+  **v4.49.0** как standalone-релиз; Shadow DOM-refactor стоит
+  сам по себе, и shipping вместе спрятал бы небольшой релиз
+  под бо́льшим diff.
+* Zustand-style reactive state для popup / sidepanel. То же
+  reasoning что "без React": наш state — `chrome.storage.sync`
+  + `chrome.storage.local` + in-page `Map`, event-passing
+  прекрасно работает через `chrome.runtime.sendMessage`. Не
+  планируется.
+
 ## v4.47.2 - 2026-07-17
 
 ### Миграция Settings → Transports + docs sweep
