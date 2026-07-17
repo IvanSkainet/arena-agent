@@ -1,3 +1,69 @@
+## v4.48.3 - 2026-07-17
+
+### Chrome extension — structure-preserving insert + Qwen toolbar position fix
+
+Fourth release in the v4.48.x arc. Two focused fixes reported from
+live daily use after v4.48.2 shipped:
+
+* **Flat-text insert on Perplexity / Kimi.** Their contenteditable
+  composers silently collapse `\n` into spaces on
+  `execCommand('insertText', ...)`. Our verify path used
+  `arenaEditableText` which itself normalises `\s+` → ` ` before
+  compare, so a paste that lost every newline still reported
+  `settled: true`, the fallback chain never fired, and the model
+  read back a one-line blob. Now `arenaStructureMatches()` counts
+  `<br>` nodes and block children after insert. When the payload
+  had newlines but the composer shows a single line, verify
+  returns `structure_ok: false`, the run loop wipes the composer
+  and advances to the next strategy in the plan
+  (`nativeInsertText → paragraphFallback → directDomBlocks`).
+* **Qwen toolbar drifted above the site "..." action menu.** Qwen
+  wraps fenced code as `<div><pre>...</pre></div>`; the pre-v0.14.3
+  `controlsHost` returned the outer `<div>` untouched, so the
+  toolbar landed at the div's insertion anchor instead of below
+  the `<pre>`. `controlsHost` now hoists to the nested `<pre>`
+  when the node is a `<div>` wrapping a `<pre>` (matching the
+  behaviour we already had for `<code>` inside `<pre>`).
+
+#### Files touched
+
+* **`chat_extension/insert_strategies.js`** -- new
+  `arenaStructureMatches(target, text)` helper; `arenaVerifySettledInsert`
+  gates on the structure flag; `arenaInsertResult` clears the composer
+  between strategies when the previous attempt landed flat, so the
+  fallback strategy does not ship a `text\ntext` duplicate;
+  `arenaInsertPlan` chains through `paragraphFallback` +
+  `directDomBlocks` when the payload contains `\n`;
+  `arenaInsertScriptVersion` bumped to `0.14.3`.
+* **`chat_extension/content.js`** -- `controlsHost` hoists
+  `<div>`-wrapped `<pre>` (kept as a one-line body since the file is
+  right at the 700-line product-modularity threshold);
+  `ARENA_CONTENT_SCRIPT_VERSION` bumped to `0.14.3`.
+* **`chat_extension/manifest.json`** -- extension version bumped
+  `0.14.2 → 0.14.3`.
+* **`chat_extension/README.md`** -- version banner refreshed with
+  the specific bugs closed.
+
+#### Tests
+
+* **`tests/test_chat_extension_assets.py`** -- 3 new assertions
+  covering `arenaStructureMatches` presence in insert_strategies.js,
+  `paragraphFallback` + `directDomBlocks` chain presence, and the
+  `<div>`-wrap-`<pre>` hoist in content.js. Internal content-version
+  pin bumped to `0.14.3`.
+* **`tests/test_chat_extension_adapter_flow.py`** -- README-version
+  bumped to `0.14.3`.
+* Sweep passes at **2390** (unchanged; existing tests extended,
+  no new tests counted separately).
+
+#### What is still deferred
+
+* Preview-button flash on Kimi / Qwen (no repro yet -- the events_recent
+  ring buffer from v4.48.2 should help catch it in the next scan-report).
+* Arena.ai battle / side-by-side / agent-mode variants (per-surface
+  adapter split).
+* Extension-side RemoteConfigManager (queued for v4.49.0).
+
 ## v4.48.2 - 2026-07-17
 
 ### Chrome extension — user-message filter, Copilot path guard, Enter-key submit fallback

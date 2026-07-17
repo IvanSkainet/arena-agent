@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.2';
+  return '0.14.3';
 }
 
 function arenaSetInsertTiming(timing) {
@@ -69,6 +69,42 @@ function arenaTextContainsInsert(text, inserted) {
   return false;
 }
 
+// v0.14.3: structure verification. When the payload contained \n
+// (jsonl blocks always do), the composer must reflect that break --
+// otherwise the model reads back a single-line blob (visible on
+// Perplexity / Kimi scan-reports before this release). We look at
+// the composer's rendered content for either <br> nodes or multiple
+// block children, matching the shape our fallback strategies build.
+// Returns true when the payload had no \n (plain-line, nothing to
+// verify) OR the composer has the expected break structure.
+function arenaStructureMatches(target, insertedText) {
+  const src = String(insertedText || '');
+  const expectedLines = src.split('\n').length;
+  if (expectedLines < 2) return true;   // single-line payload -- nothing to check.
+  if (!target) return false;
+  // Textareas/inputs preserve \n verbatim in .value.
+  const tag = String(target.tagName || '').toUpperCase();
+  if (tag === 'TEXTAREA' || tag === 'INPUT') {
+    return String(target.value || '').includes('\n');
+  }
+  // ContentEditable: count <br> tags + block-level children as
+  // rendered line separators. Both strategies our fallback chain
+  // uses (paragraphFallback / directDomBlocks) build one or the
+  // other. `expectedLines - 1` is the minimum break count for the
+  // structure to look right; we accept anything >= half of that
+  // (the composer may have collapsed empty lines, which is fine).
+  const brCount = target.querySelectorAll('br').length;
+  // Block-level child count -- <div>, <p>, <pre> siblings.
+  const blockChildren = Array.from(target.children || [])
+    .filter((c) => {
+      const t = String(c.tagName || '').toUpperCase();
+      return t === 'DIV' || t === 'P' || t === 'PRE';
+    }).length;
+  const observed = Math.max(brCount, blockChildren);
+  const minExpected = Math.max(1, Math.floor((expectedLines - 1) / 2));
+  return observed >= minExpected;
+}
+
 // Adaptive verify: check at 30ms, 80ms, then maxDelay. Most sites settle by
 // the first probe, saving ~150ms vs a flat 180ms wait.
 async function arenaVerifySettledInsert(adapter, before, text, target = null, maxDelayMs = 180) {
@@ -82,13 +118,20 @@ async function arenaVerifySettledInsert(adapter, before, text, target = null, ma
     const current = target?.isConnected ? target : arenaFindComposer(adapter);
     const after = arenaEditableText(current);
     const changed = after !== before;
-    if (changed && arenaTextContainsInsert(after, text)) {
-      return {changed: true, settled: true, verify_ms: elapsed};
+    // v0.14.3: structure check -- text contents may match even when
+    // the composer collapsed \n into single spaces (Perplexity /
+    // Kimi behaviour). If the payload had newlines and the composer
+    // shows a single line, treat as "changed but not settled" so
+    // the caller advances to the next strategy in the plan.
+    const structOk = arenaStructureMatches(current, text);
+    if (changed && arenaTextContainsInsert(after, text) && structOk) {
+      return {changed: true, settled: true, structure_ok: true, verify_ms: elapsed};
     }
     if (i === checkPoints.length - 1) {
       return {
         changed,
-        settled: changed && arenaTextContainsInsert(after, text),
+        settled: changed && arenaTextContainsInsert(after, text) && structOk,
+        structure_ok: structOk,
         verify_ms: elapsed,
       };
     }
@@ -97,9 +140,11 @@ async function arenaVerifySettledInsert(adapter, before, text, target = null, ma
   const current = target?.isConnected ? target : arenaFindComposer(adapter);
   const after = arenaEditableText(current);
   const changed = after !== before;
+  const structOk = arenaStructureMatches(current, text);
   return {
     changed,
-    settled: changed && arenaTextContainsInsert(after, text),
+    settled: changed && arenaTextContainsInsert(after, text) && structOk,
+    structure_ok: structOk,
     verify_ms: elapsed,
   };
 }
@@ -227,13 +272,26 @@ function arenaUsesRichTextareaFastPath(target) {
   return arenaHost() === 'gemini.google.com' && !!target?.closest?.('rich-textarea');
 }
 
-function arenaInsertPlan(target, requested) {
+function arenaInsertPlan(target, requested, text) {
   if (!target?.isContentEditable || requested !== 'auto') {
     return [requested === 'auto' ? 'nativeInsertText' : requested];
   }
   if (arenaUsesRichTextareaFastPath(target)) {
     return ['directDomPreWrap', 'nativeInsertText'];
   }
+  // v0.14.3: when the payload has newlines, chain to structure-
+  // preserving fallbacks. On Perplexity / Kimi / other plain
+  // contenteditable composers, execCommand('insertText') strips
+  // \n into single spaces -- the jsonl block that lands looks like
+  // one long line. paragraphFallback uses execCommand('insertParagraph')
+  // per line which every composer honours (it's how Enter behaves).
+  // directDomBlocks is the last-ditch DOM write that survives even
+  // on composers where execCommand is a no-op. Chain break happens
+  // in the caller: it stops once verify.settled is true AND the
+  // paragraph structure matches, so plain-line payloads still exit
+  // on the fast native path.
+  const hasNewlines = String(text || '').indexOf('\n') !== -1;
+  if (hasNewlines) return ['nativeInsertText', 'paragraphFallback', 'directDomBlocks'];
   return ['nativeInsertText'];
 }
 
@@ -383,7 +441,7 @@ async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = '
   arenaFocusComposer(target);
   const attempts = [];
 
-  for (const selected of arenaInsertPlan(target, requested)) {
+  for (const selected of arenaInsertPlan(target, requested, text)) {
     const before = arenaEditableText(target);
     let attempted = false;
     try {
@@ -424,7 +482,41 @@ async function arenaInsertResult(text, adapter = getArenaAdapter(), strategy = '
       });
       return true;
     }
-    if (requested === 'auto' && attempted && verify.changed) break;
+    // v0.14.3: only break on "changed" when the structure also matches.
+    // Previously any change (even a plain-text collapse of a
+    // multi-line payload) counted as "good enough" and stopped the
+    // plan, so the paragraphFallback fallback never ran on
+    // Perplexity / Kimi. Now we advance to the next strategy when
+    // the composer swallowed our newlines.
+    if (requested === 'auto' && attempted && verify.changed && verify.structure_ok !== false) break;
+    // v0.14.3: before trying the next strategy, wipe what the
+    // previous one just injected -- otherwise the second attempt
+    // appends to the flat text left by the first and we ship a
+    // "text\ntext" duplicate. Skip when nothing changed (nothing
+    // to clean up).
+    if (attempted && verify.changed) {
+      try {
+        if (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT') {
+          target.value = '';
+          target.dispatchEvent(new Event('input', {bubbles: true}));
+        } else if (target.isContentEditable) {
+          // Selecting everything + delete is the only clear that
+          // consistently fires the SPA's input listeners; setting
+          // innerHTML='' silently on ProseMirror composers.
+          const sel = window.getSelection?.();
+          if (sel) {
+            const range = document.createRange();
+            range.selectNodeContents(target);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            document.execCommand('delete', false);
+          } else {
+            target.innerHTML = '';
+          }
+          target.dispatchEvent(new InputEvent('input', {bubbles: true, inputType: 'deleteContent'}));
+        }
+      } catch (_e) { /* ignore; next strategy may still overwrite */ }
+    }
   }
 
   const last = attempts[attempts.length - 1]

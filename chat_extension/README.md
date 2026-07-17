@@ -1,11 +1,11 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.2` (v4.48.2 bridge release — user-
-message filter to stop false-positive detection on user's own text,
-Copilot pathPrefix guard, Arena.ai + DuckAI adapters, Enter-key
-fallback for sites where the submit button lives outside every
-scored ancestor, inline `arguments` parser fix, diagnostics ring
-buffer via `events_recent` in Scan Page).
+Current extension version: `0.14.3` (v4.48.3 bridge release — structure-
+preserving insert fallback for Perplexity / Kimi / plain contenteditable
+composers that collapse `\n` into spaces, chained
+`nativeInsertText → paragraphFallback → directDomBlocks` plan with
+per-strategy composer clear between attempts, Qwen toolbar-position
+fix via `<div>`-wrapped-`<pre>` hoist in `controlsHost`).
 
 Arena Chat Bridge Extension connects ordinary web chats to Arena Unified Bridge.
 It detects structured tool-call blocks in assistant messages, sends them to the

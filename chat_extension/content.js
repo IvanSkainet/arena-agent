@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.2';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.3';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -82,8 +82,7 @@ function resultToText(result) {
 }
 
 function makeButton(label, onClick, primary = false) {
-  // v4.48.0: delegates to arenaShadowToolbarButton; fallback path
-  // covers heavily-modded installs that dropped shadow_toolbar.js.
+  // v4.48.0: delegates to arenaShadowToolbarButton; fallback for modded installs.
   if (typeof arenaShadowToolbarButton === 'function') {
     return arenaShadowToolbarButton(label, onClick, { primary });
   }
@@ -111,8 +110,11 @@ function resultErrorText(result) {
 }
 
 function controlsHost(node) {
+  // v0.14.3: hoist <code>/<div>-wrapped <pre> (Qwen drift fix).
   if (!node) return document.body;
-  if (node.tagName === 'CODE') return node.closest('pre') || node;
+  const tag = String(node.tagName || '').toUpperCase();
+  if (tag === 'CODE') return node.closest('pre') || node.parentElement || node;
+  if (tag === 'DIV') { const pre = node.querySelector('pre'); if (pre) return pre; }
   return node;
 }
 
@@ -299,9 +301,7 @@ function mountControls(host, payload, adapter) {
     || hostHasToolbar(host)
   ) return;
 
-  // v0.14.2: skip user-authored blocks (Grok / Copilot / DuckAI /
-  // Arena.ai echo user prompts inside code fences). Helper in
-  // adapters.js walks ancestors for canonical user-message markers.
+  // v0.14.2: skip user-authored blocks (Grok/Copilot/DuckAI echo user prompts).
   if (typeof arenaIsInUserAuthoredNode === 'function' && arenaIsInUserAuthoredNode(host)) {
     dismissedControls.add(fingerprint);
     dismissedControls.add(semanticFingerprint);
@@ -441,8 +441,7 @@ function mountControls(host, payload, adapter) {
   bar.appendChild(makeButton('×', () => {
     dismissedControls.add(fingerprint);
     dismissedControls.add(semanticFingerprint);
-    // v4.48.0: remove the shadow host (owner) rather than the inner
-    // .arena-toolbar node; fallback path removes bar directly.
+    // v4.48.0: remove shadow host (or bar in fallback path).
     if (shadowHost) {
       if (typeof arenaDestroyShadowToolbar === 'function') arenaDestroyShadowToolbar(shadowHost);
       else shadowHost.remove();

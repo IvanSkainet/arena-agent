@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.2"
+    assert manifest["version"] == "0.14.3"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -147,8 +147,21 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.2'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.2"' in content
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.3'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.3"' in content
+    # v0.14.3: structure-preserving insert plan for multi-line payloads
+    # (Perplexity / Kimi plain contenteditable that collapses \n into
+    # spaces). Plan now chains through paragraphFallback + directDomBlocks
+    # when the initial nativeInsertText succeeded but broke the structure.
+    insert_js = (base / "insert_strategies.js").read_text(encoding="utf-8")
+    assert "arenaStructureMatches" in insert_js, (
+        "insert_strategies.js must expose arenaStructureMatches to detect "
+        "when a composer swallowed newlines and the fallback chain must fire"
+    )
+    assert "paragraphFallback" in insert_js and "directDomBlocks" in insert_js
+    # controlsHost hoists <div>-wrapped <pre> so Qwen no longer drifts
+    # the toolbar above the site "..." menu.
+    assert "querySelector('pre')" in content or 'querySelector("pre")' in content
     # v0.14.2 additions -- assert the new machinery is wired in.
     # (a) copilot must be pinned to the /copilot path prefix; the
     #     bare github.com hosts entry alone lets the adapter false-
