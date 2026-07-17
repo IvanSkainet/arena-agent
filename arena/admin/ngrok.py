@@ -182,7 +182,7 @@ def _poll_ngrok_url_from_api(timeout: float = 2.0,
     callers that don't care about port-matching.
     """
     try:
-        with urllib.request.urlopen(NGROK_LOCAL_API, timeout=timeout) as resp:  # nosec B310 -- loopback ngrok API URL (127.0.0.1:4040)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
+        with urllib.request.urlopen(NGROK_LOCAL_API, timeout=timeout) as resp:  # nosec B310 -- loopback ngrok API URL (127.0.0.1:4040)  # nosemgrep: insecure-urlopen, dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             body = resp.read()
     except (urllib.error.URLError, TimeoutError, OSError):
         return None

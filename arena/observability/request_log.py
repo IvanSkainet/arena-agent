@@ -94,11 +94,21 @@ def log_request_response(
     privacy (``off`` / ``mask`` / default full). See module
     docstring for rationale.
     """
+    # v4.45.0: route error strings through the shared redaction
+    # helper. HTTP handler errors sometimes echo the request body
+    # or an exception message that captured a bearer token; the
+    # request log was previously the last place those could leak
+    # to (audit log already scrubs). Path is redacted too because
+    # a client-supplied route with an embedded token (?token=...
+    # stripped by aiohttp Request.path but path segments like
+    # /v1/agent-<id>-<token-hex> could still carry one) would
+    # otherwise persist verbatim.
+    from arena.observability.redact import redact_string
     entry: dict[str, Any] = {
         "ts": utc_now_fn(),
         "req_id": req_id,
         "method": method,
-        "path": path,
+        "path": redact_string(path),
         "status": status,
         "duration_ms": round(duration * 1000, 2),
     }
@@ -109,7 +119,7 @@ def log_request_response(
         entry["peer"] = _mask_peer(peer)
     # mode == "off" -> peer field omitted entirely
     if error:
-        entry["error"] = error[:500]
+        entry["error"] = redact_string(error[:500])
     try:
         app_dir.mkdir(parents=True, exist_ok=True)
         if log_file.exists() and log_file.stat().st_size > max_bytes:

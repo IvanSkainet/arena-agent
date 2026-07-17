@@ -36,110 +36,25 @@ import collections
 import hashlib
 import json
 import os
-import re
 import threading
 from pathlib import Path
 from typing import Any, Callable
 
 from arena.constants import AUDIT_CMD_LIMIT
-
-audit_lock = threading.Lock()
-
-
-# Key-name substrings that trigger full redaction.
-_SENSITIVE_KEY_SUBSTRINGS: tuple[str, ...] = (
-    "token", "authorization", "password", "secret",
-    "api_key", "apikey", "credential", "passphrase",
-    "private_key", "privatekey",
+# v4.45.0: redaction primitives now live in a shared module so
+# every emit-site (audit log, request log, exception formatters,
+# future structured-logging sink) uses the exact same rules.
+# The three underscore-prefixed names below stay as thin
+# backward-compat aliases so anything that imported them from
+# arena.observability.audit keeps working.
+from arena.observability.redact import (
+    SENSITIVE_KEY_SUBSTRINGS as _SENSITIVE_KEY_SUBSTRINGS,
+    is_sensitive_key as _is_sensitive_key,
+    redact_string as _redact_value_patterns,
+    redact_value as _scrub,
 )
 
-
-# Value patterns that indicate a credential embedded in a
-# larger string. Each pattern is precompiled and the match is
-# replaced with ``<redacted:{name}>`` so operators can still
-# see WHICH kind of secret leaked without seeing the secret
-# itself.
-_VALUE_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
-    # Bearer / Basic tokens in Authorization-style headers or
-    # curl commands that were captured into the log.
-    ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/=]{16,}")),
-    ("basic", re.compile(r"\bBasic\s+[A-Za-z0-9+/=]{16,}")),
-    # AWS keys
-    ("aws-access-key", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
-    # GitHub tokens (personal, server-to-server, oauth, refresh)
-    ("github", re.compile(r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9]{20,}\b")),
-    # OpenAI / Anthropic-style keys (sk-... and sk-ant-...)
-    ("openai-style", re.compile(r"\bsk-(?:ant-)?[A-Za-z0-9\-_]{20,}\b")),
-    # Slack tokens
-    ("slack", re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}\b")),
-    # Google API keys start with AIza and are 39 chars total
-    ("google-api", re.compile(r"\bAIza[0-9A-Za-z\-_]{35}\b")),
-    # JWT (three base64url segments joined by dots)
-    ("jwt", re.compile(
-        r"\beyJ[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\.[A-Za-z0-9\-_]+\b"
-    )),
-    # DB / broker URIs with inline credentials
-    ("uri-creds", re.compile(
-        r"\b[a-z][a-z0-9+.\-]*://[^\s:@/]+:[^\s@/]+@[^\s]+"
-    )),
-    # SSH private keys pasted inline
-    ("ssh-key", re.compile(
-        r"-----BEGIN (?:RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----"
-    )),
-]
-
-
-def _redact_value_patterns(text: str) -> str:
-    """Scrub known credential patterns from a free-form string.
-
-    Runs every pattern in turn, replacing the match with
-    ``<redacted:{name}>``. Called on any value that reached
-    the audit log as a string, no matter which key it lives
-    under. This is the belt to the key-name blocklist's
-    suspenders: a leaked credential inside
-    ``result["stdout"]`` gets scrubbed even though ``stdout``
-    is not a blocklisted key.
-
-    ``text`` shorter than 16 chars is passed through unchanged
-    -- the patterns all require at least 16 chars of match, so
-    a shorter string cannot carry a real credential. Skipping
-    the scan on tiny strings is a big perf win because HTTP
-    audit events have many short fields.
-    """
-    if len(text) < 16:
-        return text
-    for name, pat in _VALUE_PATTERNS:
-        text = pat.sub(f"<redacted:{name}>", text)
-    return text
-
-
-def _is_sensitive_key(key: str) -> bool:
-    low = key.lower()
-    return any(sub in low for sub in _SENSITIVE_KEY_SUBSTRINGS)
-
-
-def _scrub(value: Any) -> Any:
-    """Recursively scrub a value: dicts, lists, strings.
-
-    Non-string leaves (int/bool/None/float) pass through. This
-    is the entry point for nested-value redaction; the top-
-    level ``sanitize_audit_event`` handles the special ``cmd``
-    field and length truncation before delegating leaf values
-    here.
-    """
-    if isinstance(value, dict):
-        out: dict[str, Any] = {}
-        for k, v in value.items():
-            if isinstance(k, str) and _is_sensitive_key(k):
-                out[k] = "<redacted>"
-            else:
-                out[k] = _scrub(v)
-        return out
-    if isinstance(value, list):
-        return [_scrub(item) for item in value]
-    if isinstance(value, str):
-        return _redact_value_patterns(value)
-    return value
+audit_lock = threading.Lock()
 
 
 def sanitize_audit_event(event: dict[str, Any]) -> dict[str, Any]:

@@ -103,7 +103,20 @@ def bridge_get(path: str, token: bool = True, timeout: int = 15) -> Any:
     kwargs: dict[str, Any] = {"timeout": timeout}
     if ctx:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
+    # v4.45.0: cert-pinning gate. When ARENA_BRIDGE_PIN_SHA256 is
+    # set, route through a custom opener that validates the peer
+    # cert fingerprint after handshake and tears down the
+    # connection BEFORE sending the bearer token if the fingerprint
+    # doesn't match any configured pin.
+    from arena.agentctl_cli.pinning import build_pinned_opener
+    opener = build_pinned_opener(ctx)
+    if opener is not None:
+        # build_opener already carries the ctx via _PinnedHTTPSHandler.
+        kwargs.pop("context", None)
+        resp = opener.open(req, timeout=timeout)
+    else:
+        resp = urllib.request.urlopen(req, **kwargs)  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- see bandit B310 nosec on the same line
+    with resp:
         return json.loads(resp.read().decode())
 
 
@@ -117,7 +130,15 @@ def bridge_post(path: str, data: dict, token: bool = True, timeout: int = 20) ->
     kwargs: dict[str, Any] = {"timeout": timeout}
     if ctx:
         kwargs["context"] = ctx
-    with urllib.request.urlopen(req, **kwargs) as resp:  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
+    # v4.45.0: same pinning gate as bridge_get.
+    from arena.agentctl_cli.pinning import build_pinned_opener
+    opener = build_pinned_opener(ctx)
+    if opener is not None:
+        kwargs.pop("context", None)
+        resp = opener.open(req, timeout=timeout)
+    else:
+        resp = urllib.request.urlopen(req, **kwargs)  # nosec B310 -- operator-configured BRIDGE_URL; TLS-verified per arena/agentctl_cli/tls.py  # nosemgrep: dynamic-urllib-use-detected -- see bandit B310 nosec on the same line
+    with resp:
         return json.loads(resp.read().decode())
 
 

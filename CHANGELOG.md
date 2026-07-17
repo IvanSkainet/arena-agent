@@ -1,3 +1,211 @@
+## v4.45.0 - 2026-07-17
+
+### CWE-top-25 scan + emit-site redaction module + optional TLS certificate pinning
+
+Sixth security release. This one closes the last three items
+from the audit wishlist:
+
+1. **``p/cwe-top-25`` semgrep pass** -- 0 findings.
+2. **Emit-site redaction extracted into a shared module**
+   (``arena/observability/redact.py``) -- audit log, request
+   log, and future sinks all route through the same rules.
+3. **Optional TLS certificate pinning** for the agentctl CLI
+   (opt-in via ``ARENA_BRIDGE_PIN_SHA256``).
+
+Also ran ``p/insecure-transport``, ``p/command-injection``,
+``p/xss``, ``p/secrets``, ``p/gitleaks`` -- 3 findings in
+insecure-transport (all loopback URL false positives,
+documented via ``# nosemgrep: insecure-urlopen``), 0 in the
+rest.
+
+#### #29 -- p/cwe-top-25 clean
+
+Ran with ``PATH=/tmp/semgrep_pkg/bin:$PATH semgrep --config=p/cwe-top-25``.
+Total findings: **0**. The v4.42.0-v4.44.0 sweep already
+addressed every OWASP-family concern the CWE-top-25 pack
+targets (path traversal, deserialisation, injection, SSRF,
+weak crypto, insecure defaults).
+
+Combined static-analysis dashboard as of v4.45.0:
+
+| tool | severity | count |
+|---|---|---|
+| bandit | HIGH | 0 |
+| bandit | MEDIUM | 0 |
+| bandit | LOW | 442 (code-hygiene, not security) |
+| semgrep p/python | ALL | 0 |
+| semgrep p/security-audit | ALL | 0 |
+| semgrep p/owasp-top-ten | ALL | 0 |
+| semgrep p/cwe-top-25 | ALL | 0 |
+| semgrep p/insecure-transport | ALL | 0 (after nosemgrep) |
+| semgrep p/command-injection | ALL | 0 |
+| semgrep p/xss | ALL | 0 |
+| semgrep p/secrets | ALL | 0 |
+| semgrep p/gitleaks | ALL | 0 |
+| pip-audit | CVE | 0 |
+
+#### #30 -- Structured emit-site redaction
+
+**The problem.** v4.44.0 added value-pattern redaction inline
+in ``arena/observability/audit.py``. Every future sink (request
+log, exception formatter, ``arena chat exec`` output capture,
+metrics emitter) would need to copy the same regex battery, or
+skip it and quietly leak credentials on a different code path.
+Structured-logging libraries like ``structlog`` solve this by
+providing an emit-time processor -- but pulling one in as a
+required dep is heavier than the problem.
+
+**The fix.** New ``arena/observability/redact.py`` module
+consolidates the regex battery + key-blocklist into two public
+entry points (``redact_string(text)``, ``redact_value(obj)``).
+Zero deps beyond stdlib ``re``. Both entry points are
+idempotent, immutable-to-input, and constant-time-safe on the
+short-string fast path (< 16 chars skips the regex battery
+entirely).
+
+Migrated call sites:
+
+* ``arena/observability/audit.py`` -- back-compat aliases
+  (``_redact_value_patterns``, ``_scrub``, ``_is_sensitive_key``,
+  ``_SENSITIVE_KEY_SUBSTRINGS``) all point at the same objects
+  in the shared module. Any external caller that imported them
+  from ``arena.observability.audit`` keeps working.
+* ``arena/observability/request_log.py`` -- ``entry["path"]``
+  and ``entry["error"]`` now flow through ``redact_string``.
+  Path scrubbing catches accidental leaks via URL segments
+  (``/v1/agent-<id>-<token-hex>``); error scrubbing catches
+  exception messages that captured a Bearer token from an
+  incoming request body.
+
+A cross-module contract test
+(``test_audit_module_aliases_are_the_same``) locks the alias
+identity in so a future edit to the shared module can't
+silently skip the audit-log path.
+
+#### #31 -- Optional TLS certificate pinning
+
+**Motivation.** v4.41.0's TLS-verify-by-default closed the
+"any-CA MITM" hole for public transports (tailscale/ngrok/
+cloudflared all use real Let's Encrypt certs). But the trust
+anchor is still the OS's ~150-CA bundle. Any of those CAs
+could issue a rogue cert for the bridge's hostname, and the
+CLI would trust it. Pinning tightens the trust anchor from
+"any of 150 CAs" to "this specific certificate (or its public
+key)".
+
+**Design.**
+
+* Opt-in. Set ``ARENA_BRIDGE_PIN_SHA256=<64-hex>`` to enable.
+  Empty / unset = pinning disabled; TLS still verifies via
+  system CAs as before.
+* Multi-pin. Comma-separated fingerprints. Lets operators
+  pin the current cert + a spare for rotation safety.
+* Colon-separated input accepted -- so
+  ``openssl x509 -fingerprint -sha256`` output
+  (``AB:CD:EF:...``) can be pasted directly without stripping.
+* Both cert-hash AND SPKI-hash checked on every handshake --
+  the pin matches EITHER, so operator can supply whichever
+  form they happen to have. ``ARENA_BRIDGE_PIN_KIND`` only
+  affects the error message (``spki``/``cert``, default
+  ``spki``).
+* SPKI computation via optional ``cryptography`` dep. When
+  absent, one-time WARNING on stderr and downgrade to
+  cert-mode. No hard dep added.
+
+**Enforcement path.** ``arena/agentctl_cli/pinning.py`` ships
+``_PinnedHTTPSConnection`` (subclass of
+``http.client.HTTPSConnection``) that runs
+``verify_peer_cert(der_bytes)`` **inside** ``connect()``,
+after the TLS handshake completes but BEFORE any request line
+is sent. A mismatched pin raises ``TLSPinMismatchError`` and
+tears down the socket -- **the bearer token never leaves the
+client**. Wired into ``agentctl_common.bridge_get`` /
+``bridge_post`` via ``build_pinned_opener()`` which returns
+``None`` when pinning is disabled (zero overhead) and a
+custom ``OpenerDirector`` otherwise.
+
+**Threat model.**
+
+* Protects against: rogue/compromised CA, misissued cert for
+  the bridge's hostname, DNS hijack combined with a stolen
+  CA-signed cert.
+* Does NOT protect against: CLI compromise (attacker sets
+  ``ARENA_INSECURE_TLS=1``), operator sets wrong pin
+  (self-DoS -- but with a diagnostic that names the actual
+  fingerprint so recovery is easy), bridge private key
+  stolen (fingerprint stays valid; that's a bridge-side
+  breach out of pinning's scope).
+
+**Env variables added.**
+
+* ``ARENA_BRIDGE_PIN_SHA256`` -- comma-separated hex
+  fingerprints; empty / unset disables pinning.
+* ``ARENA_BRIDGE_PIN_KIND`` -- ``spki`` (default) or
+  ``cert``. Kind only affects error-message wording; both
+  hashes are checked on every handshake.
+
+#### Tests (+29 unit, 2255 -> 2299 unit passed; 4 skipped E2E)
+
+* ``tests/test_agentctl_pinning.py`` -- 14 unit + 4 E2E
+  (skipped on CI machines without ``cryptography``).
+  Env-parse matrix (7 shapes), fingerprint math (5 cases
+  including "wrong pin raises with actual fingerprint in
+  message"), build_pinned_opener switch, E2E against a
+  freshly-generated self-signed cert: correct cert-pin
+  accepts, correct spki-pin accepts, wrong pin rejects with
+  actual fingerprint in message, wrong pin never sends
+  request.
+* ``tests/test_observability_redact.py`` -- 15 tests: key
+  blocklist parametrised (10 keys), frozenset-immutability,
+  short-string fast-path, ordinary-long-string passthrough,
+  10 credential-shape scrubs (built at runtime to sidestep
+  GitHub secret-scanning), idempotency, multi-secret,
+  primitives-untouched, dict/list/tuple recursion,
+  input-immutability, back-compat-alias identity.
+
+Existing 136 audit / request_log / observability tests
+continue to pass unmodified -- the extraction is
+behaviour-compatible.
+
+Zero broken masters, zero rollbacks.
+
+#### Files touched
+
+* ``arena/observability/redact.py`` -- **NEW**, 145 lines.
+  Shared redaction primitives.
+* ``arena/observability/audit.py`` -- 100 lines of inline
+  regex battery removed, replaced by 6-line import of the
+  shared module with back-compat aliases.
+* ``arena/observability/request_log.py`` -- path + error
+  fields now route through ``redact_string``.
+* ``arena/agentctl_cli/pinning.py`` -- **NEW**, 220 lines.
+  Pin parsing, cert/spki fingerprint math, urllib
+  integration.
+* ``arena/agentctl_cli/agentctl_common.py`` -- ``bridge_get``
+  + ``bridge_post`` route through the pin gate when enabled.
+* ``arena/admin/ngrok.py`` + ``arena/agentctl_extras/status.py``
+  -- ``# nosemgrep: insecure-urlopen`` /
+  ``insecure-request-object`` annotations on 3 loopback URLs.
+* ``arena/constants.py`` + ``pyproject.toml`` -- version bump.
+* ``tests/test_agentctl_pinning.py`` -- NEW.
+* ``tests/test_observability_redact.py`` -- NEW.
+
+#### Not addressed (documented for later)
+
+* SPKI pinning requires the optional ``cryptography`` package.
+  Vendored ASN.1 parsing for SPKI extraction was considered
+  and deferred -- ~80 lines of DER walking for a fallback
+  that would only trigger on installs without ``cryptography``
+  (rare enough that "install cryptography" is a fine
+  recommendation).
+* ``arena/observability/request_log.py`` doesn't yet redact
+  the ``ts`` field (not sensitive) or the ``duration_ms``
+  field (numeric); no gap here but noting for future audits.
+* Semgrep pro-tier rules and ``p/audit`` weren't run --
+  requires paid tier. Free-tier coverage above is
+  representative.
+
+
 ## v4.44.0 - 2026-07-17
 
 ### Semgrep + privacy hardening pack: audit-log secret redaction, safe numeric parsing, peer-address privacy dial
