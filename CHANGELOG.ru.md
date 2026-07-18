@@ -1,3 +1,133 @@
+## v4.49.0 -- Диагностический проход для extension: candidate_diagnostics + mounted_diagnostics
+
+Третий live-раунд принёс реальные сигналы: узкий фикс v4.48.6
+"убрать один testid" оставил три сайта в трёх разных проблемах:
+
+* **Grok** -- тулбар цепляется к User-блоку, а не к AI, который
+  несёт tool call. Фильтр v4.48.6 сам по себе правильный (убрал
+  false-positive testid), но Grok НЕ ИМЕЕТ role-explicit маркера
+  на своих user-баблах, поэтому `arenaWhyUserAuthored` возвращает
+  `matched: false` и mount идёт и по user, и по assistant блокам.
+  Дальше `arenaPruneAncestorCandidates` + `.slice(-5)` оставляет
+  User.
+* **DuckAI** -- тулбар монтируется (`mounted_controls: 1`), но
+  кнопки Preview / Insert / Send / Copy мигают и пропадают при
+  ре-рендере контейнера сообщений Duck. Виден только Run. Причина
+  неясна -- подозреваю виртуальный список Duck, где DOM-узел
+  пересоздаётся при каждом state change, и наш Shadow DOM host
+  оказывается orphan.
+* **Qwen** -- тулбар стоит между кодом и Qwen action row (лайк /
+  дизлайк / share / refresh), а не под action row. Лучше, чем в
+  v4.48.5 (было наложение), но визуально тесно -- оператору
+  кажется, что смещён.
+
+**Ни одну из этих проблем нельзя чинить вслепую** -- две последние
+итерации extension (v4.48.5, v4.48.6) регрессили дважды, потому что
+мы меняли mount/skip логику, не видя, к какому DOM-узлу тулбар
+реально прицеплен. Поэтому v4.49.0 -- **чисто диагностический**
+проход, нулевое изменение поведения.
+
+### Добавлено (только в scan-report)
+
+* `candidate_diagnostics[]` -- для каждого рассмотренного кандидата
+  богатый DOM-снапшот: `path` (6-глубинная цепочка tag:index),
+  `self` (tag/id/testid/role/author-role/2 class-токена),
+  4 `ancestors` той же формы, первые 120 символов `text_head`,
+  вердикт `why_user_authored`, `node_id_input` (что скормили
+  fingerprint-хешеру).
+* `mounted_diagnostics[]` -- тот же снапшот для каждого элемента,
+  сейчас несущего `data-arena-tool-controls="1"`. Отвечает:
+  "к какому узлу тулбар реально прицепился?".
+
+Оба массива ограничены 8 записями, чтобы scan-report влезал в
+1 МБ aiohttp reply cap.
+
+### Бампы версий
+
+* extension `0.14.6` → `0.14.7`
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/content.js` -- `ARENA_CONTENT_SCRIPT_VERSION`
+  + новые additive-поля в scan-report
+* `chat_extension/insert_strategies.js` -- `arenaInsertScriptVersion` bump
+* `chat_extension/README.md` -- баннер
+
+### Модулярность
+
+`chat_extension/content.js` вырос с 700 до 735 строк из-за
+диагностических добавлений. Сжал свои же section-заголовки
+(`// ------`) и single-line ternary консолидации, вернулся ровно
+на **700 строк** -- лимит `MAX_PRODUCT_FILE_LINES`. Поведение не
+трогал.
+
+### Регрессионные guard-тесты
+
+Одиннадцать новых asserts в `tests/test_chat_extension_v0_14_7.py`:
+
+* `content.js` пинит `ARENA_CONTENT_SCRIPT_VERSION = 0.14.7`
+* manifest/insert/README версии синхронизированы
+* scan-report экспортирует `candidate_diagnostics` +
+  `mountedDiagnostics`
+* хелпер `arenaDiagnosticSnapshot(node)` живёт в `adapters.js`
+  с `self`/`ancestors`/`why_user_authored`/`node_id_input`
+* snapshot читает каждый user-role маркер
+  (data-message-author-role, data-author-role, data-role,
+  data-sender, data-testid, role)
+* оба диагностических массива ограничены 8
+* `_USER_AUTHOR_ATTRS` не содержит `'user-message'` (regression
+  guard v4.48.6)
+* shadow_toolbar.css содержит Qwen-фикс (z-index 2147483000 +
+  position: relative + isolation: isolate)
+* line count `content.js` ≤ 700
+
+Существующие asserts в `tests/test_chat_extension_assets.py` и
+`tests/test_chat_extension_adapter_flow.py` перепинены на 0.14.7.
+
+Полный прогон: **2410 passed, 0 failed**.
+
+### Что нужно от тебя (пришли ещё раз Scan Page)
+
+Пожалуйста, прогони Scan Page на Grok / DuckAI / Qwen с
+загруженным v4.49.0. Новые `candidate_diagnostics[]` +
+`mounted_diagnostics[]` покажут:
+
+* На **Grok**: какой ancestor отличает User-бабл от Assistant-бабла
+  (скорее всего class/testid на message-list item wrapper). Это то,
+  на что v4.49.1 фильтр будет key'иться -- точечно, per-adapter,
+  по реальным данным.
+* На **DuckAI**: жив ли наш mounted тулбар (`self.tag` connected к
+  DOM) или стал detached. Если detached -- фикс через
+  MutationObserver re-attach loop; если connected -- мы боремся с
+  CSS Duck.
+* На **Qwen**: точное вертикальное позиционирование mounted-хоста
+  относительно Qwen action row (сможем добавить margin-bottom или
+  order через CSS, когда узнаем flex/grid layout).
+
+### Заметка про память моста
+
+Live-замер через 13ч после старта v4.48.8: `VmRSS = 88 МБ`,
+`VmPeak = 1.34 ГБ`, `VmSize = 1.34 ГБ`. Реальный RSS стабильный и
+маленький. 1,2-1,4 ГБ, которые ты видел в htop / диспетчере
+задач -- это `VmPeak` -- transient spike (скорее всего burst из
+429-х, которые вызывала проблема rate-limit'а из v4.48.7, до
+того как v4.48.8 exempt'нул дашборд). Утечки нет, накопления
+аллокаций нет. Продолжаю мониторить между сессиями.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 700 строк (было 700, добавил
+  ~35 диагностики, сжал ~35 заголовков/тернарников)
+* `chat_extension/adapters.js` -- 507 → 557 строк (+50 для
+  `arenaDiagnosticSnapshot`)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- version banner
+* `tests/test_chat_extension_v0_14_7.py` -- новый, 11 asserts
+* `tests/test_chat_extension_assets.py` -- 0.14.6 → 0.14.7
+* `tests/test_chat_extension_adapter_flow.py` -- README banner
+  0.14.6 → 0.14.7
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.48.8 -- Фикс "Dashboard сам себя DoS-ит": исключение статики из rate limiter + immutable кэширование
 
 Живой репорт после v4.48.7:

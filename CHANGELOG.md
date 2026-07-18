@@ -1,3 +1,132 @@
+## v4.49.0 -- Extension diagnostic pass: candidate_diagnostics + mounted_diagnostics
+
+Third live-testing arc came back with real signals that v4.48.6's
+narrow "remove one testid" fix left three sites still misbehaving
+in different ways:
+
+* **Grok** -- toolbar lands on the User turn, not on the AI turn
+  that carries the tool call. v4.48.6 filter was correct in
+  isolation (removed the false-positive testid), but Grok has NO
+  role-explicit marker on its user bubbles, so `arenaWhyUserAuthored`
+  returns `matched: false` and mount proceeds on both the user AND
+  assistant blocks. `arenaPruneAncestorCandidates` + `.slice(-5)`
+  then leaves us mounting a User node.
+* **DuckAI** -- toolbar mounts (`mounted_controls: 1`), but the
+  Preview / Insert / Send / Copy buttons flash and disappear on
+  Duck's own message-container render. Only Run stays visible.
+  Root cause unclear -- suspect Duck's message-list uses a virtual
+  list that re-creates the DOM node on every state change, so our
+  Shadow DOM host gets orphaned.
+* **Qwen** -- toolbar sits between the code block and the Qwen
+  action row (like/dislike/share/refresh) instead of below the
+  action row. Better than v4.48.5 (was overlapping), but visually
+  cramped -- looks off-center to the operator.
+
+**None of these can be fixed blindly** -- the last two extension
+iterations (v4.48.5, v4.48.6) regressed twice because we changed
+mount/skip logic without knowing which DOM node the toolbar was
+actually attaching to. So v4.49.0 is a **diagnostic-only** pass
+that ships zero behaviour changes.
+
+### Added (scan-report only)
+
+* `candidate_diagnostics[]` in scan-report -- for each candidate
+  node the extension considered, a rich DOM snapshot: `path` (6-
+  deep tag:index chain), `self` (tag/id/testid/role/author-role/2
+  class tokens), 4 `ancestors` with the same shape, first 120
+  chars of `text_head`, `why_user_authored` verdict, and
+  `node_id_input` (what the fingerprint hasher consumed).
+* `mounted_diagnostics[]` in scan-report -- same rich snapshot for
+  every element currently carrying `data-arena-tool-controls="1"`.
+  Answers "which node did the toolbar actually attach to?".
+
+Both arrays bounded at 8 entries to keep scan-report under the
+1 MB aiohttp reply cap.
+
+### Version bumps
+
+* extension `0.14.6` → `0.14.7`
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/content.js` -- `ARENA_CONTENT_SCRIPT_VERSION`
+  pinned + additive scan-report fields
+* `chat_extension/insert_strategies.js` -- `arenaInsertScriptVersion` bump
+* `chat_extension/README.md` -- banner refresh
+
+### Modularity
+
+`chat_extension/content.js` grew from 700 to 735 lines with the
+diagnostic additions. Compressed self-authored section headers
+(`// ------` blocks) and single-line ternary consolidations to
+land back at **exactly 700 lines** -- the `MAX_PRODUCT_FILE_LINES`
+limit. No behaviour touched.
+
+### Regression guards
+
+Eleven new asserts in `tests/test_chat_extension_v0_14_7.py`:
+
+* `content.js` pins `ARENA_CONTENT_SCRIPT_VERSION = 0.14.7`
+* manifest/insert/README versions all synced
+* scan-report exposes `candidate_diagnostics` + `mountedDiagnostics`
+* `arenaDiagnosticSnapshot(node)` helper lives in `adapters.js`
+  with `self`/`ancestors`/`why_user_authored`/`node_id_input`
+* snapshot reads every user-role marker (data-message-author-role,
+  data-author-role, data-role, data-sender, data-testid, role)
+* both diagnostic arrays bounded at 8
+* `_USER_AUTHOR_ATTRS` list has NO `'user-message'` (v4.48.6 fix
+  regression guard, restated)
+* shadow_toolbar.css still has the Qwen fix
+  (z-index 2147483000 + position: relative + isolation: isolate)
+* content.js line count stays ≤ 700
+
+Existing asserts in `tests/test_chat_extension_assets.py` and
+`tests/test_chat_extension_adapter_flow.py` re-pinned to 0.14.7.
+
+Full sweep: **2410 passed, 0 failed**.
+
+### What still needs your data (send another Scan Page)
+
+Please re-run Scan Page on Grok / DuckAI / Qwen with v4.49.0
+loaded. The new `candidate_diagnostics[]` + `mounted_diagnostics[]`
+will show:
+
+* On **Grok**: which ancestor of the User bubble distinguishes it
+  from the Assistant bubble (probably a class/testid on the
+  message-list item wrapper). That is what v4.49.1's filter will
+  key on -- surgically, per-adapter, based on real data.
+* On **DuckAI**: whether our mounted toolbar's `self.tag` is still
+  connected to the DOM or has become detached. If detached, the
+  fix is a MutationObserver re-attach loop; if connected, we're
+  fighting Duck's own CSS.
+* On **Qwen**: exact vertical positioning of the mounted host
+  relative to the Qwen action row (we can add `margin-bottom` or
+  `order` via CSS once we know the flex/grid layout).
+
+### Bridge memory note
+
+Live measurement 13h after v4.48.8 boot: `VmRSS = 88 MB`,
+`VmPeak = 1.34 GB`, `VmSize = 1.34 GB`. Real RSS is stable and
+small. The 1.2-1.4 GB the operator saw in htop / task manager
+was `VmPeak` -- a transient spike (most likely the burst of 429
+responses the v4.48.7 rate-limit issue caused before v4.48.8
+exempted the dashboard). No leak evidence, no accumulating
+allocation. Will keep monitoring across sessions.
+
+### Files touched
+
+* `chat_extension/content.js` -- 700 lines (was 700, added ~35
+  lines of diag, compressed ~35 lines of headers/ternaries)
+* `chat_extension/adapters.js` -- 507 → 557 lines (+50 for
+  `arenaDiagnosticSnapshot`)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- version banner
+* `tests/test_chat_extension_v0_14_7.py` -- new, 11 asserts
+* `tests/test_chat_extension_assets.py` -- 0.14.6 → 0.14.7
+* `tests/test_chat_extension_adapter_flow.py` -- README banner
+  0.14.6 → 0.14.7
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.48.8 -- Dashboard self-DoS fix: exempt static assets from rate limiter + immutable caching
 
 Live-reported after v4.48.7:

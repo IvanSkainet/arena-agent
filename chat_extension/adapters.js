@@ -162,6 +162,56 @@ function arenaNodePath(node) {
   return parts.join('/');
 }
 
+// v0.14.7: rich DOM snapshot for scan-report diagnostics. Additive
+// only -- never called by mount/skip logic. The goal is to give the
+// operator enough context to see WHY a toolbar landed where it did
+// (or didn't) without having to open devtools. Produces:
+//   * path -- 6-deep tag:index chain from arenaNodePath
+//   * ancestors -- up to 4 ancestors with tag + testid + role +
+//     data-message-author-role + top 2 class-tokens
+//   * self -- tag + id + testid + role + author-role + class tokens
+// Deliberately bounded so scan-report stays small.
+function arenaDiagnosticSnapshot(node) {
+  if (!node || !node.getAttribute) return null;
+  const _attrs = (el) => {
+    if (!el || !el.getAttribute) return null;
+    const cls = String(el.className || '').split(/\s+/).filter(Boolean).slice(0, 2);
+    return {
+      tag: el.tagName || '',
+      id: el.id || '',
+      testid: el.getAttribute('data-testid') || '',
+      role: el.getAttribute('role') || '',
+      author_role: el.getAttribute('data-message-author-role')
+        || el.getAttribute('data-author-role')
+        || el.getAttribute('data-role')
+        || el.getAttribute('data-sender')
+        || '',
+      classes: cls,
+    };
+  };
+  const ancestors = [];
+  let cur = node.parentElement;
+  for (let i = 0; cur && i < 4; i++) {
+    ancestors.push(_attrs(cur));
+    cur = cur.parentElement;
+  }
+  // Additional useful signals -- do NOT change existing behaviour.
+  const wu = (typeof arenaWhyUserAuthored === 'function')
+    ? arenaWhyUserAuthored(node) : {matched: false, reason: ''};
+  return {
+    path: arenaNodePath(node),
+    self: _attrs(node),
+    ancestors,
+    text_head: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
+    why_user_authored: wu,
+    // v0.14.7: what is the *nearest* container that our fingerprint
+    // uses as node-id? Same input arenaExtractNodeId consumes so it
+    // matches the fingerprint.
+    node_id_input: (typeof arenaExtractNodeId === 'function')
+      ? arenaExtractNodeId(node) : '',
+  };
+}
+
 function arenaMatchesAny(node, selectors) {
   return (selectors || []).some((s) => {
     try {

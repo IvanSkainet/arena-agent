@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.6';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.7';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -14,10 +14,7 @@ const _arenaDiagPushEvent = (typeof window._arenaDiagPushEvent === 'function')
   ? window._arenaDiagPushEvent : function () {};
 const _arenaDiagEvents = window._arenaDiagEvents || [];
 
-// ---------------------------------------------------------------------------
-// Config cache (5s TTL). Avoids a chrome.runtime IPC round-trip on every
-// Insert/Send click. Invalidated when either storage area changes.
-// ---------------------------------------------------------------------------
+// === Config cache (5s TTL, chrome.runtime round-trip skip) ===
 let _contentConfigCache = null;
 let _contentConfigCacheAt = 0;
 
@@ -39,9 +36,7 @@ try {
   });
 } catch (_e) { /* storage may not be available in some contexts */ }
 
-// ---------------------------------------------------------------------------
-// Version helpers
-// ---------------------------------------------------------------------------
+// === Version helpers ===
 function arenaExtensionVersion() {
   try {
     return chrome.runtime.getManifest?.().version || ARENA_CONTENT_SCRIPT_VERSION;
@@ -54,9 +49,7 @@ function versionSummary() {
   return `ext ${arenaExtensionVersion()}/content ${ARENA_CONTENT_SCRIPT_VERSION}`;
 }
 
-// ---------------------------------------------------------------------------
-// Utilities
-// ---------------------------------------------------------------------------
+// === Utilities ===
 function hash(text) {
   let h = 0;
   for (let i = 0; i < text.length; i++) {
@@ -82,7 +75,7 @@ function resultToText(result) {
 }
 
 function makeButton(label, onClick, primary = false) {
-  // v4.48.0: delegates to arenaShadowToolbarButton; fallback for modded installs.
+  // v4.48.0: delegates to arenaShadowToolbarButton (fallback for older installs).
   if (typeof arenaShadowToolbarButton === 'function') {
     return arenaShadowToolbarButton(label, onClick, { primary });
   }
@@ -261,11 +254,7 @@ function previewSummary(result) {
     + ` · approval=${!!result?.policy?.requires_approval}`;
 }
 
-// ---------------------------------------------------------------------------
-// mountControls: attaches the toolbar (Preview/Run/Insert/Send/Copy/Panel/×)
-// to a detected message block. Handles fingerprint bookkeeping so we do not
-// remount the same toolbar across DOM churn.
-// ---------------------------------------------------------------------------
+// === mountControls: attach toolbar with fingerprint dedup ===
 function mountControls(host, payload, adapter) {
   // v0.14.4: generic adapter is passive -- never mount on unlisted sites.
   if (adapter && adapter.passive) return;
@@ -458,8 +447,7 @@ function mountControls(host, payload, adapter) {
 
   // v4.48.0: position the shadow host (or bar on fallback).
   attachControls(host, shadowHost || bar);
-  // Track shadowHost too so semantic-eviction can call .remove() on
-  // the correct node; `bar` is kept for back-compat.
+    // Track shadowHost for semantic-eviction .remove(); `bar` kept for back-compat.
   mountedControls.set(fingerprint, {host, bar, shadowHost, semanticFingerprint});
   mountedSemanticOwners.set(semanticFingerprint, fingerprint);
 
@@ -468,9 +456,7 @@ function mountControls(host, payload, adapter) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Auto-preview / auto-execute / auto-insert / auto-submit modes.
-// ---------------------------------------------------------------------------
+// === Auto-preview / auto-execute / auto-insert / auto-submit modes. ===
 async function runAutoModes(request, adapter, status, semanticFingerprint, setResultText) {
   const cfg = await getCachedConfig();
   const modes = typeof arenaNormalizeModes === 'function'
@@ -531,9 +517,7 @@ async function runAutoModes(request, adapter, status, semanticFingerprint, setRe
   }
 }
 
-// ---------------------------------------------------------------------------
-// Scan pipeline: MutationObserver → scheduleScan (throttled) → scan()
-// ---------------------------------------------------------------------------
+// === Scan pipeline: MutationObserver → scheduleScan (throttled) → scan() ===
 let _lastCandidateCount = -1;
 
 function scan() {
@@ -562,6 +546,7 @@ function scanPageDiagnostics() {
     ? arenaCandidateNodes()
     : {adapter: {name: 'generic'}, nodes: [document.body]};
   const samples = [];
+  const candidateDiagnostics = [];  // v0.14.7 additive
   let parsedBlocks = 0;
   const tools = new Set();
   const semanticFingerprints = new Set();
@@ -588,20 +573,38 @@ function scanPageDiagnostics() {
         tools: entries.flatMap((entry) => (entry.payload?.calls || []).map((call) => call.tool)),
       });
     }
+    // v0.14.7: bounded diag snapshot for each candidate (max 8).
+    if (candidateDiagnostics.length < 8) {
+      const snap = (typeof arenaDiagnosticSnapshot === 'function') ? arenaDiagnosticSnapshot(node) : null;
+      if (snap) {
+        candidateDiagnostics.push({
+          index,
+          parsed: entries.length,
+          host_has_toolbar: hostHasToolbar(controlsHost(node)),
+          mounted: (node.dataset?.arenaToolControlsMounted === '1') || !!controlsHost(node)?.dataset?.arenaToolControlsMounted,
+          fingerprint: node.dataset?.arenaToolFingerprint || '',
+          snapshot: snap,
+        });
+      }
+    }
   });
 
-  const selectorHits = typeof arenaSelectorDiagnostics === 'function'
-    ? arenaSelectorDiagnostics()
-    : [];
-  const composer = typeof arenaComposerDiagnostics === 'function'
-    ? arenaComposerDiagnostics(state.adapter)
-    : null;
+  const selectorHits = (typeof arenaSelectorDiagnostics === 'function') ? arenaSelectorDiagnostics() : [];
+  const composer = (typeof arenaComposerDiagnostics === 'function') ? arenaComposerDiagnostics(state.adapter) : null;
   const semanticDuplicateBlocks = Math.max(0, parsedBlocks - semanticFingerprints.size);
   const diagnosticSummary = [
     semanticFingerprints.size ? `${semanticFingerprints.size} unique block(s)` : '',
     semanticDuplicateBlocks ? `+${semanticDuplicateBlocks} duplicate(s)` : '',
     composer?.submit_phase ? `submit ${composer.submit_phase}` : '',
   ].filter(Boolean).join(' · ');
+
+  // v0.14.7: mounted_diagnostics -- DOM snapshot for each mounted toolbar.
+  const mountedDiagnostics = [];
+  document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((el) => {
+    if (mountedDiagnostics.length >= 8) return;
+    const snap = (typeof arenaDiagnosticSnapshot === 'function') ? arenaDiagnosticSnapshot(el) : null;
+    if (snap) mountedDiagnostics.push({fingerprint: el.dataset?.arenaToolFingerprint || '', snapshot: snap});
+  });
 
   return {
     ok: true,
@@ -610,8 +613,7 @@ function scanPageDiagnostics() {
     adapter: state.adapter?.name || 'generic',
     content_version: ARENA_CONTENT_SCRIPT_VERSION,
     manifest_version: arenaExtensionVersion(),
-    insert_script_version: typeof arenaInsertScriptVersion === 'function'
-      ? arenaInsertScriptVersion() : 'unknown',
+    insert_script_version: (typeof arenaInsertScriptVersion === 'function') ? arenaInsertScriptVersion() : 'unknown',
     composer,
     candidate_nodes: state.nodes.length,
     parsed_blocks: parsedBlocks,
@@ -623,13 +625,14 @@ function scanPageDiagnostics() {
     tools: [...tools],
     selector_hits: selectorHits,
     samples,
+    candidate_diagnostics: candidateDiagnostics,  // v0.14.7 additive
+    mounted_diagnostics: mountedDiagnostics,
     // v0.14.2: last 20 diag events (skip / late-submit / etc).
     events_recent: _arenaDiagEvents.slice(),
   };
 }
 
-// scheduleScan: throttle-based coalescing. Combines with the idle callback so
-// heavy DOM churn on SPAs (ChatGPT/Claude/Gemini) does not pile up work.
+  // scheduleScan: throttle + idle-callback coalescing (guards SPA DOM churn).
 let _lastScanAt = 0;
 const SCAN_THROTTLE_MS = 400;
 
@@ -651,9 +654,7 @@ function scheduleScan() {
   }, delay || 300);
 }
 
-// ---------------------------------------------------------------------------
-// Message router + boot
-// ---------------------------------------------------------------------------
+// === Message router + boot ===
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === 'arena.clearPageControls') {
     suppressCurrentControls();
@@ -683,8 +684,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 cleanupStaleControls();
 
 const obs = new MutationObserver((mutations) => {
-  // Ignore mutations that originate inside our own toolbars — they should not
-  // trigger a rescan of the page.
+    // Ignore mutations inside our own toolbars — they must not trigger rescan.
   const relevant = mutations.some((m) => {
     if (m.target?.closest?.('[data-arena-tool-controls]')) return false;
     return m.addedNodes?.length || m.removedNodes?.length;

@@ -1,6 +1,6 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.6` (v4.48.6 bridge release —
+Current extension version: `0.14.7` (v4.49.0 bridge release —
 concrete narrow fix based on the v0.14.5 diagnostic reason
 strings. `data-testid="user-message"` was matching Grok / DuckAI
 message-list containers (parents of BOTH user + assistant blocks),
