@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.8';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.9';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -74,8 +74,7 @@ function resultToText(result) {
   }).join('\n\n');
 }
 
-function makeButton(label, onClick, primary = false) {
-  // v4.48.0: delegates to arenaShadowToolbarButton (fallback for older installs).
+function makeButton(label, onClick, primary = false) {  // v4.48.0: shadow toolbar delegate + fallback
   if (typeof arenaShadowToolbarButton === 'function') {
     return arenaShadowToolbarButton(label, onClick, { primary });
   }
@@ -109,7 +108,8 @@ function controlsHost(node, adapter) {
   if (String(node.tagName || '').toUpperCase() === 'DIV') { const pre = node.querySelector('pre'); if (pre) node = pre; }
   const adapterName = adapter && adapter.name;
   if (adapterName === 'duckai') { const w = node.closest?.('.overflow-hidden'); if (w?.parentElement) return w.parentElement; }
-  if (adapterName === 'qwen') { const v = node.closest?.('.qwen-markdown-code-editor-viewport'); if (v) return v.closest('.qwen-markdown-code-body') || v.parentElement || node; }
+  // v0.14.9: Qwen -- .qwen-markdown-code-body is INSIDE the PRE; anchor on the outer <pre> so afterend places the toolbar OUTSIDE.
+  if (adapterName === 'qwen') { const pre = node.closest?.('pre.qwen-markdown-code, pre'); if (pre) return pre; }
   return node;
 }
 
@@ -292,10 +292,10 @@ function mountControls(host, payload, adapter) {
     || hostHasToolbar(host)
   ) return;
 
-  // v0.14.5: skip user-authored, record REASON for scan-report diag.
+  // v0.14.5/9: skip user-authored (fingerprint only; reason recorded for diag).
   const _wu = (typeof arenaWhyUserAuthored === 'function') ? arenaWhyUserAuthored(host, adapter) : {matched: false, reason: ''};
-  if (_wu.matched) {
-    dismissedControls.add(fingerprint); dismissedControls.add(semanticFingerprint);
+  if (_wu.matched) {  // v0.14.9: skip THIS fingerprint only (semantic-dup would kill the AI echo).
+    dismissedControls.add(fingerprint);
     _arenaDiagPushEvent({kind: 'skip_user_authored', adapter: adapter.name, fingerprint, reason: _wu.reason});
     return;
   }

@@ -1,3 +1,129 @@
+## v4.49.2 -- Three corrections to the v4.49.1 per-adapter fixes (Grok, DuckAI, Qwen)
+
+Second round of live testing after v4.49.1 revealed each of the
+three fixes had a residual bug that only became visible once the
+first-order issue was resolved. The v4.49.0 diagnostic scaffolding
+(candidate_diagnostics + mounted_diagnostics) made the root causes
+obvious this time.
+
+### Grok -- semantic-fingerprint cascade
+
+**Symptom**: v4.49.1 correctly filtered out the User bubble
+(`why_user_authored.matched: true, reason: grok:user-message-bubble
+@DIV`), but the AI bubble also failed to mount:
+`mounted_controls: 0, dismissed_controls: 2`.
+
+**Root cause**: `mountControls`'s skip_user_authored branch was
+adding BOTH `fingerprint` AND `semanticFingerprint` to
+`dismissedControls`. Grok echoes the same jsonl block on the User
+side and on the Assistant side, so both share an identical
+`semanticFingerprint`. Dismissing the semantic key killed the AI
+mount before it could happen.
+
+**Fix**: dismiss only the message-level `fingerprint`. The semantic
+key stays free so the AI echo of the same block can still mount.
+One-line change; regression guard asserts the semantic add is gone.
+
+### DuckAI -- toolbar was landing on the User turn
+
+**Symptom**: mounted_diagnostics showed our toolbar at path
+`SECTION:1/DIV:2/DIV:0/DIV:0/DIV:1/DIV:2`, ancestor[0] =
+`<div data-testid="user-message">`. Toolbar mounted on the user
+bubble, not the assistant response -- explaining
+"Preview/Insert/Send/Copy do nothing useful, only Run works".
+
+**Root cause**: DuckAI's current DOM tags user turns with
+`data-testid="user-message"` on the ACTUAL turn element. Our
+v4.48.6 interpretation ("this testid lives on the message-list
+container") was based on an older DOM shape and no longer holds.
+Global `_USER_AUTHOR_ATTRS` should NOT get the rule back (that
+would over-fire on other sites), but per-adapter it is safe and
+correct.
+
+**Fix**: widened the v4.49.1 per-adapter branch in
+`arenaWhyUserAuthored` to cover BOTH Grok AND DuckAI:
+`if ((adapterName === 'grok' || adapterName === 'duckai') &&
+node.closest) { ... }`. Reason string templated with adapter name
+(`grok:user-message@DIV` / `duckai:user-message@DIV`).
+
+### Qwen -- wrong hoist anchor caused a regression
+
+**Symptom**: v4.49.1 made the Qwen overlap WORSE. mounted_diagnostics
+showed toolbar at path `PRE:0/DIV:1/DIV:1` inside
+`.qwen-markdown-code-body` -- but ancestor[1] was `<pre
+class="qwen-markdown-code">`, meaning the "body" class we anchored
+on lives INSIDE the pre, not around it.
+
+**Root cause**: v4.49.1 was written from the assumption that
+`.qwen-markdown-code-body` was the container ABOVE the viewport.
+Scan report proved it is the container INSIDE the pre (Monaco
+editor's own body slot). Our `attachControls(host)` inserts as
+`afterend` when host is a PRE/CODE -- so anchoring on the outer
+`<pre>` places the toolbar OUTSIDE the code block, which is what
+we wanted from the start.
+
+**Fix**: `controlsHost(node, adapter)` Qwen branch now returns
+`node.closest?.('pre.qwen-markdown-code, pre')`. The old
+`.qwen-markdown-code-editor-viewport` walk is deleted -- regression
+guard asserts it does not come back.
+
+### Contract
+
+Same signatures as v4.49.1 (`controlsHost(node, adapter)`,
+`arenaWhyUserAuthored(node, adapter)`). No new API surface.
+
+### Version bumps
+
+* extension `0.14.8` → `0.14.9`
+* manifest / content / insert_strategies / README all synced
+
+### Modularity
+
+`content.js` stayed at exactly 700 lines. Compressed one comment
+in the skip-user-authored branch and one on the makeButton
+delegate to gain back the lines the Qwen selector added.
+
+### Regression guards
+
+11 new asserts in `tests/test_chat_extension_v0_14_9.py`:
+
+* content/manifest/insert/README pinned to 0.14.9
+* skip_user_authored branch adds fingerprint ONLY (semantic key
+  must NOT be dismissed)
+* per-adapter branch condition includes both `grok` and `duckai`
+* reason string is templated with adapter name
+* Qwen branch anchor is the outer `<pre.qwen-markdown-code>`
+* Qwen no longer references `.qwen-markdown-code-editor-viewport`
+* Grok per-adapter closest() selector still present
+* `_USER_AUTHOR_ATTRS` still without 'user-message' (safer per-
+  adapter path is preserved)
+* `controlsHost(node, adapter)` signature stays with no bare calls
+* DuckAI `.overflow-hidden` hoist still shipping (v4.49.1 fix)
+* shadow_toolbar.css Qwen fix still present
+* content.js line count ≤ 700
+* candidate_diagnostics + mounted_diagnostics still in scan-report
+
+Existing `test_chat_extension_v0_14_8.py` asserts updated to
+match the widened branch conditions. Full sweep: **2431 passed,
+0 failed**.
+
+### Files touched
+
+* `chat_extension/content.js` -- 700 → 700 lines (net-zero)
+* `chat_extension/adapters.js` -- 571 → 578 lines (+7 for widened
+  per-adapter branch comment)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- version banner
+* `tests/test_chat_extension_v0_14_9.py` -- new, 11 asserts
+* `tests/test_chat_extension_v0_14_8.py` -- updated Grok + Qwen
+  assertions to match v0.14.9 behaviour
+* `tests/test_chat_extension_v0_14_7.py` -- version pin refresh
+* `tests/test_chat_extension_assets.py` -- version pin refresh
+* `tests/test_chat_extension_adapter_flow.py` -- banner refresh
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.49.1 -- Extension per-adapter surgical fixes (Grok user-filter, DuckAI overflow-hidden, Qwen Monaco viewport)
 
 v4.49.0 shipped `candidate_diagnostics[]` + `mounted_diagnostics[]`

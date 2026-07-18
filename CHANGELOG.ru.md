@@ -1,3 +1,128 @@
+## v4.49.2 -- Три коррекции к per-adapter фиксам v4.49.1 (Grok, DuckAI, Qwen)
+
+Второй раунд live-тестов после v4.49.1 показал: у каждого из трёх
+фиксов был остаточный баг, который стал виден только когда
+первичная проблема разрешилась. Диагностические поля v4.49.0
+(candidate_diagnostics + mounted_diagnostics) в этот раз сделали
+корни очевидными.
+
+### Grok -- каскад через semantic-fingerprint
+
+**Симптом**: v4.49.1 корректно фильтровал User-баббл
+(`why_user_authored.matched: true, reason:
+grok:user-message-bubble@DIV`), но и AI-баббл тоже НЕ монтировался:
+`mounted_controls: 0, dismissed_controls: 2`.
+
+**Корень**: ветка `skip_user_authored` в `mountControls` добавляла
+в `dismissedControls` И `fingerprint`, И `semanticFingerprint`.
+Grok эхом выводит один и тот же jsonl-блок и у User, и у Assistant --
+оба имеют идентичный `semanticFingerprint`. Диссмисс семантического
+ключа убивал AI-mount ещё до попытки.
+
+**Фикс**: диссмиссим только message-level `fingerprint`. Семантический
+ключ остаётся свободным, чтобы AI-эхо того же блока могло смонтироваться.
+Однострочная правка; guard-тест проверяет отсутствие семантического
+add'а.
+
+### DuckAI -- тулбар оказывался на User-turn'е
+
+**Симптом**: mounted_diagnostics показал наш тулбар по пути
+`SECTION:1/DIV:2/DIV:0/DIV:0/DIV:1/DIV:2`, ancestor[0] =
+`<div data-testid="user-message">`. Тулбар монтировался на
+user-бабл, а не на AI-ответ -- отсюда "Preview/Insert/Send/Copy
+ничего полезного не делают, работает только Run".
+
+**Корень**: текущий DOM DuckAI ставит `data-testid="user-message"`
+на РЕАЛЬНЫЙ turn-элемент. Наша интерпретация в v4.48.6 ("этот
+testid живёт на контейнере message-list") была основана на старой
+DOM-форме и больше не верна. В глобальный `_USER_AUTHOR_ATTRS`
+правило возвращать НЕЛЬЗЯ (over-fire на других сайтах), а
+per-adapter -- безопасно и правильно.
+
+**Фикс**: расширил per-adapter ветку v4.49.1 в
+`arenaWhyUserAuthored` на ОБА -- Grok И DuckAI:
+`if ((adapterName === 'grok' || adapterName === 'duckai') &&
+node.closest) { ... }`. Reason string шаблонизирован с adapter
+name (`grok:user-message@DIV` / `duckai:user-message@DIV`).
+
+### Qwen -- неправильный anchor вызвал регрессию
+
+**Симптом**: v4.49.1 сделал Qwen overlap ХУЖЕ. mounted_diagnostics
+показал тулбар по пути `PRE:0/DIV:1/DIV:1` внутри
+`.qwen-markdown-code-body` -- но ancestor[1] = `<pre
+class="qwen-markdown-code">`, то есть класс "body", на который мы
+якорились, живёт ВНУТРИ pre, а не вокруг него.
+
+**Корень**: v4.49.1 был написан из предположения, что
+`.qwen-markdown-code-body` -- контейнер ВЫШЕ viewport'а. Скан
+доказал: это контейнер ВНУТРИ pre (собственный body-slot Monaco).
+Наш `attachControls(host)` вставляет через `afterend` когда host --
+PRE/CODE, так что якорь на внешний `<pre>` кладёт тулбар СНАРУЖИ
+code-block'а -- то, что и хотели с самого начала.
+
+**Фикс**: Qwen-ветка в `controlsHost(node, adapter)` возвращает
+`node.closest?.('pre.qwen-markdown-code, pre')`. Старый обход через
+`.qwen-markdown-code-editor-viewport` удалён -- guard-тест проверяет,
+что он не вернётся.
+
+### Контракт
+
+Те же сигнатуры, что в v4.49.1 (`controlsHost(node, adapter)`,
+`arenaWhyUserAuthored(node, adapter)`). Нового API нет.
+
+### Бампы версий
+
+* extension `0.14.8` → `0.14.9`
+* manifest / content / insert_strategies / README все синхронизированы
+
+### Модулярность
+
+`content.js` остался ровно на 700 строках. Сжал один комментарий
+в skip-user-authored ветке и один на makeButton-делегате, чтобы
+компенсировать строки, добавленные Qwen-селектором.
+
+### Регрессионные guard-тесты
+
+11 новых asserts в `tests/test_chat_extension_v0_14_9.py`:
+
+* content/manifest/insert/README запинены на 0.14.9
+* skip_user_authored ветка добавляет ТОЛЬКО fingerprint
+  (semantic ключ НЕ должен диссмиссаться)
+* per-adapter условие ветки включает и `grok`, и `duckai`
+* reason string шаблонизирован с adapter name
+* Qwen anchor -- внешний `<pre.qwen-markdown-code>`
+* Qwen больше не ссылается на `.qwen-markdown-code-editor-viewport`
+* Grok per-adapter closest()-селектор на месте
+* `_USER_AUTHOR_ATTRS` по-прежнему без 'user-message' (per-adapter
+  путь безопаснее)
+* `controlsHost(node, adapter)` подпись сохраняется, голых
+  вызовов нет
+* DuckAI `.overflow-hidden` hoist по-прежнему в поставке (фикс v4.49.1)
+* shadow_toolbar.css Qwen-фикс на месте
+* content.js ≤ 700 строк
+* candidate_diagnostics + mounted_diagnostics по-прежнему в scan-report
+
+Существующие asserts в `test_chat_extension_v0_14_8.py` обновлены
+под расширенное условие ветки. Полный прогон: **2431 passed,
+0 failed**.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 700 → 700 строк (net-zero)
+* `chat_extension/adapters.js` -- 571 → 578 строк (+7 для
+  комментария расширенной per-adapter ветки)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- version banner
+* `tests/test_chat_extension_v0_14_9.py` -- новый, 11 asserts
+* `tests/test_chat_extension_v0_14_8.py` -- обновлены Grok +
+  Qwen ассерты под v0.14.9
+* `tests/test_chat_extension_v0_14_7.py` -- обновление version pin
+* `tests/test_chat_extension_assets.py` -- обновление version pin
+* `tests/test_chat_extension_adapter_flow.py` -- обновление banner
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.49.1 -- Точечные per-adapter фиксы extension (Grok user-filter, DuckAI overflow-hidden, Qwen Monaco viewport)
 
 v4.49.0 добавил `candidate_diagnostics[]` + `mounted_diagnostics[]`

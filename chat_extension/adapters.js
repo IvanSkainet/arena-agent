@@ -79,9 +79,16 @@ function arenaWhyUserAuthored(node, adapter) {
   // testid on the message-list container) cannot distinguish them.
   // Solving it per-adapter keeps DuckAI happy while unblocking Grok.
   const adapterName = adapter && adapter.name;
-  if (adapterName === 'grok' && node.closest) {
-    const bubble = node.closest('[data-testid="user-message"].message-bubble, [data-testid="user-message"]');
-    if (bubble) return {matched: true, reason: 'grok:user-message-bubble@DIV'};
+  // v0.14.9: per-adapter user-message check for Grok AND DuckAI.
+  // Both sites tag user-turns with data-testid="user-message" on
+  // the ACTUAL turn element (not the message-list container -- our
+  // v4.48.6 interpretation was based on an older DuckAI DOM shape;
+  // v4.49.0/1 candidate_diagnostics proved the testid lives on the
+  // real user turn today). Keep it per-adapter so we don't ship a
+  // global rule that any future site might regress on.
+  if ((adapterName === 'grok' || adapterName === 'duckai') && node.closest) {
+    const bubble = node.closest('[data-testid="user-message"]');
+    if (bubble) return {matched: true, reason: `${adapterName}:user-message@DIV`};
   }
   let el = node;
   for (let i = 0; el && i < 8; i++) {   // cap tightened 20 -> 8
