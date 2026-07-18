@@ -458,8 +458,19 @@ function arenaInvalidateComposerCache() {
 
 function arenaComposerSelection(adapter = getArenaAdapter()) {
   const now = Date.now();
+  // v0.14.11: also invalidate the 2s cache when the cached target
+  // became invisible. Qwen new-chat renders a hidden sr-only textarea
+  // that used to grab the cache slot BEFORE we penalised invisibles
+  // (v0.14.10 fix); the cache then returned the ghost target for 2s
+  // no matter how the scorer felt about it. Insert landed in the
+  // ghost, verify read back its textContent, status said 'Inserted
+  // +30ms' while the visible composer stayed empty.
+  const _cachedVisible = _cachedComposerResult?.target
+    && (typeof arenaElementVisible === 'function')
+    ? arenaElementVisible(_cachedComposerResult.target) : true;
   if (_cachedComposerResult
       && _cachedComposerResult.target?.isConnected
+      && _cachedVisible
       && (now - _cachedComposerAt) < 2000) {
     return _cachedComposerResult;
   }

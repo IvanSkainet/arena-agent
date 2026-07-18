@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.10';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.11';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -259,6 +259,8 @@ function mountControls(host, payload, adapter) {
   // v0.14.4: generic adapter is passive -- never mount on unlisted sites.
   if (adapter && adapter.passive) return;
   host = controlsHost(host, adapter);
+  // v0.14.11: entry diag so we can see which nodes reach mountControls at all.
+  _arenaDiagPushEvent({kind: 'mount_entry', adapter: adapter.name, tag: host?.tagName || '', testid: host?.getAttribute?.('data-testid') || ''});
 
   const fingerprint = typeof arenaMessageFingerprint === 'function'
     ? arenaMessageFingerprint(host, payload, adapter)
@@ -270,24 +272,22 @@ function mountControls(host, payload, adapter) {
     ? arenaPayloadSemanticFingerprint(payload, adapter)
     : payloadFingerprint;
 
-  // If the same semantic payload was previously mounted on another host, evict it.
+  // v0.14.11: dismissed-check BEFORE evict (was thrashing DuckAI ~10x/sec: User re-entered, evicted AI, then skipped).
+  const existing = mountedControls.get(fingerprint);
+  if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
+  if (dismissedControls.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_semantic', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
+
   const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
   if (semanticOwner && semanticOwner !== fingerprint) {
     _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
     const previous = mountedControls.get(semanticOwner);
-    // v4.48.0: remove shadowHost (v4.48+) or bar (older mount).
-    if (previous?.shadowHost) previous.shadowHost.remove();
-    else previous?.bar?.remove();
+    if (previous?.shadowHost) previous.shadowHost.remove(); else previous?.bar?.remove();
     if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
     mountedControls.delete(semanticOwner);
     mountedPayloadSemantics.delete(semanticFingerprint);
     mountedSemanticOwners.delete(semanticFingerprint);
   }
 
-  const existing = mountedControls.get(fingerprint);
-  // v0.14.10: emit diag event for every early skip path so scan-report shows WHY we didn't mount.
-  if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
-  if (dismissedControls.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_semantic', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
   if (mountedPayloadSemantics.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_semantic_already_mounted', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
   if (existing?.bar?.isConnected) { _arenaDiagPushEvent({kind: 'skip_existing_connected', adapter: adapter.name, fingerprint}); return; }
   if (hostHasToolbar(host)) { _arenaDiagPushEvent({kind: 'skip_host_has_toolbar', adapter: adapter.name, fingerprint}); return; }

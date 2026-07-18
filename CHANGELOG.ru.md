@@ -1,3 +1,133 @@
+## v4.49.4 -- Фикс DuckAI thrash + Qwen composer-cache visibility guard + Grok mount_entry diag
+
+Третий раунд scan-report наконец сделал два тонких бага очевидными.
+Diag events v0.14.10 сделали своё дело -- events_recent показал
+точно что идёт не так.
+
+### DuckAI thrash cycle (корневая причина + фикс)
+
+events_recent показал паттерн 10 событий в секунду:
+```
+skip_dismissed_fp(User_fp) → mounted(AI_fp)
+→ evict_semantic_owner(User_fp evicts AI_fp)
+→ skip_dismissed_fp(User_fp) → mounted(AI_fp) → ...
+```
+
+AI-toolbar **перемонтировался каждые ~400 мс**, стирая
+in-closure `lastExecutionText`, статус
+"Arena · duckai · result ready" и локальное состояние каждой
+кнопки при каждом thrash'е. Объясняет репорт оператора:
+"результаты не видно" -- toolbar физически не проживал достаточно
+долго, чтобы показать settled state.
+
+**Корневая причина в `mountControls`**: порядок guard'ов был
+1. evict `mountedSemanticOwners.get(semantic)` если не наш
+2. check `dismissedControls.has(fingerprint)` → skip
+
+Когда User bubble заново заходил в mountControls (что происходит
+каждый scan-цикл потому что он остаётся в DOM):
+* шаг 1 видел AI fingerprint как текущего semantic owner'а и
+  вырывал его
+* шаг 2 видел собственный User fingerprint в dismissedControls
+  и short-circuit'ил без монтирования чего-либо
+* итог: AI toolbar исчез, замены нет, DOM-observer триггерит
+  очередной scan, AI монтируется снова, User заходит снова, цикл.
+
+**Фикс**: dismissed-check теперь запускается ДО eviction.
+Dismissed call сразу выходит, не трогая mounted-semantic map,
+так что повторный визит User больше не может нарушить lifecycle
+AI toolbar'а.
+
+### Qwen composer cache возвращал ghost target
+
+v0.14.10 добавил `-500` invisible-penalty в
+`arenaScoreComposerCandidate`, но scan показал
+`selected_selector: cachedComposer, cached_match: true` --
+2-секундный cache в `arenaComposerSelection` возвращал
+pre-v0.14.10 ghost target, не запуская scorer заново. Insert
+продолжал приземляться в невидимый textarea; видимый композер
+оставался пустым несмотря на "Inserted +30ms" в статусе.
+
+**Фикс**: cache early-return теперь также требует
+`arenaElementVisible(_cachedComposerResult.target)`. Если
+кэшированный target стал невидимым, cache инвалидируется и
+scorer запускается заново, правильно предпочитая видимый
+композер.
+
+### Grok mount_entry инструментация
+
+events_recent для Grok всё ещё показывает только User
+fingerprint, skip'ающийся раз за разом -- assistant candidate
+в candidate_diagnostics, но его вызов mountControls никогда
+не появляется в events. Добавил `mount_entry` event, эмитящийся
+на самом верху `mountControls` (до ЛЮБОГО early return), чтобы
+следующий scan окончательно доказал, вызывается ли mountControls
+для AI. Если `mount_entry` AI появляется: баг в guard'ах. Если
+нет: `state.nodes` не достигает AI candidate по upstream-причине
+(candidate cache, prune, etc.) -- и мы будем знать точно, по
+какой именно.
+
+### Бампы версий
+
+* extension `0.14.10` → `0.14.11`
+* manifest / content / insert_strategies / README синхронизированы
+
+### Модулярность
+
+content.js остался ровно на 700 строках. Сжал два комментария
+в реорганизованном блоке guard'ов, чтобы компенсировать
+дополнительный вызов mount_entry diag.
+
+### Регрессионные guard-тесты
+
+Девять новых asserts в `tests/test_chat_extension_v0_14_11.py`:
+
+* pin 0.14.11 в content/manifest/insert/README
+* `mount_entry` diag event существует и содержит tag + testid
+* text-позиционный assert: оба вызова `dismissedControls.has(...)`
+  ДОЛЖНЫ появляться до блока `mountedSemanticOwners.get(...)`
+  (byte offsets)
+* `evict_semantic_owner` и связанные удаления
+  mountedControls/mountedSemanticOwners по-прежнему на месте
+* `_cachedVisible` guard живёт внутри `arenaComposerSelection`
+* cache early-return ссылается на `_cachedVisible`
+* каждый прежний regression guard (v0.14.6, 0.14.7, 0.14.8,
+  0.14.9, 0.14.10) по-прежнему держится
+* content.js line count ≤ 700
+* все v0.14.10 diag event kinds пережили reorder
+
+Существующие пять прежних extension test-файлов перепинены на
+0.14.11. Полный прогон: **2449 passed, 0 failed**.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 700 строк (net-zero через сжатие
+  комментариев: reorder guard'ов + mount_entry event)
+* `chat_extension/adapters.js` -- 584 → 595 строк (+11 для cache
+  visibility guard + объясняющий комментарий)
+* `chat_extension/insert_strategies.js` -- только version bump
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_11.py` -- новый, 9 asserts
+* пять прежних extension test-файлов перепинены на 0.14.11
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
+### Что увидишь на следующем Scan Page
+
+* **DuckAI**: events_recent БОЛЬШЕ не должен показывать
+  evict→skip→mount thrash. AI toolbar остаётся смонтированным;
+  когда оператор жмёт Run/Insert/Send, timing string в
+  `status.textContent` теперь останется видимой.
+* **Qwen новый чат**: Insert/Send должен реально вставлять текст
+  в видимый композер. Если всё ещё нет, composer-блок следующего
+  скана скажет, инвалидировался ли cache правильно
+  (`selected_selector: activeElement` вместо `cachedComposer`).
+* **Grok**: events_recent покажет либо `mount_entry` AI
+  fingerprint'а (доказывает reachability -- баг в guard'ах),
+  либо НЕТ (доказывает другой upstream-skip -- candidate cache
+  / arenaPruneAncestorCandidates / slice-5 boundary).
+
 ## v4.49.3 -- Глубокая диагностика extension + фикс Qwen ghost-composer
 
 ### Где мы стоим
