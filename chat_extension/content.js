@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.9';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.10';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -273,6 +273,7 @@ function mountControls(host, payload, adapter) {
   // If the same semantic payload was previously mounted on another host, evict it.
   const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
   if (semanticOwner && semanticOwner !== fingerprint) {
+    _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
     const previous = mountedControls.get(semanticOwner);
     // v4.48.0: remove shadowHost (v4.48+) or bar (older mount).
     if (previous?.shadowHost) previous.shadowHost.remove();
@@ -284,13 +285,12 @@ function mountControls(host, payload, adapter) {
   }
 
   const existing = mountedControls.get(fingerprint);
-  if (
-    dismissedControls.has(fingerprint)
-    || dismissedControls.has(semanticFingerprint)
-    || mountedPayloadSemantics.has(semanticFingerprint)
-    || existing?.bar?.isConnected
-    || hostHasToolbar(host)
-  ) return;
+  // v0.14.10: emit diag event for every early skip path so scan-report shows WHY we didn't mount.
+  if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
+  if (dismissedControls.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_semantic', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
+  if (mountedPayloadSemantics.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_semantic_already_mounted', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
+  if (existing?.bar?.isConnected) { _arenaDiagPushEvent({kind: 'skip_existing_connected', adapter: adapter.name, fingerprint}); return; }
+  if (hostHasToolbar(host)) { _arenaDiagPushEvent({kind: 'skip_host_has_toolbar', adapter: adapter.name, fingerprint}); return; }
 
   // v0.14.5/9: skip user-authored (fingerprint only; reason recorded for diag).
   const _wu = (typeof arenaWhyUserAuthored === 'function') ? arenaWhyUserAuthored(host, adapter) : {matched: false, reason: ''};
@@ -450,6 +450,7 @@ function mountControls(host, payload, adapter) {
     // Track shadowHost for semantic-eviction .remove(); `bar` kept for back-compat.
   mountedControls.set(fingerprint, {host, bar, shadowHost, semanticFingerprint});
   mountedSemanticOwners.set(semanticFingerprint, fingerprint);
+  _arenaDiagPushEvent({kind: 'mounted', adapter: adapter.name, fingerprint, tag: host?.tagName || ''});
 
   runAutoModes(request, adapter, status, semanticFingerprint, (text) => {
     lastExecutionText = text;
@@ -627,12 +628,11 @@ function scanPageDiagnostics() {
     samples,
     candidate_diagnostics: candidateDiagnostics,  // v0.14.7 additive
     mounted_diagnostics: mountedDiagnostics,
-    // v0.14.2: last 20 diag events (skip / late-submit / etc).
-    events_recent: _arenaDiagEvents.slice(),
+    events_recent: _arenaDiagEvents.slice(),  // v0.14.2: last 20 skip/late-submit events
   };
 }
 
-  // scheduleScan: throttle + idle-callback coalescing (guards SPA DOM churn).
+// === scheduleScan: throttle + idle-callback coalescing (guards SPA DOM churn) ===
 let _lastScanAt = 0;
 const SCAN_THROTTLE_MS = 400;
 

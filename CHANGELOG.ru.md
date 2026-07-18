@@ -1,3 +1,117 @@
+## v4.49.3 -- Глубокая диагностика extension + фикс Qwen ghost-composer
+
+### Где мы стоим
+
+Grok / DuckAI / Qwen после третьего раунда scan-report:
+
+* **Grok** -- фильтр v4.49.2 работает правильно (skip event
+  срабатывает: `reason: grok:user-message@DIV`). Оба candidate в
+  скане, только User dismiss'нут, но AI всё равно не монтируется:
+  `mounted_controls: 0, dismissed_controls: 1`. Все очевидные
+  guard'ы (semantic dedup, mountedPayloadSemantics,
+  hostHasToolbar, dismissedControls) проаудитированы в v0.14.9 и
+  не должны блокировать AI mount. Без runtime-данных ПОЧЕМУ --
+  не видно.
+* **DuckAI** -- тулбар монтируется на AI PRE
+  (`mounted: true` в `candidate_diagnostics[1]`, ancestor --
+  `.my-4.flex`, `_wu.matched: false`). User bubble корректно
+  dismiss'нут. Оставшаяся жалоба ("мс / метод не видно") --
+  косметика; v0.14.10 добавляет target-snapshot в timing, чтобы
+  status показывал форму когда insert "ложно преуспел".
+* **Qwen** -- фикс anchor v4.49.2 работает ("Inserted/submitted
+  1675ms"), перекрытия нет. Новый баг в новом чате: статус
+  говорит "Inserted +33ms verified +30ms", а по факту ничего не
+  вставлено. Insert приземлился в ghost-textarea, а реальный
+  видимый композер остался пустым.
+
+### Изменения v0.14.10
+
+**Инструментация** (без изменений логики): каждая early-return
+ветка в `mountControls` теперь эмитит diag event. Следующий Scan
+Page покажет для Grok AI candidate точно, какая ветка скипает
+mount. Виды событий:
+
+* `skip_dismissed_fp` -- fingerprint в dismissedControls
+* `skip_dismissed_semantic` -- semantic fingerprint в dismissedControls
+* `skip_semantic_already_mounted` -- другой узел уже занял этот semantic
+* `skip_existing_connected` -- наша запись имеет ещё-connected bar
+* `skip_host_has_toolbar` -- host уже несёт mounted-маркер
+* `evict_semantic_owner` -- нашли устаревшего owner'а и вытеснили
+* `mounted` -- успешное подключение (после `attachControls`)
+
+**Фикс ghost-composer** (регрессия Qwen new-chat):
+`arenaScoreComposerCandidate` теперь применяет большой негативный
+штраф (-500) к невидимым target'ам ДО добавления +100 бонуса за
+activeElement. Невидимый sr-only textarea, ухвативший фокус,
+больше не выиграет ранжирование против реального видимого композера
+рядом. Это баг "verify говорит success, но ничего не набрано".
+
+**Snapshot insert-timing** (диагностика silent-success):
+`arenaSetInsertTiming` захватывает target tag/visibility/rect
+вместе с timing-метриками. Status может теперь показать почему
+"Inserted +30ms" был невалидным (кейс ghost-target).
+
+### Версии
+
+* extension `0.14.9` → `0.14.10`
+* manifest / content / insert_strategies / README синхронизированы
+
+### Модулярность
+
+`content.js` по-прежнему ровно на 700 строках. Сжал один
+комментарий в блоке return scan_report'а и перестроил один
+section-заголовок, чтобы вернуть строки, добавленные пятью diag
+ветками.
+
+### Регрессионные guard-тесты
+
+Девять новых asserts в `tests/test_chat_extension_v0_14_10.py`:
+
+* pin на 0.14.10 в content/manifest/insert/README
+* пять новых mountControls diag `kind:'...'` должны присутствовать
+* успешный mount эмитит `kind: 'mounted'`
+* eviction semantic-owner'а эмитит `kind: 'evict_semantic_owner'`
+* невидимый композер должен быть штрафован -500 в scoring'е
+* insert timing должен захватывать target tag/visibility/rect/size
+* каждый прежний regression guard (v0.14.6, 0.14.7, 0.14.8, 0.14.9)
+  всё ещё держится -- один omnibus assert перепроверяет:
+  * глобальный `_USER_AUTHOR_ATTRS` без `user-message`
+  * подписи `controlsHost(node, adapter)` +
+    `arenaWhyUserAuthored(node, adapter)`
+  * условие per-adapter ветки покрывает `grok || duckai`
+  * Qwen anchor -- внешний `<pre.qwen-markdown-code>`
+  * skip_user_authored dismiss'ит только fingerprint
+  * shadow_toolbar Qwen z-index/isolation по-прежнему в поставке
+* content.js ≤ 700 строк
+* candidate_diagnostics + mounted_diagnostics + events_recent все
+  по-прежнему в scan-report
+
+Существующие 4 test-файла перепинены на 0.14.10. Полный прогон:
+**2440 passed, 0 failed**.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 700 строк (5 branches + 1 mounted
+  + 1 evict event, компенсируется 2 сжатыми комментариями)
+* `chat_extension/adapters.js` -- 578 → 584 строк (+6 для
+  ghost-composer scoring)
+* `chat_extension/insert_strategies.js` -- 620 → 633 строк (+13
+  для target-snapshot обогащения в arenaSetInsertTiming)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_10.py` -- новый, 9 asserts
+* 4 прежних extension test-файла перепинены на 0.14.10
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
+### Что увидишь на следующем Scan Page
+
+Конкретно для Grok, `events_recent` в следующем скане будет
+содержать точную причину, по которой AI mount был отклонён. Это
+разблокирует реальный фикс в v4.49.4 без очередного раунда
+gray-box гадания. Если AI mount пройдёт (лучший случай), скан
+покажет `mounted` event с fingerprint'ом ассистента.
+
 ## v4.49.2 -- Три коррекции к per-adapter фиксам v4.49.1 (Grok, DuckAI, Qwen)
 
 Второй раунд live-тестов после v4.49.1 показал: у каждого из трёх

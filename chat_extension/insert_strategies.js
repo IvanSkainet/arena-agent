@@ -6,10 +6,24 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.9';
+  return '0.14.10';
 }
 
 function arenaSetInsertTiming(timing) {
+  // v0.14.10: enrich timing with target snapshot so status text shows why an "OK" insert can invisibly fail (Qwen new-chat ghost textarea).
+  const t = window.__arenaLastInsertTarget;
+  if (t) {
+    try {
+      const r = t.getBoundingClientRect?.();
+      timing = Object.assign({}, timing, {
+        target_tag: t.tagName || '',
+        target_visible: !!(r && r.width > 0 && r.height > 0),
+        target_offset_parent: !!t.offsetParent,
+        target_width: r ? Math.round(r.width) : 0,
+        target_height: r ? Math.round(r.height) : 0,
+      });
+    } catch (_e) { /* rect can throw on detached nodes */ }
+  }
   window.__arenaLastInsertTiming = timing;
 }
 

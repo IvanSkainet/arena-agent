@@ -436,9 +436,15 @@ function arenaComposerCandidates(adapter = getArenaAdapter()) {
 
 function arenaScoreComposerCandidate(node, active = document.activeElement) {
   let score = 0;
+  const visible = arenaElementVisible(node);
+  // v0.14.10: never prefer an invisible target even when it's the activeElement.
+  // Qwen new-chat sometimes has a hidden sr-only textarea grabbing focus while
+  // the real composer sits next to it -- insert would land in a ghost node and
+  // arenaVerifySettledInsert reads back the ghost's textContent as "success".
+  if (!visible) score -= 500;
   if (node === active || node.contains?.(active)) score += 100;
   if (node === window.__arenaLastComposerTarget) score += 35;
-  if (arenaElementVisible(node)) score += 20;
+  if (visible) score += 20;
   if (node.closest?.('form')) score += 5;
   return score;
 }
