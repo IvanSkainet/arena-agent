@@ -68,8 +68,21 @@ const _USER_AUTHOR_CLASS_SUBSTRINGS = [
 // substrings stay case-insensitive substring match because the class
 // tokens we look for (`user-message`, `human-message`, ...) are
 // distinctive enough to be safe.
-function arenaWhyUserAuthored(node) {
+function arenaWhyUserAuthored(node, adapter) {
   if (!node) return {matched: false, reason: ''};
+  // v0.14.8: per-adapter user marker for Grok. Scan-report shows
+  // Grok wraps user turns in <div data-testid="user-message"
+  // class="message-bubble"> and AI turns in <div
+  // data-testid="assistant-message" class="message-bubble">.
+  // Both share the same code-block child so global _USER_AUTHOR_ATTRS
+  // (which was reverted in v0.14.6 because DuckAI puts the same
+  // testid on the message-list container) cannot distinguish them.
+  // Solving it per-adapter keeps DuckAI happy while unblocking Grok.
+  const adapterName = adapter && adapter.name;
+  if (adapterName === 'grok' && node.closest) {
+    const bubble = node.closest('[data-testid="user-message"].message-bubble, [data-testid="user-message"]');
+    if (bubble) return {matched: true, reason: 'grok:user-message-bubble@DIV'};
+  }
   let el = node;
   for (let i = 0; el && i < 8; i++) {   // cap tightened 20 -> 8
     if (el.nodeType !== 1) { el = el.parentNode; continue; }
@@ -93,8 +106,8 @@ function arenaWhyUserAuthored(node) {
   return {matched: false, reason: ''};
 }
 
-function arenaIsInUserAuthoredNode(node) {
-  return arenaWhyUserAuthored(node).matched;
+function arenaIsInUserAuthoredNode(node, adapter) {
+  return arenaWhyUserAuthored(node, adapter).matched;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +210,8 @@ function arenaDiagnosticSnapshot(node) {
   }
   // Additional useful signals -- do NOT change existing behaviour.
   const wu = (typeof arenaWhyUserAuthored === 'function')
-    ? arenaWhyUserAuthored(node) : {matched: false, reason: ''};
+    ? arenaWhyUserAuthored(node, (typeof getArenaAdapter === 'function') ? getArenaAdapter() : null)
+    : {matched: false, reason: ''};
   return {
     path: arenaNodePath(node),
     self: _attrs(node),

@@ -1,3 +1,121 @@
+## v4.49.1 -- Extension per-adapter surgical fixes (Grok user-filter, DuckAI overflow-hidden, Qwen Monaco viewport)
+
+v4.49.0 shipped `candidate_diagnostics[]` + `mounted_diagnostics[]`
+so the operator's next Scan Page would tell us exactly which DOM
+nodes the extension was picking. The very next scan gave three
+crystal-clear signals -- one per site, three different root causes:
+
+### Grok
+
+`candidate_diagnostics[0]` = mounted=true, ancestor[3] has
+`testid="user-message"` class `message-bubble`. `candidate_diagnostics[1]`
+= mounted=false, ancestor[3] has `testid="assistant-message"` class
+`message-bubble`. Both share the same code-block child so
+`arenaPruneAncestorCandidates` + `.slice(-5)` keeps the User node.
+Global `_USER_AUTHOR_ATTRS` cannot help because we removed
+`'user-message'` from it in v4.48.6 (DuckAI puts that same testid
+on its message-LIST container, which would then filter every mount).
+
+**Fix**: added a per-adapter check inside `arenaWhyUserAuthored(node,
+adapter)` -- when `adapter.name === 'grok'`, `closest('[data-testid=
+"user-message"].message-bubble, [data-testid="user-message"]')`
+short-circuits the mount. DuckAI is unaffected because that branch
+is only reached when the adapter matches. Scan-report `reason`
+becomes `grok:user-message-bubble@DIV` when it fires.
+
+### DuckAI
+
+`mounted_diagnostics[0]` = toolbar attached at `DIV:0/DIV:0/DIV:0/
+DIV:0/DIV:2/DIV:0` sitting INSIDE `<div class="language-jsonl
+overflow-hidden">`. Tailwind's `overflow-hidden` was clipping our
+toolbar buttons -- explains "Preview / Insert / Send / Copy flash
+and disappear, only Run stays visible".
+
+**Fix**: in `controlsHost(node, adapter)`, when
+`adapter.name === 'duckai'`, walk up via `.closest('.overflow-hidden')`
+and return its parent element (`.my-4.flex` per the scan), which
+has no overflow clip.
+
+### Qwen
+
+`mounted_diagnostics[0]` = toolbar attached inside `<div class=
+"qwen-markdown-code-editor-viewport">`. That is the Monaco editor's
+own scroll viewport -- our toolbar was mounting inside a scrollable
+container, which explains "looks squeezed / off-center against the
+site's like/dislike/share/refresh row".
+
+**Fix**: when `adapter.name === 'qwen'`, escape up to
+`.qwen-markdown-code-body` (the container that holds the whole
+code widget including the site action row). Falls back to
+`viewport.parentElement` if the class isn't present.
+
+### Contract change
+
+`controlsHost(node)` → `controlsHost(node, adapter)`. Every call
+site was updated to pass `state.adapter` / the adapter in scope.
+Adapter is optional -- passing `undefined` preserves v0.14.7
+behaviour. Six call sites in `content.js` touched.
+
+`arenaWhyUserAuthored(node)` → `arenaWhyUserAuthored(node, adapter)`
+too, mirroring the same optional-adapter contract. The bool wrapper
+`arenaIsInUserAuthoredNode` was updated to propagate the argument.
+
+### Version bumps
+
+* extension `0.14.7` → `0.14.8`
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/content.js` -- `ARENA_CONTENT_SCRIPT_VERSION`
+* `chat_extension/insert_strategies.js` -- `arenaInsertScriptVersion`
+* `chat_extension/README.md` -- banner refresh
+
+### Modularity
+
+`content.js` grew from 700 to 722 lines with the new controlsHost
+branches. Compressed the new per-adapter blocks into one-liners
+and merged an old two-line tag check to land back at **exactly 700
+lines** (`MAX_PRODUCT_FILE_LINES`). No behaviour lost.
+
+### Regression guards
+
+Ten new asserts in `tests/test_chat_extension_v0_14_8.py`:
+
+* content/manifest/insert/README all pinned to 0.14.8
+* `arenaWhyUserAuthored` signature takes adapter
+* Grok branch fires ONLY on `adapter.name === 'grok'` and uses the
+  `.message-bubble` closest-selector; reason string is
+  `grok:user-message-bubble@DIV`
+* `_USER_AUTHOR_ATTRS` still has NO `'user-message'` (v4.48.6
+  regression guard, restated)
+* `controlsHost(node, adapter)` signature and no bare
+  `controlsHost(x)` call sites remain
+* DuckAI branch uses `.overflow-hidden` escape
+* Qwen branch uses `.qwen-markdown-code-editor-viewport` +
+  `.qwen-markdown-code-body`
+* `arenaWhyUserAuthored(host, adapter)` call site in mountControls
+* shadow_toolbar.css Qwen fix still present
+* content.js ≤ 700 lines
+* v0.14.7 diagnostic fields (`candidate_diagnostics`,
+  `mounted_diagnostics`) still shipped
+
+Existing extension tests re-pinned to 0.14.8. Full sweep:
+**2420 passed, 0 failed**.
+
+### Files touched
+
+* `chat_extension/content.js` -- 700 → 700 lines (net-zero, gained
+  ~22 for controlsHost branches, compressed ~22 in existing shape)
+* `chat_extension/adapters.js` -- 557 → 571 lines (+14 for the
+  per-adapter arenaWhyUserAuthored branch + comment)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- version banner
+* `tests/test_chat_extension_v0_14_8.py` -- new, 10 asserts
+* `tests/test_chat_extension_v0_14_7.py` -- version pin refresh
+* `tests/test_chat_extension_assets.py` -- version pin refresh
+* `tests/test_chat_extension_adapter_flow.py` -- banner pin refresh
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.49.0 -- Extension diagnostic pass: candidate_diagnostics + mounted_diagnostics
 
 Third live-testing arc came back with real signals that v4.48.6's

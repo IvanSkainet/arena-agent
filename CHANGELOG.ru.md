@@ -1,3 +1,125 @@
+## v4.49.1 -- Точечные per-adapter фиксы extension (Grok user-filter, DuckAI overflow-hidden, Qwen Monaco viewport)
+
+v4.49.0 добавил `candidate_diagnostics[]` + `mounted_diagnostics[]`
+в scan-report, чтобы следующий скан оператора точно показал, к
+каким DOM-узлам цепляется extension. Первый же скан дал три
+кристально ясных сигнала -- по одному на сайт, три разных
+корневых причины:
+
+### Grok
+
+`candidate_diagnostics[0]` = mounted=true, ancestor[3] содержит
+`testid="user-message"` class `message-bubble`.
+`candidate_diagnostics[1]` = mounted=false, ancestor[3] содержит
+`testid="assistant-message"` class `message-bubble`. Оба имеют
+идентичный code-block потомок, так что `arenaPruneAncestorCandidates`
++ `.slice(-5)` оставляют User. Глобальный `_USER_AUTHOR_ATTRS` не
+поможет -- мы убрали `'user-message'` в v4.48.6, потому что DuckAI
+ставит тот же testid на контейнер СПИСКА сообщений (иначе
+отфильтровал бы каждый mount).
+
+**Фикс**: добавил per-adapter проверку внутри
+`arenaWhyUserAuthored(node, adapter)` -- когда
+`adapter.name === 'grok'`, `closest('[data-testid="user-message"]
+.message-bubble, [data-testid="user-message"]')` short-circuit'ит
+mount. DuckAI не задет, потому что эта ветка срабатывает только
+при совпадении adapter. Reason в scan-report становится
+`grok:user-message-bubble@DIV`.
+
+### DuckAI
+
+`mounted_diagnostics[0]` = тулбар прицеплен по пути
+`DIV:0/DIV:0/DIV:0/DIV:0/DIV:2/DIV:0` внутри `<div class=
+"language-jsonl overflow-hidden">`. Tailwind'овский
+`overflow-hidden` клипал наши кнопки тулбара -- отсюда
+"Preview / Insert / Send / Copy мигают и пропадают, виден только
+Run".
+
+**Фикс**: в `controlsHost(node, adapter)`, когда
+`adapter.name === 'duckai'`, идём вверх через
+`.closest('.overflow-hidden')` и возвращаем его parent-элемент
+(`.my-4.flex` по скану), у которого нет overflow-clip.
+
+### Qwen
+
+`mounted_diagnostics[0]` = тулбар прицеплен внутри `<div class=
+"qwen-markdown-code-editor-viewport">`. Это собственный
+scroll-viewport Monaco-редактора -- наш тулбар монтировался внутри
+scrollable-контейнера, отсюда "выглядит сжато / смещён относительно
+site's like/dislike/share/refresh row".
+
+**Фикс**: когда `adapter.name === 'qwen'`, поднимаемся до
+`.qwen-markdown-code-body` (контейнер, содержащий весь code-widget
+включая site action row). Fallback на `viewport.parentElement`,
+если класс отсутствует.
+
+### Изменение контракта
+
+`controlsHost(node)` → `controlsHost(node, adapter)`. Каждый call
+site обновлён на передачу `state.adapter` / adapter в scope.
+adapter опционален -- при `undefined` сохраняется поведение
+v0.14.7. Шесть call sites в `content.js` тронуты.
+
+`arenaWhyUserAuthored(node)` → `arenaWhyUserAuthored(node, adapter)`
+аналогично, тот же optional-adapter контракт. Bool-wrapper
+`arenaIsInUserAuthoredNode` обновлён для прокидывания аргумента.
+
+### Бампы версий
+
+* extension `0.14.7` → `0.14.8`
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/content.js` -- `ARENA_CONTENT_SCRIPT_VERSION`
+* `chat_extension/insert_strategies.js` -- `arenaInsertScriptVersion`
+* `chat_extension/README.md` -- баннер
+
+### Модулярность
+
+`content.js` вырос с 700 до 722 строк с новыми ветками controlsHost.
+Сжал новые per-adapter блоки в one-liners и объединил старую
+двухстрочную tag-проверку, вернулся ровно на **700 строк**
+(`MAX_PRODUCT_FILE_LINES`). Поведение не потеряно.
+
+### Регрессионные guard-тесты
+
+Десять новых asserts в `tests/test_chat_extension_v0_14_8.py`:
+
+* content/manifest/insert/README все пинятся на 0.14.8
+* `arenaWhyUserAuthored` принимает adapter
+* Grok-ветка срабатывает ТОЛЬКО при `adapter.name === 'grok'` и
+  использует `.message-bubble` closest-selector; reason string =
+  `grok:user-message-bubble@DIV`
+* `_USER_AUTHOR_ATTRS` по-прежнему НЕ содержит `'user-message'`
+  (regression guard v4.48.6)
+* `controlsHost(node, adapter)` подпись и нет голых call sites
+  `controlsHost(x)`
+* DuckAI-ветка использует `.overflow-hidden` escape
+* Qwen-ветка использует `.qwen-markdown-code-editor-viewport` +
+  `.qwen-markdown-code-body`
+* Call site `arenaWhyUserAuthored(host, adapter)` в mountControls
+* shadow_toolbar.css Qwen-фикс на месте
+* content.js ≤ 700 строк
+* Диагностические поля v0.14.7 (`candidate_diagnostics`,
+  `mounted_diagnostics`) по-прежнему в scan-report
+
+Существующие extension-тесты перепинены на 0.14.8. Полный прогон:
+**2420 passed, 0 failed**.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 700 → 700 строк (net-zero,
+  +22 для controlsHost веток, -22 сжатия существующего кода)
+* `chat_extension/adapters.js` -- 557 → 571 строка (+14 для
+  per-adapter ветки arenaWhyUserAuthored + комментарий)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- version banner
+* `tests/test_chat_extension_v0_14_8.py` -- новый, 10 asserts
+* `tests/test_chat_extension_v0_14_7.py` -- обновление version pin
+* `tests/test_chat_extension_assets.py` -- обновление version pin
+* `tests/test_chat_extension_adapter_flow.py` -- обновление banner pin
+* `arena/constants.py` -- VERSION bump
+* `pyproject.toml` -- version bump
+
 ## v4.49.0 -- Диагностический проход для extension: candidate_diagnostics + mounted_diagnostics
 
 Третий live-раунд принёс реальные сигналы: узкий фикс v4.48.6

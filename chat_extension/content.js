@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.7';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.8';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -102,12 +102,14 @@ function resultErrorText(result) {
     || (result.status ? `HTTP ${result.status}` : 'unknown');
 }
 
-function controlsHost(node) {
-  // v0.14.3: hoist <code>/<div>-wrapped <pre> (Qwen drift fix).
+function controlsHost(node, adapter) {
+  // v0.14.3/8: hoist wrappers (Qwen drift + DuckAI overflow-hidden + Qwen Monaco viewport).
   if (!node) return document.body;
-  const tag = String(node.tagName || '').toUpperCase();
-  if (tag === 'CODE') return node.closest('pre') || node.parentElement || node;
-  if (tag === 'DIV') { const pre = node.querySelector('pre'); if (pre) return pre; }
+  if (String(node.tagName || '').toUpperCase() === 'CODE') node = node.closest('pre') || node.parentElement || node;
+  if (String(node.tagName || '').toUpperCase() === 'DIV') { const pre = node.querySelector('pre'); if (pre) node = pre; }
+  const adapterName = adapter && adapter.name;
+  if (adapterName === 'duckai') { const w = node.closest?.('.overflow-hidden'); if (w?.parentElement) return w.parentElement; }
+  if (adapterName === 'qwen') { const v = node.closest?.('.qwen-markdown-code-editor-viewport'); if (v) return v.closest('.qwen-markdown-code-body') || v.parentElement || node; }
   return node;
 }
 
@@ -124,9 +126,7 @@ function attachControls(host, bar) {
 
 function cleanupStaleControls() {
   document.querySelectorAll('[data-arena-tool-controls="1"]').forEach((bar) => bar.remove());
-  document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => {
-    node.dataset.arenaToolControlsMounted = '';
-  });
+  document.querySelectorAll('[data-arena-tool-controls-mounted="1"]').forEach((node) => { node.dataset.arenaToolControlsMounted = ''; });
   mountedControls.clear();
   mountedPayloadSemantics.clear();
   mountedSemanticOwners.clear();
@@ -155,7 +155,7 @@ function suppressCurrentControls() {
       ? arenaDetectionText(node, state.adapter)
       : (node.textContent || '');
     parseArenaBlocks(text).forEach((entry) => {
-      const host = controlsHost(node);
+      const host = controlsHost(node, state.adapter);
       const messageFp = typeof arenaMessageFingerprint === 'function'
         ? arenaMessageFingerprint(host, entry.payload, state.adapter)
         : hash((host.textContent || '') + JSON.stringify(entry.payload));
@@ -258,7 +258,7 @@ function previewSummary(result) {
 function mountControls(host, payload, adapter) {
   // v0.14.4: generic adapter is passive -- never mount on unlisted sites.
   if (adapter && adapter.passive) return;
-  host = controlsHost(host);
+  host = controlsHost(host, adapter);
 
   const fingerprint = typeof arenaMessageFingerprint === 'function'
     ? arenaMessageFingerprint(host, payload, adapter)
@@ -293,7 +293,7 @@ function mountControls(host, payload, adapter) {
   ) return;
 
   // v0.14.5: skip user-authored, record REASON for scan-report diag.
-  const _wu = (typeof arenaWhyUserAuthored === 'function') ? arenaWhyUserAuthored(host) : {matched: false, reason: ''};
+  const _wu = (typeof arenaWhyUserAuthored === 'function') ? arenaWhyUserAuthored(host, adapter) : {matched: false, reason: ''};
   if (_wu.matched) {
     dismissedControls.add(fingerprint); dismissedControls.add(semanticFingerprint);
     _arenaDiagPushEvent({kind: 'skip_user_authored', adapter: adapter.name, fingerprint, reason: _wu.reason});
@@ -527,12 +527,12 @@ function scan() {
     : {adapter: {name: 'generic'}, nodes: [document.body]};
 
   // Fast path: same candidate count AND all already have toolbars → skip parse.
-  const allMounted = state.nodes.every((node) => hostHasToolbar(controlsHost(node)));
+  const allMounted = state.nodes.every((node) => hostHasToolbar(controlsHost(node, state.adapter)));
   if (state.nodes.length === _lastCandidateCount && allMounted) return;
   _lastCandidateCount = state.nodes.length;
 
   state.nodes.forEach((node) => {
-    const host = controlsHost(node);
+    const host = controlsHost(node, state.adapter);
     if (hostHasToolbar(host)) return;
     const text = typeof arenaDetectionText === 'function'
       ? arenaDetectionText(node, state.adapter)
@@ -580,8 +580,8 @@ function scanPageDiagnostics() {
         candidateDiagnostics.push({
           index,
           parsed: entries.length,
-          host_has_toolbar: hostHasToolbar(controlsHost(node)),
-          mounted: (node.dataset?.arenaToolControlsMounted === '1') || !!controlsHost(node)?.dataset?.arenaToolControlsMounted,
+          host_has_toolbar: hostHasToolbar(controlsHost(node, state.adapter)),
+          mounted: (node.dataset?.arenaToolControlsMounted === '1') || !!controlsHost(node, state.adapter)?.dataset?.arenaToolControlsMounted,
           fingerprint: node.dataset?.arenaToolFingerprint || '',
           snapshot: snap,
         });

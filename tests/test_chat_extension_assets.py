@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.7"
+    assert manifest["version"] == "0.14.8"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -147,8 +147,8 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.7'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.7"' in content
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.8'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.8"' in content
     # v0.14.6: data-testid="user-message" removed from user-authored
     # attr list -- scan-reports on Grok / DuckAI / Arena.ai showed the
     # sites use that testid on the MESSAGE LIST CONTAINER, not just
