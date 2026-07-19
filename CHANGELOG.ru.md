@@ -1,3 +1,156 @@
+## v4.50.6 -- AI Studio filter (был инвертирован!) + tie-breaker по call_id + Grok z-index + collapsed Advanced
+
+Четыре запроса оператора после v0.14.15:
+
+### 1. AI Studio user filter починен (ловил User, пропускал AI)
+
+Оператор: "На AI Studio всё ещё user ловит. Теперь только User
+ловит, а AI не ловит." (v0.14.15 промахнулся с направлением.)
+
+Корень: v0.14.15 требовал, чтобы текст `mat-expansion-panel-header`
+НАЧИНАЛСЯ с "User"/"Пользоват". На текущем билде AI Studio этот
+префикс не совпадает; header иногда "User Turn 3" или aria-label,
+или User-панель на самом деле "System instructions". Тем временем
+AI/model панель начиналась с "Model", что тоже не проходило
+prefix-тест, поэтому ничего не совпадало консистентно.
+
+Фикс в AI Studio branch `arenaWhyUserAuthored`:
+
+* SUBSTRING match (regex с word-boundary) вместо prefix: покрывает
+  `user`, `пользоват`, `system`, `систем` в header textContent И
+  aria-label.
+* Positive assistant-marker exclusion: когда header содержит
+  `model`, `assistant`, `ответ`, `модел`, трактуем как НЕ-user,
+  даже если user-маркер совпал случайно.
+* Custom-element ancestor check (v0.14.15) сохранён как основной
+  сигнал -- `ms-chat-turn[role="user"]` и
+  `ms-prompt-chunk[chunkrole="user"]` всё ещё выигрывают, когда
+  присутствуют.
+
+### 2. Tie-breaker по call_id для dedup
+
+Оператор: "Я бы dedup сделал ещё по ID сообщений: отображается
+только на том, где ID (цифра в tool call) больше, чем на других
+одинаковых этому."
+
+Новый helper `arenaPayloadCallId(payload)` возвращает первое
+числовое id или `NaN`. `mountedControls.set()` теперь хранит полный
+payload вместе с `host / bar / shadowHost`. Когда новый candidate
+приземляется с тем же semantic fingerprint, что и живой owner,
+dedup logic сравнивает call_ids:
+
+* `current > previous` → эвиктим previous, mount current.
+  Diag event: `evict_semantic_owner` с
+  `reason: "higher-call-id:X>Y"`.
+* `current <= previous` ИЛИ одно из id отсутствует → сохраняем
+  previous (fallback "prev-wins" из v0.14.13).
+  Diag event: `skip_semantic_prev_alive` с записанными
+  `current_call_id` и `previous_call_id`.
+
+На Claude это значит: toolbar отслеживает последний sys.status
+вызов через turns (call_id 4 выигрывает над 1, 2, 3), не ранний.
+
+### 3. Grok z-index починен (всё ещё перекрывал)
+
+Оператор: "z-index работает на Claude и T3 chat, но на Grok не
+работает."
+
+Корень: Grok оборачивает контент сообщения в transform-ed
+контейнер, который создаёт свой stacking context. Наш
+`z-index: 100` (v0.14.15) был scoped ВНУТРИ этого контекста;
+композер Grok на ~z-index 50+ всё равно выигрывал, потому что
+сидел снаружи.
+
+Фикс: снижен до `z-index: 10`. Всё ещё выше каждой измеренной
+inline site action row (Qwen like/share bar на z-index 5,
+Claude copy-button chrome на z-index 2), но ниже любого scoped
+composer overlay. Если конкретному сайту нужно выше -- поднимем
+через per-adapter `controlsHost` hoist в `content.js`, а не
+глобально.
+
+### 4. Advanced/Experimental collapsed по умолчанию
+
+Оператор: "Я бы добавил collapse для Advanced/Experimental."
+
+Обернул fieldset в `<details>` с summary "Advanced / experimental".
+Сам fieldset не изменился; dedupSemantic checkbox остаётся
+pre-checked. При первом открытии popup показывается только строка
+Save/Test/... и закрытый disclosure. Клик по summary раскроет.
+
+### Бампы версий
+
+* extension `0.14.15` → `0.14.16`
+* bridge `4.50.5` → `4.50.6`
+
+### Регрессионные guard-тесты
+
+13 новых asserts в `tests/test_chat_extension_v0_14_16.py`:
+
+* четыре version pin
+* AI Studio branch: substring regex покрывает
+  user/пользоват/system/систем; positive model exception;
+  gate `isUser && !isModel`; custom-element ancestor check
+  сохранён
+* helper `arenaPayloadCallId` определён; возвращает NaN когда
+  отсутствует
+* dedup вызывает helper на обоих current + previous payloads
+* mountedControls entry хранит `payload` для будущего сравнения
+* `skip_semantic_prev_alive` diag записывает оба call_ids
+* z-index снижен до 10, и 100 и max-int исчезли
+* Advanced fieldset обёрнут в `<details>` с dedupSemantic
+  checkbox всё ещё pre-checked
+* dedup всё ещё gated за `_dedupSemantic` toggle
+* каждый прежний per-release guard держится
+* content.js ≤ 900 строк (сейчас 760)
+
+Десять прежних extension test-файлов перепинены на 0.14.16 с
+обновлённой z-index expectation (100 → 10). Полный прогон:
+**2517 passed, 0 failed**.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 743 → 760 строк (call_id-aware
+  dedup с двумя evict-reason ветками)
+* `chat_extension/adapters.js` -- 650 → 692 строк (расширенный
+  AI Studio user filter + новый helper arenaPayloadCallId)
+* `chat_extension/popup.html` -- 70 → 74 строк (details wrapper
+  вокруг Advanced fieldset)
+* `chat_extension/shadow_toolbar.css` -- 120 → 120 строк
+  (z-index 100 → 10, обновлённый комментарий)
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_16.py` -- новый, 13 asserts
+* десять прежних extension test-файлов перепинены + z-index
+  expectation обновлена
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### Отложено для следующего раунда оператора
+
+По-прежнему в очереди (из changelog v4.50.5):
+
+* **v4.51.0** -- collapse tool results в истории чата (свернуть
+  вставленный result blob в `▸ Arena tool result (N tools, M
+  lines)` wrapper).
+* **v4.51.1** -- полный catalog инструкций по категориям (зеркалим
+  форму sidebar'а `list_tools` MCP SuperAssistant по адресу
+  https://github.com/srbhptl39/MCP-SuperAssistant).
+
+Оператор сказал: "когда с адаптерами закончим ... то я готов буду
+приступить" -- поэтому держим эти после завершения текущего тура.
+
+### Что увидишь
+
+* **AI Studio**: toolbar теперь на AI/model панели; User prompt
+  panel skip'ается (`aistudio:user-panel@MAT-EXPANSION-PANEL`).
+* **Claude / Mistral / etc.**: когда dedup ON (default) и несколько
+  candidates разделяют один tool call, toolbar отслеживает
+  ВЫСШИЙ call_id. events_recent scan report теперь показывает
+  `evict_semantic_owner reason:"higher-call-id:4>1"` когда это
+  срабатывает.
+* **Grok**: композер больше не перекрыт toolbar'ом.
+* **Popup**: Advanced / experimental collapsed; клик для раскрытия.
+
 ## v4.50.5 -- Toggle dedup (default ON) + AI Studio user-filter + z-index toolbar + лимит 900 строк
 
 Четыре запроса оператора, один релиз.

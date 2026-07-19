@@ -44,10 +44,10 @@ def _read(name: str) -> str:
 
 def test_versions_pinned_to_0_14_8():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
-    assert "return '0.14.15';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.15`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.16'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.16"
+    assert "return '0.14.16';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.16`" in _read("README.md")
 
 
 def test_grok_per_adapter_user_filter_lives_in_arenaWhyUserAuthored():
@@ -127,7 +127,7 @@ def test_why_user_authored_call_site_passes_adapter():
 def test_shadow_toolbar_css_qwen_fix_still_in_place():
     """v4.48.6 Qwen z-index + isolation fix must survive."""
     css = _read("shadow_toolbar.css")
-    assert "z-index: 100" in css
+    assert "z-index: 10" in css
     assert "position: relative" in css
     assert "isolation: isolate" in css
 

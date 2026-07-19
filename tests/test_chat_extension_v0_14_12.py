@@ -51,10 +51,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_12():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
-    assert "return '0.14.15';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.15`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.16'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.16"
+    assert "return '0.14.16';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.16`" in _read("README.md")
 
 
 def test_extract_node_id_includes_message_bubble_ancestor():
@@ -144,7 +144,7 @@ def test_prior_regression_guards_still_hold():
     assert "_cachedVisible" in adapters
 
     # Shadow toolbar Qwen fix.
-    assert "z-index: 100" in css
+    assert "z-index: 10" in css
     assert "isolation: isolate" in css
 
 

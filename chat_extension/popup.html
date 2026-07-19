@@ -32,19 +32,23 @@
           </select>
         </label>
       </fieldset>
-      <fieldset>
-        <legend>Advanced / experimental</legend>
-        <label>
-          <input id="dedupSemantic" type="checkbox" checked>
-          Dedup tool-bar: show one toolbar per unique tool call (default)
-        </label>
-        <p style="font-size:11px;color:#666;margin:2px 0 6px 22px">
-          Turn OFF to show a toolbar on every candidate host, even when
-          multiple render the same tool block (Claude call_id 1..N, Mistral
-          echo, Gemini Thought Process + main answer). More visible feedback
-          but sometimes puts a toolbar on top of the composer.
-        </p>
-      </fieldset>
+      <details style="margin:8px 0">
+        <summary style="cursor:pointer;font-weight:600;font-size:13px">Advanced / experimental</summary>
+        <fieldset style="margin-top:6px">
+          <label>
+            <input id="dedupSemantic" type="checkbox" checked>
+            Dedup tool-bar: show one toolbar per unique tool call (default)
+          </label>
+          <p style="font-size:11px;color:#666;margin:2px 0 6px 22px">
+            Turn OFF to show a toolbar on every candidate host, even when
+            multiple render the same tool block (Claude call_id 1..N,
+            Mistral echo, Gemini Thought Process + main answer). More
+            visible feedback but sometimes puts a toolbar on top of the
+            composer. When ON, the extension prefers the copy with the
+            highest numeric call_id (v0.14.16).
+          </p>
+        </fieldset>
+      </details>
       <div class="row">
         <button id="saveBtn">Save</button>
         <button id="testBtn">Test</button>

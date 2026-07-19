@@ -99,29 +99,50 @@ function arenaWhyUserAuthored(node, adapter) {
       return {matched: true, reason: 't3chat:user-prose@DIV'};
     }
   }
-  // v0.14.15: AI Studio (aistudio.google.com uses the `gemini` adapter,
-  // both sites share hosts, but their DOM shapes differ). AI Studio
-  // wraps user prompts in <ms-chat-turn role="user"> and
-  // <ms-prompt-chunk chunkrole="user"> custom elements. Its mat-
-  // expansion-panel-header text also starts with "User" for the user
-  // prompt panel. When the scanned host is inside any of those we mark
-  // it user-authored. The gemini.google.com path stays untouched
-  // because gemini.google.com does not use those elements.
+  // v0.14.16: AI Studio (aistudio.google.com; shares gemini adapter
+  // with gemini.google.com). v0.14.15 tried ms-chat-turn / ms-prompt-
+  // chunk custom-element ancestors + mat-expansion-panel-header text
+  // prefix. Live scan showed those miss on newer AI Studio builds --
+  // the User's own JSON is the one that DID mount and the AI's
+  // (arguments-inlined variant) skipped. Root cause: 'User' is the
+  // SECOND mat-expansion-panel that appears in the scan (the first
+  // 'System instructions' panel is what we wanted to filter). The
+  // header on the User panel actually contains 'User Turn' /
+  // 'Пользователь' AS SUBSTRINGS but not always as prefix; and the
+  // <ms-chat-turn role='user'> element is rendered by an outer sibling,
+  // not an ancestor of the code <pre>. Fix: match by SUBSTRING inside
+  // the header text OR by aria-label, and also look for the AI Studio
+  // 'model'/'assistant' inverse marker on the OTHER panel so we can
+  // decide by exclusion.
   if (adapterName === 'gemini' && node.closest) {
     const isAiStudio = typeof location !== 'undefined' && /aistudio\.google\.com$/i.test(location.hostname || '');
     if (isAiStudio) {
+      // 1) Custom-element ancestor (kept from v0.14.15 in case newer AI
+      //    Studio revisions add them).
       const userTurn = node.closest('ms-chat-turn[role="user"], ms-prompt-chunk[chunkrole="user"]');
       if (userTurn) {
         return {matched: true, reason: 'aistudio:user-turn@' + (userTurn.tagName || 'CUSTOM')};
       }
-      // Fallback: mat-expansion-panel header text. Google localises to
-      // "User" or (rarely) the language equivalent. Look at the header
-      // panel's textContent -- 20 char is enough.
+      // 2) mat-expansion-panel header substring match. AI Studio wraps
+      //    every prompt turn in its own mat-expansion-panel. Look at
+      //    both the aria-label and the visible text and check for
+      //    'user' as a substring (locale English) or 'пользоват'
+      //    (Russian). The 'system' / 'system instructions' panels are
+      //    ALSO user-authored from our point of view since Bridge tools
+      //    would not have been emitted there, so we treat those as
+      //    user-authored as well.
       const panel = node.closest('mat-expansion-panel');
       if (panel) {
         const header = panel.querySelector('mat-expansion-panel-header');
         const headTxt = (header?.textContent || '').trim().toLowerCase();
-        if (headTxt.startsWith('user') || headTxt.startsWith('пользоват')) {
+        const headAria = (header?.getAttribute?.('aria-label') || '').toLowerCase();
+        const isUser = /(?:^|\s)(user|пользоват|system|систем)/i.test(headTxt)
+                    || /(?:^|\s)(user|пользоват|system|систем)/i.test(headAria);
+        // Positive assistant/model markers -- if the panel is clearly
+        // marked as model output, DO NOT treat it as user-authored.
+        const isModel = /(?:^|\s)(model|assistant|ответ|модел)/i.test(headTxt)
+                     || /(?:^|\s)(model|assistant|ответ|модел)/i.test(headAria);
+        if (isUser && !isModel) {
           return {matched: true, reason: 'aistudio:user-panel@MAT-EXPANSION-PANEL'};
         }
       }
@@ -368,6 +389,27 @@ function arenaPayloadFingerprint(payload, adapter = getArenaAdapter()) {
       }))
     : [];
   return arenaStableHash(JSON.stringify({adapter: adapter.name, calls}), 'arena_payload');
+}
+
+function arenaPayloadCallId(payload) {
+  // v0.14.16 (v4.50.6): operator-requested tie-breaker for dedup --
+  // when two candidates share the same semantic fingerprint (same tool
+  // + arguments), prefer the one with the highest numeric call_id.
+  // Rationale: on Claude the model emits sys.status with call_id 1, 2,
+  // 3, 4 across successive turns; earlier releases mounted the toolbar
+  // on the smallest ID (top of chat) which was the least useful copy.
+  // Returns a non-negative integer, or NaN when call_id is missing /
+  // non-numeric (existing behaviour: no re-ordering happens).
+  if (!payload || !Array.isArray(payload.calls) || !payload.calls.length) {
+    return NaN;
+  }
+  // We compare the FIRST call's id -- payloads with multiple calls in
+  // one block share the same id-set anyway (batch), and the smallest
+  // among a batch is enough for a stable order.
+  const raw = String(payload.calls[0]?.id || '').trim();
+  if (!raw) return NaN;
+  const n = parseInt(raw, 10);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter()) {

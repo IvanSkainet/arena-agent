@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.15';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.16';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -314,8 +314,25 @@ function mountControls(host, payload, adapter) {
     if (semanticOwner && semanticOwner !== fingerprint) {
       const previous = mountedControls.get(semanticOwner);
       const prevAlive = !!(previous?.host?.isConnected && previous?.bar?.isConnected);
+      // v0.14.16 (v4.50.6): tie-breaker by call_id. When both hosts are
+      // alive, the operator asked us to prefer the candidate with the
+      // HIGHER numeric call_id. On Claude the model emits call_id 1..N
+      // across turns; the latest one is the most useful copy to keep
+      // visible. When call_ids are missing / non-numeric we fall back
+      // to the v0.14.13 "prev-wins" behaviour so nothing regresses.
+      const currentCid = (typeof arenaPayloadCallId === 'function') ? arenaPayloadCallId(payload) : NaN;
+      const previousCid = (typeof arenaPayloadCallId === 'function') ? arenaPayloadCallId(previous?.payload) : NaN;
+      const currentBigger = Number.isFinite(currentCid) && Number.isFinite(previousCid) && currentCid > previousCid;
       if (!prevAlive) {
-        _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
+        _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner, reason: 'prev-dead'});
+        if (previous?.shadowHost) previous.shadowHost.remove();
+        else previous?.bar?.remove();
+        if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
+        mountedControls.delete(semanticOwner);
+        mountedPayloadSemantics.delete(semanticFingerprint);
+        mountedSemanticOwners.delete(semanticFingerprint);
+      } else if (currentBigger) {
+        _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner, reason: `higher-call-id:${currentCid}>${previousCid}`});
         if (previous?.shadowHost) previous.shadowHost.remove();
         else previous?.bar?.remove();
         if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
@@ -323,7 +340,7 @@ function mountControls(host, payload, adapter) {
         mountedPayloadSemantics.delete(semanticFingerprint);
         mountedSemanticOwners.delete(semanticFingerprint);
       } else {
-        _arenaDiagPushEvent({kind: 'skip_semantic_prev_alive', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
+        _arenaDiagPushEvent({kind: 'skip_semantic_prev_alive', adapter: adapter.name, fingerprint, previous_owner: semanticOwner, current_call_id: currentCid, previous_call_id: previousCid});
         return;
       }
     }
@@ -491,7 +508,7 @@ function mountControls(host, payload, adapter) {
   // v4.48.0: position the shadow host (or bar on fallback).
   attachControls(host, shadowHost || bar);
     // Track shadowHost for semantic-eviction .remove(); `bar` kept for back-compat.
-  mountedControls.set(fingerprint, {host, bar, shadowHost, semanticFingerprint});
+  mountedControls.set(fingerprint, {host, bar, shadowHost, semanticFingerprint, payload});
   mountedSemanticOwners.set(semanticFingerprint, fingerprint);
   _arenaDiagPushEvent({kind: 'mounted', adapter: adapter.name, fingerprint, tag: host?.tagName || ''});
 

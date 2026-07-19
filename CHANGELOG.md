@@ -1,3 +1,154 @@
+## v4.50.6 -- AI Studio filter fixed (inverted!) + call_id tie-breaker + Grok z-index + collapsed Advanced
+
+Four operator asks after v0.14.15:
+
+### 1. AI Studio User filter fixed (was catching User, missing AI)
+
+Operator: "На AI Studio всё ещё user ловит. Теперь только User
+ловит, а AI не ловит." (v0.14.15 got the direction wrong.)
+
+Root cause: v0.14.15 required the mat-expansion-panel-header text
+to START with "User"/"Пользоват". On the current AI Studio build
+that prefix does not match; the header sometimes has "User Turn 3"
+or an aria-label, or the User panel is actually labelled "System
+instructions". Meanwhile the AI/model panel started with "Model"
+which also failed the prefix test, so nothing matched consistently.
+
+Fix in `arenaWhyUserAuthored`'s AI Studio branch:
+
+* SUBSTRING match (with word-boundary regex) instead of prefix:
+  covers `user`, `пользоват`, `system`, `систем` in header
+  textContent AND aria-label.
+* Positive assistant-marker exclusion: when the header contains
+  `model`, `assistant`, `ответ` or `модел`, treat as NOT-user,
+  even if a user marker matched by accident.
+* Custom-element ancestor check (v0.14.15) preserved as the
+  primary signal -- `ms-chat-turn[role="user"]` and
+  `ms-prompt-chunk[chunkrole="user"]` still win when present.
+
+### 2. call_id-aware dedup tie-breaker
+
+Operator: "Я бы dedup сделал ещё по ID сообщений: отображается
+только на том, где ID (цифра в tool call) больше, чем на других
+одинаковых этому."
+
+New helper `arenaPayloadCallId(payload)` returns the first call's
+numeric id or `NaN`. `mountedControls.set()` now stores the full
+payload alongside `host / bar / shadowHost`. When a new candidate
+lands with the same semantic fingerprint as an alive owner, the
+dedup logic compares call_ids:
+
+* `current > previous` → evict previous, mount current.
+  Diag event: `evict_semantic_owner` with
+  `reason: "higher-call-id:X>Y"`.
+* `current <= previous` OR either id missing → keep previous
+  (v0.14.13 "prev-wins" fallback).
+  Diag event: `skip_semantic_prev_alive` with
+  `current_call_id` and `previous_call_id` recorded.
+
+On Claude this means: the toolbar tracks the latest sys.status
+call across turns (call_id 4 wins over 1, 2, 3), not the earliest.
+
+### 3. Grok z-index fixed (was still overlapping)
+
+Operator: "z-index работает на Claude и T3 chat, но на Grok не
+работает."
+
+Root cause: Grok wraps its message content in a transform-ed
+container, which creates its own stacking context. Our
+`z-index: 100` (v0.14.15) was scoped INSIDE that context; Grok's
+composer at ~z-index 50+ still won because it sat outside.
+
+Fix: dropped to `z-index: 10`. Still above every inline site
+action row measured (Qwen's like/share bar at z-index 5,
+Claude's copy-button chrome at z-index 2) but below any scoped
+composer overlay. If a specific site needs the higher value
+back we bump it via a per-adapter `controlsHost` hoist in
+`content.js` rather than globally.
+
+### 4. Advanced/Experimental section collapsed by default
+
+Operator: "Я бы добавил collapse для Advanced/Experimental."
+
+Wrapped the fieldset in `<details>` with the "Advanced /
+experimental" summary. Fieldset itself unchanged; the
+dedupSemantic checkbox stays pre-checked. First-time opening the
+popup now shows only the Save/Test/... row and the closed
+disclosure. Click the summary to expand.
+
+### Version bumps
+
+* extension `0.14.15` → `0.14.16`
+* bridge `4.50.5` → `4.50.6`
+
+### Regression guards
+
+13 new asserts in `tests/test_chat_extension_v0_14_16.py`:
+
+* four version pins
+* AI Studio branch: substring regex covers user/пользоват/system/
+  систем; positive model exception; `isUser && !isModel` gate;
+  custom-element ancestor check preserved
+* `arenaPayloadCallId` helper defined; returns NaN when missing
+* dedup calls the helper on both current + previous payloads
+* mountedControls entry stores `payload` for future comparison
+* `skip_semantic_prev_alive` diag records both call_ids
+* z-index reduced to 10, both 100 and max-int gone
+* Advanced fieldset wrapped in `<details>` with dedupSemantic
+  checkbox still pre-checked
+* dedup still gated behind `_dedupSemantic` toggle
+* every earlier per-release guard still holds
+* content.js sits ≤ 900 lines (currently 760)
+
+Ten prior extension test files re-pinned to 0.14.16 with the
+z-index expectation updated from 100 to 10. Full sweep: **2517
+passed, 0 failed**.
+
+### Files touched
+
+* `chat_extension/content.js` -- 743 → 760 lines (call_id-aware
+  dedup with two evict-reason branches)
+* `chat_extension/adapters.js` -- 650 → 692 lines (broadened
+  AI Studio user filter + new arenaPayloadCallId helper)
+* `chat_extension/popup.html` -- 70 → 74 lines (details wrapper
+  around Advanced fieldset)
+* `chat_extension/shadow_toolbar.css` -- 120 → 120 lines (z-index
+  100 → 10, comment refreshed)
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_16.py` -- new, 13 asserts
+* ten prior extension test files re-pinned + z-index expectation
+  updated
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### Filed for the operator's next round
+
+Still queued (from v4.50.5 changelog):
+
+* **v4.51.0** -- collapse tool results in chat history (fold the
+  inserted result blob into a `▸ Arena tool result (N tools, M
+  lines)` wrapper).
+* **v4.51.1** -- full instructions catalog per category (mirror
+  MCP SuperAssistant's `list_tools` sidebar shape at
+  https://github.com/srbhptl39/MCP-SuperAssistant).
+
+Operator said: "когда с адаптерами закончим ... то я готов буду
+приступить" -- so we hold these for after the current tour
+finishes.
+
+### What operator will see
+
+* **AI Studio**: toolbar now on the AI/model panel; User prompt
+  panel skipped (`aistudio:user-panel@MAT-EXPANSION-PANEL`).
+* **Claude / Mistral / etc.**: when dedup is ON (default) and
+  multiple candidates share the same tool call, toolbar tracks
+  the HIGHEST call_id. Scan report's events_recent now shows
+  `evict_semantic_owner reason:"higher-call-id:4>1"` when this
+  fires.
+* **Grok**: composer no longer covered by the toolbar.
+* **Popup**: Advanced / experimental collapsed; click to expand.
+
 ## v4.50.5 -- Dedup toggle (default ON) + AI Studio user filter + toolbar z-index fix + limit raised to 900
 
 Four operator asks, one release.

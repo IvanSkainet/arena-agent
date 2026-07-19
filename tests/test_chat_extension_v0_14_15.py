@@ -48,10 +48,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_15():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
-    assert "return '0.14.15';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.15`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.16'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.16"
+    assert "return '0.14.16';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.16`" in _read("README.md")
 
 
 # ------------------------------------------------------------------
@@ -137,7 +137,7 @@ def test_gemini_adapter_has_aistudio_user_filter():
 
 def test_shadow_toolbar_z_index_reduced_to_100():
     src = _read("shadow_toolbar.css")
-    assert "z-index: 100;" in src, "toolbar z-index must be moderate now"
+    assert "z-index: 10;" in src, "toolbar z-index must be moderate now"
     assert "z-index: 2147483000;" not in src, (
         "max-int-safe z-index made the toolbar cover the composer"
     )

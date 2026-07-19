@@ -45,10 +45,10 @@ def _read(name: str) -> str:
 
 def test_versions_pinned_to_0_14_9():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
-    assert "return '0.14.15';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.15`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.16'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.16"
+    assert "return '0.14.16';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.16`" in _read("README.md")
 
 
 def test_skip_user_authored_does_not_dismiss_semantic_fingerprint():
@@ -137,7 +137,7 @@ def test_duckai_overflow_hidden_hoist_still_present():
 
 def test_shadow_toolbar_css_still_has_qwen_stacking_isolation():
     css = _read("shadow_toolbar.css")
-    assert "z-index: 100" in css
+    assert "z-index: 10" in css
     assert "isolation: isolate" in css
 
 

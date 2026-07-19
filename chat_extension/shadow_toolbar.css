@@ -33,20 +33,20 @@
   color-scheme: light dark;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
                Oxygen, Ubuntu, sans-serif;
-  /* v0.14.6/v0.14.15: sit above site action rows (Qwen has like/dislike/
-     share/refresh directly below the code block that overlapped our toolbar)
-     but STAY BELOW the site's fixed/sticky composer input at the bottom
-     of the viewport. Max-int-safe z-index (v0.14.6) caused the toolbar to
-     hover over Claude / Grok / t3.chat's composer, which the operator
-     reported as "поверх окна ввода". A moderate value of 100 keeps us
-     above regular flow content (site action rows sit around z-index 5-10)
-     without ever climbing over a position:fixed composer that a normal
-     site puts at z-index 1000+. Sites that anchor their bottom bar with
-     an even lower z-index will still see the toolbar above them; that is
-     the correct behaviour since those toolbars stay in the flow of the
-     scrolled message list. */
+  /* v0.14.6/v0.14.15/v0.14.16: sit above site action rows without
+     overlapping the composer.
+     v0.14.6 used max-int (2147483000) -- covered composers.
+     v0.14.15 dropped to 100 -- fixed Claude/T3, but Grok still
+     showed the toolbar above its transform-ed message container's
+     composer at z-index 50+.
+     v0.14.16 drops to 10 -- still above every inline site action
+     row we've measured (Qwen's like/share bar is z-index 5, Claude's
+     copy-button chrome is z-index 2) but comfortably below any
+     scoped composer overlay. If a specific site needs the higher
+     value back we bump per-adapter via a chat_extension/content.js
+     controlsHost hoist rather than globally. */
   position: relative;
-  z-index: 100;
+  z-index: 10;
   margin-top: 6px;
   isolation: isolate;
 }
