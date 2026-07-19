@@ -36,7 +36,20 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
         name = parse_qs(request.query_string).get("name", [""])[0]
         if not name:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing name parameter"}, status=400)
+            # v4.50.12: actionable error hint. Bare "missing name
+            # parameter" left the model guessing which alias to use;
+            # now spell out both accepted keys and the required GET
+            # signature so the next tool call succeeds.
+            return ctx.cors_json_response(
+                {
+                    "ok": False,
+                    "error": "missing required parameter 'name' (or 'mission_id')",
+                    "hint": "Pass the mission's saved name (case-sensitive). Example: mission.family({\"name\": \"cachyos-onboarding\"}). Call mission.catalog first to discover available mission names.",
+                    "required": ["name"],
+                    "endpoint": "GET /v1/mission/family?name=<mission-name>",
+                },
+                status=400,
+            )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.mission_family_sync, name)
         return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 404)))
@@ -93,3 +106,4 @@ def make_mission_lifecycle_handlers(ctx: MissionLifecycleHandlerContext) -> Miss
 
 
 __all__ = ["MissionLifecycleHandlers", "make_mission_lifecycle_handlers"]
+

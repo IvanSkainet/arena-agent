@@ -528,6 +528,28 @@ function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
     } else if (node.closest?.('#response-content-container, [class*="chat-assistant"]')) {
       roleBit = 'ai';
     }
+    // v0.14.22 (v4.50.12): Arena.ai battle / side-by-side column
+    // ordinal. When two models generate the same tool call in
+    // parallel columns their outer wrappers otherwise hash to the
+    // same fingerprint (both `mx-auto max-w-[800px]` AI panels).
+    // Include the column index within the carousel/side-by-side
+    // container so each column gets a distinct fingerprint. Kept
+    // narrow: only fires on arena.ai and only when the ordinal is
+    // discoverable.
+    if (roleBit === 'ai') {
+      try {
+        const isArenaAi = typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '');
+        if (isArenaAi) {
+          const col = node.closest?.('[class*="@container/carousel"] > *, [class*="carousel"] > *, [class*="side-by-side"] > *');
+          const carousel = col?.parentElement;
+          if (col && carousel) {
+            const sibs = Array.from(carousel.children).filter((c) => c.contains?.(col) || c === col);
+            const idx = sibs.indexOf(col);
+            if (idx >= 0) roleBit = 'ai_c' + idx;
+          }
+        }
+      } catch (_e) { /* ignore */ }
+    }
     // v0.14.21 (v4.50.11): fallback: turn ordinal from
     // conversation-turn-N testid (ChatGPT + OpenRouter both expose
     // it). Even when a chat has many identical tool-echo blocks the
@@ -627,13 +649,32 @@ function arenaPayloadCallId(payload) {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter()) {
+function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter(), node = null) {
   // Semantic fingerprint deliberately drops per-instance call.id so that the
   // same tool call re-detected across DOM churn does not remount toolbars.
+  // v0.14.22 (v4.50.12): accepts optional `node` so battle / side-by-side
+  // surfaces (arena.ai) can include a column identifier in the semantic
+  // fingerprint. Two models emitting identical tool calls in parallel
+  // columns must each get their own toolbar -- previously both hashed to
+  // the same fingerprint and one column was silently skipped as a
+  // "duplicate".
   const calls = Array.isArray(payload?.calls)
     ? payload.calls.map((call) => ({tool: call.tool || '', arguments: call.arguments || {}}))
     : [];
-  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls}), 'arena_payload_sem');
+  let column = '';
+  try {
+    if (node && typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '')) {
+      // Look at Battle / Side-by-side carousel column index.
+      const col = node.closest?.('[class*="@container/carousel"] > *, [class*="carousel"] > *, [class*="side-by-side"] > *');
+      const carousel = col?.parentElement;
+      if (col && carousel) {
+        const sibs = Array.from(carousel.children);
+        const idx = sibs.indexOf(col);
+        if (idx >= 0) column = 'c' + idx;
+      }
+    }
+  } catch (_e) { /* ignore */ }
+  return arenaStableHash(JSON.stringify({adapter: adapter.name, calls, column}), 'arena_payload_sem');
 }
 
 function arenaMessageFingerprint(node, payload, adapter = getArenaAdapter()) {
@@ -905,6 +946,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 

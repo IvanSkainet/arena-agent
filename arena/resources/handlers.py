@@ -80,12 +80,27 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         except Exception as e:
             return ctx.cors_json_response({"ok": False, "error": str(e)}, status=500)
 
+    def _missing_name_error(hint_endpoint: str) -> dict:
+        # v4.50.12: shared actionable-error payload for mission
+        # endpoints that need a mission name. The MCP tool schemas
+        # allow either `name` or `mission_id`; we surface both.
+        return {
+            "ok": False,
+            "error": "missing required parameter 'name' (or 'mission_id')",
+            "hint": "Pass the mission's saved name (case-sensitive). Call mission.catalog first to discover available mission names.",
+            "required": ["name"],
+            "endpoint": hint_endpoint,
+        }
+
     @authed(ctx)
     async def handle_v1_mission_show(request: web.Request) -> web.Response:
         name = parse_qs(request.query_string).get("name", [""])[0]
         if not name:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing name parameter"}, status=400)
+            return ctx.cors_json_response(
+                _missing_name_error("GET /v1/mission/show?name=<mission-name>"),
+                status=400,
+            )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.mission_show_sync, name)
         return ctx.cors_json_response(result, status=200 if result.get("ok") else 404)
@@ -98,7 +113,12 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         name = parse_qs(request.query_string).get("name", [""])[0]
         if not name:
             ctx.record_request(is_error=True, count_request=False)
-            return ctx.cors_json_response({"ok": False, "error": "missing name parameter"}, status=400)
+            # v4.50.12: use the request path in the hint so the model
+            # sees the exact endpoint it just hit.
+            return ctx.cors_json_response(
+                _missing_name_error(f"GET {request.path}?name=<mission-name>"),
+                status=400,
+            )
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, sync_fn, name)
         return ctx.cors_json_response(result, status=200 if result.get("ok") else int(result.get("status", 404)))
@@ -180,3 +200,4 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         return ctx.cors_json_response(result)
 
     return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_lineage=lambda request: _mission_get(ctx.mission_lineage_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, mission_followup=handle_v1_mission_followup, mission_iterate=handle_v1_mission_iterate, subagents_spawn=handle_v1_subagents_spawn)
+

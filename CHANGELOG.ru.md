@@ -1,3 +1,114 @@
+## v4.50.12 -- battle multi-model + partial-failure UX + \u043f\u043e\u043d\u044f\u0442\u043d\u044b\u0435 bridge 400
+
+# v4.50.12 — battle multi-model + partial-failure UX + понятные bridge 400
+
+Более крупный релиз, разбирающий отложенный бэклог с тура v4.50.11.
+Три связанных изменения.
+
+## 1. Arena.ai battle / side-by-side multi-model
+
+**Симптом (Иван):** "На Arena.ai осталось только подружить
+multi-model, когда тут несколько моделей, скажем 2 модели в battle
+генерируют вызов функции, чтобы оно к обоим прикреплялось."
+
+**Причина:** `arenaPayloadSemanticFingerprint(payload, adapter)`
+хэшировал только tool+arguments — две модели, генерирующие
+одинаковый `sys.status` в параллельных колонках карусели,
+коллапсировались в один fingerprint. Dedup потом отбрасывал одну
+колонку.
+
+**Фикс:**
+- **`chat_extension/adapters.js::arenaPayloadSemanticFingerprint`**
+  теперь принимает опциональный `node`. На `arena.ai` (и только
+  там) вычисляет `cN` — индекс колонки внутри
+  `@container/carousel` / `carousel` / `side-by-side` — и
+  подмешивает в хэш. Разные колонки → разные fingerprint → оба
+  получают toolbar.
+- **`chat_extension/adapters.js::arenaExtractNodeId`** получает
+  соответствующий вариант `ai_cN` в roleBit — message fingerprint
+  тоже расщепляется по колонкам.
+- **`chat_extension/content.js::mountControls`** передаёт `host`
+  в новую сигнатуру, чтобы расщепление сработало при mount.
+
+Вызовы на других адаптерах, где `node` не передаётся, работают
+как раньше (back-compat).
+
+## 2. Partial-failure UX: сохраняем timing + per-call статус
+
+**Симптом:** "некоторые из вызовов функций выдавали 400 ошибку и
+поэтому весь результат в toolbar, помимо плохого сообщения об
+ошибке, которое надо улучшить, выдавал пустой результат без
+миллисекунд и подобных им вещей, если хотя бы одна функция
+завершилась с ошибкой."
+
+**Фикс (`chat_extension/content.js`):**
+- **`resultToText`** теперь рендерит каждый call как отдельный
+  блок с заголовком:
+  ```
+  # call 2 · mission.lineage · ERROR
+  {"ok": false, "error": "missing required parameter 'name' ..."}
+
+  # call 3 · fs.list · OK
+  {"entries": [...]}
+  ```
+- **Run button status** всегда показывает timing:
+  - `Executed 6 call(s) in 1058ms` при полном успехе
+  - `Executed 4/6 call(s) in 1058ms · error: missing name parameter`
+    при частичном отказе (раньше был голый `Run error`).
+- **`runAutoModes`** также рендерит текст при partial failure,
+  чтобы `autoInsertResult` мог вставить в composer выхлоп
+  успешных calls вместо пустоты.
+
+## 3. Bridge — понятные 400 ответы на mission endpoints
+
+**Симптом (из скана OpenRouter):** `mission.lineage` /
+`mission.family` / `mission.history` возвращали голое
+`{"ok": false, "error": "missing name parameter"}` (status 400)
+когда AI забывал параметр `name`. Итог: AI не мог восстановиться,
+т.к. ошибка не подсказывала как исправить — и продолжал слать тот
+же сломанный вызов.
+
+**Фикс:**
+- **`arena/resources/handlers.py`** — новый общий helper
+  `_missing_name_error(hint_endpoint)`. `mission_show` и
+  `_mission_get` (обёртка над status / report / history / lineage)
+  возвращают:
+  ```json
+  {
+    "ok": false,
+    "error": "missing required parameter 'name' (or 'mission_id')",
+    "hint": "Pass the mission's saved name (case-sensitive). Call mission.catalog first to discover available mission names.",
+    "required": ["name"],
+    "endpoint": "GET /v1/mission/history?name=<mission-name>"
+  }
+  ```
+- **`arena/resources/mission_lifecycle_handlers.py`** —
+  `mission_family` получает то же самое со своим endpoint hint.
+
+Указатель на `mission.catalog` в hint даёт AI детерминированный
+следующий шаг — обнаружить валидные имена missions перед retry.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.12`.
+- `pyproject.toml::version` → `4.50.12`.
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_22.py` — 14 asserts.
+- Перепиннены все v0_14_* + assets + adapter_flow на `0.14.22`.
+- Ожидаемо: 2595 passed (2581 → 2595).
+
+## Всё ещё отложено
+
+- T3 chat дубль toolbar во время stream — нужен scan сделанный
+  ВО ВРЕМЯ streaming (не после).
+- Mistral flaky mount — та же категория, нужен свежий scan во
+  время флейка.
+- v4.51.0 (collapse tool results) + v4.51.1 (полный каталог
+  инструкций) — тур по адаптерам в основном отстоялся, можно
+  начинать следующие фичи.
+
 ## v4.50.11 -- \u0438\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u0438\u043d\u0432\u0435\u0440\u0441\u0438\u0438 Arena.ai + OpenRouter multi-block + ChatGPT fingerprint fix
 
 # v4.50.11 — исправление инверсии Arena.ai + OpenRouter multi-block + fingerprint fix для ChatGPT

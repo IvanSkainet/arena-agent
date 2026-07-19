@@ -1,6 +1,26 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.21` (v4.50.11 bridge release —
+Current extension version: `0.14.22` (v4.50.12 bridge release —
+big backlog release picking up open items from the v4.50.11 tour:
+1) Arena.ai battle / side-by-side multi-model — semantic
+fingerprint now includes the carousel column index so two
+models emitting identical tool calls in parallel columns each
+get their own toolbar (previously one was silently deduped).
+Also `roleBit` in message fingerprint carries the column index
+so `ai_c0` / `ai_c1` never collide.
+2) Partial-failure result rendering — when the AI batches
+several tool calls and one returns an error (e.g. 400 missing
+name parameter), the toolbar now renders EVERY call as a
+labelled `# call N · tool · OK|ERROR` block so the operator
+can Insert the successful calls' output alongside the failed
+call's error message. Status line reads `Executed X/Y call(s)
+in Nms · error: ...` instead of a bare `Run error`. Timing
+metadata is preserved on partial failure.
+3) Bridge — mission endpoints (`/v1/mission/show`, `status`,
+`report`, `history`, `lineage`, `family`) return actionable
+JSON on missing-name 400 responses: `error`, `hint`,
+`required`, `endpoint` fields with a mission.catalog pointer
+so the next AI call succeeds. v4.50.11 bridge release —
 three retries after Ivan's v4.50.10 tour:
 1) Arena.ai user filter — v4.50.10 markers were INVERTED
 (bg-surface-raised was assumed AI but is actually the User
@@ -221,6 +241,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

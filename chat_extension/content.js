@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.21';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.22';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -107,10 +107,24 @@ function formatInsertText(text) {
 function resultToText(result) {
   if (!result) return '';
   if (!Array.isArray(result.calls)) return JSON.stringify(result, null, 2);
-  return result.calls.map((call) => {
-    if (call?.result?.parsed) return JSON.stringify(call.result.parsed, null, 2);
-    if (call?.result?.text) return String(call.result.text);
-    return JSON.stringify(call, null, 2);
+  // v0.14.22 (v4.50.12): render EVERY call including failures. Before
+  // this, when the AI batched several tool calls and one returned an
+  // error (e.g. 400 missing name parameter), the failed call still
+  // rendered its raw JSON but subsequent OK calls sometimes lost
+  // their timing metadata because the outer `result.ok` was false and
+  // the runAutoModes early-returned. Now each call is a labelled
+  // block with its own status header so partial failures never hide
+  // successful results.
+  return result.calls.map((call, idx) => {
+    const id = String(call?.id || call?.call_id || (idx + 1));
+    const tool = String(call?.tool || 'tool');
+    const okFlag = call?.ok === false ? 'ERROR' : 'OK';
+    const body = call?.result?.parsed
+      ? JSON.stringify(call.result.parsed, null, 2)
+      : (call?.result?.text
+        ? String(call.result.text)
+        : JSON.stringify(call, null, 2));
+    return `# call ${id} · ${tool} · ${okFlag}\n${body}`;
   }).join('\n\n');
 }
 
@@ -256,7 +270,7 @@ function suppressCurrentControls() {
         ? arenaMessageFingerprint(host, entry.payload, state.adapter)
         : hash((host.textContent || '') + JSON.stringify(entry.payload));
       const semanticFp = typeof arenaPayloadSemanticFingerprint === 'function'
-        ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter)
+        ? arenaPayloadSemanticFingerprint(entry.payload, state.adapter, host)
         : hash(JSON.stringify(entry.payload || {}));
       dismissedControls.add(messageFp);
       dismissedControls.add(semanticFp);
@@ -364,7 +378,7 @@ function mountControls(host, payload, adapter) {
     ? arenaPayloadFingerprint(payload, adapter)
     : hash(JSON.stringify(payload || {}));
   const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function'
-    ? arenaPayloadSemanticFingerprint(payload, adapter)
+    ? arenaPayloadSemanticFingerprint(payload, adapter, host)
     : payloadFingerprint;
   const existing = mountedControls.get(fingerprint);  // v0.14.11: dismissed-check BEFORE evict (DuckAI thrash)
   if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
@@ -539,16 +553,26 @@ function mountControls(host, payload, adapter) {
     });
     const runMs = Math.round(performance.now() - runStarted);
     const bridgeMs = result?.bridge_ms || 0;
+    // v0.14.22 (v4.50.12): render text even on partial failure so the
+    // operator can Insert the successful calls' output alongside the
+    // failed call's error message. Also always show timing so the
+    // per-call ms is never hidden behind a bare "Run error".
     if (Array.isArray(result?.calls)) {
       lastExecutionText = resultToText(result);
       if (lastExecutionText) executionResults.set(semanticFingerprint, lastExecutionText);
     }
-    const timing = result?.ok
-      ? (bridgeMs > 0 ? ` in ${runMs}ms (bridge ${bridgeMs}ms)` : ` in ${runMs}ms`)
-      : '';
-    status.textContent = result?.ok
-      ? `Executed ${result.calls?.length || 0} call(s)${timing}`
-      : `Run error: ${resultErrorText(result)}`;
+    const timing = bridgeMs > 0 ? ` in ${runMs}ms (bridge ${bridgeMs}ms)` : ` in ${runMs}ms`;
+    const total = result?.calls?.length || 0;
+    const okCount = Array.isArray(result?.calls)
+      ? result.calls.filter((c) => c?.ok !== false).length
+      : 0;
+    if (result?.ok) {
+      status.textContent = `Executed ${total} call(s)${timing}`;
+    } else if (Array.isArray(result?.calls) && result.calls.length) {
+      status.textContent = `Executed ${okCount}/${total} call(s)${timing} · error: ${resultErrorText(result)}`;
+    } else {
+      status.textContent = `Run error: ${resultErrorText(result)}`;
+    }
   }, true));
 
   bar.appendChild(makeButton('Insert', async () => {
@@ -657,14 +681,23 @@ async function runAutoModes(request, adapter, status, semanticFingerprint, setRe
     type: 'arena.execute',
     body: {...request, mode: {}},
   });
-  if (!result?.ok) {
-    status.textContent = `Auto run error: ${resultErrorText(result)}`;
-    return;
-  }
+  // v0.14.22 (v4.50.12): preserve text output on partial failure so
+  // autoInsertResult can still push successful calls' output to the
+  // composer.
   const text = resultToText(result);
   if (text) executionResults.set(semanticFingerprint, text);
   setResultText(text);
-  status.textContent = `Auto executed ${result.calls?.length || 0} call(s)`;
+  const total = result?.calls?.length || 0;
+  const okCount = Array.isArray(result?.calls)
+    ? result.calls.filter((c) => c?.ok !== false).length
+    : 0;
+  if (!result?.ok && !total) {
+    status.textContent = `Auto run error: ${resultErrorText(result)}`;
+    return;
+  }
+  status.textContent = result?.ok
+    ? `Auto executed ${total} call(s)`
+    : `Auto executed ${okCount}/${total} call(s) · error: ${resultErrorText(result)}`;
 
   if (!modes.autoInsertResult || !text) return;
   const insertText = formatInsertText(text);
@@ -923,6 +956,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

@@ -1,3 +1,116 @@
+## v4.50.12 -- battle multi-model + partial-failure UX + actionable bridge 400s
+
+# v4.50.12 — battle multi-model + partial-failure UX + actionable bridge 400s
+
+Bigger release picking up the deferred backlog from Ivan's v4.50.11
+tour. Three related changes.
+
+## 1. Arena.ai battle / side-by-side multi-model
+
+**Symptom (Ivan):** "На Arena.ai осталось только подружить
+multi-model, когда тут несколько моделей, скажем 2 модели в battle
+генерируют вызов функции, чтобы оно к обоим прикреплялось."
+
+**Root cause:** `arenaPayloadSemanticFingerprint(payload, adapter)`
+hashed only the tool+arguments — two models emitting the SAME
+`sys.status` call in parallel carousel columns collapsed to a
+single fingerprint. Dedup then evicted or skipped one column.
+
+**Fix:**
+- **`chat_extension/adapters.js::arenaPayloadSemanticFingerprint`**
+  now accepts an optional `node` param. On `arena.ai` (and only
+  there) it derives a `cN` column index from the nearest
+  `@container/carousel` / `carousel` / `side-by-side` container
+  and mixes it into the hash. Different columns get different
+  semantic fingerprints so both get toolbars.
+- **`chat_extension/adapters.js::arenaExtractNodeId`** gets a
+  matching `ai_cN` roleBit variant so the message fingerprint
+  also splits along columns.
+- **`chat_extension/content.js::mountControls`** passes `host` to
+  the new signature so the split takes effect at mount time.
+
+Callers on other adapters that pass no `node` see zero change
+(back-compat).
+
+## 2. Partial-failure UX: preserve timing + per-call status
+
+**Symptom (Ivan):** "некоторые из вызовов функций выдавали 400
+ошибку и поэтому весь результат в toolbar, помимо плохого
+сообщения об ошибке, которое надо улучшить, выдавал пустой
+результат без миллисекунд и подобных им вещей, если хотя бы одна
+функция завершилась с ошибкой."
+
+**Fix (`chat_extension/content.js`):**
+- **`resultToText`** now renders every call as a labelled block:
+  ```
+  # call 2 · mission.lineage · ERROR
+  {"ok": false, "error": "missing required parameter 'name' ..."}
+
+  # call 3 · fs.list · OK
+  {"entries": [...]}
+  ```
+- **Run button status line** always shows timing:
+  - `Executed 6 call(s) in 1058ms` on full success
+  - `Executed 4/6 call(s) in 1058ms · error: missing name parameter`
+    on partial failure (previously bare `Run error`).
+- **`runAutoModes`** also renders text on partial failure so
+  `autoInsertResult` still pushes the successful calls' output
+  to the composer instead of nothing.
+
+## 3. Bridge — actionable 400 responses on mission endpoints
+
+**Symptom (from OpenRouter tour scan):** `mission.lineage` /
+`mission.family` / `mission.history` etc returned bare
+`{"ok": false, "error": "missing name parameter"}` (status 400)
+when the AI omitted the `name` argument. Result: the AI couldn't
+recover because the error didn't say how to fix it, so it
+kept sending the same broken call.
+
+**Fix:**
+- **`arena/resources/handlers.py`** — new shared
+  `_missing_name_error(hint_endpoint)` helper. `mission_show` and
+  `_mission_get` (which powers status / report / history /
+  lineage) now return:
+  ```json
+  {
+    "ok": false,
+    "error": "missing required parameter 'name' (or 'mission_id')",
+    "hint": "Pass the mission's saved name (case-sensitive). Call mission.catalog first to discover available mission names.",
+    "required": ["name"],
+    "endpoint": "GET /v1/mission/history?name=<mission-name>"
+  }
+  ```
+- **`arena/resources/mission_lifecycle_handlers.py`** —
+  `mission_family` gets the same treatment with its own endpoint
+  hint.
+
+The `mission.catalog` pointer in the hint gives the AI a
+deterministic next-step to discover valid mission names before
+retrying.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.12`.
+- `pyproject.toml::version` → `4.50.12`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_22.py` — 14 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow tests to `0.14.22`.
+- Expected total: 2595 passed (2581 → 2595, +14).
+
+## Still deferred
+
+- T3 chat duplicate toolbar during streaming (goes away on chat
+  reload). Needs streaming-lifecycle rescan; will be picked up in
+  a follow-up when Ivan has a fresh scan-report captured DURING
+  the stream (not after).
+- Mistral flaky mount — same category, needs a scan captured while
+  the flake is happening.
+- v4.51.0 (collapse tool results in chat history) + v4.51.1
+  (full instructions catalog) — the adapter tour is now
+  substantially settled; can be picked up next.
+
 ## v4.50.11 -- Arena.ai markers un-inverted + OpenRouter multi-block + ChatGPT tiebreaker fingerprint fix
 
 # v4.50.11 — Arena.ai markers un-inverted + OpenRouter multi-block + ChatGPT tiebreaker fingerprint fix
