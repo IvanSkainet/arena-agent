@@ -12,6 +12,13 @@ const ARENA_MODE_DEFAULTS = {
   // sites where the operator explicitly wants to see every candidate
   // (Claude with call_id 1..N, Mistral echoes).
   dedupSemantic: true,
+  // v0.14.28 (v4.50.18): opt-in for the generic-adapter active
+  // mode. When FALSE (default) the generic adapter stays
+  // effectively passive on unlisted sites -- eliminates any risk
+  // of false-positive mounts on documentation/README pages.
+  // Operator can flip this ON via Advanced / experimental when
+  // they want to try the extension on an unlisted chat site.
+  enableGenericAdapter: false,
 };
 
 function arenaNormalizeModes(data) {
@@ -25,6 +32,8 @@ function arenaNormalizeModes(data) {
     insertStrategy: allowed.includes(input.insertStrategy) ? input.insertStrategy : 'auto',
     // v0.14.15: default TRUE, treat any explicit `false` as off.
     dedupSemantic: input.dedupSemantic === undefined ? true : !!input.dedupSemantic,
+    // v0.14.28 (v4.50.18): default FALSE. Explicit true required.
+    enableGenericAdapter: !!input.enableGenericAdapter,
   };
 }
 
@@ -34,3 +43,4 @@ function arenaModeSummary(modes) {
   if (normalized.insertStrategy !== 'auto') active.push(`insertStrategy=${normalized.insertStrategy}`);
   return active.length ? active.join(', ') : 'manual-confirm';
 }
+

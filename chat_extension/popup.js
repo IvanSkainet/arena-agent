@@ -30,6 +30,9 @@ function currentModes() {
     // v0.14.15: advanced/experimental toolbar dedup toggle. Read the
     // checkbox state; default TRUE matches the pre-v0.14.14 behaviour.
     dedupSemantic: document.getElementById('dedupSemantic').checked,
+    // v0.14.28 (v4.50.18): opt-in for the generic adapter on
+    // unlisted sites. Default FALSE. Explicit true required.
+    enableGenericAdapter: document.getElementById('enableGenericAdapter').checked,
   };
 }
 
@@ -66,6 +69,11 @@ async function loadConfig() {
   // behaviour they got by accident.
   document.getElementById('dedupSemantic').checked =
     (modes.dedupSemantic === undefined) ? true : !!modes.dedupSemantic;
+  // v0.14.28 (v4.50.18): generic adapter opt-in checkbox. Default
+  // FALSE so operators upgrading from v0.14.27 keep the safe
+  // behaviour until they explicitly opt in.
+  document.getElementById('enableGenericAdapter').checked =
+    !!modes.enableGenericAdapter;
   statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
   return true;
 }
@@ -182,3 +190,4 @@ document.getElementById('clearBtn').addEventListener('click', clearHistory);
 })().catch((error) => {
   statusText(`Popup error: ${String(error)}`);
 });
+

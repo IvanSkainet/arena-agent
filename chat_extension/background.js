@@ -10,6 +10,9 @@ const SYNC_DEFAULTS = {
     autoSubmitResult: false,
     insertStrategy: 'auto',
     dedupSemantic: true,
+    // v0.14.28 (v4.50.18): generic-adapter opt-in. Default FALSE
+    // matches settings.js so unlisted sites stay untouched.
+    enableGenericAdapter: false,
   }),
 };
 function normalizeModes(data) {
@@ -26,6 +29,9 @@ function normalizeModes(data) {
     // because settings.js is a content-script asset and background.js
     // cannot import it directly.
     dedupSemantic: input.dedupSemantic === undefined ? true : !!input.dedupSemantic,
+    // v0.14.28 (v4.50.18): default FALSE. Explicit true required
+    // for the generic adapter to attempt mounts on unlisted sites.
+    enableGenericAdapter: !!input.enableGenericAdapter,
   };
 }
 function normalizeBridgeUrl(value) {
@@ -300,3 +306,4 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })().catch((error) => sendResponse({ok: false, error: String(error)}));
   return true;
 });
+

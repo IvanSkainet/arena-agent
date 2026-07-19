@@ -1,6 +1,11 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.27` (v4.50.17 bridge release —
+Current extension version: `0.14.28` (v4.50.18 bridge release —
+generic adapter gated behind a new `enableGenericAdapter` opt-in
+toggle in popup Advanced/experimental. Default OFF so unlisted
+sites see zero mount attempts (safe against README false-
+positives). Operator can flip ON when they find a site to
+test on. v4.50.17 bridge release —
 two things:
 1) T3 chat duplicate real root cause: React re-parents the
 shadow host to the NEW bubble during streaming, leaving the
@@ -324,6 +329,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

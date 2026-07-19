@@ -47,6 +47,20 @@
             composer. When ON, the extension prefers the copy with the
             highest numeric call_id (v0.14.16).
           </p>
+          <label style="margin-top:6px;display:block">
+            <input id="enableGenericAdapter" type="checkbox">
+            Enable generic adapter on unlisted sites (experimental)
+          </label>
+          <p style="font-size:11px;color:#666;margin:2px 0 6px 22px">
+            OFF by default. When ON, the extension will try to mount a
+            toolbar on ANY site (Ollama-webui, LibreChat, ChatUX, etc.)
+            provided the page has a discoverable composer AND the tool
+            block sits inside a chat-shaped ancestor
+            (role=article/log, class contains message/chat/conversation/bubble).
+            Documentation pages don't have both markers so README code
+            fences quoting MCP JSONL are safe. If you see unexpected
+            toolbars on non-chat pages, turn this OFF.
+          </p>
         </fieldset>
       </details>
       <div class="row">
@@ -72,3 +86,4 @@
   <script src="popup.js"></script>
 </body>
 </html>
+

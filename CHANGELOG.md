@@ -1,3 +1,67 @@
+## v4.50.18 -- generic adapter gated behind opt-in toggle
+
+# v4.50.18 — generic adapter gated behind opt-in toggle
+
+Ivan's concern after v4.50.17: "боюсь по поводу твоего обновления
+generic адаптер". Safe response: keep the v0.14.27 machinery but
+gate it behind a new opt-in toggle so unlisted sites see zero
+mount attempts unless the operator explicitly enables it.
+
+## Changes
+
+**`chat_extension/settings.js`** — new default
+`enableGenericAdapter: false` in `ARENA_MODE_DEFAULTS`.
+Normalizer treats undefined/missing as false so any existing
+sync-storage state stays safe.
+
+**`chat_extension/background.js`** — same default + normalizer
+in `SYNC_DEFAULTS` / `normalizeModes` (mirrors settings.js
+because background can't import content-script assets).
+
+**`chat_extension/content.js::mountControls`** — new gate in
+front of the v0.14.27 `passiveUnlessComposer` branch: when
+`_arenaCurrentModes().enableGenericAdapter !== true` the generic
+adapter falls through as if it were `passive: true`. Emits new
+`skip_generic_toggle_off` diag event so scan-report shows why
+the adapter is inactive.
+
+**`chat_extension/popup.html`** — new checkbox `#enableGenericAdapter`
+in the Advanced/experimental section with explanatory copy:
+"OFF by default. When ON, the extension will try to mount a
+toolbar on ANY site (Ollama-webui, LibreChat, ChatUX, etc.)
+provided the page has a discoverable composer AND the tool
+block sits inside a chat-shaped ancestor. Documentation pages
+don't have both markers so README code fences quoting MCP JSONL
+are safe. If you see unexpected toolbars on non-chat pages, turn
+this OFF."
+
+**`chat_extension/popup.js`** — reads/writes the new checkbox
+from `currentModes()` and `loadConfig()`.
+
+## Behaviour
+
+- Fresh install: generic adapter fully passive (v0.14.4
+  behaviour restored).
+- Operator flips ON: v0.14.27 passiveUnlessComposer +
+  strictJsonlFencing kicks in on unlisted sites.
+- Operator flips OFF mid-session: prewarm cache invalidates,
+  next scan sees the toggle false, adapter goes silent.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.18`.
+- `pyproject.toml::version` → `4.50.18`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_28.py` — 13 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow to `0.14.28`.
+
+## Next
+
+- **v4.51.0** — collapse tool results in chat history (starting
+  right after this release).
+
 ## v4.50.17 -- T3 duplicate real root-cause + generic adapter goes active
 
 # v4.50.17 — T3 duplicate real root-cause + generic adapter goes active

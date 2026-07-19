@@ -1,3 +1,61 @@
+## v4.50.18 -- generic \u0430\u0434\u0430\u043f\u0442\u0435\u0440 \u043f\u043e\u0434 opt-in toggle
+
+# v4.50.18 — generic адаптер под opt-in toggle
+
+Беспокойство Ивана после v4.50.17: "боюсь по поводу твоего
+обновления generic адаптер". Безопасный ответ: сохранить
+machinery v0.14.27, но gate её под новый opt-in toggle — unlisted
+сайты не получают mount попыток пока оператор явно не включит.
+
+## Изменения
+
+**`chat_extension/settings.js`** — новый дефолт
+`enableGenericAdapter: false` в `ARENA_MODE_DEFAULTS`.
+Normalizer trait undefined/missing как false — существующий
+sync-storage state безопасен.
+
+**`chat_extension/background.js`** — тот же default + normalizer
+в `SYNC_DEFAULTS` / `normalizeModes` (mirror'ит settings.js
+потому что background не может импортить content-script assets).
+
+**`chat_extension/content.js::mountControls`** — новый gate
+перед v0.14.27 `passiveUnlessComposer` веткой: когда
+`_arenaCurrentModes().enableGenericAdapter !== true` — generic
+адаптер проваливается как если бы был `passive: true`. Emit'ит
+новый `skip_generic_toggle_off` diag event.
+
+**`chat_extension/popup.html`** — новый checkbox
+`#enableGenericAdapter` в секции Advanced/experimental с
+объясняющим текстом (RU в UI по-английски для consistency, но
+tooltip понятен).
+
+**`chat_extension/popup.js`** — читает/пишет новый checkbox из
+`currentModes()` и `loadConfig()`.
+
+## Поведение
+
+- Свежая установка: generic полностью passive (поведение
+  v0.14.4 восстановлено).
+- Оператор включил: kick-in v0.14.27 passiveUnlessComposer +
+  strictJsonlFencing на unlisted сайтах.
+- Выключил mid-session: prewarm cache invalidate, следующий
+  scan видит toggle false, adapter молчит.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.18`.
+- `pyproject.toml::version` → `4.50.18`.
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_28.py` — 13 asserts.
+- Перепиннены все v0_14_* + assets + adapter_flow на `0.14.28`.
+
+## Дальше
+
+- **v4.51.0** — collapse tool results в chat history (стартуем
+  сразу после этого релиза).
+
 ## v4.50.17 -- \u0440\u0435\u0430\u043b\u044c\u043d\u0430\u044f \u043f\u0440\u0438\u0447\u0438\u043d\u0430 T3 \u0434\u0443\u0431\u043b\u044f + generic \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439
 
 # v4.50.17 — реальная причина T3 дубля + generic-адаптер становится активным

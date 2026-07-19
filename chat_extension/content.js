@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.27';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.28';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -548,7 +548,19 @@ function mountControls(host, payload, adapter) {
   // a discoverable composer AND the candidate is inside a
   // chat-like message container. This lets the extension work on
   // any Ollama/LibreChat/etc. clone without a per-site entry.
+  //
+  // v0.14.28 (v4.50.18): additionally gated behind the
+  // `enableGenericAdapter` mode toggle (default FALSE). When the
+  // operator hasn't opted in via Advanced/experimental, the
+  // passiveUnlessComposer adapter behaves exactly like `passive`.
+  // Eliminates any risk of false-positive mounts on sites the
+  // operator hasn't explicitly opted into.
   if (adapter && adapter.passiveUnlessComposer) {
+    const genericOn = _arenaCurrentModes()?.enableGenericAdapter === true;
+    if (!genericOn) {
+      _arenaDiagPushEvent({kind: 'skip_generic_toggle_off', adapter: adapter.name});
+      return;
+    }
     let hasComposer = false;
     try {
       for (const sel of adapter.composerSelectors || []) {
@@ -1202,6 +1214,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 
