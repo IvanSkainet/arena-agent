@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.28';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.29';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -101,7 +101,13 @@ function hash(text) {
 function formatInsertText(text) {
   const body = String(text || '').trim();
   if (!body) return '';
-  return `\n\n\`\`\`json\n${body}\n\`\`\`\n`;
+  // v0.14.29 (v4.51.0): mark inserted result text with a
+  // distinctive first-line header so `collapseToolResultsInHistory`
+  // can find these blocks later and wrap them in a foldable
+  // <details> element. The header uses the same "# call N · tool"
+  // convention that resultToText already produces, plus a hidden
+  // sentinel comment for exact matching.
+  return `\n\n\`\`\`\n<!-- arena:tool-result -->\n${body}\n\`\`\`\n`;
 }
 
 function resultToText(result) {
@@ -1056,6 +1062,84 @@ function scan() {
   // attempts commit for the same semantic fingerprint before
   // either sees the other in mountedPayloadSemantics.
   sweepDuplicateToolbars();
+  // v0.14.29 (v4.51.0): collapse inserted tool results in chat
+  // history. After the user Inserts a tool result and sends the
+  // message, the JSONL blob dominates the chat scrollback. We
+  // wrap those blocks in a foldable <details> summary so the
+  // history stays readable.
+  collapseToolResultsInHistory();
+}
+
+// v0.14.29 (v4.51.0): find every PRE / code containing the
+// `<!-- arena:tool-result -->` sentinel that `formatInsertText`
+// stamped and replace it with a `<details>` wrapper. Idempotent:
+// once wrapped, the sentinel PRE lives inside a details block
+// that we mark with `data-arena-tool-collapsed="1"` so subsequent
+// scans skip it. Preserves the original PRE inside the details so
+// clicking "Expand" restores the full content. Also survives
+// site rehydration -- if the site rebuilds the PRE, the sentinel
+// is still there and we re-wrap on the next scan.
+function collapseToolResultsInHistory() {
+  // Respect the operator's Advanced/experimental toggle.
+  if (_arenaCurrentModes()?.collapseToolResults === false) return;
+  const SENTINEL = '<!-- arena:tool-result -->';
+  const BLOCKS = document.querySelectorAll(
+    'pre, code, [class*="code-block"], [class*="markdown-fenced-code"], [class*="shiki"], [class*="hljs"]'
+  );
+  BLOCKS.forEach((block) => {
+    if (!block.isConnected) return;
+    // Already wrapped? Skip.
+    if (block.closest?.('[data-arena-tool-collapsed="1"]')) return;
+    // Sentinel present?
+    const text = block.textContent || '';
+    if (!text.includes(SENTINEL)) return;
+    // Don't wrap tiny blocks -- the header + Toggle button would
+    // be more UI overhead than the content itself.
+    const lineCount = (text.match(/\n/g) || []).length + 1;
+    if (lineCount < 4) return;
+    // Skip our own toolbar-adjacent blocks: if the PRE is a
+    // sibling of an arena bar / shadow-host, the user is looking
+    // at the "raw" pre-send composer preview -- don't collapse
+    // yet.
+    const next = block.nextElementSibling;
+    if (next?.dataset?.arenaToolControls === '1'
+        || next?.dataset?.arenaShadowHost === '1') return;
+    // Count tool calls: presence of "# call N ·" headers from
+    // resultToText (v4.50.12).
+    const callHeaders = (text.match(/# call \d+ ·/g) || []).length;
+    const tools = new Set();
+    for (const m of text.matchAll(/# call \d+ · ([\w.\-_]+) ·/g)) tools.add(m[1]);
+    const summaryText = callHeaders > 0
+      ? `▸ Arena tool result (${callHeaders} call${callHeaders !== 1 ? 's' : ''}: ${Array.from(tools).slice(0, 4).join(', ')}${tools.size > 4 ? '…' : ''}, ${lineCount} lines) — click to expand`
+      : `▸ Arena tool result (${lineCount} lines) — click to expand`;
+    try {
+      const details = document.createElement('details');
+      details.dataset.arenaToolCollapsed = '1';
+      details.style.margin = '4px 0';
+      details.style.padding = '4px 8px';
+      details.style.background = 'rgba(120,120,120,0.08)';
+      details.style.borderRadius = '4px';
+      details.style.fontSize = '13px';
+      const summary = document.createElement('summary');
+      summary.textContent = summaryText;
+      summary.style.cursor = 'pointer';
+      summary.style.color = 'inherit';
+      summary.style.fontWeight = '500';
+      details.appendChild(summary);
+      // Move the block into details (preserves original DOM
+      // reference for the site's own scripts).
+      const parent = block.parentNode;
+      if (!parent) return;
+      parent.insertBefore(details, block);
+      details.appendChild(block);
+      _arenaDiagPushEvent({
+        kind: 'tool_result_collapsed',
+        tools: Array.from(tools),
+        lines: lineCount,
+        calls: callHeaders,
+      });
+    } catch (_e) { /* DOM churn */ }
+  });
 }
 
 function scanPageDiagnostics() {
@@ -1214,6 +1298,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

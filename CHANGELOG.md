@@ -1,3 +1,96 @@
+## v4.51.0 -- collapse inserted tool results in chat history
+
+# v4.51.0 — collapse inserted tool results in chat history
+
+Preserved-forever-idea from the v4.50.x arc, finally shipped now
+that the adapter tour is settled. Ivan's original wording:
+"после Run + Send tool blob dominates chat scrollback".
+
+## The problem
+
+Every Insert + Send pastes the full raw JSONL result into the
+chat. On a batch of 5-6 tool calls this can be 200+ lines of
+JSON. The chat scrollback becomes unreadable and you lose the
+narrative flow of the conversation.
+
+## Solution
+
+**Sentinel-marked wrapping.**
+`formatInsertText` now stamps a hidden
+`<!-- arena:tool-result -->` comment as the first line of every
+inserted block. On the next scan pass, `collapseToolResultsInHistory()`
+finds every PRE/code containing that sentinel and replaces it
+with a `<details>` wrapper:
+
+```html
+<details data-arena-tool-collapsed="1">
+  <summary>▸ Arena tool result (3 calls: sys.status, fs.view, mission.catalog, 47 lines) — click to expand</summary>
+  <pre>...original content...</pre>
+</details>
+```
+
+**Why sentinel-based (not heuristic):** exact matching means
+zero false positives on unrelated code fences the AI or user
+posted. If the block doesn't contain the sentinel, it isn't ours.
+
+**Idempotent:** the `data-arena-tool-collapsed="1"` attribute
+short-circuits subsequent scans. Wrapping happens once per
+block per page-load.
+
+**Survives site rehydration:** if the site's own React re-render
+strips the `<details>`, the sentinel comment is still inside the
+raw text, so the next scan re-wraps.
+
+**Safety guards:**
+- Skip blocks with fewer than 4 lines — the wrapper would be
+  more UI overhead than the content itself.
+- Skip PREs that are direct siblings of an arena toolbar or
+  shadow-host — the operator is looking at the pre-send composer
+  preview; don't collapse yet.
+
+**Summary text:** counts `# call N ·` headers from `resultToText`
+(v4.50.12) to compute call count and gather the tool names for
+the summary line. Falls back to `"N lines"` when no per-call
+headers are present.
+
+## Toggle
+
+New `collapseToolResults` mode in Advanced/experimental
+(**default TRUE**). Undefined normalizes to true so operators
+upgrading from v4.50.18 get the feature automatically. Turn OFF
+if a site's own CSS clashes with `<details>` styling.
+
+## Files touched
+
+- `chat_extension/content.js` — `formatInsertText` stamps
+  sentinel; new `collapseToolResultsInHistory()` helper; hooked
+  at end of `scan()` after `sweepDuplicateToolbars()`.
+- `chat_extension/settings.js` — `ARENA_MODE_DEFAULTS` +
+  normalizer for `collapseToolResults: true`.
+- `chat_extension/background.js` — `SYNC_DEFAULTS` +
+  `normalizeModes` mirror.
+- `chat_extension/popup.html` — new checkbox with explanatory
+  copy in Advanced/experimental.
+- `chat_extension/popup.js` — reads/writes the toggle.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.51.0`.
+- `pyproject.toml::version` → `4.51.0`.
+- `MAX_PRODUCT_FILE_LINES` raised 1300 → 1400 (content.js 1313 LOC).
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_29.py` — 15 asserts.
+- Re-pinned v0_14_* + assets + adapter_flow to `0.14.29`.
+
+## Next (v4.51.1)
+
+- Full instructions catalog (MCP SuperAssistant style): extend
+  `/v1/instructions` with `?category=...` returning arg schemas
+  + examples per tool; popup gets a category picker next to the
+  Copy Instructions buttons.
+
 ## v4.50.18 -- generic adapter gated behind opt-in toggle
 
 # v4.50.18 — generic adapter gated behind opt-in toggle

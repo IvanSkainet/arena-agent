@@ -33,6 +33,9 @@ function currentModes() {
     // v0.14.28 (v4.50.18): opt-in for the generic adapter on
     // unlisted sites. Default FALSE. Explicit true required.
     enableGenericAdapter: document.getElementById('enableGenericAdapter').checked,
+    // v0.14.29 (v4.51.0): fold inserted tool-result blocks in
+    // chat history. Default TRUE.
+    collapseToolResults: document.getElementById('collapseToolResults').checked,
   };
 }
 
@@ -74,6 +77,9 @@ async function loadConfig() {
   // behaviour until they explicitly opt in.
   document.getElementById('enableGenericAdapter').checked =
     !!modes.enableGenericAdapter;
+  // v0.14.29 (v4.51.0): collapse tool results toggle. Default TRUE.
+  document.getElementById('collapseToolResults').checked =
+    (modes.collapseToolResults === undefined) ? true : !!modes.collapseToolResults;
   statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
   return true;
 }
@@ -190,4 +196,5 @@ document.getElementById('clearBtn').addEventListener('click', clearHistory);
 })().catch((error) => {
   statusText(`Popup error: ${String(error)}`);
 });
+
 

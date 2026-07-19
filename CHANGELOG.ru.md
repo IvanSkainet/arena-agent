@@ -1,3 +1,88 @@
+## v4.51.0 -- \u0441\u0432\u0451\u0440\u0442\u044b\u0432\u0430\u043d\u0438\u0435 \u0432\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u043d\u044b\u0445 tool-\u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u0432 chat history
+
+# v4.51.0 — свёртывание вставленных tool-результатов в chat history
+
+Preserved-forever-idea из v4.50.x, наконец релизится теперь когда
+адаптерный тур устаканился.
+
+## Проблема
+
+Каждый Insert + Send вставляет полный raw JSONL в чат. На батче
+5-6 tool-вызовов это 200+ строк JSON. Chat scrollback становится
+нечитаемым и narrative flow разговора теряется.
+
+## Решение
+
+**Sentinel-marked wrapping.**
+`formatInsertText` теперь стемпает hidden комментарий
+`<!-- arena:tool-result -->` первой строкой каждого вставленного
+блока. На следующем scan pass, `collapseToolResultsInHistory()`
+находит каждый PRE/code содержащий этот sentinel и заменяет на
+`<details>` wrapper:
+
+```html
+<details data-arena-tool-collapsed="1">
+  <summary>▸ Arena tool result (3 calls: sys.status, fs.view, mission.catalog, 47 lines) — click to expand</summary>
+  <pre>...original content...</pre>
+</details>
+```
+
+**Почему sentinel (не heuristic):** exact matching = нуль false
+positives на любых других code fences (AI или user). Нет
+sentinel'а в блоке — не наше.
+
+**Idempotent:** `data-arena-tool-collapsed="1"` короткозамыкает
+следующие scans. Wrapping один раз на блок за загрузку страницы.
+
+**Выживает re-render'ы сайта:** если React сайта удалит
+`<details>`, sentinel комментарий всё ещё внутри raw text —
+следующий scan re-wrap'нет.
+
+**Safety guards:**
+- Пропускаем блоки короче 4 строк — wrapper больше самого
+  контента был бы.
+- Пропускаем PRE которые прямые siblings arena toolbar / shadow-
+  host — оператор смотрит pre-send composer preview.
+
+**Summary text:** считает `# call N ·` заголовки из `resultToText`
+(v4.50.12) → количество calls + имена tools в summary. Fallback
+на `"N lines"` когда per-call заголовков нет.
+
+## Toggle
+
+Новый `collapseToolResults` в Advanced/experimental
+(**default TRUE**). Undefined normalize'ится в true — операторы
+с v4.50.18 получают фичу автоматически. Выключить если CSS сайта
+конфликтует с `<details>`.
+
+## Файлы
+
+- `chat_extension/content.js` — `formatInsertText` стемпает
+  sentinel; новый `collapseToolResultsInHistory()`; hook в
+  конце `scan()` после `sweepDuplicateToolbars()`.
+- `chat_extension/settings.js`, `background.js` — mode default +
+  normalizer.
+- `chat_extension/popup.html` — новый checkbox с текстом в
+  Advanced/experimental.
+- `chat_extension/popup.js` — читает/пишет toggle.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.51.0`.
+- `pyproject.toml::version` → `4.51.0`.
+- `MAX_PRODUCT_FILE_LINES` 1300 → 1400 (content.js 1313 LOC).
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_29.py` — 15 asserts.
+- Перепиннены v0_14_* + assets + adapter_flow на `0.14.29`.
+
+## Дальше (v4.51.1)
+
+- Full instructions catalog (MCP SuperAssistant стиль):
+  `/v1/instructions?category=...` с arg schemas + примерами;
+  popup picker категорий рядом с Copy Instructions.
+
 ## v4.50.18 -- generic \u0430\u0434\u0430\u043f\u0442\u0435\u0440 \u043f\u043e\u0434 opt-in toggle
 
 # v4.50.18 — generic адаптер под opt-in toggle

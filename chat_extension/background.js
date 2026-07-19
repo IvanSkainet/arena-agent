@@ -13,6 +13,9 @@ const SYNC_DEFAULTS = {
     // v0.14.28 (v4.50.18): generic-adapter opt-in. Default FALSE
     // matches settings.js so unlisted sites stay untouched.
     enableGenericAdapter: false,
+    // v0.14.29 (v4.51.0): fold inserted tool-result blocks in
+    // chat history. Default TRUE mirrors settings.js.
+    collapseToolResults: true,
   }),
 };
 function normalizeModes(data) {
@@ -32,6 +35,8 @@ function normalizeModes(data) {
     // v0.14.28 (v4.50.18): default FALSE. Explicit true required
     // for the generic adapter to attempt mounts on unlisted sites.
     enableGenericAdapter: !!input.enableGenericAdapter,
+    // v0.14.29 (v4.51.0): default TRUE.
+    collapseToolResults: input.collapseToolResults === undefined ? true : !!input.collapseToolResults,
   };
 }
 function normalizeBridgeUrl(value) {
@@ -306,4 +311,5 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })().catch((error) => sendResponse({ok: false, error: String(error)}));
   return true;
 });
+
 

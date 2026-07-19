@@ -1,6 +1,18 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.28` (v4.50.18 bridge release —
+Current extension version: `0.14.29` (v4.51.0 bridge release —
+collapse tool results in chat history. After you Insert +
+Send a tool result, the raw JSONL blob dominates the chat
+scrollback. v4.51.0 wraps those blocks in a foldable
+`▸ Arena tool result (N calls: tool1, tool2, M lines) — click
+to expand` `<details>` summary. Uses a hidden sentinel comment
+that `formatInsertText` stamps into every inserted block, so
+detection is exact (no false positives on unrelated code
+fences). Idempotent + survives site rehydration (re-wraps on
+next scan if the site removes the wrapper). Gated behind new
+`collapseToolResults` Advanced/experimental toggle (default
+TRUE, undefined -> TRUE for upgrade continuity).
+v4.50.18 bridge release —
 generic adapter gated behind a new `enableGenericAdapter` opt-in
 toggle in popup Advanced/experimental. Default OFF so unlisted
 sites see zero mount attempts (safe against README false-
@@ -329,6 +341,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

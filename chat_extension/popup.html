@@ -61,6 +61,17 @@
             fences quoting MCP JSONL are safe. If you see unexpected
             toolbars on non-chat pages, turn this OFF.
           </p>
+          <label style="margin-top:6px;display:block">
+            <input id="collapseToolResults" type="checkbox" checked>
+            Collapse inserted tool results in chat history (default)
+          </label>
+          <p style="font-size:11px;color:#666;margin:2px 0 6px 22px">
+            After you Insert + Send a tool result, the raw JSONL blob
+            takes over the chat scrollback. When ON, those blocks get
+            wrapped in a foldable "▸ Arena tool result (N calls, M
+            lines) — click to expand" summary. Turn OFF if the site's
+            own CSS clashes with the &lt;details&gt; element.
+          </p>
         </fieldset>
       </details>
       <div class="row">
@@ -86,4 +97,5 @@
   <script src="popup.js"></script>
 </body>
 </html>
+
 

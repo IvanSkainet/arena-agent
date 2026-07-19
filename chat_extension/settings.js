@@ -19,6 +19,11 @@ const ARENA_MODE_DEFAULTS = {
   // Operator can flip this ON via Advanced / experimental when
   // they want to try the extension on an unlisted chat site.
   enableGenericAdapter: false,
+  // v0.14.29 (v4.51.0): fold inserted tool-result blocks in chat
+  // history into a `<details>` summary so the scrollback stays
+  // readable. Default TRUE. Turn OFF via Advanced/experimental
+  // if the site's own CSS clashes with `<details>` styling.
+  collapseToolResults: true,
 };
 
 function arenaNormalizeModes(data) {
@@ -34,6 +39,9 @@ function arenaNormalizeModes(data) {
     dedupSemantic: input.dedupSemantic === undefined ? true : !!input.dedupSemantic,
     // v0.14.28 (v4.50.18): default FALSE. Explicit true required.
     enableGenericAdapter: !!input.enableGenericAdapter,
+    // v0.14.29 (v4.51.0): default TRUE, undefined -> TRUE for
+    // upgrade continuity.
+    collapseToolResults: input.collapseToolResults === undefined ? true : !!input.collapseToolResults,
   };
 }
 
@@ -43,4 +51,5 @@ function arenaModeSummary(modes) {
   if (normalized.insertStrategy !== 'auto') active.push(`insertStrategy=${normalized.insertStrategy}`);
   return active.length ? active.join(', ') : 'manual-confirm';
 }
+
 
