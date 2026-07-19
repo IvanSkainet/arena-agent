@@ -107,18 +107,34 @@ def make_update_handlers(ctx):
         expected = str(body.get("expected_sha256") or "").strip()
         consent = str(body.get("consent") or "").strip()
         restart = bool(body.get("restart", True))
+        # v4.50.2: opt-in "install without SHA-256 verification".
+        # Only honoured when expected is empty; if the caller sends
+        # BOTH a real digest AND accept_no_verification we still
+        # verify -- explicit is better than implicit.
+        accept_no_verification = bool(body.get("accept_no_verification", False))
 
-        if not (tag and asset_url and asset_name and expected):
+        if not (tag and asset_url and asset_name):
             return err_json(
                 ctx,
-                "tag, asset_url, asset_name, expected_sha256 all required",
+                "tag, asset_url, asset_name all required",
+                status=400,
+            )
+        if not expected and not accept_no_verification:
+            return err_json(
+                ctx,
+                "expected_sha256 required (or set accept_no_verification=true)",
                 status=400,
             )
 
         # First call without consent: return the token so the caller
-        # can echo it back for the actual install.
-        required_consent = _upd.consent_token(
-            tag=tag, sha256=expected.split(":", 1)[-1].strip().lower())
+        # can echo it back for the actual install. Consent shape
+        # depends on whether we are on the verified or unverified
+        # path so a stored consent from one path cannot be replayed
+        # to trigger the other.
+        digest_for_consent = (
+            expected.split(":", 1)[-1].strip().lower() if expected else "UNVERIFIED"
+        )
+        required_consent = _upd.consent_token(tag=tag, sha256=digest_for_consent)
         if not consent:
             return ctx.cors_json_response({
                 "ok": False,
@@ -126,19 +142,25 @@ def make_update_handlers(ctx):
                 "required_consent": required_consent,
                 "tag": tag,
                 "asset_name": asset_name,
-                "sha256": expected,
+                "sha256": expected or None,
+                "verification": "unverified" if not expected else "sha256",
                 "hint": "Resend the same request with consent=<required_consent>.",
             })
 
         res = await _run(
             ctx, _upd.apply_update,
             asset_url=asset_url, asset_name=asset_name, tag=tag,
-            expected_sha256=expected, consent=consent, restart=restart,
+            expected_sha256=expected or None, consent=consent, restart=restart,
+            accept_no_verification=accept_no_verification,
         )
         ctx.audit({
             "type": "admin.update.apply",
             "tag": tag,
-            "sha256": expected,
+            "sha256": expected or "UNVERIFIED",
+            "verification": (res.get("verification")
+                             if isinstance(res, dict) else None),
+            "downloaded_sha256": (res.get("downloaded_sha256")
+                                  if isinstance(res, dict) else None),
             "swapped": (res.get("swapped") if isinstance(res, dict) else None),
             "ok": res.get("ok") if isinstance(res, dict) else False,
         })

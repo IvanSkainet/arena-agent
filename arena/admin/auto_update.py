@@ -336,7 +336,12 @@ def download_release(*, asset_url: str, asset_name: str,
 
 def consent_token(*, tag: str, sha256: str) -> str:
     """`yes-update-<first-8-hex-of-tag+sha>`. Same shape as the APK
-    install consent so operators recognise the pattern."""
+    install consent so operators recognise the pattern.
+
+    v4.50.2: when ``sha256`` is the sentinel ``"UNVERIFIED"`` the
+    consent still comes out as a stable per-tag string, but the
+    caller must have explicitly opted out of SHA-256 verification.
+    apply_update() emits a distinct audit trail in that case."""
     digest = hashlib.sha256(f"{tag}|{sha256}".encode("utf-8")).hexdigest()
     return f"yes-update-{digest[:8]}"
 
@@ -450,23 +455,48 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
 def apply_update(*, asset_url: str, asset_name: str,
                  tag: str, expected_sha256: str | None = None,
                  consent: str,
-                 restart: bool = True) -> dict[str, Any]:
+                 restart: bool = True,
+                 accept_no_verification: bool = False) -> dict[str, Any]:
     """Download + install + (optionally) restart. Never re-execs on
     Windows -- returns `restart_pending=True` so a supervisor (or the
     Dashboard) can bounce the service.
+
+    v4.50.2: when ``accept_no_verification=True`` and no
+    ``expected_sha256`` is supplied, the download proceeds with
+    the SHA-256 recorded for audit but NOT compared to a
+    published digest. The consent token switches to the
+    ``UNVERIFIED`` sentinel so an operator who wants the safer
+    path cannot accidentally reuse an old verified consent to
+    trigger an unverified install. Meant for the Windows /
+    no-token case where paying the GITHUB_TOKEN price is not
+    reasonable and the operator explicitly accepts the risk.
     """
     if not asset_url or not asset_name or not tag:
         return _err("asset_url, asset_name and tag are required")
     expected = (expected_sha256 or "").split(":", 1)[-1].strip().lower()
+    unverified = False
     if not expected:
-        return _err("expected_sha256 is required for safety")
+        if not accept_no_verification:
+            return _err(
+                "expected_sha256 is required for safety",
+                hint=(
+                    "Either provide a token so GitHub returns a digest, "
+                    "or resend the request with accept_no_verification=true "
+                    "AND consent=" + consent_token(tag=tag, sha256="UNVERIFIED")
+                ),
+            )
+        unverified = True
+        expected = "UNVERIFIED"
     want_consent = consent_token(tag=tag, sha256=expected)
     if (consent or "").strip() != want_consent:
         return _err("consent token missing or wrong",
                     hint=f"Pass consent={want_consent}")
 
+    # For the verified path we forward expected_sha256 so download_release
+    # bails on mismatch. For the unverified path we still record the
+    # computed digest in the return value + audit trail but do not compare.
     dl = download_release(asset_url=asset_url, asset_name=asset_name,
-                          expected_sha256=expected_sha256)
+                          expected_sha256=None if unverified else expected_sha256)
     if not dl.get("ok"):
         return dl
     zip_path = Path(dl["path"])
@@ -492,6 +522,8 @@ def apply_update(*, asset_url: str, asset_name: str,
             "install_root": str(install_root),
             "applied_version": tag.lstrip("vV"),
             "restart_pending": True,
+            "verification": "unverified" if unverified else "sha256",
+            "downloaded_sha256": dl.get("sha256"),
             "hint": "The bridge will exit; a supervisor (systemd / nssm / "
                     "Windows service) must relaunch it.",
         }
@@ -503,6 +535,8 @@ def apply_update(*, asset_url: str, asset_name: str,
         "ok": True,
         "action": "update.apply",
         "platform": platform.system().lower(),
+        "verification": "unverified" if unverified else "sha256",
+        "downloaded_sha256": dl.get("sha256"),
         "install_root": str(install_root),
         "swapped": swap["swapped"],
         "applied_version": tag.lstrip("vV"),

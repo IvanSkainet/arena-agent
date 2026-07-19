@@ -180,13 +180,16 @@ async function adminUpdateCheck() {
         _adminUpdateSetInstallEnabled(true,
           "Download + verify + install " + check.asset_name);
       } else {
-        _adminUpdateSetInstallEnabled(false,
-          "Install disabled: GitHub did not publish a SHA-256 digest "
-          + "for this asset (anonymous /releases/latest redirect path).\n"
-          + "Fix: paste a GitHub token into the 'GitHub token for verified installs' "
-          + "box just below (fine-grained PAT with Contents:read). The token is "
-          + "saved on this machine only and unlocks the authenticated API path "
-          + "which provides SHA-256 digests.");
+        // v4.50.2: without a token GitHub does not publish SHA-256.
+        // Install is still allowed if the operator explicitly accepts
+        // the risk in a confirm dialog -- this unblocks the Windows
+        // path where paying the GITHUB_TOKEN price is unreasonable.
+        _adminUpdateSetInstallEnabled(true,
+          "Install without SHA-256 verification.\n"
+          + "GitHub does not publish a digest on the anonymous /releases/latest "
+          + "redirect path. You'll get an explicit confirm dialog before the "
+          + "install starts. For verified installs, paste a GitHub token in the "
+          + "'GitHub token for verified installs' box below.");
       }
     } else {
       _adminUpdateStatus(
@@ -210,29 +213,49 @@ async function adminUpdateInstall() {
   }
   const rel = _adminUpdateLatest;
   const size = _adminUpdateFormatSize(rel.asset_size_bytes);
-  const proceed = confirm(
-    "Install v" + rel.latest + "?\n\n"
-    + "Asset : " + rel.asset_name + "  (" + size + ")\n"
-    + "SHA-256: " + (rel.asset_digest || "not published") + "\n\n"
-    + "The bridge will download the release from GitHub, verify\n"
-    + "SHA-256, atomically replace the source tree, and restart.\n"
-    + "Your config and bridge home are untouched.\n\n"
-    + "This takes ~10 seconds and briefly disconnects this Dashboard."
-  );
+  const unverified = !rel.asset_digest;
+  const proceed = unverified ? confirm(
+      "⚠ Install v" + rel.latest + " WITHOUT SHA-256 verification?\n\n"
+      + "Asset : " + rel.asset_name + "  (" + size + ")\n"
+      + "SHA-256: not published (needs a GitHub token to fetch)\n\n"
+      + "Because you have no GitHub token configured, GitHub cannot\n"
+      + "give us the release's SHA-256 digest. The bridge will still\n"
+      + "download the release from github.com (SSRF-guarded, 512 MB cap),\n"
+      + "compute the SHA-256 for the audit log, and install atomically --\n"
+      + "but it will NOT verify that digest against a published value.\n\n"
+      + "This is safe if you trust GitHub's HTTPS. For a verified install\n"
+      + "cancel here and paste a token in the box below the Auto-update card,\n"
+      + "then Check again.\n\n"
+      + "Continue with UNVERIFIED install?"
+    ) : confirm(
+      "Install v" + rel.latest + "?\n\n"
+      + "Asset : " + rel.asset_name + "  (" + size + ")\n"
+      + "SHA-256: " + rel.asset_digest + "\n\n"
+      + "The bridge will download the release from GitHub, verify\n"
+      + "SHA-256, atomically replace the source tree, and restart.\n"
+      + "Your config and bridge home are untouched.\n\n"
+      + "This takes ~10 seconds and briefly disconnects this Dashboard."
+    );
   if (!proceed) {
     _adminUpdateStatus("Install cancelled.", "warn");
     return;
   }
   _adminUpdateInFlight = true;
   _adminUpdateSetInstallEnabled(false);
-  _adminUpdateStartSpinner("Requesting consent token");
+  _adminUpdateStartSpinner(unverified
+    ? "Requesting consent token (unverified path)"
+    : "Requesting consent token");
   const body = {
     tag: rel.latest_tag,
     asset_url: rel.asset_url,
     asset_name: rel.asset_name,
-    expected_sha256: rel.asset_digest,
     restart: true,
   };
+  if (unverified) {
+    body.accept_no_verification = true;
+  } else {
+    body.expected_sha256 = rel.asset_digest;
+  }
   try {
     const step1 = await api("/v1/admin/update/apply",
                             {method: "POST", body: JSON.stringify(body)});

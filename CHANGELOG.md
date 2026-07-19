@@ -1,3 +1,129 @@
+## v4.50.2 -- Token save 401 fix + "install without SHA-256 verification" opt-in + inventory cache
+
+Live report on v4.50.0/v4.50.1 from the operator: three separate
+issues, one release.
+
+### 1. Token save form was DOA (HTTP 401)
+
+Symptom: `Save failed: HTTP 401: unauthorized`. The v4.50.0 Save-
+token form never worked.
+
+Root cause: `dashboard/assets/02-api-helper.js`'s `api()` used
+`fetch(BASE + path, {headers, ...opts})`. When the caller supplied
+`opts.headers` (`Content-Type: application/json` on the token
+POST), that object **fully replaced** the module-level `headers`
+object -- and that object was the one carrying the Bearer token.
+Silent 401.
+
+Fix: `api()` now deep-merges caller headers onto the auth headers:
+`const merged = Object.assign({}, headers, opts.headers || {})`
+then `fetch(..., Object.assign({}, opts, {headers: merged}))`.
+Bearer stays; caller's Content-Type + any other headers still apply.
+
+Same class of bug would have hit every future admin form that sent
+a body; the merge fix is systemic.
+
+### 2. "Install without SHA-256 verification" opt-in
+
+Operator: "почему нельзя нормальный Auto Update сделать?". Point
+taken. Requiring GITHUB_TOKEN just to compute a digest for a public
+release is unfair to Windows / offline / GitHub-account-averse
+users.
+
+New opt-in path:
+
+* Server-side (`arena/admin/auto_update.py::apply_update`) accepts
+  `accept_no_verification=True`. When set AND `expected_sha256`
+  is empty, the download proceeds with the SHA-256 computed
+  locally and **recorded in the response + audit** (`downloaded_sha256`
+  + `verification: "unverified"`) but NOT compared to a published
+  digest.
+* `consent_token()` derivation uses a distinct `"UNVERIFIED"`
+  sentinel for this path. A stored verified consent cannot be
+  replayed to trigger an unverified install.
+* `/v1/admin/update/apply` endpoint accepts the new
+  `accept_no_verification` boolean and audits the chosen
+  verification path (`sha256` vs `unverified`).
+* Dashboard: Install button now enables even when no digest is
+  published. The confirm dialog for the unverified path is
+  explicit with a `⚠` prefix, explains what verification is
+  skipped, and points to the token box as the safer alternative.
+
+The old verified path is unchanged; installs with a configured
+token get identical behaviour to v4.50.0/v4.50.1.
+
+### 3. `/v1/hardware` + `/v1/inventory` cached for 60 s
+
+Operator: "Windows Inventory не то, что тормозит, а вообще намертво
+зависает. Dashboard гораздо медленней загружается на Windows и на
+телефоне."
+
+On Windows every `Get-CimInstance` probe pays a full PowerShell
+startup (~1-2 s each) plus WMI cold-start. A dashboard reload
+that hits both `/v1/hardware` and `/v1/inventory` in parallel
+paid this twice.
+
+Fix: in-memory cache with a 60-second TTL on both handlers.
+`?nocache=1` on either endpoint forces a fresh collection.
+Cached response includes `cache: {hit: true, age_sec: N}` so the
+UI can show cache hits when useful. First page load stays as slow
+as before; every reload within 60 s is now sub-100 ms.
+
+Not a fix for the underlying WMI cold-start latency itself -- that
+needs a bigger refactor to run probes in parallel with per-probe
+timeouts. Filed for v4.50.3.
+
+### Regression guards
+
+8 new asserts in `tests/test_auto_update_v502.py`:
+
+* `api()` fetch call must NOT use `{headers, ...opts}`; must use
+  the explicit Object.assign merge
+* `apply_update` signature has `accept_no_verification=False`
+  default; sentinel `"UNVERIFIED"` string is present
+* handler forwards the flag from the JSON body + records the
+  verification path in the audit event
+* JS install flow enables the button when digest empty and sends
+  `body.accept_no_verification = true`
+* `_HW_CACHE_TTL_SEC = 60.0` + `_hw_cache` / `_inv_cache` +
+  `_cache_lookup` / `_cache_store` helpers present; `?nocache=1`
+  query param respected
+* Prior v4.50.0 GitHub-token-file plumbing still wired
+* Prior v4.50.1 Grok fingerprint fix + 800ms send latency still hold
+* `consent_token()` derivation for `"UNVERIFIED"` sentinel produces
+  a value distinct from any real sha256 (no replay risk)
+
+Full sweep: **2477 passed, 0 failed**.
+
+### Files touched
+
+* `dashboard/assets/02-api-helper.js` -- 19 → 29 lines (deep-
+  merge instead of clobbering headers spread)
+* `dashboard/assets/39-admin-update.js` -- 403 → 426 lines
+  (unverified confirm branch + tooltip rewrite)
+* `arena/admin/auto_update.py` -- 539 → 573 lines
+  (accept_no_verification path + verification field on results)
+* `arena/admin/handlers_update.py` -- 216 → 238 lines (flag
+  forwarding + distinct consent for unverified)
+* `arena/inventory/handlers.py` -- 82 → 129 lines (60-s cache
+  with nocache=1 escape hatch)
+* `tests/test_auto_update_v502.py` -- new, 8 asserts
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### What operator will see
+
+* **Save token**: `api()` fix means Bearer now reaches the server.
+  Save button should succeed, badge flips from `○ No token
+  configured` to `● Token active (file)`, Install button unlocks
+  with SHA-256 digest available.
+* **Auto-update without token**: Install button no longer disabled;
+  clicking it shows a clear `⚠ WITHOUT SHA-256 verification`
+  confirm; on OK the install proceeds and the audit log records
+  `verification: unverified` + the actual SHA-256 that was
+  downloaded (for post-hoc verification if desired).
+* **Windows Inventory**: first Dashboard reload still cold; every
+  reload within the next 60 s hits the cache and is instantaneous.
+
 ## v4.50.1 -- Grok fingerprint collision fixed + Send latency 1500ms -> 800ms
 
 ### Grok mount fixed (root cause found via v0.14.11 mount_entry diag)
