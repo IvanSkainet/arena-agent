@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.11';
+  return '0.14.12';
 }
 
 function arenaSetInsertTiming(timing) {
@@ -541,7 +541,7 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
   const composerInfo = typeof arenaComposerSelection === 'function'
     ? arenaComposerSelection(adapter)
     : {target: arenaFindComposer(adapter)};
-  const deadline = Date.now() + 1500;
+  const deadline = Date.now() + 800;  // v0.14.12: was 1500 (2s total send latency); most sites reveal submit within 300ms
   let submitInfo = {button: null, candidates: 0, selected_selector: '', scope: 'global'};
 
   // Adaptive polling: fast at the beginning, then back off. Most sites reveal
@@ -613,7 +613,7 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
       }
       return {
         ok: true, inserted: true, submitted: true, ...insertTiming,
-        submit_wait_ms: 1500,
+        submit_wait_ms: 800,
         submit_candidates: 0,
         submit_selector: 'enter-key-fallback',
         submit_scope: 'keyboard',

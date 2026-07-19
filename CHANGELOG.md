@@ -1,3 +1,108 @@
+## v4.50.1 -- Grok fingerprint collision fixed + Send latency 1500ms -> 800ms
+
+### Grok mount fixed (root cause found via v0.14.11 mount_entry diag)
+
+Third-round `events_recent` on Grok showed:
+
+```
+mount_entry(tag=PRE)
+mount_entry(tag=PRE)
+skip_dismissed_fp(fingerprint=arena_msg_1272557140)   # User
+skip_dismissed_fp(fingerprint=arena_msg_1272557140)   # AI -- SAME FP
+```
+
+Both candidates reached `mountControls`, both hoisted to `<pre>`,
+both computed **identical** fingerprints. User was dismissed first;
+AI immediately hit the dismissed fp and returned. Root cause:
+`arenaExtractNodeId` walks only 6 tag:index ancestors through
+`arenaNodePath`; that 6-deep chain from Grok's `<pre>` up doesn't
+reach the `[data-testid="user-message"]` vs `[data-testid=
+"assistant-message"]` bubble which is the only distinguishing
+signal. Combined with a 80-char text head that was byte-identical
+for both, the two `<pre>` hashed to the same message fingerprint.
+
+**Fix**: `arenaExtractNodeId` now includes the nearest message-
+bubble ancestor's `data-testid` + `data-message-author-role` as a
+`bubbleId` component. Grok's User and Assistant `<pre>` now hash
+to distinct fingerprints; AI's mount succeeds.
+
+Deliberately did NOT deepen `arenaNodePath` -- that risks
+destabilising every other adapter's fingerprint history. The
+bubble-ancestor lookup is one additional `.closest()` per
+extraction, adapter-neutral, and only affects the fingerprint
+hash (not the mount / skip logic).
+
+### Send latency: 1500 ms -> 800 ms poll deadline
+
+Operator reported "на некоторых сайтах 2 секунды задержка именно
+send" (Kimi / Perplexity). Root cause: `arenaInsertAndSubmit`
+polled the submit button up to 1500 ms before falling back to
+the Enter-key path. On sites whose submit button never enables
+(Kimi / Perplexity / older Copilot), the operator watched a
+visible text-then-wait-2-seconds gap between insert and send.
+
+**Fix**: reduced the poll deadline to 800 ms. Adaptive
+20/20/40/40/80/80/100/100 ms poll schedule still catches sites
+whose submit button becomes enabled quickly. Enter-key fallback
+fires 700 ms sooner. `submit_wait_ms` label in insert-timing
+report updated to reflect the new value.
+
+The Enter-key fallback safety net stays intact -- it still only
+fires when `submitInfo.selected_selector` is empty, so we don't
+spam Enter on sites that are simply validating input.
+
+### Version bumps
+
+* extension `0.14.11` → `0.14.12`
+* manifest / content / insert_strategies / README synced
+* bridge `4.50.0` → `4.50.1`
+
+### Regression guards
+
+Eight new asserts in `tests/test_chat_extension_v0_14_12.py`:
+
+* four version pins (0.14.12 across content/manifest/insert/README)
+* `arenaExtractNodeId` must define a `bubbleId` component and
+  the returned tuple must include it
+* the closest-selector must cover `user-message`, `assistant-message`,
+  and `data-message-author-role`
+* `arenaNodePath` depth stayed at 6 (regression guard against
+  destabilising other adapters)
+* `submit_wait_ms` reduced to 800 ms, `submit_wait_ms: 1500`
+  removed, `enter-key-fallback` still fires only when no submit
+  selector was found
+* prior regression guards from v0.14.6-11 all still hold
+* content.js ≤ 700 lines
+* scan-report diagnostics still shipped
+
+Existing seven prior test files re-pinned to 0.14.12. Full sweep:
+**2469 passed, 0 failed**.
+
+### Files touched
+
+* `chat_extension/adapters.js` -- 595 → 613 lines (+bubble-
+  ancestor bubbleId component in arenaExtractNodeId)
+* `chat_extension/insert_strategies.js` -- 633 lines (+deadline
+  1500 → 800; label + comment updates)
+* `chat_extension/content.js` -- 700 lines (version bump only)
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_12.py` -- new, 8 asserts
+* seven prior chat-extension test files re-pinned to 0.14.12
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### What operator will see
+
+* **Grok**: `events_recent` should now show
+  `mount_entry(PRE) → mounted` for the assistant fingerprint
+  (different fp from the User one). Toolbar attaches to the AI
+  echo. Prior "AI mount never happens" case gone.
+* **Kimi / Perplexity / any site without a submit button**:
+  Send button now fires the Enter-key fallback ~700 ms earlier.
+  Visible text-to-submit gap should shrink from ~2 s to ~1.1 s.
+* Every other site with a visible submit button behaves
+  identically to v0.14.11.
+
 ## v4.50.0 -- Windows UX unblock: GitHub token now settable from the Dashboard
 
 Live report from Windows user (Ivan): "Auto Update чисто для галочки

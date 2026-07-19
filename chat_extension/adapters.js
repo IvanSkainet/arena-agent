@@ -264,11 +264,29 @@ function arenaPruneAncestorCandidates(nodes) {
 
 function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
   if (!node) return '';
+  // v0.14.12: include the nearest message-bubble ancestor's testid so
+  // Grok's two identical code-block <pre> children (one under a
+  // data-testid=user-message bubble, the other under data-testid=
+  // assistant-message) get DIFFERENT fingerprints. Before this fix
+  // both hoisted <pre> nodes had the same 6-deep tag:index path AND
+  // the same 80-char text head, so they hashed to a single fp -- user
+  // dismissed first, AI then inherited the dismissed state and never
+  // mounted. arenaNodePath depth stays at 6 so we don't destabilise
+  // other adapters' fingerprints.
+  let bubbleId = '';
+  try {
+    const b = node.closest?.('[data-testid="user-message"], [data-testid="assistant-message"], [data-message-author-role]');
+    if (b) {
+      bubbleId = (b.getAttribute?.('data-testid') || '')
+        + ':' + (b.getAttribute?.('data-message-author-role') || '');
+    }
+  } catch (_e) { /* closest can throw on detached nodes */ }
   return [
     adapter.name,
     node.getAttribute?.('data-testid') || '',
     node.getAttribute?.('data-message-author-role') || '',
     node.id || '',
+    bubbleId,
     arenaNodePath(node),
     arenaNodeText(node).slice(0, 80),
   ].join('|');

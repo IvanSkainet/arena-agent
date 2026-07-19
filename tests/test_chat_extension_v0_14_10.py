@@ -1,4 +1,4 @@
-"""Regression + diagnostic-expansion guards for extension 0.14.11 (v4.49.3).
+"""Regression + diagnostic-expansion guards for extension 0.14.12 (v4.49.3).
 
 v4.49.2 landed correct per-adapter user filters (verified: Grok
 scan-report now shows `reason: grok:user-message@DIV`), but Grok
@@ -6,7 +6,7 @@ STILL doesn't mount on the assistant echo -- `mounted_controls: 0,
 dismissed_controls: 1`. All the obvious paths (semantic-dup dismiss,
 processed set, mountedPayloadSemantics) were checked in v0.14.9 and
 should not skip the AI mount.  We can't see WHY the AI turn is
-falling through without runtime data, so v0.14.11 adds diag events
+falling through without runtime data, so v0.14.12 adds diag events
 for every early-return branch inside mountControls plus a 'mounted'
 event on successful attach.  Next Scan Page will show exactly which
 branch the AI mount is taking.
@@ -43,14 +43,14 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_10():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.11'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.11"
-    assert "return '0.14.11';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.11`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.12'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.12"
+    assert "return '0.14.12';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.12`" in _read("README.md")
 
 
 def test_mount_controls_early_skip_paths_emit_diag_events():
-    """v0.14.11: every early-return branch in mountControls emits a
+    """v0.14.12: every early-return branch in mountControls emits a
     diag event so scan-report's events_recent shows WHY."""
     src = _read("content.js")
     for kind in (
@@ -66,21 +66,21 @@ def test_mount_controls_early_skip_paths_emit_diag_events():
 
 
 def test_mount_success_emits_diag_event():
-    """v0.14.11: successful mount must also emit an event so we can
+    """v0.14.12: successful mount must also emit an event so we can
     tell 'toolbar attached' apart from 'silent skip' in event streams."""
     src = _read("content.js")
     assert "kind: 'mounted'" in src
 
 
 def test_semantic_owner_eviction_emits_diag_event():
-    """v0.14.11: semantic-owner eviction (evict-then-remount on new
+    """v0.14.12: semantic-owner eviction (evict-then-remount on new
     host) also emits an event so operator can see the sequence."""
     src = _read("content.js")
     assert "kind: 'evict_semantic_owner'" in src
 
 
 def test_ghost_composer_penalized_in_scoring():
-    """v0.14.11: invisible composer candidates must get a heavy
+    """v0.14.12: invisible composer candidates must get a heavy
     penalty even when they are the activeElement. Qwen new-chat
     ghost textarea fix."""
     src = _read("adapters.js")
@@ -90,7 +90,7 @@ def test_ghost_composer_penalized_in_scoring():
 
 
 def test_insert_timing_captures_target_snapshot():
-    """v0.14.11: arenaSetInsertTiming enriches its payload with
+    """v0.14.12: arenaSetInsertTiming enriches its payload with
     target tag/visibility/rect so status can hint at ghost inserts."""
     src = _read("insert_strategies.js")
     for field in (
@@ -104,7 +104,7 @@ def test_insert_timing_captures_target_snapshot():
 
 
 def test_prior_regression_guards_still_hold():
-    """v0.14.11 must not regress v0.14.6-9 fixes."""
+    """v0.14.12 must not regress v0.14.6-9 fixes."""
     adapters = _read("adapters.js")
     content = _read("content.js")
     css = _read("shadow_toolbar.css")

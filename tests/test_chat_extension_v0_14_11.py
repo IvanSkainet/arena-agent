@@ -1,4 +1,4 @@
-"""Regression guards for extension 0.14.11 (v4.49.4).
+"""Regression guards for extension 0.14.12 (v4.49.4).
 
 Third-round scan-report revealed two distinct real bugs that the
 v0.14.10 diag events made visible:
@@ -59,14 +59,14 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_11():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.11'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.11"
-    assert "return '0.14.11';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.11`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.12'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.12"
+    assert "return '0.14.12';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.12`" in _read("README.md")
 
 
 def test_mount_entry_diag_event_at_top_of_mount_controls():
-    """v0.14.11: mountControls must emit mount_entry BEFORE any
+    """v0.14.12: mountControls must emit mount_entry BEFORE any
     early-return so the operator's next scan proves reachability."""
     src = _read("content.js")
     assert "kind: 'mount_entry'" in src
@@ -77,7 +77,7 @@ def test_mount_entry_diag_event_at_top_of_mount_controls():
 
 
 def test_dismissed_checks_run_before_semantic_owner_eviction():
-    """v0.14.11: the two `dismissedControls.has(...)` short-circuits
+    """v0.14.12: the two `dismissedControls.has(...)` short-circuits
     MUST appear BEFORE the `mountedSemanticOwners.get(...)` block.
     That order is the DuckAI thrash fix."""
     src = _read("content.js")
@@ -87,7 +87,7 @@ def test_dismissed_checks_run_before_semantic_owner_eviction():
     assert dismissed_fp_pos > 0 and evict_pos > 0
     assert dismissed_fp_pos < evict_pos, (
         "dismissed-fp check must run before semantic-owner eviction "
-        "(v0.14.11 DuckAI thrash fix)"
+        "(v0.14.12 DuckAI thrash fix)"
     )
     assert dismissed_semantic_pos > 0 and dismissed_semantic_pos < evict_pos, (
         "dismissed-semantic check must also run before eviction"
@@ -105,7 +105,7 @@ def test_semantic_owner_eviction_still_present_after_reorder():
 
 
 def test_composer_cache_invalidates_on_invisible_target():
-    """v0.14.11: arenaComposerSelection's 2s cache must additionally
+    """v0.14.12: arenaComposerSelection's 2s cache must additionally
     check that the cached target still passes arenaElementVisible().
     Qwen new-chat ghost-composer regression fix."""
     src = _read("adapters.js")
@@ -128,7 +128,7 @@ def test_composer_cache_invalidates_on_invisible_target():
 
 
 def test_prior_regression_guards_still_hold():
-    """v0.14.11 must not regress any prior fix."""
+    """v0.14.12 must not regress any prior fix."""
     adapters = _read("adapters.js")
     content = _read("content.js")
     css = _read("shadow_toolbar.css")
@@ -173,7 +173,7 @@ def test_scan_report_diagnostic_fields_still_shipped():
 
 def test_v0_14_10_early_skip_diag_events_preserved():
     """v0.14.10 mountControls-branch diag events must survive the
-    reorder in v0.14.11 -- otherwise the next diagnostic pass loses
+    reorder in v0.14.12 -- otherwise the next diagnostic pass loses
     all its signal."""
     src = _read("content.js")
     for kind in (
@@ -186,5 +186,5 @@ def test_v0_14_10_early_skip_diag_events_preserved():
         'evict_semantic_owner',
     ):
         assert f"kind: '{kind}'" in src, (
-            f"v0.14.10 diag event {kind} must survive the v0.14.11 reorder"
+            f"v0.14.10 diag event {kind} must survive the v0.14.12 reorder"
         )
