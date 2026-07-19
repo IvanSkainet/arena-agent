@@ -1,6 +1,21 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.17` (v4.50.7 bridge release —
+Current extension version: `0.14.18` (v4.50.8 bridge release —
+four narrow fixes from Ivan's v4.50.7 site tour:
+1) Kimi — не монтировать toolbar в свёрнутый
+`.toolcall-container.thinking-container`; переходить на
+видимый `.segment-assistant`.
+2) z.ai — при кандидате `.markdown-prose` без `<pre>` walk-down до
+`.code-block` / `.syntax-highlighter` / `<pre>`, чтобы toolbar
+сидел под вызовом функции, а не в конце сообщения.
+3) Arena.ai — читаемый ярлык `displayName: "Arena.ai"` вместо
+`arenaai`; user-filter по `.chat-user` / `.chat-assistant` для
+Agent / Direct / Battle режимов.
+4) `dedupSemantic` toggle — prewarm cache из
+`chrome.storage.sync` на инициализации content-script, чтобы
+галочка операторa действовала с первого mount после reload;
+плюс `.add()` в `mountedPayloadSemantics` теперь тоже
+gated behind toggle. v4.50.7 bridge release —
 AI Studio user filter DOM fix: switched from `role="user"` on
 `ms-chat-turn` (never present in the current build) to the stable
 `ms-chat-turn:has([data-turn-role="User"])` / `[data-turn-role="Model"]`
@@ -145,4 +160,5 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 

@@ -1,3 +1,116 @@
+## v4.50.8 -- Kimi thinking-widget + z.ai walk-down + Arena.ai label/filter + dedup toggle prewarm
+
+# v4.50.8 — Kimi thinking-widget escape + z.ai walk-down + Arena.ai label/filter + dedup toggle prewarm
+
+Four narrow fixes based on Ivan's v4.50.7 site tour scan-reports.
+
+## 1. Kimi — toolbar hidden in collapsed thinking widget
+
+**Symptom (Ivan):** "На Kimi почему-то вообще перестал обнаруживаться
+Tool Call и Tool Bar там не появляется вовсе."
+
+**Scan-report evidence:** `candidate[0]` mounted with ancestor path
+`.toolcall-container.thinking-container` → collapsed on load, so the
+shadow toolbar rendered INSIDE the invisible widget. Visible
+duplicate lives in `.segment-assistant` (candidate[1]).
+
+**Fix (`chat_extension/content.js::controlsHost`):** when the
+candidate closest to a `.toolcall-container` / `.thinking-container`,
+walk out to the enclosing `.segment-assistant` and re-anchor on the
+visible `pre.language-jsonl` inside it. Narrow (only fires when
+both markers are present) so normal Kimi assistant PREs are
+unaffected.
+
+## 2. z.ai — toolbar at end of message instead of under call
+
+**Symptom (Ivan):** "На Z.ai всё также tool bar отображается в конце
+сообщения или под сообщением по другому, а не под вызовом функции."
+
+**Scan-report evidence:** the tool block candidate was an outer
+`.markdown-prose` DIV with NO `pre` selector hits at all — z.ai
+renders tool JSONL as inline syntax-highlighted DIVs inside
+`.markdown-prose`.
+
+**Fix (`chat_extension/content.js::controlsHost`):** when we land on
+a `.markdown-prose` outer, breadth-first walk children for the
+tightest `<pre>` / `<code>` / `.code-block` / `.syntax-highlighter`
+/ `.segment-code` and anchor there. Depth-capped (200 nodes) so
+extremely large prose blocks don't stall the scan.
+
+## 3. Arena.ai — ugly adapter label + user/AI filter wrong
+
+**Symptoms (Ivan):**
+- "На ArenaAI название адаптера выглядит криво (arenaai)"
+- "оно ловит User сообщение, а AI не ловит в режиме агента. А в
+  режиме Battle ловит тоже только User, а AI вообще не ловит. А в
+  Direct Chat тоже не ловит."
+
+**Fixes:**
+- **`chat_extension/adapter_sites.js`:** new `displayName: 'Arena.ai'`
+  field on the `arenaai` adapter.
+- **`chat_extension/adapters.js`:** new `arenaAdapterLabel(adapter)`
+  helper returning `adapter.displayName || adapter.name`. Toolbar
+  chip in `content.js` now goes through this helper so the label
+  reads `Arena · Arena.ai` instead of `Arena · arenaai`. Falls back
+  transparently when `displayName` is absent, so no other adapter
+  changes label.
+- **`chat_extension/adapters.js::arenaWhyUserAuthored`:** new
+  `arenaai` branch — `node.closest('.chat-assistant, #response-content-container')`
+  returns explicit **not-user** (fast-return prevents fall-through
+  to global rules); `node.closest('.chat-user, [class*="user-message"]')`
+  returns user-authored with reason `arenaai:chat-user@DIV`. Covers
+  Agent (`/agent/`), Direct Chat (`/c/`), and Battle mode surfaces
+  which all use the same `.chat-user` / `.chat-assistant` class
+  pair.
+
+## 4. dedupSemantic toggle — no-op on first mounts after reload
+
+**Symptom (Ivan):** "toggle advanched/experimental с dedup не
+работает, то есть оно не меняет поведение сайта и всё равно
+происходит dedup по ID tool call."
+
+**Root cause:** `_arenaCurrentModes()` served defaults
+(`dedupSemantic: true`) until the async
+`chrome.runtime.sendMessage('arena.getConfig')` round-trip returned,
+which typically loses the race against the first few mounts after
+page reload. Additionally, `mountedPayloadSemantics.add()` fired
+unconditionally so a mid-session toggle flip couldn't clear old
+fingerprints.
+
+**Fixes (`chat_extension/content.js`):**
+- New `_prewarmedModes` variable populated at boot from
+  `chrome.storage.sync.get({modes: null})` and normalised via
+  `arenaNormalizeModes`. `_arenaCurrentModes()` now returns full
+  cache → prewarm → defaults, so the operator's saved toggle takes
+  effect on the FIRST mount.
+- `mountedPayloadSemantics.add(semanticFingerprint)` is now gated
+  behind `if (_dedupSemantic)` so flipping OFF mid-session actually
+  frees legitimate duplicates to re-mount.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.8`.
+- `pyproject.toml::version` → `4.50.8`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_18.py` — 13 asserts covering
+  all four fixes + regression guards for v0.14.16/v0.14.17.
+- Re-pinned `tests/test_chat_extension_assets.py`,
+  `tests/test_chat_extension_adapter_flow.py`, and the historical
+  `tests/test_chat_extension_v0_14_{7..17}.py` to `0.14.18`.
+- Expected total: 2543 passed (2530 → 2543 → +13).
+
+## Deferred to v4.50.9
+
+- Multi-block-per-message (currently 1 toolbar per host; observed
+  6 tool calls in one AI turn on OpenRouter got only 1 toolbar).
+- Same call_id from AI when it forgets to increment (2nd call
+  still gets `call_id: "1"`).
+- T3 chat duplicate toolbar during streaming (goes away on chat
+  reload).
+- Mistral flaky toolbar mount.
+
 ## v4.50.7 -- AI Studio user-filter DOM fix (data-turn-role)
 
 # v4.50.7 — AI Studio user-filter DOM fix (`data-turn-role`)

@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.17';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.18';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -24,13 +24,39 @@ function _arenaCurrentModes() {
   // chrome.runtime round-trip. When the cache is cold (very first
   // mount after boot), we return the defaults from settings.js --
   // never null -- so callers can `.dedupSemantic !== false` freely.
+  // v0.14.18 (v4.50.8): also honour the sync-storage pre-warm
+  // (_prewarmedModes) so the user's saved dedup toggle takes effect
+  // on the FIRST scan after page reload, not only after the async
+  // chrome.runtime.sendMessage('arena.getConfig') round-trip has
+  // resolved. Priority: full config cache > prewarm > defaults.
   if (_contentConfigCache && _contentConfigCache.modes) {
     return _contentConfigCache.modes;
   }
+  if (_prewarmedModes) return _prewarmedModes;
   return (typeof arenaNormalizeModes === 'function')
     ? arenaNormalizeModes({})
     : {dedupSemantic: true};
 }
+
+// v0.14.18 (v4.50.8): read chrome.storage.sync at boot so
+// `_arenaCurrentModes()` returns the operator's saved dedup toggle
+// value on the FIRST mount, not the default TRUE. Without this the
+// first ~5 mounts after reload always used dedup=true even when the
+// checkbox was cleared, which Ivan observed as "dedup toggle не
+// работает" on the v4.50.6 tour. Kept defensive: any storage error
+// falls back to whatever `_arenaCurrentModes()` would have returned
+// (defaults) so we never break sites where chrome.storage is absent.
+let _prewarmedModes = null;
+try {
+  chrome.storage.sync.get({modes: null}).then((data) => {
+    const raw = data && data.modes;
+    if (raw && typeof arenaNormalizeModes === 'function') {
+      _prewarmedModes = arenaNormalizeModes(raw);
+    } else if (raw) {
+      _prewarmedModes = raw;
+    }
+  }).catch(() => { /* ignore -- defaults are fine */ });
+} catch (_e) { /* chrome.storage may not exist in some contexts */ }
 
 async function getCachedConfig() {
   const now = Date.now();
@@ -123,6 +149,62 @@ function controlsHost(node, adapter) {
   const adapterName = adapter && adapter.name;
   if (adapterName === 'duckai') { const w = node.closest?.('.overflow-hidden'); if (w?.parentElement) return w.parentElement; }
   if (adapterName === 'qwen') { const pre = node.closest?.('pre.qwen-markdown-code, pre'); if (pre) return pre; }  // v0.14.9: anchor outer <pre>
+  // v0.14.18 (v4.50.8): Kimi renders its "thinking" widget as a
+  // collapsed <div class="toolcall-container thinking-container">
+  // (see scan-report kimi:candidate[0]). When our PRE is deep inside
+  // that container the toolbar mounts INSIDE the collapsed widget and
+  // is invisible to the user. Fix: when the ancestor path shows the
+  // thinking-container, walk out to the visible `.segment-assistant`
+  // segment (candidate[1] in the scan-report) and anchor there. Kept
+  // narrow (only when both markers are present) so a normal Kimi
+  // assistant PRE without the thinking widget is unaffected.
+  if (adapterName === 'kimi') {
+    const thinking = node.closest?.('.toolcall-container, .thinking-container');
+    if (thinking) {
+      const segment = thinking.closest?.('.segment-assistant, .segment[class*="segment-"]');
+      if (segment) {
+        // Prefer the PRE that sits directly inside the visible
+        // segment (candidate[1] path in the scan-report).
+        const visiblePre = segment.querySelector('pre.language-jsonl, pre');
+        if (visiblePre && visiblePre !== node) return visiblePre;
+        return segment;
+      }
+    }
+  }
+  // v0.14.18 (v4.50.8): z.ai renders the tool block inside a
+  // `.markdown-prose` container that is siblings-wise flat -- there
+  // is no <pre> ancestor because the block is rendered as inline
+  // syntax-highlighted DIVs (see scan-report zai:candidate[1] where
+  // self=DIV.markdown-prose, no <pre> selector hits at all). When we
+  // land on that outer DIV the toolbar attaches AFTER the whole
+  // message (Ivan: "tool bar отображается в конце сообщения ... не
+  // под вызовом функции"). Try to narrow to the actual JSONL block.
+  if (adapterName === 'zai') {
+    // Prefer the innermost element whose text contains the JSONL
+    // start marker so the toolbar sits right under the call, not at
+    // the end of the whole prose.
+    if (String(node.tagName || '').toUpperCase() === 'DIV' && node.className && String(node.className).includes('markdown-prose')) {
+      // Walk children breadth-first for the tightest <pre> or a
+      // code-fence wrapper whose text contains our JSONL marker.
+      const stack = [node];
+      let target = null;
+      let depth = 0;
+      while (stack.length && depth < 200) {
+        depth += 1;
+        const cur = stack.shift();
+        if (!cur || cur.nodeType !== 1) continue;
+        const tag = String(cur.tagName || '').toUpperCase();
+        if (tag === 'PRE' || tag === 'CODE') { target = cur; break; }
+        const cls = String(cur.className || '');
+        if (cls.includes('code-block') || cls.includes('syntax-highlighter') || cls.includes('segment-code')) {
+          target = cur;
+          break;
+        }
+        for (const child of Array.from(cur.children || [])) stack.push(child);
+      }
+      if (target) return target;
+    }
+  }
   return node;
 }
 
@@ -364,7 +446,12 @@ function mountControls(host, payload, adapter) {
   const firstPayloadSeen = !detectedPayloads.has(semanticFingerprint);
   processed.add(fingerprint);
   detectedPayloads.add(semanticFingerprint);
-  mountedPayloadSemantics.add(semanticFingerprint);
+  // v0.14.18 (v4.50.8): only remember the semantic fingerprint in
+  // the dedup Set when the toggle is ON. Otherwise a mid-session
+  // toggle flip from ON->OFF would still leak old fingerprints and
+  // block re-mounts of legitimate duplicates the operator wants to
+  // see.
+  if (_dedupSemantic) mountedPayloadSemantics.add(semanticFingerprint);
   host.dataset.arenaToolControlsMounted = '1';
   host.dataset.arenaToolFingerprint = fingerprint;
 
@@ -404,8 +491,8 @@ function mountControls(host, payload, adapter) {
   const status = document.createElement('span');
   status.className = 'arena-toolbar-status';
   status.textContent = lastExecutionText
-    ? `Arena · ${adapter.name} · result ready`
-    : `Arena · ${adapter.name}`;
+    ? `Arena · ${(typeof arenaAdapterLabel === 'function') ? arenaAdapterLabel(adapter) : adapter.name} · result ready`
+    : `Arena · ${(typeof arenaAdapterLabel === 'function') ? arenaAdapterLabel(adapter) : adapter.name}`;
   bar.appendChild(status);
 
   bar.appendChild(makeButton('Preview', async () => {
@@ -758,4 +845,5 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 

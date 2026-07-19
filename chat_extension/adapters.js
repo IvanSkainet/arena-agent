@@ -8,6 +8,16 @@ function arenaPath() {
   return (location.pathname || '').toLowerCase();
 }
 
+// v0.14.18 (v4.50.8): human-readable label for the toolbar chip so
+// UIs read "Arena · Arena.ai" instead of "Arena · arenaai". Adapters
+// declare `displayName` in adapter_sites.js; falls back to the raw
+// internal name when the field is absent so all existing adapters
+// keep their labels unchanged.
+function arenaAdapterLabel(adapter) {
+  if (!adapter) return '';
+  return adapter.displayName || adapter.name || '';
+}
+
 // ---------------------------------------------------------------------------
 // Adapter selection (memoised: hostname does not change within a page).
 // v0.14.2 adds an optional adapter.pathPrefix field. When set, the adapter
@@ -97,6 +107,29 @@ function arenaWhyUserAuthored(node, adapter) {
     const prose = node.closest('.prose');
     if (prose && prose.getAttribute('role') !== 'article') {
       return {matched: true, reason: 't3chat:user-prose@DIV'};
+    }
+  }
+  // v0.14.18 (v4.50.8): arena.ai has three visible surfaces:
+  //   * Agent Mode /agent/<id>   -- turn container: <div class="chat-user"|"chat-assistant">
+  //   * Direct Chat /c/<id>      -- same class markers
+  //   * Battle Mode              -- same wrappers per column
+  // Scan-reports show `.chat-user` on the user PRE ancestor path and
+  // `.chat-assistant` on the AI PRE ancestor path (z.ai adapter picks
+  // this up via _USER_AUTHOR_CLASS_SUBSTRINGS[='user-message'] on
+  // .chat-user -- but arena.ai's chat-user class doesn't include the
+  // 'user-message' token so the global rule misses). Handle
+  // explicitly so BOTH surfaces get: toolbar mounts on assistant,
+  // user skipped.
+  if (adapterName === 'arenaai' && node.closest) {
+    // AI turn -> explicit not-user (fast-return so we never fall
+    // through to a fragile global rule).
+    if (node.closest('.chat-assistant, [id="response-content-container"]')) {
+      return {matched: false, reason: ''};
+    }
+    // User turn (any of chat-user / [data-role=user] / .user-message
+    // that arena.ai might expose per surface).
+    if (node.closest('.chat-user, [class*="user-message"]')) {
+      return {matched: true, reason: 'arenaai:chat-user@DIV'};
     }
   }
   // v0.14.17 (v4.50.7): AI Studio (aistudio.google.com; shares gemini
@@ -748,4 +781,5 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 

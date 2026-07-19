@@ -155,6 +155,10 @@ const ARENA_SITE_ADAPTERS = [
     // /c/ path today. Follow-up will add pathPrefix branches or
     // per-surface adapter variants.
     name: 'arenaai',
+    // v0.14.18 (v4.50.8): pretty display name so toolbar reads
+    // "Arena · Arena.ai" instead of the raw internal id ("arenaai").
+    // Consumed by arenaAdapterLabel() in adapters.js.
+    displayName: 'Arena.ai',
     hosts: ['arena.ai', 'www.arena.ai'],
     messageSelectors: ['main article', 'main [data-testid]', 'main', 'section', 'pre', 'code', '[class*="prose"]', '[class*="markdown"]'],
     composerSelectors: ['textarea', 'div[contenteditable="true"][role="textbox"]', '[contenteditable="true"]'],
@@ -189,3 +193,4 @@ const ARENA_SITE_ADAPTERS = [
     submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]'],
   },
 ];
+

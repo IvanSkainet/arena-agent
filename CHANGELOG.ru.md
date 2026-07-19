@@ -1,3 +1,106 @@
+## v4.50.8 -- Kimi thinking-widget + z.ai walk-down + Arena.ai label/filter + prewarm dedup toggle
+
+# v4.50.8 — Kimi thinking-widget + z.ai walk-down + Arena.ai label/filter + prewarm dedup toggle
+
+Четыре узких фикса по итогам тура Ивана по сайтам после v4.50.7.
+
+## 1. Kimi — toolbar прячется в свёрнутом thinking-widget
+
+**Симптом:** "На Kimi почему-то вообще перестал обнаруживаться
+Tool Call и Tool Bar там не появляется вовсе."
+
+**Скан:** `candidate[0]` смонтирован в `.toolcall-container.thinking-container`
+— свернут при загрузке, тень toolbar внутри невидимого блока.
+Видимый дубликат лежит в `.segment-assistant` (candidate[1]).
+
+**Фикс (`chat_extension/content.js::controlsHost`):** если кандидат
+внутри `.toolcall-container` / `.thinking-container` — выходим на
+внешний `.segment-assistant` и якоримся на видимом
+`pre.language-jsonl`. Узко: срабатывает только при обоих маркерах.
+
+## 2. z.ai — toolbar в конце сообщения, а не под вызовом
+
+**Симптом:** "На Z.ai всё также tool bar отображается в конце
+сообщения или под сообщением по другому, а не под вызовом функции."
+
+**Скан:** кандидат — внешний `.markdown-prose` DIV, `pre` селекторы
+без попаданий — z.ai рендерит JSONL как inline подсвеченные DIV.
+
+**Фикс:** при попадании на `.markdown-prose` walk-down по детям
+BFS до ближайшего `<pre>` / `<code>` / `.code-block` /
+`.syntax-highlighter` / `.segment-code`. Cap 200 узлов.
+
+## 3. Arena.ai — кривой ярлык + User/AI фильтр не работает
+
+**Симптомы:**
+- "На ArenaAI название адаптера выглядит криво (arenaai)"
+- "оно ловит User сообщение, а AI не ловит в режиме агента. А в
+  режиме Battle ловит тоже только User, а AI вообще не ловит. А в
+  Direct Chat тоже не ловит."
+
+**Фиксы:**
+- **`chat_extension/adapter_sites.js`:** новое поле
+  `displayName: 'Arena.ai'` на адаптере `arenaai`.
+- **`chat_extension/adapters.js`:** новый helper
+  `arenaAdapterLabel(adapter)` → `displayName || name`. Toolbar в
+  `content.js` теперь через helper — читается `Arena · Arena.ai`.
+  Fallback прозрачный: остальные адаптеры без `displayName` не
+  меняют ярлык.
+- **`chat_extension/adapters.js::arenaWhyUserAuthored`:** новая
+  ветка `arenaai` — `.chat-assistant` / `#response-content-container`
+  → **явный not-user** (fast-return, не проваливаемся в глобальные
+  правила); `.chat-user` / `[class*="user-message"]` →
+  user-authored с reason `arenaai:chat-user@DIV`. Покрывает Agent
+  (`/agent/`), Direct Chat (`/c/`) и Battle-mode — все три
+  используют одинаковые классы.
+
+## 4. Toggle dedupSemantic — не действует на первых mount после reload
+
+**Симптом:** "toggle advanced/experimental с dedup не работает, то
+есть оно не меняет поведение сайта и всё равно происходит dedup
+по ID tool call."
+
+**Причина:** `_arenaCurrentModes()` возвращал defaults
+(`dedupSemantic: true`) до тех пор, пока не завершался async
+`chrome.runtime.sendMessage('arena.getConfig')` — гонку с первыми
+mount после reload он обычно проигрывает. Плюс
+`mountedPayloadSemantics.add()` вызывался всегда — mid-session
+переключение не могло очистить старые fingerprints.
+
+**Фиксы (`chat_extension/content.js`):**
+- Новый `_prewarmedModes`, заполняется на инициализации из
+  `chrome.storage.sync.get({modes: null})` через
+  `arenaNormalizeModes`. `_arenaCurrentModes()` теперь: полный
+  cache → prewarm → defaults. Галочка операторa действует с
+  ПЕРВОГО mount.
+- `mountedPayloadSemantics.add(semanticFingerprint)` теперь под
+  `if (_dedupSemantic)` — переключение mid-session реально
+  освобождает дубликаты.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.8`.
+- `pyproject.toml::version` → `4.50.8`.
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_18.py` — 13 asserts на
+  все 4 фикса + regression guards для v0.14.16/v0.14.17.
+- Перепиннены `tests/test_chat_extension_assets.py`,
+  `tests/test_chat_extension_adapter_flow.py` и исторические
+  `tests/test_chat_extension_v0_14_{7..17}.py` на `0.14.18`.
+- Ожидаемо: 2543 passed (2530 → 2543).
+
+## Отложено на v4.50.9
+
+- Multi-block per message (сейчас 1 toolbar на host; 6 tool-вызовов
+  в одном сообщении на OpenRouter получают только 1 toolbar).
+- Одинаковые call_id когда ИИ забывает инкрементировать (2-й
+  вызов тоже `call_id: "1"`).
+- T3 chat дубль toolbar во время streaming (при reload чата
+  пропадает).
+- Mistral нестабильный mount toolbar.
+
 ## v4.50.7 -- AI Studio user-filter DOM fix (data-turn-role)
 
 # v4.50.7 — исправление user-фильтра AI Studio (`data-turn-role`)
