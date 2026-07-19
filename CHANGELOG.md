@@ -1,3 +1,79 @@
+## v4.50.16 -- Arena.ai Battle column-index regex tightened (Tailwind pseudo)
+
+# v4.50.16 — Arena.ai Battle column-index regex tightened (Tailwind pseudo)
+
+Single-root-cause fix from Ivan's v4.50.15 Battle scan-report.
+Diagnosed strictly from the data — no guessing.
+
+## Root cause
+
+Ivan's v4.50.15 scan showed both AI PREs in Battle mode
+returning `arenaai_hint.column.index: 0` even though the
+`carousel` diagnostic reported 2 columns
+(`column[0].has_ai_bar:false, has_tool_text:true` and
+`column[1].has_ai_bar:true`). Both mounts committed with
+identical semantic fingerprints (both got `column='c0'`), then
+the `later-in-document` tiebreaker evicted one:
+```
+kind: evict_semantic_owner, reason: "later-in-document"
+```
+
+**Why both returned index=0:** `arenaColumnIndex()` walks
+ancestors looking for a parent whose class matches
+`\bcarousel\b`. Tailwind uses pseudo-utilities like
+`@[752px]/carousel:basis-1/2` — the token `carousel` appears
+inside that string, and `\b` treats `/` and `:` as word
+boundaries, so the regex matched **on the column wrapper's
+OWN class**. The helper then short-circuited at the wrong
+ancestor and returned the wrong index.
+
+Same greedy problem in the diagnostic snapshot:
+`[class*="carousel"]` matched all column wrappers too —
+that's why Ivan's scan reported `carousels: 3` when only ONE
+real `flex @container/carousel` exists on the page.
+
+## Fix
+
+**`chat_extension/adapters.js::arenaColumnIndex`** — tightened
+regex. Now accepts a class token as a carousel marker ONLY if:
+- literal `@container/carousel` (Tailwind container-query
+  utility, always the real carousel wrapper), OR
+- `carousel-` / `battle-` / `-carousel` / `-battle` with word
+  boundaries at token edges (component-style class), OR
+- `side-by-side`, `grid-cols-2`, `flex-row` as before.
+
+Explicitly **rejects** `carousel:` and `battle:` (Tailwind
+modifier syntax like `@[752px]/carousel:basis-1/2`).
+
+**`chat_extension/adapters.js`** carousel snapshot + top-up
+pass — added `IS_REAL_CAROUSEL` JS filter after the CSS
+`querySelectorAll('[class*="carousel"], ...')` call so
+Tailwind-pseudo false positives are dropped before iteration.
+
+## Expected outcome
+
+Ivan's next Battle scan should show:
+- `arenaai_hint.carousel.carousels: 1` (was 3)
+- Both AI PREs report `arenaai_hint.column: {found: true, index: 0/1}` with **different** indices
+- Both mounts get distinct semantic fingerprints
+  (`arena_payload_sem_...c0` and `...c1`)
+- Both toolbars mount; no `later-in-document` eviction
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.16`.
+- `pyproject.toml::version` → `4.50.16`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_26.py` — 11 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow to `0.14.26`.
+
+## Next
+
+- v4.51.0 (collapse tool results in chat history) is now
+  unblocked — the adapter tour is fully settled.
+
 ## v4.50.15 -- T3 duplicate at attach + Arena.ai Battle carousel top-up
 
 # v4.50.15 — T3 duplicate at attach + Arena.ai Battle carousel top-up

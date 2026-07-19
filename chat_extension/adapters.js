@@ -26,10 +26,24 @@ function arenaColumnIndex(node) {
       const parent = cur.parentElement;
       if (!parent) break;
       const parentCls = String(parent.className || '');
+      // v0.14.26 (v4.50.16): tightened `carousel` regex. The
+      // v0.14.23 helper used `\bcarousel\b` which greedy-matched
+      // Tailwind pseudo-utilities like `@[752px]/carousel:basis-1/2`
+      // that live on the CHILD column wrappers themselves. That
+      // meant `arenaColumnIndex` short-circuited at the wrong
+      // ancestor -- BOTH AI PREs in Battle mode returned index=0
+      // (because each column wrapper thinks its OWN class carries
+      // `carousel`, so `cur` picks up its own position under some
+      // random ancestor). Ivan's v0.14.25 scan proved this:
+      // `column.index: 0` on both AI PREs even though `carousel`
+      // diagnostic showed columns 0 AND 1 with `has_tool_text=true`.
+      // Fix: require either `@container/carousel` (the real
+      // wrapper) or `carousel-` prefix (component-style class);
+      // never accept `carousel:` (Tailwind modifier syntax).
       const isColumn = /@container\/carousel/.test(parentCls)
-                    || /\bcarousel\b/.test(parentCls)
+                    || /(^|\s)carousel(-|\s|$)/.test(parentCls)
                     || /side-by-side/.test(parentCls)
-                    || /\bbattle\b/.test(parentCls)
+                    || /(^|\s)battle(-|\s|$)/.test(parentCls)
                     || /grid-cols-2/.test(parentCls)
                     || /flex-row/.test(parentCls);
       if (isColumn) {
@@ -501,9 +515,25 @@ function arenaDiagnosticSnapshot(node) {
       // the second column is likely lazy-mounted or scrolled off.
       let carouselSnapshot = null;
       try {
-        const carousels = document.querySelectorAll(
-          '[class*="@container/carousel"], [class*="carousel"], [class*="side-by-side"], [class*="battle"]'
-        );
+        // v0.14.26 (v4.50.16): filter out Tailwind pseudo-carousel
+        // false-positives. `[class*="carousel"]` selector matches
+        // any element whose class list contains the substring
+        // "carousel" -- that includes column wrappers using
+        // Tailwind modifiers like `@[752px]/carousel:basis-1/2`.
+        // We narrow via a JS filter that only keeps true carousel
+        // containers (`@container/carousel` OR a `carousel`/`battle`
+        // word-boundary token that is NOT a Tailwind pseudo).
+        const IS_REAL_CAROUSEL = (el) => {
+          const c = String(el.className || '');
+          if (/@container\/carousel/.test(c)) return true;
+          if (/(^|\s)carousel(-|\s|$)/.test(c)) return true;
+          if (/side-by-side/.test(c)) return true;
+          if (/(^|\s)battle(-|\s|$)/.test(c)) return true;
+          return false;
+        };
+        const carousels = Array.from(document.querySelectorAll(
+          '[class*="carousel"], [class*="side-by-side"], [class*="battle"]'
+        )).filter(IS_REAL_CAROUSEL);
         const cols = [];
         carousels.forEach((cr) => {
           Array.from(cr.children || []).forEach((child, idx) => {
@@ -829,9 +859,22 @@ function arenaCandidateNodes() {
   try {
     const isArenaAi = typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '');
     if (isArenaAi) {
-      const carousels = document.querySelectorAll(
-        '[class*="@container/carousel"], [class*="carousel"], [class*="side-by-side"], [class*="battle"]'
-      );
+      // v0.14.26 (v4.50.16): same real-carousel filter as the
+      // diagnostic snapshot. Without this the top-up pass walks
+      // over Tailwind-modifier `@[752px]/carousel:basis-1/2` child
+      // wrappers and incorrectly treats each column-wrapper's own
+      // children as "columns", producing spurious candidates.
+      const IS_REAL_CAROUSEL = (el) => {
+        const c = String(el.className || '');
+        if (/@container\/carousel/.test(c)) return true;
+        if (/(^|\s)carousel(-|\s|$)/.test(c)) return true;
+        if (/side-by-side/.test(c)) return true;
+        if (/(^|\s)battle(-|\s|$)/.test(c)) return true;
+        return false;
+      };
+      const carousels = Array.from(document.querySelectorAll(
+        '[class*="carousel"], [class*="side-by-side"], [class*="battle"]'
+      )).filter(IS_REAL_CAROUSEL);
       const already = new Set(pruned);
       carousels.forEach((cr) => {
         Array.from(cr.children || []).forEach((col) => {
@@ -1092,6 +1135,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 

@@ -1,6 +1,18 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.25` (v4.50.15 bridge release —
+Current extension version: `0.14.26` (v4.50.16 bridge release —
+one-line root-cause fix from Ivan's v4.50.15 Battle scan.
+`arenaColumnIndex` and the carousel diagnostic used a greedy
+regex `\bcarousel\b` / CSS `[class*="carousel"]` that matched
+Tailwind pseudo-utilities like `@[752px]/carousel:basis-1/2`
+on child column wrappers. Result: both Battle AI PREs
+reported `column.index=0` → identical semantic fingerprint →
+`later-in-document` tiebreaker evicted one → only one toolbar
+mounted. Tightened the regex to require `@container/carousel`
+OR a `carousel-`/`battle-` word-boundary token (never a
+Tailwind `carousel:` modifier). The `IS_REAL_CAROUSEL` filter
+also drops false-positive containers from the diagnostic
+snapshot and top-up pass. v4.50.15 bridge release —
 two direct root-cause fixes from Ivan's v4.50.14 scans:
 1) T3 chat duplicate at first message of a new chat: real
 cause was `attachControls()` calling
@@ -294,6 +306,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 
