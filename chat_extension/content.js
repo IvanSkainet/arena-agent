@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.23';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.24';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -270,39 +270,67 @@ function pruneMountedControls() {
 function sweepDuplicateToolbars() {
   const modes = _arenaCurrentModes();
   if (modes?.dedupSemantic === false) return;
+  // v0.14.24 (v4.50.14): DOM-based sweep. The v4.50.13 map-based
+  // implementation missed T3-chat's persistent duplicate because
+  // mountedControls.set(fp, ...) OVERWROTE the previous entry when
+  // two mount attempts committed with the same message fingerprint
+  // -- only ONE map entry existed but TWO shadow hosts were in the
+  // DOM. Now we walk every element carrying
+  // data-arena-tool-controls-mounted and group by
+  // data-arena-semantic-fingerprint so duplicate shadow hosts are
+  // caught regardless of what the map remembers.
   const bySem = new Map();
-  for (const [fp, info] of mountedControls.entries()) {
-    if (!info?.bar?.isConnected || !info?.host?.isConnected) continue;
-    const sem = info.semanticFingerprint;
-    if (!sem) continue;
-    if (!bySem.has(sem)) { bySem.set(sem, [{fp, info}]); continue; }
-    bySem.get(sem).push({fp, info});
-  }
+  const hosts = document.querySelectorAll('[data-arena-tool-controls-mounted="1"]');
+  hosts.forEach((host) => {
+    if (!host.isConnected) return;
+    const sem = host.dataset?.arenaSemanticFingerprint || '';
+    if (!sem) return;
+    // Find the associated shadow/bar node: nextElementSibling first
+    // (v4.48.0 pattern), then descendant fallback.
+    const bar = host.nextElementSibling?.dataset?.arenaToolControls === '1'
+      ? host.nextElementSibling
+      : host.querySelector?.('[data-arena-tool-controls="1"]');
+    if (!bar || !bar.isConnected) return;
+    const fp = host.dataset?.arenaToolFingerprint || '';
+    if (!bySem.has(sem)) { bySem.set(sem, [{fp, host, bar}]); return; }
+    bySem.get(sem).push({fp, host, bar});
+  });
   for (const [sem, mounts] of bySem.entries()) {
     if (mounts.length < 2) continue;
     // Keep the LATEST in document order; evict the rest.
     let keeper = mounts[0];
     for (const cand of mounts.slice(1)) {
       try {
-        const rel = keeper.info.host.compareDocumentPosition(cand.info.host);
+        const rel = keeper.host.compareDocumentPosition(cand.host);
         if (rel & 4) keeper = cand;  // cand FOLLOWS keeper -> newer
       } catch (_e) { /* ignore */ }
     }
     for (const cand of mounts) {
-      if (cand.fp === keeper.fp) continue;
+      if (cand === keeper) continue;
       _arenaDiagPushEvent({
         kind: 'sweep_duplicate_evicted',
         fingerprint: cand.fp,
         kept: keeper.fp,
         semantic: sem,
       });
-      if (cand.info.shadowHost) cand.info.shadowHost.remove();
-      else cand.info.bar?.remove();
-      if (cand.info.host?.dataset) cand.info.host.dataset.arenaToolControlsMounted = '';
-      mountedControls.delete(cand.fp);
+      // The shadow-host wrapper is the bar's parent when it lives
+      // as a nextElementSibling; otherwise the bar itself is what
+      // needs to go.
+      const shadow = cand.bar.closest?.('[data-arena-shadow-host="1"]');
+      if (shadow) shadow.remove();
+      else cand.bar.remove();
+      if (cand.host?.dataset) {
+        cand.host.dataset.arenaToolControlsMounted = '';
+        cand.host.dataset.arenaToolFingerprint = '';
+        cand.host.dataset.arenaSemanticFingerprint = '';
+      }
+      // Best-effort cleanup of the map too (may be no-op if the
+      // fingerprint was overwritten).
+      if (cand.fp) mountedControls.delete(cand.fp);
     }
-    // Re-anchor semantic owner on the survivor.
-    mountedSemanticOwners.set(sem, keeper.fp);
+    // Re-anchor semantic owner on the survivor if the map still
+    // has an entry.
+    if (keeper.fp) mountedSemanticOwners.set(sem, keeper.fp);
   }
 }
 
@@ -545,6 +573,13 @@ function mountControls(host, payload, adapter) {
   if (_dedupSemantic) mountedPayloadSemantics.add(semanticFingerprint);
   host.dataset.arenaToolControlsMounted = '1';
   host.dataset.arenaToolFingerprint = fingerprint;
+  // v0.14.24 (v4.50.14): stamp semantic fingerprint on the host so
+  // sweepDuplicateToolbars can group by semantic even when two live
+  // hosts share the same message fingerprint (Ivan's T3 chat scan
+  // showed mountedControls only stored ONE map entry per fp, but
+  // TWO shadow-hosts existed in the DOM -- the map-based sweep
+  // couldn't see the second one to evict it).
+  host.dataset.arenaSemanticFingerprint = semanticFingerprint;
 
   const request = buildRequest(payload, adapter.name, fingerprint);
 
@@ -1038,6 +1073,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

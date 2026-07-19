@@ -1,3 +1,94 @@
+## v4.50.14 -- DOM-based duplicate sweep + Battle carousel diagnostics
+
+# v4.50.14 — DOM-based duplicate sweep + Battle carousel diagnostics
+
+Two focused fixes after Ivan's v4.50.13 tour. T3 chat duplicate
+finally addressed with a correct root-cause fix; Battle mode gets
+a full diagnostic block so the next scan pinpoints the miss.
+
+## 1. T3 chat duplicate — sweep now walks the DOM
+
+**Symptom (Ivan, v4.50.13 scan):** T3 chat new-chat still shows
+`mounted_controls: 2` for a single tool call. events_recent shows
+two `mounted` events with the SAME fingerprint
+`arena_msg_1326293718`.
+
+**Root cause:** the v4.50.13 sweep iterated `mountedControls.entries()`
+and grouped by `semanticFingerprint`. But `mountedControls.set(fp, ...)`
+overwrites — when two mount attempts commit with the SAME message
+fingerprint (T3 rescans a bubble whose DOM path hasn't changed but
+the streaming lifecycle emits a fresh subtree), the map ends up
+with ONE entry while the DOM holds TWO shadow hosts. Map-based
+sweep sees no duplicate → no eviction.
+
+**Fix (`chat_extension/content.js`):**
+- **Stamp `data-arena-semantic-fingerprint` on every mounted host.**
+  Complements the existing `data-arena-tool-controls-mounted` +
+  `data-arena-tool-fingerprint` stamps.
+- **Rewrote `sweepDuplicateToolbars()` to walk the DOM directly.**
+  Now queries every `[data-arena-tool-controls-mounted="1"]`
+  element in the document, groups by
+  `data-arena-semantic-fingerprint`, and evicts all-but-newest
+  (via `compareDocumentPosition`, matching the v4.50.10 tiebreaker
+  policy). Reaches up to the `[data-arena-shadow-host="1"]`
+  wrapper for clean removal.
+- Best-effort cleanup of the map entry as a side-effect; even if
+  the map has stale/collided entries, the DOM sweep is the source
+  of truth.
+
+## 2. Arena.ai Battle diagnostics — carousel snapshot in scan-report
+
+**Symptom (Ivan):** "Arena.ai Battle не работает 2 модели. Code
+тоже не работает с двумя моделями."
+
+**Data gap:** the v4.50.13 tour scans were BOTH from Chat mode
+(`/c/...`) — no `/battle/` scan was captured. Chat mode
+correctly split User (self-end) from AI (single carousel column,
+`column.found: true, index: 0`) — everything on-plan for
+single-model surface.
+
+**Fix (`chat_extension/adapters.js::arenaDiagnosticSnapshot`):**
+new `arenaai_hint.carousel` block on every snapshot on
+`arena.ai`:
+```json
+{
+  "carousels": 1,
+  "columns": [
+    {"carousel_class": "flex @container/carousel", "index": 0,
+     "child_class": "min-w-0 shrink-0 grow-0 pl-4 ...",
+     "has_ai_bar": true},
+    {"carousel_class": "flex @container/carousel", "index": 1,
+     "child_class": "min-w-0 shrink-0 grow-0 pl-4 ...",
+     "has_ai_bar": false}
+  ]
+}
+```
+
+Guarantees the next Battle miss can be root-caused from one
+scan-report — if `has_ai_bar` is false for a column that should
+have one, it's a mount-side bug; if the column just isn't in the
+DOM, it's a rendering/scroll problem to solve differently.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.14`.
+- `pyproject.toml::version` → `4.50.14`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_24.py` — 13 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow tests to `0.14.24`.
+
+## Still deferred
+
+- Arena.ai Battle actual multi-model — need a Battle scan-report
+  captured with two AI models active in parallel columns. The new
+  carousel diagnostic will tell us exactly where the miss lives.
+- Mistral flaky mount — same "AI probably emits invalid tool call"
+  category.
+- v4.51.0 (collapse tool results in history) + v4.51.1 (full
+  instructions catalog) — pending adapter tour settlement.
+
 ## v4.50.13 -- Battle/Code column detector broadened + OpenRouter per-entry finder + T3 duplicate sweep
 
 # v4.50.13 — Battle/Code column detector broadened + OpenRouter per-entry finder + T3 duplicate sweep

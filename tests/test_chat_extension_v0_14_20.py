@@ -51,10 +51,10 @@ def _read(name: str) -> str:
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_20():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.23'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.23"
-    assert "return '0.14.23';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.23`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.24'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.24"
+    assert "return '0.14.24';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.24`" in _read("README.md")
 
 
 # ------------------------------------------------------------------

@@ -493,12 +493,37 @@ function arenaDiagnosticSnapshot(node) {
           columnHint = {found: false};
         }
       } catch (_e) { /* ignore */ }
+      // v0.14.24 (v4.50.14): battle-wide carousel snapshot so we
+      // can debug when a Battle scan shows only one AI column while
+      // the user swears both are visible. Reports total carousel
+      // count on the page and total child-column count -- if child
+      // count > 1 but only one candidate came through the scan,
+      // the second column is likely lazy-mounted or scrolled off.
+      let carouselSnapshot = null;
+      try {
+        const carousels = document.querySelectorAll(
+          '[class*="@container/carousel"], [class*="carousel"], [class*="side-by-side"], [class*="battle"]'
+        );
+        const cols = [];
+        carousels.forEach((cr) => {
+          Array.from(cr.children || []).forEach((child, idx) => {
+            cols.push({
+              carousel_class: String(cr.className || '').slice(0, 60),
+              index: idx,
+              child_class: String(child.className || '').slice(0, 60),
+              has_ai_bar: !!child.querySelector?.('[data-arena-tool-controls="1"]'),
+            });
+          });
+        });
+        carouselSnapshot = {carousels: carousels.length, columns: cols.slice(0, 8)};
+      } catch (_e) { /* ignore */ }
       arenaaiHint = {
         surface,
         response_container_ancestor: !!node.closest?.('#response-content-container'),
         bg_surface_raised_ancestor: !!node.closest?.('[class*="bg-surface-raised"]'),
         bg_surface_primary_ancestor: !!node.closest?.('[class*="bg-surface-primary"]'),
         column: columnHint,
+        carousel: carouselSnapshot,
         wrappers,
       };
     }
@@ -1006,6 +1031,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 

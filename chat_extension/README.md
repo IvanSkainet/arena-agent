@@ -1,6 +1,19 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.23` (v4.50.13 bridge release —
+Current extension version: `0.14.24` (v4.50.14 bridge release —
+two focused fixes from Ivan's v4.50.13 tour:
+1) T3 chat duplicate — v4.50.13 sweep was map-based but
+mountedControls.set(fp, ...) OVERWRITES prior entries when
+two mounts commit with the same fingerprint. Map had 1 entry;
+DOM had 2 shadow-hosts. New DOM-based sweep walks
+`[data-arena-tool-controls-mounted]` directly and groups by
+new `data-arena-semantic-fingerprint` attribute; catches
+duplicates the map can't see.
+2) Arena.ai Battle diagnostics — Battle scan absent from the
+v4.50.13 tour; added `arenaai_hint.carousel` block reporting
+total carousels on the page + per-column snapshot with
+`has_ai_bar`. Root-cause for the next Battle miss will be
+visible from one scan-report. v4.50.13 bridge release —
 three retries from Ivan's v4.50.12 tour:
 1) Arena.ai Battle + Code — v4.50.12 column detector missed
 because arena.ai's Battle/Code layouts don't use the
@@ -262,6 +275,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 
