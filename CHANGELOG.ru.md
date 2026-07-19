@@ -1,3 +1,104 @@
+## v4.50.11 -- \u0438\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u0438\u043d\u0432\u0435\u0440\u0441\u0438\u0438 Arena.ai + OpenRouter multi-block + ChatGPT fingerprint fix
+
+# v4.50.11 — исправление инверсии Arena.ai + OpenRouter multi-block + fingerprint fix для ChatGPT
+
+Три ретрая после тура Ивана по v4.50.10. Все три через диффы
+live-скана; без гаданий.
+
+## 1. Arena.ai — user фильтр ИНВЕРТИРОВАН на battle/direct/side-by-side
+
+**Симптом:** "теперь Arena.ai только в режиме агента реально
+только AI ловит, а User не ловит, но вот в Battle он ловит User, а
+AI не ловит, так и он в Direct и Side by side поступает также."
+
+**Причина:** правило v4.50.10 keyed AI на `bg-surface-raised` и
+User на `bg-surface-primary + no-scrollbar`. Live-скан доказал
+обратное:
+- `bg-surface-raised w-fit min-w-0 max-w-prose ... self-end` — это
+  **User pill** (правое выравнивание, `self-end`).
+- `bg-surface-primary ... mx-auto max-w-[800px] w-full` — это
+  **AI panel** (центр, широкая колонка).
+
+В agent mode AI PRE не имеет `self-end`, поэтому v4.50.10 случайно
+работал (skip как "not user"). В chat/battle/side-by-side у User
+есть `self-end` → правило матчило User как AI.
+
+**Фикс:** переключился на определяющий маркер `self-end` для User
+(Tailwind flex right-align, используется везде для user pills). AI
+остаётся через `#response-content-container` fast-return + шаблон
+широкой колонки `mx-auto max-w-[800px] w-full`. Ни одна ветка не
+срабатывает вне arena.ai — нет риска для других адаптеров.
+
+## 2. OpenRouter multi-block всё ещё один toolbar
+
+**Симптом:** "Multi-block per message пока не работает так, как
+хотелось бы. Плюс на некоторых вызовах функций появляется ошибка
+400."
+
+**Скан:** OpenRouter `selector_hits pre: raw=0` — **вообще нет**
+`<pre>` элементов. Блоки лежат в `<div class="group/codeblock">`.
+`querySelectorAll('pre')` из v4.50.10 находил 0 → fallback на
+single-host.
+
+**Фикс:** walker расширен: принимает любой из `pre,
+[class*="group/codeblock"], [class*="code-block"],
+[class*="codeBlock"], [class*="syntax-highlighter"],
+[class*="markdown-fenced-code"]` когда текст содержит
+`function_call_start` / `function_call_end`. Плюс de-dup ближайшим
+узлом: если и wrapper и его child оба матчат — берём child.
+
+Ошибки 400 — это BRIDGE-side (`mission.lineage` требует параметр
+`name`) — issue handler'а, не расширения, отложено отдельно.
+
+## 3. ChatGPT tiebreaker не срабатывает
+
+**Симптом:** "Same call ID почему-то не обрабатывается на chatgpt,
+точнее может оно и работает, но в обратном порядке или я что-то не
+понял."
+
+**Скан:** два одинаковых assistant PRE (в `conversation-turn-2` и
+`conversation-turn-6`) хэшируются в `arena_msg_866434213`. Ветка
+dedup `semanticOwner === fingerprint` короткозамыкает через
+`skip_semantic_already_mounted` — DOM-position tiebreaker никогда
+не входит в `prevAlive` ветку.
+
+**Причина:** `arenaExtractNodeId` использует `arenaNodePath(node)`
+depth 6, что коллапсит в `DIV/SECTION/DIV/DIV/DIV/DIV` для обоих
+turn'ов; text head одинаковый; roleBit heuristic не находит
+явного маркера роли → коллизия fingerprint.
+
+**Фикс:** добавил два fallback'а roleBit после провала arena.ai
+wrapper-маркеров:
+1. `data-testid="conversation-turn-N"` — записываем N как roleBit
+   `tN`. Работает на ChatGPT (все turn'ы testid'аются) и любых
+   адаптерах с этим же паттерном.
+2. Индекс bubble в `playground-message-list` — записываем позицию
+   `assistant-message`/`user-message` в списке как roleBit `mN`.
+   Работает на OpenRouter.
+
+Оба аддитивные: срабатывают только когда более ранний маркер роли
+не совпал. Другие адаптеры не видят изменения fingerprint. С этим
+два ChatGPT PRE получают roleBit `t2` и `t6`, хэшируются в разные
+fingerprint, и DOM-position tiebreaker работает нормально.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.11`.
+- `pyproject.toml::version` → `4.50.11`.
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_21.py` — 12 asserts.
+- Перепиннены все v0_14_* + assets + adapter_flow на `0.14.21`.
+- Ожидаемо: 2580 passed (2568 → 2580).
+
+## Всё ещё отложено
+
+- 400 ошибки на `mission.lineage` и др. — bridge-side handler
+  должен принимать arguments-less форму или давать понятную ошибку.
+- T3 chat дубль toolbar во время stream.
+- Mistral flaky mount.
+
 ## v4.50.10 -- backlog: Arena.ai fingerprint + multi-block + DOM-position tiebreaker
 
 # v4.50.10 — отложенный бэклог: Arena.ai fingerprint, multi-block, DOM-position tiebreaker

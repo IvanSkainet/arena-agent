@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.20';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.21';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -723,22 +723,39 @@ function scan() {
       : (node.textContent || '');
     const entries = parseArenaBlocks(text);
     if (!entries.length) return;
-    // Try per-PRE mounting first.
+    // v0.14.21 (v4.50.11): try per-block mounting. First look for
+    // <pre>, then broaden to any code-fence container (OpenRouter
+    // renders each block as <div class="group/codeblock"> WITHOUT
+    // any <pre> ancestor, so v0.14.20's pre-only walker found 0
+    // and fell through to single-host). We accept any element
+    // whose textContent contains a function_call_start/end marker
+    // AND whose class/tag looks like a code container.
     const blockNodes = [];
     try {
-      const pres = Array.from(node.querySelectorAll?.('pre') || []);
-      pres.forEach((pre) => {
-        const preText = pre.textContent || '';
-        if (preText.includes('function_call_start') || preText.includes('function_call_end')) {
-          blockNodes.push(pre);
+      const CODE_SEL = 'pre, [class*="group/codeblock"], [class*="code-block"], [class*="codeBlock"], [class*="syntax-highlighter"], [class*="markdown-fenced-code"]';
+      const CODE_MARKERS = ['function_call_start', 'function_call_end'];
+      const seen = new Set();
+      Array.from(node.querySelectorAll?.(CODE_SEL) || []).forEach((el) => {
+        const txt = el.textContent || '';
+        if (!CODE_MARKERS.some((m) => txt.includes(m))) return;
+        // De-dupe: if an ancestor of `el` is already in blockNodes,
+        // skip; if `el` is an ancestor of one we already picked,
+        // replace it with the tighter node.
+        let skip = false;
+        for (const chosen of blockNodes) {
+          if (chosen === el) { skip = true; break; }
+          if (chosen.contains?.(el)) { skip = true; break; }
+          if (el.contains?.(chosen)) { blockNodes.splice(blockNodes.indexOf(chosen), 1); break; }
         }
+        if (skip) return;
+        if (!seen.has(el)) { seen.add(el); blockNodes.push(el); }
       });
     } catch (_e) { /* querySelectorAll can throw on detached nodes */ }
 
     if (blockNodes.length >= entries.length && blockNodes.length > 1) {
-      // Multi-block path: one toolbar per PRE.
-      blockNodes.slice(0, entries.length).forEach((preNode, i) => {
-        const perHost = controlsHost(preNode, state.adapter);
+      // Multi-block path: one toolbar per block.
+      blockNodes.slice(0, entries.length).forEach((blockNode, i) => {
+        const perHost = controlsHost(blockNode, state.adapter);
         if (hostHasToolbar(perHost)) return;
         mountControls(perHost, entries[i].payload, state.adapter);
       });
@@ -906,6 +923,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

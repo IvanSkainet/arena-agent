@@ -135,27 +135,38 @@ function arenaWhyUserAuthored(node, adapter) {
   // explicitly so BOTH surfaces get: toolbar mounts on assistant,
   // user skipped.
   if (adapterName === 'arenaai' && node.closest) {
-    // v0.14.19 (v4.50.9): keying on `.chat-user` / `.chat-assistant`
-    // did NOT work on arena.ai (those classes are z.ai's). Live
-    // scans across /agent/, /c/, and battle mode show two stable
-    // wrapper tokens on the OUTER wrappers of each turn:
-    //   AI turn   -> ancestor with `bg-surface-raised` (usually
-    //                paired with `w-fit`) OR `#response-content-container`.
-    //   User turn -> ancestor with `bg-surface-primary` (paired
-    //                with `no-scrollbar` container).
-    // These are Tailwind design-system classes shared by all three
-    // arena.ai surfaces. We match AI first (fast-return not-user)
-    // so the user-marker heuristic never fires on an AI PRE by
-    // accident.
-    if (node.closest('#response-content-container, [class*="bg-surface-raised"]')) {
+    // v0.14.21 (v4.50.11): the v4.50.9/v4.50.10 attempts had the
+    // markers INVERTED. Ivan's scans across chat/agent/battle show:
+    //   User turn (right-aligned pill):
+    //     ancestor with `self-end` in the class list
+    //     -- e.g. `group flex max-w-[min(768px,100%)] flex-col gap-1 self-end`
+    //     May also have `bg-surface-raised w-fit`, but that pattern
+    //     also appears on some AI wrappers so `self-end` is the
+    //     definitive marker (Tailwind: flex-align right).
+    //   AI turn (wide, center-aligned):
+    //     ancestor with `mx-auto max-w-[800px] w-full` AND
+    //     `bg-surface-primary` -- the AI content sits in a
+    //     document-width column that spans the whole surface.
+    //   `#response-content-container` still appears on some /agent/
+    //     surfaces so we keep it as a positive AI fast-return.
+    // We MATCH USER FIRST (self-end is more specific), then negate
+    // AI, then fall through when neither pattern is present so the
+    // next global rule can try.
+    if (node.closest('[class*="self-end"]')) {
+      return {matched: true, reason: 'arenaai:self-end@DIV'};
+    }
+    if (node.closest('#response-content-container')) {
       return {matched: false, reason: ''};
     }
-    // User marker. bg-surface-primary alone is common on wrapper
-    // shells so we also require the `no-scrollbar` sibling class or
-    // an explicit user role/testid to reduce false positives.
-    const userWrap = node.closest('[class*="no-scrollbar"], [class*="user-message"], [class*="chat-user"]');
-    if (userWrap && userWrap.closest('[class*="bg-surface-primary"], [class*="no-scrollbar"]')) {
-      return {matched: true, reason: 'arenaai:user-wrap@DIV'};
+    // AI wide-column marker: mx-auto max-w-[800px] w-full. Only
+    // treat as explicit not-user when we're clearly on that
+    // full-width column (Tailwind pattern is `mx-auto max-w-[800px]
+    // w-full`); the `bg-surface-primary` marker alone is too broad
+    // because it appears on many wrapper shells across the app.
+    const wideColumn = node.closest('.mx-auto');
+    if (wideColumn && /\bmax-w-\[800px\]\b/.test(String(wideColumn.className || ''))
+        && /\bw-full\b/.test(String(wideColumn.className || ''))) {
+      return {matched: false, reason: ''};
     }
   }
   // v0.14.17 (v4.50.7): AI Studio (aistudio.google.com; shares gemini
@@ -507,10 +518,39 @@ function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
   // fingerprints.
   let roleBit = '';
   try {
-    if (node.closest?.('#response-content-container, [class*="bg-surface-raised"], [class*="chat-assistant"]')) {
-      roleBit = 'ai';
-    } else if (node.closest?.('[class*="bg-surface-primary"], [class*="chat-user"]')) {
+    // v0.14.21 (v4.50.11): use `self-end` as the definitive user
+    // marker on arena.ai (Tailwind flex right-align pattern used
+    // for user pills). The prior v0.14.20 bg-surface-raised (AI)
+    // rule was INVERTED -- Ivan's live scans proved
+    // bg-surface-raised is actually the User pill background.
+    if (node.closest?.('[class*="self-end"], [class*="chat-user"]')) {
       roleBit = 'user';
+    } else if (node.closest?.('#response-content-container, [class*="chat-assistant"]')) {
+      roleBit = 'ai';
+    }
+    // v0.14.21 (v4.50.11): fallback: turn ordinal from
+    // conversation-turn-N testid (ChatGPT + OpenRouter both expose
+    // it). Even when a chat has many identical tool-echo blocks the
+    // turn number differs, so the fingerprint splits.
+    if (!roleBit) {
+      const turn = node.closest?.('[data-testid^="conversation-turn-"]');
+      if (turn) {
+        const tid = turn.getAttribute?.('data-testid') || '';
+        const m = tid.match(/^conversation-turn-(\d+)/);
+        if (m) roleBit = 't' + m[1];
+      }
+    }
+    // v0.14.21: last-resort message-anchor ordinal for OpenRouter
+    // (playground-message-list child index) so identical AI echoes
+    // in different turns get different fingerprints.
+    if (!roleBit) {
+      const bubble = node.closest?.('[data-testid="assistant-message"], [data-testid="user-message"]');
+      const list = bubble?.closest?.('[data-testid="message-list-content"], [data-testid="playground-message-list"]');
+      if (bubble && list) {
+        const kids = Array.from(list.querySelectorAll('[data-testid="assistant-message"], [data-testid="user-message"]'));
+        const idx = kids.indexOf(bubble);
+        if (idx >= 0) roleBit = 'm' + idx;
+      }
     }
   } catch (_e) { /* ignore */ }
   return [
@@ -865,6 +905,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 

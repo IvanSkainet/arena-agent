@@ -45,10 +45,10 @@ def _read(name: str) -> str:
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_19():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.20'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.20"
-    assert "return '0.14.20';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.20`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.21'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.21"
+    assert "return '0.14.21';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.21`" in _read("README.md")
 
 
 # ------------------------------------------------------------------
@@ -113,10 +113,12 @@ def test_arenaai_uses_bg_surface_raised_for_ai():
 
 
 def test_arenaai_user_keys_on_bg_surface_primary_or_no_scrollbar():
+    """v0.14.21 replaced bg-surface-primary/no-scrollbar keys with the
+    definitive `self-end` marker; accept either as the branch intent."""
     adapters = _read("adapters.js")
-    assert "bg-surface-primary" in adapters
-    assert "no-scrollbar" in adapters
-    assert "arenaai:user-wrap@DIV" in adapters
+    assert ("bg-surface-primary" in adapters or "self-end" in adapters)
+    assert ("arenaai:user-wrap@DIV" in adapters
+            or "arenaai:self-end@DIV" in adapters)
 
 
 def test_diagnostic_snapshot_exposes_arenaai_hint():

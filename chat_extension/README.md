@@ -1,6 +1,30 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.20` (v4.50.10 bridge release —
+Current extension version: `0.14.21` (v4.50.11 bridge release —
+three retries after Ivan's v4.50.10 tour:
+1) Arena.ai user filter — v4.50.10 markers were INVERTED
+(bg-surface-raised was assumed AI but is actually the User
+pill background). Switched to the definitive `self-end`
+ancestor marker (Tailwind flex right-align pattern used for
+user pills across chat/agent/battle). AI recognised via
+`#response-content-container` + wide-column
+`mx-auto max-w-[800px] w-full` pattern.
+2) Multi-block on OpenRouter — v4.50.10 walker looked for
+`<pre>` only; OpenRouter renders each block as
+`<div class="group/codeblock">` without any `<pre>` ancestor
+(selector_hits pre.raw=0). Walker broadened to accept
+`.group/codeblock`, `.code-block`, `.codeBlock`,
+`.syntax-highlighter`, `.markdown-fenced-code` with a
+tightest-node de-dup.
+3) ChatGPT same-call_id tiebreaker — v4.50.10 tiebreaker never
+ran because the two identical assistant PREs hashed to the
+SAME fingerprint (arenaNodePath 6-deep collapsed different
+conversation-turn-N sections). `arenaExtractNodeId` now
+falls back to conversation-turn-N ordinal (or bubble index
+within playground-message-list) as roleBit when no explicit
+role marker is present, so the tiebreaker sees two distinct
+fingerprints and the DOM-position tiebreaker actually fires.
+v4.50.10 bridge release —
 picking up the deferred v4.50.9 backlog:
 1) Arena.ai fingerprint collision — v4.50.9 filter correctly
 matched User but the User+AI PREs on `/c/` had identical
@@ -197,6 +221,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

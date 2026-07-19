@@ -1,3 +1,114 @@
+## v4.50.11 -- Arena.ai markers un-inverted + OpenRouter multi-block + ChatGPT tiebreaker fingerprint fix
+
+# v4.50.11 — Arena.ai markers un-inverted + OpenRouter multi-block + ChatGPT tiebreaker fingerprint fix
+
+Three retries after Ivan's v4.50.10 tour. All three found via
+live scan-report diffs; no guessing.
+
+## 1. Arena.ai — user filter INVERTED across battle/direct/side-by-side
+
+**Symptom (Ivan):** "теперь [Arena.ai] только в режиме агента реально
+только AI ловит, а User не ловит, но вот в Battle он ловит User, а
+AI не ловит, так и он в Direct и Side by side поступает также."
+
+**Root cause:** the v4.50.10 rule keyed AI on `bg-surface-raised`
+and User on `bg-surface-primary + no-scrollbar`. Live scans prove
+the reverse:
+- `bg-surface-raised w-fit min-w-0 max-w-prose ... self-end` is
+  the **User pill** (right-aligned, `self-end`).
+- `bg-surface-primary ... mx-auto max-w-[800px] w-full` is the
+  **AI panel** (center-aligned, wide column).
+
+So in agent mode where the AI PRE has no `self-end` wrapper, the
+v4.50.10 rule happened to work by accident (skipped as "not user").
+In chat/battle/side-by-side where User has `self-end`, the rule
+matched User as AI.
+
+**Fix (`chat_extension/adapters.js::arenaWhyUserAuthored`):**
+switched to the definitive `self-end` marker for User (Tailwind
+flex right-align pattern used everywhere for user pills). AI kept
+as `#response-content-container` fast-return plus the wide-column
+`mx-auto max-w-[800px] w-full` pattern. Neither branch fires
+outside arena.ai so no cross-adapter risk.
+
+## 2. OpenRouter multi-block still emitted single toolbar
+
+**Symptom (Ivan):** "Multi-block per message пока не работает так,
+как хотелось бы. Плюс на некоторых вызовах функций появляется
+ошибка 400."
+
+**Scan-report evidence:** OpenRouter's `selector_hits` shows
+`pre: raw=0` — there are NO `<pre>` elements at all. Blocks live
+in `<div class="group/codeblock">` wrappers. The v4.50.10
+`querySelectorAll('pre')` walker found nothing → fell through to
+single-host path.
+
+**Fix (`chat_extension/content.js::scan`):** broadened the walker
+to accept any of `pre, [class*="group/codeblock"], [class*="code-block"],
+[class*="codeBlock"], [class*="syntax-highlighter"],
+[class*="markdown-fenced-code"]` when the text contains
+`function_call_start` / `function_call_end`. Added tightest-node
+de-dup so nested containers don't get mounted twice (chose the
+descendant when both a wrapper and its child match).
+
+The 400 errors are BRIDGE-side (`mission.lineage` complaining
+about missing `name` parameter) — that's a tool-handler issue,
+not extension, deferred separately.
+
+## 3. ChatGPT same-call_id tiebreaker never ran
+
+**Symptom (Ivan):** "Same call ID почему-то не обрабатывается на
+chatgpt, точнее может оно и работает, но в обратном порядке или я
+что-то не понял."
+
+**Scan-report evidence:** two identical assistant PREs (in
+`conversation-turn-2` and `conversation-turn-6`) both hash to
+`arena_msg_866434213`. The dedup branch `semanticOwner === fingerprint`
+short-circuits with `skip_semantic_already_mounted` — the DOM-
+position tiebreaker never enters because we never reach the
+`prevAlive` branch.
+
+**Root cause:** `arenaExtractNodeId` uses `arenaNodePath(node)`
+depth 6 which collapses to `DIV/SECTION/DIV/DIV/DIV/DIV` for both
+turns; text head is identical; and neither turn has an explicit
+role-marker wrapper the roleBit heuristic recognises → fingerprint
+collision.
+
+**Fix (`chat_extension/adapters.js::arenaExtractNodeId`):** added
+two roleBit fallbacks after the arena.ai wrapper markers fail:
+1. `data-testid="conversation-turn-N"` — capture N as roleBit
+   `tN`. Works on ChatGPT (all turns testid'd) and any adapter
+   using the same pattern.
+2. `playground-message-list` bubble index — capture the
+   `assistant-message`/`user-message` position within the list as
+   roleBit `mN`. Works on OpenRouter and any adapter that gives
+   its own bubbles.
+
+Both are additive: only fires when no earlier role marker
+matched. Existing adapters see zero change to their fingerprints.
+With this, the two ChatGPT PREs get `t2` and `t6` roleBits, hash
+to distinct fingerprints, and the DOM-position tiebreaker fires
+normally.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.11`.
+- `pyproject.toml::version` → `4.50.11`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_21.py` — 12 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow to `0.14.21`.
+- Expected total: 2580 passed (2568 → 2580, +12).
+
+## Still deferred
+
+- 400 errors on `mission.lineage` etc — bridge-side tool-handler
+  needs to accept the model's arguments-less form or emit a
+  clearer error.
+- T3 chat duplicate toolbar during streaming.
+- Mistral flaky mount.
+
 ## v4.50.10 -- deferred backlog: Arena.ai fingerprint + multi-block + DOM-position tiebreaker
 
 # v4.50.10 — deferred backlog picked up: Arena.ai fingerprint, multi-block, DOM-position tiebreaker
