@@ -1,4 +1,4 @@
-"""Regression guards for extension 0.14.12 (v4.49.2).
+"""Regression guards for extension 0.14.13 (v4.49.2).
 
 Three surgical corrections to the three v4.49.1 fixes based on the
 operator's third round of scan-report data:
@@ -45,14 +45,14 @@ def _read(name: str) -> str:
 
 def test_versions_pinned_to_0_14_9():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.12'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.12"
-    assert "return '0.14.12';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.12`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.13'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.13"
+    assert "return '0.14.13';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.13`" in _read("README.md")
 
 
 def test_skip_user_authored_does_not_dismiss_semantic_fingerprint():
-    """v0.14.12: skip_user_authored MUST dismiss only the message
+    """v0.14.13: skip_user_authored MUST dismiss only the message
     fingerprint. Adding semanticFingerprint would kill the AI echo
     of the same tool block (Grok/DuckAI both re-emit)."""
     src = _read("content.js")
@@ -73,7 +73,7 @@ def test_skip_user_authored_does_not_dismiss_semantic_fingerprint():
 
 
 def test_duckai_gets_per_adapter_user_message_filter():
-    """v0.14.12: DuckAI joins Grok in the per-adapter user-message check."""
+    """v0.14.13: DuckAI joins Grok in the per-adapter user-message check."""
     src = _read("adapters.js")
     assert "adapterName === 'grok' || adapterName === 'duckai'" in src, (
         "DuckAI must share the per-adapter user-message branch with Grok"
@@ -84,7 +84,7 @@ def test_duckai_gets_per_adapter_user_message_filter():
 
 
 def test_qwen_hoist_anchors_on_outer_pre_not_body():
-    """v0.14.12: Qwen anchor is now the outer <pre.qwen-markdown-code>.
+    """v0.14.13: Qwen anchor is now the outer <pre.qwen-markdown-code>.
     The old .qwen-markdown-code-body path was INSIDE the PRE and
     made the toolbar nest deeper, overlapping everything (regression
     from v4.49.1)."""

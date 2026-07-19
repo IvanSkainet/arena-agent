@@ -1,3 +1,132 @@
+## v4.50.3 -- Universal toolbar-thrash fix (Claude/Mistral/Gemini/AI Studio/T3) + T3 chat user filter
+
+Operator did a live tour across every supported chat site with
+v0.14.12 loaded. Grok works. But Gemini AI Studio, T3 chat, Claude,
+Mistral, and Gemini Web ALL exhibited the same symptom:
+
+* "результаты и миллисекунды в тулбаре не отображаются"
+* "insert срабатывает через раз"
+* "тулбар мигает"
+
+Scan-reports made it obvious -- `events_recent` on AI Studio and T3
+chat showed the classic thrash pattern:
+
+```
+mount_entry(PRE) -> evict_semantic_owner -> mounted
+mount_entry(PRE) -> evict_semantic_owner -> mounted
+mount_entry(PRE) -> evict_semantic_owner -> mounted
+...
+```
+
+~10 mount/evict pairs per second. The toolbar's in-closure state
+(`lastExecutionText`, "result ready" label, insert timing text)
+was being wiped on every eviction cycle.
+
+### Root cause
+
+`mountControls`' semantic-owner eviction unconditionally kicked
+out the previous owner whenever two DIFFERENT DOM nodes carried
+the same jsonl. Legitimate reasons for that: Gemini AI Studio
+renders BOTH a Thought Process expansion panel AND the main answer
+with the same tool block; T3 chat has a similar dup; Claude and
+Mistral echo similarly. Both hosts are legitimately alive; the
+operator wants BOTH to have a toolbar. Semantic eviction was
+designed for SPA re-renders (the previous host got physically
+removed), not for parallel duplicates.
+
+### Fix
+
+Eviction now gated on `!prevAlive` where `prevAlive =
+previous?.host?.isConnected && previous?.bar?.isConnected`. When
+the previous owner is still in the DOM, the new call is treated
+as a legitimate parallel candidate and skipped with a distinct
+`skip_semantic_prev_alive` diag event. The SPA-churn path (prev
+gone) still evicts + remounts as before.
+
+Net effect on the sites above:
+
+* First candidate mounts → keeps its toolbar alive.
+* Second candidate hits `skip_semantic_prev_alive` → doesn't
+  disturb the first.
+* No more state-wiping churn. Results / timing / result-ready
+  labels persist for the user to actually read them.
+
+The DuckAI/T3-style situation where the SAME payload appears in
+two DIFFERENT physical hosts (parallel duplicates) now cleanly
+mounts ONE toolbar on whichever host was rendered first, and any
+later duplicate is a no-op. If the operator prefers a toolbar on
+BOTH copies, we can flip the strategy per-adapter in a follow-up.
+
+### Also fixed
+
+**T3 chat User filter**: T3 chat has no `data-testid` on turns,
+but the AI's `.prose` container has `role="article"`. Added a
+per-adapter branch in `arenaWhyUserAuthored`: when adapter is
+`t3chat`, the closest `.prose` ancestor without `role="article"`
+is user-authored. Reason string: `t3chat:user-prose@DIV`.
+
+### Version bumps
+
+* extension `0.14.12` → `0.14.13`
+* manifest / content / insert_strategies / README synced
+* bridge `4.50.2` → `4.50.3`
+
+### Regression guards
+
+8 new asserts in `tests/test_chat_extension_v0_14_13.py`:
+
+* four version pins
+* semantic-owner eviction gated on `!prevAlive`, checks both
+  `host.isConnected` AND `bar.isConnected`, emits
+  `skip_semantic_prev_alive` when prev is alive
+* evict branch still removes when prev is dead (SPA churn path
+  preserved)
+* T3 chat per-adapter branch queries `role !== 'article'`
+* All prior guards from v0.14.6-12 hold (Grok/DuckAI filter,
+  ghost-composer penalty, dismissed-before-evict, bubbleId,
+  800ms send deadline, Qwen anchor, shadow_toolbar Qwen fix)
+* content.js ≤ 700 lines
+* scan-report diagnostics still shipped
+
+Existing 7 prior chat-extension test files re-pinned to 0.14.13.
+Full sweep: **2485 passed, 0 failed**.
+
+### Files touched
+
+* `chat_extension/content.js` -- 700 lines (net-zero via
+  compression: eviction gate + skip_semantic_prev_alive event)
+* `chat_extension/adapters.js` -- 613 → 622 lines (+9 for T3
+  chat per-adapter user filter)
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_13.py` -- new, 8 asserts
+* seven prior chat-extension test files re-pinned
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### Known follow-ups (not in this release)
+
+* **z.ai toolbar sits under the message, not under the code
+  block**: cosmetic, needs a per-adapter `controlsHost` hoist
+  similar to Qwen. Filed for v4.50.4.
+* **Grok toolbar visually "hovers"**: also cosmetic. Filed for
+  v4.50.4.
+* **Windows Dashboard layout screenshot**: still waiting for
+  operator to reboot into Windows and capture.
+* **Insert-into-start-vs-end**: operator noted Claude inserts at
+  the START (which they actually prefer for data-then-instruction
+  ordering). Not changing this without an explicit request; it
+  looks like the existing behaviour is desired.
+
+### What operator will see
+
+On the next Scan Page for Claude / Mistral / Gemini Web /
+AI Studio / T3 chat, `events_recent` should show a single
+`mounted` event per unique semantic fingerprint plus
+`skip_semantic_prev_alive` for the duplicates instead of the
+thrash cycle. The toolbar's "Arena · <site> · result ready" +
+insert-timing labels will stay visible after Run/Insert/Send.
+
 ## v4.50.2 -- Token save 401 fix + "install without SHA-256 verification" opt-in + inventory cache
 
 Live report on v4.50.0/v4.50.1 from the operator: three separate

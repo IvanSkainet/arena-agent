@@ -90,6 +90,15 @@ function arenaWhyUserAuthored(node, adapter) {
     const bubble = node.closest('[data-testid="user-message"]');
     if (bubble) return {matched: true, reason: `${adapterName}:user-message@DIV`};
   }
+  // v0.14.13: t3chat has no data-testid on turns but marks the AI's
+  // .prose container with role="article". Absence of that role AND
+  // presence of a .prose ancestor is the User-turn signal.
+  if (adapterName === 't3chat' && node.closest) {
+    const prose = node.closest('.prose');
+    if (prose && prose.getAttribute('role') !== 'article') {
+      return {matched: true, reason: 't3chat:user-prose@DIV'};
+    }
+  }
   let el = node;
   for (let i = 0; el && i < 8; i++) {   // cap tightened 20 -> 8
     if (el.nodeType !== 1) { el = el.parentNode; continue; }

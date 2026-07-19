@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.12';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.13';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -108,8 +108,7 @@ function controlsHost(node, adapter) {
   if (String(node.tagName || '').toUpperCase() === 'DIV') { const pre = node.querySelector('pre'); if (pre) node = pre; }
   const adapterName = adapter && adapter.name;
   if (adapterName === 'duckai') { const w = node.closest?.('.overflow-hidden'); if (w?.parentElement) return w.parentElement; }
-  // v0.14.9: Qwen -- .qwen-markdown-code-body is INSIDE the PRE; anchor on the outer <pre> so afterend places the toolbar OUTSIDE.
-  if (adapterName === 'qwen') { const pre = node.closest?.('pre.qwen-markdown-code, pre'); if (pre) return pre; }
+  if (adapterName === 'qwen') { const pre = node.closest?.('pre.qwen-markdown-code, pre'); if (pre) return pre; }  // v0.14.9: anchor outer <pre>
   return node;
 }
 
@@ -259,8 +258,7 @@ function mountControls(host, payload, adapter) {
   // v0.14.4: generic adapter is passive -- never mount on unlisted sites.
   if (adapter && adapter.passive) return;
   host = controlsHost(host, adapter);
-  // v0.14.11: entry diag so we can see which nodes reach mountControls at all.
-  _arenaDiagPushEvent({kind: 'mount_entry', adapter: adapter.name, tag: host?.tagName || '', testid: host?.getAttribute?.('data-testid') || ''});
+  _arenaDiagPushEvent({kind: 'mount_entry', adapter: adapter.name, tag: host?.tagName || '', testid: host?.getAttribute?.('data-testid') || ''});  // v0.14.11: entry diag
 
   const fingerprint = typeof arenaMessageFingerprint === 'function'
     ? arenaMessageFingerprint(host, payload, adapter)
@@ -271,21 +269,23 @@ function mountControls(host, payload, adapter) {
   const semanticFingerprint = typeof arenaPayloadSemanticFingerprint === 'function'
     ? arenaPayloadSemanticFingerprint(payload, adapter)
     : payloadFingerprint;
-
-  // v0.14.11: dismissed-check BEFORE evict (was thrashing DuckAI ~10x/sec: User re-entered, evicted AI, then skipped).
-  const existing = mountedControls.get(fingerprint);
+  const existing = mountedControls.get(fingerprint);  // v0.14.11: dismissed-check BEFORE evict (DuckAI thrash)
   if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
   if (dismissedControls.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_semantic', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
 
   const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
   if (semanticOwner && semanticOwner !== fingerprint) {
-    _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
     const previous = mountedControls.get(semanticOwner);
-    if (previous?.shadowHost) previous.shadowHost.remove(); else previous?.bar?.remove();
-    if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
-    mountedControls.delete(semanticOwner);
-    mountedPayloadSemantics.delete(semanticFingerprint);
-    mountedSemanticOwners.delete(semanticFingerprint);
+    // v0.14.13: evict only if prev host is DOM-gone -- else two legit copies (Gemini ThoughtProcess+main, T3 dup) thrash.
+    const prevAlive = !!(previous?.host?.isConnected && previous?.bar?.isConnected);
+    if (!prevAlive) {
+      _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
+      if (previous?.shadowHost) previous.shadowHost.remove(); else previous?.bar?.remove();
+      if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
+      mountedControls.delete(semanticOwner); mountedPayloadSemantics.delete(semanticFingerprint); mountedSemanticOwners.delete(semanticFingerprint);
+    } else {
+      _arenaDiagPushEvent({kind: 'skip_semantic_prev_alive', adapter: adapter.name, fingerprint, previous_owner: semanticOwner}); return;
+    }
   }
 
   if (mountedPayloadSemantics.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_semantic_already_mounted', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }

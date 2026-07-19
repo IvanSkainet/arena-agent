@@ -1,4 +1,4 @@
-"""Regression guards for extension 0.14.12 (v4.50.1).
+"""Regression guards for extension 0.14.13 (v4.50.1).
 
 Two live-observed bugs the v0.14.11 mount_entry instrumentation
 made obvious:
@@ -51,14 +51,14 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_12():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.12'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.12"
-    assert "return '0.14.12';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.12`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.13'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.13"
+    assert "return '0.14.13';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.13`" in _read("README.md")
 
 
 def test_extract_node_id_includes_message_bubble_ancestor():
-    """v0.14.12: `arenaExtractNodeId` must reach into the nearest
+    """v0.14.13: `arenaExtractNodeId` must reach into the nearest
     `.message-bubble` ancestor to distinguish Grok's User vs
     Assistant `<pre>` children which share tag:index path and text."""
     src = _read("adapters.js")
@@ -91,7 +91,7 @@ def test_arena_node_path_depth_unchanged():
 
 
 def test_submit_poll_deadline_reduced_to_800ms():
-    """v0.14.12: reduce Kimi / Perplexity send latency."""
+    """v0.14.13: reduce Kimi / Perplexity send latency."""
     src = _read("insert_strategies.js")
     assert "const deadline = Date.now() + 800;" in src, (
         "arenaInsertAndSubmit must poll for at most 800ms before Enter fallback"
