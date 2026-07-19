@@ -1,3 +1,107 @@
+## v4.50.9 -- Kimi/z.ai/Arena.ai retries after v4.50.8 tour
+
+# v4.50.9 — Kimi/z.ai/Arena.ai retries after v4.50.8 tour
+
+Three retries after Ivan's v4.50.8 site tour. Each fix replaces a
+v4.50.8 heuristic that either produced a visual regression (Kimi)
+or never fired (z.ai, arena.ai).
+
+## 1. Kimi — huge empty toolbar column in saved chats
+
+**Symptom (Ivan):** "На Kimi toolbar появляется теперь, но там
+какая-то графическая проблема с его отображением... Какая-то полоса
+вниз огромная, если заходить в сохранённый чат. В новом чате stream
+такой проблемы нет."
+
+**Root cause:** v0.14.18 `controlsHost` hopped out of
+`.toolcall-container.thinking-container` and re-anchored on the
+enclosing `.segment-assistant`. In streaming chats the segment DIV
+is short so it looked fine; in saved chats it spans the whole
+message vertically → shadow toolbar rendered a huge blank column.
+
+**Fix:** removed the hop from `controlsHost` entirely. The
+thinking-widget copy is now dismissed via `arenaWhyUserAuthored`
+(matched=true, reason `kimi:thinking-widget@DIV`). `mountControls`
+already treats matched=true as "add fingerprint to
+dismissedControls, return early", so the visible sibling
+`.segment-content` PRE (already a separate parsed candidate that
+mountControls visits on its own) becomes the sole toolbar host
+with no visual side-effects.
+
+**Files:** `chat_extension/adapters.js`, `chat_extension/content.js`.
+
+## 2. z.ai — toolbar still at end of message
+
+**Symptom (Ivan):** "На Z.ai ничего не изменилось, всё тоже самое,
+также отображается в конце сообщения, а не под вызовом в сообщении."
+
+**Root cause:** v0.14.18 walker keyed on Kimi-specific class tokens
+(`.code-block`, `.syntax-highlighter`, `.segment-code`) that don't
+exist on z.ai. Walker returned null → toolbar stayed on the outer
+`.markdown-prose` (attached at end of message).
+
+**Fix:** broadened the walker to also look for `<pre>`, `<code>`,
+`[class*="language-"]`, `[class*="hljs"]` **AND** require the
+candidate element's `textContent` to include
+`function_call_start` / `function_call_end` so we anchor exactly on
+the tool block, not on unrelated code fences in the same message.
+Cap raised 200 → 300 nodes. On hit, also `.closest('pre, [class*="code"], [class*="language-"]')`
+so the toolbar sits under the whole fence, not tight to a single
+highlighted `<code>` span.
+
+**Files:** `chat_extension/content.js`.
+
+## 3. Arena.ai — User still gets toolbar, AI still doesn't
+
+**Symptom (Ivan):** "На Arena.ai ничего не изменилось, кроме
+displayName, который стал нормальным, а user также ловит и AI не
+ловит."
+
+**Root cause:** v0.14.18 keyed on `.chat-user` / `.chat-assistant`
+which are **z.ai's** classes, not arena.ai's. Arena.ai's live scan
+shows the real wrapper tokens are Tailwind design-system classes:
+`bg-surface-raised` (AI, often paired with `w-fit`) and
+`bg-surface-primary` + `no-scrollbar` (User pill container).
+Explicit AI marker `#response-content-container` also present.
+
+**Fix:** rewrote the `arenaai` branch in `arenaWhyUserAuthored`:
+- AI fast-return: `node.closest('#response-content-container, [class*="bg-surface-raised"]')` → not-user.
+- User marker: `.no-scrollbar` / `[class*="user-message"]` / `[class*="chat-user"]` ancestor whose OWN ancestor also carries `bg-surface-primary` or `no-scrollbar`. Reason: `arenaai:user-wrap@DIV`.
+
+Plus, added an **`arenaai_hint` diagnostic block** on every snapshot
+(only populated on `arena.ai`): reports `surface` (agent/chat/battle/other),
+`response_container_ancestor`, `bg_surface_raised_ancestor`,
+`bg_surface_primary_ancestor`, and the full wrapper class chain
+(top 12). Guarantees that if `/agent/` mode still misses in the next
+tour, root cause is visible from scan-report without DevTools.
+
+**Files:** `chat_extension/adapters.js`.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.9`.
+- `pyproject.toml::version` → `4.50.9`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_19.py` — 11 asserts covering
+  all three fixes + regression guards for v0.14.16..v0.14.18.
+- Re-pinned `tests/test_chat_extension_assets.py`,
+  `tests/test_chat_extension_adapter_flow.py`, and historical
+  `tests/test_chat_extension_v0_14_{7..18}.py` to `0.14.19`.
+- Expected total: 2554 passed (2543 → 2554, +11).
+
+## Still deferred to v4.50.10
+
+- Multi-block per message (1 toolbar per host still; OpenRouter
+  message with 6 tool calls only gets 1 toolbar).
+- Same call_id from AI when it doesn't increment (2nd call still
+  `call_id: "1"`) — need timestamp/position-based tie-breaker.
+- T3 chat duplicate toolbar during streaming.
+- Mistral flaky mount.
+- Arena.ai `/agent/` mode fine-tune (waiting for scan-report with
+  new `arenaai_hint` block).
+
 ## v4.50.8 -- Kimi thinking-widget + z.ai walk-down + Arena.ai label/filter + dedup toggle prewarm
 
 # v4.50.8 — Kimi thinking-widget escape + z.ai walk-down + Arena.ai label/filter + dedup toggle prewarm

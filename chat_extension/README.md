@@ -1,6 +1,24 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.18` (v4.50.8 bridge release —
+Current extension version: `0.14.19` (v4.50.9 bridge release —
+three retries from Ivan's v4.50.8 tour:
+1) Kimi — v4.50.8 hop-to-`.segment-assistant` produced a huge empty
+column in saved chats; now the thinking-widget candidate is
+silently dismissed via `arenaWhyUserAuthored` and the sibling
+`.segment-content` PRE (which mountControls visits separately)
+becomes the sole toolbar host.
+2) z.ai — v4.50.8 walker keyed on Kimi-specific class tokens
+that don't exist on z.ai; broadened to also look for `<pre>`,
+`<code>`, `[class*="language-"]`, `[class*="hljs"]` and require
+`function_call_start`/`function_call_end` in the element's text.
+3) Arena.ai — v4.50.8 keyed on `.chat-user`/`.chat-assistant`
+(those are z.ai classes, not arena.ai); switched to
+Tailwind design-system tokens `bg-surface-raised` (AI) /
+`bg-surface-primary`+`no-scrollbar` (User) + explicit
+`#response-content-container` fast-return. Also added
+`arenaai_hint` diagnostic block (surface + wrapper chain) so
+future /agent/ vs /c/ vs /battle/ regressions are diagnosable
+from scan-report. v4.50.8 bridge release —
 four narrow fixes from Ivan's v4.50.7 site tour:
 1) Kimi — не монтировать toolbar в свёрнутый
 `.toolcall-container.thinking-container`; переходить на
@@ -160,5 +178,6 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 

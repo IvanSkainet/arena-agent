@@ -100,6 +100,20 @@ function arenaWhyUserAuthored(node, adapter) {
     const bubble = node.closest('[data-testid="user-message"]');
     if (bubble) return {matched: true, reason: `${adapterName}:user-message@DIV`};
   }
+  // v0.14.19 (v4.50.9): Kimi renders every tool-call twice: once in
+  // a collapsed `.toolcall-container.thinking-container` widget
+  // (candidate[0]) and once in the visible `.segment-content`
+  // stream (candidate[1]). Both share the same fingerprint. Treat
+  // the thinking-widget copy as "already handled elsewhere" -- the
+  // matching flow through arenaWhyUserAuthored means mountControls
+  // silently dismisses it (dismissedControls.add + return) so the
+  // visible sibling wins without any visual side-effects. Reason
+  // string makes the skip visible in scan-report events_recent.
+  if (adapterName === 'kimi' && node.closest) {
+    if (node.closest('.toolcall-container, .thinking-container')) {
+      return {matched: true, reason: 'kimi:thinking-widget@DIV'};
+    }
+  }
   // v0.14.13: t3chat has no data-testid on turns but marks the AI's
   // .prose container with role="article". Absence of that role AND
   // presence of a .prose ancestor is the User-turn signal.
@@ -121,15 +135,27 @@ function arenaWhyUserAuthored(node, adapter) {
   // explicitly so BOTH surfaces get: toolbar mounts on assistant,
   // user skipped.
   if (adapterName === 'arenaai' && node.closest) {
-    // AI turn -> explicit not-user (fast-return so we never fall
-    // through to a fragile global rule).
-    if (node.closest('.chat-assistant, [id="response-content-container"]')) {
+    // v0.14.19 (v4.50.9): keying on `.chat-user` / `.chat-assistant`
+    // did NOT work on arena.ai (those classes are z.ai's). Live
+    // scans across /agent/, /c/, and battle mode show two stable
+    // wrapper tokens on the OUTER wrappers of each turn:
+    //   AI turn   -> ancestor with `bg-surface-raised` (usually
+    //                paired with `w-fit`) OR `#response-content-container`.
+    //   User turn -> ancestor with `bg-surface-primary` (paired
+    //                with `no-scrollbar` container).
+    // These are Tailwind design-system classes shared by all three
+    // arena.ai surfaces. We match AI first (fast-return not-user)
+    // so the user-marker heuristic never fires on an AI PRE by
+    // accident.
+    if (node.closest('#response-content-container, [class*="bg-surface-raised"]')) {
       return {matched: false, reason: ''};
     }
-    // User turn (any of chat-user / [data-role=user] / .user-message
-    // that arena.ai might expose per surface).
-    if (node.closest('.chat-user, [class*="user-message"]')) {
-      return {matched: true, reason: 'arenaai:chat-user@DIV'};
+    // User marker. bg-surface-primary alone is common on wrapper
+    // shells so we also require the `no-scrollbar` sibling class or
+    // an explicit user role/testid to reduce false positives.
+    const userWrap = node.closest('[class*="no-scrollbar"], [class*="user-message"], [class*="chat-user"]');
+    if (userWrap && userWrap.closest('[class*="bg-surface-primary"], [class*="no-scrollbar"]')) {
+      return {matched: true, reason: 'arenaai:user-wrap@DIV'};
     }
   }
   // v0.14.17 (v4.50.7): AI Studio (aistudio.google.com; shares gemini
@@ -367,6 +393,36 @@ function arenaDiagnosticSnapshot(node) {
       };
     }
   } catch (e) { aistudioHint = {error: String(e).slice(0, 80)}; }
+  // v0.14.19 (v4.50.9): arena.ai has three surfaces (/agent/, /c/,
+  // battle) with different DOM structures per surface. Expose all
+  // wrapper classes and IDs seen along the ancestor chain so future
+  // regressions can be diagnosed from scan-report alone.
+  let arenaaiHint = null;
+  try {
+    if (typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '')) {
+      const surface = /^\/agent\//.test(location.pathname) ? 'agent'
+                    : /^\/c\//.test(location.pathname) ? 'chat'
+                    : /^\/battle/.test(location.pathname) ? 'battle'
+                    : 'other';
+      const wrappers = [];
+      let cur = node.parentElement;
+      for (let i = 0; cur && i < 12; i++) {
+        const cls = String(cur.className || '');
+        const id = cur.id || '';
+        if (cls || id) {
+          wrappers.push({tag: cur.tagName || '', id: id.slice(0, 40), cls: cls.slice(0, 100)});
+        }
+        cur = cur.parentElement;
+      }
+      arenaaiHint = {
+        surface,
+        response_container_ancestor: !!node.closest?.('#response-content-container'),
+        bg_surface_raised_ancestor: !!node.closest?.('[class*="bg-surface-raised"]'),
+        bg_surface_primary_ancestor: !!node.closest?.('[class*="bg-surface-primary"]'),
+        wrappers,
+      };
+    }
+  } catch (e) { arenaaiHint = {error: String(e).slice(0, 80)}; }
   return {
     path: arenaNodePath(node),
     self: _attrs(node),
@@ -374,6 +430,7 @@ function arenaDiagnosticSnapshot(node) {
     text_head: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
     why_user_authored: wu,
     aistudio_hint: aistudioHint,
+    arenaai_hint: arenaaiHint,
     // v0.14.7: what is the *nearest* container that our fingerprint
     // uses as node-id? Same input arenaExtractNodeId consumes so it
     // matches the fingerprint.
@@ -781,5 +838,6 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 

@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.18';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.19';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -149,60 +149,61 @@ function controlsHost(node, adapter) {
   const adapterName = adapter && adapter.name;
   if (adapterName === 'duckai') { const w = node.closest?.('.overflow-hidden'); if (w?.parentElement) return w.parentElement; }
   if (adapterName === 'qwen') { const pre = node.closest?.('pre.qwen-markdown-code, pre'); if (pre) return pre; }  // v0.14.9: anchor outer <pre>
-  // v0.14.18 (v4.50.8): Kimi renders its "thinking" widget as a
-  // collapsed <div class="toolcall-container thinking-container">
-  // (see scan-report kimi:candidate[0]). When our PRE is deep inside
-  // that container the toolbar mounts INSIDE the collapsed widget and
-  // is invisible to the user. Fix: when the ancestor path shows the
-  // thinking-container, walk out to the visible `.segment-assistant`
-  // segment (candidate[1] in the scan-report) and anchor there. Kept
-  // narrow (only when both markers are present) so a normal Kimi
-  // assistant PRE without the thinking widget is unaffected.
-  if (adapterName === 'kimi') {
-    const thinking = node.closest?.('.toolcall-container, .thinking-container');
-    if (thinking) {
-      const segment = thinking.closest?.('.segment-assistant, .segment[class*="segment-"]');
-      if (segment) {
-        // Prefer the PRE that sits directly inside the visible
-        // segment (candidate[1] path in the scan-report).
-        const visiblePre = segment.querySelector('pre.language-jsonl, pre');
-        if (visiblePre && visiblePre !== node) return visiblePre;
-        return segment;
-      }
-    }
-  }
-  // v0.14.18 (v4.50.8): z.ai renders the tool block inside a
-  // `.markdown-prose` container that is siblings-wise flat -- there
-  // is no <pre> ancestor because the block is rendered as inline
-  // syntax-highlighted DIVs (see scan-report zai:candidate[1] where
-  // self=DIV.markdown-prose, no <pre> selector hits at all). When we
-  // land on that outer DIV the toolbar attaches AFTER the whole
-  // message (Ivan: "tool bar отображается в конце сообщения ... не
-  // под вызовом функции"). Try to narrow to the actual JSONL block.
+  // v0.14.19 (v4.50.9): Kimi thinking-widget candidate is now handled
+  // via arenaWhyUserAuthored -> matched=true so mountControls
+  // silently dismisses it. The v0.14.18 attempt to re-anchor onto
+  // the `.segment-assistant` sibling produced a huge empty toolbar
+  // column in saved chats because the segment DIV spans the whole
+  // message vertically. The sibling `.segment-content` PRE
+  // (candidate[1] in Kimi scan-report) is a separate parsed node
+  // that mountControls already visits on its own -- we just need
+  // to get out of its way.
+  // v0.14.19 (v4.50.9): z.ai renders the tool block as inline
+  // syntax-highlighted DIVs/CODEs inside a `.markdown-prose`
+  // container. The v0.14.18 walker keyed on Kimi-specific class
+  // tokens (`.code-block` / `.syntax-highlighter` / `.segment-code`)
+  // that don't exist on z.ai, so it returned null and the toolbar
+  // stayed on the whole `.markdown-prose` (attached at the end of
+  // the message). Live scan proves `code: raw=6` and text starts
+  // with "Thought Process\njsonl\n{...}" so there IS a code element
+  // containing the JSONL. Fix: walk breadth-first for the FIRST
+  // <pre>/<code>/[class*="language-"]/[class*="hljs"] whose text
+  // includes 'function_call_start' or 'function_call_end' so we
+  // anchor exactly on the block, not the whole prose.
   if (adapterName === 'zai') {
-    // Prefer the innermost element whose text contains the JSONL
-    // start marker so the toolbar sits right under the call, not at
-    // the end of the whole prose.
-    if (String(node.tagName || '').toUpperCase() === 'DIV' && node.className && String(node.className).includes('markdown-prose')) {
-      // Walk children breadth-first for the tightest <pre> or a
-      // code-fence wrapper whose text contains our JSONL marker.
+    const isMarkdownProse = String(node.tagName || '').toUpperCase() === 'DIV'
+      && node.className
+      && String(node.className).includes('markdown-prose');
+    if (isMarkdownProse) {
+      const CODE_MARKERS = ['function_call_start', 'function_call_end'];
       const stack = [node];
       let target = null;
       let depth = 0;
-      while (stack.length && depth < 200) {
+      while (stack.length && depth < 300) {
         depth += 1;
         const cur = stack.shift();
         if (!cur || cur.nodeType !== 1) continue;
         const tag = String(cur.tagName || '').toUpperCase();
-        if (tag === 'PRE' || tag === 'CODE') { target = cur; break; }
         const cls = String(cur.className || '');
-        if (cls.includes('code-block') || cls.includes('syntax-highlighter') || cls.includes('segment-code')) {
-          target = cur;
-          break;
+        const looksCode = (tag === 'PRE') || (tag === 'CODE')
+          || cls.includes('language-') || cls.includes('hljs')
+          || cls.includes('code-block') || cls.includes('syntax-highlighter')
+          || cls.includes('segment-code');
+        if (looksCode) {
+          const txt = cur.textContent || '';
+          if (CODE_MARKERS.some((m) => txt.includes(m))) {
+            target = cur;
+            break;
+          }
         }
         for (const child of Array.from(cur.children || [])) stack.push(child);
       }
-      if (target) return target;
+      if (target) {
+        // Prefer the enclosing block wrapper (parent) so the
+        // toolbar sits under the whole code fence, not tight to
+        // the last highlighted <code> span.
+        return target.closest?.('pre, [class*="code"], [class*="language-"]') || target;
+      }
     }
   }
   return node;
@@ -845,5 +846,6 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
