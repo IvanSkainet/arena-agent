@@ -1,3 +1,124 @@
+## v4.50.0 -- Windows UX unblock: GitHub token now settable from the Dashboard
+
+Live report from Windows user (Ivan): "Auto Update чисто для галочки
+стоит. Инструкций нет нормальных, GITHUB_TOKEN обязательно требует,
+нигде он этот токен не принимает и не видит. Обновлять всё также
+ручками. У меня всё желание пропало что-либо делать."
+
+Root cause: the Auto-Update flow refused to install anything without
+a SHA-256 digest, and SHA-256 only comes from the authenticated
+GitHub API path, which only works with `GITHUB_TOKEN` or `GH_TOKEN`
+set in the bridge process's environment. On Windows that means
+editing `nssm`'s Environment tab -- a wall the operator should never
+hit for what is meant to be a one-click update. On Linux it means
+`systemctl --user edit arena-bridge`. In neither case can you paste
+the token from the same UI that shows "Install disabled". Result:
+Auto-Update always looked broken.
+
+This release adds a UI-configurable token that persists across
+restarts and is completely cross-platform.
+
+### New: `<install_root>/.github_token` (dotfile)
+
+* Persisted in the install root as a hidden file. Dotfile so a
+  future self-update never overwrites it -- the update flow only
+  replaces named directories (`arena/`, `dashboard/`, ...) and
+  named files (`unified_bridge.py`, ...); a `.github_token`
+  dotfile at the root survives an upgrade cleanly.
+* Chmod 0600 on POSIX; Windows silently accepts (chmod is a no-op
+  for mode bits there but the atomic replace still works).
+* Read only when neither env var is set. Precedence:
+  `GITHUB_TOKEN` env  >  `GH_TOKEN` env  >  saved file. So an
+  operator who prefers a systemd override / nssm env var keeps
+  today's behaviour untouched; new operators just paste and go.
+
+### New endpoints
+
+* `POST /v1/admin/update/token-set   {token}`  -- atomic write
+* `POST /v1/admin/update/token-clear`          -- idempotent delete
+
+Both master-token authed like the rest of `/v1/admin/*`. Both
+audit their effect (`admin.update.token_set` / `admin.update.token_clear`)
+without ever logging the token itself.
+
+`GET /v1/admin/update/status` now also returns
+`github_token_source ∈ {env, file, none}` so the UI can show
+"● Token active (env)" / "● Token active (file)" /
+"○ No token configured" chips.
+
+### New Dashboard UI
+
+Settings tab, right under the existing Auto-update controls:
+
+* A password-type input pre-configured with an
+  `autocomplete="off"` hint.
+* "Save token" button (calls `/token-set`, refreshes status).
+* "Clear" button (confirm dialog + `/token-clear`).
+* A live status paragraph that tells the operator, in plain
+  language, which source the current token is coming from -- or
+  that none is configured and Install stays disabled until they
+  paste one.
+* A collapsed <details> with three-step instructions, replacing
+  the old block that only showed systemd/nssm shell snippets.
+* The "Install disabled" tooltip on the button itself was
+  rewritten to point at the new Token box instead of at systemd.
+
+### Cross-platform note
+
+Nothing here is Windows-specific -- the token file works on Linux
+too. It just happens that on Linux you had a working workaround
+(systemd override), and on Windows you did not. The UI path now
+gives every platform the same first-class experience.
+
+### Not in this release
+
+* Windows inventory latency (Get-CimInstance × N probes) --
+  needs a caching layer in `arena/inventory/probe_common.py`,
+  queued for v4.50.1.
+* Windows Dashboard layout "кривой" -- needs a specific
+  screenshot; my responsive.css already has Windows-narrow media
+  queries but they may not be triggering. Waiting on repro from
+  the operator.
+
+### Regression guards
+
+12 new asserts in `tests/test_auto_update_token_ui.py`:
+
+* six on the pure `update_github` helpers (file-fallback,
+  env-wins-over-file, none-when-nothing, whitespace rejection,
+  atomic replace + 0600 mode, idempotent clear)
+* one wire-check that both new routes appear in the registry AND
+  the flat aiohttp binder AND the `AdminHandlers` dataclass fields
+  AND its constructor call AND the source handlers -- miss any
+  layer and the route 404s at runtime
+* one for the Settings body markup (the six DOM ids / labels the
+  JS handlers reference)
+* one for the JS handlers themselves + a check that they use the
+  existing `api()` helper (not a made-up `arenaFetch`) so `BASE`
+  and headers stay consistent with every other admin call
+* one that `handle_update_status` payload includes the new
+  `github_token_source` field
+* one that the "Install disabled" tooltip was rewritten to point
+  at the new Token box, not at systemd only
+
+Full sweep: **2461 passed, 0 failed**.
+
+### Files touched
+
+* `arena/admin/update_github.py`      -- 204 → 304 lines (+file
+  helpers + save/clear/source)
+* `arena/admin/handlers_update.py`    -- 166 → 216 lines (+two
+  new endpoints, +status enrichment)
+* `arena/admin/handlers.py`           -- 656 → 658 lines (+two
+  dataclass fields + constructor args); already in LINE_ALLOWLIST
+* `arena/route_registry/registry.py`  -- 438 → 440 lines
+* `arena/route_registry/core.py`      -- 177 → 179 lines
+* `arena/wiring/platform.py`          -- 274 → 276 lines
+* `dashboard/assets/39-admin-update.js` -- 321 → 403 lines
+* `dashboard/assets/body-15-settings.html` -- 196 → 200 lines
+* `tests/test_auto_update_token_ui.py` -- new, 12 asserts
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
 ## v4.49.4 -- DuckAI thrash fix + Qwen composer-cache visibility guard + Grok mount_entry diag
 
 Third-round scan-report finally made two subtle bugs obvious. The

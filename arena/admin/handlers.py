@@ -63,6 +63,8 @@ class AdminHandlers:
     update_check: object
     update_apply: object
     update_restart: object
+    update_token_set: object
+    update_token_clear: object
     # v3.96.0: ZeroTier Central management surface.
     zt_central_status: object
     zt_central_networks_list: object
@@ -637,6 +639,8 @@ def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:
         update_check=_upd["update_check"],
         update_apply=_upd["update_apply"],
         update_restart=_upd["update_restart"],
+        update_token_set=_upd["update_token_set"],
+        update_token_clear=_upd["update_token_clear"],
         zt_central_status=_ztc.status,
         zt_central_networks_list=_ztc.networks_list,
         zt_central_networks_create=_ztc.networks_create,

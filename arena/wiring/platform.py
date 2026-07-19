@@ -162,6 +162,8 @@ def build_admin_handlers(ctx: AdminWiringContext) -> dict[str, Callable[..., Any
         "handle_v1_admin_update_check":   handlers.update_check,
         "handle_v1_admin_update_apply":   handlers.update_apply,
         "handle_v1_admin_update_restart": handlers.update_restart,
+        "handle_v1_admin_update_token_set":   handlers.update_token_set,
+        "handle_v1_admin_update_token_clear": handlers.update_token_clear,
         # v4.19.0: agent-driven change proposals.
         "handle_v1_admin_proposal_submit": handlers.proposal_submit,
         "handle_v1_admin_proposal_status": handlers.proposal_status,

@@ -58,6 +58,13 @@ def make_update_handlers(ctx):
                 else "systemd / launchd will restart automatically on exit."
             ),
         }
+        # v4.50.0: expose token source so the UI knows whether to
+        # show the "add token" banner or the "token active" chip.
+        try:
+            from arena.admin.update_github import github_token_source
+            payload["github_token_source"] = github_token_source()
+        except Exception:
+            payload["github_token_source"] = "unknown"
         return ctx.cors_json_response(payload)
 
     @authed(ctx)
@@ -158,9 +165,52 @@ def make_update_handlers(ctx):
         })
         return ctx.cors_json_response(res)
 
+    @authed(ctx)
+    async def handle_update_token_set(request: web.Request) -> web.Response:
+        """POST /v1/admin/update/token-set -- accept a JSON body
+        {token: '...'} and persist it to <install_root>/.github_token
+        so subsequent auto-update calls can use it without an env var.
+        v4.50.0: unblocks Windows operators who cannot easily edit
+        the service's environment. Master-token authed like every
+        other admin surface. The token itself is never logged --
+        audit records only the resolution source."""
+        from arena.admin.update_github import (
+            save_github_token, github_token_source,
+        )
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        token = str((body or {}).get("token", ""))
+        res = await _run(ctx, save_github_token, token)
+        ctx.audit({
+            "type": "admin.update.token_set",
+            "ok": res.get("ok"),
+            "source": github_token_source(),
+        })
+        return ctx.cors_json_response(res)
+
+    @authed(ctx)
+    async def handle_update_token_clear(request: web.Request) -> web.Response:
+        """POST /v1/admin/update/token-clear -- remove the
+        UI-configured token file. Does NOT touch env vars."""
+        from arena.admin.update_github import (
+            clear_github_token, github_token_source,
+        )
+        res = await _run(ctx, clear_github_token)
+        ctx.audit({
+            "type": "admin.update.token_clear",
+            "ok": res.get("ok"),
+            "removed": res.get("removed"),
+            "source": github_token_source(),
+        })
+        return ctx.cors_json_response(res)
+
     return {
-        "update_status":  handle_update_status,
-        "update_check":   handle_update_check,
-        "update_apply":   handle_update_apply,
-        "update_restart": handle_update_restart,
+        "update_status":       handle_update_status,
+        "update_check":        handle_update_check,
+        "update_apply":        handle_update_apply,
+        "update_restart":      handle_update_restart,
+        "update_token_set":    handle_update_token_set,
+        "update_token_clear":  handle_update_token_clear,
     }

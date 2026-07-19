@@ -99,6 +99,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/admin/update/check",   h["handle_v1_admin_update_check"])
     app.router.add_post("/v1/admin/update/apply",   h["handle_v1_admin_update_apply"])
     app.router.add_post("/v1/admin/update/restart", h["handle_v1_admin_update_restart"])
+    app.router.add_post("/v1/admin/update/token-set", h["handle_v1_admin_update_token_set"])
+    app.router.add_post("/v1/admin/update/token-clear", h["handle_v1_admin_update_token_clear"])
     # --- v4.19.0: agent-driven change proposals ---
     app.router.add_post("/v1/admin/proposal/submit", h["handle_v1_admin_proposal_submit"])
     app.router.add_get("/v1/admin/proposal/status",  h["handle_v1_admin_proposal_status"])

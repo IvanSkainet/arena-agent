@@ -183,9 +183,10 @@ async function adminUpdateCheck() {
         _adminUpdateSetInstallEnabled(false,
           "Install disabled: GitHub did not publish a SHA-256 digest "
           + "for this asset (anonymous /releases/latest redirect path).\n"
-          + "To enable verified installs, add GITHUB_TOKEN to the "
-          + "bridge's systemd environment. The bridge will then use "
-          + "the authenticated API path which provides digests.");
+          + "Fix: paste a GitHub token into the 'GitHub token for verified installs' "
+          + "box just below (fine-grained PAT with Contents:read). The token is "
+          + "saved on this machine only and unlocks the authenticated API path "
+          + "which provides SHA-256 digests.");
       }
     } else {
       _adminUpdateStatus(
@@ -319,3 +320,84 @@ async function adminUpdateRestart() {
     _autoOnce();
   }
 })();
+
+// ---------------------------------------------------------------------------
+// v4.50.0: GitHub token UI (Settings tab).
+// ---------------------------------------------------------------------------
+async function adminUpdateTokenSave() {
+  const inp = document.getElementById("adminUpdateTokenInput");
+  const out = document.getElementById("adminUpdateTokenResult");
+  if (!inp || !out) return;
+  const raw = String(inp.value || "").trim();
+  if (!raw) { out.textContent = "Paste a token first."; out.style.color = "var(--yellow)"; return; }
+  out.textContent = "Saving…"; out.style.color = "var(--text2)";
+  try {
+    const data = await api("/v1/admin/update/token-set", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token: raw}),
+    });
+    if (data && data.ok) {
+      out.textContent = "Token saved (source: " + (data.source || "file") + "). Install button will unlock on next Check.";
+      out.style.color = "var(--green)";
+      inp.value = "";
+      // Refresh status so the header chip flips to 'token active'.
+      if (typeof adminUpdateCheck === "function") adminUpdateCheck();
+    } else {
+      out.textContent = "Save failed: " + (data && data.error || "unknown error");
+      out.style.color = "var(--red)";
+    }
+  } catch (e) {
+    out.textContent = "Save failed: " + (e && e.message || e);
+    out.style.color = "var(--red)";
+  } finally {
+    _adminUpdateRefreshTokenStatus();
+  }
+}
+
+async function adminUpdateTokenClear() {
+  const out = document.getElementById("adminUpdateTokenResult");
+  if (!out) return;
+  if (!confirm("Clear the saved GitHub token from this machine?\n\nEnv vars (GITHUB_TOKEN / GH_TOKEN) are not touched.")) return;
+  out.textContent = "Clearing…"; out.style.color = "var(--text2)";
+  try {
+    const data = await api("/v1/admin/update/token-clear", {method: "POST"});
+    if (data && data.ok) {
+      out.textContent = data.removed ? "Token file removed." : "No token file was present.";
+      out.style.color = "var(--green)";
+    } else {
+      out.textContent = "Clear failed: " + (data && data.error || "unknown error");
+      out.style.color = "var(--red)";
+    }
+  } catch (e) {
+    out.textContent = "Clear failed: " + (e && e.message || e);
+    out.style.color = "var(--red)";
+  } finally {
+    _adminUpdateRefreshTokenStatus();
+  }
+}
+
+async function _adminUpdateRefreshTokenStatus() {
+  const el = document.getElementById("adminUpdateTokenStatus");
+  if (!el) return;
+  try {
+    const data = await api("/v1/admin/update/status");
+    const src = data && data.github_token_source || "none";
+    if (src === "env") {
+      el.innerHTML = "<span style='color:var(--green)'>● Token active</span> (from GITHUB_TOKEN / GH_TOKEN env var). Env values take precedence over the saved file.";
+    } else if (src === "file") {
+      el.innerHTML = "<span style='color:var(--green)'>● Token active</span> (from saved file on this machine). Install button will use authenticated + SHA-256 verified path.";
+    } else {
+      el.innerHTML = "<span style='color:var(--yellow)'>○ No token configured.</span> Auto-Update falls back to the anonymous /releases/latest redirect — Install stays disabled because GitHub doesn't publish SHA-256 there. Paste a token below to unlock.";
+    }
+  } catch (e) {
+    el.textContent = "Token status: unavailable (" + (e && e.message || e) + ")";
+  }
+}
+
+// Refresh once per Settings-tab activation. arenaTabByName().onShow already
+// fires refreshSettings(); attach ourselves to run right after that.
+document.addEventListener("DOMContentLoaded", () => {
+  // First paint after the shell renders. Deliberately fire-and-forget.
+  setTimeout(() => { try { _adminUpdateRefreshTokenStatus(); } catch (_e) {} }, 400);
+});

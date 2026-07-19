@@ -40,14 +40,114 @@ def _user_agent() -> str:
         return _USER_AGENT_PREFIX
 
 
+def _token_file_path():
+    """v4.50.0: <install_root>/.github_token stores a UI-configured
+    token. Dot-file so a self-update never overwrites it (dotfiles
+    are not in the update replace-targets list). Import lives here
+    (deferred) to avoid an auto_update <-> update_github import cycle.
+    Returns None when the file is not present or unreadable."""
+    try:
+        from arena.admin.auto_update import _install_root
+        return _install_root() / ".github_token"
+    except Exception:
+        return None
+
+
+def _read_token_file() -> str | None:
+    p = _token_file_path()
+    if not p or not p.exists():
+        return None
+    try:
+        text = p.read_text(encoding="utf-8").strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    # First non-empty non-comment line. Guards against operators
+    # pasting multi-line blobs, and lets a "# ..." header sit above.
+    for line in text.splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            return line
+    return None
+
+
 def github_token() -> str | None:
-    """GITHUB_TOKEN wins over GH_TOKEN. Whitespace-only values are
-    treated as unset."""
+    """Precedence: GITHUB_TOKEN env > GH_TOKEN env > UI-saved
+    <install_root>/.github_token. Whitespace-only values are treated
+    as unset. v4.50.0: file-backed fallback lets Windows operators
+    configure the token from the dashboard without editing nssm's
+    Environment tab or systemd overrides."""
     for name in ("GITHUB_TOKEN", "GH_TOKEN"):
         v = os.environ.get(name)
         if v and v.strip():
             return v.strip()
-    return None
+    return _read_token_file()
+
+
+def github_token_source() -> str:
+    """Returns 'env' / 'file' / 'none' so the UI can show where
+    the currently active token was resolved from."""
+    for name in ("GITHUB_TOKEN", "GH_TOKEN"):
+        v = os.environ.get(name)
+        if v and v.strip():
+            return "env"
+    if _read_token_file():
+        return "file"
+    return "none"
+
+
+def save_github_token(raw: str) -> dict:
+    """Atomically write the operator-supplied token to
+    <install_root>/.github_token with 0600 permissions. Called by
+    /v1/admin/update/token-set. Never logs the token itself."""
+    p = _token_file_path()
+    if p is None:
+        return {"ok": False, "error": "install root not resolvable; "
+                "cannot decide where to store the token"}
+    token = (raw or "").strip()
+    if not token:
+        return {"ok": False, "error": "token is empty"}
+    if any(c.isspace() for c in token):
+        return {"ok": False, "error": "token contains whitespace "
+                "(likely a bad paste); expected a single fine-grained "
+                "PAT starting with 'github_pat_' or a classic PAT "
+                "starting with 'ghp_'"}
+    if len(token) < 8 or len(token) > 400:
+        return {"ok": False, "error": "token length looks wrong"}
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    header = (
+        "# arena-agent GitHub token (v4.50.0).\n"
+        "# Read by arena.admin.update_github.github_token() when no\n"
+        "# GITHUB_TOKEN / GH_TOKEN env var is set. Overwrite via the\n"
+        "# Dashboard Settings tab or delete the file to clear.\n"
+    )
+    try:
+        tmp.write_text(header + token + "\n", encoding="utf-8")
+        try:
+            os.chmod(tmp, 0o600)  # noqa: PTH101 - Windows silently ignores
+        except Exception:
+            pass
+        os.replace(tmp, p)  # noqa: PTH105 - atomic on both POSIX + Windows
+    except Exception as e:
+        return {"ok": False, "error": f"failed to write token file: {e!r}"}
+    return {"ok": True, "path": str(p), "source": "file"}
+
+
+def clear_github_token() -> dict:
+    """Remove <install_root>/.github_token. Does not touch env
+    vars -- if an env var is set, the caller will keep seeing it.
+    Called by /v1/admin/update/token-clear."""
+    p = _token_file_path()
+    if p is None:
+        return {"ok": False, "error": "install root not resolvable"}
+    if not p.exists():
+        return {"ok": True, "removed": False, "path": str(p)}
+    try:
+        p.unlink()
+    except Exception as e:
+        return {"ok": False, "error": f"failed to remove: {e!r}"}
+    return {"ok": True, "removed": True, "path": str(p)}
 
 
 def http_get_json(url: str) -> Any:
