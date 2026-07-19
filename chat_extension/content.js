@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.13';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.14';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -273,22 +273,13 @@ function mountControls(host, payload, adapter) {
   if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
   if (dismissedControls.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_semantic', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
 
-  const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
-  if (semanticOwner && semanticOwner !== fingerprint) {
-    const previous = mountedControls.get(semanticOwner);
-    // v0.14.13: evict only if prev host is DOM-gone -- else two legit copies (Gemini ThoughtProcess+main, T3 dup) thrash.
-    const prevAlive = !!(previous?.host?.isConnected && previous?.bar?.isConnected);
-    if (!prevAlive) {
-      _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
-      if (previous?.shadowHost) previous.shadowHost.remove(); else previous?.bar?.remove();
-      if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
-      mountedControls.delete(semanticOwner); mountedPayloadSemantics.delete(semanticFingerprint); mountedSemanticOwners.delete(semanticFingerprint);
-    } else {
-      _arenaDiagPushEvent({kind: 'skip_semantic_prev_alive', adapter: adapter.name, fingerprint, previous_owner: semanticOwner}); return;
-    }
-  }
-
-  if (mountedPayloadSemantics.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_semantic_already_mounted', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
+  // v0.14.14: one toolbar per HOST (not per semantic). Operator wants
+  // every candidate to get its own toolbar so nothing gets silently
+  // hidden by dedup: Claude/Mistral/Gemini/AI Studio all render the
+  // same jsonl in multiple legitimate DOM positions and the operator
+  // cannot tell which one the extension picked. Semantic dedup is
+  // still tracked for the auto-execute one-shot below, but no longer
+  // skips mounts.
   if (existing?.bar?.isConnected) { _arenaDiagPushEvent({kind: 'skip_existing_connected', adapter: adapter.name, fingerprint}); return; }
   if (hostHasToolbar(host)) { _arenaDiagPushEvent({kind: 'skip_host_has_toolbar', adapter: adapter.name, fingerprint}); return; }
 

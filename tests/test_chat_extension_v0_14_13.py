@@ -1,4 +1,4 @@
-"""Regression guards for extension 0.14.13 (v4.50.3).
+"""Regression guards for extension 0.14.14 (v4.50.3).
 
 Live scan-report tour by the operator across every site showed
 the SAME thrash pattern on Gemini AI Studio, T3 chat, Claude,
@@ -42,38 +42,41 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_13():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.13'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.13"
-    assert "return '0.14.13';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.13`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
+    assert "return '0.14.14';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.14`" in _read("README.md")
 
 
-def test_semantic_owner_eviction_gated_on_prev_alive():
-    """v0.14.13: eviction MUST only happen when the previous owner's
-    host has been removed from the DOM. Otherwise the second call is
-    a legitimate parallel candidate and we skip instead."""
+def test_semantic_dedup_path_removed_in_v14_14():
+    """v0.14.14 introduced a prevAlive-gated eviction so parallel
+    duplicates would skip instead of thrash. v0.14.14 goes further:
+    the whole semantic-dedup path is gone. Every host that carries
+    a tool block gets its own toolbar. This test guards against
+    accidental re-introduction of the semantic-dedup vocabulary."""
     src = _read("content.js")
-    assert "const prevAlive = !!(previous?.host?.isConnected && previous?.bar?.isConnected)" in src, (
-        "prevAlive gate must exist and check both host and bar"
-    )
-    assert "if (!prevAlive) {" in src, "evict branch must be gated on !prevAlive"
-    assert "kind: 'skip_semantic_prev_alive'" in src, (
-        "the alive-prev case must emit a distinct diag event"
-    )
+    for kind in ("skip_semantic_prev_alive", "evict_semantic_owner",
+                 "skip_semantic_already_mounted"):
+        assert f"kind: '{kind}'" not in src, (
+            f"{kind} must not come back: v0.14.14 kills semantic dedup"
+        )
 
 
-def test_evict_branch_still_removes_when_prev_dead():
-    """The evict path must still work when the previous host is dead
-    (regression against v0.14.11 SPA-churn behaviour)."""
+def test_one_toolbar_per_host_strategy_in_place():
+    """v0.14.14: mountControls no longer touches mountedSemanticOwners
+    when deciding whether to mount. The dedup that remains is
+    per-host (fingerprint) via existing?.bar?.isConnected and
+    hostHasToolbar(host). These two are the only two remaining
+    short-circuits before user-authored check."""
     src = _read("content.js")
-    # The removal calls must still be present inside the !prevAlive branch.
-    assert "mountedControls.delete(semanticOwner)" in src
-    assert "mountedSemanticOwners.delete(semanticFingerprint)" in src
-    assert "kind: 'evict_semantic_owner'" in src
+    assert "existing?.bar?.isConnected" in src
+    assert "hostHasToolbar(host)" in src
+    # And no dedup by semantic key remains in the mount decision.
+    assert "mountedPayloadSemantics.has(semanticFingerprint)" not in src
 
 
 def test_t3chat_per_adapter_user_filter():
-    """v0.14.13: T3 chat's AI turn has role=article on the .prose
+    """v0.14.14: T3 chat's AI turn has role=article on the .prose
     container; user turn does not. Absence-of-article is the user
     signal."""
     src = _read("adapters.js")
@@ -119,11 +122,9 @@ def test_prior_regression_guards_still_hold():
     # v0.14.10: invisible-composer penalty
     assert "if (!visible) score -= 500" in adapters
 
-    # v0.14.11: dismissed before evict + mount_entry diag
+    # v0.14.11 mount_entry diag preserved. Semantic eviction path is
+    # gone in v0.14.14 -- historical ordering assertion retired.
     assert "kind: 'mount_entry'" in content
-    dismissed_pos = content.find("dismissedControls.has(fingerprint)")
-    evict_pos = content.find("mountedSemanticOwners.get(semanticFingerprint)")
-    assert 0 < dismissed_pos < evict_pos
 
     # v0.14.11: composer cache visibility guard
     assert "_cachedVisible" in adapters

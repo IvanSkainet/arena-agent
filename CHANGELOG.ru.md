@@ -1,3 +1,120 @@
+## v4.50.4 -- Один тулбар на host (semantic-dedup путь удалён)
+
+Явный запрос оператора после semi-фикса v0.14.13:
+
+  "Сделай так, чтобы на всех вызовах отображались tool bar, потому
+   что на всех сайтах не уследишь, как они монтируются. На Claude
+   на первом сообщении tool bar отображается, а на следующий с
+   аналогичной командой sys.status уже нет."
+
+Подтверждено сканом Claude: 4 candidate sys.status / mission.catalog
+с разными fingerprint (call_id 1..4), но mount'нулись только 2 --
+v0.14.13 сохранил semantic dedup, который тихо убил 2-ю/3-ю копии
+одинаковой формы payload'а. Оператор не мог понять, сломан ли
+Bridge или LLM просто скипнул вызов.
+
+### Фикс
+
+Полностью убрал semantic-dedup путь из `mountControls`. Три diag
+kind удалены: `skip_semantic_prev_alive`, `evict_semantic_owner`,
+`skip_semantic_already_mounted`. Per-host dedup остался и
+предотвращает двойные mount'ы на ОДНОМ host'е, но никогда не
+трогает sibling / duplicate host'ы:
+
+* `existing?.bar?.isConnected` -- тот же fingerprint, тот же host,
+  всё ещё смонтирован → skip (безобидный idempotent scan)
+* `hostHasToolbar(host)` -- dataset marker есть → skip
+
+Каждый candidate с распарсенным tool блоком теперь получает
+собственный toolbar, независимо от того, дублирует ли его payload
+sibling'а.
+
+### Эффекты по сайтам
+
+* **Claude**: 3× sys.status + 1× mission.catalog → 4 toolbar
+  вместо 2. Оператор видит точно то, что LLM выдал.
+* **Mistral**: 2 реальных дубля → оба toolbar видны. Больше нет
+  "работает, но что-то багается".
+* **AI Studio / Gemini Web**: Thought Process expansion panel +
+  main answer оба получают свой toolbar. Тот, что виден --
+  кликабелен. Регрессия v0.14.13 исправлена.
+* **T3 chat**: sibling дубль всё ещё фильтруется адаптер-branch'ем
+  v0.14.13 (assistant `.prose` имеет `role="article"`, user `.prose`
+  нет). Нет dedup thrash.
+* **Grok / DuckAI / Qwen / OpenRouter**: не тронуты -- там либо
+  один легитимный candidate, либо per-adapter filter уже
+  обрабатывал ситуацию.
+
+### Бампы версий
+
+* extension `0.14.13` → `0.14.14`
+* manifest / content / insert_strategies / README синхронизированы
+* bridge `4.50.3` → `4.50.4`
+
+### Регрессионные guard-тесты
+
+8 новых asserts в `tests/test_chat_extension_v0_14_14.py`:
+
+* четыре version pin
+* semantic-dedup путь удалён (три diag kind отсутствуют, нет
+  `mountedPayloadSemantics.has` / `mountedSemanticOwners.get`
+  в mountControls)
+* per-host dedup (`existing?.bar?.isConnected` +
+  `hostHasToolbar(host)`) по-прежнему short-circuit'ит
+* per-adapter user filters сохранены (grok/duckai/t3chat)
+* все прежние regression guards от v0.14.6-13 держатся
+* content.js ≤ 700 строк (сейчас 691, запас 9 строк)
+* scan-report диагностика в поставке
+
+Обновил assertions в v0_14_10 / v0_14_11 / v0_14_13, которые
+требовали semantic-dedup diag kinds. Где возможно, тесты
+переписаны как guard против re-появления удалённого пути (явный
+assert "НЕ ДОЛЖНО вернуться").
+
+Полный прогон: **2492 passed, 0 failed**.
+
+### Стоимость этого изменения
+
+Если сайт легитимно показывает ОДИН И ТОТ ЖЕ jsonl в двух видимых
+позициях (preview + full copy), оператор теперь видит два toolbar
+для одного сообщения. Можно кликнуть любой. Run на обоих просто
+выполнит tool дважды; для read-only tools это no-op, для
+consent-gated каждый запуск спросит заново.
+
+Если конкретному сайту нужен dedup обратно -- делаем per-adapter
+(та же форма что текущий grok/duckai/t3chat user-authored filter),
+а не глобально.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 700 → 691 строк (удалён
+  semantic-dedup блок; per-host dedup путь сохранён)
+* `chat_extension/adapters.js` -- без изменений от v0.14.13
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_14.py` -- новый, 8 asserts
+* шесть прежних extension test-файлов перепинены на 0.14.14
+* три прежних test-файла переписаны для guard против удалённого
+  semantic-dedup пути
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### Что увидишь
+
+Scan-отчёты теперь покажут больше `mounted` events на candidate и
+НИ ОДНОГО `skip_semantic_*` / `evict_semantic_owner`. Каждый
+реальный tool блок получает свой видимый toolbar.
+
+### Известные follow-up (не в этом релизе, всё ещё в очереди)
+
+* **Toolbar "поверх контента"**: косметика, нужен per-adapter
+  positioning tweak по образцу hoist Qwen'а через
+  `.qwen-markdown-code-body`. Отложено на v4.50.5.
+* **z.ai toolbar под сообщением, а не под кодом**: тот же класс
+  косметики. Отложено на v4.50.5.
+* **Windows Dashboard скриншот**: жду когда оператор перезагрузится
+  в Windows и сфоткает "кривой" layout.
+
 ## v4.50.3 -- Универсальный фикс thrash тулбара (Claude/Mistral/Gemini/AI Studio/T3) + T3 chat user filter
 
 Оператор прошёлся по всем поддерживаемым сайтам с v0.14.12. Grok

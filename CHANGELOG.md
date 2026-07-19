@@ -1,3 +1,119 @@
+## v4.50.4 -- One toolbar per host (semantic-dedup path removed)
+
+Operator explicit request after v0.14.13 semi-fix:
+
+  "Сделай так, чтобы на всех вызовах отображались tool bar, потому
+   что на всех сайтах не уследишь, как они монтируются. На Claude
+   на первом сообщении tool bar отображается, а на следующий с
+   аналогичной командой sys.status уже нет."
+
+Confirmed by the Claude scan: 4 sys.status / mission.catalog
+candidates with distinct fingerprints (call_id 1..4) but only 2
+mounted -- v0.14.13 kept the semantic dedup which silently killed
+the 2nd/3rd copies of the SAME payload shape. Operator can't tell
+whether Bridge is broken or the LLM just skipped a call.
+
+### Fix
+
+Strip the semantic-dedup path entirely from `mountControls`. Three
+diag kinds gone: `skip_semantic_prev_alive`,
+`evict_semantic_owner`, `skip_semantic_already_mounted`. The
+per-host dedup that remains prevents double-mounts on the SAME
+host but never touches sibling / duplicate hosts:
+
+* `existing?.bar?.isConnected` -- same fingerprint, same host,
+  still mounted → skip (harmless idempotent scan)
+* `hostHasToolbar(host)` -- dataset marker present → skip
+
+Every candidate with a parsed tool block now gets its own toolbar,
+regardless of whether its payload is a duplicate of a sibling.
+
+### Effects per site
+
+* **Claude**: 3× sys.status + 1× mission.catalog → 4 toolbars now
+  instead of 2. Operator sees exactly what the LLM emitted.
+* **Mistral**: 2 real duplicates → both toolbars visible. No more
+  "работает, но что-то багается".
+* **AI Studio / Gemini Web**: Thought Process expansion panel +
+  main answer both get their own toolbar. Whichever is visible is
+  clickable. v0.14.13 regression fixed.
+* **T3 chat**: sibling dup still filtered by the v0.14.13 t3chat
+  user-prose adapter branch (assistant `.prose` has
+  `role="article"`, user `.prose` does not). No dedup thrash.
+* **Grok / DuckAI / Qwen / OpenRouter**: unchanged -- those had
+  either a single legitimate candidate or a per-adapter filter
+  that already handled the situation.
+
+### Version bumps
+
+* extension `0.14.13` → `0.14.14`
+* manifest / content / insert_strategies / README synced
+* bridge `4.50.3` → `4.50.4`
+
+### Regression guards
+
+8 new asserts in `tests/test_chat_extension_v0_14_14.py`:
+
+* four version pins
+* semantic-dedup path removed (three diag kinds absent, no
+  `mountedPayloadSemantics.has` / `mountedSemanticOwners.get`
+  in mountControls)
+* per-host dedup (`existing?.bar?.isConnected` +
+  `hostHasToolbar(host)`) still short-circuits
+* per-adapter user filters preserved (grok/duckai/t3chat)
+* every prior regression guard from v0.14.6-13 holds
+* content.js ≤ 700 lines (currently 691, 9-line buffer)
+* scan-report diagnostics still shipped
+
+Retired assertions from v0_14_10 / v0_14_11 / v0_14_13 that
+required the semantic-dedup diag kinds. Where possible the tests
+were rewritten to guard against the removed path re-appearing
+(explicit "MUST NOT come back" assertion).
+
+Full sweep: **2492 passed, 0 failed**.
+
+### Cost of this change
+
+If a site legitimately shows the SAME jsonl in two visible
+positions (a preview + a full copy) the operator now sees two
+toolbars for that one message. They can click either. Run on
+both will just execute the tool twice; for read-only tools this
+is a no-op, for consent-gated tools each attempt asks again.
+
+If a specific site needs the dedup back, we do it per-adapter
+(same shape as the current grok/duckai/t3chat user-authored
+filter) rather than globally.
+
+### Files touched
+
+* `chat_extension/content.js` -- 700 → 691 lines (removed the
+  semantic-dedup block; per-host dedup path preserved)
+* `chat_extension/adapters.js` -- unchanged from v0.14.13
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_chat_extension_v0_14_14.py` -- new, 8 asserts
+* six prior extension test files re-pinned to 0.14.14
+* three prior test files rewritten to guard against the removed
+  semantic-dedup path
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### What operator will see
+
+Scan reports will now show more `mounted` events per candidate
+and NO `skip_semantic_*` / `evict_semantic_owner` events at all.
+Each real tool block gets its own visible toolbar.
+
+### Known follow-ups (not in this release, still filed)
+
+* **Toolbar "hovers over content"**: cosmetic, needs a per-adapter
+  positioning tweak similar to Qwen's `.qwen-markdown-code-body`
+  hoist. Filed for v4.50.5.
+* **z.ai toolbar under message not code block**: same class of
+  cosmetic fix. Filed for v4.50.5.
+* **Windows Dashboard screenshot**: still waiting for operator to
+  reboot into Windows and capture the "кривой" layout.
+
 ## v4.50.3 -- Universal toolbar-thrash fix (Claude/Mistral/Gemini/AI Studio/T3) + T3 chat user filter
 
 Operator did a live tour across every supported chat site with

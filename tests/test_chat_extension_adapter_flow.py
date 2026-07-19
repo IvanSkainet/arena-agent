@@ -150,7 +150,7 @@ def test_chat_extension_readme_tracks_scaffold_version_and_features():
     readme = (ROOT / 'chat_extension' / 'README.md').read_text(encoding='utf-8')
     # v4.48.4 continues the extension polish arc; version banner
     # follows the release.
-    assert 'Current extension version: `0.14.13`' in readme
+    assert 'Current extension version: `0.14.14`' in readme
     assert 'chrome.storage.local' in readme
     assert 'device-local' in readme
     assert '127.0.0.1:8765' in readme

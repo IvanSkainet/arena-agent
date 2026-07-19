@@ -1,4 +1,4 @@
-"""Regression guards for extension 0.14.13 (v4.49.1).
+"""Regression guards for extension 0.14.14 (v4.49.1).
 
 Three per-adapter surgical fixes based on v0.14.7 candidate_diagnostics
 and mounted_diagnostics scan-report data:
@@ -44,20 +44,20 @@ def _read(name: str) -> str:
 
 def test_versions_pinned_to_0_14_8():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.13'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.13"
-    assert "return '0.14.13';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.13`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
+    assert "return '0.14.14';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.14`" in _read("README.md")
 
 
 def test_grok_per_adapter_user_filter_lives_in_arenaWhyUserAuthored():
-    """v0.14.13: Grok-specific check must be inside arenaWhyUserAuthored
+    """v0.14.14: Grok-specific check must be inside arenaWhyUserAuthored
     and MUST require adapter.name === 'grok' to fire."""
     src = _read("adapters.js")
     assert "function arenaWhyUserAuthored(node, adapter)" in src, (
         "arenaWhyUserAuthored must take an adapter argument"
     )
-    # v0.14.13 widened this branch to cover grok AND duckai.
+    # v0.14.14 widened this branch to cover grok AND duckai.
     assert "adapterName === 'grok'" in src, (
         "per-adapter branch must reference the grok adapter name"
     )
@@ -82,7 +82,7 @@ def test_global_user_author_attrs_still_has_no_testid_regression():
 
 
 def test_controls_host_takes_adapter_and_all_call_sites_pass_it():
-    """v0.14.13: controlsHost(node, adapter) signature change. Every
+    """v0.14.14: controlsHost(node, adapter) signature change. Every
     call site MUST pass state.adapter / the adapter it has in scope."""
     src = _read("content.js")
     assert "function controlsHost(node, adapter)" in src
@@ -95,7 +95,7 @@ def test_controls_host_takes_adapter_and_all_call_sites_pass_it():
 
 
 def test_duckai_hoist_out_of_overflow_hidden():
-    """v0.14.13: DuckAI branch of controlsHost must escape .overflow-hidden."""
+    """v0.14.14: DuckAI branch of controlsHost must escape .overflow-hidden."""
     src = _read("content.js")
     assert "adapterName === 'duckai'" in src
     assert "closest?.('.overflow-hidden')" in src or \
@@ -105,7 +105,7 @@ def test_duckai_hoist_out_of_overflow_hidden():
 
 
 def test_qwen_hoist_anchors_on_outer_pre():
-    """v0.14.13: Qwen branch anchors on the outer <pre.qwen-markdown-code>.
+    """v0.14.14: Qwen branch anchors on the outer <pre.qwen-markdown-code>.
     v4.49.1's .qwen-markdown-code-body path turned out to be INSIDE the
     PRE (proven by mounted_diagnostics), so we now use the outer <pre>."""
     src = _read("content.js")
@@ -116,7 +116,7 @@ def test_qwen_hoist_anchors_on_outer_pre():
 
 
 def test_why_user_authored_call_site_passes_adapter():
-    """v0.14.13: the mount-time skip check must pass the adapter so
+    """v0.14.14: the mount-time skip check must pass the adapter so
     the Grok branch fires correctly."""
     src = _read("content.js")
     assert "arenaWhyUserAuthored(host, adapter)" in src, (

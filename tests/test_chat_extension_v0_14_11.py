@@ -59,10 +59,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_11():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.13'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.13"
-    assert "return '0.14.13';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.13`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
+    assert "return '0.14.14';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.14`" in _read("README.md")
 
 
 def test_mount_entry_diag_event_at_top_of_mount_controls():
@@ -76,32 +76,42 @@ def test_mount_entry_diag_event_at_top_of_mount_controls():
     assert "testid: host?.getAttribute?.('data-testid')" in src
 
 
-def test_dismissed_checks_run_before_semantic_owner_eviction():
-    """v0.14.13: the two `dismissedControls.has(...)` short-circuits
-    MUST appear BEFORE the `mountedSemanticOwners.get(...)` block.
-    That order is the DuckAI thrash fix."""
+def test_dismissed_checks_still_run_early_in_mount_controls():
+    """v0.14.11 originally required dismissed-check to happen BEFORE
+    the semantic-owner eviction block. v0.14.14 removed the whole
+    semantic-dedup path (one toolbar per host now), so there is no
+    eviction to order against. What we still need is that the
+    dismissed-fp check gates the mount early -- same defensive intent."""
     src = _read("content.js")
     dismissed_fp_pos = src.find("dismissedControls.has(fingerprint)")
     dismissed_semantic_pos = src.find("dismissedControls.has(semanticFingerprint)")
-    evict_pos = src.find("mountedSemanticOwners.get(semanticFingerprint)")
-    assert dismissed_fp_pos > 0 and evict_pos > 0
-    assert dismissed_fp_pos < evict_pos, (
-        "dismissed-fp check must run before semantic-owner eviction "
-        "(v0.14.13 DuckAI thrash fix)"
-    )
-    assert dismissed_semantic_pos > 0 and dismissed_semantic_pos < evict_pos, (
-        "dismissed-semantic check must also run before eviction"
+    mount_entry_pos = src.find("kind: 'mount_entry'")
+    assert dismissed_fp_pos > 0
+    assert dismissed_semantic_pos > 0
+    assert 0 < mount_entry_pos < dismissed_fp_pos, (
+        "mount_entry diag must fire before the dismissed-fp short-circuit"
     )
 
 
-def test_semantic_owner_eviction_still_present_after_reorder():
-    """The eviction path must still exist -- just gated by the
-    dismissed checks first. Verifies we didn't accidentally delete
-    the block during reordering."""
+def test_semantic_owner_eviction_path_removed_in_v14_14():
+    """v0.14.14: the whole semantic-dedup path was removed so every
+    host gets its own toolbar (operator explicit request). This test
+    used to require the eviction block to survive after v0.14.11's
+    reorder; it now guards against the removed path re-appearing.
+
+    Note: mountedSemanticOwners.delete(...) still legitimately lives
+    in the toolbar-×-dismiss handler and in pruneMountedControls'
+    orphan cleanup -- those are teardown paths, not mount decisions.
+    What must be gone is the eviction inside mountControls itself,
+    which we spot by the `evict_semantic_owner` diag kind and by the
+    `mountedSemanticOwners.get(semanticFingerprint)` lookup."""
     src = _read("content.js")
-    assert "kind: 'evict_semantic_owner'" in src
-    assert "mountedControls.delete(semanticOwner)" in src
-    assert "mountedSemanticOwners.delete(semanticFingerprint)" in src
+    assert "kind: 'evict_semantic_owner'" not in src, (
+        "evict_semantic_owner must NOT be re-introduced -- v0.14.14 killed it"
+    )
+    assert "mountedSemanticOwners.get(semanticFingerprint)" not in src, (
+        "mountControls must not lookup semantic owner anymore"
+    )
 
 
 def test_composer_cache_invalidates_on_invisible_target():
@@ -172,19 +182,18 @@ def test_scan_report_diagnostic_fields_still_shipped():
 
 
 def test_v0_14_10_early_skip_diag_events_preserved():
-    """v0.14.10 mountControls-branch diag events must survive the
-    reorder in v0.14.13 -- otherwise the next diagnostic pass loses
-    all its signal."""
+    """v0.14.10 mountControls-branch diag events must survive later
+    releases. v0.14.14 dropped the two semantic-dedup kinds
+    (skip_semantic_already_mounted, evict_semantic_owner); the rest
+    stay."""
     src = _read("content.js")
     for kind in (
         'skip_dismissed_fp',
         'skip_dismissed_semantic',
-        'skip_semantic_already_mounted',
         'skip_existing_connected',
         'skip_host_has_toolbar',
         'mounted',
-        'evict_semantic_owner',
     ):
         assert f"kind: '{kind}'" in src, (
-            f"v0.14.10 diag event {kind} must survive the v0.14.13 reorder"
+            f"v0.14.10 diag event {kind} must survive"
         )
