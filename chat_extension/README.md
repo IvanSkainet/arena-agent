@@ -1,6 +1,25 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.24` (v4.50.14 bridge release —
+Current extension version: `0.14.25` (v4.50.15 bridge release —
+two direct root-cause fixes from Ivan's v4.50.14 scans:
+1) T3 chat duplicate at first message of a new chat: real
+cause was `attachControls()` calling
+`insertAdjacentElement('afterend', bar)` TWICE on race, stacking
+two shadow hosts as siblings AFTER the same PRE. Fixed at
+attach time: purge any prior arena bar/shadow-host sibling
+BEFORE inserting the new one. The v0.14.24 DOM sweep stays as
+a second line of defence.
+2) Arena.ai Battle multi-model: v0.14.24 diagnostic proved the
+carousel DOM has both columns and pruneAncestorCandidates was
+dropping one column's PRE as ancestor of a nested element.
+Added an arena.ai-only carousel top-up pass in
+`arenaCandidateNodes` that explicitly walks every carousel
+child and adds any PRE containing `function_call_start` that
+isn't already a candidate. Widened candidate cap 5→8 so both
+Battle columns + 6 prior turns fit. Enriched
+`arenaai_hint.carousel.columns[].has_pre/pre_count/has_tool_text`
+so any remaining miss is fully diagnosable from one scan.
+v4.50.14 bridge release —
 two focused fixes from Ivan's v4.50.13 tour:
 1) T3 chat duplicate — v4.50.13 sweep was map-based but
 mountedControls.set(fp, ...) OVERWRITES prior entries when
@@ -275,6 +294,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

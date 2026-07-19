@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.24';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.25';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -227,9 +227,44 @@ function attachControls(host, bar) {
   const tag = String(host?.tagName || '').toUpperCase();
   const width = Math.max(280, Math.min(host.getBoundingClientRect?.().width || 680, 900));
   bar.style.width = `${width}px`;
+  // v0.14.25 (v4.50.15): T3 chat duplicate root cause -- when
+  // mountControls runs twice for the same host (because the
+  // dedup gate races on a hot streaming rescan), attachControls
+  // called `insertAdjacentElement('afterend', bar)` twice, stacking
+  // TWO shadow hosts as siblings AFTER the same PRE. The
+  // mountedControls map holds only one entry but the DOM has both.
+  // Before inserting the new bar, purge any prior arena tool bar
+  // or shadow-host that is already a direct sibling of `host` so
+  // duplicates never stack in the first place. Preserves the
+  // v0.14.24 DOM sweep as a second line of defence.
+  try {
+    // Walk ALL following siblings (do not break on non-arena) and
+    // remove any arena bar or shadow-host so duplicates never
+    // stack. Stops at the newly-inserted `bar` if for some reason
+    // it is already attached to the DOM here.
+    const purge = [];
+    let s = host.nextElementSibling;
+    while (s) {
+      if (s === bar) break;
+      if (s.dataset?.arenaToolControls === '1'
+          || s.dataset?.arenaShadowHost === '1') {
+        purge.push(s);
+      }
+      s = s.nextElementSibling;
+    }
+    purge.forEach((el) => el.remove());
+  } catch (_e) { /* detached hosts */ }
   if ((tag === 'PRE' || tag === 'CODE') && host.parentNode) {
     host.insertAdjacentElement('afterend', bar);
   } else {
+    // Same guard for the appendChild branch: remove any prior
+    // arena bar or shadow-host among direct children before append.
+    try {
+      Array.from(host.children || []).forEach((el) => {
+        if (el === bar) return;
+        if (el.dataset?.arenaToolControls === '1' || el.dataset?.arenaShadowHost === '1') el.remove();
+      });
+    } catch (_e) { /* ignore */ }
     host.appendChild(bar);
   }
 }
@@ -1073,6 +1108,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

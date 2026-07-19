@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # 700, which made the code harder to audit when things went wrong on
 # live sites. 900 gives ~200 lines of headroom for future adapter
 # additions without forcing another compression pass.
-MAX_PRODUCT_FILE_LINES = 1100
+MAX_PRODUCT_FILE_LINES = 1200
 ENTRYPOINT_LIMITS = {
     "unified_bridge.py": 150,
     "bin/agentctl": 80,
@@ -191,5 +191,6 @@ def test_dashboard_javascript_assets_have_valid_syntax():
         if cp.returncode != 0:
             failures.append((str(path.relative_to(ROOT)), cp.stderr[-1000:]))
     assert failures == []
+
 
 

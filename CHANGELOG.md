@@ -1,3 +1,89 @@
+## v4.50.15 -- T3 duplicate at attach + Arena.ai Battle carousel top-up
+
+# v4.50.15 — T3 duplicate at attach + Arena.ai Battle carousel top-up
+
+Two direct root-cause fixes from Ivan's v4.50.14 scans. No guessing
+this round -- diagnosed from what the scan reports actually showed.
+
+## 1. T3 chat duplicate — root cause is `attachControls`, not sweep
+
+**Symptom (Ivan, v4.50.14 scan):** T3 chat first message of new chat
+still shows two toolbars for `fingerprint arena_msg_1326293718`.
+Both mounted events fired. `mounted_diagnostics` shows two shadow
+hosts at paths `DIV:0/DIV:0/DIV:0/DIV:0/DIV:3/DIV:0` and
+`.../DIV:1` -- **direct siblings** of the same PRE.
+
+**Root cause:** `attachControls()` called
+`host.insertAdjacentElement('afterend', bar)` twice on race. The
+v0.14.24 DOM sweep runs at end of scan; two mount attempts inside
+ONE scan pass both attach before sweep sees anything. And the map
+holds only one entry (because `mountedControls.set(fp, ...)`
+overwrites), so the sweep can't tell what to keep.
+
+**Fix (`chat_extension/content.js::attachControls`):** before
+`insertAdjacentElement`, walk `host.nextElementSibling` and REMOVE
+any prior arena bar (`[data-arena-tool-controls="1"]`) or shadow
+host (`[data-arena-shadow-host="1"]`) that's already there. Same
+guard for the `appendChild` branch: purge existing arena children
+first. The v0.14.24 sweep stays as a second line of defence for
+any cross-scan-race duplicates.
+
+## 2. Arena.ai Battle — carousel top-up in candidate discovery
+
+**Symptom (Ivan, v4.50.14 scan):** in Battle mode both AI columns
+are visible in the browser, but only column[1] gets a toolbar.
+The v0.14.24 diagnostic proved carousel DOM has both columns
+(`carousels: 3, columns: [...has_ai_bar:false, has_ai_bar:true...]`).
+
+**Root cause:** `arenaCandidateNodes()` returned only 2 candidates
+(user PRE + column[1] AI PRE). Column[0]'s AI PRE was in the DOM
+but got eaten by `arenaPruneAncestorCandidates` — that prune
+policy drops any node that CONTAINS another candidate, and
+column[0]'s PRE happens to contain a nested `<code>` that the
+`code` selector also picked up as candidate. Column[1]'s PRE
+survived because of DOM layout differences.
+
+**Fix (`chat_extension/adapters.js::arenaCandidateNodes`):**
+after the standard prune, when we're on arena.ai, do a
+**carousel top-up pass**:
+- Walk every `[class*="carousel"] / [class*="battle"] / ...`
+  container and its children (columns).
+- For each column, find PREs whose textContent contains
+  `function_call_start`.
+- Add each such PRE to the candidate list IF it's not already
+  there AND doesn't overlap (contains-or-contained-by) with an
+  existing candidate.
+
+Also widened the candidate cap from 5 → 8 to leave room for
+Battle's 2 concurrent AI panels + 6 prior turns.
+
+Enriched `arenaai_hint.carousel.columns[]` diagnostic with
+`has_pre`, `pre_count`, `has_tool_text` so any remaining Battle
+miss can be root-caused from ONE scan without back-and-forth:
+- `has_pre=false` — model reply is all paragraphs, no code
+- `has_pre=true` + `has_tool_text=false` — model didn't emit
+  the JSONL or Arena.ai post-processed the block
+- `has_tool_text=true` + `has_ai_bar=false` — extension miss
+  (this release's target)
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.15`.
+- `pyproject.toml::version` → `4.50.15`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_25.py` — 14 asserts.
+- MAX_PRODUCT_FILE_LINES raised 1100 → 1200
+  (content.js 1119 LOC, adapters.js 1103 LOC).
+- Re-pinned all v0_14_* + assets + adapter_flow tests to `0.14.25`.
+
+## Still deferred
+
+- Mistral flaky mount — Ivan says he can't reproduce reliably,
+  might be model-side.
+- **Next:** v4.51.0 (collapse tool results in chat history).
+
 ## v4.50.14 -- DOM-based duplicate sweep + Battle carousel diagnostics
 
 # v4.50.14 — DOM-based duplicate sweep + Battle carousel diagnostics

@@ -507,11 +507,31 @@ function arenaDiagnosticSnapshot(node) {
         const cols = [];
         carousels.forEach((cr) => {
           Array.from(cr.children || []).forEach((child, idx) => {
+            // v0.14.25 (v4.50.15): richer per-column diag. When a
+            // Battle column reports has_pre=true but
+            // has_tool_text=false, the model's PRE exists but the
+            // JSONL got stripped/replaced by rendered output --
+            // that's a source-side issue (model didn't emit the
+            // block or Arena.ai post-processed it), not an
+            // extension mount bug. When has_pre=false the AI's
+            // reply is entirely non-code (paragraphs only).
+            const pres = child.querySelectorAll?.('pre') || [];
+            let hasToolText = false;
+            for (const p of pres) {
+              const t = p.textContent || '';
+              if (t.includes('function_call_start') || t.includes('function_call_end')) {
+                hasToolText = true;
+                break;
+              }
+            }
             cols.push({
               carousel_class: String(cr.className || '').slice(0, 60),
               index: idx,
               child_class: String(child.className || '').slice(0, 60),
               has_ai_bar: !!child.querySelector?.('[data-arena-tool-controls="1"]'),
+              has_pre: pres.length > 0,
+              pre_count: pres.length,
+              has_tool_text: hasToolText,
             });
           });
         });
@@ -795,9 +815,50 @@ function arenaCandidateNodes() {
       nodes.push(node);
     });
   });
+  let pruned = arenaPruneAncestorCandidates(nodes);
+  // v0.14.25 (v4.50.15): Arena.ai Battle / Code multi-column
+  // top-up. In Battle mode both carousel columns should
+  // independently get a toolbar, but the regular selector pass
+  // often misses one column when its PRE happens to be pruned as
+  // an ancestor of a smaller nested element, or when the
+  // arenaPruneAncestorCandidates policy drops it as a
+  // "container". Explicitly walk every carousel column and add
+  // any tool-bearing PRE inside it that isn't already in the
+  // pruned candidate list. Kept host-gated on arena.ai so no
+  // other adapter's candidate set changes.
+  try {
+    const isArenaAi = typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '');
+    if (isArenaAi) {
+      const carousels = document.querySelectorAll(
+        '[class*="@container/carousel"], [class*="carousel"], [class*="side-by-side"], [class*="battle"]'
+      );
+      const already = new Set(pruned);
+      carousels.forEach((cr) => {
+        Array.from(cr.children || []).forEach((col) => {
+          const pres = col.querySelectorAll?.('pre') || [];
+          for (const pre of pres) {
+            const txt = pre.textContent || '';
+            if (!txt.includes('function_call_start')) continue;
+            // Only include if not an ancestor of anything already
+            // in the pruned list (and not descendant of one).
+            let redundant = false;
+            for (const existing of already) {
+              if (existing === pre) { redundant = true; break; }
+              if (existing.contains?.(pre)) { redundant = true; break; }
+              if (pre.contains?.(existing)) { redundant = true; break; }
+            }
+            if (!redundant) {
+              pruned.push(pre);
+              already.add(pre);
+            }
+          }
+        });
+      });
+    }
+  } catch (_e) { /* detached nodes */ }
   _cachedCandidateState = {
     adapter,
-    nodes: arenaPruneAncestorCandidates(nodes).slice(-5),
+    nodes: pruned.slice(-8),  // was -5, widened to fit Battle 2 cols + N history
   };
   _candidateCacheDirty = false;
   return _cachedCandidateState;
@@ -1031,6 +1092,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 
