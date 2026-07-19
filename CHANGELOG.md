@@ -1,3 +1,101 @@
+## v4.51.3 — 2026-07-20
+
+Two parser + prompt fixes on top of v4.51.2. This release does
+**not** touch the collapse-of-tool-results path — a v4.51.4 pass
+will handle that once diagnostics from the affected sites are
+in hand. This release exists because in Ivan's v4.51.2 test cycle
+the model repeatedly emitted a valid Arena tool envelope as a
+bare JSON object with no surrounding fence, and the extension
+silently ignored it.
+
+### chat_extension `parser.js` (0.14.31 → 0.14.32)
+
+Three fallbacks added so an Arena tool call is detected even
+when the site or the model strips the `arena-tool` language tag:
+
+1. **Unlabeled ``` fence** now scanned as `arena-tool` first,
+   JSONL second.
+2. **Bare envelope scan**: if no fenced block is captured
+   anywhere in the message, `_scanBareArenaEnvelopes()` walks
+   the whole source with the existing balanced-brace splitter
+   and picks the first chunk that looks unmistakably like an
+   Arena call. Strict prefilter (envelope must contain
+   `"bridge":"arena"` and `"calls":`; single-call variant must
+   contain both `"tool"`/`"function"` and `"arguments"`/`"params"`
+   AND the tool name must contain a dot) avoids false positives
+   on random JSON the model happens to paste.
+3. **Single-call shape** `{"tool":"…","arguments":{…}}` without
+   the outer envelope is normalised into the standard envelope
+   with `source_format: "arena-single"`. Accepts `name` and
+   `function` aliases for `tool`, `params` alias for `arguments`.
+
+Instruction-echo detector widened to include the v4.51.3
+preamble so the model quoting the SYSTEM block back in prose is
+NOT mistaken for a real call.
+
+### `arena/extension_bridge/instructions.py`
+
+The `_SYSTEM_PREAMBLE_ARENA` block was rewritten. Old preamble
+told the model to "wrap every call in a fenced code block
+```arena-tool ... ```" but did NOT enumerate common mistakes,
+and the model repeatedly:
+
+* emitted bare JSON without any fence,
+* wrapped the JSON in ```json instead of ```arena-tool
+  (some sites' `json` renderers mangle content),
+* emitted `<function_calls>`/`<invoke>` XML tags (Ivan
+  reported this from the MCP SuperAssistant catalog leaking
+  into the model's memory),
+* emitted multiple tool blocks in one response.
+
+The new preamble has explicit sections:
+
+* **How the Arena bridge works** — the 4-step call-and-wait
+  loop, spelled out.
+* **STRICT — Function Call Format (Arena, preferred)** — the
+  fence tag MUST be `arena-tool`; worked example inline; rules
+  about placement and STOP.
+* **DO NOT — common mistakes to avoid** — every failure listed
+  above is called out by name.
+* **Fallback — MCP-compatible JSONL format** — clearly labeled
+  as fallback, not preferred.
+* **CSN notation** — moved to its own section.
+* **Safety rules** — unchanged.
+* **Response format** — 3 numbered steps.
+
+### Tests
+
+* Added `tests/test_extension_v4_51_3.py` with 15 assertions
+  covering: manifest/content.js/insert_strategies.js/README
+  version bump, `arena/constants.py` and `pyproject.toml` bump,
+  parser `fence` pattern, `_scanBareArenaEnvelopes`,
+  `arena-single` source format, `function` alias, updated
+  instruction-echo detector, and 6 SYSTEM-prompt structural
+  guarantees.
+* Node smoke over 9 cases (fenced arena-tool, unlabeled fence,
+  bare envelope, single-call, JSONL, echoed instructions,
+  random JSON, dotted vs undotted single-call, both fences in
+  one message) — every case produces the expected result and
+  the two negative cases (echo, random JSON) yield zero
+  matches.
+* `MAX_PRODUCT_FILE_LINES = 1400` unchanged. `content.js` at
+  1350 lines (no change), `parser.js` at 195 lines (was 125),
+  `instructions.py` at 382 lines (was 334).
+
+### Not addressed in this release
+
+* **Collapse tool results on Gemini web / Mistral / Kimi /
+  Qwen / DeepSeek.** Ivan confirmed v4.51.2 flicker fix
+  worked but collapse still does not fire on these sites. A
+  proper fix needs Scan Page JSON + `outerHTML` of a user
+  message on each site (Qwen uses Monaco editor with
+  virtualised `textContent`; DeepSeek/Mistral may render user
+  messages without a `<pre>`/`<code-block>` wrapper). Deferred
+  to v4.51.4 to avoid guessing.
+* **UI port from MCP SuperAssistant** (sidebar with tool
+  browser, Copy Instructions preview). Planned as a v4.52.x
+  arc after v4.51.4 lands.
+
 ## v4.51.2 -- z.ai regression, universal collapse, MCP-SA-style instructions
 
 # v4.51.2 — z.ai regression, collapse universal support, MCP-SA-style instructions

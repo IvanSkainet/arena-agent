@@ -1,3 +1,102 @@
+## v4.51.3 — 2026-07-20
+
+Два фикса поверх v4.51.2: парсер + системный prompt. Этот
+релиз **не трогает** collapse-код — фикс collapse на Gemini web
+/ Mistral / Kimi / Qwen / DeepSeek отложен до v4.51.4, когда
+будут диагностика Scan Page JSON + outerHTML с этих сайтов.
+Релиз существует потому, что в тест-цикле v4.51.2 модель
+регулярно эмитила валидный Arena-конверт как голый JSON без
+кодового блока, а расширение его игнорировало.
+
+### chat_extension `parser.js` (0.14.31 → 0.14.32)
+
+Добавлены три fallback-механизма, чтобы Arena tool call
+детектировался даже когда сайт или модель обрезают
+`arena-tool` language-tag:
+
+1. **Безымянный ``` fence** теперь сначала пробуется как
+   `arena-tool`, потом как JSONL.
+2. **Скан голых конвертов**: если ни одного fenced-блока в
+   сообщении не нашлось, `_scanBareArenaEnvelopes()`
+   проходит весь текст через существующий split-по-скобкам
+   и берёт первый чанк, который однозначно похож на Arena
+   call. Строгий префильтр (envelope должен содержать
+   `"bridge":"arena"` и `"calls":`; single-call вариант —
+   и `"tool"`/`"function"`, и `"arguments"`/`"params"`, при
+   этом имя инструмента должно содержать точку) не даёт
+   ложных срабатываний на случайный JSON в прозе.
+3. **Single-call форма** `{"tool":"…","arguments":{…}}` без
+   внешнего envelope нормализуется в стандартный envelope с
+   `source_format: "arena-single"`. Принимаются алиасы `name`
+   и `function` вместо `tool`, `params` вместо `arguments`.
+
+Детектор «модель цитирует наши же инструкции обратно» расширен
+на новый v4.51.3 preamble — чтобы эхо SYSTEM-блока в прозе НЕ
+принималось за реальный вызов.
+
+### `arena/extension_bridge/instructions.py`
+
+Переписан `_SYSTEM_PREAMBLE_ARENA`. Старый preamble говорил
+«оберни каждый вызов в fenced code block ```arena-tool ... ```»,
+но НЕ перечислял типичные ошибки, и модель регулярно:
+
+* эмитила голый JSON вообще без кодового блока,
+* оборачивала JSON в ```json вместо ```arena-tool (некоторые
+  сайты рендерят `json`-блоки подсветкой, которая ломает
+  содержимое),
+* эмитила XML-теги `<function_calls>`/`<invoke>` (Ivan
+  докладывал: MCP SuperAssistant catalog просачивался в
+  память модели),
+* эмитила несколько tool-блоков в одном ответе.
+
+В новом preamble явные разделы:
+
+* **How the Arena bridge works** — 4-шаговый цикл
+  call-and-wait, по пунктам.
+* **STRICT — Function Call Format (Arena, preferred)** —
+  fence-тег ДОЛЖЕН быть ровно `arena-tool`; inline worked
+  example; правила размещения и STOP.
+* **DO NOT — common mistakes to avoid** — каждый провал из
+  списка выше назван по имени.
+* **Fallback — MCP-compatible JSONL format** — явно помечено
+  как fallback, не основной.
+* **CSN notation** — в отдельном разделе.
+* **Safety rules** — без изменений.
+* **Response format** — 3 пронумерованных шага.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_51_3.py` — 15 ассертов:
+  bump версий (manifest/content.js/insert_strategies.js/README/
+  constants.py/pyproject.toml), парсер-паттерн `fence`,
+  `_scanBareArenaEnvelopes`, `arena-single` source_format,
+  алиас `function`, обновлённый instruction-echo detector, и
+  6 структурных гарантий SYSTEM-prompt.
+* Node smoke на 9 кейсах (fenced arena-tool, безымянный
+  fence, голый envelope, single-call, JSONL, эхо инструкций,
+  случайный JSON, single-call с точкой и без, два fence в
+  одном сообщении) — каждый кейс даёт ожидаемый результат;
+  два негативных (echo, random JSON) корректно возвращают
+  ноль matches.
+* `MAX_PRODUCT_FILE_LINES = 1400` без изменений. `content.js`
+  1350 строк (не менялся), `parser.js` 195 строк (было 125),
+  `instructions.py` 382 строки (было 334).
+
+### Что НЕ вошло в этот релиз
+
+* **Collapse tool results на Gemini web / Mistral / Kimi /
+  Qwen / DeepSeek.** Ivan подтвердил, что v4.51.2 фикс
+  мерцания работает, но collapse на этих сайтах всё ещё не
+  срабатывает. Правильный фикс требует Scan Page JSON +
+  outerHTML user-сообщения с каждого сайта (Qwen использует
+  Monaco editor с виртуализованным `textContent`;
+  DeepSeek/Mistral могут рендерить user-сообщения вообще без
+  `<pre>`/`<code-block>` обёртки). Отложено до v4.51.4,
+  чтобы не гадать.
+* **UI-порт из MCP SuperAssistant** (sidebar с tool browser,
+  Copy Instructions с превью). Запланирован на v4.52.x арк
+  после v4.51.4.
+
 ## v4.51.2 -- \u0440\u0435\u0433\u0440\u0435\u0441\u0441\u0438\u044f z.ai, \u0443\u043d\u0438\u0432\u0435\u0440\u0441\u0430\u043b\u044c\u043d\u044b\u0439 collapse, \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0438 MCP-SA-style
 
 # v4.51.2 — регрессия z.ai, универсальный collapse, инструкции в стиле MCP-SA

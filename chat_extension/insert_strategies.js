@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.31';
+  return '0.14.32';
 }
 
 function arenaSetInsertTiming(timing) {
