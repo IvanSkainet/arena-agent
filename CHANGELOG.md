@@ -1,3 +1,117 @@
+## v4.50.10 -- deferred backlog: Arena.ai fingerprint + multi-block + DOM-position tiebreaker
+
+# v4.50.10 — deferred backlog picked up: Arena.ai fingerprint, multi-block, DOM-position tiebreaker
+
+Picks up the deferred v4.50.9 backlog. Four related changes.
+
+## 1. Arena.ai fingerprint collision (root cause of "AI не ловит")
+
+**Symptom (Ivan, v4.50.9 tour):** on arena.ai `/c/` — User no longer
+gets a toolbar (v4.50.9 filter works), but AI ALSO doesn't get one.
+Same on `/agent/`.
+
+**Scan-report evidence:** `candidate[0]` (User) is dismissed
+correctly with `reason: "arenaai:user-wrap@DIV"`. `candidate[1]`
+(AI) then reports `skip_dismissed_fp` with the SAME fingerprint
+(`arena_msg_123529256`). Both PREs share DOM path
+`DIV:0/DIV:0/PRE:0/DIV:0/DIV:1/PRE:0` and identical text (both echo
+the same JSONL because the tool block is a code fence quoted in
+both turns).
+
+**Root cause:** `arenaExtractNodeId` hashed both PREs to the same
+fingerprint. When User skipped, its fingerprint went into
+`dismissedControls`, and AI cascaded through `skip_dismissed_fp`.
+The pre-existing `bubbleId` branch only covers `data-testid`
+attributes which arena.ai doesn't set.
+
+**Fix:** added a compact `roleBit` token to the fingerprint,
+derived from arena.ai / z.ai wrapper classes:
+- AI marker → `#response-content-container`,
+  `[class*="bg-surface-raised"]`, `[class*="chat-assistant"]` → `roleBit = 'ai'`
+- User marker → `[class*="bg-surface-primary"]`,
+  `[class*="chat-user"]` → `roleBit = 'user'`
+
+Empty when neither is present so all other adapters see zero
+fingerprint change.
+
+**Files:** `chat_extension/adapters.js::arenaExtractNodeId`.
+
+## 2. Multi-block per message
+
+**Symptom (Ivan, earlier tour):** "нет обработки в том случае,
+если ИИ пишет больше одной команды" — a single AI turn on
+OpenRouter / arena.ai / anything routed through openrouter to
+Hy3-free emitted 5-6 tool JSONL blocks and got only ONE toolbar
+on the first block.
+
+**Root cause:** `scan()` computed `controlsHost(node, adapter)`
+ONCE per candidate, then walked `parseArenaBlocks(text)` and
+called `mountControls(host, entry.payload, adapter)` N times.
+First mount marked the host; second call hit
+`hostHasToolbar(host)` → skipped.
+
+**Fix:** `scan()` now expands each candidate into per-PRE hosts.
+For every `<pre>` inside the node whose `textContent` contains
+`function_call_start` or `function_call_end` we mount an
+INDEPENDENT toolbar; falls back to the single-host behaviour when
+only 0 or 1 blocks are found. Preserves v0.14.19 behaviour for
+adapters without `<pre>` code fences (z.ai `.markdown-prose`,
+Arena.ai future surfaces).
+
+**Files:** `chat_extension/content.js::scan`.
+
+## 3. Same-call_id tiebreaker by DOM position
+
+**Symptom (Ivan, earlier tour):** "нет обработки в том случае,
+если AI ставит тот же самый ID на tool call, то есть не меняет
+его с цифры, скажем, 1 на цифру 2".
+
+**Fix:** in the `mountControls` semantic-dedup branch, when
+`currentCid === previousCid` (or either is missing/NaN), the
+newer candidate now wins by DOM position. Uses
+`compareDocumentPosition` with `Node.DOCUMENT_POSITION_FOLLOWING`
+(0x04) to detect that the incoming `host` appears after
+`previous.host`. New diag event
+`evict_semantic_owner reason:"later-in-document"`. Fully
+back-compat: when call_ids DO increment, the numeric branch runs
+first and this heuristic never fires.
+
+**Files:** `chat_extension/content.js::mountControls`.
+
+## 4. MAX_PRODUCT_FILE_LINES raised 900 → 1000
+
+The multi-block scan rewrite pushed `chat_extension/content.js`
+from 852 → ~910 LOC. Per project policy ("не сжимай код, лучше
+сделай ограничение больше, скажем 800 строк") we raise the limit
+rather than compress readable code. Raised from 900 → 1000; the
+runtime file limit (`MAX_RUNTIME_LINES = 600`) for `arena/*.py`
+is unchanged.
+
+**Files:** `tests/test_project_modularity.py`.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.10`.
+- `pyproject.toml::version` → `4.50.10`.
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_20.py` — 13 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow tests to `0.14.20`.
+- Expected total: 2568 passed (2555 → 2568, +13).
+
+## Still deferred to v4.50.11
+
+- T3 chat duplicate toolbar during streaming (goes away on chat
+  reload) — needs a streaming-lifecycle rescan.
+- Mistral flaky mount (`why_user_authored: matched:false` on both
+  candidates + duplicate dedup skips).
+- Arena.ai `/agent/` surface fine-tune if the roleBit fix + wrapper
+  markers don't cover it (scan-report has `arenaai_hint` diag from
+  v4.50.9 so root cause will be visible).
+- v4.51.0 (collapse tool results in chat history) + v4.51.1 (full
+  instructions catalog) — waiting for adapter tour to settle.
+
 ## v4.50.9 -- Kimi/z.ai/Arena.ai retries after v4.50.8 tour
 
 # v4.50.9 — Kimi/z.ai/Arena.ai retries after v4.50.8 tour

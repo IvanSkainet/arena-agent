@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.19';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.20';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -406,6 +406,24 @@ function mountControls(host, payload, adapter) {
       const currentCid = (typeof arenaPayloadCallId === 'function') ? arenaPayloadCallId(payload) : NaN;
       const previousCid = (typeof arenaPayloadCallId === 'function') ? arenaPayloadCallId(previous?.payload) : NaN;
       const currentBigger = Number.isFinite(currentCid) && Number.isFinite(previousCid) && currentCid > previousCid;
+      // v0.14.20 (v4.50.10): DOM-position tiebreaker for when the
+      // model forgets to increment call_id (Ivan: "нет обработки в
+      // том случае, если AI ставит тот же самый ID на tool call").
+      // When both call_ids are equal (or both NaN), prefer the
+      // candidate that appears LATER in the document -- the newest
+      // rendered copy is almost always the one the user is looking
+      // at. `compareDocumentPosition` returns FOLLOWING (0x04) when
+      // `previous.host` is BEFORE the current host, i.e. the
+      // current one is newer.
+      let currentIsNewer = false;
+      try {
+        if (previous?.host && host && typeof previous.host.compareDocumentPosition === 'function') {
+          const rel = previous.host.compareDocumentPosition(host);
+          // Node.DOCUMENT_POSITION_FOLLOWING = 4
+          currentIsNewer = !!(rel & 4);
+        }
+      } catch (_e) { /* detached nodes throw */ }
+      const cidsEqualOrMissing = (!Number.isFinite(currentCid) || !Number.isFinite(previousCid) || currentCid === previousCid);
       if (!prevAlive) {
         _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner, reason: 'prev-dead'});
         if (previous?.shadowHost) previous.shadowHost.remove();
@@ -416,6 +434,14 @@ function mountControls(host, payload, adapter) {
         mountedSemanticOwners.delete(semanticFingerprint);
       } else if (currentBigger) {
         _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner, reason: `higher-call-id:${currentCid}>${previousCid}`});
+        if (previous?.shadowHost) previous.shadowHost.remove();
+        else previous?.bar?.remove();
+        if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
+        mountedControls.delete(semanticOwner);
+        mountedPayloadSemantics.delete(semanticFingerprint);
+        mountedSemanticOwners.delete(semanticFingerprint);
+      } else if (cidsEqualOrMissing && currentIsNewer) {
+        _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner, reason: 'later-in-document'});
         if (previous?.shadowHost) previous.shadowHost.remove();
         else previous?.bar?.remove();
         if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
@@ -681,12 +707,46 @@ function scan() {
   _lastCandidateCount = state.nodes.length;
 
   state.nodes.forEach((node) => {
-    const host = controlsHost(node, state.adapter);
-    if (hostHasToolbar(host)) return;
+    // v0.14.20 (v4.50.10): multi-block per message. When a single
+    // AI turn emits several tool JSONL blocks (Ivan observed 5-6
+    // on OpenRouter/Arena.ai/openrouter routed to Hy3-free), the
+    // previous scan() collapsed them all under the same
+    // controlsHost so only ONE toolbar mounted per host. Now: for
+    // every PRE inside the candidate that carries its own arena
+    // tool block, mount a toolbar anchored on THAT PRE. Falls back
+    // to the outer candidate when no per-block PRE is found so
+    // adapters without <pre> code fences (z.ai .markdown-prose,
+    // arena.ai future surfaces) still get a toolbar.
+    const outerHost = controlsHost(node, state.adapter);
     const text = typeof arenaDetectionText === 'function'
       ? arenaDetectionText(node, state.adapter)
       : (node.textContent || '');
-    parseArenaBlocks(text).forEach((entry) => mountControls(host, entry.payload, state.adapter));
+    const entries = parseArenaBlocks(text);
+    if (!entries.length) return;
+    // Try per-PRE mounting first.
+    const blockNodes = [];
+    try {
+      const pres = Array.from(node.querySelectorAll?.('pre') || []);
+      pres.forEach((pre) => {
+        const preText = pre.textContent || '';
+        if (preText.includes('function_call_start') || preText.includes('function_call_end')) {
+          blockNodes.push(pre);
+        }
+      });
+    } catch (_e) { /* querySelectorAll can throw on detached nodes */ }
+
+    if (blockNodes.length >= entries.length && blockNodes.length > 1) {
+      // Multi-block path: one toolbar per PRE.
+      blockNodes.slice(0, entries.length).forEach((preNode, i) => {
+        const perHost = controlsHost(preNode, state.adapter);
+        if (hostHasToolbar(perHost)) return;
+        mountControls(perHost, entries[i].payload, state.adapter);
+      });
+      return;
+    }
+    // Single-block fallback: preserve v0.14.19 behaviour.
+    if (hostHasToolbar(outerHost)) return;
+    entries.forEach((entry) => mountControls(outerHost, entry.payload, state.adapter));
   });
 }
 
@@ -846,6 +906,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

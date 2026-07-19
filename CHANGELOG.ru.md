@@ -1,3 +1,104 @@
+## v4.50.10 -- backlog: Arena.ai fingerprint + multi-block + DOM-position tiebreaker
+
+# v4.50.10 — отложенный бэклог: Arena.ai fingerprint, multi-block, DOM-position tiebreaker
+
+Разгребаю отложенный бэклог из v4.50.9. Четыре связанных изменения.
+
+## 1. Arena.ai коллизия fingerprint (причина "AI не ловит")
+
+**Симптом (Иван, тур v4.50.9):** на arena.ai `/c/` — User больше
+не получает toolbar (фильтр v4.50.9 работает), но AI ТОЖЕ не
+получает. То же на `/agent/`.
+
+**Скан:** `candidate[0]` (User) корректно skip'ается с
+`reason: "arenaai:user-wrap@DIV"`. `candidate[1]` (AI) далее
+попадает в `skip_dismissed_fp` с ТЕМ ЖЕ fingerprint
+(`arena_msg_123529256`). Оба PRE имеют одинаковый DOM path
+`DIV:0/DIV:0/PRE:0/DIV:0/DIV:1/PRE:0` и одинаковый текст (оба
+эхом повторяют один и тот же JSONL — code fence цитируется в
+обоих turn'ах).
+
+**Причина:** `arenaExtractNodeId` хэшировал оба PRE в один
+fingerprint. Когда User skip'ается, его fingerprint попадает в
+`dismissedControls`, и AI каскадирует в `skip_dismissed_fp`.
+Существующая ветка `bubbleId` покрывает только атрибуты
+`data-testid`, которых arena.ai не ставит.
+
+**Фикс:** добавил компактный токен `roleBit` в fingerprint,
+получаемый из wrapper-классов arena.ai / z.ai:
+- AI-маркер → `#response-content-container`,
+  `[class*="bg-surface-raised"]`, `[class*="chat-assistant"]` → `roleBit = 'ai'`
+- User-маркер → `[class*="bg-surface-primary"]`,
+  `[class*="chat-user"]` → `roleBit = 'user'`
+
+Пустой, когда маркеров нет — все остальные адаптеры видят нулевое
+изменение fingerprint.
+
+## 2. Multi-block per message
+
+**Симптом (Иван, ранний тур):** "нет обработки в том случае,
+если ИИ пишет больше одной команды" — один turn AI на
+OpenRouter / arena.ai / любом, направляемом через openrouter к
+Hy3-free, выдавал 5-6 tool JSONL блоков и получал только ОДИН
+toolbar на первом блоке.
+
+**Причина:** `scan()` считал `controlsHost(node, adapter)` ОДИН
+раз на кандидата, потом обходил `parseArenaBlocks(text)` и
+вызывал `mountControls(host, entry.payload, adapter)` N раз.
+Первый mount помечал host; второй звонок ловил
+`hostHasToolbar(host)` → skip.
+
+**Фикс:** `scan()` теперь разворачивает каждого кандидата в
+per-PRE хосты. Для каждого `<pre>` внутри узла, чей `textContent`
+содержит `function_call_start` или `function_call_end`,
+монтируется НЕЗАВИСИМЫЙ toolbar; fallback на single-host, когда
+блок 0 или 1. Сохраняет поведение v0.14.19 для адаптеров без
+`<pre>` (z.ai `.markdown-prose`).
+
+## 3. Tiebreaker по DOM-позиции при равных call_id
+
+**Симптом:** "нет обработки в том случае, если AI ставит тот же
+самый ID на tool call, то есть не меняет его с цифры, скажем, 1
+на цифру 2".
+
+**Фикс:** в semantic-dedup ветке `mountControls`, когда
+`currentCid === previousCid` (или один из них missing/NaN), новый
+кандидат теперь выигрывает по DOM-позиции. Использую
+`compareDocumentPosition` с `Node.DOCUMENT_POSITION_FOLLOWING`
+(0x04) для определения, что новый `host` идёт после
+`previous.host`. Новый diag event
+`evict_semantic_owner reason:"later-in-document"`. Полностью
+back-compat: когда call_ids инкрементируются нормально, числовая
+ветка отрабатывает первой и эта эвристика не срабатывает.
+
+## 4. MAX_PRODUCT_FILE_LINES 900 → 1000
+
+Рефактор multi-block scan увеличил `chat_extension/content.js`
+852 → ~910 LOC. По правилу проекта ("не сжимай код, лучше сделай
+ограничение больше") поднимаю лимит вместо компрессии кода.
+Поднято 900 → 1000; лимит runtime (`MAX_RUNTIME_LINES = 600`) для
+`arena/*.py` не изменён.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.10`.
+- `pyproject.toml::version` → `4.50.10`.
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_20.py` — 13 asserts.
+- Перепиннены все v0_14_* + assets + adapter_flow тесты на `0.14.20`.
+- Ожидаемо: 2568 passed (2555 → 2568).
+
+## Всё ещё отложено на v4.50.11
+
+- T3 chat дубль toolbar во время stream (при reload чата пропадает).
+- Mistral flaky mount.
+- Arena.ai `/agent/` fine-tune, если roleBit + wrapper-маркеры не
+  покроют его (в scan-report есть `arenaai_hint` из v4.50.9).
+- v4.51.0 (collapse tool results) + v4.51.1 (полный каталог
+  инструкций) — жду завершения адаптерного тура.
+
 ## v4.50.9 -- \u043f\u043e\u0432\u0442\u043e\u0440\u043d\u044b\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0438 Kimi/z.ai/Arena.ai
 
 # v4.50.9 — повторные попытки для Kimi / z.ai / Arena.ai после v4.50.8

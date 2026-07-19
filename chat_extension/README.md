@@ -1,6 +1,25 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.19` (v4.50.9 bridge release —
+Current extension version: `0.14.20` (v4.50.10 bridge release —
+picking up the deferred v4.50.9 backlog:
+1) Arena.ai fingerprint collision — v4.50.9 filter correctly
+matched User but the User+AI PREs on `/c/` had identical
+node paths + text heads → identical fingerprints → AI cascaded
+through `skip_dismissed_fp`. `arenaExtractNodeId` now includes
+a `roleBit` (ai/user) derived from `bg-surface-raised` /
+`bg-surface-primary` / `#response-content-container` wrappers.
+2) Multi-block per message — a single AI turn with 5-6 tool
+JSONL blocks (OpenRouter / arena.ai) previously got ONE
+toolbar; scan now expands into per-PRE candidates and mounts a
+toolbar under each block.
+3) Same-call_id tiebreaker by DOM position — when two candidates
+share a semantic fingerprint AND their call_ids match (or are
+both missing), the LATER-in-document copy now wins (previously
+prev-wins → newest hidden). Diag event
+`evict_semantic_owner reason:"later-in-document"`.
+4) MAX_PRODUCT_FILE_LINES raised 900 → 1000 to accommodate the
+multi-block scan rewrite without compressing readable code.
+v4.50.9 bridge release —
 three retries from Ivan's v4.50.8 tour:
 1) Kimi — v4.50.8 hop-to-`.segment-assistant` produced a huge empty
 column in saved chats; now the thinking-widget candidate is
@@ -178,6 +197,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

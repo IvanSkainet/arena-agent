@@ -487,12 +487,39 @@ function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
         + ':' + (b.getAttribute?.('data-message-author-role') || '');
     }
   } catch (_e) { /* closest can throw on detached nodes */ }
+  // v0.14.20 (v4.50.10): role-bit derived from the nearest
+  // arena.ai / z.ai / claude-style wrapper-class marker. Live scan
+  // from Ivan's v4.50.9 arena.ai tour proved the User + AI PREs on
+  // /c/ have IDENTICAL node paths + text heads (both echo the same
+  // JSONL) so arenaExtractNodeId collapsed them into one
+  // fingerprint. User skip cascaded into skip_dismissed_fp on AI
+  // and toolbar never appeared. The bubbleId branch above only
+  // covers `data-testid=...-message` attributes -- arena.ai doesn't
+  // set those; it uses Tailwind wrapper classes. We add a compact
+  // roleBit token derived from those wrappers so User and AI hash
+  // to DIFFERENT fingerprints:
+  //   arena.ai       -> bg-surface-raised (AI) / bg-surface-primary (User)
+  //                     + #response-content-container (AI)
+  //   z.ai           -> .chat-assistant / .chat-user (already
+  //                     handled globally via class substring)
+  // Purely additive to bubbleId; empty when none of the markers
+  // are found so existing adapters see zero change in their
+  // fingerprints.
+  let roleBit = '';
+  try {
+    if (node.closest?.('#response-content-container, [class*="bg-surface-raised"], [class*="chat-assistant"]')) {
+      roleBit = 'ai';
+    } else if (node.closest?.('[class*="bg-surface-primary"], [class*="chat-user"]')) {
+      roleBit = 'user';
+    }
+  } catch (_e) { /* ignore */ }
   return [
     adapter.name,
     node.getAttribute?.('data-testid') || '',
     node.getAttribute?.('data-message-author-role') || '',
     node.id || '',
     bubbleId,
+    roleBit,
     arenaNodePath(node),
     arenaNodeText(node).slice(0, 80),
   ].join('|');
@@ -838,6 +865,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 
