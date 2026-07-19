@@ -1,3 +1,84 @@
+## v4.50.17 -- \u0440\u0435\u0430\u043b\u044c\u043d\u0430\u044f \u043f\u0440\u0438\u0447\u0438\u043d\u0430 T3 \u0434\u0443\u0431\u043b\u044f + generic \u0430\u043a\u0442\u0438\u0432\u043d\u044b\u0439
+
+# v4.50.17 — реальная причина T3 дубля + generic-адаптер становится активным
+
+Два фокусных изменения.
+
+## 1. T3 chat дубль — реальный root cause
+
+**Симптом (Иван, скан v4.50.16):** T3 дубль всё ещё есть.
+`mounted_controls: 2`, два `mounted` события с зазором ~1.3с,
+между ними НЕТ `skip_semantic_already_mounted`.
+
+**Причина, прочитанная из данных:** зазор между двумя mount —
+ключ. Во время React streaming re-render старый PRE host
+становится disconnected (`pruneMountedControls` это видит и
+чистит map + `mountedPayloadSemantics`). Но старый
+**shadow host DOM element** остаётся — React re-parent'ит его
+в НОВЫЙ bubble как unknown child. Второй mount идёт на свежий
+PRE, прицепляет новый shadow-host рядом, а orphan от предыдущего
+цикла остаётся виден.
+
+Sweeps v0.14.24-25 не поймали потому что:
+- v0.14.24 map-based sweep — в map уже 1 запись.
+- v0.14.25 DOM sweep группировал по
+  `data-arena-semantic-fingerprint` на HOST, но у orphan shadow
+  host был disconnected или dataset уже очищен.
+
+**Фикс (`chat_extension/content.js`):**
+- `pruneMountedControls` теперь **физически удаляет**
+  `info.shadowHost` (или `info.bar` fallback) из DOM перед
+  удалением map entry. Guard'ен через `isConnected`.
+- `sweepDuplicateToolbars` получает **orphan-shadow pass**:
+  обходит каждый `[data-arena-shadow-host="1"]` и удаляет
+  любой, чей previousElementSibling НЕ mounted host. Плюс
+  группирует оставшиеся shadow по ближайшему article-предку и
+  evict-ит all-but-latest.
+- Новые diag: `sweep_orphan_shadow_removed`,
+  `sweep_article_duplicate_removed`.
+
+## 2. Generic адаптер — активен на любом чате
+
+**Мотивация (Иван):** "продолжать адаптировать адаптеры для
+всех других сайтов... улучшать generic".
+
+**Изменение (`chat_extension/adapter_sites.js`):** generic
+переходит с `passive: true` (никогда не монтирует) на:
+- `passiveUnlessComposer: true` — mount'ит только когда на
+  странице обнаружен composer (textarea /
+  `[contenteditable=true]`, матчащий расширенные селекторы типа
+  `textarea[aria-label*="essage" i]` и т.д.)
+- `strictJsonlFencing: true` — tool-block должен находиться
+  внутри chat-shaped ancestor (`[role="article"]`, `article`,
+  `[role="log"]`, `[class*="message" i]`, `[class*="chat" i]`,
+  `[class*="conversation" i]`, `[class*="bubble" i]`)
+- Расширенные `messageSelectors` для типичных чат-паттернов
+- Расширенные `composerSelectors` с case-insensitive
+  aria-label/placeholder hints
+
+**Безопасность vs v0.14.3 README false-positive:** документация
+(github.com/*, MDN, Stack Overflow) НЕ имеет одновременно и
+чат-composer'а, и message-shape ancestor вокруг code fences.
+Две проверки вместе исключают тот класс false positive, из-за
+которого generic сделали passive.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.17`.
+- `pyproject.toml::version` → `4.50.17`.
+- `MAX_PRODUCT_FILE_LINES` 1200 → 1300 (content.js 1215 LOC).
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_27.py` — 13 asserts.
+- Перепиннены все v0_14_* + assets + adapter_flow на `0.14.27`.
+
+## Дальше
+
+- v4.51.0 (collapse tool results in chat history) — после
+  подтверждения Ивана что T3 наконец не дублирует и generic
+  попробован на паре unlisted чат-сайтов.
+
 ## v4.50.16 -- \u0438\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 regex column-index \u0432 Battle (Tailwind pseudo)
 
 # v4.50.16 — исправление regex для column-index в Arena.ai Battle (Tailwind pseudo)

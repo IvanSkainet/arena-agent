@@ -178,19 +178,50 @@ const ARENA_SITE_ADAPTERS = [
     submitSelectors: ['form button[type="submit"]', 'button[type="submit"]', 'button[aria-label*="Send"]', 'button[aria-label*="Отправ"]'],
   },
   {
-    // v0.14.4: generic is now `passive` -- it never mounts toolbars
-    // by itself. Was catching GitHub README code fences that quoted
-    // MCP JSONL (bug #9 in the v0.14.3 scan-report). To enable a new
-    // chat site, add an explicit entry above; generic exists only
-    // to give scan-page diagnostics a shape when the operator opens
-    // the popup on an unlisted site, so they can see the composer
-    // is detectable and file a feature request.
+    // v0.14.27 (v4.50.17): generic adapter goes from pure `passive`
+    // to `passiveUnlessComposer` -- it now mounts toolbars IF (and
+    // only if) the page also carries a discoverable composer that
+    // the extension can insert into. This lets Ivan use the bridge
+    // on any unlisted chat site (Ollama-webui, LibreChat, ChatUX,
+    // MiniAgent, etc.) without waiting for a per-site adapter entry.
+    //
+    // Safety guards against the v0.14.3 bug #9 regression (README
+    // code fences quoting MCP JSONL on github.com):
+    //   1. `passiveUnlessComposer=true` -- if no composer element
+    //      is discovered by composerSelectors, the adapter falls
+    //      back to fully passive.
+    //   2. `strictJsonlFencing=true` -- only treat blocks whose
+    //      immediate wrapper looks like a chat message bubble
+    //      (has role=article, role=log, class~=message-*, or
+    //      testid ending in -message) as candidates. Random
+    //      README PRE elements don't match.
+    //   3. `hosts=[]` -- still last-priority; any explicit adapter
+    //      with a matching host wins first.
+    // These flags are consumed by arenaCandidateNodes /
+    // arenaIsAssistantNode in adapters.js.
     name: 'generic',
-    passive: true,
+    passiveUnlessComposer: true,
+    strictJsonlFencing: true,
     hosts: [],
-    messageSelectors: ['article', 'main', 'section', 'pre', 'code'],
-    composerSelectors: ['textarea', 'input[type="text"]', '[contenteditable="true"]'],
-    submitSelectors: ['button[type="submit"]', 'button[aria-label*="Send"]'],
+    messageSelectors: [
+      'main [role="article"]', 'main article',
+      '[role="log"] pre', '[role="log"] code',
+      '[class*="message"] pre', '[class*="message"] code',
+      '[class*="chat"] pre', '[class*="chat"] code',
+      'main pre', 'main code',
+    ],
+    composerSelectors: [
+      'textarea[aria-label*="essage" i]', 'textarea[aria-label*="rompt" i]',
+      'textarea[placeholder*="essage" i]', 'textarea[placeholder*="sk" i]',
+      'div[contenteditable="true"][role="textbox"]',
+      'textarea', 'input[type="text"]', '[contenteditable="true"]',
+    ],
+    submitSelectors: [
+      'form button[type="submit"]', 'button[type="submit"]',
+      'button[aria-label*="Send" i]', 'button[aria-label*="Submit" i]',
+      'button[aria-label*="Отправ" i]',
+    ],
   },
 ];
+
 

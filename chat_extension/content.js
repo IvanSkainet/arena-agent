@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.26';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.27';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -282,6 +282,19 @@ function cleanupStaleControls() {
 function pruneMountedControls() {
   for (const [fingerprint, info] of [...mountedControls.entries()]) {
     if (info?.bar?.isConnected && info?.host?.isConnected) continue;
+    // v0.14.27 (v4.50.17): T3 chat root-cause fix. When React
+    // re-renders an assistant bubble during streaming, the old PRE
+    // host becomes disconnected but our previously-attached shadow
+    // host stays PARENTED TO THE NEW BUBBLE (React re-parents it
+    // as an unknown child). The v0.14.24-25 prune only cleared the
+    // map entry, leaving the orphan shadow host in the DOM.
+    // Second mount attempt then goes to the new PRE, inserts a
+    // second shadow-host sibling, and we end up with two toolbars.
+    // Fix: explicitly remove the shadow-host / bar from the DOM
+    // when we prune the map entry. Guarded by isConnected so we
+    // never touch elements that were already GC'd.
+    if (info?.shadowHost?.isConnected) info.shadowHost.remove();
+    else if (info?.bar?.isConnected) info.bar.remove();
     if (info?.host?.dataset) info.host.dataset.arenaToolControlsMounted = '';
     mountedControls.delete(fingerprint);
     if (info?.semanticFingerprint) {
@@ -366,6 +379,55 @@ function sweepDuplicateToolbars() {
     // Re-anchor semantic owner on the survivor if the map still
     // has an entry.
     if (keeper.fp) mountedSemanticOwners.set(sem, keeper.fp);
+  }
+
+  // v0.14.27 (v4.50.17): orphan shadow-host sweep. When React
+  // re-parents a shadow host to a NEW bubble during streaming (T3
+  // chat scenario), the shadow host loses its `data-arena-tool-
+  // controls-mounted` anchor sibling and is no longer covered by
+  // the semantic-fingerprint sweep above. We walk every
+  // `[data-arena-shadow-host="1"]` in the document; if the
+  // previous element sibling isn't the original host (no
+  // `data-arena-tool-controls-mounted`), the shadow is an orphan
+  // and safe to remove. Also groups any remaining shadow-hosts
+  // that share the same enclosing `[role="article"]` /
+  // article ancestor -- if two shadows land in the same article
+  // (same message), keep the LATER one.
+  const shadows = document.querySelectorAll('[data-arena-shadow-host="1"]');
+  const byArticle = new Map();
+  shadows.forEach((sh) => {
+    if (!sh.isConnected) return;
+    // Orphan check: prev sibling must be a mounted host, else the
+    // shadow was re-parented / left behind by a re-render.
+    const prev = sh.previousElementSibling;
+    const isAnchored = prev && prev.dataset?.arenaToolControlsMounted === '1';
+    if (!isAnchored) {
+      _arenaDiagPushEvent({kind: 'sweep_orphan_shadow_removed'});
+      sh.remove();
+      return;
+    }
+    // Group by nearest article container so we can dedup two
+    // shadows under one message.
+    const art = sh.closest?.('[role="article"], article, [data-arena-tool-controls-mounted="1"]');
+    const key = art || sh.parentElement;
+    if (!key) return;
+    if (!byArticle.has(key)) { byArticle.set(key, [sh]); return; }
+    byArticle.get(key).push(sh);
+  });
+  for (const [_key, group] of byArticle.entries()) {
+    if (group.length < 2) continue;
+    let keeper = group[0];
+    for (const cand of group.slice(1)) {
+      try {
+        const rel = keeper.compareDocumentPosition(cand);
+        if (rel & 4) keeper = cand;
+      } catch (_e) { /* ignore */ }
+    }
+    for (const cand of group) {
+      if (cand === keeper) continue;
+      _arenaDiagPushEvent({kind: 'sweep_article_duplicate_removed'});
+      cand.remove();
+    }
   }
 }
 
@@ -481,6 +543,38 @@ function previewSummary(result) {
 function mountControls(host, payload, adapter) {
   // v0.14.4: generic adapter is passive -- never mount on unlisted sites.
   if (adapter && adapter.passive) return;
+  // v0.14.27 (v4.50.17): passiveUnlessComposer -- generic adapter
+  // opt-in for unlisted chat sites. Only mount when the page has
+  // a discoverable composer AND the candidate is inside a
+  // chat-like message container. This lets the extension work on
+  // any Ollama/LibreChat/etc. clone without a per-site entry.
+  if (adapter && adapter.passiveUnlessComposer) {
+    let hasComposer = false;
+    try {
+      for (const sel of adapter.composerSelectors || []) {
+        const el = document.querySelector(sel);
+        if (el && (el.isContentEditable || String(el.tagName || '').toUpperCase() === 'TEXTAREA' || String(el.tagName || '').toUpperCase() === 'INPUT')) {
+          hasComposer = true;
+          break;
+        }
+      }
+    } catch (_e) { /* invalid selector */ }
+    if (!hasComposer) {
+      _arenaDiagPushEvent({kind: 'skip_generic_no_composer', adapter: adapter.name});
+      return;
+    }
+    // strictJsonlFencing: block must be inside a chat-shaped
+    // ancestor. Prevents mounting on random README PRE elements.
+    if (adapter.strictJsonlFencing) {
+      const chatAncestor = host?.closest?.(
+        '[role="article"], article, [role="log"], [class*="message" i], [class*="chat" i], [class*="conversation" i], [class*="bubble" i]'
+      );
+      if (!chatAncestor) {
+        _arenaDiagPushEvent({kind: 'skip_generic_not_in_chat', adapter: adapter.name, tag: host?.tagName || ''});
+        return;
+      }
+    }
+  }
   host = controlsHost(host, adapter);
   _arenaDiagPushEvent({kind: 'mount_entry', adapter: adapter.name, tag: host?.tagName || '', testid: host?.getAttribute?.('data-testid') || ''});  // v0.14.11: entry diag
 
@@ -1108,6 +1202,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

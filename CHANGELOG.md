@@ -1,3 +1,92 @@
+## v4.50.17 -- T3 duplicate real root-cause + generic adapter goes active
+
+# v4.50.17 — T3 duplicate real root-cause + generic adapter goes active
+
+Two focused changes.
+
+## 1. T3 chat duplicate — real root cause
+
+**Symptom (Ivan, v4.50.16 scan):** T3 duplicate still there.
+`mounted_controls: 2`, two `mounted` events ~1.3s apart, NO
+`skip_semantic_already_mounted` between them.
+
+**Root cause read from data:** the gap between the two mounts is
+the giveaway. During React's streaming re-render, the old PRE
+host becomes disconnected (`pruneMountedControls` sees it and
+clears the map + `mountedPayloadSemantics`). But the old
+**shadow host DOM element** stays put — React re-parents it to
+the NEW bubble as an unknown child. Second mount attempt goes
+to the fresh PRE, attaches a new shadow-host as sibling, and
+the orphan from the previous cycle is still visible.
+
+The v0.14.24-25 sweeps missed it because:
+- v0.14.24 map-based sweep already collapsed to 1 entry.
+- v0.14.25 DOM sweep grouped by `data-arena-semantic-fingerprint`
+  on the HOST, but the orphan shadow's host was disconnected /
+  had its dataset cleared.
+
+**Fix (`chat_extension/content.js`):**
+- `pruneMountedControls` now **physically removes** `info.shadowHost`
+  (or `info.bar` fallback) from the DOM before deleting the map
+  entry. Guarded by `isConnected` so we never touch GC'd
+  elements.
+- `sweepDuplicateToolbars` gets an **orphan-shadow pass**:
+  walks every `[data-arena-shadow-host="1"]` in the document
+  and removes any whose previousElementSibling is NOT a
+  mounted host. Also groups remaining shadows by their nearest
+  article ancestor and evicts all-but-latest.
+- New diag events: `sweep_orphan_shadow_removed`,
+  `sweep_article_duplicate_removed`.
+
+## 2. Generic adapter — active on any chat site
+
+**Motivation (Ivan):** "продолжать адаптировать адаптеры для
+всех других сайтов, которые мы ещё не проверяли, но которые
+указаны как поддерживаемые, улучшать generic".
+
+**Change (`chat_extension/adapter_sites.js`):** generic goes from
+`passive: true` (never mounts) to:
+- `passiveUnlessComposer: true` — mounts only when the page has
+  a discoverable composer element (textarea /
+  `[contenteditable=true]` matching new broadened selectors
+  like `textarea[aria-label*="essage" i]`, etc.)
+- `strictJsonlFencing: true` — tool block must be inside a
+  chat-shaped ancestor (`[role="article"]`, `article`,
+  `[role="log"]`, `[class*="message" i]`, `[class*="chat" i]`,
+  `[class*="conversation" i]`, `[class*="bubble" i]`)
+- Broadened `messageSelectors` for common chat patterns
+  (`main [role="article"]`, `[role="log"] pre`, `[class*="message"]
+  pre`, etc.)
+- Broadened `composerSelectors` for aria-label/placeholder
+  hints (case-insensitive)
+
+**Safety vs v0.14.3 README false-positive:** documentation pages
+(github.com/*, MDN, Stack Overflow) don't have BOTH a chat
+composer AND a message-shape ancestor around code fences. The
+two gates together eliminate the class of false positive that
+made generic passive in the first place.
+
+**Files touched:** `chat_extension/adapter_sites.js` (generic
+entry rewritten), `chat_extension/content.js::mountControls`
+(honors both new flags, emits diag events).
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.17`.
+- `pyproject.toml::version` → `4.50.17`.
+- `MAX_PRODUCT_FILE_LINES` raised 1200 → 1300 (content.js 1215 LOC).
+
+## Tests
+
+- New `tests/test_chat_extension_v0_14_27.py` — 13 asserts.
+- Re-pinned all v0_14_* + assets + adapter_flow to `0.14.27`.
+
+## Next
+
+- v4.51.0 (collapse tool results in chat history) — after Ivan
+  confirms T3 duplicate is finally dead and tries generic on
+  a couple of unlisted chat sites.
+
 ## v4.50.16 -- Arena.ai Battle column-index regex tightened (Tailwind pseudo)
 
 # v4.50.16 — Arena.ai Battle column-index regex tightened (Tailwind pseudo)

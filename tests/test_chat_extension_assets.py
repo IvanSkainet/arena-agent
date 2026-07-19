@@ -25,7 +25,7 @@ def test_chat_extension_scaffold_exists():
     readme = (base / "README.md").read_text(encoding="utf-8")
     assert manifest["manifest_version"] == 3
     assert "background.js" in manifest["background"]["service_worker"]
-    assert manifest["version"] == "0.14.26"
+    assert manifest["version"] == "0.14.27"
     assert "https://*.ts.net/*" in manifest["host_permissions"]
     assert "https://*.trycloudflare.com/*" in manifest["host_permissions"]
     assert manifest["action"]["default_popup"] == "popup.html"
@@ -147,8 +147,8 @@ def test_chat_extension_scaffold_exists():
     # Version banner inside content.js and insert_strategies.js must
     # follow the extension version (was drifting at 0.13.27 while
     # manifest was 0.14.0 in v4.48.0 -- caught in v0.14.1 scan-reports).
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.26'" in content or \
-        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.26"' in content
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.27'" in content or \
+        'ARENA_CONTENT_SCRIPT_VERSION = "0.14.27"' in content
     # v0.14.6: data-testid="user-message" removed from user-authored
     # attr list -- scan-reports on Grok / DuckAI / Arena.ai showed the
     # sites use that testid on the MESSAGE LIST CONTAINER, not just
@@ -199,9 +199,11 @@ def test_chat_extension_scaffold_exists():
     # sites (previous versions mounted on GitHub READMEs that quoted
     # MCP JSONL, see bug #9 in the v0.14.3 scan-report).
     adapter_sites_js = (base / "adapter_sites.js").read_text(encoding="utf-8")
-    assert "passive: true" in adapter_sites_js, (
-        "generic adapter must be marked passive so it never mounts "
-        "toolbars on unlisted sites (e.g. GitHub README fences)"
+    # v0.14.27: generic moved to passiveUnlessComposer + strictJsonlFencing.
+    assert ("passive: true" in adapter_sites_js
+            or ("passiveUnlessComposer: true" in adapter_sites_js
+                and "strictJsonlFencing: true" in adapter_sites_js)), (
+        "generic adapter must guard against unlisted-site mounts"
     )
     assert "adapter.passive" in content or "adapter && adapter.passive" in content
     # v0.14.4: user-authored filter no longer walks form/composer

@@ -1,6 +1,24 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.26` (v4.50.16 bridge release —
+Current extension version: `0.14.27` (v4.50.17 bridge release —
+two things:
+1) T3 chat duplicate real root cause: React re-parents the
+shadow host to the NEW bubble during streaming, leaving the
+old host disconnected. v0.14.24-25 prune only cleared the
+map entry, leaving the orphan shadow in the DOM. Now
+`pruneMountedControls` physically removes the shadow-host /
+bar from the DOM when a stale entry is pruned, and
+`sweepDuplicateToolbars` gets an orphan-shadow pass that
+removes any `[data-arena-shadow-host]` whose previous
+sibling isn't a valid mounted host.
+2) Generic adapter goes from pure `passive` to
+`passiveUnlessComposer`: mounts on ANY unlisted chat site
+that has (a) a discoverable composer AND (b) the tool block
+sits inside a chat-shaped ancestor (role=article/log,
+class~=message/chat/conversation/bubble). Safe against the
+v0.14.3 README-code-fence false-positive because random
+docs pages don't have both markers.
+v4.50.16 bridge release —
 one-line root-cause fix from Ivan's v4.50.15 Battle scan.
 `arenaColumnIndex` and the carousel diagnostic used a greedy
 regex `\bcarousel\b` / CSS `[class*="carousel"]` that matched
@@ -306,6 +324,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 
