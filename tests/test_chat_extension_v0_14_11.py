@@ -59,10 +59,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_11():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.30'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.30"
-    assert "return '0.14.30';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.30`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.31'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.31"
+    assert "return '0.14.31';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.31`" in _read("README.md")
 
 
 def test_mount_entry_diag_event_at_top_of_mount_controls():

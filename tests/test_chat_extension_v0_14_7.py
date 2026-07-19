@@ -38,25 +38,25 @@ def _read(name: str) -> str:
 def test_content_version_bumped_to_0_14_7():
     src = _read("content.js")
     assert (
-        "ARENA_CONTENT_SCRIPT_VERSION = '0.14.30'" in src
-        or 'ARENA_CONTENT_SCRIPT_VERSION = "0.14.30"' in src
+        "ARENA_CONTENT_SCRIPT_VERSION = '0.14.31'" in src
+        or 'ARENA_CONTENT_SCRIPT_VERSION = "0.14.31"' in src
     ), "content.js must pin ARENA_CONTENT_SCRIPT_VERSION to 0.14.7"
 
 
 def test_manifest_version_bumped():
     import json
     manifest = json.loads(_read("manifest.json"))
-    assert manifest["version"] == "0.14.30"
+    assert manifest["version"] == "0.14.31"
 
 
 def test_insert_script_version_bumped():
     src = _read("insert_strategies.js")
-    assert "return '0.14.30';" in src or 'return "0.14.30";' in src
+    assert "return '0.14.31';" in src or 'return "0.14.31";' in src
 
 
 def test_readme_version_banner_bumped():
     readme = _read("README.md")
-    assert "Current extension version: `0.14.30`" in readme
+    assert "Current extension version: `0.14.31`" in readme
 
 
 def test_scan_report_exposes_candidate_diagnostics():

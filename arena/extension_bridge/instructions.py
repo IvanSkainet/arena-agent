@@ -1,18 +1,24 @@
 """Instruction text generation for browser chat extension users.
 
-v4.51.1: extended with a full tool catalog per category. When
-``category`` is passed the returned ``text`` becomes a
-self-contained prompt block that enumerates every tool in that
-category with its argument schema and one worked example so an
-AI can compose calls without needing to search the docs first.
+v4.51.2: full redesign based on studying MCP SuperAssistant
+(github.com/srbhptl39/MCP-SuperAssistant/pages/content/src/
+components/sidebar/Instructions/).
 
-Categories: ``all``, ``safe``, ``medium``, ``dangerous`` (from
-policy.py risk buckets) and topical: ``fs``, ``mission``,
-``memory``, ``browser``, ``desktop``, ``git``, ``system``.
-Unknown values fall back to ``safe`` (the least-risky default).
+Two things from MCP SA carried over:
+1. **CSN (Compressed Schema Notation)** — collapses JSON Schema
+   into a compact one-line notation that saves 3-5x tokens per
+   tool description while keeping full expressiveness.
+2. **Explicit SYSTEM prompt structure** — clear rules, examples,
+   response format, error handling. Prior v4.51.1 catalog just
+   dumped raw schemas which the model often ignored.
 
-MCP SuperAssistant compatibility: the JSONL format is unchanged
-from v0.14.0, only the surrounding prompt catalog is new.
+Original v4.51.1 categories retained (safe/medium/dangerous/all
++ topical). The catalog block now uses CSN + explicit call/wait
+protocol rules that AI actually follows.
+
+References:
+- MCP SuperAssistant: MIT-licensed; CSN notation adapted;
+  system-prompt structure adapted with attribution.
 """
 from __future__ import annotations
 
@@ -29,8 +35,7 @@ SAFE_EXAMPLES = [
     ("browser.read", {"url": "https://example.com"}),
 ]
 
-# Topical category prefixes. Order matters: first match wins so
-# `mission.schedule_state` goes to `mission`, not `system`.
+# Topical category prefixes.
 _CATEGORY_PREFIXES = (
     ("fs", ("fs.",)),
     ("mission", ("mission.",)),
@@ -43,7 +48,6 @@ _CATEGORY_PREFIXES = (
                "skill.", "subagent.")),
 )
 
-# The top set of categories the popup / catalog UI exposes.
 _KNOWN_CATEGORIES = frozenset({
     "all", "safe", "medium", "dangerous",
     "fs", "mission", "memory", "browser", "desktop", "git", "system",
@@ -77,10 +81,145 @@ def _matches_category(tool: dict[str, Any], category: str) -> bool:
     return _tool_category(name) == category
 
 
+# ---------------------------------------------------------------------------
+# CSN (Compressed Schema Notation) — adapted from MCP SuperAssistant.
+# https://github.com/srbhptl39/MCP-SuperAssistant/blob/main/pages/content/
+#   src/components/sidebar/Instructions/schema_converter.ts
+# MIT license.
+# ---------------------------------------------------------------------------
+_TYPE_MAP = {
+    "string": "s", "integer": "i", "number": "n",
+    "boolean": "b", "array": "a", "object": "o",
+    "null": "?",
+}
+
+
+def json_schema_to_csn(schema: Any) -> str:
+    """Convert JSON Schema to Compressed Schema Notation.
+
+    Example:
+        {"type":"object","properties":{"path":{"type":"string"}},
+         "required":["path"],"additionalProperties":false}
+    becomes:
+        o {p {path:s r} ap f}
+
+    Cuts tool-schema size 3-5x while keeping every constraint the
+    AI needs to build a valid call.
+    """
+    if not isinstance(schema, dict):
+        return "any"
+    # Enum.
+    if schema.get("enum"):
+        vals = ", ".join(json.dumps(v) for v in schema["enum"])
+        return f"e[{vals}]"
+    # Const/literal.
+    if "const" in schema:
+        return f"lit[{json.dumps(schema['const'])}]"
+    # Union (anyOf).
+    if isinstance(schema.get("anyOf"), list):
+        return "u[" + ", ".join(json_schema_to_csn(s) for s in schema["anyOf"]) + "]"
+    # Array.
+    if schema.get("type") == "array":
+        items = schema.get("items")
+        return f"a[{json_schema_to_csn(items) if items else 'any'}]"
+    # Object.
+    if schema.get("type") == "object":
+        props = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        parts = []
+        for name, spec in props.items():
+            csn = json_schema_to_csn(spec)
+            req = " r" if name in required else ""
+            dflt = ""
+            if isinstance(spec, dict) and "default" in spec:
+                dflt = f" d={json.dumps(spec['default'])}"
+            parts.append(f"{name}:{csn}{req}{dflt}")
+        ap = " ap f" if schema.get("additionalProperties") is False else ""
+        body = "; ".join(parts)
+        return f"o {{p {{{body}}}{ap}}}"
+    # Basic scalar with constraints.
+    base = _TYPE_MAP.get(schema.get("type"), schema.get("type") or "any")
+    constraints = []
+    t = schema.get("type")
+    if t == "string":
+        if "minLength" in schema: constraints.append(f"minLength={schema['minLength']}")
+        if "maxLength" in schema: constraints.append(f"maxLength={schema['maxLength']}")
+        if "pattern" in schema: constraints.append(f'pattern="{schema["pattern"]}"')
+    elif t in ("number", "integer"):
+        if "minimum" in schema: constraints.append(f"min={schema['minimum']}")
+        if "maximum" in schema: constraints.append(f"max={schema['maximum']}")
+    c = f"({', '.join(constraints)})" if constraints else ""
+    d = f" d={json.dumps(schema['default'])}" if "default" in schema else ""
+    return f"{base}{c}{d}"
+
+
+# ---------------------------------------------------------------------------
+# Prompt building
+# ---------------------------------------------------------------------------
+_SYSTEM_PREAMBLE_ARENA = """[Start Fresh Session from here — IMPORTANT]
+
+<SYSTEM>
+You are connected to a local Arena Chat Bridge that can execute tools \
+on the user's machine. Your ONLY job when a tool is needed is to \
+emit a correctly-formed tool block and STOP — the extension will \
+capture it, execute it, and paste the result back to you.
+
+Function Call Structure — Arena format (preferred):
+- Wrap every call in a fenced code block ```arena-tool ... ```
+- Body must be a single JSON object with:
+  - "bridge": "arena"
+  - "version": 1
+  - "calls": [ { "id": "call_N", "tool": "tool.name", "arguments": {...} } ]
+- One tool block per response. Do not batch multiple tool blocks \
+in one message unless the user explicitly asks for a batch.
+- After emitting the block, STOP. Do not invent a fake result. \
+Wait for the extension to send back a real result.
+
+MCP-compatible JSONL format is also accepted for sites where the \
+Arena format is stripped by the site's own renderer. Use ONE format \
+per response, not both.
+
+CSN notation guide (used in Tool Schemas section below):
+  s = string, i = integer, n = number, b = boolean, a[t] = array of t,
+  o {p {name:type r}} = object with properties (r = required),
+  e[...] = enum, u[t1,t2] = union, ap f = additional properties false,
+  d=X = default value X, ?t = optional/null.
+
+Safety rules:
+- Tools tagged (safe) run automatically on trusted sites.
+- Tools tagged (medium) or (dangerous) require the user to click Run.
+- Never emit destructive tools (fs.write, fs.edit, exec, mission.run) \
+without an explicit user request describing exactly what to change.
+- If a required argument is missing, ASK the user for it. Do not \
+guess a path, URL, or command line.
+
+Response format:
+1. One short paragraph explaining what you are about to do and why.
+2. The tool block.
+3. STOP. Wait for the result.
+</SYSTEM>
+"""
+
+
+def _arena_call_example(tool: str, arguments: dict[str, Any]) -> str:
+    payload = {
+        "bridge": "arena",
+        "version": 1,
+        "calls": [{"id": "call_1", "tool": tool, "arguments": arguments}],
+    }
+    return "```arena-tool\n" + json.dumps(payload, indent=2) + "\n```"
+
+
+def _jsonl_call_example(tool: str, arguments: dict[str, Any]) -> str:
+    lines = [json.dumps({"type": "function_call_start", "name": tool, "call_id": "1"})]
+    for key, value in arguments.items():
+        lines.append(json.dumps({"type": "parameter", "key": key, "value": value}))
+    lines.append(json.dumps({"type": "function_call_end", "call_id": "1"}))
+    return "```jsonl\n" + "\n".join(lines) + "\n```"
+
+
 def _pick_example_args(schema: dict[str, Any]) -> dict[str, Any]:
-    """Generate a minimal, safe example arguments dict from an
-    inputSchema. Only fills required fields with clearly-marked
-    placeholder values -- never guesses a real path/URL/query."""
+    """Generate minimal, safe example arguments -- required fields only."""
     props = schema.get("properties", {}) if isinstance(schema, dict) else {}
     required = schema.get("required", []) if isinstance(schema, dict) else []
     out: dict[str, Any] = {}
@@ -116,72 +255,35 @@ def _catalog_entry(tool: dict[str, Any]) -> dict[str, Any]:
         "topic": _tool_category(name),
         "description": str(tool.get("description", "")),
         "input_schema": schema,
+        "csn": json_schema_to_csn(schema),
         "example_arguments": args,
     }
 
 
-def _format_catalog_prompt(entries: list[dict[str, Any]], category: str) -> str:
+def _format_catalog_prompt(entries: list[dict[str, Any]], category: str, fmt: str) -> str:
+    """Format a compact catalog with CSN one-liners per tool."""
     lines: list[str] = []
-    lines.append(f"# Arena tool catalog — category: {category}")
-    lines.append(f"# {len(entries)} tools listed. Every entry shows risk, description,")
-    lines.append("# required argument names, and one example call in Arena tool format.")
+    lines.append(f"## Available Tools — category: {category} ({len(entries)} tool(s))")
+    lines.append("")
+    lines.append("Each line: `tool.name (risk) — description | schema-csn`")
     lines.append("")
     for entry in entries:
         name = entry["name"]
         risk = entry["risk"]
-        desc = entry["description"] or "(no description)"
-        schema = entry["input_schema"]
-        props = schema.get("properties", {}) if isinstance(schema, dict) else {}
-        required = schema.get("required", []) if isinstance(schema, dict) else []
-        lines.append(f"## {name}  ({risk})")
-        lines.append(desc)
-        if props:
-            arg_summaries: list[str] = []
-            for key, spec in props.items():
-                t = spec.get("type", "string") if isinstance(spec, dict) else "string"
-                marker = "*" if key in required else ""
-                arg_summaries.append(f"{key}{marker}:{t}")
-            lines.append("Arguments (`*` = required): " + ", ".join(arg_summaries))
-        else:
-            lines.append("Arguments: none.")
-        example_call = {
-            "bridge": "arena",
-            "version": 1,
-            "calls": [{"id": "call_1", "tool": name, "arguments": entry["example_arguments"]}],
-        }
-        lines.append("Example:")
-        lines.append("```arena-tool")
-        lines.append(json.dumps(example_call, indent=2))
-        lines.append("```")
-        lines.append("")
+        desc = (entry["description"] or "").strip().replace("\n", " ")
+        csn = entry["csn"]
+        lines.append(f"- **{name}** ({risk}) — {desc}")
+        lines.append(f"  schema: `{csn}`")
+    lines.append("")
+    # One worked example (Arena format preferred, or JSONL).
+    sample = entries[0] if entries else None
+    if sample:
+        lines.append("### One worked example")
+        if fmt in {"arena", "both"}:
+            lines.append(_arena_call_example(sample["name"], sample["example_arguments"]))
+        if fmt in {"jsonl", "both"}:
+            lines.append(_jsonl_call_example(sample["name"], sample["example_arguments"]))
     return "\n".join(lines).rstrip() + "\n"
-
-
-def _arena_block(tool: str, arguments: dict[str, Any]) -> str:
-    return (
-        "```arena-tool\n"
-        "{\n"
-        '  "bridge": "arena",\n'
-        '  "version": 1,\n'
-        '  "calls": [\n'
-        "    {\n"
-        '      "id": "call_1",\n'
-        f'      "tool": "{tool}",\n'
-        f'      "arguments": {arguments!r}\n'.replace("'", '"') +
-        "    }\n"
-        "  ]\n"
-        "}\n"
-        "```"
-    )
-
-
-def _jsonl_block(tool: str, arguments: dict[str, Any]) -> str:
-    lines = [f'{{"type":"function_call_start","name":"{tool}","call_id":"1"}}']
-    for key, value in arguments.items():
-        raw = str(value).replace('"', '\\"')
-        lines.append(f'{{"type":"parameter","key":"{key}","value":"{raw}"}}')
-    lines.append('{"type":"function_call_end","call_id":"1"}')
-    return "```jsonl\n" + "\n".join(lines) + "\n```"
 
 
 def extension_instructions(fmt: str = "arena", style: str = "full",
@@ -190,38 +292,30 @@ def extension_instructions(fmt: str = "arena", style: str = "full",
     if fmt not in {"arena", "jsonl", "both"}:
         fmt = "arena"
     style = "short" if str(style or "full").lower().strip() == "short" else "full"
-    examples = {
-        "arena": _arena_block(*SAFE_EXAMPLES[0]),
-        "jsonl": _jsonl_block(*SAFE_EXAMPLES[0]),
-    }
-    parts = [
-        "You can request local tool execution through the Arena Chat Bridge browser extension.",
-        "Only emit a tool block when you need the local Arena bridge to run a tool.",
-        "After emitting a tool block, stop and wait for the user/extension to provide the result. Do not invent tool results.",
-        "Prefer safe/read-only tools unless the user explicitly asks for a changing or dangerous action.",
-    ]
-    if style == "full":
-        parts.extend([
-            "Useful safe tools include sys.status, mission.catalog, mission.lineage, mission.family, mission.history, memory.recall, browser.read, browser.search, fs.view, and fs.grep.",
-            "Risky tools such as exec, fs.write, fs.edit, mission.run, mission.iterate, desktop.*, skill.run, and subagent.spawn require explicit user approval.",
-            "Every call must include a tool name and an arguments object. Use one block for a batch of related calls.",
-        ])
-    if fmt in {"arena", "both"}:
-        parts.extend(["Preferred Arena format:", examples["arena"]])
-    if fmt in {"jsonl", "both"}:
-        parts.extend(["MCP SuperAssistant-compatible JSONL format:", examples["jsonl"]])
 
     catalog: list[dict[str, Any]] = []
     catalog_text = ""
     normalized_category = ""
+    parts: list[str] = [_SYSTEM_PREAMBLE_ARENA]
+
     if category:
-        # Only build the catalog when the caller explicitly asked
-        # for one. Empty string preserves the v0.14.0 behaviour.
         normalized_category = _normalize_category(category)
         catalog = [_catalog_entry(t) for t in MCP_TOOLS if _matches_category(t, normalized_category)]
         catalog.sort(key=lambda e: (e["risk"] == "dangerous", e["risk"] == "medium", e["name"]))
-        catalog_text = _format_catalog_prompt(catalog, normalized_category)
+        catalog_text = _format_catalog_prompt(catalog, normalized_category, fmt)
         parts.append(catalog_text)
+    else:
+        # No catalog requested -- keep the preamble short by
+        # showing just the two format examples.
+        parts.append("### Example — Arena format")
+        parts.append(_arena_call_example(*SAFE_EXAMPLES[0]))
+        parts.append("### Example — MCP-compatible JSONL format")
+        parts.append(_jsonl_call_example(*SAFE_EXAMPLES[0]))
+
+    examples = {
+        "arena": _arena_call_example(*SAFE_EXAMPLES[0]),
+        "jsonl": _jsonl_call_example(*SAFE_EXAMPLES[0]),
+    }
 
     return {
         "ok": True,
@@ -237,4 +331,4 @@ def extension_instructions(fmt: str = "arena", style: str = "full",
     }
 
 
-__all__ = ["extension_instructions"]
+__all__ = ["extension_instructions", "json_schema_to_csn"]

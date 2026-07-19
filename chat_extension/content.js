@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.30';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.31';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -101,13 +101,16 @@ function hash(text) {
 function formatInsertText(text) {
   const body = String(text || '').trim();
   if (!body) return '';
-  // v0.14.29 (v4.51.0): mark inserted result text with a
-  // distinctive first-line header so `collapseToolResultsInHistory`
-  // can find these blocks later and wrap them in a foldable
-  // <details> element. The header uses the same "# call N · tool"
-  // convention that resultToText already produces, plus a hidden
-  // sentinel comment for exact matching.
-  return `\n\n\`\`\`\n<!-- arena:tool-result -->\n${body}\n\`\`\`\n`;
+  // v0.14.31 (v4.51.2): the v0.14.29 HTML-comment sentinel
+  // (`<!-- arena:tool-result -->`) worked on ChatGPT/T3/OpenRouter
+  // but failed on Gemini/Mistral/Kimi/Qwen/DeepSeek because those
+  // sites run syntax-highlighting (shiki/prism/monaco) that
+  // strips HTML comments during tokenization -- the sentinel
+  // never made it into textContent, so collapseToolResultsInHistory
+  // never fired. Replace with a VISIBLE-TEXT sentinel that
+  // survives any highlighter: a distinctive first-line prefix.
+  // Not pretty, but bulletproof.
+  return `\n\n\`\`\`arena-tool-result\nARENA_RESULT_V1\n${body}\n\`\`\`\n`;
 }
 
 function resultToText(result) {
@@ -403,10 +406,20 @@ function sweepDuplicateToolbars() {
   const byArticle = new Map();
   shadows.forEach((sh) => {
     if (!sh.isConnected) return;
-    // Orphan check: prev sibling must be a mounted host, else the
-    // shadow was re-parented / left behind by a re-render.
+    // v0.14.31 (v4.51.2): FIXED orphan check. v0.14.27 required
+    // `previousElementSibling` to carry `arenaToolControlsMounted`
+    // but that breaks adapters like z.ai where `controlsHost`
+    // returns a DIV and `attachControls` uses `appendChild`, so
+    // the shadow host becomes a CHILD of the mounted host, not a
+    // sibling. Now: shadow is anchored if EITHER prev-sibling is
+    // a mounted host (v4.48.0 PRE pattern) OR parent element
+    // carries the mounted-controls attribute (appendChild pattern).
     const prev = sh.previousElementSibling;
-    const isAnchored = prev && prev.dataset?.arenaToolControlsMounted === '1';
+    const parent = sh.parentElement;
+    const isAnchored = (
+      (prev && prev.dataset?.arenaToolControlsMounted === '1')
+      || (parent && parent.dataset?.arenaToolControlsMounted === '1')
+    );
     if (!isAnchored) {
       _arenaDiagPushEvent({kind: 'sweep_orphan_shadow_removed'});
       sh.remove();
@@ -1080,32 +1093,48 @@ function scan() {
 // site rehydration -- if the site rebuilds the PRE, the sentinel
 // is still there and we re-wrap on the next scan.
 function collapseToolResultsInHistory() {
-  // Respect the operator's Advanced/experimental toggle.
   if (_arenaCurrentModes()?.collapseToolResults === false) return;
-  const SENTINEL = '<!-- arena:tool-result -->';
+  // v0.14.31 (v4.51.2): visible-text sentinel (survives every
+  // syntax highlighter including shiki/prism/monaco). Also
+  // supports the legacy HTML-comment sentinel for messages
+  // already in the chat from v4.51.0/1.
+  const SENTINEL = 'ARENA_RESULT_V1';
+  const LEGACY_SENTINEL = '<!-- arena:tool-result -->';
+  // Widened selector: Gemini uses <code-block> custom element,
+  // Kimi uses `.language-jsonl`, Qwen uses `.qwen-markdown-code`,
+  // Monaco viewport for Qwen live-render.
   const BLOCKS = document.querySelectorAll(
-    'pre, code, [class*="code-block"], [class*="markdown-fenced-code"], [class*="shiki"], [class*="hljs"]'
+    'pre, code, code-block, [class*="code-block"], [class*="markdown-fenced-code"], '
+    + '[class*="shiki"], [class*="hljs"], [class*="language-"], '
+    + '[class*="qwen-markdown-code"], [class*="segment-code"], '
+    + '[class*="formatted-code-block"]'
   );
   BLOCKS.forEach((block) => {
     if (!block.isConnected) return;
-    // Already wrapped? Skip.
     if (block.closest?.('[data-arena-tool-collapsed="1"]')) return;
-    // Sentinel present?
     const text = block.textContent || '';
-    if (!text.includes(SENTINEL)) return;
-    // Don't wrap tiny blocks -- the header + Toggle button would
-    // be more UI overhead than the content itself.
+    if (!text.includes(SENTINEL) && !text.includes(LEGACY_SENTINEL)) return;
     const lineCount = (text.match(/\n/g) || []).length + 1;
     if (lineCount < 4) return;
-    // Skip our own toolbar-adjacent blocks: if the PRE is a
-    // sibling of an arena bar / shadow-host, the user is looking
-    // at the "raw" pre-send composer preview -- don't collapse
-    // yet.
+    // Composer-preview guard (unchanged from v4.51.0).
     const next = block.nextElementSibling;
     if (next?.dataset?.arenaToolControls === '1'
         || next?.dataset?.arenaShadowHost === '1') return;
-    // Count tool calls: presence of "# call N ·" headers from
-    // resultToText (v4.50.12).
+    // v0.14.31: prefer the OUTER code-fence container as the
+    // wrapping target so we don't leave the fence's chrome (copy
+    // button, language label) outside the <details>. Walk up
+    // until we hit something that looks like the fence root.
+    let target = block;
+    const fenceRoot = block.closest?.(
+      'code-block, [class*="formatted-code-block"], [class*="code-block"], '
+      + '[class*="markdown-fenced-code"], [class*="segment-code"]'
+    );
+    if (fenceRoot && fenceRoot !== block && fenceRoot.contains?.(block)) {
+      target = fenceRoot;
+    }
+    // If ANOTHER block inside the same fence already carries the
+    // sentinel, only wrap ONCE (per fence, not per inner block).
+    if (target !== block && target.querySelector?.('[data-arena-tool-collapsed="1"]')) return;
     const callHeaders = (text.match(/# call \d+ ·/g) || []).length;
     const tools = new Set();
     for (const m of text.matchAll(/# call \d+ · ([\w.\-_]+) ·/g)) tools.add(m[1]);
@@ -1126,17 +1155,16 @@ function collapseToolResultsInHistory() {
       summary.style.color = 'inherit';
       summary.style.fontWeight = '500';
       details.appendChild(summary);
-      // Move the block into details (preserves original DOM
-      // reference for the site's own scripts).
-      const parent = block.parentNode;
+      const parent = target.parentNode;
       if (!parent) return;
-      parent.insertBefore(details, block);
-      details.appendChild(block);
+      parent.insertBefore(details, target);
+      details.appendChild(target);
       _arenaDiagPushEvent({
         kind: 'tool_result_collapsed',
         tools: Array.from(tools),
         lines: lineCount,
         calls: callHeaders,
+        target_tag: target.tagName || '',
       });
     } catch (_e) { /* DOM churn */ }
   });
@@ -1293,11 +1321,19 @@ const obs = new MutationObserver((mutations) => {
   if (typeof arenaInvalidateCandidateCache === 'function') {
     arenaInvalidateCandidateCache();
   }
+  // v0.14.31 (v4.51.2): run collapseToolResultsInHistory EARLY,
+  // outside the scan throttle, so the fold happens on the same
+  // frame the sentinel-carrying block appears. Prior to this the
+  // blob was visible for ~300-600ms (scan throttle delay) before
+  // being wrapped -- Ivan called that "мерцание". The rest of
+  // scan work still goes through scheduleScan for throttling.
+  try { collapseToolResultsInHistory(); } catch (_e) { /* first-load race */ }
   scheduleScan();
 });
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

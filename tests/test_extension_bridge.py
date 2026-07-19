@@ -67,7 +67,8 @@ def test_extension_instructions_runtime():
     arena = runtime.instructions_sync({"format": "arena", "style": "full"})
     assert arena["ok"] is True
     assert "```arena-tool" in arena["text"]
-    assert "Do not invent tool results" in arena["text"]
+    assert ("Do not invent tool results" in arena["text"]
+            or "Do not invent a fake result" in arena["text"])
     jsonl = runtime.instructions_sync({"format": "jsonl", "style": "full"})
     assert "```jsonl" in jsonl["text"]
     assert "function_call_start" in jsonl["text"]

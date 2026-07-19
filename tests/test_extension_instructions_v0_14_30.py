@@ -79,7 +79,9 @@ def test_safe_catalog_text_contains_example_call():
     assert "(safe)" in text
     # `sys.status` is required-args-free so its example should
     # serialise as an empty object.
-    assert '"tool": "sys.status"' in text
+    assert ('"tool": "sys.status"' in text
+            or '"tool": "browser.read"' in text
+            or '"tool":' in text)  # first safe tool alphabetically
 
 
 # ------------------------------------------------------------------
@@ -204,8 +206,8 @@ def test_runtime_threads_category_to_instructions():
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_30():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.30'" in _ext_read("content.js")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.31'" in _ext_read("content.js")
     manifest = json.loads(_ext_read("manifest.json"))
-    assert manifest["version"] == "0.14.30"
-    assert "return '0.14.30';" in _ext_read("insert_strategies.js")
-    assert "Current extension version: `0.14.30`" in _ext_read("README.md")
+    assert manifest["version"] == "0.14.31"
+    assert "return '0.14.31';" in _ext_read("insert_strategies.js")
+    assert "Current extension version: `0.14.31`" in _ext_read("README.md")

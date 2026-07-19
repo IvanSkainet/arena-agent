@@ -1,3 +1,150 @@
+## v4.51.2 -- z.ai regression, universal collapse, MCP-SA-style instructions
+
+# v4.51.2 — z.ai regression, collapse universal support, MCP-SA-style instructions
+
+Three fixes from Ivan's post-v4.51.1 tour scans + a substantial
+rewrite of instructions.py after studying MCP SuperAssistant.
+
+## 1. z.ai regression (critical)
+
+**Symptom:** z.ai scan shows `mounted → sweep_orphan_shadow_removed`
+looped every scan. Toolbar never actually appears.
+
+**Root cause:** v0.14.27 orphan sweep required
+`shadow.previousElementSibling === mounted host`. But `controlsHost`
+on z.ai returns a DIV, `attachControls` uses `appendChild` — shadow
+host becomes a CHILD of the mounted host, not a sibling. Every
+valid z.ai toolbar was flagged as orphan and removed.
+
+**Fix (`chat_extension/content.js::sweepDuplicateToolbars`):**
+`isAnchored` now accepts EITHER prev-sibling anchor (PRE pattern)
+OR parent-element anchor (appendChild pattern).
+
+## 2. Collapse tool results — broken on Gemini/Mistral/Kimi/Qwen/DeepSeek
+
+**Symptom:** After Insert + Send, blob stays raw on most sites.
+Only ChatGPT/T3/OpenRouter fold.
+
+**Root cause 1:** HTML-comment sentinel `<!-- arena:tool-result -->`
+gets stripped by syntax highlighters (shiki/prism/monaco) during
+tokenization. `textContent` after highlighting never contains
+the comment, so `collapseToolResultsInHistory` never fires.
+
+**Root cause 2:** Block selector only covered `pre / code /
+[class*="code-block"]` — missed Gemini `<code-block>` custom
+element, Qwen `.qwen-markdown-code`, Kimi `.language-jsonl`,
+Gemini `.formatted-code-block` wrapper.
+
+**Root cause 3:** Wrapping the innermost PRE left the fence's
+chrome (copy button, language label) OUTSIDE `<details>`.
+
+**Fixes:**
+- **`formatInsertText`** now stamps a **visible-text sentinel**
+  `ARENA_RESULT_V1` as the first line of the fenced block.
+  Survives every highlighter. Legacy comment sentinel still
+  detected so messages already in old chats keep working.
+- **Widened block selector**: adds `code-block`,
+  `[class*="language-"]`, `[class*="qwen-markdown-code"]`,
+  `[class*="segment-code"]`, `[class*="formatted-code-block"]`.
+- **Fence-root walk**: when detection hits an inner element,
+  walk up to the enclosing fence container (custom element or
+  wrapper class) so the whole fence goes into `<details>`.
+
+## 3. Collapse flicker
+
+**Symptom:** Blob visible for ~300-600ms before folding.
+
+**Root cause:** `collapseToolResultsInHistory` ran at the end of
+`scan()`, and `scan()` sits behind a 300ms scheduleScan throttle.
+
+**Fix:** MutationObserver callback now calls
+`collapseToolResultsInHistory()` **synchronously**, before
+`scheduleScan()`. Fold happens on the same frame the sentinel-
+carrying block enters the DOM.
+
+## 4. Instructions redesign (adapted from MCP SuperAssistant)
+
+**Ivan's feedback:** v4.51.1 catalog was inefficient (raw JSON
+schemas eat tokens) and the AI often ignored the format
+altogether. Study of the reference implementation at
+`github.com/srbhptl39/MCP-SuperAssistant/pages/content/src/
+components/sidebar/Instructions/` (MIT license) surfaced two
+patterns worth adopting:
+
+### CSN — Compressed Schema Notation
+
+3-5x token savings vs raw JSON Schema while preserving every
+constraint. Example:
+```
+Before (JSON Schema, 128 tokens):
+  {"type":"object","properties":{"path":{"type":"string"},
+   "depth":{"type":"integer","default":2}},"required":["path"],
+   "additionalProperties":false}
+After (CSN, ~28 tokens):
+  o {p {path:s r; depth:i d=2} ap f}
+```
+
+New public helper `arena.extension_bridge.instructions.json_schema_to_csn()`.
+Handles enums, unions, arrays, nested objects, constraints,
+defaults, `additionalProperties: false`.
+
+### Explicit SYSTEM prompt structure
+
+Replaces the loose "Useful safe tools include..." paragraph with
+a structured `<SYSTEM>` block that spells out:
+- Exact tool-call format (Arena or MCP-compatible JSONL).
+- One call per response, STOP after emit, wait for real result.
+- Never invent results or destructive parameters.
+- CSN notation quick-guide inline (so the AI can read `o {p {...}}`
+  without an extra doc).
+- Response format: one paragraph → tool block → STOP.
+
+### Catalog rendering
+
+Compact per-tool line:
+```
+- **fs.view** (safe) — View file contents with line numbers. ...
+  schema: `o {p {path:s r; view_range:a[i]} ap f}`
+```
+Then ONE worked example (Arena or JSONL depending on `format`
+param). Prior v4.51.1 dumped a full arena-tool code fence per
+tool — this shipping burned tokens and confused the AI about
+which was a template vs which was a live call.
+
+### Attribution
+
+Both patterns credited to MCP SuperAssistant (MIT) in a comment
+block at the top of `arena/extension_bridge/instructions.py`.
+
+## Files touched
+
+- `chat_extension/content.js` — orphan sweep parent-anchor fix,
+  formatInsertText sentinel, collapse selector + fence-root walk,
+  MutationObserver-hooked collapse.
+- `arena/extension_bridge/instructions.py` — full rewrite with
+  CSN + MCP-SA-style system prompt + compact catalog.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.51.2`.
+- `pyproject.toml::version` → `4.51.2`.
+- Extension → `0.14.31`.
+
+## Tests
+
+- New `tests/test_extension_instructions_v4_51_2.py` — 15
+  asserts covering all three content.js fixes + CSN edge cases +
+  MCP-SA-style preamble + catalog CSN rendering + backward compat.
+- Re-pinned historical `v0_14_*` version pins to `0.14.31`.
+
+## Studied but not adopted (yet)
+
+- **browser-agent-bridge** (github.com/ypresto/browser-agent-bridge) —
+  server-driven WebSocket architecture. Different design; noted
+  for potential future bridge-driven agent mode.
+- **chrome-extension-bridge** (mcpmarket.com) — thin popup MCP
+  server discovery. Not a direct match for our use case.
+
 ## v4.51.1 -- full instructions catalog (MCP SuperAssistant style)
 
 # v4.51.1 — full instructions catalog (MCP SuperAssistant style)

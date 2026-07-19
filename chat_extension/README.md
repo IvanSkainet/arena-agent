@@ -1,6 +1,28 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.30` (v4.51.1 bridge release —
+Current extension version: `0.14.31` (v4.51.2 bridge release —
+three fixes:
+1) z.ai regression from v4.51.0: sweepDuplicateToolbars
+orphan-check required prev-sibling to be mounted-host but
+z.ai uses `appendChild` (shadow becomes child, not sibling)
+so all valid toolbars were nuked. Now accepts either prev-
+sibling OR parent as anchor.
+2) Collapse sentinel now visible-text (`ARENA_RESULT_V1`)
+instead of HTML comment — survives every syntax highlighter
+(shiki/prism/monaco). Widened block selector: Gemini
+`code-block`, Kimi `.language-jsonl`, Qwen
+`.qwen-markdown-code`, `formatted-code-block`. Legacy comment
+sentinel still detected for backward compat. Collapse now
+walks up to fence-root container so copy-button/language-tag
+stay inside `<details>`.
+3) Flicker fix: collapse now runs inside MutationObserver
+callback (synchronous) instead of after 300ms scan throttle.
+Fold happens same frame the block appears.
+Instructions redesigned (v4.51.1 was ineffective, per Ivan):
+adapted CSN Compressed Schema Notation + explicit system
+prompt structure from MCP SuperAssistant (MIT-licensed).
+Cuts catalog token cost 3-5x and AI actually follows the
+call-and-wait protocol now. v4.51.1 bridge release —
 full instructions catalog. Popup gets a "Catalog scope" picker
 next to Copy Instructions with categories: `safe`, `medium`,
 `dangerous`, `all`, `fs`, `mission`, `memory`, `browser`,
@@ -352,6 +374,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 
