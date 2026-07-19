@@ -305,11 +305,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'arena.instructions') {
       const fmt = encodeURIComponent(message.body?.format || 'arena');
       const style = encodeURIComponent(message.body?.style || 'full');
-      return sendResponse(await bridgeFetch(`/v1/extension/instructions?format=${fmt}&style=${style}`));
+      // v4.51.1: pass through optional catalog category so the
+      // popup can request a full tool catalog scoped to a topic.
+      const category = message.body?.category
+        ? `&category=${encodeURIComponent(message.body.category)}`
+        : '';
+      return sendResponse(await bridgeFetch(`/v1/extension/instructions?format=${fmt}&style=${style}${category}`));
     }
     return sendResponse({ok: false, error: 'unknown message type'});
   })().catch((error) => sendResponse({ok: false, error: String(error)}));
   return true;
 });
+
 
 

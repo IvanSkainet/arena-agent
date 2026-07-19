@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.29';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.30';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -1298,6 +1298,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

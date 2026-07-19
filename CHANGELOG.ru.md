@@ -1,3 +1,110 @@
+## v4.51.1 -- \u043f\u043e\u043b\u043d\u044b\u0439 \u043a\u0430\u0442\u0430\u043b\u043e\u0433 \u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446\u0438\u0439
+
+# v4.51.1 — полный каталог инструкций (стиль MCP SuperAssistant)
+
+Preserved-forever-idea из v4.50.x цикла:
+"все команды в списке ИИ должны знать, а не заглушку". Теперь
+шипается как естественное продолжение v4.51.0.
+
+## Что нового
+
+В popup рядом с кнопками Copy Instructions появляется picker
+**Catalog scope**. Выбор scope делает `Copy Arena Instructions`
+и `Copy JSONL Instructions` включающими per-tool schema +
+example call на каждый инструмент в этой категории. Плюс новая
+кнопка **`Copy Catalog`** — копирует только catalog block без
+базового преамбула, чтобы вставить в существующий prompt.
+
+**Категории:**
+- Risk buckets: `safe`, `medium`, `dangerous`, `all`
+- Тематические: `fs`, `mission`, `memory`, `browser`, `desktop`,
+  `git`, `system`
+
+**Пример catalog entry** (Markdown, по одному на tool):
+```
+## fs.view  (safe)
+View file contents with line numbers. Optional view_range=[start,end] for line range (1-indexed).
+Arguments (`*` = required): path*:string, view_range:array
+Example:
+```arena-tool
+{
+  "bridge": "arena",
+  "version": 1,
+  "calls": [{"id": "call_1", "tool": "fs.view", "arguments": {"path": "<path>"}}]
+}
+```
+```
+
+## API
+
+- **`GET /v1/extension/instructions?category=<scope>`** — новый
+  опциональный query параметр. Возвращает базовый payload плюс:
+  - `category` — нормализованное имя scope (пустая строка если
+    не задано, `safe` если unknown).
+  - `catalog` — список `{name, risk, topic, description,
+    input_schema, example_arguments}`.
+  - `catalog_text` — pre-formatted Markdown catalog block.
+  - `available_categories` — sorted список принимаемых scope.
+- Без breaking changes: пропуск `category` возвращает точно ту
+  же shape что v4.51.0 с новыми полями = empty values.
+
+## Example arguments
+
+`example_arguments` для каждого tool генерируется
+детерминированно из `inputSchema`:
+- Только required поля заполняются (никогда не guess optional).
+- Placeholder значения помечены `<key>` — оператор не спутает с
+  реальными аргументами.
+- Enum поля — первое allowed value.
+- Numeric / boolean defaults берутся из schema.
+
+Смысл: AI, читая каталог, знает какие args обязательны, без
+реального path/URL просачивающегося в example (это могло бы
+запутать AI и заставить его использовать placeholder как
+реальный аргумент).
+
+## Sort order
+
+Catalog entries отсортированы по `(risk, name)` — `safe` первым,
+потом `medium`, потом `dangerous`. Внутри bucket alphabetical.
+Итоговый prompt читается top-down от "что модель может делать
+свободно" к "что требует approval".
+
+## Файлы
+
+- `arena/extension_bridge/instructions.py` — переписан для
+  принятия `category`, построения каталога из `MCP_TOOLS`,
+  форматирования Markdown block.
+- `arena/extension_bridge/handlers.py` — парсинг `category` из
+  query.
+- `arena/extension_bridge/runtime.py` — thread `category` из
+  request data.
+- `chat_extension/popup.html` — новый `catalogCategory` `<select>`
+  + `copyCatalogBtn`.
+- `chat_extension/popup.js` — читает picker, forward'ит в
+  `arena.instructions` message, новый `copyCatalog()` handler.
+- `chat_extension/background.js` — forward'ит `category` query
+  в `/v1/extension/instructions`.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.51.1`.
+- `pyproject.toml::version` → `4.51.1`.
+- Extension → `0.14.30`.
+
+## Тесты
+
+- Новый `tests/test_extension_instructions_v0_14_30.py` — 15
+  asserts на no-category back-compat, каждый category filter,
+  example-arg minimality, sort order, extension-side plumbing.
+- Перепиннены v0_14_* + assets + adapter_flow на `0.14.30`.
+
+## Дальше
+
+- Адаптерный тур полностью устаканен; v4.50.x-51.x цикл
+  substantially complete. Следующее — либо Windows Dashboard
+  layout screenshot follow-up, либо новая фича на предложение.
+
 ## v4.51.0 -- \u0441\u0432\u0451\u0440\u0442\u044b\u0432\u0430\u043d\u0438\u0435 \u0432\u0441\u0442\u0430\u0432\u043b\u0435\u043d\u043d\u044b\u0445 tool-\u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u043e\u0432 \u0432 chat history
 
 # v4.51.0 — свёртывание вставленных tool-результатов в chat history

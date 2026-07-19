@@ -138,14 +138,48 @@ async function loadPolicies() {
 }
 
 async function copyInstructions(format) {
-  statusText(`Loading ${format} instructions...`);
-  const result = await send('arena.instructions', {format, style: 'full'});
+  // v4.51.1: honour the catalog scope picker. When set, the copied
+  // text includes the full per-tool schema + example catalog for
+  // that category. Empty scope preserves the v0.14.0 base
+  // instructions.
+  const catEl = document.getElementById('catalogCategory');
+  const category = catEl ? catEl.value : '';
+  statusText(`Loading ${format} instructions${category ? ` (catalog: ${category})` : ''}...`);
+  const body = {format, style: 'full'};
+  if (category) body.category = category;
+  const result = await send('arena.instructions', body);
   if (!result.ok) {
     statusText(`Instructions error: ${result.error || 'unknown'}`);
     return;
   }
   await navigator.clipboard.writeText(result.text || '');
-  statusText(`Copied ${format} instructions (${(result.text || '').length} chars).`);
+  const catNote = category ? ` + ${(result.catalog || []).length} tool(s) in ${category} catalog` : '';
+  statusText(`Copied ${format} instructions (${(result.text || '').length} chars)${catNote}.`);
+}
+
+// v4.51.1: catalog-only copy. Same handler as copyInstructions but
+// pastes ONLY the catalog block (no base preamble) so the user can
+// paste it into a chat where the base instructions already live.
+async function copyCatalog() {
+  const catEl = document.getElementById('catalogCategory');
+  const category = catEl ? catEl.value : '';
+  if (!category) {
+    statusText('Pick a catalog scope first (Copy Catalog is scope-only).');
+    return;
+  }
+  statusText(`Loading ${category} catalog...`);
+  const result = await send('arena.instructions', {format: 'arena', style: 'short', category});
+  if (!result.ok) {
+    statusText(`Catalog error: ${result.error || 'unknown'}`);
+    return;
+  }
+  const text = result.catalog_text || '';
+  if (!text) {
+    statusText(`Catalog scope "${category}" is empty (no matching tools).`);
+    return;
+  }
+  await navigator.clipboard.writeText(text);
+  statusText(`Copied ${category} catalog: ${(result.catalog || []).length} tool(s), ${text.length} chars.`);
 }
 
 
@@ -183,6 +217,7 @@ document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policyBtn').addEventListener('click', loadPolicies);
 document.getElementById('arenaInstructionsBtn').addEventListener('click', () => copyInstructions('arena'));
 document.getElementById('jsonlInstructionsBtn').addEventListener('click', () => copyInstructions('jsonl'));
+document.getElementById('copyCatalogBtn').addEventListener('click', copyCatalog);
 document.getElementById('panelBtn').addEventListener('click', openPanel);
 document.getElementById('scanBtn').addEventListener('click', scanPage);
 document.getElementById('pageControlsBtn').addEventListener('click', clearPageControls);
@@ -196,5 +231,6 @@ document.getElementById('clearBtn').addEventListener('click', clearHistory);
 })().catch((error) => {
   statusText(`Popup error: ${String(error)}`);
 });
+
 
 

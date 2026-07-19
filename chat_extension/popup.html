@@ -86,6 +86,27 @@
         <button id="showControlsBtn">Show Page Controls</button>
         <button id="clearBtn">Clear History</button>
       </div>
+      <!-- v4.51.1: full tool catalog picker. Selecting a category
+           makes Copy Instructions include a per-tool schema +
+           example block ready to paste as a system prompt. -->
+      <div class="row" style="margin-top:6px">
+        <label for="catalogCategory" style="font-size:12px">Catalog scope:</label>
+        <select id="catalogCategory" style="margin-right:8px">
+          <option value="">(none — base instructions only)</option>
+          <option value="safe" selected>safe (read-only)</option>
+          <option value="medium">medium (approval)</option>
+          <option value="dangerous">dangerous (approval)</option>
+          <option value="all">all tools</option>
+          <option value="fs">fs.*</option>
+          <option value="mission">mission.*</option>
+          <option value="memory">memory.* / mem.*</option>
+          <option value="browser">browser.*</option>
+          <option value="desktop">desktop.*</option>
+          <option value="git">git.*</option>
+          <option value="system">system / plan / react</option>
+        </select>
+        <button id="copyCatalogBtn">Copy Catalog</button>
+      </div>
       <pre id="statusBox">Loading...</pre>
     </section>
     <section>
@@ -97,5 +118,6 @@
   <script src="popup.js"></script>
 </body>
 </html>
+
 
 

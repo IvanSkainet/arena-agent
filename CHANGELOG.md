@@ -1,3 +1,117 @@
+## v4.51.1 -- full instructions catalog (MCP SuperAssistant style)
+
+# v4.51.1 — full instructions catalog (MCP SuperAssistant style)
+
+Preserved-forever-idea from the v4.50.x arc:
+"все команды в списке ИИ должны знать, а не заглушку"
+(the full instructions catalog). Now shipped as the natural
+follow-up to v4.51.0.
+
+## What's new
+
+The popup gets a **Catalog scope** picker next to the Copy
+Instructions buttons. Selecting a scope makes both
+`Copy Arena Instructions` and `Copy JSONL Instructions` include
+a per-tool schema + example call block for every tool in that
+category. Also new: a **`Copy Catalog`** button that copies just
+the catalog block (no base preamble) for pasting into an
+existing prompt.
+
+**Categories:**
+- Risk buckets: `safe`, `medium`, `dangerous`, `all`
+- Topical: `fs`, `mission`, `memory`, `browser`, `desktop`,
+  `git`, `system`
+
+**Sample catalog entry** (Markdown, one per tool):
+```
+## fs.view  (safe)
+View file contents with line numbers. Optional view_range=[start,end] for line range (1-indexed).
+Arguments (`*` = required): path*:string, view_range:array
+Example:
+```arena-tool
+{
+  "bridge": "arena",
+  "version": 1,
+  "calls": [{"id": "call_1", "tool": "fs.view", "arguments": {"path": "<path>"}}]
+}
+```
+```
+
+## API
+
+- **`GET /v1/extension/instructions?category=<scope>`** — new
+  optional query param. Returns the base instructions payload
+  plus:
+  - `category` — the normalised scope name (empty string when
+    unset, `safe` when unknown).
+  - `catalog` — list of `{name, risk, topic, description,
+    input_schema, example_arguments}` entries.
+  - `catalog_text` — the pre-formatted Markdown catalog block.
+  - `available_categories` — sorted list of accepted scopes.
+- No breaking changes: omitting `category` returns exactly the
+  same shape as v4.51.0 with the new fields defaulting to empty
+  values.
+
+## Example arguments
+
+`example_arguments` for each tool is generated deterministically
+from `inputSchema`:
+- Only required fields are filled (never guesses optionals).
+- Placeholder values marked with `<key>` for strings so an
+  operator can't mistake them for real arguments.
+- Enum fields pick the first allowed value.
+- Numeric / boolean defaults come from the schema.
+
+Rationale: an AI reading the catalog knows exactly which args
+are mandatory, without a real path or URL leaking into the
+example (which could confuse the AI into re-using it).
+
+## Sort order
+
+Catalog entries are sorted by `(risk, name)` so `safe` tools
+appear first, then `medium`, then `dangerous`. Within a bucket
+alphabetical. Makes the resulting prompt read top-down from
+"things the model can do freely" to "things needing approval".
+
+## Files touched
+
+- `arena/extension_bridge/instructions.py` — rewritten to
+  accept `category`, build the catalog from `MCP_TOOLS`, format
+  a Markdown prompt block.
+- `arena/extension_bridge/handlers.py` — parse `category` query
+  param.
+- `arena/extension_bridge/runtime.py` — thread `category` from
+  request data.
+- `chat_extension/popup.html` — new `catalogCategory` `<select>`
+  + `copyCatalogBtn`.
+- `chat_extension/popup.js` — read picker, thread through
+  `arena.instructions` message, new `copyCatalog()` handler.
+- `chat_extension/background.js` — forward `category` query
+  param to `/v1/extension/instructions`.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.51.1`.
+- `pyproject.toml::version` → `4.51.1`.
+- Extension → `0.14.30`.
+
+## Tests
+
+- New `tests/test_extension_instructions_v0_14_30.py` — 15
+  asserts covering the no-category back-compat shape, each
+  category filter (safe / dangerous / mission / fs / all /
+  unknown), example-arg minimality, sort order, and the
+  extension-side plumbing (popup HTML, popup JS, background
+  message router, handler query parsing).
+- Re-pinned v0_14_* + assets + adapter_flow to `0.14.30`.
+
+## Next
+
+- Ivan's adapter tour is fully settled; v4.50.x-51.x arc
+  substantially complete. Next natural direction is either
+  Windows Dashboard "кривой layout" screenshot follow-up or a
+  new feature Ivan proposes.
+
 ## v4.51.0 -- collapse inserted tool results in chat history
 
 # v4.51.0 — collapse inserted tool results in chat history

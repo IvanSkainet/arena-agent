@@ -1,6 +1,17 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.29` (v4.51.0 bridge release —
+Current extension version: `0.14.30` (v4.51.1 bridge release —
+full instructions catalog. Popup gets a "Catalog scope" picker
+next to Copy Instructions with categories: `safe`, `medium`,
+`dangerous`, `all`, `fs`, `mission`, `memory`, `browser`,
+`desktop`, `git`, `system`. Picking a scope makes the copied
+Instructions include a per-tool schema + example call for every
+tool in that category. New `Copy Catalog` button emits the
+catalog-only block for pasting into an existing prompt.
+`GET /v1/extension/instructions?category=safe` now returns
+`catalog[]` + `catalog_text`. Optional; empty category
+preserves the v0.14.0 base-instructions contract.
+v4.51.0 bridge release —
 collapse tool results in chat history. After you Insert +
 Send a tool result, the raw JSONL blob dominates the chat
 scrollback. v4.51.0 wraps those blocks in a foldable
@@ -341,6 +352,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 

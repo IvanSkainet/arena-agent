@@ -43,7 +43,15 @@ def make_extension_bridge_handlers(ctx: ExtensionBridgeHandlerContext) -> Extens
 
     @authed(ctx)
     async def handle_instructions(request: web.Request) -> web.Response:
-        data = {"format": request.query.get("format", "arena"), "style": request.query.get("style", "full")}
+        # v4.51.1: accept optional `category` query param so the
+        # popup can request a full tool catalog scoped to a topic
+        # (safe / mission / fs / etc.) without changing the
+        # base instructions API contract.
+        data = {
+            "format": request.query.get("format", "arena"),
+            "style": request.query.get("style", "full"),
+            "category": request.query.get("category", ""),
+        }
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.instructions_sync, data)
         return ctx.cors_json_response(result)
@@ -58,3 +66,4 @@ def make_extension_bridge_handlers(ctx: ExtensionBridgeHandlerContext) -> Extens
 
 
 __all__ = ["ExtensionBridgeHandlers", "make_extension_bridge_handlers"]
+

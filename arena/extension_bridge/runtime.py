@@ -46,8 +46,14 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
         return extension_policy_snapshot(site)
 
     def instructions_sync(data: dict[str, Any] | None = None) -> dict[str, Any]:
+        # v4.51.1: thread optional `category` so the popup can
+        # request a full tool catalog scoped to a topic.
         data = data or {}
-        return extension_instructions(str(data.get("format", "arena")), str(data.get("style", "full")))
+        return extension_instructions(
+            str(data.get("format", "arena")),
+            str(data.get("style", "full")),
+            str(data.get("category", "")),
+        )
 
     def preview_sync(data: dict[str, Any]) -> dict[str, Any]:
         payload = data.get("payload")
@@ -131,3 +137,4 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
 
 
 __all__ = ["ExtensionBridgeRuntime", "ExtensionBridgeRuntimeContext", "make_extension_bridge_runtime"]
+
