@@ -99,38 +99,70 @@ function arenaWhyUserAuthored(node, adapter) {
       return {matched: true, reason: 't3chat:user-prose@DIV'};
     }
   }
-  // v0.14.16: AI Studio (aistudio.google.com; shares gemini adapter
-  // with gemini.google.com). v0.14.15 tried ms-chat-turn / ms-prompt-
-  // chunk custom-element ancestors + mat-expansion-panel-header text
-  // prefix. Live scan showed those miss on newer AI Studio builds --
-  // the User's own JSON is the one that DID mount and the AI's
-  // (arguments-inlined variant) skipped. Root cause: 'User' is the
-  // SECOND mat-expansion-panel that appears in the scan (the first
-  // 'System instructions' panel is what we wanted to filter). The
-  // header on the User panel actually contains 'User Turn' /
-  // 'Пользователь' AS SUBSTRINGS but not always as prefix; and the
-  // <ms-chat-turn role='user'> element is rendered by an outer sibling,
-  // not an ancestor of the code <pre>. Fix: match by SUBSTRING inside
-  // the header text OR by aria-label, and also look for the AI Studio
-  // 'model'/'assistant' inverse marker on the OTHER panel so we can
-  // decide by exclusion.
+  // v0.14.17 (v4.50.7): AI Studio (aistudio.google.com; shares gemini
+  // adapter with gemini.google.com). Prior attempts:
+  //   * v0.14.15 -> ms-chat-turn[role="user"] / ms-prompt-chunk
+  //     [chunkrole="user"] + header-text prefix match.
+  //   * v0.14.16 -> broadened to substring regex on
+  //     mat-expansion-panel-header + positive-model-exclusion.
+  // Both misfired on the current AI Studio build: the scan showed the
+  // User's own PRE fingerprint mount and the AI's PRE skipping via
+  // semantic-dedup, with why_user_authored={matched:false,reason:""}
+  // on BOTH. Root cause: AI Studio's live DOM uses a
+  // **`data-turn-role="User"` / `data-turn-role="Model"`** attribute
+  // (Pascal case) on an element inside `ms-chat-turn`, NOT
+  // `role="user"` on the custom-element itself. The stable selectors
+  // (confirmed by third-party userscripts) are:
+  //   ms-chat-turn:has([data-turn-role="User"])   -- user turn
+  //   ms-chat-turn:has([data-turn-role="Model"])  -- model turn
+  // The mat-expansion-panel-header text can be empty, localised, or
+  // buried inside sticky-header structure so header substring is
+  // fragile.
+  //
+  // New strategy: walk up through `ms-chat-turn` (any depth) and read
+  // its inner `[data-turn-role]` element. If turn-role indicates
+  // 'User' (case-insensitive; also cover 'system'/'user turn'
+  // variants) treat as user-authored. If turn-role indicates
+  // 'Model'/'Assistant' explicitly, DO NOT treat as user-authored (fast
+  // return via {matched:false}). Fall back to the prior header-text
+  // regex for older or in-transition AI Studio revisions.
   if (adapterName === 'gemini' && node.closest) {
     const isAiStudio = typeof location !== 'undefined' && /aistudio\.google\.com$/i.test(location.hostname || '');
     if (isAiStudio) {
-      // 1) Custom-element ancestor (kept from v0.14.15 in case newer AI
-      //    Studio revisions add them).
+      // 1) Stable turn-role attribute inside ms-chat-turn.
+      const chatTurn = node.closest('ms-chat-turn');
+      if (chatTurn) {
+        const turnRoleEl = chatTurn.querySelector('[data-turn-role]');
+        const turnRole = (turnRoleEl?.getAttribute?.('data-turn-role') || '').trim().toLowerCase();
+        if (turnRole === 'user' || turnRole === 'system') {
+          return {matched: true, reason: 'aistudio:turn-role=' + turnRole + '@MS-CHAT-TURN'};
+        }
+        if (turnRole === 'model' || turnRole === 'assistant') {
+          // Positive AI marker -- fast negative, do not fall through
+          // to the fragile header-text heuristic which used to
+          // false-positive on Russian localisation.
+          return {matched: false, reason: ''};
+        }
+        // Also accept the class-token form some revisions expose
+        // ('user-turn' / 'model-turn') on the ms-chat-turn root.
+        const clsTurn = (chatTurn.className || '').toLowerCase();
+        if (/(?:^|\s|-)(user|system)-turn(?:\s|$|-)/i.test(clsTurn)) {
+          return {matched: true, reason: 'aistudio:class-turn@MS-CHAT-TURN'};
+        }
+        if (/(?:^|\s|-)(model|assistant)-turn(?:\s|$|-)/i.test(clsTurn)) {
+          return {matched: false, reason: ''};
+        }
+      }
+      // 2) Legacy custom-element ancestor (older AI Studio revisions).
       const userTurn = node.closest('ms-chat-turn[role="user"], ms-prompt-chunk[chunkrole="user"]');
       if (userTurn) {
         return {matched: true, reason: 'aistudio:user-turn@' + (userTurn.tagName || 'CUSTOM')};
       }
-      // 2) mat-expansion-panel header substring match. AI Studio wraps
-      //    every prompt turn in its own mat-expansion-panel. Look at
-      //    both the aria-label and the visible text and check for
-      //    'user' as a substring (locale English) or 'пользоват'
-      //    (Russian). The 'system' / 'system instructions' panels are
-      //    ALSO user-authored from our point of view since Bridge tools
-      //    would not have been emitted there, so we treat those as
-      //    user-authored as well.
+      // 3) Fallback: mat-expansion-panel header substring match.
+      //    Retained for old builds where turn-role is absent. Uses the
+      //    v0.14.16 positive-model-exclusion so Russian localisation
+      //    ('Модель') on the panel header does NOT get mistaken for
+      //    user by the 'систем' regex.
       const panel = node.closest('mat-expansion-panel');
       if (panel) {
         const header = panel.querySelector('mat-expansion-panel-header');
@@ -138,8 +170,6 @@ function arenaWhyUserAuthored(node, adapter) {
         const headAria = (header?.getAttribute?.('aria-label') || '').toLowerCase();
         const isUser = /(?:^|\s)(user|пользоват|system|систем)/i.test(headTxt)
                     || /(?:^|\s)(user|пользоват|system|систем)/i.test(headAria);
-        // Positive assistant/model markers -- if the panel is clearly
-        // marked as model output, DO NOT treat it as user-authored.
         const isModel = /(?:^|\s)(model|assistant|ответ|модел)/i.test(headTxt)
                      || /(?:^|\s)(model|assistant|ответ|модел)/i.test(headAria);
         if (isUser && !isModel) {
@@ -269,7 +299,10 @@ function arenaDiagnosticSnapshot(node) {
   };
   const ancestors = [];
   let cur = node.parentElement;
-  for (let i = 0; cur && i < 4; i++) {
+  // v0.14.17 (v4.50.7): extended ancestor depth 4 -> 8 so we can see
+  // through AI Studio's mat-expansion-panel wrapper stack down to
+  // <ms-chat-turn> (about 5-7 ancestors up on the current build).
+  for (let i = 0; cur && i < 8; i++) {
     ancestors.push(_attrs(cur));
     cur = cur.parentElement;
   }
@@ -277,12 +310,37 @@ function arenaDiagnosticSnapshot(node) {
   const wu = (typeof arenaWhyUserAuthored === 'function')
     ? arenaWhyUserAuthored(node, (typeof getArenaAdapter === 'function') ? getArenaAdapter() : null)
     : {matched: false, reason: ''};
+  // v0.14.17 (v4.50.7): AI-Studio-specific diagnostic hint. Surface the
+  // nearest ms-chat-turn's data-turn-role attribute + panel header
+  // text/aria so operators can see why the user filter did/didn't
+  // fire without re-scanning. Additive; never influences mount logic.
+  let aistudioHint = null;
+  try {
+    if (typeof location !== 'undefined' && /aistudio\.google\.com$/i.test(location.hostname || '')) {
+      const chatTurn = node.closest?.('ms-chat-turn') || null;
+      const turnRoleEl = chatTurn?.querySelector?.('[data-turn-role]') || null;
+      const panel = node.closest?.('mat-expansion-panel') || null;
+      const header = panel?.querySelector?.('mat-expansion-panel-header') || null;
+      aistudioHint = {
+        has_ms_chat_turn: !!chatTurn,
+        chat_turn_class: (chatTurn?.className || '').slice(0, 120),
+        chat_turn_attrs: chatTurn ? {
+          role: chatTurn.getAttribute?.('role') || '',
+          data_role: chatTurn.getAttribute?.('data-role') || '',
+        } : null,
+        data_turn_role: turnRoleEl?.getAttribute?.('data-turn-role') || '',
+        panel_header_text: (header?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 60),
+        panel_header_aria: (header?.getAttribute?.('aria-label') || '').slice(0, 60),
+      };
+    }
+  } catch (e) { aistudioHint = {error: String(e).slice(0, 80)}; }
   return {
     path: arenaNodePath(node),
     self: _attrs(node),
     ancestors,
     text_head: (node.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 120),
     why_user_authored: wu,
+    aistudio_hint: aistudioHint,
     // v0.14.7: what is the *nearest* container that our fingerprint
     // uses as node-id? Same input arenaExtractNodeId consumes so it
     // matches the fingerprint.
@@ -690,3 +748,4 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+

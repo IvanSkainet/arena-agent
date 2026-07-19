@@ -6,7 +6,7 @@
 // ---------------------------------------------------------------------------
 
 function arenaInsertScriptVersion() {
-  return '0.14.16';
+  return '0.14.17';
 }
 
 function arenaSetInsertTiming(timing) {
@@ -631,3 +631,4 @@ async function arenaInsertAndSubmit(text, adapter = getArenaAdapter(), strategy 
     total_ms: Math.round(performance.now() - started),
   };
 }
+

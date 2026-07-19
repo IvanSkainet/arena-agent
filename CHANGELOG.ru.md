@@ -1,3 +1,85 @@
+## v4.50.7 -- AI Studio user-filter DOM fix (data-turn-role)
+
+# v4.50.7 — исправление user-фильтра AI Studio (`data-turn-role`)
+
+Продолжение v4.50.6. На Google AI Studio фильтр user-сообщений
+всё ещё работал наоборот: toolbar монтировался на **User**-панель,
+а **Model**-панель отбрасывалась dedup-ом со `skip_semantic_prev_alive`.
+
+## Причина
+
+Фильтр v0.14.15/v0.14.16 смотрел на `ms-chat-turn[role="user"]`
+и на текст/aria-label заголовка `mat-expansion-panel-header`.
+Live-скан Ивана показал `why_user_authored: {matched: false, reason: ""}`
+на обоих PRE-кандидатах — то есть **не сработала ни одна ветка**.
+В текущей сборке AI Studio на `ms-chat-turn` **нет** `role="user"`,
+а текст заголовка панели пустой (шаблон sticky-header).
+
+Стабильные селекторы, подтверждённые сторонними userscript-ами
+для AI Studio, — атрибут `data-turn-role` в Pascal-case на внутреннем
+элементе:
+
+```
+ms-chat-turn:has([data-turn-role="User"])   -- user turn
+ms-chat-turn:has([data-turn-role="Model"])  -- model turn
+```
+
+В некоторых ревизиях на корне `ms-chat-turn` появляются
+классы-токены `.user-turn` / `.model-turn`.
+
+## Изменения
+
+### Расширение → v0.14.17
+
+- **`chat_extension/adapters.js` — новая ветка AI Studio в
+  `arenaWhyUserAuthored`.** Порядок:
+  1. `node.closest('ms-chat-turn')` → ищем внутренний
+     `[data-turn-role]`; user-authored при значениях
+     {`user`, `system`}, явный **not-user** при {`model`,
+     `assistant`} (case-insensitive). Быстрый возврат отсекает
+     хрупкую заголовочную ветку на русской локализации.
+  2. Fallback по классам корня `ms-chat-turn`: `user-turn` /
+     `system-turn` → user; `model-turn` / `assistant-turn` → not user.
+  3. Legacy `ms-chat-turn[role="user"]` /
+     `ms-prompt-chunk[chunkrole="user"]` (для старых сборок).
+  4. Legacy substring-regex по заголовку `mat-expansion-panel`
+     с positive-model-exclusion (финальный fallback).
+- **`chat_extension/adapters.js` — глубина ancestors в
+  `arenaDiagnosticSnapshot` расширена 4 → 8**, чтобы scan-report
+  видел `ms-chat-turn` через стек `mat-expansion-panel-*`.
+- **`chat_extension/adapters.js` — новый диагностический блок
+  `aistudio_hint`** в каждом snapshot (заполняется только на
+  `aistudio.google.com`). Содержит `has_ms_chat_turn`,
+  `chat_turn_class`, `data_turn_role`, `panel_header_text`,
+  `panel_header_aria`. Только для диагностики; на mount-логику
+  не влияет. Гарантия того, что будущие регрессии AI Studio
+  диагностируются по одному scan-report без DevTools.
+
+### Bridge
+
+- `arena/constants.py::VERSION` → `4.50.7`.
+- `pyproject.toml::version` → `4.50.7`.
+
+### Тесты
+
+- Новый `tests/test_chat_extension_v0_14_17.py` — проверяет
+  наличие строк `data-turn-role`/`User`/`Model` в
+  `chat_extension/adapters.js`; проверяет блок `aistudio_hint`
+  в `arenaDiagnosticSnapshot`; проверяет константу глубины 8.
+- Перепиннены `tests/test_chat_extension_assets.py` и
+  `tests/test_chat_extension_adapter_flow.py` на `0.14.17`.
+
+## Ожидаемый эффект
+
+- AI Studio: toolbar появляется **только** на панели Model.
+  User-панель skip-ается с
+  `reason: "aistudio:turn-role=user@MS-CHAT-TURN"`.
+- Если AI Studio снова уберёт `data-turn-role`, scan-report
+  покажет `aistudio_hint.has_ms_chat_turn=true` и
+  `data_turn_role=""` — причина видна без dev-tools.
+- Остальные адаптеры не тронуты; dedup toggle, tie-breaker по
+  call_id, Grok z-index=10, свёрнутый Advanced — всё как в v4.50.6.
+
 ## v4.50.6 -- AI Studio filter (был инвертирован!) + tie-breaker по call_id + Grok z-index + collapsed Advanced
 
 Четыре запроса оператора после v0.14.15:

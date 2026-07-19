@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-VERSION = "4.50.6"
+VERSION = "4.50.7"
 
 AUDIT_CMD_LIMIT = 4000
 
@@ -24,4 +24,5 @@ AUDIT = APP_DIR / "audit.jsonl"
 MAX_BODY = 1024 * 1024
 DEFAULT_MAX_OUTPUT = 2 * 1024 * 1024
 DEFAULT_MAX_CONCURRENT = 3
+
 

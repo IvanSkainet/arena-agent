@@ -1,4 +1,4 @@
-"""Regression guards for extension 0.14.16 (v4.50.6).
+"""Regression guards for extension 0.14.17 (v4.50.6).
 
 Four operator asks after v0.14.15:
 
@@ -6,7 +6,7 @@ Four operator asks after v0.14.15:
    User ловит, а AI не ловит."
    -> v0.14.15 relied on mat-expansion-panel-header text starting with
    "User"/"Пользоват". Scan proved this misses on the current AI
-   Studio build. v0.14.16 broadens: substring match on both text AND
+   Studio build. v0.14.17 broadens: substring match on both text AND
    aria-label for user|пользоват|system|систем, plus a positive
    assistant/model check so we DO NOT mark the AI panel as user.
 
@@ -44,10 +44,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_16():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.16'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.16"
-    assert "return '0.14.16';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.16`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.17'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.17"
+    assert "return '0.14.17';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.17`" in _read("README.md")
 
 
 # ------------------------------------------------------------------
@@ -55,7 +55,7 @@ def test_versions_pinned_to_0_14_16():
 # ------------------------------------------------------------------
 
 def test_aistudio_user_filter_substring_match_with_positive_model_exception():
-    """v0.14.16 must match user headers by substring (regex with word
+    """v0.14.17 must match user headers by substring (regex with word
     boundary), not by prefix, and must NOT flag the AI/model panel."""
     src = _read("adapters.js")
     # Substring regex for user/system markers.
@@ -87,7 +87,7 @@ def test_arena_payload_call_id_helper_exists():
 
 
 def test_dedup_prefers_higher_call_id():
-    """v0.14.16: when two live candidates share semantic fp, evict
+    """v0.14.17: when two live candidates share semantic fp, evict
     the one with the smaller numeric call_id."""
     src = _read("content.js")
     # Helper resolved via typeof guard so tests don't need arenaPayloadCallId

@@ -1,6 +1,13 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.16` (v4.50.6 bridge release —
+Current extension version: `0.14.17` (v4.50.7 bridge release —
+AI Studio user filter DOM fix: switched from `role="user"` on
+`ms-chat-turn` (never present in the current build) to the stable
+`ms-chat-turn:has([data-turn-role="User"])` / `[data-turn-role="Model"]`
+attribute confirmed by third-party AI Studio userscripts. Also
+extended ancestor-snapshot depth 4→8 and added an `aistudio_hint`
+diagnostic block to scan-report so future regressions are visible
+without a Chrome inspector. v4.50.6 bridge release —
 concrete narrow fix based on the v0.14.5 diagnostic reason
 strings. `data-testid="user-message"` was matching Grok / DuckAI
 message-list containers (parents of BOTH user + assistant blocks),
@@ -138,3 +145,4 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
