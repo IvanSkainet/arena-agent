@@ -9,6 +9,7 @@ const SYNC_DEFAULTS = {
     autoInsertResult: false,
     autoSubmitResult: false,
     insertStrategy: 'auto',
+    dedupSemantic: true,
   }),
 };
 function normalizeModes(data) {
@@ -20,6 +21,11 @@ function normalizeModes(data) {
     autoInsertResult: !!input.autoInsertResult,
     autoSubmitResult: !!input.autoSubmitResult,
     insertStrategy: allowed.includes(input.insertStrategy) ? input.insertStrategy : 'auto',
+    // v0.14.15: mirror the settings.js default -- operator-controllable
+    // toolbar dedup, default TRUE. Background needs its own normalizer
+    // because settings.js is a content-script asset and background.js
+    // cannot import it directly.
+    dedupSemantic: input.dedupSemantic === undefined ? true : !!input.dedupSemantic,
   };
 }
 function normalizeBridgeUrl(value) {

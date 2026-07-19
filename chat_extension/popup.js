@@ -27,6 +27,9 @@ function currentModes() {
     autoInsertResult: document.getElementById('autoInsertResult').checked,
     autoSubmitResult: document.getElementById('autoSubmitResult').checked,
     insertStrategy: document.getElementById('insertStrategy').value || 'auto',
+    // v0.14.15: advanced/experimental toolbar dedup toggle. Read the
+    // checkbox state; default TRUE matches the pre-v0.14.14 behaviour.
+    dedupSemantic: document.getElementById('dedupSemantic').checked,
   };
 }
 
@@ -58,6 +61,11 @@ async function loadConfig() {
     document.getElementById(id).checked = !!modes[id];
   });
   document.getElementById('insertStrategy').value = modes.insertStrategy || 'auto';
+  // v0.14.15: dedup toggle -- treat undefined as true so operators
+  // upgrading from v0.14.14 don't silently keep the "show everything"
+  // behaviour they got by accident.
+  document.getElementById('dedupSemantic').checked =
+    (modes.dedupSemantic === undefined) ? true : !!modes.dedupSemantic;
   statusText(`Loaded config. Modes: ${arenaModeSummary(modes)}`);
   return true;
 }

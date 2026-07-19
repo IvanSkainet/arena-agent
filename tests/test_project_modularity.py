@@ -9,7 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MAX_PRODUCT_FILE_LINES = 700
+# v4.50.5: raised from 700 to 900 at operator's request. Priority is
+# readability with full comments over aggressive line-compression --
+# earlier releases (v0.14.9..v0.14.14) had to strip comments to fit
+# 700, which made the code harder to audit when things went wrong on
+# live sites. 900 gives ~200 lines of headroom for future adapter
+# additions without forcing another compression pass.
+MAX_PRODUCT_FILE_LINES = 900
 ENTRYPOINT_LIMITS = {
     "unified_bridge.py": 150,
     "bin/agentctl": 80,

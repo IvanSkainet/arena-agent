@@ -1,3 +1,199 @@
+## v4.50.5 -- Toggle dedup (default ON) + AI Studio user-filter + z-index toolbar + лимит 900 строк
+
+Четыре запроса оператора, один релиз.
+
+### 1. Toggle "Dedup toolbar" в Advanced / Experimental
+
+Оператор: "Я бы хотел добавить опцию включения и отключения [dedup].
+Мне с dedup всё-таки больше нравилось."
+
+v0.14.14 полностью убрал semantic dedup, каждый candidate получал
+свой toolbar (Claude call_id 1..N все видны). Оператор предпочитал
+поведение до v0.14.14 (один toolbar на unique semantic tool block)
+для читаемости, но хотел возможность включить режим "показывать
+всё" при необходимости.
+
+Теперь: `modes.dedupSemantic` (default `TRUE`, соответствует
+предпочтению Ivan).
+
+* `true`: восстановлен semantic dedup до v0.14.14 с alive-gate
+  из v0.14.13. Sibling дубликаты получают `skip_semantic_prev_alive`;
+  DOM-gone owners эвиктятся + перемонтируются (`evict_semantic_owner`).
+* `false`: каждый candidate host получает свой toolbar
+  (поведение v0.14.14). Полезно когда оператор не может понять,
+  какую копию extension выбрал.
+
+Wired через:
+
+* `chat_extension/settings.js` -- default в `ARENA_MODE_DEFAULTS`;
+  normalizer трактует undefined как true, чтобы upgrade'ры
+  случайно не остались с поведением "показывать всё" из v0.14.14.
+* `chat_extension/background.js` -- те же defaults + normalizer,
+  так как background не может импортировать content-script assets.
+* `chat_extension/popup.html` -- новый fieldset "Advanced /
+  experimental" с `#dedupSemantic` checkbox.
+* `chat_extension/popup.js` -- read/write checkbox на save/load;
+  undefined трактуется как checked.
+* `chat_extension/content.js` -- новый синхронный helper
+  `_arenaCurrentModes()` возвращает последний известный modes
+  объект без chrome.runtime round-trip; mountControls gates весь
+  semantic-dedup блок за `_dedupSemantic`.
+
+### 2. Фильтр user-turn для AI Studio
+
+Оператор: "На AI Studio всё ещё user ловит."
+
+Скан показал: PRE-candidates у User prompt и AI thought имеют
+одинаковую `mat-expansion-panel` форму -- в 4 ближайших ancestor'ах
+нет различающего атрибута. AI Studio на самом деле использует
+custom элементы `<ms-chat-turn role="user">` и
+`<ms-prompt-chunk chunkrole="user">` для user turns. Добавил
+per-adapter branch в `arenaWhyUserAuthored` (только когда
+`location.hostname` совпадает с `aistudio.google.com`):
+
+* возвращает `matched: true, reason: 'aistudio:user-turn@<TAG>'`
+  когда найден `ms-chat-turn[role="user"]` или
+  `ms-prompt-chunk[chunkrole="user"]` ancestor;
+* fallback на текст `mat-expansion-panel-header`, начинающийся с
+  "User" или "Пользоват" (locale-safe), с tag
+  `aistudio:user-panel@MAT-EXPANSION-PANEL`.
+
+Путь `gemini.google.com` не тронут -- этих элементов там нет.
+
+### 3. Toolbar больше не перекрывает композер
+
+Оператор: "Toolbar поверх окна ввода чата, из-за чего очень
+некрасиво."
+
+Корень: `shadow_toolbar.css` устанавливал `z-index: 2147483000`
+(max int-safe). Композеры сайтов используют `position: fixed`
+внизу viewport с `z-index: 1000-ish`. Наш shadow host находится
+в message flow, но его `z-index: 2147483000` overrode композер
+всякий раз, когда они пересекались в viewport.
+
+Фикс: `z-index: 100`. Выше обычного in-flow контента (site
+action rows сидят на 5-10), но комфортно ниже любого fixed
+композера, который anchor'ится на 1000+. `position: relative` +
+`isolation: isolate` остались -- они влияют только на наш
+собственный stacking context.
+
+Qwen-фикс из v4.48.6 (устанавливавший max-int z-index против
+overlap like/dislike/share row) по-прежнему работает, так как
+100 всё ещё выше этих inline action rows. Если конкретной
+Qwen-surface нужно выше, поднимем per-adapter.
+
+### 4. MAX_PRODUCT_FILE_LINES 700 → 900
+
+Оператор: "не сжимай код. Лучше сделай ограничение больше,
+скажем 800 строк, ... но и читабельность кода тоже хорошая
+должна быть."
+
+v0.14.9..v0.14.14 приходилось резать комментарии и inline блоки
+на каждом релизе только чтобы влезть в 700-строчный потолок
+`content.js`. Это делало каждую последующую отладочную сессию
+сложнее, потому что контекст, существовавший в предыдущей версии,
+пропадал. 900 даёт запас в ~200 строк.
+
+`tests/test_project_modularity.py::MAX_PRODUCT_FILE_LINES`
+поднят с объясняющим docstring'ом. Все прежние extension-тесты,
+guard'ившие content.js line count, обновлены с 700 на 900.
+
+`chat_extension/content.js` сейчас на **743 строках** -- комфортно
+под 900, с местом для будущих идей (см. ниже).
+
+### Бампы версий
+
+* extension `0.14.14` → `0.14.15`
+* bridge `4.50.4` → `4.50.5`
+
+### Регрессионные guard-тесты
+
+13 новых asserts в `tests/test_chat_extension_v0_14_15.py`:
+
+* четыре version pin
+* normalizers settings.js/background.js включают dedupSemantic
+  с корректным default-true undefined-поведением
+* popup.html имеет Advanced fieldset с pre-checked
+  dedupSemantic input
+* popup.js читает И пишет checkbox, с undefined-is-true fallback
+  на load
+* content.js gates весь semantic-dedup блок за `_dedupSemantic`;
+  три diag kind (`evict_semantic_owner`, `skip_semantic_prev_alive`,
+  `skip_semantic_already_mounted`) снова живут внутри этого блока
+* per-host dedup (`existing?.bar?.isConnected`, `hostHasToolbar`)
+  по-прежнему работает безусловно
+* AI Studio branch запрашивает три известных сигнала и эмитит
+  две отдельные skip reasons
+* shadow_toolbar.css использует `z-index: 100`, больше никогда
+  `z-index: 2147483000`
+* modularity limit -- 900, не 700
+* content.js ≤ 900 строк
+* каждый прежний per-release regression guard держится
+
+Девять прежних extension test-файлов перепинены на 0.14.15. Их
+assertions "must-not-come-back" из v0.14.14 переписаны как
+"gated-in-v0.14.15", чтобы не падать напрасно. Полный прогон:
+**2505 passed, 0 failed**.
+
+### Изменённые файлы
+
+* `chat_extension/content.js` -- 691 → 743 строк (semantic-dedup
+  блок восстановлен + `_arenaCurrentModes` helper + gate)
+* `chat_extension/adapters.js` -- 622 → 650 строк (AI Studio
+  branch)
+* `chat_extension/settings.js` -- 26 → 36 строк (dedupSemantic
+  default + normalizer)
+* `chat_extension/background.js` -- 296 → 302 строк (mirror
+  normalizer + SYNC_DEFAULTS update)
+* `chat_extension/popup.html` -- 57 → 70 строк (Advanced
+  fieldset)
+* `chat_extension/popup.js` -- 176 → 184 строк (read/write
+  checkbox)
+* `chat_extension/shadow_toolbar.css` -- 113 → 120 строк
+  (z-index fix + объясняющий комментарий)
+* `chat_extension/insert_strategies.js` -- version bump
+* `chat_extension/manifest.json` -- version bump
+* `chat_extension/README.md` -- banner refresh
+* `tests/test_project_modularity.py` -- 700 → 900 с обоснованием
+* `tests/test_chat_extension_v0_14_15.py` -- новый, 13 asserts
+* девять прежних extension test-файлов перепинены + переписаны
+  под gated dedup + новый z-index + 900-line limit
+* `arena/constants.py`, `pyproject.toml` -- VERSION bump
+
+### Отложено (две forward-looking идеи оператора)
+
+**Идея A (collapse tool results в истории чата):**
+
+  "Сделать так, чтобы результат в истории чата как-то закрывался
+   окошком, потому что сейчас весь код в не свёрнутом виде на
+   сайте смотреть удобно, но это очень долго листать и, вероятно,
+   плохо для производительности."
+
+План: после успешного Run заменить вставленный result blob в
+composer/chat на foldable "▸ Arena tool result (N tools, M
+lines) -- click to expand" wrapper. Content хранится в closure
+toolbar'а; expansion re-inlin'ит по требованию. Это будет жить
+в `content.js::runAutoModes` и `arenaInsertResult`. Также должно
+переживать site rehydration (mutation observer для re-fold если
+сайт un-collapse при scroll). Отложено на v4.51.0.
+
+**Идея B (полный catalog инструкций):**
+
+  "С инструкциями разобраться, чтобы ИИ получал весь список всех
+   возможных команд или команд по определённому блоку или типу,
+   например desktop, а не ту короткую заглушку, что сейчас
+   имеется."
+
+План: расширить `/v1/instructions` для приёма `?category=<name>`
+и возвращения полного catalog инструментов для этой категории
+(arg schemas + короткие описания + один пример каждого),
+отрендеренного как self-contained prompt block. Popup получит
+category picker рядом с Copy Instructions кнопками. Cross-reference:
+собственный алгоритм построения инструкций MCP SuperAssistant по
+адресу https://github.com/srbhptl39/MCP-SuperAssistant/tree/main --
+их sidebar собирает per-server prompt из `list_tools` ответов; мы
+можем зеркалить форму. Отложено на v4.51.1.
+
 ## v4.50.4 -- Один тулбар на host (semantic-dedup путь удалён)
 
 Явный запрос оператора после semi-фикса v0.14.13:

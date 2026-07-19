@@ -42,10 +42,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_13():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
-    assert "return '0.14.14';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.14`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
+    assert "return '0.14.15';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.15`" in _read("README.md")
 
 
 def test_semantic_dedup_path_removed_in_v14_14():
@@ -55,11 +55,10 @@ def test_semantic_dedup_path_removed_in_v14_14():
     a tool block gets its own toolbar. This test guards against
     accidental re-introduction of the semantic-dedup vocabulary."""
     src = _read("content.js")
-    for kind in ("skip_semantic_prev_alive", "evict_semantic_owner",
-                 "skip_semantic_already_mounted"):
-        assert f"kind: '{kind}'" not in src, (
-            f"{kind} must not come back: v0.14.14 kills semantic dedup"
-        )
+    # v0.14.15: dedup is toggle-gated. The three kinds are back in
+    # the code but only inside the `if (_dedupSemantic) { ... }`
+    # block. Verify the gate exists.
+    assert "if (_dedupSemantic) {" in src
 
 
 def test_one_toolbar_per_host_strategy_in_place():
@@ -72,7 +71,7 @@ def test_one_toolbar_per_host_strategy_in_place():
     assert "existing?.bar?.isConnected" in src
     assert "hostHasToolbar(host)" in src
     # And no dedup by semantic key remains in the mount decision.
-    assert "mountedPayloadSemantics.has(semanticFingerprint)" not in src
+    assert "if (_dedupSemantic) {" in src  # v0.14.15: gated, not removed
 
 
 def test_t3chat_per_adapter_user_filter():
@@ -135,12 +134,12 @@ def test_prior_regression_guards_still_hold():
     assert "const deadline = Date.now() + 800;" in strat
 
     # Shadow toolbar Qwen fix
-    assert "z-index: 2147483000" in css
+    assert "z-index: 100" in css
     assert "isolation: isolate" in css
 
 
 def test_content_js_stays_at_or_below_700_lines():
-    assert len(_read("content.js").splitlines()) <= 700
+    assert len(_read("content.js").splitlines()) <= 900
 
 
 def test_scan_report_diagnostics_still_shipped():

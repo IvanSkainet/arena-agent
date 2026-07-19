@@ -32,6 +32,19 @@
           </select>
         </label>
       </fieldset>
+      <fieldset>
+        <legend>Advanced / experimental</legend>
+        <label>
+          <input id="dedupSemantic" type="checkbox" checked>
+          Dedup tool-bar: show one toolbar per unique tool call (default)
+        </label>
+        <p style="font-size:11px;color:#666;margin:2px 0 6px 22px">
+          Turn OFF to show a toolbar on every candidate host, even when
+          multiple render the same tool block (Claude call_id 1..N, Mistral
+          echo, Gemini Thought Process + main answer). More visible feedback
+          but sometimes puts a toolbar on top of the composer.
+        </p>
+      </fieldset>
       <div class="row">
         <button id="saveBtn">Save</button>
         <button id="testBtn">Test</button>

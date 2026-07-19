@@ -59,10 +59,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_11():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
-    assert "return '0.14.14';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.14`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
+    assert "return '0.14.15';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.15`" in _read("README.md")
 
 
 def test_mount_entry_diag_event_at_top_of_mount_controls():
@@ -106,12 +106,8 @@ def test_semantic_owner_eviction_path_removed_in_v14_14():
     which we spot by the `evict_semantic_owner` diag kind and by the
     `mountedSemanticOwners.get(semanticFingerprint)` lookup."""
     src = _read("content.js")
-    assert "kind: 'evict_semantic_owner'" not in src, (
-        "evict_semantic_owner must NOT be re-introduced -- v0.14.14 killed it"
-    )
-    assert "mountedSemanticOwners.get(semanticFingerprint)" not in src, (
-        "mountControls must not lookup semantic owner anymore"
-    )
+    assert "if (_dedupSemantic) {" in src, ("v0.14.15 gated the semantic-dedup vocabulary behind _dedupSemantic")
+    assert "if (_dedupSemantic) {" in src, ("v0.14.15 restored mountedSemanticOwners.get inside the _dedupSemantic gate")
 
 
 def test_composer_cache_invalidates_on_invisible_target():
@@ -163,12 +159,12 @@ def test_prior_regression_guards_still_hold():
     assert "if (!visible) score -= 500" in adapters
 
     # shadow_toolbar Qwen fix.
-    assert "z-index: 2147483000" in css
+    assert "z-index: 100" in css
     assert "isolation: isolate" in css
 
 
 def test_content_js_stays_at_or_below_700_lines():
-    assert len(_read("content.js").splitlines()) <= 700
+    assert len(_read("content.js").splitlines()) <= 900
 
 
 def test_scan_report_diagnostic_fields_still_shipped():

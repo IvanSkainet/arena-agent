@@ -99,6 +99,34 @@ function arenaWhyUserAuthored(node, adapter) {
       return {matched: true, reason: 't3chat:user-prose@DIV'};
     }
   }
+  // v0.14.15: AI Studio (aistudio.google.com uses the `gemini` adapter,
+  // both sites share hosts, but their DOM shapes differ). AI Studio
+  // wraps user prompts in <ms-chat-turn role="user"> and
+  // <ms-prompt-chunk chunkrole="user"> custom elements. Its mat-
+  // expansion-panel-header text also starts with "User" for the user
+  // prompt panel. When the scanned host is inside any of those we mark
+  // it user-authored. The gemini.google.com path stays untouched
+  // because gemini.google.com does not use those elements.
+  if (adapterName === 'gemini' && node.closest) {
+    const isAiStudio = typeof location !== 'undefined' && /aistudio\.google\.com$/i.test(location.hostname || '');
+    if (isAiStudio) {
+      const userTurn = node.closest('ms-chat-turn[role="user"], ms-prompt-chunk[chunkrole="user"]');
+      if (userTurn) {
+        return {matched: true, reason: 'aistudio:user-turn@' + (userTurn.tagName || 'CUSTOM')};
+      }
+      // Fallback: mat-expansion-panel header text. Google localises to
+      // "User" or (rarely) the language equivalent. Look at the header
+      // panel's textContent -- 20 char is enough.
+      const panel = node.closest('mat-expansion-panel');
+      if (panel) {
+        const header = panel.querySelector('mat-expansion-panel-header');
+        const headTxt = (header?.textContent || '').trim().toLowerCase();
+        if (headTxt.startsWith('user') || headTxt.startsWith('пользоват')) {
+          return {matched: true, reason: 'aistudio:user-panel@MAT-EXPANSION-PANEL'};
+        }
+      }
+    }
+  }
   let el = node;
   for (let i = 0; el && i < 8; i++) {   // cap tightened 20 -> 8
     if (el.nodeType !== 1) { el = el.parentNode; continue; }

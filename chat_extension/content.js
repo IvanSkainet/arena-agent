@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.14';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.15';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -17,6 +17,20 @@ const _arenaDiagEvents = window._arenaDiagEvents || [];
 // === Config cache (5s TTL, chrome.runtime round-trip skip) ===
 let _contentConfigCache = null;
 let _contentConfigCacheAt = 0;
+
+function _arenaCurrentModes() {
+  // v0.14.15: synchronous snapshot of the last-known modes so mount
+  // decisions in the scan hot path do not have to await a
+  // chrome.runtime round-trip. When the cache is cold (very first
+  // mount after boot), we return the defaults from settings.js --
+  // never null -- so callers can `.dedupSemantic !== false` freely.
+  if (_contentConfigCache && _contentConfigCache.modes) {
+    return _contentConfigCache.modes;
+  }
+  return (typeof arenaNormalizeModes === 'function')
+    ? arenaNormalizeModes({})
+    : {dedupSemantic: true};
+}
 
 async function getCachedConfig() {
   const now = Date.now();
@@ -273,13 +287,51 @@ function mountControls(host, payload, adapter) {
   if (dismissedControls.has(fingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_fp', adapter: adapter.name, fingerprint}); return; }
   if (dismissedControls.has(semanticFingerprint)) { _arenaDiagPushEvent({kind: 'skip_dismissed_semantic', adapter: adapter.name, fingerprint, semantic: semanticFingerprint}); return; }
 
-  // v0.14.14: one toolbar per HOST (not per semantic). Operator wants
-  // every candidate to get its own toolbar so nothing gets silently
-  // hidden by dedup: Claude/Mistral/Gemini/AI Studio all render the
-  // same jsonl in multiple legitimate DOM positions and the operator
-  // cannot tell which one the extension picked. Semantic dedup is
-  // still tracked for the auto-execute one-shot below, but no longer
-  // skips mounts.
+  // v0.14.15: dedup strategy is now operator-controllable via the
+  // Advanced/Experimental section of the popup (modes.dedupSemantic).
+  //
+  //   dedupSemantic === true  (default, preferred by the operator)
+  //     Keep the pre-v0.14.14 behaviour: one toolbar per unique
+  //     semantic tool block. Sibling duplicates are silently skipped
+  //     when their previous owner is still alive in the DOM
+  //     (skip_semantic_prev_alive), evicted-and-re-mounted only when
+  //     the previous host is gone (SPA churn). Trade-off: some
+  //     candidates never see a toolbar (Claude call_id 2/3 got
+  //     hidden this way).
+  //
+  //   dedupSemantic === false  (v0.14.14 opt-in mode)
+  //     Every candidate host gets its own toolbar. More visual
+  //     feedback, useful when the operator cannot tell which copy
+  //     the extension picked. Cost: two toolbars on legitimate
+  //     duplicates, more real estate consumed.
+  //
+  // Per-host dedup (existing?.bar?.isConnected + hostHasToolbar)
+  // is preserved in both modes -- that is idempotency of the scan
+  // loop, not a policy choice.
+  const _dedupSemantic = _arenaCurrentModes()?.dedupSemantic !== false;
+  if (_dedupSemantic) {
+    const semanticOwner = mountedSemanticOwners.get(semanticFingerprint);
+    if (semanticOwner && semanticOwner !== fingerprint) {
+      const previous = mountedControls.get(semanticOwner);
+      const prevAlive = !!(previous?.host?.isConnected && previous?.bar?.isConnected);
+      if (!prevAlive) {
+        _arenaDiagPushEvent({kind: 'evict_semantic_owner', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
+        if (previous?.shadowHost) previous.shadowHost.remove();
+        else previous?.bar?.remove();
+        if (previous?.host?.dataset) previous.host.dataset.arenaToolControlsMounted = '';
+        mountedControls.delete(semanticOwner);
+        mountedPayloadSemantics.delete(semanticFingerprint);
+        mountedSemanticOwners.delete(semanticFingerprint);
+      } else {
+        _arenaDiagPushEvent({kind: 'skip_semantic_prev_alive', adapter: adapter.name, fingerprint, previous_owner: semanticOwner});
+        return;
+      }
+    }
+    if (mountedPayloadSemantics.has(semanticFingerprint)) {
+      _arenaDiagPushEvent({kind: 'skip_semantic_already_mounted', adapter: adapter.name, fingerprint, semantic: semanticFingerprint});
+      return;
+    }
+  }
   if (existing?.bar?.isConnected) { _arenaDiagPushEvent({kind: 'skip_existing_connected', adapter: adapter.name, fingerprint}); return; }
   if (hostHasToolbar(host)) { _arenaDiagPushEvent({kind: 'skip_host_has_toolbar', adapter: adapter.name, fingerprint}); return; }
 

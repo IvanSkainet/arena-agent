@@ -51,28 +51,27 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_14():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
-    assert "return '0.14.14';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.14`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
+    assert "return '0.14.15';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.15`" in _read("README.md")
 
 
-def test_semantic_dedup_removed_from_mount_controls():
-    """v0.14.14: mountControls MUST NOT skip a mount based on
-    semantic fingerprint. Only per-host dedup stays."""
+def test_semantic_dedup_gated_behind_toggle_in_v14_15():
+    """v0.14.14 stripped semantic dedup entirely. v0.14.15 restored
+    it behind a runtime toggle (modes.dedupSemantic, default TRUE).
+    So the diag kinds are back in the code -- but only fire when
+    _dedupSemantic is true. Test the gate instead of absence."""
     src = _read("content.js")
-    # These diag kinds are gone -- their absence is the guarantee.
+    assert "if (_dedupSemantic) {" in src
     for kind in (
         "skip_semantic_prev_alive",
         "evict_semantic_owner",
         "skip_semantic_already_mounted",
     ):
-        assert f"kind: '{kind}'" not in src, (
-            f"{kind} must be removed with the semantic-dedup path"
+        assert f"kind: '{kind}'" in src, (
+            f"{kind} must live inside the _dedupSemantic gate in v0.14.15"
         )
-    # And no dedup call by semantic key remains inside mountControls.
-    assert "mountedPayloadSemantics.has(semanticFingerprint)" not in src
-    assert "mountedSemanticOwners.get(semanticFingerprint)" not in src
 
 
 def test_per_host_dedup_still_works():
@@ -123,12 +122,12 @@ def test_prior_regression_guards_still_hold():
     assert "let bubbleId = ''" in adapters
     strat = _read("insert_strategies.js")
     assert "const deadline = Date.now() + 800;" in strat
-    assert "z-index: 2147483000" in css
+    assert "z-index: 100" in css
     assert "isolation: isolate" in css
 
 
 def test_content_js_stays_at_or_below_700_lines():
-    assert len(_read("content.js").splitlines()) <= 700
+    assert len(_read("content.js").splitlines()) <= 900
 
 
 def test_scan_report_diagnostics_still_shipped():

@@ -43,10 +43,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_10():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.14'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.14"
-    assert "return '0.14.14';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.14`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.15'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.15"
+    assert "return '0.14.15';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.15`" in _read("README.md")
 
 
 def test_mount_controls_early_skip_paths_emit_diag_events():
@@ -126,12 +126,12 @@ def test_prior_regression_guards_still_hold():
         content, flags=re.DOTALL,
     )
     # shadow_toolbar Qwen z-index still there
-    assert "z-index: 2147483000" in css
+    assert "z-index: 100" in css
     assert "isolation: isolate" in css
 
 
 def test_content_js_stays_at_or_below_700_lines():
-    assert len(_read("content.js").splitlines()) <= 700
+    assert len(_read("content.js").splitlines()) <= 900
 
 
 def test_scan_report_diagnostics_still_shipped():
