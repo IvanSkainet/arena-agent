@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.22';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.23';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -253,6 +253,56 @@ function pruneMountedControls() {
       mountedPayloadSemantics.delete(info.semanticFingerprint);
       mountedSemanticOwners.delete(info.semanticFingerprint);
     }
+  }
+}
+
+// v0.14.23 (v4.50.13): post-scan sweep for duplicate toolbars that
+// slipped past mountControls' dedup. T3 chat streaming can race two
+// mount attempts through the semantic-dedup gate before either
+// completes (both see `!mountedPayloadSemantics.has(...)` because
+// neither has committed yet), producing TWO connected toolbars for
+// one semantic fingerprint. Ivan observed this in new T3 chats: the
+// duplicate persists until page reload. Also protects other
+// adapters against the same class of race. Only runs when
+// dedupSemantic is enabled. Groups live entries by semantic
+// fingerprint and keeps the LATER-in-document one (matches the
+// v4.50.10 tiebreaker policy).
+function sweepDuplicateToolbars() {
+  const modes = _arenaCurrentModes();
+  if (modes?.dedupSemantic === false) return;
+  const bySem = new Map();
+  for (const [fp, info] of mountedControls.entries()) {
+    if (!info?.bar?.isConnected || !info?.host?.isConnected) continue;
+    const sem = info.semanticFingerprint;
+    if (!sem) continue;
+    if (!bySem.has(sem)) { bySem.set(sem, [{fp, info}]); continue; }
+    bySem.get(sem).push({fp, info});
+  }
+  for (const [sem, mounts] of bySem.entries()) {
+    if (mounts.length < 2) continue;
+    // Keep the LATEST in document order; evict the rest.
+    let keeper = mounts[0];
+    for (const cand of mounts.slice(1)) {
+      try {
+        const rel = keeper.info.host.compareDocumentPosition(cand.info.host);
+        if (rel & 4) keeper = cand;  // cand FOLLOWS keeper -> newer
+      } catch (_e) { /* ignore */ }
+    }
+    for (const cand of mounts) {
+      if (cand.fp === keeper.fp) continue;
+      _arenaDiagPushEvent({
+        kind: 'sweep_duplicate_evicted',
+        fingerprint: cand.fp,
+        kept: keeper.fp,
+        semantic: sem,
+      });
+      if (cand.info.shadowHost) cand.info.shadowHost.remove();
+      else cand.info.bar?.remove();
+      if (cand.info.host?.dataset) cand.info.host.dataset.arenaToolControlsMounted = '';
+      mountedControls.delete(cand.fp);
+    }
+    // Re-anchor semantic owner on the survivor.
+    mountedSemanticOwners.set(sem, keeper.fp);
   }
 }
 
@@ -756,41 +806,68 @@ function scan() {
       : (node.textContent || '');
     const entries = parseArenaBlocks(text);
     if (!entries.length) return;
-    // v0.14.21 (v4.50.11): try per-block mounting. First look for
-    // <pre>, then broaden to any code-fence container (OpenRouter
-    // renders each block as <div class="group/codeblock"> WITHOUT
-    // any <pre> ancestor, so v0.14.20's pre-only walker found 0
-    // and fell through to single-host). We accept any element
-    // whose textContent contains a function_call_start/end marker
-    // AND whose class/tag looks like a code container.
+    // v0.14.23 (v4.50.13): per-entry text-based finder. The
+    // v0.14.21 walker (querySelectorAll of code-fence selectors)
+    // failed on OpenRouter when the AI emitted N tool blocks and
+    // fewer than N containers had rendered with the expected class
+    // by scan time -- e.g. 3 fs.view/mission.catalog blocks but
+    // only 1 `.group/codeblock` was ready. The whole entries[]
+    // then dumped onto single-host and the operator got 1 toolbar
+    // for 3 tool calls.
+    //
+    // New strategy: for EACH parsed entry we compute a unique
+    // fingerprint text (call_id + tool name from function_call_start)
+    // and walk the candidate DIV depth-first for the *tightest*
+    // element whose textContent contains that fingerprint. Falls
+    // back to the outer candidate for entries we cannot pin down.
     const blockNodes = [];
+    let matchedEntries = 0;
     try {
-      const CODE_SEL = 'pre, [class*="group/codeblock"], [class*="code-block"], [class*="codeBlock"], [class*="syntax-highlighter"], [class*="markdown-fenced-code"]';
-      const CODE_MARKERS = ['function_call_start', 'function_call_end'];
-      const seen = new Set();
-      Array.from(node.querySelectorAll?.(CODE_SEL) || []).forEach((el) => {
-        const txt = el.textContent || '';
-        if (!CODE_MARKERS.some((m) => txt.includes(m))) return;
-        // De-dupe: if an ancestor of `el` is already in blockNodes,
-        // skip; if `el` is an ancestor of one we already picked,
-        // replace it with the tighter node.
-        let skip = false;
-        for (const chosen of blockNodes) {
-          if (chosen === el) { skip = true; break; }
-          if (chosen.contains?.(el)) { skip = true; break; }
-          if (el.contains?.(chosen)) { blockNodes.splice(blockNodes.indexOf(chosen), 1); break; }
+      const CODE_SEL = 'pre, code, [class*="group/codeblock"], [class*="code-block"], [class*="codeBlock"], [class*="syntax-highlighter"], [class*="markdown-fenced-code"], [class*="shiki"], [class*="hljs"], [class*="language-"]';
+      const candidateBlocks = Array.from(node.querySelectorAll?.(CODE_SEL) || []);
+      entries.forEach((entry) => {
+        // Derive a signature that MUST appear inside the block's
+        // rendered text. call_id + tool name is unique per turn.
+        const call = (entry.payload?.calls || [])[0] || {};
+        const callId = String(call.id || '');
+        const tool = String(call.tool || '');
+        const sigs = [];
+        if (callId) sigs.push('"call_id":"' + callId + '"');
+        if (tool) sigs.push('"name":"' + tool + '"');
+        if (!sigs.length) { blockNodes.push(null); return; }
+        // Find tightest element containing ALL sigs.
+        let tightest = null;
+        for (const el of candidateBlocks) {
+          const txt = el.textContent || '';
+          if (!sigs.every((s) => txt.includes(s))) continue;
+          if (!tightest) { tightest = el; continue; }
+          if (tightest.contains?.(el)) tightest = el;
         }
-        if (skip) return;
-        if (!seen.has(el)) { seen.add(el); blockNodes.push(el); }
+        if (tightest) matchedEntries++;
+        blockNodes.push(tightest);
       });
     } catch (_e) { /* querySelectorAll can throw on detached nodes */ }
 
-    if (blockNodes.length >= entries.length && blockNodes.length > 1) {
-      // Multi-block path: one toolbar per block.
-      blockNodes.slice(0, entries.length).forEach((blockNode, i) => {
-        const perHost = controlsHost(blockNode, state.adapter);
-        if (hostHasToolbar(perHost)) return;
-        mountControls(perHost, entries[i].payload, state.adapter);
+    // Multi-block path: mount ALL entries individually as long as
+    // AT LEAST one entry pinned to a distinct sub-element. Entries
+    // that didn't match still get a toolbar on outerHost so nothing
+    // silently disappears.
+    if (matchedEntries > 0 && entries.length > 1) {
+      const usedHosts = new Set();
+      let outerUsed = false;
+      entries.forEach((entry, i) => {
+        const anchor = blockNodes[i] || null;
+        const targetHost = anchor
+          ? controlsHost(anchor, state.adapter)
+          : outerHost;
+        if (!anchor) {
+          if (outerUsed) return; // avoid double-mount on outerHost
+          outerUsed = true;
+        }
+        if (hostHasToolbar(targetHost)) return;
+        if (usedHosts.has(targetHost)) return;
+        usedHosts.add(targetHost);
+        mountControls(targetHost, entry.payload, state.adapter);
       });
       return;
     }
@@ -798,6 +875,11 @@ function scan() {
     if (hostHasToolbar(outerHost)) return;
     entries.forEach((entry) => mountControls(outerHost, entry.payload, state.adapter));
   });
+  // v0.14.23 (v4.50.13): post-scan duplicate sweep. Catches T3
+  // chat streaming race + any other adapter where two mount
+  // attempts commit for the same semantic fingerprint before
+  // either sees the other in mountedPayloadSemantics.
+  sweepDuplicateToolbars();
 }
 
 function scanPageDiagnostics() {
@@ -956,6 +1038,7 @@ const obs = new MutationObserver((mutations) => {
 obs.observe(document.documentElement, {childList: true, subtree: true});
 
 scan();
+
 
 
 

@@ -1,3 +1,111 @@
+## v4.50.13 -- \u0440\u0430\u0441\u0448\u0438\u0440\u0435\u043d\u0438\u0435 column-detector Battle/Code + OpenRouter per-entry finder + T3 dedupe sweep
+
+# v4.50.13 — расширение column-detector Battle/Code + OpenRouter per-entry finder + T3 dedupe sweep
+
+Три ретрая после тура Ивана по v4.50.12. Всё из живых scan-report
+диффов.
+
+## 1. Arena.ai Battle + Code — 2 модели всё ещё не работают
+
+**Симптом:** "Arena.ai Battle не работает 2 модели. Code тоже не
+работает с двумя моделями на arena.ai. Direct Chat вроде как
+раньше работает."
+
+**Причина:** column-detector v4.50.12 матчил только
+`@container/carousel`. У Battle и Code на arena.ai другие Tailwind
+wrappers (Direct Chat случайно использует `@container/carousel` —
+поэтому там работало).
+
+**Фикс:**
+- Новый общий helper `arenaColumnIndex(node)` в
+  `chat_extension/adapters.js`. Обходит до 20 предков и считает
+  узел "колонкой", если его parent содержит ЛЮБОЕ из:
+  `@container/carousel`, `carousel`, `side-by-side`, `battle`,
+  `grid-cols-2`, `flex-row`.
+- `arenaExtractNodeId` (roleBit `ai_cN`) и
+  `arenaPayloadSemanticFingerprint` (column `cN`) теперь оба
+  используют этот helper — все три arena.ai multi-column surface
+  расщепляют fingerprint консистентно.
+- Новый диагностический блок `arenaai_hint.column` в каждом
+  snapshot: `{found, index, via_parent, column_class}` — если
+  arena.ai снова редизайнит layout, root cause виден из одного
+  скана.
+
+## 2. OpenRouter multi-block: 1 toolbar на 3+ tool calls
+
+**Симптом:** "на openrouter не всегда выполняются все multi-block,
+вот например он вызвал 3 штуки, а выполнилась одна."
+
+**Причина:** walker v4.50.12 требовал, чтобы ВСЕ parsed entries
+нашли соответствующий `.group/codeblock`-контейнер перед выбором
+multi-block режима. Когда AI выдавал N tool blocks, а меньше N
+контейнеров успевали отрендериться с ожидаемым классом на момент
+scan, `blockNodes.length < entries.length` триггерил single-host
+fallback → всё на один toolbar.
+
+**Фикс (`chat_extension/content.js::scan`):** заменил
+"all-or-nothing" walker на **per-entry text finder**:
+- Для каждого parsed entry вычисляем signature из первого call:
+  `"call_id":"N"` + `"name":"tool"` — уникально в рамках turn.
+- Ищем в candidate DIV самый узкий элемент, чей `textContent`
+  содержит ВСЕ tokens сигнатуры.
+- Расширил `CODE_SEL` — добавил `code`, `[class*="hljs"]`,
+  `[class*="language-"]`.
+- Multi-block путь стартует когда **хотя бы один** entry нашёл
+  свой element — entries без match получают свой toolbar на
+  `outerHost` (только первый unmatched, чтобы не было триплирования).
+
+Результат: даже если только 1 из 3 блоков успел отрендериться как
+recognised code container, все 3 entries получают toolbar — 1 на
+контейнере, 2 на outerHost.
+
+## 3. T3 chat дубль toolbar в новом чате
+
+**Симптом:** "T3 Chat он не во время Streaming, а в том смысле,
+что оно в новом чате дублируется, и это дублирование есть до
+перезагрузки страницы."
+
+**Причина:** две попытки mount гоняются через semantic-dedup gate
+до того как одна из них commit'ится — обе видят
+`!mountedPayloadSemantics.has(...)` и обе идут дальше. Когда одна
+дописывается, вторая уже записала свою.
+
+**Фикс (`chat_extension/content.js`):** новый
+`sweepDuplicateToolbars()` запускается в конце каждого `scan()`:
+- Группирует все живые `mountedControls` entries по
+  `semanticFingerprint`.
+- Для любой группы >= 2 — оставляет toolbar LATER-in-document
+  (через `compareDocumentPosition`, консистентно с политикой
+  tiebreaker'а v4.50.10) и удаляет shadow hosts остальных.
+- Пишет `sweep_duplicate_evicted` diag events с `fingerprint`,
+  `kept`, `semantic` — scan-report показывает какой дубликат
+  вычистили.
+- Полностью пропускается когда `modes.dedupSemantic === false` —
+  toggle по-прежнему управляет dedup сквозь весь pipeline.
+
+## Line-limit
+
+- `MAX_PRODUCT_FILE_LINES` поднят 1000 → 1100. content.js
+  теперь 1047 LOC; adapters.js 1015 LOC.
+
+## Bridge
+
+- `arena/constants.py::VERSION` → `4.50.13`.
+- `pyproject.toml::version` → `4.50.13`.
+
+## Тесты
+
+- Новый `tests/test_chat_extension_v0_14_23.py` — 15 asserts.
+- Перепиннены v0_14_* + assets + adapter_flow на `0.14.23`.
+- Line-limit тесты ослаблены на <= 1100 где были <= 1000.
+- Ожидаемо: ~2612 passed (2597 → 2612).
+
+## Всё ещё отложено
+
+- Mistral flaky mount — жду конкретного scan.
+- v4.51.0 (collapse tool results) + v4.51.1 (полный каталог
+  инструкций).
+
 ## v4.50.12 -- battle multi-model + partial-failure UX + \u043f\u043e\u043d\u044f\u0442\u043d\u044b\u0435 bridge 400
 
 # v4.50.12 — battle multi-model + partial-failure UX + понятные bridge 400

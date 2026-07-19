@@ -8,6 +8,40 @@ function arenaPath() {
   return (location.pathname || '').toLowerCase();
 }
 
+// v0.14.23 (v4.50.13): shared column-index helper. Returns -1 when
+// `node` is NOT inside a recognised multi-column container, else the
+// child index of the column that contains node. Recognised
+// containers are the arena.ai Battle / Code / Side-by-side layouts
+// exposed via any of: `@container/carousel`, plain `carousel`,
+// `side-by-side`, `battle` in the class list, Tailwind
+// `grid-cols-2`, or `flex flex-row` on the immediate parent.
+// Kept host-agnostic in signature so it can also be reused by
+// non-arena.ai adapters that use similar Tailwind multi-column
+// patterns; callers gate on hostname themselves when needed.
+function arenaColumnIndex(node) {
+  if (!node || !node.parentElement) return -1;
+  try {
+    let cur = node.parentElement;
+    for (let i = 0; cur && i < 20; i++) {
+      const parent = cur.parentElement;
+      if (!parent) break;
+      const parentCls = String(parent.className || '');
+      const isColumn = /@container\/carousel/.test(parentCls)
+                    || /\bcarousel\b/.test(parentCls)
+                    || /side-by-side/.test(parentCls)
+                    || /\bbattle\b/.test(parentCls)
+                    || /grid-cols-2/.test(parentCls)
+                    || /flex-row/.test(parentCls);
+      if (isColumn) {
+        const sibs = Array.from(parent.children);
+        return sibs.indexOf(cur);
+      }
+      cur = parent;
+    }
+  } catch (_e) { /* detached nodes */ }
+  return -1;
+}
+
 // v0.14.18 (v4.50.8): human-readable label for the toolbar chip so
 // UIs read "Arena · Arena.ai" instead of "Arena · arenaai". Adapters
 // declare `displayName` in adapter_sites.js; falls back to the raw
@@ -425,11 +459,46 @@ function arenaDiagnosticSnapshot(node) {
         }
         cur = cur.parentElement;
       }
+      // v0.14.23 (v4.50.13): battle / code / side-by-side column
+      // hint. Uses the shared arenaColumnIndex helper (same logic
+      // that drives roleBit + semanticFingerprint) and additionally
+      // reports the parent's class list so we can debug what
+      // wrapper was detected as the multi-column container.
+      let columnHint = null;
+      try {
+        const idx = (typeof arenaColumnIndex === 'function') ? arenaColumnIndex(node) : -1;
+        if (idx >= 0) {
+          // Walk again to grab the parent class for the report.
+          let cur = node.parentElement;
+          let parentCls = '';
+          let colCls = '';
+          for (let i = 0; cur && i < 20; i++) {
+            const parent = cur.parentElement;
+            if (!parent) break;
+            const pCls = String(parent.className || '');
+            if (/@container\/carousel|\bcarousel\b|side-by-side|\bbattle\b|grid-cols-2|flex-row/.test(pCls)) {
+              parentCls = pCls;
+              colCls = String(cur.className || '');
+              break;
+            }
+            cur = parent;
+          }
+          columnHint = {
+            found: true,
+            index: idx,
+            via_parent: parentCls.slice(0, 80),
+            column_class: colCls.slice(0, 80),
+          };
+        } else {
+          columnHint = {found: false};
+        }
+      } catch (_e) { /* ignore */ }
       arenaaiHint = {
         surface,
         response_container_ancestor: !!node.closest?.('#response-content-container'),
         bg_surface_raised_ancestor: !!node.closest?.('[class*="bg-surface-raised"]'),
         bg_surface_primary_ancestor: !!node.closest?.('[class*="bg-surface-primary"]'),
+        column: columnHint,
         wrappers,
       };
     }
@@ -528,25 +597,19 @@ function arenaExtractNodeId(node, adapter = getArenaAdapter()) {
     } else if (node.closest?.('#response-content-container, [class*="chat-assistant"]')) {
       roleBit = 'ai';
     }
-    // v0.14.22 (v4.50.12): Arena.ai battle / side-by-side column
+    // v0.14.22/23: Arena.ai battle / side-by-side / code column
     // ordinal. When two models generate the same tool call in
     // parallel columns their outer wrappers otherwise hash to the
-    // same fingerprint (both `mx-auto max-w-[800px]` AI panels).
-    // Include the column index within the carousel/side-by-side
-    // container so each column gets a distinct fingerprint. Kept
-    // narrow: only fires on arena.ai and only when the ordinal is
-    // discoverable.
+    // same fingerprint. Use the shared arenaColumnIndex helper
+    // which covers @container/carousel, carousel, side-by-side,
+    // battle, grid-cols-2, and flex-row layouts. Kept host-gated
+    // on arena.ai so no other adapter's fingerprint drifts.
     if (roleBit === 'ai') {
       try {
         const isArenaAi = typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '');
         if (isArenaAi) {
-          const col = node.closest?.('[class*="@container/carousel"] > *, [class*="carousel"] > *, [class*="side-by-side"] > *');
-          const carousel = col?.parentElement;
-          if (col && carousel) {
-            const sibs = Array.from(carousel.children).filter((c) => c.contains?.(col) || c === col);
-            const idx = sibs.indexOf(col);
-            if (idx >= 0) roleBit = 'ai_c' + idx;
-          }
+          const idx = (typeof arenaColumnIndex === 'function') ? arenaColumnIndex(node) : -1;
+          if (idx >= 0) roleBit = 'ai_c' + idx;
         }
       } catch (_e) { /* ignore */ }
     }
@@ -664,14 +727,11 @@ function arenaPayloadSemanticFingerprint(payload, adapter = getArenaAdapter(), n
   let column = '';
   try {
     if (node && typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '')) {
-      // Look at Battle / Side-by-side carousel column index.
-      const col = node.closest?.('[class*="@container/carousel"] > *, [class*="carousel"] > *, [class*="side-by-side"] > *');
-      const carousel = col?.parentElement;
-      if (col && carousel) {
-        const sibs = Array.from(carousel.children);
-        const idx = sibs.indexOf(col);
-        if (idx >= 0) column = 'c' + idx;
-      }
+      // v0.14.23 (v4.50.13): use the shared arenaColumnIndex helper
+      // so all multi-column layouts (@container/carousel, carousel,
+      // side-by-side, battle, grid-cols-2, flex-row) split.
+      const idx = (typeof arenaColumnIndex === 'function') ? arenaColumnIndex(node) : -1;
+      if (idx >= 0) column = 'c' + idx;
     }
   } catch (_e) { /* ignore */ }
   return arenaStableHash(JSON.stringify({adapter: adapter.name, calls, column}), 'arena_payload_sem');
@@ -946,6 +1006,7 @@ function arenaFocusComposer(target) {
     target.focus();
   }
 }
+
 
 
 

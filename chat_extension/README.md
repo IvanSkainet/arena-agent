@@ -1,6 +1,27 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.22` (v4.50.12 bridge release —
+Current extension version: `0.14.23` (v4.50.13 bridge release —
+three retries from Ivan's v4.50.12 tour:
+1) Arena.ai Battle + Code — v4.50.12 column detector missed
+because arena.ai's Battle/Code layouts don't use the
+`@container/carousel` class. New shared `arenaColumnIndex()`
+helper recognises `carousel`, `side-by-side`, `battle`,
+`grid-cols-2`, `flex-row` too. Same helper drives roleBit,
+semanticFingerprint, and the new `arenaai_hint.column`
+diagnostic block.
+2) OpenRouter multi-block partial mount — v4.50.12 walker
+required all N blocks to render as recognised code-fence
+containers before scan; when only some did, all entries
+collapsed to single-host. New per-entry text-based finder:
+for each parsed entry, walk the candidate for the tightest
+element containing that call's `"call_id":"N"` + `"name":"tool"`
+signature; entries that don't match fall back to outerHost
+individually so nothing is silently dropped.
+3) T3 chat streaming duplicate — new `sweepDuplicateToolbars()`
+runs at end of every scan; groups live mounts by
+semanticFingerprint and evicts all-but-newest when two
+toolbars slipped through the mount-time dedup race.
+Guarded by the dedupSemantic toggle. v4.50.12 bridge release —
 big backlog release picking up open items from the v4.50.11 tour:
 1) Arena.ai battle / side-by-side multi-model — semantic
 fingerprint now includes the carousel column index so two
@@ -241,6 +262,7 @@ When debugging a site:
   the shadow root).
 - `background.js` — bridge communication, config, policies, history.
 - `sidepanel.js` — Command Center history UI.
+
 
 
 
