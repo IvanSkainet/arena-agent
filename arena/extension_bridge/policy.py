@@ -15,6 +15,8 @@ _SAFE_TOOLS = {
     "scenario.get", "scenario.history", "scenario.list", "scenario.preview",
     # v4.56.0: mobile.* read-only surfaces.
     "mobile.devices", "mobile.info", "mobile.transport_status", "mobile.screenshot", "mobile.ui", "mobile.sensors", "mobile.packages", "mobile.ime_status", "mobile.helpers_status", "mobile.camera_photos", "mobile.record_list",
+    # v4.57.0: net/secrets read-only surface.
+    "secrets.list",
 }
 _MEDIUM_TOOLS = {
     "fs.create", "memory.import", "mem.get", "mem.set",
@@ -30,6 +32,8 @@ _MEDIUM_TOOLS = {
     "scenario.save", "scenario.delete",
     # v4.56.0: mobile.* input/camera actions (state-changing but locally reversible).
     "mobile.tap", "mobile.swipe", "mobile.type", "mobile.key", "mobile.key_combo", "mobile.scroll", "mobile.gesture", "mobile.tap_by", "mobile.paste", "mobile.camera_launch", "mobile.camera_shutter", "mobile.camera_capture", "mobile.camera_pull", "mobile.camera_record_start", "mobile.camera_record_stop", "mobile.record_start", "mobile.record_stop", "mobile.record_pull",
+    # v4.57.0: typed HTTP client + secret metadata reads.
+    "net.http", "secrets.get",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
@@ -38,6 +42,8 @@ _DANGEROUS_TOOLS = {
     "mission.run", "mission.schedule_tick", "skill.run", "subagent.spawn",
     # v4.56.0: mobile.* full-shell / IME hijack surfaces.
     "mobile.shell", "mobile.ime_set", "mobile.ime_reset",
+    # v4.57.0: sudo runner.
+    "sudo.run",
 }
 _TRUSTED_HOSTS = {
     "chat.openai.com", "chatgpt.com", "claude.ai", "gemini.google.com",

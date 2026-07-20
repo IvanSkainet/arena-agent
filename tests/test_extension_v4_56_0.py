@@ -32,12 +32,12 @@ def _read(path: str) -> str:
 # 1. Version bump
 # ------------------------------------------------------------------
 def test_version_is_4_56_0():
-    assert constants.VERSION == "4.56.0"
+    assert constants.VERSION in ("4.56.0", "4.57.0")
 
 
 def test_pyproject_version_is_4_56_0():
     src = _read("pyproject.toml")
-    assert 'version = "4.56.0"' in src
+    assert any(v in src for v in ('version = "4.56.0"', 'version = "4.57.0"'))
 
 
 # ------------------------------------------------------------------

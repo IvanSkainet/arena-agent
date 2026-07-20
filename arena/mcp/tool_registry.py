@@ -2,6 +2,7 @@
 from __future__ import annotations
 from arena.mcp.tool_registry_mission import MISSION_MCP_TOOLS
 from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
+from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
 MCP_TOOLS = [
     {"name": "ping", "description": "Return pong (liveness)",
@@ -192,3 +193,4 @@ MCP_TOOLS = [
 ]
 
 MCP_TOOLS.extend(MOBILE_MCP_TOOLS)
+MCP_TOOLS.extend(NET_MCP_TOOLS)

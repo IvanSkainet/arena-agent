@@ -1,3 +1,24 @@
+## v4.57.0 — net.http, secrets.*, sudo.run
+
+**Веха по адаптивности (2/3 к E2E phone-voice-to-chat без exec).** Четыре новых MCP-инструмента заменяют `exec "curl ..."` и `exec "cat ~/.arena/secrets.json ..."` в сценариях.
+
+### net.http
+Типизированный HTTP-клиент. Только http/https к публичным хостам (SSRF-фильтр через `arena.security_ssrf._validate_url` — тот же allow-list, что у `browser.read`). Bearer/basic auth, json/text/base64 тело, params, headers. Ответ ограничен 2 МиБ. Текстовые MIME возвращают `.text` (+ `.json` для `application/json`), бинарные — `.base64`. Таймаут ограничен [1s, 60s].
+
+### secrets.get / secrets.list
+Читают метаданные секрета из `~/.arena/secrets.json` (override через `ARENA_SECRETS_PATH`). Открытый текст **никогда** не возвращается. Передавай `"secret:<key>"` как `net.http.auth.value` — секрет резолвится сервером без утечки в `runs[]`.
+
+### sudo.run
+Неинтерактивный `sudo -n <cmd>`. Оборачивает то, что `arena/security_commands.py` разрешал изначально. Тот же `BLOCK_PATTERNS` применяется. Класс `dangerous` — расширение всегда требует подтверждения. Только POSIX.
+
+### Классы риска
+- **safe**: `secrets.list`
+- **medium**: `net.http`, `secrets.get`
+- **dangerous**: `sudo.run`
+
+### Расширение
+Байт-в-байт как v4.53.1 — только мост.
+
 ## v4.56.0 — MCP-обёртка над mobile.* (30 инструментов)
 
 **Веха по адаптивности.** Вся HTTP-поверхность `arena/mobile/*` (30 эндпоинтов, живёт в мосте с v3.83.x) стала доступна как типизированные MCP-инструменты. Сценарии и chat-extension могут управлять Android-устройствами так же, как `fs.*`, `desktop.*`, `scenario.*` — без костыля `exec "adb shell ..."`.

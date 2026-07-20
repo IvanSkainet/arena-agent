@@ -1,3 +1,24 @@
+## v4.57.0 — net.http, secrets.*, sudo.run
+
+**Adaptivity milestone (2/3 toward E2E phone-voice-to-chat without exec).** Four new MCP tools replace `exec "curl ..."` and `exec "cat ~/.arena/secrets.json ..."` in scenarios.
+
+### net.http
+Typed HTTP client. Only http/https to public hostnames (SSRF-filtered via `arena.security_ssrf._validate_url` — same allow-list as `browser.read`). Bearer/basic auth, json/text/base64 body, params, headers. Response capped at 2 MiB. Textual MIMEs return `.text` (+ `.json` for `application/json`), binary returns `.base64`. Timeout clamped [1s, 60s].
+
+### secrets.get / secrets.list
+Read metadata about a secret from `~/.arena/secrets.json` (override via `ARENA_SECRETS_PATH`). Plaintext values are **never** returned. Pass `"secret:<key>"` as `net.http.auth.value` to reference a secret without logging it in scenario `runs[]`.
+
+### sudo.run
+Non-interactive `sudo -n <cmd>`. Wraps the path `arena/security_commands.py` has always allowed. Same `BLOCK_PATTERNS` still apply. Classified `dangerous` so the extension always requires approval. POSIX only.
+
+### Policy
+- **safe**: `secrets.list`
+- **medium**: `net.http`, `secrets.get`
+- **dangerous**: `sudo.run`
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only release.
+
 ## v4.56.0 — mobile.* MCP surface (30 tools)
 
 **Adaptivity milestone.** The whole `arena/mobile/*` handler surface (30 endpoints, in the bridge since v3.83.x) is now callable as typed MCP tools. Scenarios and the browser chat extension can drive Android devices the same way they drive `fs.*`, `desktop.*`, and `scenario.*` — no more `exec "adb shell ..."` costume.
