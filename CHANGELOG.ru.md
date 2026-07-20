@@ -1,3 +1,88 @@
+## v4.54.1 — 2026-07-20
+
+Две step-level фичи для сценариев, обе прямо из твоего
+исходного эскиза с транскрипцией: сценарий должен уметь
+**дождаться файла** от KDE Connect и **ретраить** временные
+сбои.
+
+### chat_extension — не менялось
+
+Extension байт-в-байт идентичен v4.54.0. Это чистый
+bridge-релиз.
+
+### `retry:` блок per step
+
+```json
+{"id": "flaky", "tool": "browser.fetch",
+ "retry": {"attempts": 3, "delay_seconds": 1.5, "backoff": 2.0}}
+```
+
+* Defaults: 1 attempt (без retry), 0.5 с delay, ×2.0 backoff.
+* Clamps: attempts [1..10], delay [0..60 с], backoff [1..5].
+* На успешный retry в результат кладётся `attempts_used: N`
+  чтобы отладка не была загадкой.
+* Если `wait_for` (ниже) провалился — attempt считается
+  провальным, retry получает шанс ещё раз.
+
+### `wait_for:` блок per step
+
+Два варианта: файл появился, HTTP-условие. Запускается
+ПОСЛЕ успешного tool call'а; failed wait = failed attempt.
+
+```json
+"wait_for": {"file": "~/Downloads/note.m4a",
+             "timeout_seconds": 30, "poll_seconds": 1}
+```
+
+```json
+"wait_for": {"http": {"url": "https://api.x/status/xyz",
+                       "expect_status": 200,
+                       "expect_json_field": "done",
+                       "expect_json_value": true},
+             "timeout_seconds": 60, "poll_seconds": 2}
+```
+
+* Clamps: timeout [1 с .. 1 час], poll [0.1 с .. 30 с].
+* Явный 0 clamp'ится до floor (защита от опечаток), НЕ
+  подставляет default.
+* `wait_for.http` принимает только `http(s)://` (блокирует
+  `file://` и т.п.), socket timeout ограничен
+  `min(10s, poll * 5)`.
+* Результат добавляет sub-объект `wait_for` в step result:
+  `{ok, kind: "file"|"http", waited_seconds, ...}`.
+
+### Риск
+
+Любой step с `wait_for.http` поднимает риск сценария до
+**минимум `medium`**. Outbound HTTP от bridge host —
+SSRF-adjacent; юзер должен подтвердить. `wait_for.file`
+локален и НЕ меняет риск.
+
+### `docs/scenarios/`
+
+* `README.md` — полная справка по `retry` / `wait_for.file`
+  / `wait_for.http` + template выражения + классификация
+  риска.
+* `wait-for-download.json` — новый worked example: тот
+  самый паттерн «trigger download → жди файл» из твоего
+  исходного эскиза.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_54_1.py` — **30 ассертов**.
+  Включает live-`http.server` для проверки `wait_for.http`
+  end-to-end (первый hit, poll-until-flip, JSON match,
+  timeout, схема blocklist).
+* Полный suite: **2978 passed** (2948 baseline + 30 v4.54.1).
+  Zero regressions.
+
+### Roadmap не менялся
+
+* **v4.54.2** — `if:` per step + parallel groups
+* **v4.54.3** — recurring scheduler
+* **v4.54.4** — webhook triggers
+* **v4.54.5** — Scenarios tab в sidepanel
+
 ## v4.54.0 — 2026-07-20
 
 **Новая фича: оркестрация сценариев.** Ivan предложил

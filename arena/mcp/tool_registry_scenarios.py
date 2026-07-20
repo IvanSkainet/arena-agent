@@ -71,7 +71,10 @@ SCENARIO_MCP_TOOLS = [
             "Execute a scenario's steps in order, interpolating "
             "{{ steps.<id>.result.<field> }} templates. Returns per-step "
             "results plus a final return value. Set dry_run=true to skip "
-            "actual tool invocations."
+            "actual tool invocations. Each step may declare a `retry` "
+            "block ({attempts, delay_seconds, backoff}) and/or a "
+            "`wait_for` block ({file, http, timeout_seconds, "
+            "poll_seconds}) — see docs/scenarios/README.md."
         ),
         "inputSchema": {
             "type": "object",

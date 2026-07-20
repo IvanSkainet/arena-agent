@@ -1,3 +1,121 @@
+## v4.54.1 — 2026-07-20
+
+Two step-level features for scenarios, both requested by Ivan's
+original phone-transcription sketch: a scenario needs to
+**wait for the file** to arrive from KDE Connect, and to
+**retry** transient failures without giving up.
+
+### chat_extension — nothing changed
+
+Extension is byte-identical to v4.54.0. This is a pure
+bridge-side release. `content.js`, `background.js`,
+`shadow_toolbar.*`, `sidepanel.*` etc. all unchanged.
+
+### `arena/scenarios/runtime.py`
+
+**`retry:` block per step**
+
+```json
+{
+  "id": "flaky",
+  "tool": "browser.fetch",
+  "arguments": {"url": "..."},
+  "retry": {"attempts": 3, "delay_seconds": 1.5, "backoff": 2.0}
+}
+```
+
+* Defaults: 1 attempt (no retry), 0.5 s initial delay, 2.0×
+  backoff.
+* Clamped: attempts ∈ [1..10], delay ∈ [0..60 s], backoff ∈
+  [1..5].
+* On successful retry the step result carries
+  `attempts_used: N` so debugging isn't a mystery.
+* If wait_for post-condition (below) fails, the whole
+  attempt counts as failed — the retry loop will try again.
+
+**`wait_for:` block per step**
+
+Two flavours: file-appeared and http-condition. Runs AFTER
+the step's tool call succeeds; a failed wait counts as a
+failed attempt.
+
+```json
+"wait_for": {
+  "file": "~/Downloads/note.m4a",
+  "timeout_seconds": 30,
+  "poll_seconds": 1
+}
+```
+
+```json
+"wait_for": {
+  "http": {
+    "url": "https://api.example.com/status/xyz",
+    "expect_status": 200,
+    "expect_json_field": "done",
+    "expect_json_value": true
+  },
+  "timeout_seconds": 60,
+  "poll_seconds": 2
+}
+```
+
+* Clamps: timeout ∈ [1 s .. 1 h], poll ∈ [0.1 s .. 30 s].
+* Explicit `0` for either clamps to the floor (typo defence),
+  it does NOT fall back to the default.
+* `wait_for.http` only accepts `http://` / `https://` URLs
+  (blocks `file://` etc.) and uses a bounded per-poll socket
+  timeout (`min(10s, poll * 5)`).
+* Result attaches a `wait_for` sub-object to the step result:
+  `{ok, kind: "file"|"http", waited_seconds, ...}`.
+
+### `arena/scenarios/runtime.py::derive_scenario_risk`
+
+Any step with `wait_for.http` promotes the scenario risk to
+**at least `medium`**. Outbound HTTP from the bridge host is
+SSRF-adjacent; the operator must approve. `wait_for.file` is
+purely local and does NOT change the risk.
+
+### `docs/scenarios/`
+
+* `README.md` — full reference for `retry` / `wait_for.file` /
+  `wait_for.http` + template expressions + risk classification.
+* `wait-for-download.json` — new worked example illustrating
+  the combined `retry: {attempts:3, ...}` +
+  `wait_for.file:{timeout_seconds:30}` pattern that maps
+  directly to Ivan's "KDE Connect drops the file, then
+  transcribe it" sketch.
+
+### Tests
+
+* Added `tests/test_extension_v4_54_1.py` — **30 assertions**:
+  * `_normalise_retry` defaults + clamps + nonsense-graceful
+  * `_normalise_wait_for` for file + http variants + timeout
+    clamps + explicit-zero floor + missing-block returns None
+  * `_wait_for_file` succeeds immediately, appears-after-delay,
+    times out, expands `~`
+  * `_wait_for_http` against a real localhost `http.server`:
+    first-hit succeeds, poll-until-status-flips, JSON-field
+    match, times-out-when-never-matches, rejects non-http
+    schemes
+  * `derive_scenario_risk` — `wait_for.http` promotes to
+    medium, `wait_for.file` does NOT, `wait_for.http` never
+    downgrades already-dangerous
+  * Runtime integration: retry recovers after flake, retry
+    all-fail, no-retry-block = single attempt, wait_for.file
+    succeeds/times-out end-to-end, wait_for.http end-to-end,
+    retry + wait_for combined (first attempt's wait times
+    out, second attempt sees the file)
+* Full suite: **2978 passed** (2948 baseline + 30 for
+  v4.54.1). Zero regressions.
+
+### Roadmap unchanged
+
+* **v4.54.2** — `if:` per step + parallel step groups
+* **v4.54.3** — recurring scheduler (`scenario.schedule_save`)
+* **v4.54.4** — webhook triggers (`/v1/scenario/trigger/<name>`)
+* **v4.54.5** — Scenarios tab in sidepanel
+
 ## v4.54.0 — 2026-07-20
 
 **New feature: Scenario orchestration.** Ivan proposed a
