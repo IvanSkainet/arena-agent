@@ -35,7 +35,7 @@ def test_version_is_4_58_0():
 
 
 def test_pyproject_version_is_4_58_0():
-    assert any(v in _read("pyproject.toml") for v in ('version = "4.58.0"', 'version = "4.59.0"'))
+    assert any(v in _read("pyproject.toml") for v in ('version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"'))
 
 
 # --------- Registry ---------

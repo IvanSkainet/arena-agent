@@ -37,7 +37,7 @@ def test_version_is_4_56_0():
 
 def test_pyproject_version_is_4_56_0():
     src = _read("pyproject.toml")
-    assert any(v in src for v in ('version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.58.0"', 'version = "4.59.0"'))
+    assert any(v in src for v in ('version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"'))
 
 
 # ------------------------------------------------------------------
