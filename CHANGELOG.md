@@ -1,3 +1,35 @@
+## v4.60.0 — real-world bug pass (Ivan's list #2, #7, #9 seed) + CI green streak
+
+Ivan came back from Windows / GNU/Linux + ZeroTier practice with 10 concrete field bugs. Not a feature release — a *listening* release. Three items fixed here; the rest queued as separate work.
+
+### Fixed
+
+**#7 — Hooks tab icon missing on Windows 10 LTSC 2021.**
+`dashboard/assets/00-tabs-registry.js` used 🪝 (U+1FA9D, Emoji 14.0, released Sept 2021). Windows 10 LTSC 2021 base Segoe UI Emoji tops out at Emoji 13.1, so the glyph rendered as an empty box. Swapped for 🎣 (U+1F3A3, Emoji 3.0 — universally shipped). New contract test `test_tabs_registry_avoids_emoji_14` prevents any Emoji 14 code point from re-entering the registry silently.
+
+**#2 — ZeroTier state disagreed between Overview and Transports.**
+`dashboard/assets/20-transports.js` checked `ztRaw.available !== false` when deciding "is ZT installed". But `zerotier_status()` returns `installed`, never `available` — the phantom field was `undefined`, `undefined !== false` is `true`, so Transports **always** claimed ZT was installed regardless of reality. Meanwhile Overview used `/v1/zerotier/peers` and a different check. Fixed to read `ztRaw.installed`. Also promoted the `active` check to consult `ztRaw.active_count` so CLI-backend hosts (no `.zerotier.online` bool) are recognized as connected when they have active networks.
+
+**#9 seed — Agent session checkpoint.**
+`arena/agent_session.py`: dead-simple `write_checkpoint / read_checkpoint / append_note / clear_checkpoint` against `~/.arena/agent_session.json`. Not full "resume from checkpoint" logic (that's a much bigger fix) — just a place where the current agent can leave breadcrumbs for the next one after a reboot/context loss. Overridable via `ARENA_AGENT_SESSION_FILE`.
+
+### CI green streak restored
+
+v4.59.1 fixed the ruff F811 that had been silent since v4.54.1 and the bandit B108 introduced in v4.59.0. From v4.59.1 forward both **Security scan** and **CI (ruff + tests)** are green. My prior "CI green" reports for v4.56-v4.58 covered only Security scan and were technically wrong — new personal rule: inspect all workflow names per tag before saying "RELEASED".
+
+### Not yet fixed (from Ivan's list — planned)
+
+- **#1** — CI failed several releases → fixed in v4.59.1 and this release.
+- **#3** — Transports autostart doesn't actually start (checkbox saved but ignored).
+- **#4** — Auto Update on Windows 10 LTSC 2021 does nothing meaningful.
+- **#5** — inventory.py + full inventory don't load on Windows.
+- **#6** — Transports layout shifts right when few transports are running.
+- **#8** — Dashboard tab-switching lag on Windows worse than on GNU/Linux.
+- **#10** — sudo (Linux) / runas (Windows) / macOS coverage rewrite.
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only release.
+
 ## v4.59.1 — hotfix: CI green (ruff + bandit)
 
 Both CI pipelines have been silently failing since **v4.54.1** (ruff F811) and **v4.59.0** (bandit B108). My previous "CI green" reports covered only the Security-scan workflow, not the Lint workflow. Ivan caught this — apologies for the false rapport.

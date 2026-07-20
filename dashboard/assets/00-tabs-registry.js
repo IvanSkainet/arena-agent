@@ -29,7 +29,8 @@ window.ARENA_TABS = [
                                     onShow: () => { loadTasks(); startTaskRefresh(); },
                                     onHide: () => stopTaskRefresh()},
   {name: "skills",    icon: "🧩", label: "Skills",    onShow: () => loadSkills()},
-  {name: "hooks",     icon: "🪝", label: "Hooks",     onShow: () => loadHooks()},
+  // v4.60.0: swap 🪝 (Emoji 14.0, missing on Windows 10 LTSC 2021 base Segoe UI Emoji) -> 🎣 (Emoji 3.0, universal).
+  {name: "hooks",     icon: "🎣", label: "Hooks",     onShow: () => loadHooks()},
   {name: "agents",    icon: "🤖", label: "Agents",    onShow: () => loadAgents()},
   {name: "control",   icon: "🛡️", label: "Control",   onShow: () => refreshControlPanel()},
   {name: "mobile",    icon: "📱", label: "Mobile",    onShow: () => refreshMobile()},

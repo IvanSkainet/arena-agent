@@ -297,9 +297,17 @@
       };
 
       // ZeroTier -- no start/stop, we just show reachable/URL.
+      // v4.60.0: use ztRaw.installed (actual field from zerotier_status)
+      // instead of ztRaw.available (never returned; always undefined -> true,
+      // which made Transports lie that ZT was installed on hosts without it).
+      // active also promoted to consult ztRaw.active_count so CLI backend
+      // (no `online` bool in the sub-object) is recognized.
+      var ztOnline = !!(ztRaw.zerotier && ztRaw.zerotier.online);
+      var ztConnected = !!(ztRaw.zerotier && ztRaw.zerotier.connected);
+      var ztActiveNets = (typeof ztRaw.active_count === "number" && ztRaw.active_count > 0);
       var ztSnap = {
-        active: !!(urlByProv.zerotier || (ztRaw.zerotier && ztRaw.zerotier.online)),
-        installed: ztRaw.available !== false,
+        active: !!(urlByProv.zerotier || ztOnline || ztConnected || ztActiveNets),
+        installed: ztRaw.installed !== false,
         version: (ztRaw.zerotier && ztRaw.zerotier.version) || null,
         url: urlByProv.zerotier || "",
       };
