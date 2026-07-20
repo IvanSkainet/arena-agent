@@ -1,3 +1,89 @@
+## v4.52.1 — 2026-07-20
+
+Fifth Settings tab in the side panel + a Scan Now viewer in the
+Status tab. Continues the UI polish started in v4.52.0. Parser,
+adapters, and collapse code remain byte-identical to v4.51.4.
+
+### chat_extension `sidepanel.html` + `sidepanel.js` + `popup.css` (0.14.34 → 0.14.35)
+
+**Settings tab** (new). Consolidates everything that was
+previously split between the popup and `chrome.storage`:
+
+* **Bridge connection**
+  * `Bridge URL` input (synced via `chrome.storage.sync`).
+  * `Bridge token` password input (device-local, stored in
+    `chrome.storage.local` only; never synced across profiles).
+    Explicit hint text explains this.
+  * `Save`, `Reveal / hide token`, `Clear token` (danger, red
+    background) buttons.
+* **Automatic modes** — four opt-in toggles, all default OFF:
+  auto-preview detected calls, auto-execute safe-risk calls,
+  auto-insert result, auto-submit composer after insert.
+* **Insert strategy** — dropdown covering the seven values the
+  `settings.js` normaliser accepts: `auto` (recommended) plus
+  `nativeInsertText`, `paragraphFallback`, `pasteOnly`,
+  `directDomText`, `directDomBlocks`, `directDomPreWrap` as
+  debugging escape hatches.
+* **UI polish** — `collapseToolResults`, `dedupSemantic`
+  (both default ON).
+* **Advanced / experimental** — `enableGenericAdapter`
+  (default OFF; explicit warning about false-positive risk on
+  documentation/README pages).
+* **Save Modes** / **Reset to defaults** buttons; a live
+  `Active: …` summary line always reflects the current
+  in-form state so the user sees what would be persisted.
+
+All toggles wire into the existing background message API
+(`arena.getConfig` / `arena.saveConfig`) so this is UI-only —
+no background changes required.
+
+**Scan Now viewer** (Status tab, new). A `Scan Now` button
+runs the same Scan Page report the popup exposes and
+pretty-prints it inline:
+
+* Summary line: `adapter · host · N candidates · N blocks ·
+  N unique · N dup · N mounted · composer: … · tools: …`.
+* Events pane: last 20 diag events with the v4.51.4 fields
+  (`kind`, `fingerprint`, `target_kind`, `target_tag`,
+  `lines`, `previous_owner`, `tag`) so the operator can see
+  `tool_result_collapsed`, `sweep_orphan_shadow_removed`,
+  `skip_semantic_prev_alive`, `mounted`, etc. at a glance.
+* Raw JSON stays available in a collapsible `<pre>` for
+  copy-paste into a bug report.
+
+The unwrap logic accepts both the raw content-script response
+and the `{ok, response, ...}` envelope the background wraps
+`arena.scanPage` in.
+
+### Tests
+
+* Added `tests/test_extension_v4_52_1.py` — 19 assertions:
+  version bumps, 5-tab HTML structure (Settings tab added),
+  every bridge / mode / advanced control by id, all seven
+  `insertStrategy` options rendered, device-local security
+  hint text present, JS handler wiring (settings loader
+  registered in `TAB_LOAD_HOOKS`, `ARENA_SETTINGS_DEFAULTS`
+  mirrors `settings.js`, `ARENA_TOGGLE_FIELDS` covers every
+  boolean toggle, uses `arena.getConfig` / `arena.saveConfig`
+  message API), Scan Now controls + wiring (`arena.scanPage`
+  unwrap, `_sidepanelRenderScanEvents`, recognises v4.51.4
+  diag fields), CSS classes for new controls.
+* jsdom smoke (`jstest/smoke_settings.js`) — 23 assertions
+  covering the full DOM interaction: tab activation, config
+  load from message, toggle changes propagate to
+  `arena.saveConfig`, reset restores defaults, clear token
+  wipes and saves, reveal button flips password/text,
+  `arena.scanPage` renders summary + events + raw JSON.
+* Full suite: **2798 passed** (2779 baseline + 19 for
+  v4.52.1). Zero regressions.
+
+### Not addressed in this release
+
+* **Mistral duplicate-mount loop** — still deferred per Ivan's
+  v4.50.17 note.
+* **browser-agent-bridge server-driven mode** — still noted
+  as potential future direction.
+
 ## v4.52.0 — 2026-07-20
 
 Chrome extension side-panel UI redesign, adapted from

@@ -18,6 +18,7 @@
       <button class="arena-tab"                  data-tab="tools"        role="tab">Tools</button>
       <button class="arena-tab"                  data-tab="instructions" role="tab">Instructions</button>
       <button class="arena-tab"                  data-tab="history"      role="tab">History</button>
+      <button class="arena-tab"                  data-tab="settings"     role="tab">Settings</button>
     </nav>
 
     <!-- STATUS -->
@@ -26,8 +27,15 @@
         <button id="refreshBtn">Refresh</button>
         <button id="testBtn">Test Bridge</button>
         <button id="policiesBtn">Policies</button>
+        <button id="scanNowBtn" title="Run Scan Page on the active tab and pretty-print the result">Scan Now</button>
       </div>
       <pre id="statusBox">Loading...</pre>
+      <details id="scanDetails" class="arena-scan-details" open>
+        <summary>Scan Page result</summary>
+        <div id="scanSummary" class="arena-scan-summary">Click <b>Scan Now</b> to inspect the active chat tab.</div>
+        <div id="scanEvents" class="arena-scan-events"></div>
+        <pre id="scanRawBox" class="arena-scan-raw">(no scan yet)</pre>
+      </details>
     </section>
 
     <!-- TOOLS -->
@@ -82,6 +90,55 @@
         <span id="instructionsSummary" class="arena-instructions-summary"></span>
       </div>
       <pre id="instructionsPreview" class="arena-instructions-preview">Loading…</pre>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="tab-settings" class="arena-tab-panel" role="tabpanel">
+      <h2>Bridge connection</h2>
+      <label for="cfgBridgeUrl">Bridge URL</label>
+      <input id="cfgBridgeUrl" placeholder="http://127.0.0.1:8765 or https://…ngrok-free.dev">
+      <label for="cfgBridgeToken">Bridge token (device-local secret)</label>
+      <input id="cfgBridgeToken" type="password" placeholder="Bearer token from the bridge">
+      <div class="arena-hint">Token is stored in <code>chrome.storage.local</code> only. It never leaves the device and is not synced across your other Chrome profiles.</div>
+      <div class="row">
+        <button id="cfgSaveBtn">Save</button>
+        <button id="cfgRevealBtn" title="Reveal / hide the token">👁</button>
+        <button id="cfgClearTokenBtn" class="arena-btn-danger" title="Wipe the token from this device">Clear token</button>
+      </div>
+
+      <h2>Automatic modes</h2>
+      <div class="arena-hint">These modes control what the extension does on its own. Leave everything OFF for a strict manual-confirm workflow (default).</div>
+      <label class="arena-toggle"><input type="checkbox" id="mAutoPreview"> Auto-preview detected calls</label>
+      <label class="arena-toggle"><input type="checkbox" id="mAutoExecuteSafe"> Auto-execute <code>safe</code>-risk calls (no Run click needed)</label>
+      <label class="arena-toggle"><input type="checkbox" id="mAutoInsertResult"> Auto-insert tool result back into the composer</label>
+      <label class="arena-toggle"><input type="checkbox" id="mAutoSubmitResult"> Auto-submit the composer after inserting a result</label>
+
+      <h2>Insert strategy</h2>
+      <label for="mInsertStrategy">Preferred insert plan</label>
+      <select id="mInsertStrategy">
+        <option value="auto">auto (site-adaptive, recommended)</option>
+        <option value="nativeInsertText">nativeInsertText</option>
+        <option value="paragraphFallback">paragraphFallback</option>
+        <option value="pasteOnly">pasteOnly</option>
+        <option value="directDomText">directDomText</option>
+        <option value="directDomBlocks">directDomBlocks</option>
+        <option value="directDomPreWrap">directDomPreWrap</option>
+      </select>
+      <div class="arena-hint">"auto" picks the right plan per site; the manual options are debugging escape hatches.</div>
+
+      <h2>UI polish</h2>
+      <label class="arena-toggle"><input type="checkbox" id="mCollapseToolResults"> Collapse pasted tool-results in chat history</label>
+      <label class="arena-toggle"><input type="checkbox" id="mDedupSemantic"> Dedup semantic duplicate toolbars (recommended ON)</label>
+
+      <h2>Advanced / experimental</h2>
+      <label class="arena-toggle"><input type="checkbox" id="mEnableGenericAdapter"> Enable the generic adapter on unlisted chat sites (default OFF)</label>
+      <div class="arena-hint">Turn ON only if you want to try the extension on a chat site that isn't in the adapter list. Detection is best-effort and may not fire.</div>
+
+      <div class="row" style="margin-top:14px">
+        <button id="mSaveBtn">Save modes</button>
+        <button id="mResetBtn">Reset to defaults</button>
+        <span id="mSummary" class="arena-modes-summary"></span>
+      </div>
     </section>
 
     <!-- HISTORY -->

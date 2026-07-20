@@ -492,6 +492,167 @@ function scheduleFilterReload() {
 }
 
 // ------------------------------------------------------------
+// Settings tab (v0.14.35 / v4.52.1)
+// ------------------------------------------------------------
+// Config is stored in the background service worker
+// (chrome.storage.local for the token, chrome.storage.sync for
+// URL + modes). We mirror the same defaults the settings.js
+// helpers use so a fresh browser profile shows sensible values.
+const ARENA_SETTINGS_DEFAULTS = {
+  autoPreview: false,
+  autoExecuteSafe: false,
+  autoInsertResult: false,
+  autoSubmitResult: false,
+  insertStrategy: 'auto',
+  dedupSemantic: true,
+  enableGenericAdapter: false,
+  collapseToolResults: true,
+};
+const ARENA_TOGGLE_FIELDS = [
+  ['mAutoPreview',          'autoPreview'],
+  ['mAutoExecuteSafe',      'autoExecuteSafe'],
+  ['mAutoInsertResult',     'autoInsertResult'],
+  ['mAutoSubmitResult',     'autoSubmitResult'],
+  ['mCollapseToolResults',  'collapseToolResults'],
+  ['mDedupSemantic',        'dedupSemantic'],
+  ['mEnableGenericAdapter', 'enableGenericAdapter'],
+];
+
+function _sidepanelModesFromForm() {
+  const modes = {insertStrategy: document.getElementById('mInsertStrategy').value || 'auto'};
+  ARENA_TOGGLE_FIELDS.forEach(([elId, modeKey]) => {
+    modes[modeKey] = document.getElementById(elId).checked;
+  });
+  return modes;
+}
+function _sidepanelApplyModesToForm(modes) {
+  const m = {...ARENA_SETTINGS_DEFAULTS, ...(modes || {})};
+  ARENA_TOGGLE_FIELDS.forEach(([elId, modeKey]) => {
+    document.getElementById(elId).checked = !!m[modeKey];
+  });
+  document.getElementById('mInsertStrategy').value = m.insertStrategy || 'auto';
+  _sidepanelUpdateModesSummary(m);
+}
+function _sidepanelUpdateModesSummary(modes) {
+  const parts = [];
+  const toggleTrue = ARENA_TOGGLE_FIELDS.filter(([, k]) => !!modes?.[k]).map(([, k]) => k);
+  if (toggleTrue.length) parts.push(toggleTrue.join(', '));
+  if (modes?.insertStrategy && modes.insertStrategy !== 'auto') parts.push(`insertStrategy=${modes.insertStrategy}`);
+  document.getElementById('mSummary').textContent = parts.length ? `Active: ${parts.join(' · ')}` : 'Active: manual-confirm (all defaults)';
+}
+async function loadSettings() {
+  const cfg = await send('arena.getConfig');
+  document.getElementById('cfgBridgeUrl').value = cfg?.bridgeUrl || '';
+  document.getElementById('cfgBridgeToken').value = cfg?.bridgeToken || '';
+  _sidepanelApplyModesToForm(cfg?.modes || ARENA_SETTINGS_DEFAULTS);
+}
+async function saveSettingsBridge() {
+  const bridgeUrl = document.getElementById('cfgBridgeUrl').value.trim();
+  const bridgeToken = document.getElementById('cfgBridgeToken').value.trim();
+  const modes = _sidepanelModesFromForm();
+  const result = await send('arena.saveConfig', {bridgeUrl, bridgeToken, modes});
+  renderStatus(result);
+  // Re-run health check so the header badge reflects the new
+  // URL/token combination immediately.
+  await testConnection();
+}
+async function saveSettingsModes() {
+  const cfg = await send('arena.getConfig');
+  const modes = _sidepanelModesFromForm();
+  const result = await send('arena.saveConfig', {
+    bridgeUrl: cfg?.bridgeUrl || '',
+    bridgeToken: cfg?.bridgeToken || '',
+    modes,
+  });
+  _sidepanelUpdateModesSummary(modes);
+  renderStatus(result);
+}
+async function resetSettingsModes() {
+  _sidepanelApplyModesToForm(ARENA_SETTINGS_DEFAULTS);
+  await saveSettingsModes();
+}
+async function clearBridgeToken() {
+  document.getElementById('cfgBridgeToken').value = '';
+  await saveSettingsBridge();
+}
+
+// ------------------------------------------------------------
+// Scan Now (Status tab)
+// ------------------------------------------------------------
+function _sidepanelScanSummaryParts(res) {
+  const parts = [];
+  if (!res) return ['(no response from active tab)'];
+  if (res.adapter) parts.push(`adapter: <b>${res.adapter}</b>`);
+  if (res.host) parts.push(`host: ${res.host}`);
+  if (Number.isFinite(res.candidate_nodes)) parts.push(`${res.candidate_nodes} candidates`);
+  if (Number.isFinite(res.parsed_blocks)) parts.push(`${res.parsed_blocks} blocks`);
+  if (Number.isFinite(res.semantic_unique_blocks)) parts.push(`${res.semantic_unique_blocks} unique`);
+  if (Number.isFinite(res.semantic_duplicate_blocks) && res.semantic_duplicate_blocks > 0) parts.push(`${res.semantic_duplicate_blocks} dup`);
+  if (Number.isFinite(res.mounted_controls)) parts.push(`${res.mounted_controls} mounted`);
+  if (Number.isFinite(res.dismissed_controls) && res.dismissed_controls > 0) parts.push(`${res.dismissed_controls} dismissed`);
+  const composer = res.composer || {};
+  if (composer.found === true) {
+    const editor = composer.rich_textarea ? 'rich-textarea' : (composer.prose_mirror ? 'ProseMirror' : (composer.contenteditable ? 'contenteditable' : composer.tag));
+    parts.push(`composer: ${editor} · ${composer.submit_phase || 'phase?'}`);
+  } else if (composer.found === false) {
+    parts.push('composer: not found');
+  }
+  if (Array.isArray(res.tools) && res.tools.length) parts.push(`tools: ${res.tools.join(', ')}`);
+  if (res.diagnostic_summary) parts.push(res.diagnostic_summary);
+  return parts;
+}
+function _sidepanelRenderScanEvents(events) {
+  const box = document.getElementById('scanEvents');
+  box.innerHTML = '';
+  if (!Array.isArray(events) || !events.length) return;
+  events.slice(-20).forEach((event) => {
+    const div = document.createElement('div');
+    div.className = 'arena-scan-event';
+    const kind = document.createElement('span');
+    kind.className = 'arena-scan-kind';
+    kind.textContent = event.kind || '(event)';
+    div.appendChild(kind);
+    const rest = document.createElement('span');
+    const meta = [];
+    if (event.fingerprint) meta.push(`fp ${String(event.fingerprint).slice(0, 12)}`);
+    if (event.previous_owner) meta.push(`prev ${String(event.previous_owner).slice(0, 12)}`);
+    if (event.tag) meta.push(event.tag);
+    if (event.target_kind) meta.push(event.target_kind);
+    if (event.target_tag) meta.push(event.target_tag);
+    if (Number.isFinite(event.lines)) meta.push(`${event.lines}l`);
+    rest.textContent = meta.join(' · ');
+    div.appendChild(rest);
+    box.appendChild(div);
+  });
+}
+async function runScanNow() {
+  const summary = document.getElementById('scanSummary');
+  const raw = document.getElementById('scanRawBox');
+  const events = document.getElementById('scanEvents');
+  summary.textContent = 'Scanning active tab…';
+  events.innerHTML = '';
+  raw.textContent = '(waiting for scan…)';
+  document.getElementById('scanDetails').open = true;
+  try {
+    const wrapped = await send('arena.scanPage');
+    // Background wraps the content-script reply in {ok, response, ...}
+    // (see arena.scanPage handler + sendActiveTabMessage). Unwrap
+    // if present so the pretty-view sees the raw scan object.
+    const res = wrapped?.response || wrapped?.result || wrapped || {};
+    if (wrapped?.ok === false || res?.ok === false) {
+      summary.innerHTML = `<b>Scan failed</b>: ${(wrapped?.error || res?.error || 'no active chat tab')}`;
+      raw.textContent = JSON.stringify(wrapped ?? {}, null, 2);
+      return;
+    }
+    summary.innerHTML = _sidepanelScanSummaryParts(res).join(' · ');
+    _sidepanelRenderScanEvents(res.events_recent || []);
+    raw.textContent = JSON.stringify(res, null, 2);
+  } catch (e) {
+    summary.textContent = `Scan failed: ${String(e?.message || e)}`;
+  }
+}
+
+// ------------------------------------------------------------
 // Wire-up
 // ------------------------------------------------------------
 document.querySelectorAll('.arena-tab').forEach((tab) => {
@@ -500,6 +661,7 @@ document.querySelectorAll('.arena-tab').forEach((tab) => {
 TAB_LOAD_HOOKS.tools = () => loadTools(true);
 TAB_LOAD_HOOKS.instructions = () => loadInstructions();
 TAB_LOAD_HOOKS.history = () => loadHistory();
+TAB_LOAD_HOOKS.settings = () => loadSettings();
 
 document.getElementById('refreshBtn').addEventListener('click', refreshAll);
 document.getElementById('testBtn').addEventListener('click', testConnection);
@@ -530,6 +692,27 @@ document.getElementById('instructionsCategory').addEventListener('change', loadI
 document.getElementById('instructionsFormat').addEventListener('change', loadInstructions);
 document.getElementById('instructionsCopyBtn').addEventListener('click', copyInstructions);
 document.getElementById('instructionsRefreshBtn').addEventListener('click', loadInstructions);
+
+// Settings tab controls
+document.getElementById('cfgSaveBtn').addEventListener('click', saveSettingsBridge);
+document.getElementById('cfgClearTokenBtn').addEventListener('click', clearBridgeToken);
+document.getElementById('cfgRevealBtn').addEventListener('click', () => {
+  const el = document.getElementById('cfgBridgeToken');
+  el.type = el.type === 'password' ? 'text' : 'password';
+});
+document.getElementById('mSaveBtn').addEventListener('click', saveSettingsModes);
+document.getElementById('mResetBtn').addEventListener('click', resetSettingsModes);
+ARENA_TOGGLE_FIELDS.forEach(([elId]) => {
+  document.getElementById(elId).addEventListener('change', () => {
+    _sidepanelUpdateModesSummary(_sidepanelModesFromForm());
+  });
+});
+document.getElementById('mInsertStrategy').addEventListener('change', () => {
+  _sidepanelUpdateModesSummary(_sidepanelModesFromForm());
+});
+
+// Scan Now button (Status tab)
+document.getElementById('scanNowBtn').addEventListener('click', runScanNow);
 
 // Initial load: Status tab is active by default; also warm the
 // bridge connection so the header badge is populated.

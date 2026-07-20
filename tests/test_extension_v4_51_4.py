@@ -26,29 +26,29 @@ def _read(path: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(MANIFEST_JSON))["version"] in ("0.14.33", "0.14.34")
+    assert json.loads(_read(MANIFEST_JSON))["version"] in ("0.14.33", "0.14.34", "0.14.35")
 
 
 def test_content_script_version_bumped():
-    assert ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.33';" in _read(CONTENT_JS) or "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.34';" in _read(CONTENT_JS))
+    assert any(v in _read(CONTENT_JS) for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.33';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.34';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.35';"))
 
 
 def test_insert_strategies_version_bumped():
-    assert ("return '0.14.33';" in _read(INSERT_STRATEGIES_JS) or "return '0.14.34';" in _read(INSERT_STRATEGIES_JS))
+    assert any(v in _read(INSERT_STRATEGIES_JS) for v in ("return '0.14.33';", "return '0.14.34';", "return '0.14.35';"))
 
 
 def test_readme_mentions_v4_51_4():
     src = _read(README_MD)
-    assert ("0.14.33" in src or "0.14.34" in src)
-    assert ("v4.51.4" in src or "v4.52.0" in src)
+    assert ("0.14.33" in src or "0.14.34" in src or "0.14.35" in src)
+    assert ("v4.51.4" in src or "v4.52.0" in src or "v4.52.1" in src)
 
 
 def test_constants_version_bumped():
-    assert ('VERSION = "4.51.4"' in _read(CONSTANTS_PY) or 'VERSION = "4.52.0"' in _read(CONSTANTS_PY))
+    assert any(v in _read(CONSTANTS_PY) for v in ('VERSION = "4.51.4"', 'VERSION = "4.52.0"', 'VERSION = "4.52.1"'))
 
 
 def test_pyproject_version_bumped():
-    assert ('version = "4.51.4"' in _read(REPO_ROOT / "pyproject.toml") or 'version = "4.52.0"' in _read(REPO_ROOT / "pyproject.toml"))
+    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.51.4"', 'version = "4.52.0"', 'version = "4.52.1"'))
 
 
 def test_collapse_uses_tree_walker():

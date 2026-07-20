@@ -47,6 +47,27 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;color:#d1d5db;
 .arena-instructions-summary{font-size:11px;color:#94a3b8;padding-left:6px}
 .arena-instructions-preview{max-height:520px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
 
+/* --- Settings tab ------------------------------------------- */
+.arena-hint{font-size:11px;color:#94a3b8;margin:4px 0 8px;line-height:1.4}
+.arena-hint code{background:#0b1220;padding:1px 4px;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.arena-toggle{display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:12px;color:#e5e7eb;cursor:pointer;user-select:none}
+.arena-toggle input[type="checkbox"]{width:16px;height:16px;flex:0 0 16px;accent-color:#2563eb;cursor:pointer;margin:0}
+.arena-toggle code{background:#0b1220;padding:1px 4px;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:#f8fafc}
+.arena-modes-summary{font-size:11px;color:#94a3b8;padding-left:6px}
+.arena-btn-danger{background:#7f1d1d;border-color:#dc2626}
+.arena-btn-danger:hover{background:#b91c1c}
+
+/* --- Scan Now viewer (Status tab) --------------------------- */
+.arena-scan-details{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;margin-top:10px}
+.arena-scan-details > summary{cursor:pointer;color:#cbd5e1;font-weight:600;list-style:none;outline:none}
+.arena-scan-details > summary::-webkit-details-marker{display:none}
+.arena-scan-summary{margin:8px 0;font-size:12px;color:#e5e7eb}
+.arena-scan-summary b{color:#f8fafc}
+.arena-scan-events{display:flex;flex-direction:column;gap:2px;margin:6px 0;max-height:160px;overflow:auto}
+.arena-scan-event{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px;color:#cbd5e1;padding:2px 6px;background:#111827;border-radius:4px}
+.arena-scan-event .arena-scan-kind{color:#60a5fa;font-weight:600;margin-right:6px}
+.arena-scan-raw{max-height:180px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
+
 /* --- History cards (unchanged from prior release) ----------- */
 .arena-history-card{border:1px solid #334155;border-radius:10px;background:#111827;padding:10px;margin:8px 0;box-shadow:0 4px 14px rgba(0,0,0,.16)}
 .arena-card-header{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:7px}
