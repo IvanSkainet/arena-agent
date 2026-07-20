@@ -634,18 +634,32 @@ async function runScanNow() {
   raw.textContent = '(waiting for scan…)';
   document.getElementById('scanDetails').open = true;
   try {
-    // v0.14.37 (v4.52.3): `arena.scanPage` returns the raw
-    // Scan Page object directly (background just forwards
-    // `scanPageDiagnostics()` from the active tab). On failure
-    // the reply is `{ok: false, error, tab_url?}` -- our own
-    // envelope from `sendActiveTabMessage`. Handle both.
     const res = await send('arena.scanPage');
     if (!res || res.ok === false) {
       const err = res?.error || 'no active chat tab (open a supported chat site first)';
-      summary.innerHTML = `<b>Scan failed</b>: ${err}`;
-      if (res?.tab_url) summary.innerHTML += `<br><small>active URL: ${res.tab_url}</small>`;
+      let html = `<b>Scan failed</b>: ${err}`;
+      if (res?.tab_url) html += `<br><small>picked URL: ${res.tab_url}</small>`;
+      // v0.14.38 (v4.52.4): diagnostic dump so Ivan can see
+      // WHY the tab-resolver failed. Renders a short summary
+      // + the full JSON is available in the raw box.
+      if (res?.diagnostic) {
+        const d = res.diagnostic;
+        html += `<br><small>tabs seen: <b>${d.tabs_seen}</b> total, <b>${d.chat_tabs_seen}</b> on http(s); windows: ${(d.windows || []).map((w) => `${w.type}${w.focused ? '★' : ''}`).join(', ')}</small>`;
+        if (Array.isArray(d.tabs_sample) && d.tabs_sample.length) {
+          html += '<br><small>sample tabs (first 12):</small>';
+          const list = d.tabs_sample.map((t) => {
+            const flags = [];
+            if (t.active) flags.push('active');
+            if (t.highlighted) flags.push('hl');
+            if (t.is_chat_url) flags.push('chat');
+            if (t.windowType && t.windowType !== 'normal') flags.push(`w=${t.windowType}`);
+            return `<div class="arena-scan-event"><span class="arena-scan-kind">${t.url || '(no url)'}</span>${flags.join(' · ')}</div>`;
+          }).join('');
+          events.innerHTML = list;
+        }
+      }
+      summary.innerHTML = html;
       raw.textContent = JSON.stringify(res ?? {}, null, 2);
-      _sidepanelRenderScanEvents([]);
       return;
     }
     summary.innerHTML = _sidepanelScanSummaryParts(res).join(' · ');

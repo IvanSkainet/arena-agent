@@ -1,54 +1,44 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.37` (v4.52.3 bridge release —
-Scan Now regression fix from the side panel + ZeroTier Central
-URL actualisation).
+Current extension version: `0.14.38` (v4.52.4 bridge release —
+Scan Now diagnostic dump; MCP SuperAssistant sidebar-injection
+study captured but not yet ported).
 
-Key fixes in this release:
+Key change in this release:
 
-1. **Scan Now (Settings tab → Status) now works from the side
-   panel.** Prior versions asked `chrome.tabs.query({active:
-   true, currentWindow: true})` from the sidepanel context, but
-   from the side panel Chrome resolves `currentWindow` as the
-   panel window (not the browser window that has the chat tab
-   open). The query matched nothing and Scan Now silently
-   returned `active tab not found`. `sendActiveTabMessage` now
-   walks a three-step fallback: `lastFocusedWindow` first
-   (correct pick for sidepanel callers), then `currentWindow`
-   (correct pick for popup / content-script callers), then any
-   active tab in any window. URLs that cannot host a content
-   script (`chrome://`, `chrome-extension://`, `edge://`,
-   `about:`, `file://`) are filtered out.
+**Scan Now tab-resolver rewritten as a broad-query + rank +
+diagnostic dump.** Ivan's v4.52.3 test still returned
+"no active chat tab" from real chat sites. The v4.52.3
+three-step heuristic (`lastFocusedWindow` → `currentWindow` →
+any active) was still missing his tab. Rather than guess a
+fourth heuristic, `sendActiveTabMessage` now:
 
-2. **Actionable error messages.** When the content script is
-   not injected on the active tab (fresh browser start, first
-   navigation to a chat site after installing the extension),
-   Chrome returns `Receiving end does not exist`. We now
-   classify that error and append "reload the tab so the
-   extension can inject its content script" so the operator
-   knows what to do. When no chat tab is open at all, we say
-   so plainly.
+1. Queries `chrome.tabs.query({})` — every tab in every
+   window — and `chrome.windows.getAll` — every window with
+   type/focused metadata.
+2. Filters to `http(s)://` URLs (drops `chrome://`,
+   `chrome-extension://`, `edge://`, `about:`, `file://`,
+   `view-source:`).
+3. Ranks candidates by: `active` (+100), `highlighted` (+20),
+   window type `normal` (+50), window focused (+40). Picks
+   the top.
+4. **On failure, returns a rich diagnostic envelope** with a
+   redacted dump of every tab Chrome reported plus every
+   window Chrome reported. The side panel renders that dump
+   inline so you can see exactly why the resolver did not
+   find your chat tab (windows of type `panel`, tabs of
+   status `unloaded`, no active + no highlighted, etc.).
 
-3. **Side panel Scan Now handler simplified.** The unwrap
-   logic that assumed background wrapped the reply in
-   `{ok, response, ...}` was wrong — `arena.scanPage` returns
-   the raw Scan Page JSON directly on success and a
-   `{ok: false, error, tab_url}` envelope on failure. Handler
-   now maps both correctly and surfaces `tab_url` in the
-   error line so you can see which page failed.
+URLs are redacted to `scheme://host` before being written
+into the diagnostic (no full paths, no query strings, no
+titles beyond 60 chars).
 
-4. **ZeroTier Central URL actualised.** ZeroTier launched a
-   new Central UI in November 2025 at `central.zerotier.com`
-   and made `my.zerotier.com/account` the legacy fallback.
-   Dashboard body-18-zerotier.html now links to the new UI
-   and the backend error hint in `arena/admin/zerotier_central.py`
-   points to `central.zerotier.com/` first with the legacy URL
-   as a compatibility footnote.
+The `openSidePanel` helper still uses the popup-safe
+`{active: true, currentWindow: true}` query because it is
+only called from the popup itself, where `currentWindow`
+resolves correctly.
 
-The Chrome side panel still has five tabs (Status, Tools,
-Instructions, History, Settings). Everything else is
-byte-identical to v4.52.2 — no parser, adapter, or collapse
-changes.
+Everything else is unchanged from v4.52.3.
 
 Extension file architecture (unchanged since v0.14.29):
 
@@ -69,8 +59,8 @@ Extension file architecture (unchanged since v0.14.29):
   Copy Instructions and an "Insert & Submit" (Send) shortcut
   for the active tab.
 * `sidepanel.js` / `sidepanel.html` — side-panel UI with the
-  five tabs described above. Shares `popup.css` for its
-  styling.
+  five tabs (Status, Tools, Instructions, History, Settings).
+  Shares `popup.css` for its styling.
 * Tool calls are posted to `/v1/extension/execute` on the local
   bridge, which validates the arena envelope, executes the
   tool, and returns the result payload.

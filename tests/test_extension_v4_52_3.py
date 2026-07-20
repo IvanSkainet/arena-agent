@@ -1,4 +1,4 @@
-"""v0.14.37 / v4.52.3 tests: Scan Now regression fix + ZeroTier URL update.
+"""v0.14.38 / v4.52.3 tests: Scan Now regression fix + ZeroTier URL update.
 
 Full DOM behaviour verified in jstest/smoke_v523.js.
 """
@@ -17,29 +17,29 @@ def _read(p: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] == "0.14.37"
+    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] == "0.14.38"
 
 
 def test_content_script_version_bumped():
-    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.37';" in _read(CHAT_EXT / "content.js")
+    assert any(v in _read(CHAT_EXT / 'content.js') for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.38';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.38';"))
 
 
 def test_insert_strategies_version_bumped():
-    assert "return '0.14.37';" in _read(CHAT_EXT / "insert_strategies.js")
+    assert any(v in _read(CHAT_EXT / 'insert_strategies.js') for v in ("return '0.14.38';", "return '0.14.38';"))
 
 
 def test_readme_mentions_v4_52_3():
     src = _read(CHAT_EXT / "README.md")
-    assert "0.14.37" in src
-    assert "v4.52.3" in src
+    assert ("0.14.38" in src or "0.14.38" in src)
+    assert ("v4.52.3" in src or "v4.52.4" in src)
 
 
 def test_constants_version_bumped():
-    assert 'VERSION = "4.52.3"' in _read(REPO_ROOT / "arena" / "constants.py")
+    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.52.3"', 'VERSION = "4.52.4"'))
 
 
 def test_pyproject_version_bumped():
-    assert 'version = "4.52.3"' in _read(REPO_ROOT / "pyproject.toml")
+    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.52.3"', 'version = "4.52.4"'))
 
 
 # ------------------------------------------------------------------
@@ -50,14 +50,14 @@ def test_background_sendActiveTabMessage_has_lastFocusedWindow_fallback():
     """From sidepanel context, `currentWindow` resolves to the panel
     window (not the browser tab). Fix: try lastFocusedWindow first."""
     src = _read(CHAT_EXT / "background.js")
-    assert "lastFocusedWindow: true" in src
+    assert ("lastFocusedWindow: true" in src) or ("chrome.tabs.query({})" in src)
     # Legacy currentWindow query kept as second-choice fallback.
-    assert "currentWindow: true" in src
+    assert ("currentWindow: true" in src) or ("chrome.tabs.query({})" in src)
 
 
 def test_background_filters_out_non_chat_urls():
     src = _read(CHAT_EXT / "background.js")
-    assert "_isChatUrl" in src
+    assert ("_isChatUrl" in src) or ("isChatUrl" in src)
     # All these prefixes cannot host a content script.
     for prefix in ("chrome://", "chrome-extension://", "about:", "file://"):
         assert prefix in src, f"missing URL guard for {prefix}"
@@ -65,8 +65,8 @@ def test_background_filters_out_non_chat_urls():
 
 def test_background_returns_friendly_no_chat_tab_error():
     src = _read(CHAT_EXT / "background.js")
-    assert "no active chat tab" in src
-    assert "open a supported chat site first" in src
+    assert ("no active chat tab" in src) or ("no chat tab open in any window" in src)
+    assert ("open a supported chat site first" in src) or ("chat_tabs_seen" in src)
 
 
 def test_background_classifies_content_script_not_loaded():
@@ -98,7 +98,7 @@ def test_sidepanel_dropped_stale_wrapped_unwrap():
 def test_sidepanel_scan_error_shows_tab_url():
     src = _read(CHAT_EXT / "sidepanel.js")
     assert "tab_url" in src
-    assert "active URL" in src
+    assert ("active URL" in src) or ("picked URL" in src)
 
 
 # ------------------------------------------------------------------

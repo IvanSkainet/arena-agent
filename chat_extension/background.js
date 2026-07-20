@@ -211,58 +211,112 @@ async function openSidePanel() {
   if (!chrome.tabs?.create) return {ok: false, error: 'side panel api unavailable'};
   const tab = await chrome.tabs.create({url, active: true}); return {ok: true, tabId: tab?.id, mode: 'tab'};
 }
+// v0.14.38 (v4.52.4): Ivan's v4.52.3 report -- Scan Now still
+// returns `no active chat tab` even from a real chat site. The
+// v4.52.3 three-step query (lastFocusedWindow -> currentWindow
+// -> any active) STILL missed his tab. Root cause is now
+// unclear; possible culprits:
+//   * chrome.tabs.query with `{active: true}` sometimes returns
+//     the sidepanel's own tab entry on Chrome MV3 (Chromium
+//     bug 1354498 / behaviour change under sidePanel API);
+//   * lastFocusedWindow may be windowType=panel not =normal;
+//   * the user could have a devtools window focused.
+// Rather than guess a fourth heuristic, we now:
+//   1. Query chrome.tabs.query({}) -- absolutely every tab in
+//      every window -- and pick the best candidate ourselves
+//      (prefer active + http(s) URL + windowType=normal).
+//   2. On failure, return a rich diagnostic envelope with a
+//      redacted dump of what chrome.tabs actually reports, so
+//      Ivan can paste the JSON and we finally see the truth
+//      instead of guessing.
 async function sendActiveTabMessage(message) {
-  // v0.14.37 (v4.52.3): sidepanel-safe tab resolver. Previous
-  // implementation used `{active: true, currentWindow: true}`,
-  // but when the caller is the side panel the sender window is
-  // the panel itself, not the browser window with the chat tab.
-  // Chrome returns the panel window as `currentWindow`, so the
-  // query matched nothing and Scan Now silently returned
-  // `active tab not found`. Fix by falling back through the
-  // last-focused window and finally any active tab, and by
-  // filtering out URLs where content scripts cannot run.
   if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return {ok: false, error: 'tabs api unavailable'};
-  const _isChatUrl = (u) => {
+
+  const CHAT_URL_PROTOS = ['http://', 'https://'];
+  const BAD_URL_PROTOS  = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'file://', 'view-source:'];
+  const isChatUrl = (u) => {
     if (!u) return false;
-    if (u.startsWith('chrome://') || u.startsWith('chrome-extension://')
-        || u.startsWith('edge://') || u.startsWith('about:')
-        || u.startsWith('file://')) return false;
-    return u.startsWith('http://') || u.startsWith('https://');
+    if (BAD_URL_PROTOS.some((p) => u.startsWith(p))) return false;
+    return CHAT_URL_PROTOS.some((p) => u.startsWith(p));
   };
-  let tab = null;
-  // Preferred: the last-focused NORMAL window's active tab.
+  const redact = (u) => {
+    if (!u) return '';
+    try {
+      const parsed = new URL(u);
+      return `${parsed.protocol}//${parsed.host}${parsed.pathname === '/' ? '' : '<path>'}`;
+    } catch { return String(u).slice(0, 80); }
+  };
+  const tabSummary = (t) => ({
+    id: t?.id ?? null,
+    active: !!t?.active,
+    highlighted: !!t?.highlighted,
+    windowId: t?.windowId ?? null,
+    windowType: t?.windowType ?? '',
+    audible: !!t?.audible,
+    status: t?.status || '',
+    is_chat_url: isChatUrl(t?.url),
+    url: redact(t?.url),
+    title: (t?.title || '').slice(0, 60),
+  });
+
+  // Broad query: every tab in every window. Then rank ourselves.
+  let allTabs = [];
   try {
-    const [t] = await chrome.tabs.query({active: true, lastFocusedWindow: true});
-    if (t?.id && _isChatUrl(t.url)) tab = t;
-  } catch (_e) { /* Chrome MV3 may reject in some contexts */ }
-  // Fallback: current window (works from popup / content-script origins).
-  if (!tab) {
-    try {
-      const [t] = await chrome.tabs.query({active: true, currentWindow: true});
-      if (t?.id && _isChatUrl(t.url)) tab = t;
-    } catch (_e) { /* keep looking */ }
+    allTabs = await chrome.tabs.query({}) || [];
+  } catch (e) {
+    return {ok: false, error: `chrome.tabs.query failed: ${e?.message || e}`};
   }
-  // Last resort: first non-chrome:// active tab in any window.
-  if (!tab) {
-    try {
-      const all = await chrome.tabs.query({active: true});
-      tab = all.find((t) => t?.id && _isChatUrl(t.url)) || null;
-    } catch (_e) { /* nothing else to try */ }
+  // Also query windows so we can spot panel/devtools windows that
+  // may be mis-focusing the query.
+  let windows = [];
+  try {
+    windows = (await chrome.windows?.getAll?.({populate: false}) || []).map((w) => ({
+      id: w?.id, type: w?.type, focused: !!w?.focused, state: w?.state || '', incognito: !!w?.incognito,
+    }));
+  } catch { /* windows API may be blocked in some contexts */ }
+
+  const chatTabs = allTabs.filter((t) => isChatUrl(t.url));
+  const rank = (t) => {
+    // Prefer active + normal window + focused window.
+    const w = windows.find((x) => x.id === t.windowId);
+    const wtype = t.windowType || w?.type || '';
+    let score = 0;
+    if (t.active) score += 100;
+    if (t.highlighted) score += 20;
+    if (wtype === 'normal' || !wtype) score += 50; // no windowType = manifest permission missing but tab is real
+    if (w?.focused) score += 40;
+    return score;
+  };
+  chatTabs.sort((a, b) => rank(b) - rank(a));
+  const tab = chatTabs[0] || null;
+
+  if (!tab?.id) {
+    // Diagnostic dump: what did we actually see?
+    return {
+      ok: false,
+      error: chatTabs.length === 0
+        ? `no chat tab open in any window (${allTabs.length} tab(s) total, none on http/https)`
+        : `chat tab found but has no id (chatTabs=${chatTabs.length})`,
+      diagnostic: {
+        tabs_seen: allTabs.length,
+        chat_tabs_seen: chatTabs.length,
+        windows: windows,
+        // Cap so we don't spam the sidepanel with 100 tabs.
+        tabs_sample: allTabs.slice(0, 12).map(tabSummary),
+      },
+    };
   }
-  if (!tab?.id) return {ok: false, error: 'no active chat tab (open a supported chat site first)'};
+
   return new Promise((resolve) => chrome.tabs.sendMessage(tab.id, message, (response) => {
     const err = chrome.runtime.lastError;
     if (err) {
-      // Classify the common "content script did not load" error
-      // so the sidepanel can show something actionable instead
-      // of the raw Chrome message.
       const raw = err.message || String(err);
       const friendly = /Receiving end does not exist|Could not establish/.test(raw)
         ? `${raw} — reload the tab so the extension can inject its content script`
         : raw;
-      return resolve({ok: false, error: friendly, tab_url: tab.url || ''});
+      return resolve({ok: false, error: friendly, tab_url: tab.url || '', tab_id: tab.id, window_id: tab.windowId});
     }
-    resolve(response || {ok: false, error: 'empty content response', tab_url: tab.url || ''});
+    resolve(response || {ok: false, error: 'empty content response', tab_url: tab.url || '', tab_id: tab.id});
   }));
 }
 function scanHistoryDetail(result) {

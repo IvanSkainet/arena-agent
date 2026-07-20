@@ -51,10 +51,10 @@ def _read(name):
 
 def test_versions_pinned_to_0_14_14():
     import json
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.37'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.37"
-    assert "return '0.14.37';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.37`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.38'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.38"
+    assert "return '0.14.38';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.38`" in _read("README.md")
 
 
 def test_semantic_dedup_gated_behind_toggle_in_v14_15():

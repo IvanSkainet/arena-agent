@@ -1,3 +1,103 @@
+## v4.52.4 — 2026-07-20
+
+Диагностический dump для Scan Now. Твой v4.52.3 тест всё
+равно вернул "no active chat tab" с реальных чат-сайтов
+(`"ok": false, "error": "no active chat tab (open a supported
+chat site first)"`). Трёхступенчатая эвристика v4.52.3
+(`lastFocusedWindow` → `currentWindow` → любой active) всё
+равно промахнулась. Вместо того чтобы гадать четвёртую
+эвристику, этот релиз переписывает резолвер как
+**широкий query + rank + диагностический dump**, чтобы мы
+наконец увидели, что Chrome реально возвращает.
+
+### chat_extension `background.js` (0.14.37 → 0.14.38)
+
+`sendActiveTabMessage` переписан:
+
+* **Broad query.** `chrome.tabs.query({})` возвращает
+  каждый таб в каждом окне; `chrome.windows.getAll` —
+  каждое окно с type + focused метаданными.
+* **URL filter.** Отбрасывает `chrome://`,
+  `chrome-extension://`, `edge://`, `about:`, `file://`,
+  `view-source:` — content script там не работает.
+* **Rank.** Предпочитает `active` (+100), `highlighted`
+  (+20), window type `normal` (+50), окно в фокусе (+40).
+  Берёт топовый кандидат.
+* **Диагностика на failure.** Когда чат-таб не найден,
+  reply теперь несёт `diagnostic` объект:
+  * `tabs_seen`, `chat_tabs_seen` — счётчики
+  * `windows` — каждое окно `{id, type, focused, state, incognito}`
+  * `tabs_sample` — первые 12 табов с redacted-summary:
+    `{id, active, highlighted, windowId, windowType, status,
+      is_chat_url, url (только scheme://host), title (≤60)}`
+
+URL redact-ятся до `scheme://host` перед записью в
+diagnostic. Query strings и полные пути никогда не
+покидают extension.
+
+### chat_extension `sidepanel.js`
+
+`runScanNow` теперь inline-рендерит диагностику:
+
+* Summary line добавляет
+  `tabs seen: N total, M on http(s); windows: normal★, panel, ...`
+* Events pane показывает sample табов Chrome, чтобы ты
+  увидел, ПОЧЕМУ резолвер не нашёл чат-таб (все табы
+  `chrome://`, все окна `panel`, active таб в статусе
+  `unloaded` и т.д.).
+* Полный JSON остаётся в raw box для копи-паста.
+
+Helper `openSidePanel` всё ещё использует `{active: true,
+currentWindow: true}`, потому что он вызывается только из
+popup, где `currentWindow` разрешается корректно.
+
+### Изучение sidebar-injection MCP SuperAssistant (записано, не портировано)
+
+Ты справедливо указал: у MCP SuperAssistant архитектура
+противоположна нашей — они инжектят Shadow-DOM sidebar
+прямо в страницу чата. Разобрал `BaseSidebarManager.tsx`:
+
+* `<div id="mcp-sidebar-shadow-host" style="position:fixed;
+  top:0; right:0; z-index:9999; height:100vh;
+  pointer-events:none;">` на `document.body`.
+* `attachShadow({mode: 'open'})` для CSS-изоляции.
+* Tailwind инжектится в Shadow DOM во избежание
+  конфликтов со стилями страницы.
+* `pointer-events:none` на host + `pointer-events:auto`
+  на inner container — клики проходят сквозь прозрачные
+  области.
+* Класс `push-mode-enabled` на `documentElement` сдвигает
+  контент страницы когда sidebar развёрнут.
+
+Это полезные примитивы, но несовместимы с нашим текущим
+дизайном (browser-native `sidePanel` API). Отложено как
+заметки для v4.53.x arc, если решим инжектить per-page
+overlay — скорее OPT-IN альтернатива side panel, не
+замена.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_52_4.py` — 16 ассертов.
+* jsdom smoke `jstest/smoke_v524.js` — 18 ассертов с тремя
+  сценариями (diagnostic dump, happy path, needs-reload).
+* Legacy v4.52.3 assertions loosened чтобы принимать и
+  wording v4.52.3 heuristics, и v4.52.4 broad-query.
+* Полный suite: **2845 passed** (2829 baseline + 16 для
+  v4.52.4). Zero regressions.
+
+### Что не вошло
+
+* **Per-site collapse polish.** Ты явно сказал что
+  outerHTML присылать для гаданий не будешь — согласен,
+  per-site работа требует computed-style захватов,
+  отложено.
+* **Полный переход popup → sidepanel.** Твой v4.52.3
+  feedback: "не убирать pop up, учитывая то что сейчас в
+  panel не всё работает". Отложено пока Scan Now (и
+  очевидно другие panel-фичи) не подтвердится работающим.
+* **Mistral duplicate-mount loop.** По-прежнему отложено
+  согласно v4.50.17.
+
 ## v4.52.3 — 2026-07-20
 
 Два прямых фикса из твоего v4.52.2 отчёта: Scan Now не

@@ -1,3 +1,111 @@
+## v4.52.4 — 2026-07-20
+
+Scan Now diagnostic dump. Ivan's v4.52.3 test still returned
+"no active chat tab" from real chat sites (`"ok": false, "error":
+"no active chat tab (open a supported chat site first)"`).
+The v4.52.3 three-step heuristic (`lastFocusedWindow` →
+`currentWindow` → any active) still missed his tab. Rather
+than guess a fourth heuristic, this release rewrites the
+resolver as a **broad query + rank + diagnostic dump** so we
+can finally see what Chrome is actually reporting.
+
+### chat_extension `background.js` (0.14.37 → 0.14.38)
+
+`sendActiveTabMessage` rewritten:
+
+* **Broad query.** `chrome.tabs.query({})` returns every tab
+  in every window; `chrome.windows.getAll` returns every
+  window with type + focused metadata.
+* **URL filter.** Drops `chrome://`, `chrome-extension://`,
+  `edge://`, `about:`, `file://`, `view-source:` — none of
+  these can host a content script.
+* **Rank.** Prefers `active` (+100), `highlighted` (+20),
+  window type `normal` (+50), window focused (+40). Picks
+  the top candidate.
+* **Diagnostic on failure.** When no chat tab is found, the
+  reply now carries a `diagnostic` object:
+  * `tabs_seen`, `chat_tabs_seen` — counts
+  * `windows` — every window Chrome reports with
+    `{id, type, focused, state, incognito}`
+  * `tabs_sample` — first 12 tabs with a redacted summary:
+    `{id, active, highlighted, windowId, windowType, status,
+      is_chat_url, url (scheme://host only), title (≤60 chars)}`
+
+URLs are redacted to `scheme://host` before being written
+into the diagnostic. Query strings and full paths never
+leave the extension.
+
+### chat_extension `sidepanel.js`
+
+`runScanNow` now renders the diagnostic inline when present:
+
+* Summary line adds
+  `tabs seen: N total, M on http(s); windows: normal★, panel, ...`
+* Events pane shows a sample of the tabs Chrome reported so
+  Ivan can see WHY the resolver did not find his chat tab
+  (all tabs `chrome://`, all windows `panel`, active tab
+  status `unloaded`, etc.).
+* Full JSON stays available in the raw box for copy-paste.
+
+The `openSidePanel` helper still uses `{active: true,
+currentWindow: true}` because it is only called from the
+popup, where `currentWindow` resolves correctly.
+
+### MCP SuperAssistant sidebar-injection study (captured, not ported)
+
+Ivan pointed out that MCP SuperAssistant's architecture is
+the opposite of ours — they inject a Shadow-DOM sidebar
+directly into the chat page. Reviewed
+`BaseSidebarManager.tsx`:
+
+* `<div id="mcp-sidebar-shadow-host" style="position:fixed;
+  top:0; right:0; z-index:9999; height:100vh;
+  pointer-events:none;">` on `document.body`.
+* `attachShadow({mode: 'open'})` for CSS isolation.
+* Tailwind injected into the Shadow DOM to avoid conflicts
+  with the host page's stylesheet.
+* `pointer-events:none` on the host + `pointer-events:auto`
+  on the inner container so clicks pass through transparent
+  regions.
+* `push-mode-enabled` class on `documentElement` to shift
+  page content when the sidebar is expanded.
+
+These are useful primitives but incompatible with our
+current design (browser-native `sidePanel` API). Deferred as
+notes for the v4.53.x arc if we ever decide to inject a
+per-page overlay — likely as an OPT-IN alternative to the
+side panel, not a replacement.
+
+### Tests
+
+* Added `tests/test_extension_v4_52_4.py` — 16 assertions:
+  version bumps, `chrome.tabs.query({})` present, windows
+  metadata queried, diagnostic envelope shape, URL redaction
+  helper, ranking by windowType + focused, sendActiveTabMessage
+  no longer uses lastFocusedWindow/currentWindow (openSidePanel
+  may still), view-source: guard, sidepanel reads diagnostic,
+  sample-tabs renderer, non-normal window flag, happy path
+  and reload-hint paths still work.
+* jsdom smoke `jstest/smoke_v524.js` — 18 assertions with
+  three scenarios (diagnostic dump, happy path, needs-reload).
+* Legacy v4.52.3 assertions loosened to accept either the
+  v4.52.3 heuristic wording OR the v4.52.4 broad-query
+  wording.
+* Full suite: **2845 passed** (2829 baseline + 16 for
+  v4.52.4). Zero regressions.
+
+### Not addressed
+
+* **Per-site collapse polish.** Ivan explicitly said he will
+  not send outerHTML for guessing — we agree per-site work
+  needs computed-style captures, deferred.
+* **Full popup → sidepanel migration.** Ivan's v4.52.3
+  feedback: "не убирать pop up, учитывая то что сейчас в
+  panel не всё работает". Deferred until Scan Now (and
+  presumably other panel features) is confirmed working.
+* **Mistral duplicate-mount loop.** Still deferred per
+  v4.50.17.
+
 ## v4.52.3 — 2026-07-20
 
 Two direct fixes from Ivan's v4.52.2 feedback: Scan Now not
