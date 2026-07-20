@@ -1,3 +1,106 @@
+## v4.52.3 — 2026-07-20
+
+Two direct fixes from Ivan's v4.52.2 feedback: Scan Now not
+firing from the side panel + ZeroTier Central dashboard link
+pointing at a legacy URL.
+
+### chat_extension `background.js` (0.14.36 → 0.14.37)
+
+`sendActiveTabMessage` fully rewritten. Root cause of the
+Scan-Now regression Ivan reported ("В данный момент это не
+работает"): when the caller is the side panel, Chrome resolves
+`{active: true, currentWindow: true}` as the panel window
+itself, not the browser window with the chat tab. The query
+matched nothing and Scan Now silently returned `active tab not
+found`.
+
+Fix: three-step tab resolver.
+
+1. `chrome.tabs.query({active: true, lastFocusedWindow: true})`
+   — correct pick for sidepanel callers.
+2. `chrome.tabs.query({active: true, currentWindow: true})`
+   — correct pick for popup / content-script callers, kept
+   for backward compatibility.
+3. `chrome.tabs.query({active: true})` — first non-chrome://
+   active tab in any window as the last resort.
+
+URLs that cannot host a content script (`chrome://`,
+`chrome-extension://`, `edge://`, `about:`, `file://`) are
+filtered out at each step. When Chrome returns
+`Receiving end does not exist` (content script not injected
+because the tab was open before the extension loaded), we
+classify the error and append the actionable hint "reload
+the tab so the extension can inject its content script". The
+active tab URL is now surfaced in the error envelope
+(`tab_url`) so the operator can see which page failed.
+
+### chat_extension `sidepanel.js`
+
+`runScanNow` handler simplified. The v4.52.1 code unwrapped
+`wrapped?.response` — but `arena.scanPage` returns the raw
+Scan Page JSON directly on success and a `{ok: false, error,
+tab_url}` envelope on failure. Handler now maps both correctly.
+Error path surfaces `tab_url` in the summary line so you can
+see which tab the background actually reached.
+
+### chat_extension `content.js` + `manifest.json` + `insert_strategies.js`
+
+Version bumps only. No adapter, parser, or collapse code
+changes.
+
+### `dashboard/assets/body-18-zerotier.html` + `arena/admin/zerotier_central.py`
+
+ZeroTier launched a new Central UI in November 2025 at
+`central.zerotier.com` and marked `my.zerotier.com/account`
+as legacy (fetching the legacy URL now shows a "A newer
+version of ZeroTier Central is now available" splash and a
+"To New Central" button). Actualised:
+
+* `dashboard/assets/body-18-zerotier.html` — link changed
+  from `my.zerotier.com/account` to `central.zerotier.com/`;
+  hint text mentions "Account → API Access Tokens" for
+  where to create the token.
+* `arena/admin/zerotier_central.py` — the error hint on
+  missing token now leads with `central.zerotier.com/` and
+  mentions `my.zerotier.com/account` only as a compatibility
+  footnote for legacy accounts. Nosec/nosemgrep comment on
+  the API call updated (the fixed API endpoint
+  `api.zerotier.com` serves both UIs).
+
+### Tests
+
+* Added `tests/test_extension_v4_52_3.py` — 15 assertions
+  covering: version bumps, `lastFocusedWindow` fallback
+  present, non-chat URL guards (chrome://, about:, file://),
+  friendly no-chat-tab error text, content-script-not-loaded
+  classification, `tab_url` in the error envelope, sidepanel
+  dropped stale unwrap, sidepanel surfaces `tab_url`,
+  dashboard uses `central.zerotier.com/`, backend hint uses
+  the new URL.
+* jsdom smoke `jstest/smoke_v523.js` — 15 assertions with
+  three live scenarios (happy path renders adapter + events,
+  no-chat-tab shows friendly error, needs-reload shows the
+  "reload the tab" hint and active URL).
+* Legacy `tests/test_extension_v4_52_1.py::test_sidepanel_js_scan_now_wiring`
+  loosened to accept the correct handling.
+* Full suite: **2829 passed** (2814 baseline + 15 for
+  v4.52.3). Zero regressions.
+
+### Not addressed in this release
+
+* **Per-site collapse polish.** Ivan confirmed collapse is
+  still visually broken on multiple sites even with v4.52.2
+  minimal styling; needs per-site CSS work with computed-
+  style diffs. Deferred pending outerHTML captures.
+* **MCP SuperAssistant deeper dive.** Ivan pointed out that
+  MCP SuperAssistant's architecture is actually the opposite
+  of ours — they inject a sidebar into the chat page and have
+  no browser-native side panel. Reviewing their content-side
+  injection pattern is a v4.53.x arc.
+* **Full popup → sidepanel migration.** Still tracked as
+  v4.53.0 target.
+* **Mistral duplicate-mount loop.** Deferred per v4.50.17.
+
 ## v4.52.2 — 2026-07-20
 
 Collapse-tool-results hardening + UI polish pass. Driven by

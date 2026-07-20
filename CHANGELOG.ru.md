@@ -1,3 +1,98 @@
+## v4.52.3 — 2026-07-20
+
+Два прямых фикса из твоего v4.52.2 отчёта: Scan Now не
+работает из side panel + ссылка ZeroTier в Dashboard устарела.
+
+### chat_extension `background.js` (0.14.36 → 0.14.37)
+
+`sendActiveTabMessage` полностью переписан. Корень регрессии
+Scan-Now, которую ты нашёл («В данный момент это не
+работает»): когда caller — side panel, Chrome разрешает
+`{active: true, currentWindow: true}` как окно самой панели,
+а не браузерное окно с чатом. Query ничего не находил и Scan
+Now молча возвращал `active tab not found`.
+
+Fix: трёхступенчатый резолвер таба.
+
+1. `chrome.tabs.query({active: true, lastFocusedWindow: true})`
+   — правильный выбор для caller-ов из sidepanel.
+2. `chrome.tabs.query({active: true, currentWindow: true})`
+   — правильный выбор для popup / content-script caller-ов,
+   оставлен для обратной совместимости.
+3. `chrome.tabs.query({active: true})` — первый не-chrome://
+   active tab в любом окне как последний вариант.
+
+URL, где content script не может работать (`chrome://`,
+`chrome-extension://`, `edge://`, `about:`, `file://`),
+фильтруются на каждом шаге. Когда Chrome возвращает
+`Receiving end does not exist` (content script не
+инжектировался, т.к. таб был открыт до установки extension),
+мы теперь классифицируем ошибку и добавляем actionable-hint
+"reload the tab so the extension can inject its content
+script". Active tab URL прокидывается в error envelope
+(`tab_url`) — видно какая страница подвела.
+
+### chat_extension `sidepanel.js`
+
+`runScanNow` упрощён. Код v4.52.1 разворачивал
+`wrapped?.response` — но `arena.scanPage` возвращает сырой
+Scan Page JSON напрямую на success и `{ok: false, error,
+tab_url}` envelope на failure. Handler теперь корректно
+разбирает оба случая. Error path показывает `tab_url` в
+summary — сразу видно какой таб background реально достал.
+
+### chat_extension `content.js` + `manifest.json` + `insert_strategies.js`
+
+Только bump версий. Ни adapter, ни parser, ни collapse код
+не менялись.
+
+### `dashboard/assets/body-18-zerotier.html` + `arena/admin/zerotier_central.py`
+
+ZeroTier запустил новый Central UI в ноябре 2025 на
+`central.zerotier.com` и пометил `my.zerotier.com/account`
+как legacy (открытие legacy URL сейчас показывает
+"A newer version of ZeroTier Central is now available" splash
+и кнопку "To New Central"). Актуализировано:
+
+* `dashboard/assets/body-18-zerotier.html` — ссылка изменена
+  с `my.zerotier.com/account` на `central.zerotier.com/`;
+  hint упоминает "Account → API Access Tokens" где создать
+  токен.
+* `arena/admin/zerotier_central.py` — error hint на
+  отсутствующий токен теперь начинается с
+  `central.zerotier.com/`, `my.zerotier.com/account`
+  упомянут только как compatibility footnote для legacy-
+  аккаунтов. Nosec/nosemgrep комментарий обновлён (fixed API
+  endpoint `api.zerotier.com` обслуживает оба UI).
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_52_3.py` — 15 ассертов.
+* jsdom smoke `jstest/smoke_v523.js` — 15 ассертов с тремя
+  live-сценариями (happy path рендерит adapter + events,
+  no-chat-tab показывает дружелюбную ошибку, needs-reload
+  показывает hint "reload the tab" и active URL).
+* Legacy `test_extension_v4_52_1.py::test_sidepanel_js_scan_now_wiring`
+  ослаблен под корректную обработку.
+* Полный suite: **2829 passed** (2814 baseline + 15
+  v4.52.3). Zero regressions.
+
+### Что не вошло
+
+* **Per-site collapse полировка.** Ты подтвердил, что
+  collapse всё ещё визуально кривой на нескольких сайтах
+  даже с v4.52.2 minimal styling; нужна per-site CSS работа
+  с computed-style diffs. Отложено до outerHTML захватов.
+* **MCP SuperAssistant deeper dive.** Ты справедливо
+  указал: у MCP SuperAssistant архитектура прямо
+  противоположная нашей — они инжектят sidebar в саму
+  страницу чата и у них нет браузерной side panel. Изучение
+  их content-side injection паттерна — задача для v4.53.x.
+* **Полный переход popup → sidepanel.** Всё ещё цель для
+  v4.53.0.
+* **Mistral duplicate-mount loop.** Отложено согласно
+  v4.50.17.
+
 ## v4.52.2 — 2026-07-20
 
 Hardening collapse-tool-results + UI polish. По твоему

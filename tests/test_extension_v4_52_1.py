@@ -17,29 +17,29 @@ def _read(p: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.35", "0.14.36")
+    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.35", "0.14.36", "0.14.37")
 
 
 def test_content_script_version_bumped():
-    assert any(v in _read(CHAT_EXT / 'content.js') for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.35';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.36';"))
+    assert any(v in _read(CHAT_EXT / 'content.js') for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.35';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.36';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.37';"))
 
 
 def test_insert_strategies_version_bumped():
-    assert any(v in _read(CHAT_EXT / 'insert_strategies.js') for v in ("return '0.14.35';", "return '0.14.36';"))
+    assert any(v in _read(CHAT_EXT / 'insert_strategies.js') for v in ("return '0.14.35';", "return '0.14.36';", "return '0.14.37';"))
 
 
 def test_readme_mentions_v4_52_1():
     src = _read(CHAT_EXT / "README.md")
-    assert ("0.14.35" in src or "0.14.36" in src)
-    assert ("v4.52.1" in src or "v4.52.2" in src)
+    assert ("0.14.35" in src or "0.14.36" in src or "0.14.37" in src)
+    assert ("v4.52.1" in src or "v4.52.2" in src or "v4.52.3" in src)
 
 
 def test_constants_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.52.1"', 'VERSION = "4.52.2"'))
+    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.52.1"', 'VERSION = "4.52.2"', 'VERSION = "4.52.3"'))
 
 
 def test_pyproject_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.52.1"', 'version = "4.52.2"'))
+    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"'))
 
 
 # ------------------------------------------------------------------
@@ -146,8 +146,10 @@ def test_sidepanel_js_scan_now_wiring():
     src = _read(CHAT_EXT / "sidepanel.js")
     assert "runScanNow" in src
     assert "arena.scanPage" in src
-    # Must unwrap the background {ok, response, ...} envelope.
-    assert "wrapped?.response" in src or 'wrapped?.["response"]' in src
+    # v4.52.3: the unwrap was wrong (arena.scanPage returns
+    # raw scan JSON directly); we now check for the correct
+    # error-envelope handling instead.
+    assert "res?.ok === false" in src or "res.ok === false" in src or "wrapped?.response" in src
     # Must render events + raw JSON.
     assert "_sidepanelRenderScanEvents" in src
     assert "events_recent" in src

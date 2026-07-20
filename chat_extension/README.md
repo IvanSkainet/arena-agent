@@ -1,60 +1,54 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.36` (v4.52.2 bridge release —
-collapse-tool-results is now **default OFF** and moved to
-Advanced/experimental after Ivan's v4.52.1 test cycle showed
-per-site rendering regressions; UI polish pass on tabs and
-buttons).
+Current extension version: `0.14.37` (v4.52.3 bridge release —
+Scan Now regression fix from the side panel + ZeroTier Central
+URL actualisation).
 
-Key changes in this release:
+Key fixes in this release:
 
-1. **`collapseToolResults` default: FALSE.** Prior versions
-enabled it by default, but the `<details>` wrapper picked up
-per-site CSS in ways we could not predict (Qwen bled a
-pink-purple Tailwind highlight, Kimi showed a vertical rule
-from `.user-content` styling, Gemini web double-collapsed
-against its own `luminous-collapse-button`). The toggle
-still exists — under **Settings → Advanced / experimental**
-— but is off unless the operator explicitly opts in. The
-old "undefined → TRUE" upgrade continuity is removed so
-users who had it ON before will notice tool-results stop
-collapsing after upgrade. That is the correct outcome
-given the rendering bugs.
+1. **Scan Now (Settings tab → Status) now works from the side
+   panel.** Prior versions asked `chrome.tabs.query({active:
+   true, currentWindow: true})` from the sidepanel context, but
+   from the side panel Chrome resolves `currentWindow` as the
+   panel window (not the browser window that has the chat tab
+   open). The query matched nothing and Scan Now silently
+   returned `active tab not found`. `sendActiveTabMessage` now
+   walks a three-step fallback: `lastFocusedWindow` first
+   (correct pick for sidepanel callers), then `currentWindow`
+   (correct pick for popup / content-script callers), then any
+   active tab in any window. URLs that cannot host a content
+   script (`chrome://`, `chrome-extension://`, `edge://`,
+   `about:`, `file://`) are filtered out.
 
-2. **Site-skip list.** When `location.hostname` is in
-`ARENA_COLLAPSE_SKIP_HOSTS` the collapse function no-ops
-even when the toggle is ON. `gemini.google.com` is on the
-list because Gemini ships its own
-`data-test-id="luminous-collapse-button"` on user-query
-bubbles; wrapping again produces the visible double-
-collapse.
+2. **Actionable error messages.** When the content script is
+   not injected on the active tab (fresh browser start, first
+   navigation to a chat site after installing the extension),
+   Chrome returns `Receiving end does not exist`. We now
+   classify that error and append "reload the tab so the
+   extension can inject its content script" so the operator
+   knows what to do. When no chat tab is open at all, we say
+   so plainly.
 
-3. **Minimal styling on the wrapper.** The `<details>` and
-`<summary>` are now created with `all: revert; …` inline
-`cssText` so per-site rules with lower specificity cannot
-override us and we do not inherit weird colours. Summary is
-a muted italic label; the block itself has no background,
-border-radius, or padding. Site themes still colour the
-inner text as they would for any other user message.
+3. **Side panel Scan Now handler simplified.** The unwrap
+   logic that assumed background wrapped the reply in
+   `{ok, response, ...}` was wrong — `arena.scanPage` returns
+   the raw Scan Page JSON directly on success and a
+   `{ok: false, error, tab_url}` envelope on failure. Handler
+   now maps both correctly and surfaces `tab_url` in the
+   error line so you can see which page failed.
 
-4. **UI polish (sidepanel).** Header shows a subtle
-gradient dot next to the title. Tabs are now pill-shaped
-inside a rounded container instead of the old flat
-tab-strip. Buttons no longer turn blue on every hover;
-they lift to a slightly lighter slate. Focus rings on
-inputs/selects are the standard blue outline. Section
-titles are uppercase-tracking labels for better hierarchy
-in dense tabs.
+4. **ZeroTier Central URL actualised.** ZeroTier launched a
+   new Central UI in November 2025 at `central.zerotier.com`
+   and made `my.zerotier.com/account` the legacy fallback.
+   Dashboard body-18-zerotier.html now links to the new UI
+   and the backend error hint in `arena/admin/zerotier_central.py`
+   points to `central.zerotier.com/` first with the legacy URL
+   as a compatibility footnote.
 
-The Chrome side panel still has five tabs:
-
-1. **Status** — bridge health, policies, Scan Now viewer.
-2. **Tools** — searchable tool catalog.
-3. **Instructions** — Copy Instructions with live preview.
-4. **History** — command lifecycle history.
-5. **Settings** — bridge URL/token, automatic modes,
-   insert strategy, UI polish, Advanced/experimental
-   (collapseToolResults now lives here).
+The Chrome side panel still has five tabs (Status, Tools,
+Instructions, History, Settings). Everything else is
+byte-identical to v4.52.2 — no parser, adapter, or collapse
+changes.
 
 Extension file architecture (unchanged since v0.14.29):
 

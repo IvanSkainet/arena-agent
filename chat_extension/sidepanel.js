@@ -634,14 +634,18 @@ async function runScanNow() {
   raw.textContent = '(waiting for scan…)';
   document.getElementById('scanDetails').open = true;
   try {
-    const wrapped = await send('arena.scanPage');
-    // Background wraps the content-script reply in {ok, response, ...}
-    // (see arena.scanPage handler + sendActiveTabMessage). Unwrap
-    // if present so the pretty-view sees the raw scan object.
-    const res = wrapped?.response || wrapped?.result || wrapped || {};
-    if (wrapped?.ok === false || res?.ok === false) {
-      summary.innerHTML = `<b>Scan failed</b>: ${(wrapped?.error || res?.error || 'no active chat tab')}`;
-      raw.textContent = JSON.stringify(wrapped ?? {}, null, 2);
+    // v0.14.37 (v4.52.3): `arena.scanPage` returns the raw
+    // Scan Page object directly (background just forwards
+    // `scanPageDiagnostics()` from the active tab). On failure
+    // the reply is `{ok: false, error, tab_url?}` -- our own
+    // envelope from `sendActiveTabMessage`. Handle both.
+    const res = await send('arena.scanPage');
+    if (!res || res.ok === false) {
+      const err = res?.error || 'no active chat tab (open a supported chat site first)';
+      summary.innerHTML = `<b>Scan failed</b>: ${err}`;
+      if (res?.tab_url) summary.innerHTML += `<br><small>active URL: ${res.tab_url}</small>`;
+      raw.textContent = JSON.stringify(res ?? {}, null, 2);
+      _sidepanelRenderScanEvents([]);
       return;
     }
     summary.innerHTML = _sidepanelScanSummaryParts(res).join(' · ');

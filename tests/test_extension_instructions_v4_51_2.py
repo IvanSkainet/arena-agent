@@ -188,7 +188,7 @@ def test_no_category_still_returns_empty_catalog():
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_31():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.36'" in _ext_read("content.js")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.37'" in _ext_read("content.js")
     manifest = json.loads(_ext_read("manifest.json"))
-    assert manifest["version"] == "0.14.36"
-    assert "return '0.14.36';" in _ext_read("insert_strategies.js")
+    assert manifest["version"] == "0.14.37"
+    assert "return '0.14.37';" in _ext_read("insert_strategies.js")

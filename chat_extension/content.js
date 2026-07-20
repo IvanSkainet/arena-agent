@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.36';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.37';
 
 const processed = new Set();
 const mountedControls = new Map();

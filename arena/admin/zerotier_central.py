@@ -110,7 +110,7 @@ def _request(
         headers["Content-Type"] = "application/json"
     req = urllib.request.Request(url, data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- fixed my.zerotier.com Central API URL  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 -- fixed api.zerotier.com Central API URL (works for both my.zerotier.com legacy and central.zerotier.com new UI)  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             raw = resp.read().decode("utf-8", "replace")
             status = resp.status
     except urllib.error.HTTPError as e:
@@ -146,10 +146,14 @@ def _no_token_response() -> dict[str, Any]:
         "error": "ZeroTier Central token not configured",
         "reason": reason,
         "hint": (
-            "Create an API token on https://my.zerotier.com/account "
-            "and store it in one of: env ZEROTIER_CENTRAL_TOKEN, "
-            "env ZEROTIER_CENTRAL_TOKEN_FILE, or "
-            "~/.zerotier-central-token"
+            # v4.52.3: my.zerotier.com is the legacy Central UI as of
+            # November 2025 (see https://my.zerotier.com/account —
+            # ZeroTier now redirects new users to central.zerotier.com).
+            "Create an API token on https://central.zerotier.com/ "
+            "(Account -> API Access Tokens; legacy users can still use "
+            "https://my.zerotier.com/account) and store it in one of: "
+            "env ZEROTIER_CENTRAL_TOKEN, env ZEROTIER_CENTRAL_TOKEN_FILE, "
+            "or ~/.zerotier-central-token"
         ),
     }
 
