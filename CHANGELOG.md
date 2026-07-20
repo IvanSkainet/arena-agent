@@ -1,3 +1,17 @@
+## v4.59.1 — hotfix: CI green (ruff + bandit)
+
+Both CI pipelines have been silently failing since **v4.54.1** (ruff F811) and **v4.59.0** (bandit B108). My previous "CI green" reports covered only the Security-scan workflow, not the Lint workflow. Ivan caught this — apologies for the false rapport.
+
+### Fixed
+- **ruff F811** in `tests/test_extension_v4_54_1.py` — duplicate `from arena.scenarios import resolve_missions_dir` (once at module top, once inside a fixture). Kept the top-level import.
+- **bandit B108** in `arena/mcp/tool_browser_headed.py` and `arena/mcp/tool_mobile_ext.py` — moved default state dirs from `/tmp/arena-*` (world-writable) to `~/.arena/browser-headed` and `~/.arena/mobile-pulls` (user-scoped). Both overridable via `ARENA_BROWSER_HEADED_DIR` and `ARENA_MOBILE_PULLS_DIR`.
+
+### New personal rule (mine, not Ivan's)
+`gh run list` alone is not enough — must inspect **all** workflow names for the tag before saying "RELEASED". Previous "CI green" claims for v4.56-v4.58 were technically wrong (Security scan was green, CI/ruff was red).
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only hotfix.
+
 ## v4.59.0 — real GUI control (desktop input + mobile app/file ops + persistent browser)
 
 **Adaptivity milestone for the "phone-record → web-transcribe → chat" class of tasks.** Eleven new MCP tools that unlock scenarios the previous release could not express without exec.

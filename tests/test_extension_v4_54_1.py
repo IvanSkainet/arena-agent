@@ -29,7 +29,6 @@ from arena.scenarios.runtime import (
 def tmp_storage(monkeypatch, tmp_path):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     (tmp_path / "missions").mkdir(exist_ok=True)
-    from arena.scenarios import resolve_missions_dir
     assert resolve_missions_dir() == tmp_path / "missions"
     return ScenarioMissionStore()
 

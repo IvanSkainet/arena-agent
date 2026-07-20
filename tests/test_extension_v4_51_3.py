@@ -125,4 +125,4 @@ def test_system_prompt_structure_sections():
 
 def test_pyproject_version_bumped():
     src = _read(REPO_ROOT / "pyproject.toml")
-    assert any(v in src for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"', 'version = "4.53.0"', 'version = "4.53.1"', 'version = "4.54.0"', 'version = "4.54.1"', 'version = "4.55.0"', 'version = "4.55.1"', 'version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.58.0"', 'version = "4.59.0"'))
+    assert any(v in src for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"', 'version = "4.53.0"', 'version = "4.53.1"', 'version = "4.54.0"', 'version = "4.54.1"', 'version = "4.55.0"', 'version = "4.55.1"', 'version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.58.0"', 'version = "4.59.0"'))

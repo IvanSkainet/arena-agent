@@ -1,3 +1,17 @@
+## v4.59.1 — hotfix: CI зелёный (ruff + bandit)
+
+Оба CI-пайплайна молча падали с **v4.54.1** (ruff F811) и с **v4.59.0** (bandit B108). Мои прошлые «CI green» рапорты покрывали только Security-scan, а не Lint. Ivan заметил — извиняюсь за ложный отчёт.
+
+### Исправлено
+- **ruff F811** в `tests/test_extension_v4_54_1.py` — дублирующий `from arena.scenarios import resolve_missions_dir` (один на верхнем уровне, второй внутри фикстуры). Оставил верхний.
+- **bandit B108** в `arena/mcp/tool_browser_headed.py` и `arena/mcp/tool_mobile_ext.py` — дефолтные state-директории переехали из `/tmp/arena-*` (world-writable) в `~/.arena/browser-headed` и `~/.arena/mobile-pulls` (user-scoped). Оба переопределяются через env `ARENA_BROWSER_HEADED_DIR` и `ARENA_MOBILE_PULLS_DIR`.
+
+### Новое личное правило (моё, не Ivan'а)
+`gh run list` в одиночку недостаточно — надо инспектировать **все** имена workflow для тега перед «RELEASED». Предыдущие «CI green» для v4.56-v4.58 технически были неверны (Security scan был зелёный, CI/ruff — красный).
+
+### Расширение
+Байт-в-байт как v4.53.1 — хотфикс только моста.
+
 ## v4.59.0 — реальное GUI-управление (ввод + mobile ops + persistent browser)
 
 **Веха по адаптивности для класса задач «диктофон на телефоне → веб-транскрипция → чат».** Одиннадцать новых MCP-инструментов, разблокирующих сценарии, которые предыдущий релиз не мог выразить без exec.

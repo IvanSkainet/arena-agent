@@ -17,6 +17,7 @@ requiring a new dispatcher slot.
 from __future__ import annotations
 
 import base64
+import os
 import json
 import re
 import shlex
@@ -91,8 +92,8 @@ def _pull_file(serial: str, args: dict[str, Any]) -> dict[str, Any]:
     return_bytes = bool(args.get("return_bytes", False))
 
     if not local:
-        # Default: put under /tmp/arena-mobile-pulls/<basename>
-        target_dir = Path("/tmp/arena-mobile-pulls")
+        # Default: put under ~/.arena/mobile-pulls/<basename> (not world-writable /tmp)
+        target_dir = Path(os.environ.get("ARENA_MOBILE_PULLS_DIR") or (Path.home() / ".arena" / "mobile-pulls")).expanduser()
         target_dir.mkdir(parents=True, exist_ok=True)
         local = str(target_dir / Path(remote).name)
 

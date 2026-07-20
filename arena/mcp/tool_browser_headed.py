@@ -32,7 +32,14 @@ from typing import Any
 from arena.mcp.tool_utils import text_content
 
 
-_STATE_DIR = Path("/tmp/arena-browser-headed")
+def _default_state_dir() -> Path:
+    override = os.environ.get("ARENA_BROWSER_HEADED_DIR")
+    if override:
+        return Path(override).expanduser()
+    return Path.home() / ".arena" / "browser-headed"
+
+
+_STATE_DIR = _default_state_dir()
 _STATE_FILE = _STATE_DIR / "sessions.json"
 
 _LINUX_CANDIDATES = ["chromium", "google-chrome", "google-chrome-stable", "brave", "brave-browser"]
