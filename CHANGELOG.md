@@ -1,3 +1,28 @@
+## v4.56.0 — mobile.* MCP surface (30 tools)
+
+**Adaptivity milestone.** The whole `arena/mobile/*` handler surface (30 endpoints, in the bridge since v3.83.x) is now callable as typed MCP tools. Scenarios and the browser chat extension can drive Android devices the same way they drive `fs.*`, `desktop.*`, and `scenario.*` — no more `exec "adb shell ..."` costume.
+
+### New MCP tools
+Device: `mobile.devices`, `mobile.info`, `mobile.transport_status`, `mobile.sensors`, `mobile.helpers_status`, `mobile.packages`.
+Screen: `mobile.screenshot`, `mobile.ui`.
+Input: `mobile.tap`, `mobile.swipe`, `mobile.type`, `mobile.key`, `mobile.key_combo`, `mobile.scroll`, `mobile.gesture`, `mobile.tap_by`, `mobile.paste`.
+IME: `mobile.ime_status`, `mobile.ime_set`, `mobile.ime_reset`.
+Shell: `mobile.shell` (dangerous).
+Camera: `mobile.camera_launch`, `mobile.camera_shutter`, `mobile.camera_photos`, `mobile.camera_capture`, `mobile.camera_pull`, `mobile.camera_record_start`, `mobile.camera_record_stop`.
+Screen recording: `mobile.record_start`, `mobile.record_stop`, `mobile.record_list`, `mobile.record_pull`.
+
+### Policy
+Every new tool is classified in `arena/extension_bridge/policy.py`:
+- **safe**: pure reads (`devices`, `info`, `screenshot`, `ui`, `sensors`, `packages`, `ime_status`, `transport_status`, `helpers_status`, `camera_photos`, `record_list`).
+- **medium**: on-device input & camera actions (`tap`, `swipe`, `type`, `key`, `paste`, all camera/record start/stop, record_pull).
+- **dangerous**: `mobile.shell`, `mobile.ime_set`, `mobile.ime_reset` (IME switch can hijack every subsequent keystroke).
+
+### Policy-registry contract
+New tests in `tests/test_extension_v4_56_0.py` catch phantom tool names (declared in policy but not dispatched anywhere). A narrow allowlist documents the two known survivors — `browser.fetch`, `browser.head` — so future edits either resolve them or grow the allowlist deliberately.
+
+### Extension
+Byte-identical to v4.53.1 — this is a bridge-only release.
+
 ## v4.55.1 — 2026-07-20
 
 Hot-fix for v4.54.1 semgrep gate. `arena/scenarios/runtime.py`

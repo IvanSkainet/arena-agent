@@ -13,6 +13,8 @@ _SAFE_TOOLS = {
     "mission.templates", "plan.create", "sys.status", "watch.files",
     # v4.54.0: scenario read-only surfaces.
     "scenario.get", "scenario.history", "scenario.list", "scenario.preview",
+    # v4.56.0: mobile.* read-only surfaces.
+    "mobile.devices", "mobile.info", "mobile.transport_status", "mobile.screenshot", "mobile.ui", "mobile.sensors", "mobile.packages", "mobile.ime_status", "mobile.helpers_status", "mobile.camera_photos", "mobile.record_list",
 }
 _MEDIUM_TOOLS = {
     "fs.create", "memory.import", "mem.get", "mem.set",
@@ -26,12 +28,16 @@ _MEDIUM_TOOLS = {
     # the fallback here is `unknown` which the sidepanel UI
     # already surfaces as "requires approval".
     "scenario.save", "scenario.delete",
+    # v4.56.0: mobile.* input/camera actions (state-changing but locally reversible).
+    "mobile.tap", "mobile.swipe", "mobile.type", "mobile.key", "mobile.key_combo", "mobile.scroll", "mobile.gesture", "mobile.tap_by", "mobile.paste", "mobile.camera_launch", "mobile.camera_shutter", "mobile.camera_capture", "mobile.camera_pull", "mobile.camera_record_start", "mobile.camera_record_stop", "mobile.record_start", "mobile.record_stop", "mobile.record_pull",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
     "exec", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
     "git.commit", "mission.iterate", "mission.recover", "mission.rerun",
     "mission.run", "mission.schedule_tick", "skill.run", "subagent.spawn",
+    # v4.56.0: mobile.* full-shell / IME hijack surfaces.
+    "mobile.shell", "mobile.ime_set", "mobile.ime_reset",
 }
 _TRUSTED_HOSTS = {
     "chat.openai.com", "chatgpt.com", "claude.ai", "gemini.google.com",

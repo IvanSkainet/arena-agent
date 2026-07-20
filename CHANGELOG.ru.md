@@ -1,3 +1,28 @@
+## v4.56.0 — MCP-обёртка над mobile.* (30 инструментов)
+
+**Веха по адаптивности.** Вся HTTP-поверхность `arena/mobile/*` (30 эндпоинтов, живёт в мосте с v3.83.x) стала доступна как типизированные MCP-инструменты. Сценарии и chat-extension могут управлять Android-устройствами так же, как `fs.*`, `desktop.*`, `scenario.*` — без костыля `exec "adb shell ..."`.
+
+### Новые MCP-инструменты
+Устройство: `mobile.devices`, `mobile.info`, `mobile.transport_status`, `mobile.sensors`, `mobile.helpers_status`, `mobile.packages`.
+Экран: `mobile.screenshot`, `mobile.ui`.
+Ввод: `mobile.tap`, `mobile.swipe`, `mobile.type`, `mobile.key`, `mobile.key_combo`, `mobile.scroll`, `mobile.gesture`, `mobile.tap_by`, `mobile.paste`.
+IME: `mobile.ime_status`, `mobile.ime_set`, `mobile.ime_reset`.
+Шелл: `mobile.shell` (dangerous).
+Камера: `mobile.camera_launch`, `mobile.camera_shutter`, `mobile.camera_photos`, `mobile.camera_capture`, `mobile.camera_pull`, `mobile.camera_record_start`, `mobile.camera_record_stop`.
+Запись экрана: `mobile.record_start`, `mobile.record_stop`, `mobile.record_list`, `mobile.record_pull`.
+
+### Классы риска
+Каждый новый tool расклассифицирован в `arena/extension_bridge/policy.py`:
+- **safe**: чистые чтения.
+- **medium**: ввод и камера (обратимые локально).
+- **dangerous**: `mobile.shell`, `mobile.ime_set`, `mobile.ime_reset` (переключение IME = перехват всех последующих нажатий).
+
+### Контракт policy ↔ registry
+Новые тесты в `tests/test_extension_v4_56_0.py` ловят «фантомные» имена (заявлены в policy, но никем не диспатчятся). Узкий allowlist фиксирует двух известных выживших — `browser.fetch`, `browser.head` — чтобы будущие правки либо резолвили их, либо осознанно расширяли список.
+
+### Расширение
+Байт-в-байт как v4.53.1 — релиз только на мосту.
+
 ## v4.55.1 — 2026-07-20
 
 Hotfix для v4.54.1 semgrep gate. `arena/scenarios/runtime.py`
