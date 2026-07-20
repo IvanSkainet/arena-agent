@@ -483,7 +483,9 @@ async function clearHistory() {
 }
 async function refreshAll() {
   renderStatus({loading: 'Refreshing...'});
-  await Promise.all([loadHistory(), testConnection()]);
+  // v0.14.40 (v4.52.6): also refresh the Status-tab picker so
+  // Scan Now has the current list of open supported chats.
+  await Promise.all([loadHistory(), testConnection(), refreshScanTabPicker()]);
 }
 let filterTimer = null;
 function scheduleFilterReload() {
@@ -625,16 +627,55 @@ function _sidepanelRenderScanEvents(events) {
     box.appendChild(div);
   });
 }
+// v0.14.40 (v4.52.6): fetch the list of supported chat tabs
+// and populate the picker. Called on Status-tab activation and
+// every time the user hits the ↻ button. If exactly one
+// supported tab exists, we still show it as a single option so
+// the user knows what got picked.
+async function refreshScanTabPicker() {
+  const picker = document.getElementById('scanTabPicker');
+  const hint   = document.getElementById('scanTabHint');
+  if (!picker) return;
+  const prev = picker.value;
+  picker.innerHTML = '<option value="__auto__">auto (default: highest-ranked supported tab)</option>';
+  try {
+    const res = await send('arena.listSupportedTabs');
+    const tabs = Array.isArray(res?.tabs) ? res.tabs : [];
+    if (!tabs.length) {
+      hint.innerHTML = '<b>No supported chat tab is open.</b> Open ChatGPT, Claude, Gemini, Qwen, DeepSeek, Kimi, Mistral, Perplexity, Grok, OpenRouter, t3.chat, z.ai, arena.ai, or duck.ai/chat first.';
+      return;
+    }
+    tabs.forEach((t, i) => {
+      const opt = document.createElement('option');
+      opt.value = String(t.id);
+      const activeFlag = t.active && t.windowFocused ? ' • active' : '';
+      const rankFlag   = i === 0 ? ' (default)' : '';
+      opt.textContent = `${t.host}${rankFlag}${activeFlag} — ${(t.title || t.url).slice(0, 55)}`;
+      picker.appendChild(opt);
+    });
+    if (prev && Array.from(picker.options).some((o) => o.value === prev)) picker.value = prev;
+    hint.innerHTML = `${tabs.length} supported chat tab${tabs.length === 1 ? '' : 's'} open. If your tab was opened <b>before</b> this extension was installed / updated, Scan Now will auto-inject the content script (no manual reload needed).`;
+  } catch (e) {
+    hint.textContent = `Failed to list tabs: ${String(e?.message || e)}`;
+  }
+}
+
 async function runScanNow() {
   const summary = document.getElementById('scanSummary');
   const raw = document.getElementById('scanRawBox');
   const events = document.getElementById('scanEvents');
+  const picker = document.getElementById('scanTabPicker');
   summary.textContent = 'Scanning active tab…';
   events.innerHTML = '';
   raw.textContent = '(waiting for scan…)';
   document.getElementById('scanDetails').open = true;
   try {
-    const res = await send('arena.scanPage');
+    // v0.14.40 (v4.52.6): pass an explicit tabId when the user
+    // picked one from the dropdown; empty body falls back to
+    // the auto ranker.
+    const pickerVal = picker?.value || '__auto__';
+    const body = (pickerVal && pickerVal !== '__auto__') ? {tabId: parseInt(pickerVal, 10)} : {};
+    const res = await send('arena.scanPage', body);
     if (!res || res.ok === false) {
       const err = res?.error || 'no active chat tab (open a supported chat site first)';
       let html = `<b>Scan failed</b>: ${err}`;
@@ -666,7 +707,9 @@ async function runScanNow() {
       raw.textContent = JSON.stringify(res ?? {}, null, 2);
       return;
     }
-    summary.innerHTML = _sidepanelScanSummaryParts(res).join(' · ');
+    const parts = _sidepanelScanSummaryParts(res);
+    if (res?._auto_injected) parts.unshift('<span class="arena-badge arena-badge-flow">auto-injected</span>');
+    summary.innerHTML = parts.join(' · ');
     _sidepanelRenderScanEvents(res.events_recent || []);
     raw.textContent = JSON.stringify(res, null, 2);
   } catch (e) {
@@ -684,6 +727,9 @@ TAB_LOAD_HOOKS.tools = () => loadTools(true);
 TAB_LOAD_HOOKS.instructions = () => loadInstructions();
 TAB_LOAD_HOOKS.history = () => loadHistory();
 TAB_LOAD_HOOKS.settings = () => loadSettings();
+// Status tab is active by default so its loader runs once on
+// first switch AWAY-and-back. We also refresh on demand.
+TAB_LOAD_HOOKS.status = () => refreshScanTabPicker();
 
 document.getElementById('refreshBtn').addEventListener('click', refreshAll);
 document.getElementById('testBtn').addEventListener('click', testConnection);
@@ -735,6 +781,7 @@ document.getElementById('mInsertStrategy').addEventListener('change', () => {
 
 // Scan Now button (Status tab)
 document.getElementById('scanNowBtn').addEventListener('click', runScanNow);
+document.getElementById('scanTabReloadBtn').addEventListener('click', refreshScanTabPicker);
 
 // Initial load: Status tab is active by default; also warm the
 // bridge connection so the header badge is populated.

@@ -1,4 +1,4 @@
-"""v0.14.39 / v4.52.4 tests: Scan Now broad-query + diagnostic dump.
+"""v0.14.40 / v4.52.4 tests: Scan Now broad-query + diagnostic dump.
 
 Full DOM behaviour verified in jstest/smoke_v524.js.
 """
@@ -16,29 +16,29 @@ def _read(p: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.39",)
+    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.40",)
 
 
 def test_content_script_version_bumped():
-    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.39';" in _read(CHAT_EXT / "content.js")
+    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.40';" in _read(CHAT_EXT / "content.js")
 
 
 def test_insert_strategies_version_bumped():
-    assert "return '0.14.39';" in _read(CHAT_EXT / "insert_strategies.js")
+    assert "return '0.14.40';" in _read(CHAT_EXT / "insert_strategies.js")
 
 
 def test_readme_mentions_v4_52_4():
     src = _read(CHAT_EXT / "README.md")
-    assert ("0.14.39" in src)
-    assert ("v4.52.4" in src or "v4.52.5" in src)
+    assert ("0.14.40" in src)
+    assert ("v4.52.4" in src or "v4.52.5" in src or "v4.52.6" in src)
 
 
 def test_constants_version_bumped():
-    assert any(v in _read(REPO_ROOT / "arena" / "constants.py") for v in ('VERSION = "4.52.4"', 'VERSION = "4.52.5"'))
+    assert any(v in _read(REPO_ROOT / "arena" / "constants.py") for v in ('VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"'))
 
 
 def test_pyproject_version_bumped():
-    assert any(v in _read(REPO_ROOT / "pyproject.toml") for v in ('version = "4.52.4"', 'version = "4.52.5"'))
+    assert any(v in _read(REPO_ROOT / "pyproject.toml") for v in ('version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"'))
 
 
 # ------------------------------------------------------------------

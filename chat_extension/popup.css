@@ -64,6 +64,10 @@ pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;color:#d1d5db;
 .arena-btn-danger{background:#7f1d1d;border-color:#dc2626}
 .arena-btn-danger:hover{background:#b91c1c}
 
+/* --- Scan Now: tab picker (Status tab) ---------------------- */
+.arena-scan-controls select{flex:1;min-width:180px}
+.arena-scan-controls button{width:auto}
+
 /* --- Scan Now viewer (Status tab) --------------------------- */
 .arena-scan-details{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;margin-top:10px}
 .arena-scan-details > summary{cursor:pointer;color:#cbd5e1;font-weight:600;list-style:none;outline:none}

@@ -27,12 +27,21 @@
         <button id="refreshBtn">Refresh</button>
         <button id="testBtn">Test Bridge</button>
         <button id="policiesBtn">Policies</button>
-        <button id="scanNowBtn" title="Run Scan Page on the active tab and pretty-print the result">Scan Now</button>
       </div>
       <pre id="statusBox">Loading...</pre>
+
+      <h2>Scan chat tab</h2>
+      <div class="row arena-scan-controls">
+        <select id="scanTabPicker" title="Which supported chat tab to scan (auto = highest-ranked)">
+          <option value="__auto__">auto (default: highest-ranked supported tab)</option>
+        </select>
+        <button id="scanTabReloadBtn" title="Re-list supported chat tabs open in the browser">↻</button>
+        <button id="scanNowBtn" title="Run Scan Page on the selected tab and pretty-print the result">Scan Now</button>
+      </div>
+      <div id="scanTabHint" class="arena-hint">If your tab was opened <b>before</b> this extension was installed / updated, Scan Now will auto-inject the content script (no manual reload needed).</div>
       <details id="scanDetails" class="arena-scan-details" open>
         <summary>Scan Page result</summary>
-        <div id="scanSummary" class="arena-scan-summary">Click <b>Scan Now</b> to inspect the active chat tab.</div>
+        <div id="scanSummary" class="arena-scan-summary">Click <b>Scan Now</b> to inspect the selected chat tab.</div>
         <div id="scanEvents" class="arena-scan-events"></div>
         <pre id="scanRawBox" class="arena-scan-raw">(no scan yet)</pre>
       </details>

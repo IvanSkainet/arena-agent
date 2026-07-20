@@ -1,3 +1,91 @@
+## v4.52.6 — 2026-07-20
+
+Два прямых фикса по твоему v4.52.5 отчёту:
+
+1. **Auto-inject content scripts по требованию.** Твой
+   репорт: `arena.ai` был выбран ранкером (корректно), но
+   сообщение упало с `Receiving end does not exist` потому
+   что твой arena.ai таб был открыт ДО установки/апдейта
+   extension, а Chrome auto-инжектит content_scripts только
+   на новых навигациях.
+2. **Tab picker dropdown.** Твой репорт: "неудобно с
+   множеством вкладок". Явный picker заменяет ranker-only
+   auto-pick, когда ты хочешь контроль.
+
+### chat_extension `background.js` (0.14.39 → 0.14.40)
+
+* **Константа `ARENA_CONTENT_SCRIPT_FILES`** — зеркалит
+  `manifest.json` `content_scripts[0].js` (9 файлов, тот
+  же порядок). Новый pytest-guard cross-check делает drift
+  невозможным.
+* **`_arenaInjectContentScriptsInto(tabId)` helper** —
+  обёртка над `chrome.scripting.executeScript({target:
+  {tabId}, files: ARENA_CONTENT_SCRIPT_FILES})`.
+* **`_arenaSendToSpecificTab(tabId, message, meta)`** —
+  шлёт сообщение; если Chrome возвращает точный класс
+  ошибки "content script never loaded" И target на
+  supported host, прозрачно вызывает
+  `_arenaInjectContentScriptsInto` и делает retry один раз.
+  Reply получает `_auto_injected: true` — sidepanel badge
+  показывает "auto-injected". Non-injectable ошибки
+  surface как раньше.
+* **`sendActiveTabMessage(message, opts)`** — новый второй
+  аргумент. Если `opts.tabId` — integer, скипаем ранкер и
+  сразу идём в `_arenaSendToSpecificTab`.
+* **Новый handler `arena.listSupportedTabs`** — возвращает
+  `{ok, tabs: [{id, url, host, title, active, windowId,
+  windowFocused}]}`, отсортированный по ranker score.
+  Используется picker'ом в sidepanel.
+* **Новый handler `arena.injectContentScripts`** — ручной
+  re-inject endpoint (для будущих фич / power users).
+* **`arena.scanPage` принимает `body.tabId`** — форвардит
+  в `scanActivePage(opts)`, который передаёт в
+  `sendActiveTabMessage(msg, opts)`.
+
+### chat_extension `sidepanel.html` + `sidepanel.js`
+
+* **Секция Status → Scan chat tab** переработана:
+  * `<select id="scanTabPicker">` — первая опция
+    `auto (default: highest-ranked supported tab)`,
+    остальные — по одной на каждый открытый supported
+    tab, лейбл `<host> (default)? • active? — <title>`.
+  * `↻` кнопка — re-list on demand.
+  * Hint текст объясняет auto-inject поведение, чтобы ты
+    знал, что вручную перезагружать таб НЕ нужно.
+* **`refreshScanTabPicker()`** — заполняет dropdown из
+  `arena.listSupportedTabs`. Хук в `TAB_LOAD_HOOKS.status`
+  на первую активацию + в `refreshAll()` цикл.
+* **`runScanNow()`** — читает picker; если выбрана
+  конкретная опция (`!__auto__`), форвардит числовой
+  `tabId` в background. Auto — по умолчанию.
+* **`auto-injected` badge** — появляется автоматически
+  когда reply carrier `_auto_injected: true`, ты видишь
+  когда extension тихо спас старый таб.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_52_6.py` — 21 ассерт.
+* jsdom smoke `jstest/smoke_v526.js` — 23 ассерта с пятью
+  runtime сценариями:
+  * **A**: picker показывает два supported таба
+    правильно (highest-ranked первый, лейбл "default")
+  * **B**: picker выбирает arena.ai → Scan Now шлёт
+    `body.tabId=200` (твой точный запрос)
+  * **C**: auto опция шлёт пустой body → ranker путь
+  * **D**: `_auto_injected: true` рендерит badge
+  * **E**: no supported tabs → friendly hint с сайтами
+* Полный suite: **2881 passed** (2860 baseline + 21 для
+  v4.52.6). Zero regressions.
+
+### Что не вошло
+
+* **Per-site collapse полировка** — по-прежнему отложено
+  до computed-style захватов.
+* **Полный переход popup → sidepanel** — по-прежнему
+  отложено согласно твоему "не убирать pop up".
+* **MCP SuperAssistant Shadow-DOM sidebar-injection port**
+  — по-прежнему отложено на v4.53.x.
+
 ## v4.52.5 — 2026-07-20
 
 Прямой фикс по твоему v4.52.4 диагностическому дампу. Dump

@@ -1,3 +1,100 @@
+## v4.52.6 — 2026-07-20
+
+Two direct fixes for Ivan's v4.52.5 feedback:
+
+1. **Auto-inject content scripts on demand.** Ivan's report:
+   `arena.ai` was picked by the ranker (correctly), but the
+   message failed with `Receiving end does not exist` because
+   his arena.ai tab was open BEFORE the extension was
+   installed/updated, and Chrome only auto-injects
+   content_scripts on new navigations.
+2. **Tab picker dropdown.** Ivan's report: "неудобно с
+   множеством вкладок". Explicit picker replaces the
+   ranker-only auto-pick when the user wants control.
+
+### chat_extension `background.js` (0.14.39 → 0.14.40)
+
+* **`ARENA_CONTENT_SCRIPT_FILES` constant** — mirrors
+  `manifest.json` `content_scripts[0].js` (9 files, same
+  order). A new pytest guard cross-checks this so drift is
+  impossible.
+* **`_arenaInjectContentScriptsInto(tabId)` helper** — wraps
+  `chrome.scripting.executeScript({target: {tabId}, files:
+  ARENA_CONTENT_SCRIPT_FILES})`.
+* **`_arenaSendToSpecificTab(tabId, message, meta)` helper**
+  — sends a message; if Chrome errors with the specific
+  "content script never loaded" class AND the target is on
+  a supported host, transparently invokes
+  `_arenaInjectContentScriptsInto` and retries once. Reply
+  gets `_auto_injected: true` so the sidepanel can badge it.
+  Non-injectable errors surface unchanged.
+* **`sendActiveTabMessage(message, opts)`** — new second
+  arg. If `opts.tabId` is an integer, we skip the ranker
+  entirely and go straight to `_arenaSendToSpecificTab`.
+* **New handler `arena.listSupportedTabs`** — returns
+  `{ok, tabs: [{id, url, host, title, active, windowId,
+  windowFocused}]}` sorted by ranker score. Used by the
+  sidepanel picker.
+* **New handler `arena.injectContentScripts`** — manual
+  re-injection endpoint (useful for future features / power
+  users).
+* **`arena.scanPage` accepts `body.tabId`** — forwards to
+  `scanActivePage(opts)` which passes it into
+  `sendActiveTabMessage(msg, opts)`.
+
+### chat_extension `sidepanel.html` + `sidepanel.js`
+
+* **Status → Scan chat tab** section reworked:
+  * `<select id="scanTabPicker">` — first option is
+    `auto (default: highest-ranked supported tab)`,
+    remaining options are one per open supported tab
+    labeled `<host> (default)? • active? — <title>`.
+  * `↻` button — re-lists the tabs on demand.
+  * Hint text explains the auto-inject behaviour so the
+    user knows they do NOT need to reload the tab manually.
+* **`refreshScanTabPicker()`** — populates the dropdown
+  from `arena.listSupportedTabs`. Hooked into
+  `TAB_LOAD_HOOKS.status` for first-activation refresh and
+  into the Status-tab `refreshAll()` cycle.
+* **`runScanNow()`** — reads the picker; if a specific
+  option is selected (`!__auto__`) it forwards the numeric
+  `tabId` to background. Auto stays the default.
+* **`auto-injected` badge** — happens automatically when
+  the reply carries `_auto_injected: true`, so Ivan can
+  see when the extension quietly rescued a stale tab.
+
+### Tests
+
+* Added `tests/test_extension_v4_52_6.py` — 21 assertions
+  covering: version bumps, content-script-files constant,
+  **cross-check against manifest.json** (byte-for-byte
+  order), `chrome.scripting.executeScript` usage, retry
+  gate on the specific error + supported host, specific-tab
+  helper, `Number.isInteger(opts.tabId)` override, new
+  message handlers, HTML picker elements, JS `refreshScanTabPicker`,
+  tabId forwarding, auto-injected badge, empty-tabs hint
+  lists supported sites, new CSS class.
+* jsdom smoke `jstest/smoke_v526.js` — 23 assertions with
+  five runtime scenarios:
+  * **A**: picker lists two supported chat tabs correctly
+    ordered (highest-ranked first, labeled "default")
+  * **B**: picker selects arena.ai → Scan Now sends
+    `body.tabId=200` (Ivan's exact request)
+  * **C**: auto option sends empty body → ranker path
+  * **D**: `_auto_injected: true` renders the badge
+  * **E**: no supported tabs → friendly hint listing sites
+* Full suite: **2881 passed** (2860 baseline + 21 for
+  v4.52.6). Zero regressions.
+
+### Not addressed
+
+* **Per-site collapse polish** — still deferred pending
+  computed-style captures.
+* **Full popup → sidepanel migration** — still deferred
+  per Ivan's "не убирать pop up".
+* **MCP SuperAssistant Shadow-DOM sidebar-injection port**
+  — still deferred to v4.53.x.
+
 ## v4.52.5 — 2026-07-20
 
 Direct fix for Ivan's v4.52.4 diagnostic report. The dump

@@ -280,8 +280,80 @@ function _arenaIsSupportedChatHost(u) {
   return ARENA_PATH_SCOPED_ADAPTERS.some((a) => a.host === host && path.startsWith(a.pathPrefix));
 }
 
-async function sendActiveTabMessage(message) {
+// v0.14.40 (v4.52.6): mirror the content_scripts entry from
+// manifest.json so we can programmatically re-inject when a
+// user opens the panel on a tab that was navigated to a
+// supported chat site BEFORE the extension was installed /
+// updated. Chrome only auto-injects on new navigations, so
+// old tabs will fail with `Receiving end does not exist`
+// until they are reloaded. Test asserts this list matches
+// chat_extension/manifest.json.
+const ARENA_CONTENT_SCRIPT_FILES = [
+  'adapter_sites.js', 'parser.js', 'adapters.js',
+  'insert_strategies.js', 'settings.js', 'insert_history.js',
+  'shadow_toolbar.js', 'diag.js', 'content.js',
+];
+
+async function _arenaInjectContentScriptsInto(tabId) {
+  if (!chrome.scripting?.executeScript) return {ok: false, error: 'scripting api unavailable'};
+  try {
+    await chrome.scripting.executeScript({
+      target: {tabId, allFrames: false},
+      files: ARENA_CONTENT_SCRIPT_FILES,
+    });
+    return {ok: true};
+  } catch (e) {
+    return {ok: false, error: e?.message || String(e)};
+  }
+}
+
+// v0.14.40 (v4.52.6): list all supported chat tabs so the
+// sidepanel can render a picker (Ivan's UX request:
+// "неудобно с множеством вкладок"). Ordered by ranker score
+// so the default pick is at the top.
+async function listSupportedChatTabs() {
+  if (!chrome.tabs?.query) return {ok: false, error: 'tabs api unavailable'};
+  const allTabs = await chrome.tabs.query({}) || [];
+  let windows = [];
+  try {
+    windows = (await chrome.windows?.getAll?.({populate: false}) || []).map((w) => ({
+      id: w?.id, type: w?.type, focused: !!w?.focused,
+    }));
+  } catch { /* windows API may be blocked */ }
+  const chatTabs = allTabs.filter((t) => _arenaIsSupportedChatHost(t?.url));
+  const rank = (t) => {
+    const w = windows.find((x) => x.id === t.windowId);
+    const wtype = t.windowType || w?.type || '';
+    let score = 0;
+    if (t.active) score += 100;
+    if (t.highlighted) score += 20;
+    if (wtype === 'normal' || !wtype) score += 50;
+    if (w?.focused) score += 40;
+    return score;
+  };
+  chatTabs.sort((a, b) => rank(b) - rank(a));
+  return {
+    ok: true,
+    tabs: chatTabs.map((t) => ({
+      id: t.id,
+      url: t.url || '',
+      host: _arenaExtractHost(t.url),
+      title: (t.title || '').slice(0, 80),
+      active: !!t.active,
+      windowId: t.windowId,
+      windowFocused: !!windows.find((w) => w.id === t.windowId)?.focused,
+    })),
+  };
+}
+
+async function sendActiveTabMessage(message, opts = {}) {
   if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return {ok: false, error: 'tabs api unavailable'};
+
+  // v0.14.40 (v4.52.6): explicit override -- if the sidepanel
+  // tab-picker gave us a specific tabId, use it directly.
+  if (Number.isInteger(opts.tabId)) {
+    return _arenaSendToSpecificTab(opts.tabId, message);
+  }
 
   const CHAT_URL_PROTOS = ['http://', 'https://'];
   const BAD_URL_PROTOS  = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'file://', 'view-source:'];
@@ -384,17 +456,68 @@ async function sendActiveTabMessage(message) {
     };
   }
 
-  return new Promise((resolve) => chrome.tabs.sendMessage(tab.id, message, (response) => {
+  return _arenaSendToSpecificTab(tab.id, message, {tab_url: tab.url, window_id: tab.windowId});
+}
+
+// v0.14.40 (v4.52.6): send a message to a specific tab id;
+// if Chrome replies with "Receiving end does not exist" AND
+// the tab is on a supported chat host, transparently inject
+// the content_scripts bundle via chrome.scripting and retry
+// once. This eliminates the "reload the tab" step for tabs
+// that were open before the extension was installed / updated.
+async function _arenaSendToSpecificTab(tabId, message, meta = {}) {
+  let tabUrl = meta.tab_url || '';
+  let windowId = meta.window_id;
+  if (!tabUrl && chrome.tabs?.get) {
+    try {
+      const t = await chrome.tabs.get(tabId);
+      tabUrl = t?.url || '';
+      windowId = t?.windowId;
+    } catch { /* tab may have closed */ }
+  }
+  const sendOnce = () => new Promise((resolve) => chrome.tabs.sendMessage(tabId, message, (response) => {
     const err = chrome.runtime.lastError;
-    if (err) {
-      const raw = err.message || String(err);
-      const friendly = /Receiving end does not exist|Could not establish/.test(raw)
-        ? `${raw} — reload the tab so the extension can inject its content script`
-        : raw;
-      return resolve({ok: false, error: friendly, tab_url: tab.url || '', tab_id: tab.id, window_id: tab.windowId});
-    }
-    resolve(response || {ok: false, error: 'empty content response', tab_url: tab.url || '', tab_id: tab.id});
+    if (err) return resolve({ok: false, _err: err.message || String(err)});
+    resolve(response || {ok: false, _err: 'empty content response'});
   }));
+
+  const first = await sendOnce();
+  if (!first._err) return {...first, tab_url: tabUrl, tab_id: tabId, window_id: windowId};
+
+  // Retry-with-inject only for the "content script never
+  // loaded" class of errors AND only on supported hosts.
+  const shouldRetry = /Receiving end does not exist|Could not establish/.test(first._err);
+  const supported = _arenaIsSupportedChatHost(tabUrl);
+  if (shouldRetry && supported && chrome.scripting?.executeScript) {
+    const inj = await _arenaInjectContentScriptsInto(tabId);
+    if (inj.ok) {
+      // Give content.js a beat to attach the runtime message listener.
+      await new Promise((r) => setTimeout(r, 120));
+      const second = await sendOnce();
+      if (!second._err) {
+        return {...second, tab_url: tabUrl, tab_id: tabId, window_id: windowId, _auto_injected: true};
+      }
+      // Still failing after inject -- surface both errors so we
+      // know which stage broke.
+      return {
+        ok: false,
+        error: `auto-inject succeeded but message still failed: ${second._err}`,
+        tab_url: tabUrl, tab_id: tabId, window_id: windowId, _auto_injected: true,
+      };
+    }
+    return {
+      ok: false,
+      error: `content script not loaded and auto-inject failed: ${inj.error} — try reloading the tab manually`,
+      tab_url: tabUrl, tab_id: tabId, window_id: windowId,
+      _auto_inject_error: inj.error,
+    };
+  }
+
+  const raw = first._err;
+  const friendly = shouldRetry
+    ? `${raw} — reload the tab so the extension can inject its content script`
+    : raw;
+  return {ok: false, error: friendly, tab_url: tabUrl, tab_id: tabId, window_id: windowId};
 }
 function scanHistoryDetail(result) {
   if (!result?.ok) return `error: ${result?.error || 'unknown'}`;
@@ -403,8 +526,8 @@ function scanHistoryDetail(result) {
   const base = summary || `${result.parsed_blocks || 0} block(s), ${result.candidate_nodes || 0} candidate(s)`;
   return `${result.adapter || 'unknown'}: ${tools ? `${base} · ${tools}` : base}`;
 }
-async function scanActivePage() {
-  const result = await sendActiveTabMessage({type: 'arena.scanPage'});
+async function scanActivePage(opts = {}) {
+  const result = await sendActiveTabMessage({type: 'arena.scanPage'}, opts);
   const detail = scanHistoryDetail(result);
   await pushHistory('scan', {detail, base_detail: detail, site: result.url || '', adapter: result.adapter || '', ok: !!result.ok, response: result});
   return result;
@@ -433,7 +556,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === 'arena.testConnection') return sendResponse(await testConnection());
     if (message?.type === 'arena.openSidePanel') return sendResponse(await openSidePanel());
     if (message?.type === 'arena.replayHistory') return sendResponse(await replayHistory(message.body?.index, message.body?.mode));
-    if (message?.type === 'arena.scanPage') return sendResponse(await scanActivePage());
+    if (message?.type === 'arena.scanPage') return sendResponse(await scanActivePage(message.body || {}));
+    if (message?.type === 'arena.listSupportedTabs') return sendResponse(await listSupportedChatTabs());
+    if (message?.type === 'arena.injectContentScripts') {
+      const tabId = message.body?.tabId;
+      if (!Number.isInteger(tabId)) return sendResponse({ok: false, error: 'tabId required'});
+      return sendResponse(await _arenaInjectContentScriptsInto(tabId));
+    }
     if (message?.type === 'arena.detected') {
       await pushHistory('detected', message.body || {detail: 'arena-tool block'});
       return sendResponse({ok: true});

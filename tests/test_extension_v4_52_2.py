@@ -19,29 +19,29 @@ def _read(p: Path) -> str:
 
 
 def test_manifest_version_bumped():
-    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.36", "0.14.39")
+    assert json.loads(_read(CHAT_EXT / "manifest.json"))["version"] in ("0.14.36", "0.14.40")
 
 
 def test_content_script_version_bumped():
-    assert any(v in _read(CHAT_EXT / 'content.js') for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.36';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.39';"))
+    assert any(v in _read(CHAT_EXT / 'content.js') for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.36';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.40';"))
 
 
 def test_insert_strategies_version_bumped():
-    assert any(v in _read(CHAT_EXT / 'insert_strategies.js') for v in ("return '0.14.36';", "return '0.14.39';"))
+    assert any(v in _read(CHAT_EXT / 'insert_strategies.js') for v in ("return '0.14.36';", "return '0.14.40';"))
 
 
 def test_readme_mentions_v4_52_2():
     src = _read(CHAT_EXT / "README.md")
-    assert ("0.14.36" in src or "0.14.39" in src)
-    assert ("v4.52.2" in src or "v4.52.3" in src or "v4.52.5" in src)
+    assert ("0.14.36" in src or "0.14.40" in src)
+    assert ("v4.52.2" in src or "v4.52.3" in src or "v4.52.5" in src or "v4.52.6" in src)
 
 
 def test_constants_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"'))
+    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"'))
 
 
 def test_pyproject_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"'))
+    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"'))
 
 
 # ------------------------------------------------------------------
