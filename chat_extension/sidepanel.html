@@ -8,18 +8,84 @@
 </head>
 <body>
   <main>
-    <h1>Arena Chat Bridge Panel</h1>
-    <section>
+    <header class="arena-header">
+      <h1>Arena Chat Bridge</h1>
+      <div id="arena-conn-badge" class="arena-badge arena-badge-kind" title="Bridge connectivity">…</div>
+    </header>
+
+    <nav class="arena-tabs" role="tablist">
+      <button class="arena-tab arena-tab-active" data-tab="status"       role="tab">Status</button>
+      <button class="arena-tab"                  data-tab="tools"        role="tab">Tools</button>
+      <button class="arena-tab"                  data-tab="instructions" role="tab">Instructions</button>
+      <button class="arena-tab"                  data-tab="history"      role="tab">History</button>
+    </nav>
+
+    <!-- STATUS -->
+    <section id="tab-status" class="arena-tab-panel arena-tab-panel-active" role="tabpanel">
       <div class="row">
         <button id="refreshBtn">Refresh</button>
         <button id="testBtn">Test Bridge</button>
         <button id="policiesBtn">Policies</button>
-        <button id="clearBtn">Clear History</button>
       </div>
       <pre id="statusBox">Loading...</pre>
     </section>
-    <section>
-      <h2>History filters</h2>
+
+    <!-- TOOLS -->
+    <section id="tab-tools" class="arena-tab-panel" role="tabpanel">
+      <div class="row arena-tools-controls">
+        <select id="toolsCategory" title="Filter by category">
+          <option value="safe">safe</option>
+          <option value="medium">medium</option>
+          <option value="dangerous">dangerous</option>
+          <option value="all">all</option>
+          <option value="fs">fs</option>
+          <option value="mission">mission</option>
+          <option value="memory">memory</option>
+          <option value="browser">browser</option>
+          <option value="desktop">desktop</option>
+          <option value="git">git</option>
+          <option value="system">system</option>
+        </select>
+        <input id="toolsSearch" placeholder="Filter by name / description">
+        <button id="toolsReloadBtn" title="Reload tool catalog from bridge">↻</button>
+      </div>
+      <div id="toolsSummary" class="arena-tools-summary">Loading tools…</div>
+      <div id="toolsList" class="arena-tools-list"></div>
+    </section>
+
+    <!-- INSTRUCTIONS -->
+    <section id="tab-instructions" class="arena-tab-panel" role="tabpanel">
+      <div class="row arena-instructions-controls">
+        <select id="instructionsCategory" title="Which tool category to include">
+          <option value="safe">safe (recommended)</option>
+          <option value="medium">medium</option>
+          <option value="dangerous">dangerous</option>
+          <option value="all">all</option>
+          <option value="">(preamble only, no catalog)</option>
+          <option value="fs">fs</option>
+          <option value="mission">mission</option>
+          <option value="memory">memory</option>
+          <option value="browser">browser</option>
+          <option value="desktop">desktop</option>
+          <option value="git">git</option>
+          <option value="system">system</option>
+        </select>
+        <select id="instructionsFormat" title="Tool-call format shown in worked example">
+          <option value="arena">arena format</option>
+          <option value="jsonl">MCP jsonl format</option>
+          <option value="both">both formats</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="instructionsCopyBtn">Copy to clipboard</button>
+        <button id="instructionsRefreshBtn">Refresh</button>
+        <span id="instructionsSummary" class="arena-instructions-summary"></span>
+      </div>
+      <pre id="instructionsPreview" class="arena-instructions-preview">Loading…</pre>
+    </section>
+
+    <!-- HISTORY -->
+    <section id="tab-history" class="arena-tab-panel" role="tabpanel">
       <div class="row">
         <select id="kindFilter">
           <option value="">all kinds</option>
@@ -33,17 +99,11 @@
         <input id="siteFilter" placeholder="filter by site">
         <input id="adapterFilter" placeholder="filter by adapter">
         <button id="applyFilterBtn">Apply</button>
+        <button id="clearBtn">Clear</button>
       </div>
-    </section>
-    <section>
-      <h2>Recent commands / events</h2>
       <div id="historyBox">No history yet.</div>
-    </section>
-    <section>
-      <h2>Selected payload</h2>
+      <h2 style="margin-top:12px">Selected payload</h2>
       <pre id="payloadBox">Select a history entry to inspect its payload.</pre>
-    </section>
-    <section>
       <h2>Selected result</h2>
       <pre id="resultBox">Select a history entry to inspect its result.</pre>
     </section>

@@ -1,54 +1,42 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.33` (v4.51.4 bridge release —
-universal collapse fix based on real DOM data from Gemini web /
-Mistral / Kimi / Qwen / DeepSeek / z.ai):
+Current extension version: `0.14.34` (v4.52.0 bridge release —
+sidepanel UI redesign based on studying MCP SuperAssistant's
+sidebar layout, MIT-licensed
+github.com/srbhptl39/MCP-SuperAssistant/pages/content/src/components/sidebar/).
 
-1. **`collapseToolResultsInHistory` fully rewritten via
-`TreeWalker`.** Ivan's v4.51.3 test cycle produced
-`outerHTML` snapshots for every affected site and they all
-showed the same pattern: the pasted tool-result is rendered
-by the site's own markdown pipeline into ordinary text nodes
-(no `<pre>`/`<code>`/`code-block`). Old strategy (query for
-code-like elements, look inside `.textContent`) could not
-reach any of them.
+The Chrome side panel now has four tabs:
 
-   New strategy:
-   * `TreeWalker` over `NodeFilter.SHOW_TEXT` finds every
-     text node containing `ARENA_RESULT_V1` or the legacy
-     `<!-- arena:tool-result -->` sentinel.
-   * From that text node, walk up to the nearest known
-     user-message container (per-site allow-list — Gemini
-     `span.user-query-bubble-with-background`, Qwen
-     `div.chat-user-message`, Kimi `div.user-content`,
-     DeepSeek `div.rounded-xl.p-3.bg-*`, z.ai `div.chat-user`,
-     Mistral `[data-message-part-type="user"]`, plus
-     ChatGPT/OpenRouter/T3 `[data-message-author-role="user"]`).
-   * If no user-message container, fall back to the classic
-     code-fence root (assistant echo case).
-   * Wrap the found container in a `<details>` with an
-     `arena-tool-collapsed="1"` guard for idempotency.
+1. **Status** — bridge health check, policies dump, connectivity
+   badge in the header. Same buttons as v4.51.x. A colored badge
+   next to the title shows `v<version>` when the bridge is up
+   and `offline` when unreachable.
 
-2. **Legacy path preserved.** Messages already in the chat
-that contain the pre-v4.51.2 HTML-comment sentinel still
-collapse.
+2. **Tools** — searchable, category-filtered tool catalog fetched
+   from `/v1/extension/instructions?category=…`. Each tool card
+   shows name, risk badge (`safe` / `medium` / `dangerous`),
+   topic, description, and expands into JSON Schema, CSN one-
+   liner, and example arguments. Per-tool actions: **Copy call
+   template** (paste-ready `arena-tool` fenced block with
+   example args pre-filled) and **Copy CSN line**. Categories
+   available: `safe`, `medium`, `dangerous`, `all`, plus the
+   topical `fs`, `mission`, `memory`, `browser`, `desktop`,
+   `git`, `system`.
 
-3. **Idempotent.** Repeated calls produce exactly one
-`<details>` per tool result (verified in jsdom).
+3. **Instructions** — Copy Instructions with **live preview**.
+   Selects for category (same list as Tools plus the "preamble
+   only" mode) and format (`arena` / `jsonl` / `both`). Summary
+   line shows `<N> chars · <M> tool(s) · fmt=…` so you can see
+   the exact payload the model will get before pasting.
 
-4. **Diagnostics.** Every collapse pushes
-`{kind: "tool_result_collapsed", target_tag, target_kind}`
-into the events ring so Ivan's Scan Page report shows
-whether the wrap hit `user-message` or `code-fence`.
+4. **History** — unchanged from v4.51.x. Full command lifecycle
+   with `detected → preview → execute → insert → submit` groups,
+   filters by kind / site / adapter, per-card inspect / replay
+   / copy actions.
 
-Not addressed in this release:
-
-* **Mistral duplicate-mount loop.** The v4.51.3 Scan Page
-report showed a repeating `mount_entry → skip_semantic_prev_alive`
-cycle. Ivan said explicitly at v4.50.17: "про Mistral можешь
-забыть, я там не могу воспроизвести сценарий" — deferred.
-* **MCP SuperAssistant UI port** (sidebar with tool browser).
-Still planned as a v4.52.x arc.
+Tabs are lazy-loaded: Tools, Instructions, and History fetch
+their data only on first activation, so opening the side panel
+is instant even against a slow tunnel.
 
 Extension file architecture (unchanged since v0.14.29):
 
@@ -68,6 +56,9 @@ Extension file architecture (unchanged since v0.14.29):
 * `popup.js` / `popup.html` — action popup with quick status +
   Copy Instructions and an "Insert & Submit" (Send) shortcut
   for the active tab.
+* `sidepanel.js` / `sidepanel.html` — side-panel UI with the
+  four tabs described above. Shares `popup.css` for its
+  styling.
 * Tool calls are posted to `/v1/extension/execute` on the local
   bridge, which validates the arena envelope, executes the
   tool, and returns the result payload.

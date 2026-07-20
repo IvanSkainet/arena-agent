@@ -1,3 +1,80 @@
+## v4.52.0 — 2026-07-20
+
+Chrome extension side-panel UI redesign, adapted from
+MCP SuperAssistant's sidebar layout
+(github.com/srbhptl39/MCP-SuperAssistant, MIT-licensed).
+This release is UI-only — parser, adapters, and collapse code
+are byte-identical to v4.51.4.
+
+### chat_extension `sidepanel.html` + `sidepanel.js` + `popup.css` (0.14.33 → 0.14.34)
+
+The side panel now has **four tabs**:
+
+1. **Status** — bridge health, policies dump, connectivity
+   badge in the header (green `v<version>` when up, red
+   `offline` when unreachable). Same buttons as v4.51.x.
+
+2. **Tools** — searchable, category-filtered tool catalog
+   fetched from `/v1/extension/instructions?category=…`. Each
+   tool renders as a collapsible card:
+   * header: monospace name, risk badge
+     (`safe`/`medium`/`dangerous`, colour-coded), topic pill,
+     description
+   * expanded body: JSON Schema, CSN one-liner, example args,
+     and two per-tool actions:
+     * **Copy call template** — puts a ready-to-paste
+       `arena-tool` fenced block with the example arguments
+       pre-filled into the clipboard
+     * **Copy CSN line** — puts the one-line description
+       (`name (risk) — description; schema: <csn>`) into the
+       clipboard
+   * Category selector covers `safe`, `medium`, `dangerous`,
+     `all`, and the topical `fs`, `mission`, `memory`,
+     `browser`, `desktop`, `git`, `system`.
+
+3. **Instructions** — Copy Instructions with **live preview**.
+   Category selector (same list as Tools plus a "preamble
+   only, no catalog" mode) + format selector (`arena` /
+   `jsonl` / `both`). Summary line shows
+   `<N> chars · <M> tool(s) · fmt=…` so you can see the exact
+   payload before pasting. **Copy to clipboard** button.
+
+4. **History** — unchanged wiring from v4.51.x. All the
+   command-lifecycle grouping, kind/site/adapter filters, and
+   per-card actions (Inspect Payload, Inspect Result, Replay
+   Preview, Replay Execute, Copy Payload, Copy Result) are
+   intact. `lifecycleSummary`, `lifecycleKinds`,
+   `groupCommandHistory`, `commandGroupFromEvents`,
+   `scanDiagnostics`, `bridgeDiagnostics`, `versionDiagnostics`,
+   `insertionDiagnostics`, `cardMetaParts` all preserved.
+
+Tabs are **lazy-loaded**: Tools, Instructions, and History
+fetch their data only on first activation, so opening the side
+panel is instant even against a slow tunnel.
+
+### Tests
+
+* Added `tests/test_extension_v4_52_0.py` — 18 assertions
+  covering: version bumps (manifest/content.js/insert_strategies.js/
+  README/constants.py/pyproject.toml), 4-tab HTML structure,
+  per-tab controls present (Tools, Instructions, History),
+  header connectivity badge, JS handler wiring (tab activator,
+  lazy-load hooks, tool catalog cache, instructions live
+  preview), per-tool copy actions, History tab wiring
+  preserved (regression guard), CSS tab + tool + risk-badge
+  styles.
+* Legacy `tests/test_chat_extension_sidepanel_flow.py` still
+  green — the History tab wiring is intact.
+* Full suite: **2779 passed** (2761 baseline + 18 for
+  v4.52.0). Zero regressions.
+
+### Not addressed in this release
+
+* **Mistral duplicate-mount loop** — still deferred per Ivan's
+  v4.50.17 note.
+* **browser-agent-bridge server-driven mode** — studied in
+  v4.51.2, remains noted as potential future direction.
+
 ## v4.51.4 — 2026-07-20
 
 Universal collapse-of-tool-results fix, driven by real DOM data

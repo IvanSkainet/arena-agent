@@ -1,7 +1,23 @@
+// v0.14.34 (v4.52.0): sidepanel redesign with tabs.
+// Studied MCP SuperAssistant sidebar
+// (github.com/srbhptl39/MCP-SuperAssistant/pages/content/src/
+// components/sidebar/) and adapted its 3-panel layout:
+//   * Status (bridge health + policies)
+//   * Tools  (searchable tool catalog with per-tool details)
+//   * Instructions (Copy Instructions with live preview + category
+//                   / format selector)
+//   * History (unchanged from the v4.51.x sidepanel)
+//
+// This is a plain-JS port -- MCP SuperAssistant is React/Zustand;
+// Arena extension has never carried a React runtime and Ivan
+// prefers minimal deps.
 async function send(type, body) {
   return chrome.runtime.sendMessage({type, body});
 }
 
+// ------------------------------------------------------------
+// Utilities (shared between History + Tools tabs)
+// ------------------------------------------------------------
 function shortUrl(url) {
   try { const u = new URL(url); return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`.slice(0, 90); } catch (_e) { return String(url || '').slice(0, 90); }
 }
@@ -101,6 +117,11 @@ function lifecycleKinds(events) {
   return order.filter((kind) => kinds.has(kind));
 }
 function lifecycleSummary(events) {
+  // v4.51.x helper: joined arrow-flow label. Kept in v4.52.0
+  // for tests/test_chat_extension_sidepanel_flow.py — the group
+  // renderer inlines the same join but external consumers of
+  // the helper (older tests, future sidepanel plugins) still
+  // depend on the name.
   return lifecycleKinds(events).map((kind) => lifecycleLabel(kind)).join(' → ');
 }
 function latestEvent(events) {
@@ -133,32 +154,50 @@ function groupCommandHistory(items) {
 function historyActionIndex(item, fallbackIndex) {
   return Number.isInteger(item?.history_index) ? item.history_index : fallbackIndex;
 }
-function groupEvents(item) {
-  return Array.isArray(item?.events) ? item.events : [item].filter(Boolean);
-}
-function latestMatchingEvent(item, predicate) {
-  return latestEvent(groupEvents(item).filter((event) => predicate(event)));
-}
-function payloadSourceItem(item) {
-  return latestMatchingEvent(item, (event) => !!event?.payload) || item;
-}
+function groupEvents(item) { return Array.isArray(item?.events) ? item.events : [item].filter(Boolean); }
+function latestMatchingEvent(item, predicate) { return latestEvent(groupEvents(item).filter((event) => predicate(event))); }
+function payloadSourceItem(item) { return latestMatchingEvent(item, (event) => !!event?.payload) || item; }
 function resultSourceItem(item) {
   return latestMatchingEvent(item, (event) => event?.kind === 'execute' && !!event?.response)
     || latestMatchingEvent(item, (event) => !!event?.response)
     || item;
 }
-function finalResultItem(item) {
-  return latestMatchingEvent(item, (event) => !!event?.response) || item;
-}
-function replaySourceItem(item) {
-  return latestMatchingEvent(item, (event) => !!event?.payload && ['detected', 'preview', 'execute'].includes(event.kind));
-}
+function finalResultItem(item) { return latestMatchingEvent(item, (event) => !!event?.response) || item; }
+function replaySourceItem(item) { return latestMatchingEvent(item, (event) => !!event?.payload && ['detected', 'preview', 'execute'].includes(event.kind)); }
+
 function badge(text, tone = 'neutral') {
   const span = document.createElement('span');
   span.className = `arena-badge arena-badge-${tone}`;
   span.textContent = text;
   return span;
 }
+
+// ------------------------------------------------------------
+// Tab switching
+// ------------------------------------------------------------
+const TAB_LOAD_HOOKS = {};      // name -> async fn, called on first activation
+const TAB_LOADED = new Set();
+
+function activateTab(name) {
+  document.querySelectorAll('.arena-tab').forEach((el) => {
+    el.classList.toggle('arena-tab-active', el.dataset.tab === name);
+  });
+  document.querySelectorAll('.arena-tab-panel').forEach((el) => {
+    el.classList.toggle('arena-tab-panel-active', el.id === `tab-${name}`);
+  });
+  if (!TAB_LOADED.has(name) && typeof TAB_LOAD_HOOKS[name] === 'function') {
+    TAB_LOADED.add(name);
+    Promise.resolve(TAB_LOAD_HOOKS[name]()).catch((err) => {
+      // Deliberately do not swallow silently -- surface in the
+      // corresponding panel so the user can retry.
+      console.warn(`[arena sidepanel] tab '${name}' loader threw:`, err);
+    });
+  }
+}
+
+// ------------------------------------------------------------
+// Status tab
+// ------------------------------------------------------------
 function renderStatus(data) {
   const box = document.getElementById('statusBox');
   const version = data?.version?.version || data?.version || '';
@@ -166,7 +205,186 @@ function renderStatus(data) {
   const status = data?.ok === false ? 'error' : 'ok';
   box.textContent = data?.loading || `Bridge ${status}${version ? ' · v' + version : ''}${policies ? ' · ' + policies : ''}`;
   box.dataset.raw = JSON.stringify(data, null, 2);
+  // Update header connectivity badge.
+  const badgeEl = document.getElementById('arena-conn-badge');
+  if (badgeEl && !data?.loading) {
+    badgeEl.textContent = data?.ok === false ? 'offline' : (version ? `v${version}` : 'ok');
+    badgeEl.className = 'arena-badge ' + (data?.ok === false ? 'arena-badge-error' : 'arena-badge-ok');
+    badgeEl.title = data?.ok === false ? (data?.error || 'bridge unreachable') : `bridge ok · v${version}`;
+  }
 }
+async function testConnection() {
+  renderStatus({loading: 'Testing bridge...'});
+  renderStatus(await send('arena.testConnection'));
+}
+async function loadPolicies() {
+  renderStatus({loading: 'Loading policies...'});
+  const result = await send('arena.policies');
+  renderStatus(result);
+  renderResult({response: result});
+}
+
+// ------------------------------------------------------------
+// Tools tab
+// ------------------------------------------------------------
+let TOOLS_CACHE = {category: null, catalog: [], loadedAt: 0};
+
+async function loadTools(force = false) {
+  const cat = document.getElementById('toolsCategory').value || 'safe';
+  const summary = document.getElementById('toolsSummary');
+  const list = document.getElementById('toolsList');
+  if (!force && TOOLS_CACHE.category === cat && TOOLS_CACHE.catalog.length) {
+    renderToolsList(TOOLS_CACHE.catalog);
+    return;
+  }
+  summary.textContent = `Loading '${cat}' tools…`;
+  list.innerHTML = '';
+  try {
+    const result = await send('arena.instructions', {format: 'arena', style: 'short', category: cat});
+    if (result?.ok === false) {
+      summary.textContent = `Error loading tools: ${result.error || 'unknown'}`;
+      return;
+    }
+    const catalog = Array.isArray(result?.catalog) ? result.catalog : [];
+    TOOLS_CACHE = {category: cat, catalog, loadedAt: Date.now()};
+    renderToolsList(catalog);
+  } catch (e) {
+    summary.textContent = `Failed: ${String(e?.message || e)}`;
+  }
+}
+
+function renderToolsList(catalog) {
+  const list = document.getElementById('toolsList');
+  const summary = document.getElementById('toolsSummary');
+  const search = (document.getElementById('toolsSearch').value || '').trim().toLowerCase();
+  list.innerHTML = '';
+  const filtered = catalog.filter((entry) => {
+    if (!search) return true;
+    const hay = `${entry.name} ${entry.description || ''} ${entry.topic || ''}`.toLowerCase();
+    return hay.includes(search);
+  });
+  summary.textContent = search
+    ? `${filtered.length} of ${catalog.length} tool(s) match '${search}'`
+    : `${catalog.length} tool(s)`;
+  if (!filtered.length) {
+    list.innerHTML = `<div style="color:#94a3b8;padding:12px;text-align:center">No tools match your filter.</div>`;
+    return;
+  }
+  filtered.forEach((entry) => list.appendChild(renderToolCard(entry)));
+}
+
+function renderToolCard(entry) {
+  const details = document.createElement('details');
+  details.className = 'arena-tool-card';
+  const summary = document.createElement('summary');
+  const header = document.createElement('div');
+  header.className = 'arena-tool-header';
+  const nameEl = document.createElement('span');
+  nameEl.className = 'arena-tool-name';
+  nameEl.textContent = entry.name;
+  header.appendChild(nameEl);
+  const risk = String(entry.risk || 'safe');
+  header.appendChild(badge(risk, `risk-${risk}`));
+  if (entry.topic && entry.topic !== risk) header.appendChild(badge(entry.topic, 'kind'));
+  const desc = document.createElement('span');
+  desc.className = 'arena-tool-desc';
+  desc.textContent = entry.description || '';
+  desc.title = entry.description || '';
+  header.appendChild(desc);
+  summary.appendChild(header);
+  details.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'arena-tool-body';
+  const dl = document.createElement('dl');
+  const addRow = (dt, dd) => {
+    const dtEl = document.createElement('dt'); dtEl.textContent = dt;
+    const ddEl = document.createElement('dd');
+    if (dd instanceof HTMLElement) ddEl.appendChild(dd); else ddEl.textContent = String(dd);
+    dl.appendChild(dtEl); dl.appendChild(ddEl);
+  };
+  addRow('name', entry.name);
+  addRow('risk', risk);
+  if (entry.topic) addRow('topic', entry.topic);
+  if (entry.description) addRow('description', entry.description);
+  if (entry.csn) {
+    const code = document.createElement('code'); code.textContent = entry.csn;
+    addRow('schema (CSN)', code);
+  }
+  if (entry.input_schema) {
+    const pre = document.createElement('pre');
+    pre.style.margin = '0';
+    pre.style.maxHeight = '160px';
+    pre.textContent = JSON.stringify(entry.input_schema, null, 2);
+    addRow('JSON Schema', pre);
+  }
+  if (entry.example_arguments) {
+    const pre = document.createElement('pre');
+    pre.style.margin = '0';
+    pre.textContent = JSON.stringify(entry.example_arguments, null, 2);
+    addRow('example args', pre);
+  }
+  body.appendChild(dl);
+
+  const actions = document.createElement('div');
+  actions.className = 'arena-tool-actions';
+  actions.appendChild(makeActionButton('Copy call template', async () => {
+    const template = {
+      bridge: 'arena', version: 1,
+      calls: [{id: 'call_1', tool: entry.name, arguments: entry.example_arguments || {}}],
+    };
+    await navigator.clipboard.writeText(
+      '```arena-tool\n' + JSON.stringify(template, null, 2) + '\n```',
+    );
+  }));
+  actions.appendChild(makeActionButton('Copy CSN line', async () => {
+    await navigator.clipboard.writeText(`${entry.name} (${risk}) — ${entry.description || ''}\nschema: ${entry.csn || ''}`);
+  }));
+  body.appendChild(actions);
+  details.appendChild(body);
+  return details;
+}
+
+// ------------------------------------------------------------
+// Instructions tab
+// ------------------------------------------------------------
+let INSTRUCTIONS_CACHE = null;
+
+async function loadInstructions() {
+  const cat = document.getElementById('instructionsCategory').value;
+  const fmt = document.getElementById('instructionsFormat').value || 'arena';
+  const preview = document.getElementById('instructionsPreview');
+  const summary = document.getElementById('instructionsSummary');
+  preview.textContent = 'Loading…';
+  summary.textContent = '';
+  try {
+    const result = await send('arena.instructions', {format: fmt, style: 'full', category: cat});
+    if (result?.ok === false) {
+      preview.textContent = `Error: ${result.error || 'unknown'}`;
+      return;
+    }
+    INSTRUCTIONS_CACHE = result;
+    preview.textContent = result?.text || '(empty)';
+    const bytes = (result?.text || '').length;
+    const n = Array.isArray(result?.catalog) ? result.catalog.length : 0;
+    summary.textContent = `${bytes.toLocaleString()} chars · ${n} tool(s) · fmt=${fmt}`;
+  } catch (e) {
+    preview.textContent = `Failed: ${String(e?.message || e)}`;
+  }
+}
+async function copyInstructions() {
+  if (!INSTRUCTIONS_CACHE?.text) await loadInstructions();
+  if (!INSTRUCTIONS_CACHE?.text) return;
+  await navigator.clipboard.writeText(INSTRUCTIONS_CACHE.text);
+  const summary = document.getElementById('instructionsSummary');
+  const prev = summary.textContent;
+  summary.textContent = 'Copied to clipboard ✓';
+  setTimeout(() => { summary.textContent = prev; }, 1500);
+}
+
+// ------------------------------------------------------------
+// History tab (unchanged wiring; extracted verbatim from v4.51.x)
+// ------------------------------------------------------------
 function renderPayload(item) {
   const box = document.getElementById('payloadBox');
   box.textContent = item?.payload ? JSON.stringify(item.payload, null, 2) : 'Select a history entry to inspect its payload.';
@@ -259,16 +477,6 @@ async function loadHistory() {
   });
   renderHistory(result.items || []);
 }
-async function testConnection() {
-  renderStatus({loading: 'Testing bridge...'});
-  renderStatus(await send('arena.testConnection'));
-}
-async function loadPolicies() {
-  renderStatus({loading: 'Loading policies...'});
-  const result = await send('arena.policies');
-  renderStatus(result);
-  renderResult({response: result});
-}
 async function clearHistory() {
   await send('arena.clearHistory');
   renderPayload(null); renderResult(null); await loadHistory();
@@ -282,6 +490,17 @@ function scheduleFilterReload() {
   clearTimeout(filterTimer);
   filterTimer = setTimeout(loadHistory, 180);
 }
+
+// ------------------------------------------------------------
+// Wire-up
+// ------------------------------------------------------------
+document.querySelectorAll('.arena-tab').forEach((tab) => {
+  tab.addEventListener('click', () => activateTab(tab.dataset.tab));
+});
+TAB_LOAD_HOOKS.tools = () => loadTools(true);
+TAB_LOAD_HOOKS.instructions = () => loadInstructions();
+TAB_LOAD_HOOKS.history = () => loadHistory();
+
 document.getElementById('refreshBtn').addEventListener('click', refreshAll);
 document.getElementById('testBtn').addEventListener('click', testConnection);
 document.getElementById('policiesBtn').addEventListener('click', loadPolicies);
@@ -293,4 +512,25 @@ document.getElementById('kindFilter').addEventListener('change', loadHistory);
   input.addEventListener('input', scheduleFilterReload);
   input.addEventListener('keydown', (event) => { if (event.key === 'Enter') loadHistory(); });
 });
+
+// Tools tab controls
+document.getElementById('toolsCategory').addEventListener('change', () => loadTools(true));
+document.getElementById('toolsReloadBtn').addEventListener('click', () => loadTools(true));
+let toolsSearchTimer = null;
+document.getElementById('toolsSearch').addEventListener('input', () => {
+  clearTimeout(toolsSearchTimer);
+  toolsSearchTimer = setTimeout(() => {
+    if (TOOLS_CACHE.catalog.length) renderToolsList(TOOLS_CACHE.catalog);
+    else loadTools(true);
+  }, 140);
+});
+
+// Instructions tab controls
+document.getElementById('instructionsCategory').addEventListener('change', loadInstructions);
+document.getElementById('instructionsFormat').addEventListener('change', loadInstructions);
+document.getElementById('instructionsCopyBtn').addEventListener('click', copyInstructions);
+document.getElementById('instructionsRefreshBtn').addEventListener('click', loadInstructions);
+
+// Initial load: Status tab is active by default; also warm the
+// bridge connection so the header badge is populated.
 refreshAll().catch((error) => renderStatus({ok: false, error: String(error)}));

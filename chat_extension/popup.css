@@ -1,3 +1,67 @@
-body{font:13px system-ui,-apple-system,Segoe UI,sans-serif;background:#111827;color:#f3f4f6;margin:0;padding:0;min-width:360px}main{padding:12px}h1,h2{margin:0 0 10px}h1{font-size:16px}h2{font-size:13px;color:#cbd5e1}section{background:#1f2937;border:1px solid #374151;border-radius:8px;padding:10px;margin-bottom:10px}label{display:block;font-size:12px;color:#cbd5e1;margin:8px 0 4px}input{width:100%;padding:8px;border-radius:6px;border:1px solid #4b5563;background:#111827;color:#f3f4f6;box-sizing:border-box}.row{display:flex;gap:8px;margin-top:10px}button{padding:8px 10px;border:1px solid #4b5563;border-radius:6px;background:#111827;color:#fff;cursor:pointer}button:hover{background:#2563eb}pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;color:#d1d5db;border-radius:6px;padding:8px;min-height:50px;max-height:220px;overflow:auto}
+body{font:13px system-ui,-apple-system,Segoe UI,sans-serif;background:#111827;color:#f3f4f6;margin:0;padding:0;min-width:360px}
+main{padding:12px}
+h1,h2{margin:0 0 10px}
+h1{font-size:16px}
+h2{font-size:13px;color:#cbd5e1}
+section{background:#1f2937;border:1px solid #374151;border-radius:8px;padding:10px;margin-bottom:10px}
+label{display:block;font-size:12px;color:#cbd5e1;margin:8px 0 4px}
+input,select{width:100%;padding:8px;border-radius:6px;border:1px solid #4b5563;background:#111827;color:#f3f4f6;box-sizing:border-box}
+select{cursor:pointer}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
+button{padding:8px 10px;border:1px solid #4b5563;border-radius:6px;background:#111827;color:#fff;cursor:pointer;font:inherit}
+button:hover{background:#2563eb}
+pre{white-space:pre-wrap;word-break:break-word;background:#0b1220;color:#d1d5db;border-radius:6px;padding:8px;min-height:50px;max-height:220px;overflow:auto}
+
+/* --- v4.52.0 tabs / header ---------------------------------- */
+.arena-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.arena-header h1{margin:0}
+.arena-tabs{display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid #374151;padding-bottom:0}
+.arena-tab{background:transparent;border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;padding:8px 12px;color:#cbd5e1;font:inherit;cursor:pointer;transition:background 120ms}
+.arena-tab:hover{background:#1f2937;color:#f8fafc}
+.arena-tab-active{background:#1f2937;border-color:#374151;border-bottom:1px solid #1f2937;color:#f8fafc;margin-bottom:-1px}
+.arena-tab-panel{display:none}
+.arena-tab-panel-active{display:block}
+
+/* --- Tools tab ---------------------------------------------- */
+.arena-tools-controls select{max-width:140px}
+.arena-tools-controls input{flex:1;min-width:120px}
+.arena-tools-controls button{width:auto}
+.arena-tools-summary{font-size:11px;color:#94a3b8;margin:6px 0}
+.arena-tools-list{max-height:520px;overflow:auto;margin-top:6px}
+.arena-tool-card{background:#0b1220;border:1px solid #334155;border-radius:8px;padding:8px 10px;margin-bottom:6px}
+.arena-tool-card summary{cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;list-style:none;outline:none}
+.arena-tool-card summary::-webkit-details-marker{display:none}
+.arena-tool-header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px;min-width:0;flex:1}
+.arena-tool-name{font-weight:600;color:#f8fafc;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px}
+.arena-tool-desc{color:#94a3b8;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.arena-tool-body{margin-top:8px;padding-top:8px;border-top:1px solid #1e293b;font-size:11px}
+.arena-tool-body dl{display:grid;grid-template-columns:80px 1fr;gap:4px 8px;margin:0}
+.arena-tool-body dt{color:#94a3b8;font-size:11px}
+.arena-tool-body dd{margin:0;color:#e5e7eb;word-break:break-word}
+.arena-tool-body dd code{background:#111827;padding:1px 4px;border-radius:3px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
+.arena-tool-actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.arena-tool-actions button{padding:4px 8px;font-size:11px}
+
+/* --- Instructions tab --------------------------------------- */
+.arena-instructions-controls select{max-width:230px}
+.arena-instructions-summary{font-size:11px;color:#94a3b8;padding-left:6px}
+.arena-instructions-preview{max-height:520px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11px}
+
+/* --- History cards (unchanged from prior release) ----------- */
 .arena-history-card{border:1px solid #334155;border-radius:10px;background:#111827;padding:10px;margin:8px 0;box-shadow:0 4px 14px rgba(0,0,0,.16)}
-.arena-card-header{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:7px}.arena-card-badges{display:flex;gap:6px;flex-wrap:wrap}.arena-badge{font-size:11px;line-height:1;padding:4px 6px;border-radius:999px;border:1px solid #475569;color:#e2e8f0}.arena-badge-kind{background:#1e293b}.arena-badge-ok{background:#064e3b;border-color:#047857}.arena-badge-error{background:#7f1d1d;border-color:#dc2626}.arena-badge-count{background:#312e81;border-color:#4f46e5}.arena-badge-flow{background:#164e63;border-color:#0891b2}.arena-card-time{font-size:11px;color:#94a3b8;text-align:right}.arena-card-title{font-weight:700;color:#f8fafc;margin-bottom:5px}.arena-card-meta{font-size:12px;color:#cbd5e1;margin-bottom:8px;word-break:break-word}.arena-card-actions{display:flex;gap:6px;flex-wrap:wrap}.arena-card-actions button{padding:5px 7px;font-size:12px}
+.arena-card-header{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:7px}
+.arena-card-badges{display:flex;gap:6px;flex-wrap:wrap}
+.arena-badge{font-size:11px;line-height:1;padding:4px 6px;border-radius:999px;border:1px solid #475569;color:#e2e8f0}
+.arena-badge-kind{background:#1e293b}
+.arena-badge-ok{background:#064e3b;border-color:#047857}
+.arena-badge-error{background:#7f1d1d;border-color:#dc2626}
+.arena-badge-count{background:#312e81;border-color:#4f46e5}
+.arena-badge-flow{background:#164e63;border-color:#0891b2}
+.arena-badge-risk-safe{background:#064e3b;border-color:#047857}
+.arena-badge-risk-medium{background:#78350f;border-color:#d97706}
+.arena-badge-risk-dangerous{background:#7f1d1d;border-color:#dc2626}
+.arena-card-time{font-size:11px;color:#94a3b8;text-align:right}
+.arena-card-title{font-weight:700;color:#f8fafc;margin-bottom:5px}
+.arena-card-meta{font-size:12px;color:#cbd5e1;margin-bottom:8px;word-break:break-word}
+.arena-card-actions{display:flex;gap:6px;flex-wrap:wrap}
+.arena-card-actions button{padding:5px 7px;font-size:12px}
