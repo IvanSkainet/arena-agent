@@ -2,6 +2,9 @@
 from __future__ import annotations
 from arena.mcp.tool_registry_mission import MISSION_MCP_TOOLS
 from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
+from arena.mcp.tool_desktop_input import DESKTOP_INPUT_MCP_TOOLS
+from arena.mcp.tool_mobile_ext import MOBILE_EXT_MCP_TOOLS
+from arena.mcp.tool_browser_headed import BROWSER_HEADED_MCP_TOOLS
 from arena.mcp.tool_registry_asr import ASR_MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
@@ -196,3 +199,6 @@ MCP_TOOLS = [
 MCP_TOOLS.extend(MOBILE_MCP_TOOLS)
 MCP_TOOLS.extend(NET_MCP_TOOLS)
 MCP_TOOLS.extend(ASR_MCP_TOOLS)
+MCP_TOOLS.extend(DESKTOP_INPUT_MCP_TOOLS)
+MCP_TOOLS.extend(MOBILE_EXT_MCP_TOOLS)
+MCP_TOOLS.extend(BROWSER_HEADED_MCP_TOOLS)

@@ -1,3 +1,36 @@
+## v4.59.0 — реальное GUI-управление (ввод + mobile ops + persistent browser)
+
+**Веха по адаптивности для класса задач «диктофон на телефоне → веб-транскрипция → чат».** Одиннадцать новых MCP-инструментов, разблокирующих сценарии, которые предыдущий релиз не мог выразить без exec.
+
+### Desktop input (4 tools, обёртка над готовыми /v1/desktop/* HTTP)
+- `desktop.click` — клик в (x, y), с button/double/activate/require_active_title guard
+- `desktop.type` — набрать текст с delay/clear/ensure_latin (авто-переключает раскладку клавиатуры KDE)
+- `desktop.key` — одна клавиша или комбо (Return / Ctrl+L)
+- `desktop.mouse` — движение курсора (absolute или относительное)
+
+Обёртка над handlers, написанными давно в arena/desktop/input_handlers.py. Wayland через wtype/ydotool, X11 через xdotool.
+
+### Mobile app + file ops (4 tools)
+- `mobile.launch_app` — запуск приложения через activity intent (package/activity или action)
+- `mobile.pull_file` — adb pull, опционально base64-embed (лимит 100 МиБ)
+- `mobile.push_file` — adb push
+- `mobile.list_files` — adb shell ls -lA, парсится в структурированные строки
+
+### Persistent browser (3 tools)
+- `browser.launch` — видимый chromium/brave с именованной сессией и постоянным user-data-dir; далее desktop.* управляют реальным GUI
+- `browser.close` — SIGTERM (или SIGKILL при force=true)
+- `browser.list` — активные сессии
+
+### Классы риска
+- **safe**: `mobile.list_files`, `browser.list`
+- **medium**: `mobile.launch_app`, `mobile.pull_file`, `browser.launch`, `browser.close`
+- **dangerous**: `mobile.push_file`, `desktop.click`, `desktop.type`, `desktop.key`, `desktop.mouse`
+
+`desktop.*` ввод — dangerous, потому что может выполнить любое UI-действие на всём рабочем столе оператора. Расширение всегда требует явного подтверждения.
+
+### Расширение
+Байт-в-байт как v4.53.1 — только мост.
+
 ## v4.58.0 — asr.transcribe (локальный whisper.cpp) + asr.models
 
 **Веха по адаптивности (3/3 для phone-voice-to-chat).** Локальный STT через типизированный MCP-инструмент — без exec, без шелл-команд внутри сценариев, без хардкода путей к моделям.

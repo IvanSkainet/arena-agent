@@ -1,3 +1,36 @@
+## v4.59.0 — real GUI control (desktop input + mobile app/file ops + persistent browser)
+
+**Adaptivity milestone for the "phone-record → web-transcribe → chat" class of tasks.** Eleven new MCP tools that unlock scenarios the previous release could not express without exec.
+
+### Desktop input (4 tools, wrap existing /v1/desktop/* HTTP)
+- `desktop.click` — click at (x, y) with button/double/activate/require_active_title guard
+- `desktop.type` — type text with delay/clear/ensure_latin (auto-switches KDE keyboard layout)
+- `desktop.key` — press key or key chord (Return / Ctrl+L)
+- `desktop.mouse` — move cursor (absolute or relative)
+
+Wraps handlers built years ago in arena/desktop/input_handlers.py. Wayland via wtype/ydotool, X11 via xdotool.
+
+### Mobile app + file ops (4 tools)
+- `mobile.launch_app` — start an app via activity intent (package/activity or action)
+- `mobile.pull_file` — adb pull, optional base64 embed (100 MiB cap)
+- `mobile.push_file` — adb push
+- `mobile.list_files` — adb shell ls -lA parsed into structured rows
+
+### Persistent browser (3 tools)
+- `browser.launch` — visible chromium/brave with named session and persistent user-data-dir; subsequent desktop.* steps drive the real GUI
+- `browser.close` — SIGTERM (or SIGKILL when force=true)
+- `browser.list` — inspect running sessions
+
+### Policy
+- **safe**: `mobile.list_files`, `browser.list`
+- **medium**: `mobile.launch_app`, `mobile.pull_file`, `browser.launch`, `browser.close`
+- **dangerous**: `mobile.push_file`, `desktop.click`, `desktop.type`, `desktop.key`, `desktop.mouse`
+
+`desktop.*` input is dangerous because it can execute arbitrary UI actions across the operator's entire desktop — extension always requires explicit approval.
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only release.
+
 ## v4.58.0 — asr.transcribe (local whisper.cpp) + asr.models
 
 **Adaptivity milestone (3/3 for phone-voice-to-chat).** Local speech-to-text through a typed MCP tool — no exec, no shell-cmd embedded in scenarios, no hard-coded model paths.

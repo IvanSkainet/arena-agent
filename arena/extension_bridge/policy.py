@@ -19,6 +19,8 @@ _SAFE_TOOLS = {
     "secrets.list",
     # v4.58.0: asr model discovery.
     "asr.models",
+    # v4.59.0: read-only device/browser inspection.
+    "mobile.list_files", "browser.list",
 }
 _MEDIUM_TOOLS = {
     "fs.create", "memory.import", "mem.get", "mem.set",
@@ -38,6 +40,8 @@ _MEDIUM_TOOLS = {
     "net.http", "secrets.get",
     # v4.58.0: local speech-to-text via whisper.cpp.
     "asr.transcribe",
+    # v4.59.0: state-changing but reversible ops.
+    "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
@@ -48,6 +52,8 @@ _DANGEROUS_TOOLS = {
     "mobile.shell", "mobile.ime_set", "mobile.ime_reset",
     # v4.57.0: sudo runner.
     "sudo.run",
+    # v4.59.0: real GUI control + writing to device fs.
+    "mobile.push_file", "desktop.click", "desktop.type", "desktop.key", "desktop.mouse",
 }
 _TRUSTED_HOSTS = {
     "chat.openai.com", "chatgpt.com", "claude.ai", "gemini.google.com",

@@ -21,7 +21,10 @@ from arena.mcp.tool_memory import handle_memory_tool
 from arena.mcp.tool_misc import handle_misc_tool
 from arena.mcp.tool_watch import handle_watch_tool
 from arena.mcp.tool_agentic import handle_agentic_tool
+from arena.mcp.tool_browser_headed import handle_browser_headed_tool
 from arena.mcp.tool_desktop import handle_desktop_tool
+from arena.mcp.tool_desktop_input import handle_desktop_input_tool
+from arena.mcp.tool_mobile_ext import handle_mobile_ext_tool
 from arena.mcp.tool_mobile import handle_mobile_tool
 from arena.mcp.tool_asr import handle_asr_tool
 from arena.mcp.tool_net import handle_net_tool
@@ -97,10 +100,13 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_plan_tool(name, args, ctx=ctx),
                 lambda: handle_watch_tool(name, args, ctx=ctx),
                 lambda: handle_agentic_tool(name, args, ctx=ctx),
+                lambda: handle_desktop_input_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_tool(name, args, ctx=ctx),
+                lambda: handle_mobile_ext_tool(name, args),
                 lambda: handle_mobile_tool(name, args, ctx=ctx),
                 lambda: handle_net_tool(name, args, ctx=ctx, run_sd=run_sd),
                 lambda: handle_asr_tool(name, args, ctx=ctx),
+                lambda: handle_browser_headed_tool(name, args, ctx=ctx),
                 lambda: handle_mission_tool(name, args, ctx=ctx),
                 # v4.54.0: scenario orchestration. The scenarios
                 # runtime needs to invoke OTHER tools (including
