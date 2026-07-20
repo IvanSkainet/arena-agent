@@ -13,10 +13,9 @@ from arena.mcp.tool_registry import MCP_TOOLS
 from arena.scenarios import (
     InvalidScenario,
     ScenarioNotFound,
-    ScenariosStorage,
+    ScenarioMissionStore,
     build_scenarios_runtime,
     derive_scenario_risk,
-    resolve_scenarios_dir,
 )
 from arena.scenarios.runtime import render_template
 from arena.scenarios.storage import parse_scenario_source, render_scenario_source
@@ -24,10 +23,12 @@ from arena.scenarios.storage import parse_scenario_source, render_scenario_sourc
 
 @pytest.fixture
 def tmp_storage(monkeypatch, tmp_path):
-    monkeypatch.setenv("ARENA_SCENARIOS_DIR", str(tmp_path))
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    (tmp_path / "missions").mkdir(exist_ok=True)
     # Force resolve to pick up env.
-    assert resolve_scenarios_dir() == tmp_path
-    return ScenariosStorage()
+    from arena.scenarios import resolve_missions_dir
+    assert resolve_missions_dir() == tmp_path / "missions"
+    return ScenarioMissionStore()
 
 
 # --------------------------------------------------------------
@@ -134,11 +135,10 @@ def test_storage_delete_missing_raises(tmp_storage):
         tmp_storage.delete("nope")
 
 
-def test_storage_list_skips_history_files(tmp_storage):
+def test_storage_list_skips_history_files_v4_55_0_missions_layout(tmp_storage):
+    """v4.55.0 stores history INSIDE mission.json.runs -- no sidecar
+    files exist anymore. This test replaces the v4.54.x behaviour."""
     tmp_storage.save("s1", '{"name":"s1","steps":[{"id":"a","tool":"sys.status"}]}')
-    # Fake history file: should not appear as a scenario.
-    (tmp_storage.base_dir / "s1.history.json").write_text("[]", encoding="utf-8")
-    (tmp_storage.base_dir / "notes.history.json").write_text("[]", encoding="utf-8")
     lst = tmp_storage.list()
     assert {s["name"] for s in lst} == {"s1"}
 
@@ -153,16 +153,16 @@ def test_storage_name_validation(tmp_storage):
 def test_storage_history_roundtrip(tmp_storage):
     tmp_storage.save("h", '{"name":"h","steps":[{"id":"s","tool":"sys.status"}]}')
     for i in range(3):
-        tmp_storage.append_history("h", {"ok": True, "final": f"v{i}"})
+        tmp_storage.append_run("h", {"ok": True, "final": f"v{i}"})
     hist = tmp_storage.load_history("h")
     assert [r["final"] for r in hist] == ["v0", "v1", "v2"]
 
 
 def test_storage_history_cap(tmp_storage):
-    from arena.scenarios.storage import HISTORY_KEEP
+    HISTORY_KEEP = 20  # v4.55.0: baked into ScenarioMissionStore.append_run
     tmp_storage.save("h", '{"name":"h","steps":[{"id":"s","tool":"sys.status"}]}')
     for i in range(HISTORY_KEEP + 5):
-        tmp_storage.append_history("h", {"ok": True, "idx": i})
+        tmp_storage.append_run("h", {"ok": True, "idx": i})
     hist = tmp_storage.load_history("h")
     assert len(hist) == HISTORY_KEEP
 

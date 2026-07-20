@@ -1,3 +1,147 @@
+## v4.55.0 — 2026-07-20
+
+**Scenarios merged into mission storage.** Ivan pushed back on
+v4.54.0 with "боюсь ты строишь мост в 100 метрах от такого же
+моста". He was right. This release finishes the merge: scenarios
+are missions with ``template='scenario'``, share the same
+directory (``<ARENA_AGENT_HOME>/missions/``), and every
+mission.* tool works on them out of the box.
+
+### Breaking change
+
+* ``~/.arena/scenarios/`` storage is **removed**. Ivan
+  confirmed no user-created scenarios lived there yet, so
+  no migration path is provided. Anyone with data there
+  should re-save via ``scenario.save`` (which now writes
+  to the mission dir).
+* ``arena.scenarios.storage.ScenariosStorage`` class
+  removed. New class: ``arena.scenarios.ScenarioMissionStore``
+  (same public API — ``list/get/save/delete/append_run/
+  load_history``).
+* ``append_history`` renamed to ``append_run`` — matches
+  mission JSON's ``runs[]`` field.
+
+### What actually changed
+
+* **New file**: ``arena/scenarios/mission_bridge.py`` —
+  physical storage layer that reads/writes
+  ``<agent_home>/missions/scenario-<slug>/mission.json``.
+* **`arena/scenarios/storage.py`** — cut to just schema
+  validation (``parse_scenario_source``,
+  ``render_scenario_source``, ``validate_name``). No more
+  filesystem code.
+* **`arena/scenarios/runtime.py`** — swaps
+  ``ScenariosStorage`` for ``ScenarioMissionStore``. Public
+  API unchanged.
+* **`arena/mcp/tool_scenarios.py`** — all handlers now
+  point at ``ScenarioMissionStore``. ``scenario.save``
+  returns ``mission_id`` (new field) alongside ``name``.
+* **`arena/missions_cli/commands.py`** —
+  ``_run_cmd_mission_orig`` now checks
+  ``template == 'scenario'`` and exits with a friendly
+  redirect (subprocess mission_manager has no access to the
+  bridge tool dispatcher; use ``scenario.run`` instead).
+
+### Why this shape
+
+Ivan reviewed three options and picked "step_field" +
+"drop_old":
+
+* **Any mission template can have tool_steps**. Right now
+  only the new ``scenario`` template does; shell templates
+  keep working unchanged. Future templates can mix
+  ``tool_steps`` and shell.
+* **Storage merge**: one directory, one catalog, one
+  history system, one schedule system.
+* **No migration**: ``~/.arena/scenarios/`` was empty on
+  Ivan's box, so a clean break is cleaner than a migration
+  loop that risks half-migrated state.
+
+### Payoff: mission tools work on scenarios
+
+Verified live via ``/v1/extension/execute``:
+
+* ``scenario.save name=foo source=...`` creates
+  ``~/arena-bridge/missions/scenario-foo/mission.json``
+  with ``template=scenario``.
+* ``scenario.run foo`` executes steps in-process via the
+  scenarios runtime (same code as v4.54.0/1: retries,
+  wait_for.file, wait_for.http, template interpolation).
+* ``mission.catalog`` (safe, no filter) returns the scenario
+  alongside any shell missions with
+  ``templates: {scenario: 1}`` in the stats.
+* ``mission.status mission_id=scenario-foo`` returns the
+  standard mission status shape — state, runs[], created_at.
+* ``mission.history/report/lineage/family/schedules_*``
+  all work on scenarios because they read the same
+  ``mission.json``. Nothing to add.
+
+### Save is idempotent + history-preserving
+
+Re-saving a scenario keeps ``runs[]`` and ``state`` from
+the previous save. Test locked in
+``test_save_overwrite_preserves_runs_and_state``.
+
+### Recursion protection preserved
+
+The v4.54.0 ``_MAX_RECURSION_DEPTH = 4`` guard in
+``tool_scenarios.py`` still fires — nested ``scenario.run``
+calls track depth via ``threading.local``.
+
+### Tests
+
+* ``tests/test_extension_v4_55_0.py`` — 20 assertions:
+  deterministic mission_id, save creates mission.json with
+  scenario template, save returns mission_id, logs+artifacts
+  subdirs, overwrite preserves runs+state, overwrite=False
+  raises, get shape (name+mission_id+source+doc+path), get
+  missing raises, delete removes dir, delete missing raises,
+  list filters by template=='scenario' (ignores other
+  missions), list metadata fields, append_run flips state,
+  load_history returns runs, history capped at 20,
+  runtime end-to-end, default store picks resolve_missions_dir,
+  non-scenario missions untouched, _find_by_name falls back
+  to template_data.name for renamed dirs.
+* v4.54.0/1 tests migrated to the new API (62/62 pass) —
+  same behaviour, new storage backend.
+* Full suite: **2998 passed** (2978 baseline + 20 for
+  v4.55.0). Zero regressions.
+
+### Live E2E verified
+
+Through ``/v1/extension/execute``:
+1. ``scenario.save`` creates mission
+2. ``scenario.run`` executes with real ``sys.status`` and
+   template renders ``v=4.55.0``
+3. ``mission.catalog`` sees the scenario with
+   ``template=scenario, state=done``
+4. ``scenario.delete`` cleans up the whole mission dir
+
+### Not addressed
+
+* ``mission.run <scenario-mission-id>`` from CLI/subprocess
+  returns a friendly redirect instead of executing. Full
+  support would need the mission_manager subprocess to
+  callback into the bridge — hairy. For now users should
+  invoke ``scenario.run`` directly.
+* Scheduler (``mission.schedule_save`` for scenario
+  missions) — should Just Work because it uses the same
+  ``run_mission`` codepath which now redirects. Untested
+  end-to-end.
+
+### My honest process note
+
+This release exists because I built ``~/.arena/scenarios/``
+in v4.54.0 without properly reading ``arena/missions_cli/``
+first. I asserted "mission is just shell, we need
+something new" based on a single glance at
+``mission_catalog.py``. When Ivan called it out, I re-read
+the mission_manager code end-to-end and confirmed my
+initial assessment was partly correct (missions can't run
+tool calls) but the reasonable move was to add tool-call
+support inside the mission framework, not build a parallel
+one. Fixed here.
+
 ## v4.54.1 — 2026-07-20
 
 Two step-level features for scenarios, both requested by Ivan's

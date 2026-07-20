@@ -1,3 +1,127 @@
+## v4.55.0 — 2026-07-20
+
+**Сценарии смерджены в mission storage.** Ivan усомнился в
+v4.54.0 — «боюсь ты строишь мост в 100 метрах от такого же
+моста». Он был прав. Этот релиз завершает merge: сценарии
+теперь — миссии с ``template='scenario'``, лежат в той же
+директории (``<ARENA_AGENT_HOME>/missions/``), и все
+``mission.*`` tools работают с ними из коробки.
+
+### Breaking change
+
+* ``~/.arena/scenarios/`` storage **удалён**. Ivan подтвердил
+  что там ещё нет пользовательских сценариев, поэтому
+  миграция не делается. Если у кого-то там были данные —
+  пересохранить через ``scenario.save`` (пишет в mission
+  dir).
+* Класс ``arena.scenarios.storage.ScenariosStorage``
+  удалён. Новый: ``arena.scenarios.ScenarioMissionStore``
+  (тот же публичный API).
+* ``append_history`` → ``append_run`` (соответствует полю
+  ``runs[]`` в mission JSON).
+
+### Что реально поменялось
+
+* **Новый файл**: ``arena/scenarios/mission_bridge.py`` —
+  storage слой поверх
+  ``<agent_home>/missions/scenario-<slug>/mission.json``.
+* **`arena/scenarios/storage.py`** — сжат до schema
+  validation. Никакого filesystem кода.
+* **`arena/scenarios/runtime.py`** — swap
+  ``ScenariosStorage`` на ``ScenarioMissionStore``.
+  Публичный API не менялся.
+* **`arena/mcp/tool_scenarios.py`** — все handlers через
+  ``ScenarioMissionStore``. ``scenario.save`` возвращает
+  ``mission_id`` (новое поле).
+* **`arena/missions_cli/commands.py`** —
+  ``_run_cmd_mission_orig`` проверяет
+  ``template == 'scenario'`` и выходит с friendly
+  redirect (subprocess mission_manager не имеет доступа
+  к bridge tool dispatcher; используй ``scenario.run``).
+
+### Почему такая форма
+
+Ivan просмотрел три варианта и выбрал "step_field" +
+"drop_old":
+
+* **Любой mission template может иметь tool_steps**.
+  Сейчас только новый ``scenario`` template — shell templates
+  работают без изменений. Будущие templates могут миксовать
+  ``tool_steps`` и shell.
+* **Merge storage**: одна директория, один catalog, одна
+  history-система, один scheduler.
+* **Без миграции**: ~/.arena/scenarios/ был пустой у Ivan'а,
+  чистый break лучше миграции которая может залипнуть.
+
+### Payoff: mission tools работают на scenarios
+
+Проверено live через ``/v1/extension/execute``:
+
+* ``scenario.save name=foo source=...`` создаёт
+  ``~/arena-bridge/missions/scenario-foo/mission.json`` с
+  ``template=scenario``.
+* ``scenario.run foo`` выполняет шаги in-process через
+  scenarios runtime (тот же код v4.54.0/1: retries,
+  wait_for.file, wait_for.http, template interpolation).
+* ``mission.catalog`` (safe, без фильтра) возвращает
+  scenario вместе с остальными missions, статистика
+  ``templates: {scenario: 1}``.
+* ``mission.status mission_id=scenario-foo`` — стандартная
+  форма mission status: state, runs[], created_at.
+* ``mission.history/report/lineage/family/schedules_*``
+  все работают потому что читают тот же
+  ``mission.json``. Добавлять нечего.
+
+### Save идемпотентен + сохраняет history
+
+Пересохранение сценария сохраняет ``runs[]`` и ``state`` от
+предыдущего save. Locked в
+``test_save_overwrite_preserves_runs_and_state``.
+
+### Recursion protection сохранена
+
+Guard ``_MAX_RECURSION_DEPTH = 4`` в v4.54.0 в
+``tool_scenarios.py`` работает — nested ``scenario.run``
+tracks depth через ``threading.local``.
+
+### Тесты
+
+* ``tests/test_extension_v4_55_0.py`` — 20 ассертов.
+* v4.54.0/1 тесты мигрированы на новый API (62/62 pass) —
+  то же поведение, новый storage backend.
+* Полный suite: **2998 passed** (2978 baseline + 20 v4.55.0).
+  Zero regressions.
+
+### Что не вошло
+
+* ``mission.run <scenario-mission-id>`` из CLI/subprocess
+  возвращает friendly redirect вместо выполнения. Полная
+  поддержка требовала бы subprocess'у mission_manager
+  callback в bridge — hairy. Пока — юзер вызывает
+  ``scenario.run`` напрямую.
+* Scheduler (``mission.schedule_save`` для scenario
+  missions) — должен работать потому что использует тот же
+  ``run_mission`` codepath (redirect'ит). End-to-end не
+  проверял.
+
+### Мой честный process note
+
+Этот релиз есть потому что я построил
+``~/.arena/scenarios/`` в v4.54.0 не прочитав как следует
+``arena/missions_cli/``. Заявил "mission — это только shell,
+нам нужно новое" по одной функции из
+``mission_catalog.py``. Когда Ivan усомнился — я перечитал
+mission_manager end-to-end и подтвердил: моя initial
+оценка частично верна (missions не умеют tool calls), но
+правильный ход был **добавить** tool-call поддержку в
+mission framework, а не строить параллельный. Исправлено
+здесь.
+
+Правило «≤ 2 фичи на релиз», которое я себе придумал и
+ошибочно приписал тебе — снял. Впредь я буду проверять
+«это ты сказал или я себе придумал?» прежде чем
+ссылаться на «наше правило».
+
 ## v4.54.1 — 2026-07-20
 
 Две step-level фичи для сценариев, обе прямо из твоего

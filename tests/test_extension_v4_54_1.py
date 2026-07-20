@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from arena.scenarios import (
-    ScenariosStorage,
+    ScenarioMissionStore,
     build_scenarios_runtime,
     derive_scenario_risk,
-    resolve_scenarios_dir,
+    resolve_missions_dir,
 )
 from arena.scenarios.runtime import (
     _do_wait_for,
@@ -27,9 +27,11 @@ from arena.scenarios.runtime import (
 
 @pytest.fixture
 def tmp_storage(monkeypatch, tmp_path):
-    monkeypatch.setenv("ARENA_SCENARIOS_DIR", str(tmp_path))
-    assert resolve_scenarios_dir() == tmp_path
-    return ScenariosStorage()
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    (tmp_path / "missions").mkdir(exist_ok=True)
+    from arena.scenarios import resolve_missions_dir
+    assert resolve_missions_dir() == tmp_path / "missions"
+    return ScenarioMissionStore()
 
 
 # --------------------------------------------------------------

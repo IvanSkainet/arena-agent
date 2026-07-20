@@ -45,7 +45,7 @@ def test_readme_mentions_v4_51_3_and_v0_14_32():
 
 def test_constants_version_bumped():
     src = _read(CONSTANTS_PY)
-    assert any(v in src for v in ('VERSION = "4.52.0"', 'VERSION = "4.52.1"', 'VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"', 'VERSION = "4.53.0"', 'VERSION = "4.53.1"', 'VERSION = "4.54.0"', 'VERSION = "4.54.1"'))
+    assert any(v in src for v in ('VERSION = "4.52.0"', 'VERSION = "4.52.1"', 'VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"', 'VERSION = "4.53.0"', 'VERSION = "4.53.1"', 'VERSION = "4.54.0"', 'VERSION = "4.54.1"', 'VERSION = "4.55.0"'))
 
 
 def test_parser_has_unlabeled_fence_pattern():
@@ -125,4 +125,4 @@ def test_system_prompt_structure_sections():
 
 def test_pyproject_version_bumped():
     src = _read(REPO_ROOT / "pyproject.toml")
-    assert any(v in src for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"', 'version = "4.53.0"', 'version = "4.53.1"', 'version = "4.54.0"', 'version = "4.54.1"'))
+    assert any(v in src for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"', 'version = "4.53.0"', 'version = "4.53.1"', 'version = "4.54.0"', 'version = "4.54.1"', 'version = "4.55.0"'))

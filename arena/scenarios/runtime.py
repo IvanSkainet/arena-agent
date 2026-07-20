@@ -42,9 +42,9 @@ from arena.extension_bridge.policy import classify_tool_risk
 from arena.scenarios.storage import (
     InvalidScenario,
     ScenarioNotFound,
-    ScenariosStorage,
     parse_scenario_source,
 )
+from arena.scenarios.mission_bridge import ScenarioMissionStore
 
 
 RISK_ORDER = {"safe": 0, "medium": 1, "dangerous": 2, "unknown": 1}
@@ -354,18 +354,24 @@ def _do_wait_for(wait_cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 class ScenariosRuntime:
-    """Loads scenarios from storage and runs them via a tool dispatcher."""
+    """Loads scenarios from mission-storage and runs them via a tool dispatcher.
+
+    v4.55.0: storage is now a :class:`ScenarioMissionStore` that
+    reads/writes scenarios as missions with ``template='scenario'``.
+    The public API on this class is unchanged from v4.54.x — only
+    the underlying persistence moved.
+    """
 
     def __init__(
         self,
-        storage: ScenariosStorage,
+        storage: ScenarioMissionStore,
         dispatch: Callable[[str, dict[str, Any]], dict[str, Any]],
     ) -> None:
         self._storage = storage
         self._dispatch = dispatch
 
     @property
-    def storage(self) -> ScenariosStorage:
+    def storage(self) -> ScenarioMissionStore:
         return self._storage
 
     def preview(self, name: str) -> dict[str, Any]:
@@ -508,16 +514,16 @@ class ScenariosRuntime:
             duration_ms=int((finished - started) * 1000),
             steps=step_results, final=final,
         )
-        self._storage.append_history(got["name"], run.to_dict())
+        self._storage.append_run(got["name"], run.to_dict())
         return run
 
 
 def build_scenarios_runtime(
     dispatch: Callable[[str, dict[str, Any]], dict[str, Any]],
     *,
-    storage: ScenariosStorage | None = None,
+    storage: ScenarioMissionStore | None = None,
 ) -> ScenariosRuntime:
-    return ScenariosRuntime(storage or ScenariosStorage(), dispatch)
+    return ScenariosRuntime(storage or ScenarioMissionStore(), dispatch)
 
 
 __all__ = [

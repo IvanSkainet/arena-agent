@@ -41,7 +41,24 @@ def run_cmd_mission(a):
     return _rc
 
 def _run_cmd_mission_orig(a):
-    d=find_mission(a.id); obj=json.loads((d/'mission.json').read_text()); cmds=commands_for(obj['template']); results=[]; obj['state']='running'; obj['started_at']=obj.get('started_at') or now(); (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
+    d=find_mission(a.id); obj=json.loads((d/'mission.json').read_text())
+    # v4.55.0: scenario-typed missions run through the in-process
+    # scenarios runtime because their steps are Arena TOOL CALLS,
+    # not shell commands. mission_manager is a subprocess and
+    # has no access to the bridge's tool dispatcher, so we exit
+    # with a friendly redirect instead of trying to execute the
+    # steps as shell.
+    if obj.get('template') == 'scenario':
+        msg = (
+            f"mission {d.name!r} is a scenario (template=scenario). "
+            f"Run it via the bridge scenario.run tool, e.g.:\n"
+            f"  curl -sS -X POST http://127.0.0.1:8765/v1/extension/execute \\\n"
+            f"    -H 'Authorization: Bearer <token>' -d '{{\"payload\":{{\"bridge\":\"arena\",\"version\":1,\"calls\":"
+            f"[{{\"id\":\"c1\",\"tool\":\"scenario.run\",\"arguments\":{{\"name\":\"{obj.get('template_data',{}).get('name', d.name)}\"}}}}]}},\"mode\":{{\"approve\":true}}}}'"
+        )
+        print(json.dumps({'ok':False,'mission':d.name,'state':obj.get('state','planned'),'error':'scenario mission — use scenario.run','hint':msg},ensure_ascii=False,indent=2))
+        raise SystemExit(2)
+    cmds=commands_for(obj['template']); results=[]; obj['state']='running'; obj['started_at']=obj.get('started_at') or now(); (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
     for i,c in enumerate(cmds,1):
         if a.step and i!=a.step: continue
         r=run_cmd(c,a.timeout); results.append(r); (d/'logs'/f'step-{i:02d}.json').write_text(json.dumps(r,ensure_ascii=False,indent=2)+'\n')

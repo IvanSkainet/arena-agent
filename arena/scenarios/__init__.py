@@ -1,30 +1,32 @@
 """Scenario orchestration for Arena Chat Bridge.
 
-Scenarios are declarative YAML files that describe a linear
+Scenarios are declarative documents that describe a linear
 sequence of tool calls. Each step's result is available to
 subsequent steps via ``{{ steps.<id>.result.<path> }}`` template
 expressions, plus ``{{ env.VAR }}`` and ``{{ now }}`` helpers.
 
-Introduced in v4.54.0 as the backbone for Ivan's "тебе даю
-сценарий, а ты его выполняешь" idea. Storage lives at
-``$ARENA_SCENARIOS_DIR`` (default ``~/.arena/scenarios/``) —
-user-space, not versioned in the bridge repo.
+Introduced as its own module in v4.54.0 with a private
+``~/.arena/scenarios/`` storage. v4.55.0 moved storage into the
+existing mission filesystem — scenarios are now missions with
+``template='scenario'``. Same authoring experience, one storage
+system, mission.* tools work on scenarios out of the box.
 
-Risk classification for ``scenario.run`` is *derived*: the
-runtime scans every step's tool name at run-planning time and
-returns the max risk (safe < medium < dangerous). A scenario
-that only invokes ``sys.status`` runs as safe; adding a single
-``fs.write`` step promotes the whole scenario to dangerous.
-This mirrors the Unix "least privilege" idea — a wrapper is
-never more permissive than its most permissive contained call.
+Storage: ``<ARENA_AGENT_HOME>/missions/scenario-<slug>/mission.json``
+(default ``<ARENA_AGENT_HOME>`` = ``~/arena-bridge``).
 """
 from __future__ import annotations
 
 from arena.scenarios.storage import (
-    ScenariosStorage,
-    ScenarioNotFound,
     InvalidScenario,
-    resolve_scenarios_dir,
+    ScenarioNotFound,
+    parse_scenario_source,
+    render_scenario_source,
+    validate_name,
+)
+from arena.scenarios.mission_bridge import (
+    SCENARIO_TEMPLATE_ID,
+    ScenarioMissionStore,
+    resolve_missions_dir,
 )
 from arena.scenarios.runtime import (
     ScenariosRuntime,
@@ -32,16 +34,25 @@ from arena.scenarios.runtime import (
     ScenarioStepResult,
     build_scenarios_runtime,
     derive_scenario_risk,
+    render_template,
 )
 
 __all__ = [
-    "ScenariosStorage",
-    "ScenarioNotFound",
+    # storage (schema validation only)
     "InvalidScenario",
-    "resolve_scenarios_dir",
+    "ScenarioNotFound",
+    "parse_scenario_source",
+    "render_scenario_source",
+    "validate_name",
+    # mission-bridge (physical storage on top of missions dir)
+    "ScenarioMissionStore",
+    "SCENARIO_TEMPLATE_ID",
+    "resolve_missions_dir",
+    # runtime
     "ScenariosRuntime",
     "ScenarioRunResult",
     "ScenarioStepResult",
     "build_scenarios_runtime",
     "derive_scenario_risk",
+    "render_template",
 ]
