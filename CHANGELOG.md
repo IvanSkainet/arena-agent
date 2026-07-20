@@ -1,3 +1,87 @@
+## v4.52.5 — 2026-07-20
+
+Direct fix for Ivan's v4.52.4 diagnostic report. The dump
+proved the ranker was picking the leftmost active http(s) tab
+(`youtube.com/@i2hard/videos` on Ivan's setup), which failed
+with `Receiving end does not exist` because our content
+script never injects on unsupported hosts. Swapping tab order
+manually made it work.
+
+### chat_extension `background.js` (0.14.38 → 0.14.39)
+
+`sendActiveTabMessage` ranker now weights **supported chat
+hosts** above every other signal.
+
+* **New `ARENA_SUPPORTED_CHAT_HOSTS` set** — 16 full-host
+  entries mirroring `chat_extension/adapter_sites.js`
+  `hosts:` fields (ChatGPT, Claude, Gemini, Qwen, DeepSeek,
+  Kimi, Mistral, Perplexity, Grok, OpenRouter, t3.chat,
+  z.ai, arena.ai, duck.ai, aistudio.google.com).
+* **New `ARENA_PATH_SCOPED_ADAPTERS` list** — for adapters
+  that only exist at a path prefix
+  (`github.com/copilot`, `duckduckgo.com/chat`). These are
+  matched via `URL(u).pathname.startsWith(prefix)` so a
+  random GitHub repo doesn't hijack the ranker.
+* **Ranker weight `+1000` for supported hosts.** Dominates
+  active/highlighted/window-focus signals so a background
+  Qwen tab beats a foreground YouTube tab. Ivan's exact
+  reproducer (YouTube active, DeepSeek background) now
+  resolves to DeepSeek correctly.
+* **Fast-fail on unsupported active tab.** If the top
+  candidate after ranking is still unsupported, we skip
+  `chrome.tabs.sendMessage` entirely and return a friendly
+  error naming the supported sites, instead of the raw
+  Chrome "Receiving end does not exist".
+* **Diagnostic dump adds `supported_tabs_seen`** and each
+  `tabs_sample[i]` gets an `is_supported` flag.
+* **Pytest guard.** `test_background_supported_hosts_match_adapter_sites`
+  parses `adapter_sites.js` and asserts every `hosts:` entry
+  is covered by either `ARENA_SUPPORTED_CHAT_HOSTS` or
+  `ARENA_PATH_SCOPED_ADAPTERS`. Prevents the two lists from
+  drifting silently when someone adds a new adapter.
+
+### chat_extension `sidepanel.js`
+
+* Summary line now shows `tabs seen: N total, M on http(s),
+  K supported`.
+* Sample-tabs list bolds supported hosts and drops the
+  generic `chat` tag once a tab is `supported` (avoids
+  duplication).
+
+### Tests
+
+* Added `tests/test_extension_v4_52_5.py` — 15 assertions
+  covering: version bumps, supported host set present with
+  every named site, cross-check against `adapter_sites.js`,
+  `+1000` ranker weight, path-scoped adapters list,
+  friendly unsupported-active-tab error naming supported
+  sites, diagnostic exposes `supported_tabs_seen`,
+  per-tab `is_supported` flag, sidepanel renders
+  supported count and highlights supported tabs.
+* jsdom smoke `jstest/smoke_v525.js` — 18 assertions with
+  five ranker scenarios:
+  * **A**: YouTube active + DeepSeek background → ranker
+    picks DeepSeek (Ivan's exact case)
+  * **B**: only unsupported tabs (YouTube + non-copilot
+    GitHub) → friendly error
+  * **C**: no chat tabs at all → no-chat message
+  * **D**: supported active tab (Qwen) → succeeds
+    (backward-compat regression guard)
+  * **E**: two supported tabs in different windows, one
+    focused → focused-window tab wins
+* Full suite: **2860 passed** (2845 baseline + 15 for
+  v4.52.5). Zero regressions.
+
+### Not addressed
+
+* **Per-site collapse polish.** Deferred per Ivan's
+  explicit "outerHTML присылать для гаданий не буду".
+* **Full popup → sidepanel migration.** Deferred until
+  sidepanel is confirmed fully working.
+* **MCP SuperAssistant Shadow-DOM sidebar-injection port.**
+  Captured as notes in v4.52.4; still deferred to v4.53.x
+  as opt-in alternative to browser-native sidePanel.
+
 ## v4.52.4 — 2026-07-20
 
 Scan Now diagnostic dump. Ivan's v4.52.3 test still returned

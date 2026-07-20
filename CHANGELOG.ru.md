@@ -1,3 +1,80 @@
+## v4.52.5 — 2026-07-20
+
+Прямой фикс по твоему v4.52.4 диагностическому дампу. Dump
+доказал: ранкер брал самый левый active http(s) таб
+(`youtube.com/@i2hard/videos` на твоей машине), что фейлилось
+с `Receiving end does not exist`, потому что наш content
+script не инжектируется на неподдерживаемых хостах. Ты
+подтвердил ручной перестановкой табов.
+
+### chat_extension `background.js` (0.14.38 → 0.14.39)
+
+Ранкер `sendActiveTabMessage` теперь весит **supported chat
+hosts** выше всех остальных сигналов.
+
+* **Новый `ARENA_SUPPORTED_CHAT_HOSTS`** — 16 full-host
+  записей, зеркалит `chat_extension/adapter_sites.js`
+  `hosts:` поля (ChatGPT, Claude, Gemini, Qwen, DeepSeek,
+  Kimi, Mistral, Perplexity, Grok, OpenRouter, t3.chat,
+  z.ai, arena.ai, duck.ai, aistudio.google.com).
+* **Новый `ARENA_PATH_SCOPED_ADAPTERS`** — для адаптеров,
+  живущих только на префиксе пути
+  (`github.com/copilot`, `duckduckgo.com/chat`). Матчатся
+  через `URL(u).pathname.startsWith(prefix)`, случайный
+  GitHub репозиторий не hijack-нёт ранкер.
+* **Вес +1000 для supported host в ранкере.** Доминирует
+  над active/highlighted/window-focus сигналами — так что
+  background Qwen побеждает foreground YouTube. Твой
+  точный сценарий (YouTube active, DeepSeek background)
+  теперь корректно резолвится на DeepSeek.
+* **Fast-fail на unsupported active tab.** Если топ
+  кандидат после ранкинга всё ещё unsupported, мы вообще
+  не шлём `chrome.tabs.sendMessage`, а сразу возвращаем
+  дружелюбную ошибку с перечислением supported сайтов —
+  вместо сырого "Receiving end does not exist".
+* **Diagnostic dump добавляет `supported_tabs_seen`** +
+  каждый `tabs_sample[i]` получает флаг `is_supported`.
+* **Pytest-guard.** `test_background_supported_hosts_match_adapter_sites`
+  парсит `adapter_sites.js` и проверяет, что каждый
+  `hosts:` покрыт либо `ARENA_SUPPORTED_CHAT_HOSTS`, либо
+  `ARENA_PATH_SCOPED_ADAPTERS`. Не даст спискам молча
+  разъехаться при добавлении нового адаптера.
+
+### chat_extension `sidepanel.js`
+
+* Summary line теперь показывает `tabs seen: N total, M on
+  http(s), K supported`.
+* В sample-tabs списке supported hosts болдятся, generic
+  `chat` метка снимается когда tab уже помечен
+  `supported` (без дубликатов).
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_52_5.py` — 15 ассертов.
+* jsdom smoke `jstest/smoke_v525.js` — 18 ассертов с
+  пятью сценариями ранкера:
+  * **A**: YouTube active + DeepSeek background → ранкер
+    выбирает DeepSeek (твой точный случай)
+  * **B**: только unsupported табы → friendly error
+  * **C**: чат-табов вообще нет → no-chat message
+  * **D**: supported active tab (Qwen) → succeed
+    (backward-compat guard)
+  * **E**: два supported таба в разных окнах, одно в
+    фокусе → focused-window побеждает
+* Полный suite: **2860 passed** (2845 baseline + 15
+  v4.52.5). Zero regressions.
+
+### Что не вошло
+
+* **Per-site collapse polish.** Отложено согласно твоему
+  явному «outerHTML присылать для гаданий не буду».
+* **Полный переход popup → sidepanel.** Отложено пока
+  sidepanel не подтверждён полностью рабочим.
+* **MCP SuperAssistant Shadow-DOM sidebar-injection port.**
+  Заметки записаны в v4.52.4; по-прежнему отложено на
+  v4.53.x как opt-in альтернатива browser-native
+  sidePanel.
+
 ## v4.52.4 — 2026-07-20
 
 Диагностический dump для Scan Now. Твой v4.52.3 тест всё

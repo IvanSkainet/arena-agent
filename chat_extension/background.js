@@ -229,6 +229,57 @@ async function openSidePanel() {
 //      redacted dump of what chrome.tabs actually reports, so
 //      Ivan can paste the JSON and we finally see the truth
 //      instead of guessing.
+// v0.14.39 (v4.52.5): Ivan's v4.52.4 diagnostic dump proved
+// it -- the old ranker was picking the leftmost active http(s)
+// tab, which on his setup was YouTube (not in the adapter
+// list). Result: "Receiving end does not exist" because the
+// content script never injects on unsupported hosts. Fix by
+// scoring supported chat hosts explicitly ABOVE other http(s)
+// tabs. The full host list mirrors chat_extension/adapter_sites.js
+// (kept in sync manually -- test test_supported_hosts_match
+// enforces this).
+// Hosts that ALWAYS host our content script (any path).
+const ARENA_SUPPORTED_CHAT_HOSTS = new Set([
+  'aistudio.google.com',
+  'arena.ai', 'www.arena.ai',
+  'chat.deepseek.com',
+  'chat.mistral.ai',
+  'chat.openai.com', 'chatgpt.com',
+  'chat.qwen.ai',
+  'chat.z.ai',
+  'claude.ai',
+  'duck.ai',
+  'gemini.google.com',
+  'grok.com',
+  'kimi.com', 'www.kimi.com',
+  'openrouter.ai',
+  'perplexity.ai', 'www.perplexity.ai',
+  't3.chat',
+]);
+// Path-scoped adapters: content script only lives at
+// `host + pathPrefix`. Mirrors chat_extension/adapter_sites.js
+// pathPrefix fields (copilot -> /copilot, duckai on
+// duckduckgo.com -> /chat).
+const ARENA_PATH_SCOPED_ADAPTERS = [
+  {host: 'github.com',     pathPrefix: '/copilot'},
+  {host: 'duckduckgo.com', pathPrefix: '/chat'},
+];
+function _arenaExtractHost(u) {
+  if (!u) return '';
+  try { return new URL(u).hostname; } catch { return ''; }
+}
+function _arenaExtractPathname(u) {
+  if (!u) return '';
+  try { return new URL(u).pathname; } catch { return ''; }
+}
+function _arenaIsSupportedChatHost(u) {
+  const host = _arenaExtractHost(u);
+  if (!host) return false;
+  if (ARENA_SUPPORTED_CHAT_HOSTS.has(host)) return true;
+  const path = _arenaExtractPathname(u);
+  return ARENA_PATH_SCOPED_ADAPTERS.some((a) => a.host === host && path.startsWith(a.pathPrefix));
+}
+
 async function sendActiveTabMessage(message) {
   if (!chrome.tabs?.query || !chrome.tabs?.sendMessage) return {ok: false, error: 'tabs api unavailable'};
 
@@ -255,19 +306,18 @@ async function sendActiveTabMessage(message) {
     audible: !!t?.audible,
     status: t?.status || '',
     is_chat_url: isChatUrl(t?.url),
+    // v0.14.39 (v4.52.5): show WHY we did/didn't pick a tab.
+    is_supported: _arenaIsSupportedChatHost(t?.url),
     url: redact(t?.url),
     title: (t?.title || '').slice(0, 60),
   });
 
-  // Broad query: every tab in every window. Then rank ourselves.
   let allTabs = [];
   try {
     allTabs = await chrome.tabs.query({}) || [];
   } catch (e) {
     return {ok: false, error: `chrome.tabs.query failed: ${e?.message || e}`};
   }
-  // Also query windows so we can spot panel/devtools windows that
-  // may be mis-focusing the query.
   let windows = [];
   try {
     windows = (await chrome.windows?.getAll?.({populate: false}) || []).map((w) => ({
@@ -277,13 +327,19 @@ async function sendActiveTabMessage(message) {
 
   const chatTabs = allTabs.filter((t) => isChatUrl(t.url));
   const rank = (t) => {
-    // Prefer active + normal window + focused window.
     const w = windows.find((x) => x.id === t.windowId);
     const wtype = t.windowType || w?.type || '';
     let score = 0;
+    // v0.14.39 (v4.52.5): supported chat host is the DOMINANT
+    // signal. Add a large weight so a background Qwen tab beats
+    // a foreground YouTube tab. Without this the ranker was
+    // picking whichever active tab happened to sort first,
+    // which is why Ivan saw "Receiving end does not exist" on
+    // youtube.com/@i2hard/videos while DeepSeek was open.
+    if (_arenaIsSupportedChatHost(t.url)) score += 1000;
     if (t.active) score += 100;
     if (t.highlighted) score += 20;
-    if (wtype === 'normal' || !wtype) score += 50; // no windowType = manifest permission missing but tab is real
+    if (wtype === 'normal' || !wtype) score += 50;
     if (w?.focused) score += 40;
     return score;
   };
@@ -291,7 +347,6 @@ async function sendActiveTabMessage(message) {
   const tab = chatTabs[0] || null;
 
   if (!tab?.id) {
-    // Diagnostic dump: what did we actually see?
     return {
       ok: false,
       error: chatTabs.length === 0
@@ -300,8 +355,30 @@ async function sendActiveTabMessage(message) {
       diagnostic: {
         tabs_seen: allTabs.length,
         chat_tabs_seen: chatTabs.length,
+        supported_tabs_seen: chatTabs.filter((t) => _arenaIsSupportedChatHost(t.url)).length,
         windows: windows,
-        // Cap so we don't spam the sidepanel with 100 tabs.
+        tabs_sample: allTabs.slice(0, 12).map(tabSummary),
+      },
+    };
+  }
+
+  // v0.14.39: if we ended up picking an UNSUPPORTED host (no
+  // supported chat tab is open anywhere), give a much clearer
+  // error immediately -- do not bother sending the message,
+  // Chrome will just return "Receiving end does not exist".
+  if (!_arenaIsSupportedChatHost(tab.url)) {
+    const supportedCount = chatTabs.filter((t) => _arenaIsSupportedChatHost(t.url)).length;
+    return {
+      ok: false,
+      error: `active tab is not a supported chat site (picked ${_arenaExtractHost(tab.url)}); open one of the supported chat sites (ChatGPT, Claude, Gemini, Qwen, DeepSeek, Kimi, Mistral, Perplexity, Grok, OpenRouter, t3.chat, z.ai, arena.ai, duck.ai/chat, github.com/copilot) and try again`,
+      tab_url: tab.url || '',
+      tab_id: tab.id,
+      window_id: tab.windowId,
+      diagnostic: {
+        tabs_seen: allTabs.length,
+        chat_tabs_seen: chatTabs.length,
+        supported_tabs_seen: supportedCount,
+        windows: windows,
         tabs_sample: allTabs.slice(0, 12).map(tabSummary),
       },
     };

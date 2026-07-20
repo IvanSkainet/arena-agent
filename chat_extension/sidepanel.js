@@ -644,14 +644,18 @@ async function runScanNow() {
       // + the full JSON is available in the raw box.
       if (res?.diagnostic) {
         const d = res.diagnostic;
-        html += `<br><small>tabs seen: <b>${d.tabs_seen}</b> total, <b>${d.chat_tabs_seen}</b> on http(s); windows: ${(d.windows || []).map((w) => `${w.type}${w.focused ? '★' : ''}`).join(', ')}</small>`;
+        const supPart = Number.isFinite(d.supported_tabs_seen)
+          ? `, <b>${d.supported_tabs_seen}</b> supported`
+          : '';
+        html += `<br><small>tabs seen: <b>${d.tabs_seen}</b> total, <b>${d.chat_tabs_seen}</b> on http(s)${supPart}; windows: ${(d.windows || []).map((w) => `${w.type}${w.focused ? '★' : ''}`).join(', ')}</small>`;
         if (Array.isArray(d.tabs_sample) && d.tabs_sample.length) {
-          html += '<br><small>sample tabs (first 12):</small>';
+          html += '<br><small>sample tabs (first 12; <b>supported chat sites bolded</b>):</small>';
           const list = d.tabs_sample.map((t) => {
             const flags = [];
+            if (t.is_supported) flags.push('<b>supported</b>');
             if (t.active) flags.push('active');
             if (t.highlighted) flags.push('hl');
-            if (t.is_chat_url) flags.push('chat');
+            if (t.is_chat_url && !t.is_supported) flags.push('chat');
             if (t.windowType && t.windowType !== 'normal') flags.push(`w=${t.windowType}`);
             return `<div class="arena-scan-event"><span class="arena-scan-kind">${t.url || '(no url)'}</span>${flags.join(' · ')}</div>`;
           }).join('');

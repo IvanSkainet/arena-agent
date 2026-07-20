@@ -1,44 +1,54 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.38` (v4.52.4 bridge release —
-Scan Now diagnostic dump; MCP SuperAssistant sidebar-injection
-study captured but not yet ported).
+Current extension version: `0.14.39` (v4.52.5 bridge release —
+Scan Now supported-host ranker; direct fix for Ivan's v4.52.4
+diagnostic report showing the ranker picked YouTube over
+DeepSeek).
 
 Key change in this release:
 
-**Scan Now tab-resolver rewritten as a broad-query + rank +
-diagnostic dump.** Ivan's v4.52.3 test still returned
-"no active chat tab" from real chat sites. The v4.52.3
-three-step heuristic (`lastFocusedWindow` → `currentWindow` →
-any active) was still missing his tab. Rather than guess a
-fourth heuristic, `sendActiveTabMessage` now:
+**Scan Now ranker now scores supported chat hosts explicitly
+above other http(s) tabs.** Ivan's v4.52.4 diagnostic dump
+proved it: the ranker was picking the active leftmost http(s)
+tab, which on his setup was `youtube.com/@i2hard/videos`,
+causing `Receiving end does not exist` because the content
+script never injects on unsupported hosts. After swapping tab
+order manually, it correctly resolved to `chat.deepseek.com`.
 
-1. Queries `chrome.tabs.query({})` — every tab in every
-   window — and `chrome.windows.getAll` — every window with
-   type/focused metadata.
-2. Filters to `http(s)://` URLs (drops `chrome://`,
-   `chrome-extension://`, `edge://`, `about:`, `file://`,
-   `view-source:`).
-3. Ranks candidates by: `active` (+100), `highlighted` (+20),
-   window type `normal` (+50), window focused (+40). Picks
-   the top.
-4. **On failure, returns a rich diagnostic envelope** with a
-   redacted dump of every tab Chrome reported plus every
-   window Chrome reported. The side panel renders that dump
-   inline so you can see exactly why the resolver did not
-   find your chat tab (windows of type `panel`, tabs of
-   status `unloaded`, no active + no highlighted, etc.).
+Fix in `sendActiveTabMessage`:
 
-URLs are redacted to `scheme://host` before being written
-into the diagnostic (no full paths, no query strings, no
-titles beyond 60 chars).
+* New `ARENA_SUPPORTED_CHAT_HOSTS` set covering every
+  full-host adapter (16 hosts). Mirrors
+  `chat_extension/adapter_sites.js` `hosts:` fields.
+* New `ARENA_PATH_SCOPED_ADAPTERS` for adapters that only
+  live at a path prefix (`github.com/copilot`,
+  `duckduckgo.com/chat`) — those are matched against
+  `URL(u).pathname.startsWith(prefix)` rather than the plain
+  host set. This prevents the ranker from picking a random
+  GitHub repo when Copilot is not open.
+* Ranker weight `+1000` for supported hosts — dominates
+  active/highlighted/window-focus signals so a background
+  Qwen tab beats a foreground YouTube tab.
+* If we end up picking an unsupported host (no supported
+  tab is open anywhere), skip `chrome.tabs.sendMessage`
+  entirely and return a friendly error naming the
+  supported sites so the user knows what to open.
+* Diagnostic dump now includes `supported_tabs_seen` and
+  each `tabs_sample[i]` carries an `is_supported` flag.
+* A pytest guard
+  (`test_background_supported_hosts_match_adapter_sites`)
+  compares the set against every `hosts:` block in
+  `adapter_sites.js` so the two lists cannot drift.
 
-The `openSidePanel` helper still uses the popup-safe
-`{active: true, currentWindow: true}` query because it is
-only called from the popup itself, where `currentWindow`
-resolves correctly.
+Sidepanel:
 
-Everything else is unchanged from v4.52.3.
+* Summary line now shows
+  `tabs seen: N total, M on http(s), K supported`.
+* Sample-tabs list bolds supported hosts and drops the
+  generic `chat` flag when a tab is already marked
+  `supported`.
+
+Everything else is unchanged from v4.52.4.
 
 Extension file architecture (unchanged since v0.14.29):
 
