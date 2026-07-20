@@ -1,3 +1,87 @@
+## v4.53.1 — 2026-07-20
+
+Первый релиз по нашей новой договорённости «ты рулишь». Два
+маленьких quality-of-life изменения поверх v4.53.0 preview,
+оба взяты из MCP SuperAssistant function-block renderer.
+Правило, которое я себе поставил в этой автономии: **≤ 2
+изменения на релиз** — если что-то ломается, root cause
+находится быстро.
+
+### Изменение 1 — описания tool в preview-карточках
+
+В v4.53.0 был `.arena-preview-desc` элемент, но его никто
+не заполнял. Этот релиз добавляет второй memoised cache
+рядом с risk cache:
+
+* `_arenaDescCachePromise` — awaited на первый miss, отдаёт
+  `Map<toolName, description>`, построенный из
+  `/v1/extension/instructions?category=all`. Каждый catalog
+  entry уже помечен description'ом (CSN redesign из
+  v4.51.2 это гарантирует).
+* `_arenaDescLookup(toolName)` — «синхронный» lookup через
+  resolved Promise.
+* `_arenaAnnotateCallsForPreview` теперь делает
+  `Promise.all` на risk lookup + description lookup для
+  каждого call — preview рисуется в один frame независимо
+  от количества calls.
+
+Портировано из MCP SuperAssistant `render_prescript/src/
+renderer/functionBlock.ts::renderFunctionCall`, которая
+пробрасывает `jsonInfo.description` в тело карточки. У
+нашего catalog поле уже было — порт свёлся к одному новому
+cache и одному новому полю в annotator.
+
+### Изменение 2 — per-call Copy chip в каждой preview-карточке
+
+Маленькая pill-кнопка в правом верхнем углу каждой
+`.arena-preview-card`. Клик копирует **только этот
+invocation** (не весь payload), обёрнутый в
+`arena-tool` fenced block, готовый к вставке обратно в
+чат. Удобно для повторной отправки одного call из
+multi-call payload без ручного редактирования JSON.
+
+Детали:
+
+* Рендерится как `<button type="button" aria-label="Copy
+  call">` для a11y + клавиатурных пользователей.
+* Использует `navigator.clipboard.writeText` (без
+  `execCommand` fallback — MV3 content scripts всегда
+  имеют async API).
+* Success → chip меняет надпись на `Copied ✓` с зелёным
+  тоном (класс `.arena-preview-copy--ok`) на 1.2 с, затем
+  возвращается.
+* Ошибка clipboard → chip показывает `Copy failed` 1.5 с.
+* `pointerdown` / `mousedown` `preventDefault` не даёт
+  chip'у украсть focus у composer (тот же guard, что у
+  основных toolbar-кнопок).
+
+CSS `.arena-preview-copy` в `shadow_toolbar.css` использует
+`margin-left: auto` — chip уезжает вправо в header flex
+row, не крадёт место у имени / call id.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_53_1.py` — 14 ассертов.
+* jsdom smoke `jstest/smoke_v531.js` — 21 ассерт в шести
+  сценариях (chip с корректным label, two-card payload
+  → две chip'а, click копирует только выбранный,
+  description passthrough, no-desc → no-element,
+  идемпотентность, clipboard failure состояние).
+* Полный suite: **2916 passed** (2902 baseline + 14 для
+  v4.53.1). Zero regressions.
+
+### Что не вошло
+
+* **Per-site collapse в chat history** — по-прежнему
+  `false` по умолчанию.
+* **Полный переход popup → sidepanel** — отложено.
+* **Дополнительные MCP-SA заимствования** — shortlist
+  остаётся: `InstructionManager` live diff,
+  `PopoverPortal` hover-controls per-message,
+  `useToolEnablement` per-tool toggle в Tools tab, MCP-SA
+  streaming re-render debounce. Следующий выбираю по
+  ощущению «сигнала на затраты».
+
 ## v4.53.0 — 2026-07-20
 
 MCP SuperAssistant-стиль **красивого превью tool-call** +

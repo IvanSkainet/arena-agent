@@ -185,6 +185,47 @@
       idEl.className = 'arena-preview-id';
       idEl.textContent = call.id ? `#${call.id}` : `#${idx + 1}`;
       header.appendChild(idEl);
+      // v0.14.42 (v4.53.1): per-card Copy-call chip. Copies just
+      // THIS invocation (not the whole payload) as an
+      // `arena-tool` fenced block ready to paste back into a
+      // chat. Handy for debugging one call from a multi-call
+      // payload without hand-editing JSON.
+      const copyBtn = document.createElement('button');
+      copyBtn.className = 'arena-preview-copy';
+      copyBtn.type = 'button';
+      copyBtn.title = 'Copy this call as an arena-tool fenced block';
+      copyBtn.setAttribute('aria-label', 'Copy call');
+      copyBtn.textContent = 'Copy';
+      // Prevent the click from stealing composer focus on chat
+      // sites that auto-refocus when a button is clicked.
+      copyBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); });
+      copyBtn.addEventListener('mousedown',   (e) => { e.preventDefault(); });
+      copyBtn.addEventListener('click', async () => {
+        const envelope = {
+          bridge: 'arena',
+          version: 1,
+          calls: [{
+            id: call.id || `call_${idx + 1}`,
+            tool: call.tool || call.name || 'unknown',
+            arguments: call.arguments || {},
+          }],
+        };
+        const text = '```arena-tool\n' + JSON.stringify(envelope, null, 2) + '\n```';
+        try {
+          await navigator.clipboard.writeText(text);
+          const orig = copyBtn.textContent;
+          copyBtn.textContent = 'Copied ✓';
+          copyBtn.classList.add('arena-preview-copy--ok');
+          setTimeout(() => {
+            copyBtn.textContent = orig;
+            copyBtn.classList.remove('arena-preview-copy--ok');
+          }, 1200);
+        } catch (_err) {
+          copyBtn.textContent = 'Copy failed';
+          setTimeout(() => { copyBtn.textContent = 'Copy'; }, 1500);
+        }
+      });
+      header.appendChild(copyBtn);
       card.appendChild(header);
       // Description (if catalog gave us one).
       if (call.description) {

@@ -1,70 +1,53 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.41` (v4.53.0 bridge release —
-MCP SuperAssistant-style pretty function-call preview + inline
-result panel in the shadow-DOM toolbar).
+Current extension version: `0.14.42` (v4.53.1 bridge release —
+tool descriptions in preview cards + per-call Copy chip).
 
-Key changes in this release:
+Two small MCP SuperAssistant-inspired polish items on top of
+v4.53.0's pretty preview:
 
-**1. Pretty function-call preview** now renders ABOVE the
-Preview/Run/Insert toolbar in every mounted shadow root.
-Instead of just seeing a bare `Arena · adapter · N calls`
-status line and a wall of raw `{"type":"function_call_start"…}`
-JSON in the message body, the user gets a compact card:
+**1. Tool descriptions render under the invocation header.**
+v4.53.0 had a `.arena-preview-desc` element wired but nothing
+was populating it — the previous release only surfaced
+descriptions when the caller passed one explicitly (never
+happened in the mount path). Fixed by adding a second
+once-per-page cache backed by
+`/v1/extension/instructions?category=all` — every entry's
+`name → description` mapping is memoised on first miss and
+served synchronously (via a resolved Promise) on subsequent
+lookups. `_arenaAnnotateCallsForPreview` now enriches every
+call with the description in parallel with the risk lookup
+(single-frame render, no extra latency).
 
-* Risk badge — colored `safe` / `medium` / `dangerous` /
-  `unknown` (looked up from `/v1/extension/policies` once per
-  page and cached).
-* Monospace tool name (`sys.status`, `fs.write`, …).
-* Call id (`#call_1`).
-* Optional one-line description (surfaced when the tool
-  catalog provided one).
-* Parameters as a two-column name → value grid; values > 320
-  chars truncate to `…`.
-* Multiple calls in one payload render as stacked cards
-  divided by a dashed border.
+Adapted from MCP SuperAssistant's `functionBlock.ts::
+renderFunctionCall` which threads `jsonInfo.description`
+into the card body. Their catalog and ours have the same
+shape (the CSN redesign in v4.51.2 already added
+`description` to every catalog entry), so the port was one
+new cache + one new field.
 
-Adapted from MCP SuperAssistant's function-block renderer
-(`github.com/srbhptl39/MCP-SuperAssistant/pages/content/src/
-render_prescript/src/renderer/functionBlock.ts`, MIT-licensed).
-Their React/Zustand implementation is replaced with a vanilla
-DOM factory (`arenaShadowToolbarPreview`) so we stay dependency-
-free.
+**2. Per-call `Copy` chip in each preview card header.**
+Little pill button in the top-right of every
+`.arena-preview-card`. Copies **just that invocation** (not
+the whole payload) to the clipboard, wrapped in an
+`arena-tool` fenced block ready to paste back into a chat.
+Multi-call payloads (Ivan sometimes gets these from
+model-driven tool chains) can now be re-issued one at a
+time for debugging without hand-editing JSON.
 
-**2. Inline result panel** renders BELOW the toolbar after
-Run (or auto-execute) finishes. A collapsible `<details>` with
-a summary line (`▸ Result (N calls, M lines)`) and the full
-tool output in a monospace `<pre>`. The user reads the result
-right at the message without opening the side panel, and long
-outputs stay compact until clicked. Re-runs replace the panel
-in place (idempotent, no stacking).
+Visual feedback:
 
-Both new elements live inside the same Shadow DOM host as the
-toolbar. Site CSS cannot leak in, `<details>` styling cannot
-leak out — the two v4.52.x collapse bugs are structurally
-prevented here.
+* Click → chip flips to `Copied ✓` with a green tint for
+  1.2 s, then reverts.
+* Clipboard failure → chip shows `Copy failed` for 1.5 s,
+  then reverts.
+* Chip has `pointerdown`/`mousedown` `preventDefault` so
+  clicking it doesn't steal focus from the site's composer
+  (same guard the toolbar buttons use).
 
-New helpers in `chat_extension/shadow_toolbar.js`:
-
-* `arenaShadowToolbarPreview(shadowRoot, {calls})` — inserts /
-  replaces the preview card at the top of the shadow root.
-* `arenaShadowToolbarResult(shadowRoot, {text, open?})` —
-  inserts / replaces the result panel at the bottom.
-
-`content.js` calls the preview on mount and the result panel
-on every successful Run (manual + auto).
-
-Risk lookup helpers in `content.js`:
-
-* `_arenaRiskLookup(toolName)` — resolves a tool name to
-  `safe` / `medium` / `dangerous` / `unknown` via a
-  once-per-page cache of `/v1/extension/policies`.
-* `_arenaAnnotateCallsForPreview(calls)` — returns a shallow
-  clone of the payload calls with a `risk` field added, ready
-  to hand to `arenaShadowToolbarPreview`.
-
-Everything else — parser, adapters, insert strategies, Scan
-Now, tab picker, auto-inject — is unchanged from v4.52.6.
+Everything else (parser, adapters, insert strategies, Scan
+Now, tab picker, auto-inject, preview mount, inline result
+panel) is unchanged from v4.53.0.
 
 Extension file architecture (unchanged since v0.14.29):
 

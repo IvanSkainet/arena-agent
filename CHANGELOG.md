@@ -1,3 +1,95 @@
+## v4.53.1 — 2026-07-20
+
+First release under Ivan's new "you drive" arrangement. Two
+tiny quality-of-life additions on top of the v4.53.0 preview,
+both borrowed from MCP SuperAssistant's function-block
+renderer. Self-imposed rule: **≤ 2 shipped changes per
+release** so any regression narrows fast.
+
+### Change 1 — tool descriptions in preview cards
+
+v4.53.0 wired a `.arena-preview-desc` element but nothing
+populated it. This release adds a second once-per-page
+memoised cache alongside the risk cache:
+
+* `_arenaDescCachePromise` — awaited on first miss, resolves
+  a `Map<toolName, description>` built from
+  `/v1/extension/instructions?category=all`. Every catalog
+  entry is already stamped with a description (CSN redesign
+  from v4.51.2 ensures this).
+* `_arenaDescLookup(toolName)` — synchronous-feeling lookup
+  via the resolved Promise.
+* `_arenaAnnotateCallsForPreview` now hits `Promise.all` on
+  the risk lookup + the description lookup for each call, so
+  the preview paints in a single frame regardless of how
+  many calls are in the payload.
+
+Adapted from MCP SuperAssistant's `render_prescript/src/
+renderer/functionBlock.ts::renderFunctionCall`, which threads
+`jsonInfo.description` through to the card body. Our catalog
+already had the field — the port was one new cache + one
+new field in the annotator.
+
+### Change 2 — per-call Copy chip in each preview card
+
+A small pill button anchored to the top-right of every
+`.arena-preview-card`. Clicking it copies **only that
+invocation** to the clipboard, wrapped in an `arena-tool`
+fenced block ready to paste back into a chat. Handy for
+re-issuing one call from a multi-call payload without
+hand-editing the JSON.
+
+Details:
+
+* Renders as `<button type="button" aria-label="Copy call">`
+  for a11y + keyboard users.
+* Uses `navigator.clipboard.writeText` (no `execCommand`
+  fallback — MV3 content scripts always have the async API).
+* Success → chip flips to `Copied ✓` with a green tint
+  (`.arena-preview-copy--ok` class) for 1.2 s, then reverts.
+* Clipboard failure → chip shows `Copy failed` for 1.5 s.
+* `pointerdown` / `mousedown` `preventDefault` prevents the
+  chip from stealing composer focus (same guard the main
+  toolbar buttons already use).
+
+CSS `.arena-preview-copy` in `shadow_toolbar.css` uses
+`margin-left: auto` to push the chip to the right side of
+the header flex row so it never crowds the name / call id.
+
+### Tests
+
+* Added `tests/test_extension_v4_53_1.py` — 14 assertions:
+  version bumps, description cache exists, cache hits
+  `arena.instructions` with `category:'all'`, annotator
+  uses `Promise.all` on risk + description and outputs a
+  `description` field, chip class + button-type + aria-label,
+  chip writes `arena-tool` fenced block via
+  `navigator.clipboard.writeText`, success + failure state
+  strings present, focus-theft prevention, `--ok` variant
+  class, chip pushed right via `margin-left: auto`.
+* jsdom smoke `jstest/smoke_v531.js` — 21 assertions across
+  six scenarios: chip rendered with correct label, two-card
+  payload gets two chips and clicks copy only the chosen
+  one preserving all its arguments, description propagates,
+  no description → no desc element, idempotency preserves
+  one chip after two renders, clipboard failure shows the
+  failure state.
+* Full suite: **2916 passed** (2902 baseline + 14 for
+  v4.53.1). Zero regressions.
+
+### Not addressed
+
+* **Per-site collapse in chat history** — still `false` by
+  default. The v4.53.0 inline result panel remains the way
+  to read results comfortably without touching the historical
+  collapse code.
+* **Full popup → sidepanel migration** — still deferred.
+* **Additional MCP-SA borrows** — the shortlist stays:
+  `InstructionManager` live diff, `PopoverPortal` hovering
+  per-message controls, `useToolEnablement` per-tool toggle
+  in the Tools tab, MCP-SA's streaming re-render debounce.
+  Picking next based on what feels highest-signal.
+
 ## v4.53.0 — 2026-07-20
 
 MCP SuperAssistant-style **pretty function-call preview** +

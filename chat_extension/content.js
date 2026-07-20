@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.41';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.42';
 
 // v0.14.41 (v4.53.0): once-per-page cache of the /v1/extension/policies
 // risk_classes so we can render a `safe`/`medium`/`dangerous` badge
@@ -30,20 +30,60 @@ async function _arenaRiskLookup(toolName) {
   return 'unknown';
 }
 
+// v0.14.42 (v4.53.1): once-per-page cache of tool descriptions
+// pulled from /v1/extension/instructions?category=all. Adapted
+// from MCP SuperAssistant's function-block renderer which
+// surfaces the tool description right under the invocation name
+// (functionBlock.ts::renderFunctionCall passes `description`
+// through jsonInfo). We do the same by fetching the full
+// catalog once per page and looking up `name -> description`.
+// Falls back to null if the fetch fails; preview then just
+// omits the description line (harmless).
+let _arenaDescCachePromise = null;
+async function _arenaDescLookup(toolName) {
+  if (!toolName) return null;
+  if (!_arenaDescCachePromise) {
+    _arenaDescCachePromise = (async () => {
+      try {
+        const res = await chrome.runtime.sendMessage({
+          type: 'arena.instructions',
+          body: {format: 'arena', style: 'short', category: 'all'},
+        });
+        const catalog = Array.isArray(res?.catalog) ? res.catalog : [];
+        const map = new Map();
+        catalog.forEach((entry) => {
+          if (entry?.name && entry?.description) map.set(entry.name, String(entry.description));
+        });
+        return map;
+      } catch (_e) {
+        return new Map();
+      }
+    })();
+  }
+  const map = await _arenaDescCachePromise;
+  return map.get(toolName) || null;
+}
+
 // v0.14.41 (v4.53.0): build the annotated calls[] array the
 // preview renderer expects (adds `risk` field per call). Returns
 // a shallow clone of payload.calls with each call augmented.
+// v0.14.42 (v4.53.1): now also annotates each call with an
+// optional one-line `description` looked up from the tool catalog.
 async function _arenaAnnotateCallsForPreview(calls) {
   const arr = Array.isArray(calls) ? calls : [];
   const out = [];
   for (const call of arr) {
     const tool = call?.tool || call?.name || '';
-    const risk = await _arenaRiskLookup(tool);
+    const [risk, description] = await Promise.all([
+      _arenaRiskLookup(tool),
+      _arenaDescLookup(tool),
+    ]);
     out.push({
       id: call?.id || '',
       tool,
       arguments: call?.arguments || {},
       risk,
+      description,
     });
   }
   return out;

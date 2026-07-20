@@ -168,6 +168,41 @@
   flex-wrap: wrap;
 }
 
+.arena-preview-copy {
+  /* v0.14.42 (v4.53.1): tiny "Copy this call" chip in the
+   * top-right of each preview card header. Marginauto pushes it
+   * to the right within the flex row so it doesn't interfere
+   * with the name / call-id baseline. */
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--arena-pv-desc, #cbd5e1);
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid var(--arena-pv-border, rgba(148, 163, 184, 0.26));
+  border-radius: 999px;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.4;
+  transition: background 120ms, color 120ms, border-color 120ms;
+}
+.arena-preview-copy:hover {
+  color: #f8fafc;
+  background: rgba(37, 99, 235, 0.28);
+  border-color: rgba(59, 130, 246, 0.6);
+}
+.arena-preview-copy:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: 2px;
+}
+.arena-preview-copy--ok {
+  color: #86efac;
+  background: rgba(6, 78, 59, 0.55);
+  border-color: rgba(4, 120, 87, 0.7);
+}
+
 .arena-preview-risk {
   display: inline-block;
   padding: 2px 7px;
