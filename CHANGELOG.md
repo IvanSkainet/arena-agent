@@ -1,3 +1,15 @@
+## v4.55.1 — 2026-07-20
+
+Hot-fix for v4.54.1 semgrep gate. `arena/scenarios/runtime.py`
+line 309 uses `urllib.request.urlopen(user-supplied URL)` in
+`_wait_for_http`. The `# nosec B310` annotation was there but
+the matching `# nosemgrep: dynamic-urllib-use-detected -- <rationale>`
+was missing, so the CI security gate rejected the release.
+Added the nosemgrep annotation with the same rationale. No
+functional change.
+
+pytest suite unchanged: 2998 passed. Bridge live at 4.55.1.
+
 ## v4.55.0 — 2026-07-20
 
 **Scenarios merged into mission storage.** Ivan pushed back on

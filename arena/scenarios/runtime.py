@@ -306,7 +306,7 @@ def _wait_for_http(cfg: dict[str, Any], timeout: float, poll: float) -> dict[str
     while True:
         try:
             req = urllib.request.Request(url, method=cfg["method"])
-            with urllib.request.urlopen(req, timeout=min(10.0, poll * 5)) as resp:  # nosec B310 -- scenario wait_for.http URL is user-supplied and gated behind medium+ risk classification; timeout is bounded to keep the poller responsive.
+            with urllib.request.urlopen(req, timeout=min(10.0, poll * 5)) as resp:  # nosec B310 -- scenario wait_for.http URL is user-supplied and gated behind medium+ risk classification; timeout is bounded to keep the poller responsive.  # nosemgrep: dynamic-urllib-use-detected -- same rationale as the B310 nosec above.
                 status = int(resp.status or 0)
                 body = resp.read(65536)
                 last_status = status
