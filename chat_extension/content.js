@@ -1,4 +1,53 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.40';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.41';
+
+// v0.14.41 (v4.53.0): once-per-page cache of the /v1/extension/policies
+// risk_classes so we can render a `safe`/`medium`/`dangerous` badge
+// on each function-call preview without hitting the bridge on every
+// mount. Adapted (in spirit) from MCP SuperAssistant's tool-enablement
+// state cache — they use Zustand, we just use a module-level Map.
+let _arenaRiskCachePromise = null;
+async function _arenaRiskLookup(toolName) {
+  if (!toolName) return 'unknown';
+  if (!_arenaRiskCachePromise) {
+    _arenaRiskCachePromise = (async () => {
+      try {
+        const policies = await chrome.runtime.sendMessage({type: 'arena.policies'});
+        const rc = policies?.risk_classes || {};
+        const map = new Map();
+        (rc.safe || []).forEach((t) => map.set(t, 'safe'));
+        (rc.medium || []).forEach((t) => map.set(t, 'medium'));
+        (rc.dangerous_tools || []).forEach((t) => map.set(t, 'dangerous'));
+        const dangerousPrefixes = rc.dangerous_prefixes || [];
+        return {map, dangerousPrefixes};
+      } catch (_e) {
+        return {map: new Map(), dangerousPrefixes: []};
+      }
+    })();
+  }
+  const {map, dangerousPrefixes} = await _arenaRiskCachePromise;
+  if (map.has(toolName)) return map.get(toolName);
+  if (dangerousPrefixes.some((p) => toolName.startsWith(p))) return 'dangerous';
+  return 'unknown';
+}
+
+// v0.14.41 (v4.53.0): build the annotated calls[] array the
+// preview renderer expects (adds `risk` field per call). Returns
+// a shallow clone of payload.calls with each call augmented.
+async function _arenaAnnotateCallsForPreview(calls) {
+  const arr = Array.isArray(calls) ? calls : [];
+  const out = [];
+  for (const call of arr) {
+    const tool = call?.tool || call?.name || '';
+    const risk = await _arenaRiskLookup(tool);
+    out.push({
+      id: call?.id || '',
+      tool,
+      arguments: call?.arguments || {},
+      risk,
+    });
+  }
+  return out;
+}
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -763,15 +812,37 @@ function mountControls(host, payload, adapter) {
 
   // v4.48.0: Shadow DOM host isolates toolbar from page CSS.
   let shadowHost = null;
+  let shadowRoot = null;
   let bar;
   if (typeof arenaCreateShadowToolbar === 'function') {
     const parts = arenaCreateShadowToolbar(host);
     shadowHost = parts.shadowHost;
+    shadowRoot = parts.shadowRoot;
     bar = parts.toolbar;
   } else {
     bar = document.createElement('div');
     bar.dataset.arenaToolControls = '1';
     bar.className = 'arena-toolbar';
+  }
+
+  // v0.14.41 (v4.53.0): render the MCP-SA-style pretty preview
+  // ABOVE the toolbar as soon as the toolbar mounts. Runs
+  // asynchronously (risk lookup goes through the background
+  // service worker) so the toolbar paints immediately and the
+  // preview replaces the placeholder once policies are cached.
+  if (shadowRoot && typeof arenaShadowToolbarPreview === 'function') {
+    (async () => {
+      try {
+        const annotated = await _arenaAnnotateCallsForPreview(payload?.calls);
+        arenaShadowToolbarPreview(shadowRoot, {calls: annotated});
+      } catch (_e) { /* preview is best-effort */ }
+    })();
+  }
+  // If we already have a cached execution result for this
+  // semantic key (e.g. this is a re-mount after the user
+  // scrolled away and back), render it right away.
+  if (shadowRoot && lastExecutionText && typeof arenaShadowToolbarResult === 'function') {
+    try { arenaShadowToolbarResult(shadowRoot, {text: lastExecutionText}); } catch (_e) { /* best-effort */ }
   }
 
   const status = document.createElement('span');
@@ -805,6 +876,12 @@ function mountControls(host, payload, adapter) {
     if (Array.isArray(result?.calls)) {
       lastExecutionText = resultToText(result);
       if (lastExecutionText) executionResults.set(semanticFingerprint, lastExecutionText);
+      // v0.14.41 (v4.53.0): mirror the result into the inline
+      // pretty-panel below the toolbar so the user can read it
+      // without opening the side panel or the raw JSON.
+      if (shadowRoot && typeof arenaShadowToolbarResult === 'function' && lastExecutionText) {
+        try { arenaShadowToolbarResult(shadowRoot, {text: lastExecutionText, open: false}); } catch (_e) { /* best-effort */ }
+      }
     }
     const timing = bridgeMs > 0 ? ` in ${runMs}ms (bridge ${bridgeMs}ms)` : ` in ${runMs}ms`;
     const total = result?.calls?.length || 0;
@@ -897,6 +974,11 @@ function mountControls(host, payload, adapter) {
 
   runAutoModes(request, adapter, status, semanticFingerprint, (text) => {
     lastExecutionText = text;
+    // v0.14.41 (v4.53.0): auto-execute path also mirrors into
+    // the inline result panel.
+    if (shadowRoot && typeof arenaShadowToolbarResult === 'function' && text) {
+      try { arenaShadowToolbarResult(shadowRoot, {text}); } catch (_e) { /* best-effort */ }
+    }
   });
 }
 

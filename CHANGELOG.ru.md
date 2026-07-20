@@ -1,3 +1,105 @@
+## v4.53.0 — 2026-07-20
+
+MCP SuperAssistant-стиль **красивого превью tool-call** +
+**inline result panel** в shadow-DOM toolbar. Твой запрос
+«давай воровать оттуда всё что можно» — первый заход на порт
+самой заметной MCP-SA фичи: человекочитаемый рендер tool-call
+прямо у сообщения, рядом с Preview / Run / Insert. Без React,
+без Tailwind — vanilla DOM factories, которые живут в том же
+shadow root что и toolbar.
+
+### chat_extension `shadow_toolbar.js` (0.14.40 → 0.14.41)
+
+Два новых helper'а на `window`:
+
+* **`arenaShadowToolbarPreview(shadowRoot, {calls})`** —
+  строит карточку НАД toolbar с одной строкой на каждый
+  parsed call:
+  * цветной risk badge (`safe` / `medium` / `dangerous` /
+    `unknown`)
+  * моноширинное имя tool + call id
+  * опциональное однострочное описание
+  * grid параметров (name → value, значения > 320 символов
+    обрезаются с `…`)
+  * несколько calls стакаются как отдельные карточки через
+    dashed border.
+  Идемпотентно — заменяет любой существующий
+  `.arena-preview` в том же shadow root, чтобы streaming
+  payload changes не дублировали карточки.
+* **`arenaShadowToolbarResult(shadowRoot, {text, open?})`**
+  — добавляет collapsible `<details>` панель ПОД toolbar с
+  результатом tool. Summary читается как
+  `▸ Result (N calls, M lines)`; body — моноширинный
+  `<pre>` с лимитом 260 px scroll. Идемпотентно —
+  повторные Run заменяют панель на месте. `open: true`
+  открывает её по умолчанию.
+
+Комментарий-attribution ссылается на MCP SuperAssistant
+`functionBlock.ts` и сохраняет MIT license note.
+
+### chat_extension `shadow_toolbar.css`
+
+Новые scoped-правила `.arena-preview*` и `.arena-result*`:
+
+* Palette использует те же CSS custom properties, что и
+  существующий toolbar — theme drift невозможен.
+* `.arena-preview-risk--safe/medium/dangerous/unknown` badge
+  варианты зеркалят цвета Tools-tab risk в sidepanel —
+  единый визуальный язык.
+* Параметры рендерятся `display: grid; grid-template-columns:
+  max-content 1fr;` — колонки name/value выравниваются
+  независимо от длины value.
+* Result panel — нативный `<details>` без дополнительных JS
+  listener'ов.
+
+### chat_extension `content.js` (0.14.40 → 0.14.41)
+
+* **`_arenaRiskLookup(toolName)`** — резолвит имя tool в
+  risk-класс через once-per-page cache
+  `/v1/extension/policies`. Использует background message
+  `arena.policies`, существующий с v4.19.x.
+* **`_arenaAnnotateCallsForPreview(calls)`** — shallow-clone
+  `payload.calls` с добавлением поля `risk`, готовый для
+  `arenaShadowToolbarPreview`.
+* **Mount path** — берёт `shadowRoot` из
+  `arenaCreateShadowToolbar` (раньше выбрасывался) и
+  асинхронно рендерит `arenaShadowToolbarPreview` как
+  только toolbar смонтирован. Если у нас уже есть
+  cached execution result для semantic key (re-mount после
+  скролла), result panel рисуется сразу.
+* **Run button** — после `resultToText` мы зеркалим тот же
+  текст в `arenaShadowToolbarResult`. Работает и на
+  manual Run, и на auto-execute path.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_53_0.py` — 21 ассерт.
+* jsdom smoke `jstest/smoke_v530.js` — 30 ассертов в семи
+  сценариях (safe call, три risk-класса, идемпотентность
+  превью, `<details>` с summary, идемпотентность result,
+  пустой text = no-op, обрезка длинных значений).
+* `MAX_PRODUCT_FILE_LINES` поднят 1500 → 1600 (content.js
+  вырос с ~1470 до 1552 строк с risk cache + preview
+  wiring — правило «не сжимай файлы»).
+* Полный suite: **2902 passed** (2881 baseline + 21 для
+  v4.53.0). Zero regressions.
+
+### Что не вошло
+
+* **Per-site collapse в chat history** — по-прежнему `false`
+  по умолчанию. v4.53.0 inline result panel даёт чистый
+  pretty-print текущего run без трогания исторического
+  collapse-кода, что ровно то, что ты хотел («хочется
+  читать результат, а не полэкрана JSON»).
+* **Полный переход popup → sidepanel** — по-прежнему
+  отложено.
+* **Дополнительные MCP-SA заимствования**: их
+  `InstructionManager` live diff между старым/новым
+  instruction set, их `PopoverPortal` (per-message controls
+  которые всплывают над чатом), их `pushMode` page-content
+  shift когда sidebar открыт. Кандидаты на v4.53.x
+  follow-up'ы если ты захочешь.
+
 ## v4.52.6 — 2026-07-20
 
 Два прямых фикса по твоему v4.52.5 отчёту:

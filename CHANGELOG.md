@@ -1,3 +1,119 @@
+## v4.53.0 — 2026-07-20
+
+MCP SuperAssistant-style **pretty function-call preview** +
+**inline result panel** in the shadow-DOM toolbar. Ivan's
+"давай воровать оттуда всё что можно" — first pass at porting
+the most visible MCP-SA feature: human-readable rendering of
+tool calls right at the message, next to Preview / Run /
+Insert. No React, no Tailwind — vanilla DOM factories that
+live in the same shadow root as the toolbar.
+
+### chat_extension `shadow_toolbar.js` (0.14.40 → 0.14.41)
+
+Two new helpers exported on `window`:
+
+* **`arenaShadowToolbarPreview(shadowRoot, {calls})`** —
+  builds a card ABOVE the toolbar with one row per parsed
+  call:
+  * colored risk badge (`safe` / `medium` / `dangerous` /
+    `unknown`)
+  * monospace tool name + call id
+  * optional one-line description
+  * two-column parameters grid (name → value, values > 320
+    chars truncated to `…`)
+  * multiple calls stack as separate cards divided by a
+    dashed border.
+  Idempotent — replaces any existing `.arena-preview` in the
+  same shadow root so payload changes during streaming don't
+  duplicate cards.
+* **`arenaShadowToolbarResult(shadowRoot, {text, open?})`**
+  — appends a collapsible `<details>` panel BELOW the
+  toolbar with the executed tool result. Summary line reads
+  `▸ Result (N calls, M lines)`; body is a monospace `<pre>`
+  capped at 260 px scroll height. Idempotent — re-runs
+  replace the panel in place. `open: true` opens it by
+  default.
+
+Attribution comment references MCP SuperAssistant's
+`functionBlock.ts` and preserves the MIT license note.
+
+### chat_extension `shadow_toolbar.css`
+
+New scoped rules `.arena-preview*` and `.arena-result*`:
+
+* Palette uses the same CSS custom properties as the
+  existing toolbar so theme drift is impossible.
+* `.arena-preview-risk--safe/medium/dangerous/unknown` badge
+  variants mirror the sidepanel Tools-tab risk colors so
+  users see one consistent visual language.
+* Parameters render as `display: grid; grid-template-columns:
+  max-content 1fr;` — name/value columns line up regardless
+  of value length.
+* Result panel uses `<details>` for native collapse without
+  extra JS listeners.
+
+### chat_extension `content.js` (0.14.40 → 0.14.41)
+
+* **`_arenaRiskLookup(toolName)`** — resolves a tool name to
+  a risk class via a once-per-page cache of
+  `/v1/extension/policies`. Uses `arena.policies` background
+  message that already existed since v4.19.x.
+* **`_arenaAnnotateCallsForPreview(calls)`** — shallow-clones
+  `payload.calls` and adds a `risk` field ready to hand to
+  `arenaShadowToolbarPreview`.
+* **Mount path** — destructures `shadowRoot` from
+  `arenaCreateShadowToolbar` (previously discarded) and
+  fires `arenaShadowToolbarPreview` asynchronously as soon
+  as the toolbar mounts. If we already have a cached
+  execution result for the semantic key (e.g. re-mount after
+  scroll), the result panel paints right away.
+* **Run button** — after `resultToText` we mirror the same
+  text into `arenaShadowToolbarResult`. Runs on both the
+  manual Run button and the auto-execute path.
+
+### Tests
+
+* Added `tests/test_extension_v4_53_0.py` — 21 assertions
+  covering: version bumps, new helper exports and
+  window-attach, `.arena-preview*` and `.arena-result*` CSS,
+  MCP SA attribution present, idempotency guards on both
+  helpers, 320-char truncation, content.js risk cache,
+  annotator, shadowRoot capture, preview mount call, result
+  mirror on both Run paths, re-mount rehydrate.
+* jsdom smoke `jstest/smoke_v530.js` — 30 assertions across
+  seven runtime scenarios:
+  * A: safe sys.status(limit=5) → renders name, param, safe
+    badge, call id
+  * B: three calls with different risks → three cards, each
+    badge class applied
+  * C: preview idempotency — two calls yield one preview
+  * D: result panel `<details>` with counted summary +
+    monospace body
+  * E: result panel idempotency — two calls yield one panel,
+    latest text wins
+  * F: empty text is a no-op (no phantom panel)
+  * G: long parameter values truncated to 317 chars + `…`
+* `MAX_PRODUCT_FILE_LINES` bumped 1500 → 1600 as content.js
+  grew from ~1470 to 1552 with the risk cache + preview
+  wiring (Ivan's rule: "не сжимай файлы").
+* Full suite: **2902 passed** (2881 baseline + 21 for
+  v4.53.0). Zero regressions.
+
+### Not addressed
+
+* **Per-site collapse in chat history** — still `false` by
+  default. The v4.53.0 inline result panel gives the user a
+  clean pretty-print of the current run without touching the
+  historical collapse code, which is exactly what Ivan wanted
+  ("хочется читать результат, а не полэкрана JSON").
+* **Full popup → sidepanel migration** — still deferred.
+* **Additional MCP-SA borrows**: their `InstructionManager`
+  live diff between old/new instruction sets, their
+  `PopoverPortal` (per-message controls that hover over the
+  chat), their `pushMode` page-content shift when a sidebar
+  is open. Candidates for v4.53.x follow-ups if Ivan wants
+  them.
+
 ## v4.52.6 — 2026-07-20
 
 Two direct fixes for Ivan's v4.52.5 feedback:

@@ -24,28 +24,28 @@ def _read(path: Path) -> str:
 
 def test_manifest_version_bumped_to_0_14_32():
     manifest = json.loads(_read(MANIFEST_JSON))
-    assert manifest["version"] == "0.14.40"
+    assert manifest["version"] == "0.14.41"
 
 
 def test_content_script_version_bumped():
     src = _read(CONTENT_JS)
-    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.40';" in src
+    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.41';" in src
 
 
 def test_insert_strategies_version_bumped():
     src = _read(INSERT_STRATEGIES_JS)
-    assert "return '0.14.40';" in src
+    assert "return '0.14.41';" in src
 
 
 def test_readme_mentions_v4_51_3_and_v0_14_32():
     src = _read(README_MD)
-    assert "0.14.40" in src
-    assert ("v4.51.4" in src or "v4.52.0" in src or "v4.52.1" in src or "v4.52.2" in src or "v4.52.3" in src or "v4.52.4" in src or "v4.52.6" in src)
+    assert "0.14.41" in src
+    assert ("v4.51.4" in src or "v4.52.0" in src or "v4.52.1" in src or "v4.52.2" in src or "v4.52.3" in src or "v4.52.4" in src or "v4.52.6" in src or "v4.53.0" in src)
 
 
 def test_constants_version_bumped():
     src = _read(CONSTANTS_PY)
-    assert any(v in src for v in ('VERSION = "4.52.0"', 'VERSION = "4.52.1"', 'VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"'))
+    assert any(v in src for v in ('VERSION = "4.52.0"', 'VERSION = "4.52.1"', 'VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"', 'VERSION = "4.53.0"'))
 
 
 def test_parser_has_unlabeled_fence_pattern():
@@ -53,7 +53,7 @@ def test_parser_has_unlabeled_fence_pattern():
     the `arena-tool` language tag."""
     src = _read(PARSER_JS)
     assert "kind: 'fence'" in src
-    assert ("v4.51.4" in src or "v4.52.0" in src or "v4.52.1" in src or "v4.52.2" in src or "v4.52.3" in src or "v4.52.4" in src or "v4.52.6" in src) or "v4.51.3" in src or "v4.52.0" in src or "v0.14.33" in src or "v0.14.32" in src or "v0.14.40" in src
+    assert ("v4.51.4" in src or "v4.52.0" in src or "v4.52.1" in src or "v4.52.2" in src or "v4.52.3" in src or "v4.52.4" in src or "v4.52.6" in src or "v4.53.0" in src) or "v4.51.3" in src or "v4.52.0" in src or "v0.14.33" in src or "v0.14.32" in src or "v0.14.41" in src
 
 
 def test_parser_has_bare_envelope_fallback():
@@ -125,4 +125,4 @@ def test_system_prompt_structure_sections():
 
 def test_pyproject_version_bumped():
     src = _read(REPO_ROOT / "pyproject.toml")
-    assert any(v in src for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"'))
+    assert any(v in src for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"', 'version = "4.53.0"'))

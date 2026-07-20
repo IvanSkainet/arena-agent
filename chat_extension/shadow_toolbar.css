@@ -118,3 +118,155 @@
   outline: 2px solid var(--arena-btn-border-hi);
   outline-offset: 2px;
 }
+
+/* --- v0.14.41 (v4.53.0): pretty function-call preview -------
+ *
+ * Sits ABOVE .arena-toolbar in the same shadow root. Adapted
+ * from MCP SuperAssistant's function-block renderer (see
+ * shadow_toolbar.js::arenaShadowToolbarPreview docstring for
+ * attribution). CSS variables reuse the toolbar palette so
+ * theme drift is impossible.
+ */
+.arena-preview {
+  --arena-pv-bg:         rgba(15, 23, 42, 0.55);
+  --arena-pv-border:     rgba(148, 163, 184, 0.26);
+  --arena-pv-name:       #f8fafc;
+  --arena-pv-id:         #94a3b8;
+  --arena-pv-desc:       #cbd5e1;
+  --arena-pv-param-name: #93c5fd;
+  --arena-pv-param-val:  #e2e8f0;
+  --arena-pv-risk-safe-bg:      #064e3b;
+  --arena-pv-risk-safe-border:  #047857;
+  --arena-pv-risk-medium-bg:    #78350f;
+  --arena-pv-risk-medium-border:#d97706;
+  --arena-pv-risk-danger-bg:    #7f1d1d;
+  --arena-pv-risk-danger-border:#dc2626;
+  --arena-pv-risk-unknown-bg:   #1e293b;
+  --arena-pv-risk-unknown-border:#475569;
+
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--arena-pv-border);
+  border-radius: 10px;
+  background: var(--arena-pv-bg);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.arena-preview-card + .arena-preview-card {
+  border-top: 1px dashed var(--arena-pv-border);
+  padding-top: 6px;
+}
+
+.arena-preview-header {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+
+.arena-preview-risk {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #f8fafc;
+  border: 1px solid var(--arena-pv-risk-unknown-border);
+  background: var(--arena-pv-risk-unknown-bg);
+  line-height: 1.2;
+}
+.arena-preview-risk--safe {
+  background: var(--arena-pv-risk-safe-bg);
+  border-color: var(--arena-pv-risk-safe-border);
+}
+.arena-preview-risk--medium {
+  background: var(--arena-pv-risk-medium-bg);
+  border-color: var(--arena-pv-risk-medium-border);
+}
+.arena-preview-risk--dangerous {
+  background: var(--arena-pv-risk-danger-bg);
+  border-color: var(--arena-pv-risk-danger-border);
+}
+
+.arena-preview-name {
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--arena-pv-name);
+}
+.arena-preview-id {
+  font-size: 11px;
+  color: var(--arena-pv-id);
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+}
+.arena-preview-desc {
+  color: var(--arena-pv-desc);
+  font-size: 11px;
+  font-style: italic;
+}
+.arena-preview-noargs {
+  color: var(--arena-pv-id);
+  font-size: 11px;
+  font-style: italic;
+}
+.arena-preview-params {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 12px;
+  margin: 4px 0 0;
+}
+.arena-preview-params dt {
+  color: var(--arena-pv-param-name);
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.arena-preview-params dd {
+  color: var(--arena-pv-param-val);
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11px;
+  margin: 0;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+/* --- v0.14.41 (v4.53.0): inline result panel (below toolbar) */
+.arena-result {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--arena-pv-border, rgba(148, 163, 184, 0.26));
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.55);
+  font-size: 12px;
+  color: #e2e8f0;
+}
+.arena-result > summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  outline: none;
+  color: #cbd5e1;
+}
+.arena-result > summary::-webkit-details-marker {
+  display: none;
+}
+.arena-result-body {
+  margin: 6px 0 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+  color: #e2e8f0;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
+}
