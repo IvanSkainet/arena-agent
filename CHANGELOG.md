@@ -1,3 +1,24 @@
+## v4.58.0 — asr.transcribe (local whisper.cpp) + asr.models
+
+**Adaptivity milestone (3/3 for phone-voice-to-chat).** Local speech-to-text through a typed MCP tool — no exec, no shell-cmd embedded in scenarios, no hard-coded model paths.
+
+### asr.transcribe
+Wraps `whisper-cli` (whisper.cpp). Auto-converts non-native audio (m4a/mp4/webm/opus/aac/mkv/mov/3gp/amr) to 16 kHz mono WAV via `ffmpeg` if it's on PATH. Model discovery: `model` arg → `ARENA_WHISPER_MODEL` env → first `ggml-*.bin` under `~/.whisper`. Returns `{ok, text, language, segments[], model, duration_ms}` parsed from whisper-cli's `-oj` JSON. Timeout clamped [10s, 900s].
+
+### asr.models
+Lists discovered models under `~/.whisper`, `/usr/share/whisper.cpp`, and `ARENA_WHISPER_MODEL`. Reports which whisper binary is on PATH so scenarios can fail fast with an actionable error.
+
+### Policy
+- **safe**: `asr.models`
+- **medium**: `asr.transcribe`
+
+### E2E impact on `scenario-phone-voice-to-chat`
+Before v4.56/57/58: `[exec, sys.status, exec]` — `risk=dangerous`.
+After this release: can rewrite to `[mobile.info, fs.wait_file, asr.transcribe]` — `risk=medium`, zero exec.
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only release.
+
 ## v4.57.0 — net.http, secrets.*, sudo.run
 
 **Adaptivity milestone (2/3 toward E2E phone-voice-to-chat without exec).** Four new MCP tools replace `exec "curl ..."` and `exec "cat ~/.arena/secrets.json ..."` in scenarios.

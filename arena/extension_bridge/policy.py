@@ -17,6 +17,8 @@ _SAFE_TOOLS = {
     "mobile.devices", "mobile.info", "mobile.transport_status", "mobile.screenshot", "mobile.ui", "mobile.sensors", "mobile.packages", "mobile.ime_status", "mobile.helpers_status", "mobile.camera_photos", "mobile.record_list",
     # v4.57.0: net/secrets read-only surface.
     "secrets.list",
+    # v4.58.0: asr model discovery.
+    "asr.models",
 }
 _MEDIUM_TOOLS = {
     "fs.create", "memory.import", "mem.get", "mem.set",
@@ -34,6 +36,8 @@ _MEDIUM_TOOLS = {
     "mobile.tap", "mobile.swipe", "mobile.type", "mobile.key", "mobile.key_combo", "mobile.scroll", "mobile.gesture", "mobile.tap_by", "mobile.paste", "mobile.camera_launch", "mobile.camera_shutter", "mobile.camera_capture", "mobile.camera_pull", "mobile.camera_record_start", "mobile.camera_record_stop", "mobile.record_start", "mobile.record_stop", "mobile.record_pull",
     # v4.57.0: typed HTTP client + secret metadata reads.
     "net.http", "secrets.get",
+    # v4.58.0: local speech-to-text via whisper.cpp.
+    "asr.transcribe",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {

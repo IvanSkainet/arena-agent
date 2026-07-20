@@ -1,3 +1,24 @@
+## v4.58.0 — asr.transcribe (локальный whisper.cpp) + asr.models
+
+**Веха по адаптивности (3/3 для phone-voice-to-chat).** Локальный STT через типизированный MCP-инструмент — без exec, без шелл-команд внутри сценариев, без хардкода путей к моделям.
+
+### asr.transcribe
+Обёртка над `whisper-cli` (whisper.cpp). Автоконвертит нестандартный звук (m4a/mp4/webm/opus/aac/mkv/mov/3gp/amr) в 16 kHz mono WAV через `ffmpeg`, если он в PATH. Поиск модели: аргумент `model` → env `ARENA_WHISPER_MODEL` → первый `ggml-*.bin` в `~/.whisper`. Возвращает `{ok, text, language, segments[], model, duration_ms}` из JSON whisper-cli (`-oj`). Таймаут [10s, 900s].
+
+### asr.models
+Перечисляет модели в `~/.whisper`, `/usr/share/whisper.cpp`, `ARENA_WHISPER_MODEL`. Сообщает, какой whisper-бинарник в PATH, — сценарий может честно упасть с полезной ошибкой.
+
+### Классы риска
+- **safe**: `asr.models`
+- **medium**: `asr.transcribe`
+
+### E2E-влияние на `scenario-phone-voice-to-chat`
+До v4.56/57/58: `[exec, sys.status, exec]` — `risk=dangerous`.
+После: перекроить в `[mobile.info, fs.wait_file, asr.transcribe]` — `risk=medium`, ноль exec.
+
+### Расширение
+Байт-в-байт как v4.53.1 — только мост.
+
 ## v4.57.0 — net.http, secrets.*, sudo.run
 
 **Веха по адаптивности (2/3 к E2E phone-voice-to-chat без exec).** Четыре новых MCP-инструмента заменяют `exec "curl ..."` и `exec "cat ~/.arena/secrets.json ..."` в сценариях.
