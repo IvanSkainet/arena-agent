@@ -41,10 +41,10 @@ def _read(name: str) -> str:
 
 
 def test_versions_pinned_to_0_14_27():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.32'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.32"
-    assert "return '0.14.32';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.32`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.33'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.33"
+    assert "return '0.14.33';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.33`" in _read("README.md")
 
 
 # ------------------------------------------------------------------
@@ -168,4 +168,5 @@ def test_v0417_aistudio_turn_role_still_present():
 def test_max_product_file_lines_raised_to_1300():
     mod = (REPO_ROOT / "tests" / "test_project_modularity.py").read_text(encoding="utf-8")
     assert ("MAX_PRODUCT_FILE_LINES = 1300" in mod
-            or "MAX_PRODUCT_FILE_LINES = 1400" in mod)
+            or "MAX_PRODUCT_FILE_LINES = 1400" in mod
+            or "MAX_PRODUCT_FILE_LINES = 1500" in mod)

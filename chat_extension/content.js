@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.32';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.33';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -1083,67 +1083,164 @@ function scan() {
   collapseToolResultsInHistory();
 }
 
-// v0.14.29 (v4.51.0): find every PRE / code containing the
-// `<!-- arena:tool-result -->` sentinel that `formatInsertText`
-// stamped and replace it with a `<details>` wrapper. Idempotent:
-// once wrapped, the sentinel PRE lives inside a details block
-// that we mark with `data-arena-tool-collapsed="1"` so subsequent
-// scans skip it. Preserves the original PRE inside the details so
-// clicking "Expand" restores the full content. Also survives
-// site rehydration -- if the site rebuilds the PRE, the sentinel
-// is still there and we re-wrap on the next scan.
+// v0.14.33 (v4.51.4): FULL REWRITE via TreeWalker.
+// Reason: real user-message renders on Gemini web / Mistral /
+// Kimi / Qwen / DeepSeek / z.ai do NOT wrap the pasted tool
+// result in a <pre>/<code>/<code-block>. Ivan's outerHTML
+// snapshots showed:
+//   * Gemini splits each line into <p class="query-text-line">
+//     inside <span class="user-query-bubble-with-background">.
+//   * Qwen collapses everything into one <p class="user-message-content">
+//     inside .chat-user-message with no PRE wrapper.
+//   * Kimi puts the raw multi-line text in <div class="user-content">.
+//   * DeepSeek wraps in <div class="rounded-xl p-3 bg-...">.
+//   * z.ai keeps user text in <div class="chat-user">.
+// The old selector-driven strategy could not reach any of these
+// because it only queried code-like elements. New strategy:
+//   1. TreeWalker over TEXT_NODE -> find sentinel.
+//   2. Walk up to the nearest known user-message container.
+//   3. Wrap that whole container in <details>.
+// Falls back to the classic PRE/code path when the sentinel
+// happens to live inside a real code block (assistant echo).
+//
+// v0.14.29 (v4.51.0) legacy: also handled the sentinel arriving
+// inside a real code block. v0.14.31 (v4.51.2) widened the
+// selector list, but that only helped assistant blocks that
+// contained the sentinel -- not the user-message case above.
+// Both branches now share the same <details> wrap helper.
 function collapseToolResultsInHistory() {
   if (_arenaCurrentModes()?.collapseToolResults === false) return;
-  // v0.14.31 (v4.51.2): visible-text sentinel (survives every
-  // syntax highlighter including shiki/prism/monaco). Also
-  // supports the legacy HTML-comment sentinel for messages
-  // already in the chat from v4.51.0/1.
+  // Visible-text sentinel (survives every syntax highlighter and
+  // every plain-text renderer). Legacy HTML-comment sentinel is
+  // still honoured for messages already in the chat from
+  // v4.51.0/1 (Ivan's outerHTML snapshots from v4.51.3 still
+  // show `<!-- arena:tool-result -->` in Gemini / Kimi / Qwen).
   const SENTINEL = 'ARENA_RESULT_V1';
   const LEGACY_SENTINEL = '<!-- arena:tool-result -->';
-  // Widened selector: Gemini uses <code-block> custom element,
-  // Kimi uses `.language-jsonl`, Qwen uses `.qwen-markdown-code`,
-  // Monaco viewport for Qwen live-render.
-  const BLOCKS = document.querySelectorAll(
-    'pre, code, code-block, [class*="code-block"], [class*="markdown-fenced-code"], '
-    + '[class*="shiki"], [class*="hljs"], [class*="language-"], '
-    + '[class*="qwen-markdown-code"], [class*="segment-code"], '
-    + '[class*="formatted-code-block"]'
-  );
-  BLOCKS.forEach((block) => {
-    if (!block.isConnected) return;
-    if (block.closest?.('[data-arena-tool-collapsed="1"]')) return;
-    const text = block.textContent || '';
-    if (!text.includes(SENTINEL) && !text.includes(LEGACY_SENTINEL)) return;
-    const lineCount = (text.match(/\n/g) || []).length + 1;
-    if (lineCount < 4) return;
-    // Composer-preview guard (unchanged from v4.51.0).
-    const next = block.nextElementSibling;
-    if (next?.dataset?.arenaToolControls === '1'
-        || next?.dataset?.arenaShadowHost === '1') return;
-    // v0.14.31: prefer the OUTER code-fence container as the
-    // wrapping target so we don't leave the fence's chrome (copy
-    // button, language label) outside the <details>. Walk up
-    // until we hit something that looks like the fence root.
-    let target = block;
-    const fenceRoot = block.closest?.(
-      'code-block, [class*="formatted-code-block"], [class*="code-block"], '
-      + '[class*="markdown-fenced-code"], [class*="segment-code"]'
-    );
-    if (fenceRoot && fenceRoot !== block && fenceRoot.contains?.(block)) {
-      target = fenceRoot;
+
+  // Known user-message container selectors, per adapter.
+  // Order matters: first match wins. We intentionally do NOT
+  // fall back to generic `[class*="user"]` to avoid wrapping
+  // sidebar avatars or user-profile buttons.
+  const USER_MESSAGE_SELECTORS = [
+    // Gemini web (angular)
+    'span.user-query-bubble-with-background',
+    'div[data-test-id="user-query-container"]',
+    // Qwen (chat.qwen.ai)
+    'div.chat-user-message',
+    'p.user-message-content',
+    // Kimi (www.kimi.com)
+    'div.user-content',
+    'div.segment-user',
+    // Mistral (chat.mistral.ai)
+    'div[data-message-part-type="user"]',
+    'div[data-testid="user-message"]',
+    // DeepSeek (chat.deepseek.com)
+    'div.fbb737a4',                      // observed hashed user-bubble class
+    'div[class*="rounded-xl"][class*="p-3"][class*="bg-"]',
+    // z.ai
+    'div.chat-user',
+    'div[class*="user-message"]',
+    // ChatGPT / OpenRouter / T3 / others (assistant echo case)
+    'div[data-message-author-role="user"]',
+    // Generic: any element the site marks with role=user
+    '[data-author-role="user"]',
+    '[data-role="user"]',
+  ];
+  const USER_MESSAGE_SELECTOR = USER_MESSAGE_SELECTORS.join(', ');
+
+  // Assistant-side / code-block containers we might still want
+  // to prefer when the sentinel lands in a real fence.
+  const FENCE_ROOT_SELECTOR = 'code-block, [class*="formatted-code-block"], '
+    + '[class*="code-block"], [class*="markdown-fenced-code"], '
+    + '[class*="segment-code"]';
+
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const t = node.nodeValue;
+      if (!t) return NodeFilter.FILTER_REJECT;
+      if (t.indexOf(SENTINEL) === -1 && t.indexOf(LEGACY_SENTINEL) === -1) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  const seenTargets = new WeakSet();
+  const pending = [];
+  let n;
+  // Materialise first -- mutating during walk invalidates the walker.
+  while ((n = walker.nextNode())) pending.push(n);
+
+  pending.forEach((textNode) => {
+    let el = textNode.parentElement;
+    if (!el || !el.isConnected) return;
+    // Already wrapped?
+    if (el.closest?.('[data-arena-tool-collapsed="1"]')) return;
+
+    // Prefer a user-message container. If none is found, look
+    // for the enclosing code fence. If neither is found, fall
+    // back to walking up to the block-level ancestor of the
+    // text node (skip <span>/<p>/<br>/<code>).
+    let target = null;
+
+    const userMsg = el.closest?.(USER_MESSAGE_SELECTOR);
+    if (userMsg) {
+      target = userMsg;
+    } else {
+      const fenceRoot = el.closest?.(FENCE_ROOT_SELECTOR);
+      if (fenceRoot) {
+        target = fenceRoot;
+      } else {
+        // Walk up to the nearest block-level element that has
+        // more than one line of visible text so we don't wrap
+        // an inline <span> that happens to hold the sentinel.
+        let cur = el;
+        while (cur && cur !== document.body) {
+          const cs = cur.tagName;
+          if (cs === 'PRE' || cs === 'DIV' || cs === 'SECTION' || cs === 'ARTICLE') {
+            const txt = cur.textContent || '';
+            if ((txt.match(/\n/g) || []).length >= 3
+                || txt.length >= 200) {
+              target = cur;
+              break;
+            }
+          }
+          cur = cur.parentElement;
+        }
+        if (!target) target = el;
+      }
     }
-    // If ANOTHER block inside the same fence already carries the
-    // sentinel, only wrap ONCE (per fence, not per inner block).
-    if (target !== block && target.querySelector?.('[data-arena-tool-collapsed="1"]')) return;
+
+    if (!target || !target.isConnected || seenTargets.has(target)) return;
+
+    // De-dup: if target already contains a collapsed <details>,
+    // skip. Also skip if a live composer-preview toolbar sits
+    // right next to it.
+    if (target.querySelector?.('[data-arena-tool-collapsed="1"]')) return;
+    const nxt = target.nextElementSibling;
+    if (nxt?.dataset?.arenaToolControls === '1'
+        || nxt?.dataset?.arenaShadowHost === '1') return;
+
+    const text = target.textContent || '';
+    const lineCount = (text.match(/\n/g) || []).length + 1;
+    // Even without newlines (Qwen collapses onto one visual line
+    // but the source still had \n before Prosemirror ate them),
+    // fall through if the block is long enough to be worth
+    // collapsing.
+    if (lineCount < 4 && text.length < 200) return;
+
     const callHeaders = (text.match(/# call \d+ ·/g) || []).length;
     const tools = new Set();
     for (const m of text.matchAll(/# call \d+ · ([\w.\-_]+) ·/g)) tools.add(m[1]);
     const summaryText = callHeaders > 0
       ? `▸ Arena tool result (${callHeaders} call${callHeaders !== 1 ? 's' : ''}: ${Array.from(tools).slice(0, 4).join(', ')}${tools.size > 4 ? '…' : ''}, ${lineCount} lines) — click to expand`
       : `▸ Arena tool result (${lineCount} lines) — click to expand`;
+
     try {
       const details = document.createElement('details');
       details.dataset.arenaToolCollapsed = '1';
+      details.dataset.arenaCollapseKind = userMsg ? 'user-message' : 'code-fence';
       details.style.margin = '4px 0';
       details.style.padding = '4px 8px';
       details.style.background = 'rgba(120,120,120,0.08)';
@@ -1159,12 +1256,14 @@ function collapseToolResultsInHistory() {
       if (!parent) return;
       parent.insertBefore(details, target);
       details.appendChild(target);
+      seenTargets.add(target);
       _arenaDiagPushEvent({
         kind: 'tool_result_collapsed',
         tools: Array.from(tools),
         lines: lineCount,
         calls: callHeaders,
         target_tag: target.tagName || '',
+        target_kind: userMsg ? 'user-message' : 'code-fence',
       });
     } catch (_e) { /* DOM churn */ }
   });

@@ -80,9 +80,11 @@ def test_collapse_selector_widened_for_gemini_kimi_qwen():
 
 def test_collapse_walks_to_fence_root():
     content = _ext_read("content.js")
-    # Target is now fenceRoot (outer container) when found.
-    assert "fenceRoot" in content
-    assert "let target = block" in content
+    # v4.51.4: rewritten to TreeWalker over TEXT_NODE, walks up
+    # to nearest known user-message container OR code-fence root.
+    # Accept either the old fenceRoot-based OR the new
+    # TreeWalker-based implementation.
+    assert ("fenceRoot" in content and "let target = block" in content) or ("document.createTreeWalker" in content and "NodeFilter.SHOW_TEXT" in content)
 
 
 # ------------------------------------------------------------------
@@ -186,7 +188,7 @@ def test_no_category_still_returns_empty_catalog():
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_31():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.32'" in _ext_read("content.js")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.33'" in _ext_read("content.js")
     manifest = json.loads(_ext_read("manifest.json"))
-    assert manifest["version"] == "0.14.32"
-    assert "return '0.14.32';" in _ext_read("insert_strategies.js")
+    assert manifest["version"] == "0.14.33"
+    assert "return '0.14.33';" in _ext_read("insert_strategies.js")

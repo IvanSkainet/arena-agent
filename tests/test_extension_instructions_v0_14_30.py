@@ -206,8 +206,8 @@ def test_runtime_threads_category_to_instructions():
 # ------------------------------------------------------------------
 
 def test_versions_pinned_to_0_14_30():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.32'" in _ext_read("content.js")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.33'" in _ext_read("content.js")
     manifest = json.loads(_ext_read("manifest.json"))
-    assert manifest["version"] == "0.14.32"
-    assert "return '0.14.32';" in _ext_read("insert_strategies.js")
-    assert "Current extension version: `0.14.32`" in _ext_read("README.md")
+    assert manifest["version"] == "0.14.33"
+    assert "return '0.14.33';" in _ext_read("insert_strategies.js")
+    assert "Current extension version: `0.14.33`" in _ext_read("README.md")

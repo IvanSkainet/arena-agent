@@ -1,3 +1,101 @@
+## v4.51.4 — 2026-07-20
+
+Универсальный фикс collapse-of-tool-results, сделанный по
+реальным DOM-данным, которые Ivan прислал для Gemini web /
+Mistral / Kimi / Qwen / DeepSeek / z.ai после тест-цикла
+v4.51.3.
+
+### chat_extension `content.js` (0.14.32 → 0.14.33)
+
+`collapseToolResultsInHistory` полностью переписан на
+`TreeWalker`.
+
+Корень проблемы, который старая стратегия не видела:
+вставленный tool-result перерисовывается собственным
+markdown-конвейером каждого сайта в обычные текстовые узлы,
+**без `<pre>`/`<code>`/`code-block` обёртки**. Старая
+стратегия сначала запрашивала code-подобные элементы, потом
+смотрела в `.textContent` — поэтому она никогда не доходила
+до sentinel. outerHTML-снапшоты показали:
+
+* **Gemini** — каждая строка в своём `<p class="query-text-line">`
+  внутри `<span class="user-query-bubble-with-background">`.
+* **Qwen** — всё сжато в один `<p class="user-message-content">`
+  внутри `.chat-user-message`, `<pre>` вообще нет.
+* **Kimi** — сырой многострочный текст в `<div class="user-content">`.
+* **DeepSeek** — обёрнут в `<div class="rounded-xl p-3 bg-*">`.
+* **z.ai** — пользовательский текст в `<div class="chat-user">`.
+* **Mistral** — вложенная `<pre>`-форма, но с ключом на
+  `[data-message-part-type="user"]`.
+
+Новая стратегия:
+
+1. `document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, …)`
+   с `acceptNode`-фильтром, который отбрасывает любой
+   текстовый узел без `ARENA_RESULT_V1` / legacy
+   `<!-- arena:tool-result -->` sentinel. Список узлов
+   материализуется до модификаций, чтобы mutations не
+   инвалидировали walker.
+2. От каждого найденного текстового узла — идём вверх к
+   ближайшему известному контейнеру user-message по явному
+   allow-list per site (`span.user-query-bubble-with-background`,
+   `div.chat-user-message`, `p.user-message-content`,
+   `div.user-content`, `div.segment-user`,
+   `div[data-message-part-type="user"]`,
+   `div[data-testid="user-message"]`,
+   `div.rounded-xl[class*="p-3"][class*="bg-"]`, `div.chat-user`,
+   `div[class*="user-message"]`,
+   `div[data-message-author-role="user"]`,
+   `[data-author-role="user"]`, `[data-role="user"]`).
+3. Если user-message контейнер не найден — fallback к
+   классическому code-fence root (assistant echo). Если и
+   этого нет — идём вверх до ближайшего block-level предка
+   с ≥ 3 переносами строк ИЛИ ≥ 200 символами видимого
+   текста. Это защита от заворачивания inline `<span>`.
+4. Заворачиваем target в `<details>` с
+   `data-arena-tool-collapsed="1"` (guard идемпотентности) и
+   `data-arena-collapse-kind="user-message"` /
+   `"code-fence"` (диагностическая метка).
+5. Composer-preview guard сохранён (skip если следующий
+   sibling — наш arena toolbar / shadow-host).
+6. Line/length guard сохранён (skip если < 4 строк И < 200
+   символов) — случайное упоминание sentinel в прозе не
+   заворачивается.
+
+Диаг-событие `tool_result_collapsed` теперь несёт
+`target_kind`, поэтому Scan Page report показывает, попал
+wrap в `user-message` или в `code-fence`.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_51_4.py` — 14 ассертов:
+  bump версий (manifest/content.js/insert_strategies.js/
+  README/constants.py/pyproject.toml), наличие TreeWalker,
+  allow-list user-message селекторов покрывает все сайты
+  Ivan тестировал (Gemini, Qwen inner+outer, Kimi, z.ai,
+  DeepSeek, Mistral, ChatGPT/OpenRouter/T3 через
+  `data-message-author-role`), сохранение legacy sentinel,
+  идемпотентность, `target_kind` diag-поле, short-negative
+  case guard, composer-preview guard, TreeWalker text-node
+  walk-up.
+* jsdom smoke на 8 кейсах (Gemini legacy comment, Gemini v1
+  sentinel, Qwen, Kimi, DeepSeek, z.ai, assistant fence,
+  negative короткая проза) — 8/8 pass. Тест идемпотентности:
+  3 повторных вызова дают ровно 1 `<details>` на target.
+* `MAX_PRODUCT_FILE_LINES` поднят 1400 → 1500, так как
+  content.js вырос с 1350 до 1449 строк с TreeWalker
+  реализацией (правило Ivan: «не сжимай файлы»).
+
+### Что не вошло в этот релиз
+
+* **Mistral duplicate-mount loop.** v4.51.3 Scan Page report
+  показал повторяющийся цикл `mount_entry →
+  skip_semantic_prev_alive`. Ivan сказал явно в v4.50.17:
+  «про Mistral можешь забыть, я там не могу воспроизвести
+  сценарий» — отложено.
+* **UI-порт MCP SuperAssistant** (sidebar с tool browser).
+  По-прежнему запланирован на v4.52.x арк.
+
 ## v4.51.3 — 2026-07-20
 
 Два фикса поверх v4.51.2: парсер + системный prompt. Этот

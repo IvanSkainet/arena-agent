@@ -1,42 +1,54 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.32` (v4.51.3 bridge release —
-two fixes on top of v4.51.2):
+Current extension version: `0.14.33` (v4.51.4 bridge release —
+universal collapse fix based on real DOM data from Gemini web /
+Mistral / Kimi / Qwen / DeepSeek / z.ai):
 
-1) **Parser tolerates bare envelopes.** Some models emit the
-Arena tool call as a bare `{"bridge":"arena","version":1,
-"calls":[…]}` JSON object without any surrounding code fence.
-v4.51.2 required a `arena-tool` / `json` / `jsonl` fence to
-detect the call at all; v4.51.3 adds two fallbacks:
-   * An unlabeled ``` fence is now scanned as `arena-tool`
-     first and JSONL second.
-   * If NO fenced block is captured anywhere in the message,
-     the parser scans the whole message for bare balanced-brace
-     JSON objects that look like the Arena envelope and picks
-     the first valid one. Fenced blocks are still preferred.
-   Also normalises a `{"tool":"…","arguments":{…}}` single-call
-   variant into the full envelope so both call shapes work.
+1. **`collapseToolResultsInHistory` fully rewritten via
+`TreeWalker`.** Ivan's v4.51.3 test cycle produced
+`outerHTML` snapshots for every affected site and they all
+showed the same pattern: the pasted tool-result is rendered
+by the site's own markdown pipeline into ordinary text nodes
+(no `<pre>`/`<code>`/`code-block`). Old strategy (query for
+code-like elements, look inside `.textContent`) could not
+reach any of them.
 
-2) **SYSTEM prompt made STRICT.** The old preamble said "wrap
-in fenced code block ```arena-tool ...```" but did not
-prohibit bare JSON, and did not enumerate common mistakes (XML
-`<function_calls>`, ```json fence, multiple blocks per
-response). v4.51.3 restructures the preamble with:
-   * "How the Arena bridge works" (4-step call-and-wait loop)
-   * "STRICT — Function Call Format" (fence tag MUST be
-     `arena-tool`, worked example inline)
-   * "DO NOT — common mistakes to avoid" (bare JSON, ```json,
-     XML tags, multiple blocks) — every failure Ivan reported
-     in the v4.51.2 test cycle is called out by name here.
-   * "Fallback — MCP-compatible JSONL format" clearly labeled
-     as fallback, not preferred.
-   * "Response format" with explicit STOP.
+   New strategy:
+   * `TreeWalker` over `NodeFilter.SHOW_TEXT` finds every
+     text node containing `ARENA_RESULT_V1` or the legacy
+     `<!-- arena:tool-result -->` sentinel.
+   * From that text node, walk up to the nearest known
+     user-message container (per-site allow-list — Gemini
+     `span.user-query-bubble-with-background`, Qwen
+     `div.chat-user-message`, Kimi `div.user-content`,
+     DeepSeek `div.rounded-xl.p-3.bg-*`, z.ai `div.chat-user`,
+     Mistral `[data-message-part-type="user"]`, plus
+     ChatGPT/OpenRouter/T3 `[data-message-author-role="user"]`).
+   * If no user-message container, fall back to the classic
+     code-fence root (assistant echo case).
+   * Wrap the found container in a `<details>` with an
+     `arena-tool-collapsed="1"` guard for idempotency.
 
-Collapse-of-tool-results support on Gemini web / Mistral /
-Kimi / Qwen / DeepSeek remains **partially working** — v4.51.3
-does NOT touch collapse code; a v4.51.4 pass will follow once
-Ivan sends the Scan Page JSON + outerHTML snapshots for those
-sites.
+2. **Legacy path preserved.** Messages already in the chat
+that contain the pre-v4.51.2 HTML-comment sentinel still
+collapse.
+
+3. **Idempotent.** Repeated calls produce exactly one
+`<details>` per tool result (verified in jsdom).
+
+4. **Diagnostics.** Every collapse pushes
+`{kind: "tool_result_collapsed", target_tag, target_kind}`
+into the events ring so Ivan's Scan Page report shows
+whether the wrap hit `user-message` or `code-fence`.
+
+Not addressed in this release:
+
+* **Mistral duplicate-mount loop.** The v4.51.3 Scan Page
+report showed a repeating `mount_entry → skip_semantic_prev_alive`
+cycle. Ivan said explicitly at v4.50.17: "про Mistral можешь
+забыть, я там не могу воспроизвести сценарий" — deferred.
+* **MCP SuperAssistant UI port** (sidebar with tool browser).
+Still planned as a v4.52.x arc.
 
 Extension file architecture (unchanged since v0.14.29):
 

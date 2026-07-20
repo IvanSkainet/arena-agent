@@ -1,4 +1,4 @@
-"""v0.14.32 / v4.51.3 tests: parser fallbacks + SYSTEM prompt strictness."""
+"""v0.14.33 / v4.51.4 tests: parser fallbacks + SYSTEM prompt strictness."""
 from __future__ import annotations
 
 import json
@@ -24,40 +24,40 @@ def _read(path: Path) -> str:
 
 def test_manifest_version_bumped_to_0_14_32():
     manifest = json.loads(_read(MANIFEST_JSON))
-    assert manifest["version"] == "0.14.32"
+    assert manifest["version"] == "0.14.33"
 
 
 def test_content_script_version_bumped():
     src = _read(CONTENT_JS)
-    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.32';" in src
+    assert "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.33';" in src
 
 
 def test_insert_strategies_version_bumped():
     src = _read(INSERT_STRATEGIES_JS)
-    assert "return '0.14.32';" in src
+    assert "return '0.14.33';" in src
 
 
 def test_readme_mentions_v4_51_3_and_v0_14_32():
     src = _read(README_MD)
-    assert "0.14.32" in src
-    assert "v4.51.3" in src
+    assert "0.14.33" in src
+    assert "v4.51.4" in src
 
 
 def test_constants_version_bumped():
     src = _read(CONSTANTS_PY)
-    assert 'VERSION = "4.51.3"' in src
+    assert 'VERSION = "4.51.4"' in src
 
 
 def test_parser_has_unlabeled_fence_pattern():
-    """v4.51.3 accepts a plain ``` fence when the site strips
+    """v4.51.4 accepts a plain ``` fence when the site strips
     the `arena-tool` language tag."""
     src = _read(PARSER_JS)
     assert "kind: 'fence'" in src
-    assert "v4.51.3" in src or "v0.14.32" in src
+    assert "v4.51.4" in src or "v4.51.3" in src or "v0.14.33" in src or "v0.14.32" in src
 
 
 def test_parser_has_bare_envelope_fallback():
-    """v4.51.3 scans the whole message for a bare
+    """v4.51.4 scans the whole message for a bare
     `{"bridge":"arena", ...}` envelope when no fenced block was
     found."""
     src = _read(PARSER_JS)
@@ -75,7 +75,7 @@ def test_parser_normalizes_single_call_shape():
 
 
 def test_parser_treats_new_system_preamble_as_instructions():
-    """When the model echoes the v4.51.3 SYSTEM preamble in prose,
+    """When the model echoes the v4.51.4 SYSTEM preamble in prose,
     we must NOT parse it as a real call."""
     src = _read(PARSER_JS)
     assert "You are connected to a local Arena Chat Bridge that can execute tools" in src
@@ -125,4 +125,4 @@ def test_system_prompt_structure_sections():
 
 def test_pyproject_version_bumped():
     src = _read(REPO_ROOT / "pyproject.toml")
-    assert 'version = "4.51.3"' in src
+    assert 'version = "4.51.4"' in src
