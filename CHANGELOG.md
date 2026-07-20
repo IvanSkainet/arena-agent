@@ -1,3 +1,113 @@
+## v4.52.2 — 2026-07-20
+
+Collapse-tool-results hardening + UI polish pass. Driven by
+Ivan's v4.52.1 report: "collapse кривой, полоска, фиолетово-
+розовый, дублируется на Gemini". Parser and adapters remain
+byte-identical to v4.51.4.
+
+### chat_extension `settings.js` (0.14.35 → 0.14.36)
+
+`collapseToolResults` default flipped **TRUE → FALSE**. The old
+"undefined → TRUE" upgrade continuity is removed (`!!input.…`
+now), so users who had it ON before will notice tool-results
+stop collapsing after upgrade. That is the correct outcome
+given the per-site rendering regressions.
+
+### chat_extension `content.js`
+
+* Runtime gate changed from `collapseToolResults === false`
+  (skip) to `collapseToolResults !== true` (skip). Any
+  undefined / missing config now correctly means OFF.
+* New `ARENA_COLLAPSE_SKIP_HOSTS` set. `gemini.google.com` is
+  in the initial list because Gemini ships its own
+  `data-test-id="luminous-collapse-button"` on user-query
+  bubbles; our own `<details>` was producing the visible
+  double-collapse Ivan reported ("дублируется как будто
+  multi-model в две колонки").
+* Wrapper styling minimised. Previously we set
+  `background: rgba(120,120,120,0.08)`, `padding: 4px 8px`,
+  `border-radius: 4px`, `font-size: 13px` on `<details>` and
+  a bold `font-weight: 500` on `<summary>`. This was fine on
+  ChatGPT / T3 / OpenRouter but caught per-site Tailwind
+  rules on Qwen (pink-purple highlight), Kimi (vertical rule
+  from `.user-content` border), and DeepSeek. Now:
+  * `<details>` uses `all: revert; display: block; margin: 4px 0;`
+    so it inherits neutral browser defaults instead of
+    hostile per-site CSS.
+  * `<summary>` uses `all: revert; cursor: pointer;
+    font-style: italic; opacity: 0.72; font-size: 0.9em;
+    list-style: none;` — a muted italic label, no colour of
+    its own.
+
+### chat_extension `sidepanel.html`
+
+* `collapseToolResults` toggle moved from the "UI polish"
+  section to **Advanced / experimental**. Hint text explains
+  why it defaults OFF and lists the affected sites (Qwen,
+  Kimi, DeepSeek, Gemini) so operators know what to check.
+
+### chat_extension `popup.css` — UI polish pass
+
+* Slightly darker background (`#0f172a`) with more contrast
+  in section cards (`#1e293b`).
+* Section headers (`<h2>`) restyled as small uppercase-
+  tracking labels for cleaner hierarchy in dense tabs.
+* Tabs redesigned: pill-shaped inside a rounded container
+  with subtle 3-px inner padding, instead of the flat
+  tab-strip that had blue border-bottom bleed into the tab
+  body.
+* Header shows a small gradient dot (`#3b82f6 → #8b5cf6`)
+  next to the title so the panel identity is clear at a
+  glance.
+* Buttons no longer turn blue on every hover. Neutral hover
+  goes to a lighter slate (`#334155`), border lifts to
+  `#64748b`. Blue accent is reserved for the new
+  `.arena-btn-primary` utility class (unused today, keeps
+  the door open for a primary CTA per tab).
+* Focus rings on inputs / selects are the standard blue
+  outline (`box-shadow: 0 0 0 3px rgba(59,130,246,.18)`) for
+  keyboard-navigation clarity.
+* `:active` state gives buttons a 1-px press.
+
+### Tests
+
+* Added `tests/test_extension_v4_52_2.py` — 16 assertions:
+  version bumps, default flipped to FALSE, no upgrade
+  continuity, runtime `!== true` gate, `ARENA_COLLAPSE_SKIP_HOSTS`
+  with gemini.google.com, minimal `all: revert` styling with
+  no explicit background/border-radius/padding, collapse
+  toggle now under Advanced section (positional test),
+  Advanced section hint text mentions Qwen/Kimi/Gemini,
+  header gradient dot present, pill-shaped tabs container,
+  neutral button hover (not blue), primary-button utility
+  class present, focus ring on inputs.
+* jsdom smoke `jstest/smoke_v522.js` — 16 assertions
+  including live DOM behaviour: gemini.google.com skips
+  (0 details), chat.qwen.ai collapses when explicit ON
+  (1 details), undefined modes.collapseToolResults produces
+  0 details.
+* Legacy `tests/test_chat_extension_v0_14_29.py::test_collapse_gated_behind_toggle`
+  and `::test_settings_has_collapse_toggle_default_true`
+  loosened to accept the new gate form and either default.
+* Full suite: **2814 passed** (2798 baseline + 16 for
+  v4.52.2). Zero regressions.
+
+### Not addressed in this release
+
+* **Full popup → sidepanel migration.** Ivan asked: "Может
+  вообще всё в panel теперь открывать без этого pop up или
+  как?" Yes — this is a good idea, but it is a breaking
+  change (existing users have muscle memory for the popup
+  and we would need to plumb every popup control into the
+  sidepanel first). Filing as **v4.53.0** target once the
+  collapse dust settles.
+* **Site-specific collapse per site (Qwen, Kimi, DeepSeek,
+  z.ai)** — deferred until we can capture the exact CSS
+  cascade with computed-style diffs. Ivan is right that we
+  need per-site adapters here, not one global wrapper.
+* **Mistral duplicate-mount loop** — still deferred per
+  v4.50.17.
+
 ## v4.52.1 — 2026-07-20
 
 Fifth Settings tab in the side panel + a Scan Now viewer in the

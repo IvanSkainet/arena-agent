@@ -19,11 +19,15 @@ const ARENA_MODE_DEFAULTS = {
   // Operator can flip this ON via Advanced / experimental when
   // they want to try the extension on an unlisted chat site.
   enableGenericAdapter: false,
-  // v0.14.29 (v4.51.0): fold inserted tool-result blocks in chat
-  // history into a `<details>` summary so the scrollback stays
-  // readable. Default TRUE. Turn OFF via Advanced/experimental
-  // if the site's own CSS clashes with `<details>` styling.
-  collapseToolResults: true,
+  // v0.14.36 (v4.52.2): default flipped BACK to FALSE. Ivan's
+  // v4.52.1 test cycle showed: the collapsed <details> renders
+  // inconsistently across sites (Gemini duplicates with its own
+  // luminous-collapse-button, Qwen bleeds the site's pink-purple
+  // Tailwind highlight, Kimi shows a vertical rule from the
+  // user-content block styling). Turn ON explicitly via
+  // Settings > Advanced only after Ivan confirms per-site
+  // rendering is clean.
+  collapseToolResults: false,
 };
 
 function arenaNormalizeModes(data) {
@@ -39,9 +43,13 @@ function arenaNormalizeModes(data) {
     dedupSemantic: input.dedupSemantic === undefined ? true : !!input.dedupSemantic,
     // v0.14.28 (v4.50.18): default FALSE. Explicit true required.
     enableGenericAdapter: !!input.enableGenericAdapter,
-    // v0.14.29 (v4.51.0): default TRUE, undefined -> TRUE for
-    // upgrade continuity.
-    collapseToolResults: input.collapseToolResults === undefined ? true : !!input.collapseToolResults,
+    // v0.14.36 (v4.52.2): default FALSE. Explicit TRUE required.
+    // We deliberately do NOT keep the old "undefined -> TRUE"
+    // upgrade continuity here -- users who had it ON before will
+    // notice tool-results stop collapsing after upgrade, but that
+    // is the correct outcome given the site-specific rendering
+    // regressions Ivan reported.
+    collapseToolResults: !!input.collapseToolResults,
   };
 }
 

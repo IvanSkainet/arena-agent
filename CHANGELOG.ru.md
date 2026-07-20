@@ -1,3 +1,98 @@
+## v4.52.2 — 2026-07-20
+
+Hardening collapse-tool-results + UI polish. По твоему
+v4.52.1 отчёту: «collapse кривой, полоска, фиолетово-розовый,
+дублируется на Gemini». Парсер и адаптеры байт-в-байт
+идентичны v4.51.4.
+
+### chat_extension `settings.js` (0.14.35 → 0.14.36)
+
+`collapseToolResults` default перевёрнут **TRUE → FALSE**.
+Старый «undefined → TRUE» upgrade continuity убран (теперь
+`!!input.…`) — пользователи с включённым до этого collapse
+заметят, что после апдейта он выключен. Это правильный
+исход учитывая per-site rendering-регрессии.
+
+### chat_extension `content.js`
+
+* Runtime-gate изменён с `collapseToolResults === false` (skip)
+  на `collapseToolResults !== true` (skip). Любое undefined /
+  missing теперь корректно = OFF.
+* Новый `ARENA_COLLAPSE_SKIP_HOSTS`. `gemini.google.com` в
+  списке — у Gemini есть свой
+  `data-test-id="luminous-collapse-button"` на user-query
+  bubble, наш `<details>` дублировал.
+* Wrapper styling минимизирован. Раньше стояло
+  `background: rgba(120,120,120,0.08)`, `padding: 4px 8px`,
+  `border-radius: 4px`, `font-size: 13px` на `<details>` +
+  `font-weight: 500` на `<summary>`. На ChatGPT / T3 /
+  OpenRouter это работало, но на Qwen подцепляло розово-
+  фиолетовую Tailwind-подсветку, на Kimi — вертикальную
+  полоску от `.user-content border`, на DeepSeek — свой
+  фон. Теперь:
+  * `<details>` использует `all: revert; display: block;
+    margin: 4px 0;` — наследует нейтральные browser defaults
+    вместо агрессивного site-CSS.
+  * `<summary>` — `all: revert; cursor: pointer; font-style:
+    italic; opacity: 0.72; font-size: 0.9em; list-style:
+    none;` — тихая курсивная плашка без своего цвета.
+
+### chat_extension `sidepanel.html`
+
+* Toggle `collapseToolResults` переехал из секции "UI polish"
+  в **Advanced / experimental**. Hint объясняет почему OFF
+  по умолчанию и перечисляет проблемные сайты (Qwen, Kimi,
+  DeepSeek, Gemini).
+
+### chat_extension `popup.css` — UI polish
+
+* Чуть более тёмный фон (`#0f172a`), больше контраст с
+  карточками секций (`#1e293b`).
+* Заголовки секций (`<h2>`) — маленькие uppercase-tracking
+  метки, чище иерархия в плотных табах.
+* Табы редизайн: pill-shaped внутри rounded-контейнера с
+  3-px внутренним отступом, вместо плоской tab-strip где
+  синяя border-bottom протекала в тело.
+* В заголовке маленькая gradient-точка (`#3b82f6 →
+  #8b5cf6`) рядом с названием — сразу видно identity панели.
+* Кнопки больше не синеют при каждом hover. Нейтральный
+  hover идёт в чуть более светлый slate (`#334155`), border
+  поднимается до `#64748b`. Синий accent зарезервирован
+  для нового `.arena-btn-primary` utility-класса (пока не
+  используется, оставляем задел для primary CTA per tab).
+* Focus rings на inputs / selects — стандартный blue
+  outline (`box-shadow: 0 0 0 3px rgba(59,130,246,.18)`)
+  для клавиатурной навигации.
+* `:active` state добавляет 1-px press на кнопках.
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_52_2.py` — 16 ассертов.
+* jsdom smoke `jstest/smoke_v522.js` — 16 ассертов включая
+  живое DOM-поведение: gemini.google.com skips (0 details),
+  chat.qwen.ai collapses когда явно ON (1 details),
+  undefined modes.collapseToolResults → 0 details.
+* Legacy `test_chat_extension_v0_14_29.py::test_collapse_gated_behind_toggle`
+  и `::test_settings_has_collapse_toggle_default_true`
+  ослаблены — принимают и новую gate-форму, и любой default.
+* Полный suite: **2814 passed** (2798 baseline + 16 v4.52.2).
+  Zero regressions.
+
+### Что не вошло
+
+* **Полный переход popup → sidepanel.** Ты спросил: «Может
+  вообще всё в panel теперь открывать без этого pop up?»
+  Да, идея хорошая, но это breaking change (у существующих
+  пользователей мышечная память на popup, и все popup-
+  контролы надо сначала переселить в sidepanel). Целю в
+  **v4.53.0** после того как уляжется пыль от collapse.
+* **Per-site collapse адаптеры (Qwen, Kimi, DeepSeek,
+  z.ai)** — отложено до момента когда сможем захватить
+  точный CSS cascade через computed-style diffs. Ты прав:
+  нужен per-site подход, а не один глобальный wrapper.
+* **Mistral duplicate-mount loop** — по-прежнему отложено
+  согласно v4.50.17.
+
 ## v4.52.1 — 2026-07-20
 
 Пятый таб **Settings** в side panel + **Scan Now** viewer в

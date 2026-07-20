@@ -1,48 +1,60 @@
 # Arena Chat Bridge Extension
 
-Current extension version: `0.14.35` (v4.52.1 bridge release —
-fifth Settings tab and a Scan Now viewer for live DOM
-diagnostics; UI-only, no adapter/parser changes on top of
-v4.52.0).
+Current extension version: `0.14.36` (v4.52.2 bridge release —
+collapse-tool-results is now **default OFF** and moved to
+Advanced/experimental after Ivan's v4.52.1 test cycle showed
+per-site rendering regressions; UI polish pass on tabs and
+buttons).
 
-The Chrome side panel now has **five tabs**:
+Key changes in this release:
 
-1. **Status** — bridge health check, policies dump,
-   connectivity badge in the header. **Scan Now** button runs
-   the same Scan Page report the popup exposes and pretty-prints
-   the summary (adapter, host, candidates, blocks, mounted
-   controls, composer state, tools) plus the last 20
-   diagnostic events (mounted, skip_semantic_prev_alive,
-   tool_result_collapsed, etc.). The raw JSON stays in a
-   collapsible `<pre>` for copy/paste into a bug report.
+1. **`collapseToolResults` default: FALSE.** Prior versions
+enabled it by default, but the `<details>` wrapper picked up
+per-site CSS in ways we could not predict (Qwen bled a
+pink-purple Tailwind highlight, Kimi showed a vertical rule
+from `.user-content` styling, Gemini web double-collapsed
+against its own `luminous-collapse-button`). The toggle
+still exists — under **Settings → Advanced / experimental**
+— but is off unless the operator explicitly opts in. The
+old "undefined → TRUE" upgrade continuity is removed so
+users who had it ON before will notice tool-results stop
+collapsing after upgrade. That is the correct outcome
+given the rendering bugs.
 
-2. **Tools** — unchanged from v4.52.0.
+2. **Site-skip list.** When `location.hostname` is in
+`ARENA_COLLAPSE_SKIP_HOSTS` the collapse function no-ops
+even when the toggle is ON. `gemini.google.com` is on the
+list because Gemini ships its own
+`data-test-id="luminous-collapse-button"` on user-query
+bubbles; wrapping again produces the visible double-
+collapse.
 
-3. **Instructions** — unchanged from v4.52.0.
+3. **Minimal styling on the wrapper.** The `<details>` and
+`<summary>` are now created with `all: revert; …` inline
+`cssText` so per-site rules with lower specificity cannot
+override us and we do not inherit weird colours. Summary is
+a muted italic label; the block itself has no background,
+border-radius, or padding. Site themes still colour the
+inner text as they would for any other user message.
 
-4. **History** — unchanged from v4.51.x / v4.52.0.
+4. **UI polish (sidepanel).** Header shows a subtle
+gradient dot next to the title. Tabs are now pill-shaped
+inside a rounded container instead of the old flat
+tab-strip. Buttons no longer turn blue on every hover;
+they lift to a slightly lighter slate. Focus rings on
+inputs/selects are the standard blue outline. Section
+titles are uppercase-tracking labels for better hierarchy
+in dense tabs.
 
-5. **Settings** — brand-new tab consolidating everything that
-   was scattered between the popup and `chrome.storage`:
-   * **Bridge connection** — URL input (synced across
-     Chrome profiles) + token input (device-local, stored in
-     `chrome.storage.local` only, never synced), Reveal
-     button, Save, and Clear-token (danger).
-   * **Automatic modes** — four opt-in toggles:
-     auto-preview, auto-execute safe calls, auto-insert
-     result, auto-submit composer. All default OFF.
-   * **Insert strategy** — dropdown with `auto` (default) and
-     six manual escape hatches for debugging.
-   * **UI polish** — collapseToolResults, dedupSemantic
-     (both default ON).
-   * **Advanced / experimental** — enableGenericAdapter
-     (default OFF; opt in only when trying the extension on
-     an unlisted chat site).
-   * Save Modes / Reset to defaults buttons; live
-     "Active: …" summary showing the current mode set.
+The Chrome side panel still has five tabs:
 
-Tabs remain **lazy-loaded** — Settings only queries
-`arena.getConfig` on first activation.
+1. **Status** — bridge health, policies, Scan Now viewer.
+2. **Tools** — searchable tool catalog.
+3. **Instructions** — Copy Instructions with live preview.
+4. **History** — command lifecycle history.
+5. **Settings** — bridge URL/token, automatic modes,
+   insert strategy, UI polish, Advanced/experimental
+   (collapseToolResults now lives here).
 
 Extension file architecture (unchanged since v0.14.29):
 

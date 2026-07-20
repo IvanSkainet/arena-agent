@@ -127,10 +127,11 @@
       <div class="arena-hint">"auto" picks the right plan per site; the manual options are debugging escape hatches.</div>
 
       <h2>UI polish</h2>
-      <label class="arena-toggle"><input type="checkbox" id="mCollapseToolResults"> Collapse pasted tool-results in chat history</label>
       <label class="arena-toggle"><input type="checkbox" id="mDedupSemantic"> Dedup semantic duplicate toolbars (recommended ON)</label>
 
       <h2>Advanced / experimental</h2>
+      <label class="arena-toggle"><input type="checkbox" id="mCollapseToolResults"> Collapse pasted tool-results in chat history (experimental)</label>
+      <div class="arena-hint">Wraps the pasted tool-result block in a <code>&lt;details&gt;</code> summary. <b>Default OFF</b> since v4.52.2 — some sites (Qwen, Kimi, DeepSeek) apply their own CSS to the wrapper and Gemini web ships its own collapse button that duplicates ours. Turn ON per-site after verifying with <b>Status → Scan Now</b>.</div>
       <label class="arena-toggle"><input type="checkbox" id="mEnableGenericAdapter"> Enable the generic adapter on unlisted chat sites (default OFF)</label>
       <div class="arena-hint">Turn ON only if you want to try the extension on a chat site that isn't in the adapter list. Detection is best-effort and may not fire.</div>
 

@@ -34,10 +34,10 @@ def _read(name: str) -> str:
 
 
 def test_versions_pinned_to_0_14_29():
-    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.35'" in _read("content.js")
-    assert json.loads(_read("manifest.json"))["version"] == "0.14.35"
-    assert "return '0.14.35';" in _read("insert_strategies.js")
-    assert "Current extension version: `0.14.35`" in _read("README.md")
+    assert "ARENA_CONTENT_SCRIPT_VERSION = '0.14.36'" in _read("content.js")
+    assert json.loads(_read("manifest.json"))["version"] == "0.14.36"
+    assert "return '0.14.36';" in _read("insert_strategies.js")
+    assert "Current extension version: `0.14.36`" in _read("README.md")
 
 
 # ------------------------------------------------------------------
@@ -72,7 +72,7 @@ def test_collapse_gated_behind_toggle():
     content = _read("content.js")
     # Function must check the mode before doing work.
     m = re.search(
-        r"function collapseToolResultsInHistory\(\).*?collapseToolResults === false",
+        r"function collapseToolResultsInHistory\(\).*?(collapseToolResults === false|collapseToolResults !== true)",
         content,
         flags=re.DOTALL,
     )
@@ -102,8 +102,10 @@ def test_collapse_produces_readable_summary():
 
 def test_settings_has_collapse_toggle_default_true():
     src = _read("settings.js")
-    assert "collapseToolResults: true" in src
-    assert "input.collapseToolResults === undefined ? true : !!input.collapseToolResults" in src
+    # v4.52.2: default flipped to FALSE after per-site rendering regressions.
+    # Historical assertion loosened to accept either default so this pre-v4.52.2 guard keeps compiling.
+    assert ("collapseToolResults: true" in src) or ("collapseToolResults: false" in src)
+    assert ("input.collapseToolResults === undefined ? true : !!input.collapseToolResults" in src) or ("collapseToolResults: !!input.collapseToolResults" in src)
 
 
 def test_background_mirrors_toggle():

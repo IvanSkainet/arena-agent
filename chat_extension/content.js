@@ -1,4 +1,4 @@
-const ARENA_CONTENT_SCRIPT_VERSION = '0.14.35';
+const ARENA_CONTENT_SCRIPT_VERSION = '0.14.36';
 
 const processed = new Set();
 const mountedControls = new Map();
@@ -1108,8 +1108,27 @@ function scan() {
 // selector list, but that only helped assistant blocks that
 // contained the sentinel -- not the user-message case above.
 // Both branches now share the same <details> wrap helper.
+// v0.14.36 (v4.52.2): sites that ship their OWN collapse UI
+// for long user messages. On these hosts our <details> wrapper
+// duplicates the site's native behaviour and looks broken.
+// Ivan's v4.52.1 report on Gemini web: "дублируется как будто
+// multi-model в две колонки". Gemini's own control is
+// data-test-id="luminous-collapse-button" inside the
+// user-query-bubble. Skip our own collapse when the host matches.
+const ARENA_COLLAPSE_SKIP_HOSTS = new Set([
+  'gemini.google.com',
+]);
+
 function collapseToolResultsInHistory() {
-  if (_arenaCurrentModes()?.collapseToolResults === false) return;
+  // v4.52.2: default now FALSE (see chat_extension/settings.js).
+  // Explicit opt-in required via Settings > Advanced.
+  if (_arenaCurrentModes()?.collapseToolResults !== true) return;
+  // Site-skip: Gemini web ships its own luminous-collapse-button
+  // on user-query bubbles; wrapping again produces the visible
+  // double-collapse Ivan reported.
+  try {
+    if (ARENA_COLLAPSE_SKIP_HOSTS.has(location.hostname)) return;
+  } catch (_e) { /* location may be blocked in some sandboxes */ }
   // Visible-text sentinel (survives every syntax highlighter and
   // every plain-text renderer). Legacy HTML-comment sentinel is
   // still honoured for messages already in the chat from
@@ -1241,16 +1260,18 @@ function collapseToolResultsInHistory() {
       const details = document.createElement('details');
       details.dataset.arenaToolCollapsed = '1';
       details.dataset.arenaCollapseKind = userMsg ? 'user-message' : 'code-fence';
-      details.style.margin = '4px 0';
-      details.style.padding = '4px 8px';
-      details.style.background = 'rgba(120,120,120,0.08)';
-      details.style.borderRadius = '4px';
-      details.style.fontSize = '13px';
+      // v0.14.36 (v4.52.2): minimal styling. Prior versions set
+      // background / border-radius / padding which clashed with
+      // per-site CSS (Qwen picked up a pink-purple Tailwind
+      // highlight, Kimi showed a vertical rule from the
+      // user-content border). We now use `all: revert` on
+      // <details> so it inherits neutral browser defaults, and a
+      // muted italic <summary>. cssText is set once so per-site
+      // rules with lower specificity are guaranteed to lose.
+      details.style.cssText = 'all: revert; display: block; margin: 4px 0;';
       const summary = document.createElement('summary');
       summary.textContent = summaryText;
-      summary.style.cursor = 'pointer';
-      summary.style.color = 'inherit';
-      summary.style.fontWeight = '500';
+      summary.style.cssText = 'all: revert; cursor: pointer; font-style: italic; opacity: 0.72; font-size: 0.9em; list-style: none;';
       details.appendChild(summary);
       const parent = target.parentNode;
       if (!parent) return;
