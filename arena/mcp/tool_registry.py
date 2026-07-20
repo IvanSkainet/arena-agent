@@ -1,6 +1,7 @@
 """MCP tool metadata registry."""
 from __future__ import annotations
 from arena.mcp.tool_registry_mission import MISSION_MCP_TOOLS
+from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
 MCP_TOOLS = [
     {"name": "ping", "description": "Return pong (liveness)",
      "inputSchema": {"type": "object", "properties": {}}},
@@ -92,6 +93,7 @@ MCP_TOOLS = [
     {"name": "desktop.click_text", "description": "Find text on the desktop, rank the best match, and click it in one step.",
      "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "display": {"type": "string"}, "scale": {"type": "number"}, "max_width": {"type": "integer"}, "quality": {"type": "integer", "default": 80}, "min_confidence": {"type": "integer", "default": 40}, "psm": {"type": "integer", "default": 11}, "max_results": {"type": "integer", "default": 20}, "prefer_active_window": {"type": "boolean", "default": True}, "within_active_window": {"type": "boolean", "default": False}, "target_position": {"type": "string", "enum": ["center", "left", "right", "top", "bottom"], "default": "center"}, "offset_x": {"type": "integer", "default": 0}, "offset_y": {"type": "integer", "default": 0}, "button": {"type": "string", "default": "left"}, "double": {"type": "boolean", "default": False}, "activate": {"type": "boolean", "default": True}, "dry_run": {"type": "boolean", "default": False}}, "required": ["query"]}},
     *MISSION_MCP_TOOLS,
+    *SCENARIO_MCP_TOOLS,
     {"name": "plan.create", "description": "Create a structured execution plan for a goal, with suggested tools, steps, risks, and a suggested memory profile.",
      "inputSchema": {"type": "object", "properties": {
          "goal": {"type": "string"},

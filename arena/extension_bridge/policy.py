@@ -11,11 +11,21 @@ _SAFE_TOOLS = {
     "mission.catalog", "mission.family", "mission.history", "mission.lineage",
     "mission.report", "mission.schedules", "mission.schedule_state", "mission.status",
     "mission.templates", "plan.create", "sys.status", "watch.files",
+    # v4.54.0: scenario read-only surfaces.
+    "scenario.get", "scenario.history", "scenario.list", "scenario.preview",
 }
 _MEDIUM_TOOLS = {
     "fs.create", "memory.import", "mem.get", "mem.set",
     "mission.compose", "mission.create", "mission.followup", "mission.propose",
     "mission.schedule_delete", "mission.schedule_save", "react.run", "reflect.run",
+    # v4.54.0: scenario mutators. `scenario.run` is DELIBERATELY
+    # excluded from all three of these buckets -- its risk is
+    # DERIVED from the max risk of its contained tools (see
+    # arena/scenarios/runtime.py::derive_scenario_risk). The
+    # extension policy layer resolves scenario.run separately;
+    # the fallback here is `unknown` which the sidepanel UI
+    # already surfaces as "requires approval".
+    "scenario.save", "scenario.delete",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {

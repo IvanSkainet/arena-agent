@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import types as _types
 from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -22,6 +23,7 @@ from arena.mcp.tool_watch import handle_watch_tool
 from arena.mcp.tool_agentic import handle_agentic_tool
 from arena.mcp.tool_desktop import handle_desktop_tool
 from arena.mcp.tool_mission import handle_mission_tool
+from arena.mcp.tool_scenarios import handle_scenario_tool
 from arena.mcp.tool_plan import handle_plan_tool
 
 
@@ -94,6 +96,13 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_agentic_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_tool(name, args, ctx=ctx),
                 lambda: handle_mission_tool(name, args, ctx=ctx),
+                # v4.54.0: scenario orchestration. The scenarios
+                # runtime needs to invoke OTHER tools (including
+                # other scenarios) from within a step, so we pass
+                # a proxy ctx that carries the same call_tool
+                # closure we're building here. types.SimpleNamespace
+                # keeps the frozen-dataclass ctx immutable.
+                lambda: handle_scenario_tool(name, args, ctx=_types.SimpleNamespace(call_tool=call_tool)),
                 lambda: handle_misc_tool(name, args, ctx=ctx, run_local=run_local),
             ):
                 result = handler()

@@ -1,0 +1,16 @@
+{
+  "name": "hello-world",
+  "title": "Bridge health check",
+  "description": "Minimal scenario that reads sys.status and returns a formatted line. Useful as a smoke check for scenario runtime.",
+  "steps": [
+    {
+      "id": "status",
+      "tool": "sys.status",
+      "arguments": {}
+    },
+    {
+      "id": "report",
+      "return": "Bridge v{{ steps.status.result.version }} up for {{ steps.status.result.uptime_seconds }}s on {{ steps.status.result.host }}"
+    }
+  ]
+}

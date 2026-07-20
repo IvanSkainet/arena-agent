@@ -1,3 +1,168 @@
+## v4.54.0 — 2026-07-20
+
+**New feature: Scenario orchestration.** Ivan proposed a
+sketch — "по Wi-Fi подключаешься к телефону, записываешь
+аудио, через KDE Connect на комп, транскрипция, обратно в
+чат". A worthy target. This release lands the backbone.
+
+### `arena/scenarios/` — new package
+
+* `storage.py` — filesystem CRUD under
+  `$ARENA_SCENARIOS_DIR` (default `~/.arena/scenarios/`).
+  JSON is the canonical on-disk format (2-space indent,
+  unicode preserved). YAML source is accepted on save if
+  `ARENA_SCENARIOS_ALLOW_YAML=1` and PyYAML is installed —
+  the bridge itself never depends on PyYAML.
+* `runtime.py` — executes a scenario's steps in order,
+  passing a `dispatch(tool, args) → dict` callable that the
+  MCP layer wires to the same `call_tool` closure used by
+  every other Arena tool.
+* Public helpers:
+  * `parse_scenario_source(text)` — validates schema
+  * `render_scenario_source(doc)` — canonical JSON dump
+  * `derive_scenario_risk(doc)` — max(risk) across steps'
+    tools
+  * `render_template(text, context)` — resolves the
+    supported template forms
+
+### Template expressions
+
+Minimal by design (no Jinja runtime). Three namespaces:
+
+* `{{ steps.<id>.result[.field.subfield] }}` — walk the
+  result dict of an earlier step
+* `{{ steps.<id>.returned }}` — value of an earlier
+  `return:` step
+* `{{ env.VAR }}` — process env
+* `{{ now }}` — ISO-8601 UTC timestamp
+
+Missing template targets render as the empty string (Bash-
+like). This is intentional — a `continue_on_error` chain
+often expects downstream steps to handle missing fields
+explicitly.
+
+### Step schema
+
+```json
+{
+  "id": "unique-id",
+  "tool": "arena.tool.name",
+  "arguments": {"...": "..."},
+  "continue_on_error": false
+}
+```
+
+Or a pure `return:` step:
+
+```json
+{
+  "id": "final",
+  "return": "template with {{ steps.previous.result.field }}"
+}
+```
+
+Duplicate ids are rejected. Steps must have either `tool` or
+`return`. Non-dict `arguments` are rejected.
+
+### Seven new MCP tools
+
+* `scenario.list` — every saved scenario with metadata
+* `scenario.get <name>` — YAML source, parsed doc, disk path
+* `scenario.preview <name>` — derived risk + step plan
+  (no execution)
+* `scenario.save <name> <source>` — validate + write
+* `scenario.delete <name>` — remove scenario + its history
+* `scenario.history <name>` — last 20 runs
+* `scenario.run <name> [approve=true] [dry_run=false]` —
+  execute steps, append to history, return per-step results
+  + final value
+
+### Risk classification
+
+Per Ivan's design choice: **derived risk**. `scenario.run`
+is deliberately NOT in the static safe/medium/dangerous
+tables — its risk is computed per-invocation from the max
+of its contained tools' risks. Default classification is
+`unknown` which the extension policy layer surfaces as
+"requires approval" — safest possible fallback.
+
+* `scenario.list`, `scenario.get`, `scenario.history`,
+  `scenario.preview` — always **safe**
+* `scenario.save`, `scenario.delete` — **medium**
+* `scenario.run` — **derived** (safe / medium / dangerous)
+
+### Recursion protection
+
+Scenarios that call `scenario.run` from within a step get
+depth-tracked (`_MAX_RECURSION_DEPTH = 4`). Beyond that,
+nested runs return `{"ok": false, "error": "scenario
+recursion depth exceeded"}` — prevents accidental
+mission→scenario→scenario loops.
+
+### Wiring
+
+* `arena/mcp/tool_registry.py` — imports `SCENARIO_MCP_TOOLS`
+  and appends to `MCP_TOOLS`
+* `arena/mcp/tools.py` — adds `handle_scenario_tool` to the
+  `call_tool` dispatch chain via a `types.SimpleNamespace`
+  proxy that carries the `call_tool` closure itself (so
+  scenarios can invoke ANY Arena tool from a step)
+* `arena/extension_bridge/policy.py` — new safe/medium
+  entries for scenario CRUD; `scenario.run` intentionally
+  stays `unknown`
+
+### `docs/scenarios/` — worked example
+
+* `hello-world.json` — bridge health check + template
+  render, useful as a smoke test
+* `README.md` — schema reference + risk classification
+  primer
+
+### Tests
+
+* Added `tests/test_extension_v4_54_0.py` — **32
+  assertions**: MCP registry, policy risk classes, JSON
+  parse validation (empty steps, missing tool+return,
+  duplicate ids, non-dict arguments), canonical JSON
+  render, storage CRUD (save/get/list/delete, missing raises,
+  history skip, name validation, history append + cap),
+  template rendering (now, env, missing yields empty,
+  nested paths, returned lookup), derived risk (all safe,
+  promoted by dangerous, medium between, return-only is
+  safe), runtime.run (records history, stops on step failure,
+  continue_on_error, dry_run never dispatches, approval gate,
+  argument interpolation, preview returns derived risk).
+* Live E2E through `/v1/extension/execute` verified: save
+  → run → sys.status result → template render →
+  `final="bridge=v4.54.0"` → delete cleanup.
+* Full suite: **2948 passed** (2916 baseline + 32 for
+  v4.54.0). Zero regressions.
+
+### Roadmap (planned for future v4.54.x)
+
+Deliberately scoped small so each release ships one clean
+addition:
+
+* **v4.54.1** — retries, backoff, `wait_for_file`,
+  `wait_for_http` step helpers
+* **v4.54.2** — conditional branching (`if:` per step) +
+  parallel step groups
+* **v4.54.3** — recurring scheduler (`scenario.schedule_save`
+  akin to `mission.schedule_save`)
+* **v4.54.4** — webhook triggers
+  (`/v1/scenario/trigger/<name>?token=…`)
+* **v4.54.5** — Scenarios tab in sidepanel (source editor,
+  Run/History UI, per-scenario risk badge)
+
+### Not addressed
+
+* HTTP endpoints (`/v1/scenario/*`) — deliberately not
+  added yet. MCP tools cover 100% of what Ivan can do from
+  a chat; endpoints will come with the sidepanel Scenarios
+  tab in v4.54.5 (they only pay off with a UI).
+* PyYAML on the bridge — still not a hard dependency. YAML
+  read/write remains opt-in via env, JSON stays canonical.
+
 ## v4.53.1 — 2026-07-20
 
 First release under Ivan's new "you drive" arrangement. Two

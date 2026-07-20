@@ -1,3 +1,133 @@
+## v4.54.0 — 2026-07-20
+
+**Новая фича: оркестрация сценариев.** Ivan предложил
+эскиз — «по Wi-Fi к телефону, записываешь аудио, через
+KDE Connect на комп, транскрипция, обратно в чат».
+Достойная цель. Этот релиз кладёт фундамент.
+
+### `arena/scenarios/` — новый пакет
+
+* `storage.py` — filesystem CRUD в `$ARENA_SCENARIOS_DIR`
+  (default `~/.arena/scenarios/`). JSON — канонический
+  on-disk формат. YAML source принимается на save если
+  `ARENA_SCENARIOS_ALLOW_YAML=1` и PyYAML установлен —
+  сам bridge никогда не зависит от PyYAML.
+* `runtime.py` — исполняет шаги сценария по порядку,
+  прокидывая `dispatch(tool, args) → dict` callable,
+  который MCP layer подключает к тому же `call_tool`,
+  которым пользуется любой другой Arena tool.
+* Publich helpers: `parse_scenario_source`,
+  `render_scenario_source`, `derive_scenario_risk`,
+  `render_template`.
+
+### Шаблонные выражения
+
+Минимально by design (никакого Jinja runtime). Три
+namespace'а:
+
+* `{{ steps.<id>.result[.field.subfield] }}` — обход
+  result-дикта предыдущего шага
+* `{{ steps.<id>.returned }}` — значение `return:` шага
+* `{{ env.VAR }}` — process env
+* `{{ now }}` — ISO-8601 UTC timestamp
+
+Отсутствующие template-цели рендерятся как пустая строка
+(Bash-подобно) — специально для `continue_on_error` цепочек.
+
+### Схема шага
+
+```json
+{
+  "id": "unique-id",
+  "tool": "arena.tool.name",
+  "arguments": {"...": "..."},
+  "continue_on_error": false
+}
+```
+
+Или чистый `return:` шаг:
+
+```json
+{
+  "id": "final",
+  "return": "template with {{ steps.previous.result.field }}"
+}
+```
+
+Duplicate ids — reject. Шаги без `tool` и `return` — reject.
+Non-dict `arguments` — reject.
+
+### Семь новых MCP tools
+
+* `scenario.list`, `scenario.get`, `scenario.preview`,
+  `scenario.save`, `scenario.delete`, `scenario.history`,
+  `scenario.run`.
+
+### Классификация риска
+
+По твоему выбору: **derived risk**. `scenario.run`
+сознательно НЕ в статических safe/medium/dangerous
+таблицах — риск вычисляется per-invocation как max по
+рискам содержащихся tools. Default — `unknown`, что
+extension policy трактует как «approval required».
+
+* CRUD-read (list/get/history/preview) — всегда **safe**
+* Мутаторы (save/delete) — **medium**
+* `scenario.run` — **derived**
+
+### Защита от рекурсии
+
+Сценарии, вызывающие `scenario.run` из шага, отслеживаются
+по глубине (`_MAX_RECURSION_DEPTH = 4`). Дальше — refuse
+с явной ошибкой.
+
+### Wiring
+
+Три файла тронуты плюс новый пакет: tool_registry,
+tools.py (dispatch chain), extension_bridge/policy.py
+(классификация).
+
+### `docs/scenarios/` — worked example
+
+* `hello-world.json` — bridge health check + template
+  render
+* `README.md` — schema reference + risk primer
+
+### Тесты
+
+* Добавлен `tests/test_extension_v4_54_0.py` — **32
+  ассерта** (MCP registry, policy, parse валидация,
+  render, storage CRUD включая history cap и skip
+  history-файлов, template rendering, derived risk,
+  runtime включая continue_on_error / dry_run / approval
+  gate / argument interpolation).
+* Live E2E через `/v1/extension/execute` подтверждено:
+  save → run → real sys.status call → template →
+  `final="bridge=v4.54.0"` → delete.
+* Полный suite: **2948 passed** (2916 baseline + 32 v4.54.0).
+  Zero regressions.
+
+### Roadmap (планы на будущие v4.54.x)
+
+Специально маленькими шагами:
+
+* **v4.54.1** — retries, backoff, `wait_for_file`,
+  `wait_for_http` step helpers
+* **v4.54.2** — условные branch'и (`if:` per step) +
+  параллельные step groups
+* **v4.54.3** — периодический scheduler
+* **v4.54.4** — webhook triggers
+* **v4.54.5** — Scenarios tab в sidepanel (source editor,
+  Run/History UI, risk badge)
+
+### Что не вошло
+
+* HTTP endpoints `/v1/scenario/*` — специально не сейчас.
+  MCP tools покрывают 100% того что можно делать из чата;
+  endpoints добавлю с sidepanel-табом в v4.54.5.
+* PyYAML на bridge — по-прежнему не hard dep. YAML
+  read/write — opt-in через env, JSON canonical.
+
 ## v4.53.1 — 2026-07-20
 
 Первый релиз по нашей новой договорённости «ты рулишь». Два
