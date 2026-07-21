@@ -26,16 +26,26 @@ make security-scan
 #   - semgrep:  0 findings across 9 rule packs
 #   - pip-audit: 0 CVEs in runtime + full-extras deps
 
-# 2) Bump the version:
-#    - arena/constants.py            (VERSION = "x.y.z")
-#    - pyproject.toml                (version = "x.y.z")
+# 2) Bump the version (one command, since v4.60.7)
+python dev/bump_version.py x.y.z
+#   Updates in a single AST-verified pass:
+#     - arena/constants.py            (VERSION = "x.y.z")
+#     - pyproject.toml                (version = "x.y.z")
+#     - tests/_version_matrix.py      (appends "x.y.z" to BRIDGE_VERSIONS
+#                                      so every version-pin test accepts it)
+#   Add --dry-run to preview without touching disk.
+#   The bumper does NOT touch CHANGELOG (release notes are hand-written)
+#   and does NOT git-commit or tag.
+
+# 2b) Hand-write the release notes
 #    - CHANGELOG.md                  (prepend "## vX.Y.Z — YYYY-MM-DD")
 #    - CHANGELOG.ru.md               (prepend the matching Russian entry)
 #    If the extension runtime changed, also bump chat_extension/manifest.json
-#    and the content/insert script versions (see below).
+#    and the content/insert script versions, then add them to EXT_VERSIONS in
+#    tests/_version_matrix.py (by hand — the bumper only handles the bridge chain).
 
 # 3) Commit the bump (list files explicitly — never `git add -A`)
-git add arena/constants.py pyproject.toml CHANGELOG.md CHANGELOG.ru.md
+git add arena/constants.py pyproject.toml tests/_version_matrix.py CHANGELOG.md CHANGELOG.ru.md
 git commit -m "vX.Y.Z: <short release summary>"
 
 # 4) Tag the release (annotated)

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tests._version_matrix import any_bridge_in, any_pyproject_in
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHAT_EXT = REPO_ROOT / "chat_extension"
@@ -34,11 +35,11 @@ def test_readme_mentions_v4_53_0():
 
 
 def test_constants_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.53.0"', 'VERSION = "4.53.1"', 'VERSION = "4.54.0"', 'VERSION = "4.54.1"', 'VERSION = "4.55.0"', 'VERSION = "4.55.1"', 'VERSION = "4.56.0"', 'VERSION = "4.57.0"', 'VERSION = "4.58.0"', 'VERSION = "4.59.0"', 'VERSION = "4.59.1"', 'VERSION = "4.60.0"', 'VERSION = "4.60.1"', 'VERSION = "4.60.2"', 'VERSION = "4.60.3"', 'VERSION = "4.60.4"', 'VERSION = "4.60.5"', 'VERSION = "4.60.6"'))
+    assert any_bridge_in(_read(REPO_ROOT / 'arena' / 'constants.py'))
 
 
 def test_pyproject_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.53.0"', 'version = "4.53.1"', 'version = "4.54.0"', 'version = "4.54.1"', 'version = "4.55.0"', 'version = "4.55.1"', 'version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.60.0"', 'version = "4.60.1"', 'version = "4.60.2"', 'version = "4.60.3"', 'version = "4.60.4"', 'version = "4.60.5"', 'version = "4.60.6"'))
+    assert any_pyproject_in(_read(REPO_ROOT / 'pyproject.toml'))
 
 
 # ------------------------------------------------------------------

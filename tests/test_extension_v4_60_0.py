@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from arena import constants
+from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -18,11 +19,11 @@ def _read(p: str) -> str:
 
 
 def test_version_is_4_60_0():
-    assert constants.VERSION in ("4.60.0", "4.60.1", "4.60.2", "4.60.3", "4.60.4", "4.60.5", "4.60.6")
+    assert constants.VERSION in BRIDGE_VERSIONS
 
 
 def test_pyproject_version_is_4_60_0():
-    assert any(v in _read("pyproject.toml") for v in ('version = "4.60.0"', 'version = "4.60.1"', 'version = "4.60.2"', 'version = "4.60.3"', 'version = "4.60.4"', 'version = "4.60.5"', 'version = "4.60.6"'))
+    assert any_pyproject_in(_read("pyproject.toml"))
 
 
 # ------------------------------------------------------------------

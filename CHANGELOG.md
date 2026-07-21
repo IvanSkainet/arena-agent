@@ -1,3 +1,46 @@
+## v4.60.7 - Version-pin test refactor + release-bump helper
+
+### Changed
+Consolidated 35+ version-tuple assertions spread across 17 `tests/test_extension_v4_*.py` files into a single source of truth: `tests/_version_matrix.py`.
+
+Each release previously required hand-editing 15+ tuples across 20 files, with per-tuple double-quote / single-quote / mixed-content variants. That maintenance sink caused three release-followup commits in the v4.60.3-v4.60.6 cycle alone.
+
+The new layout:
+
+- `tests/_version_matrix.py` — `BRIDGE_VERSIONS`, `EXT_VERSIONS`, `LATEST_BRIDGE`, `LATEST_EXT` constants plus helpers `any_bridge_in()`, `any_pyproject_in()`, `any_ext_content_in()`, `any_ext_return_in()`.
+- `tests/test_version_matrix.py` — new guards that fail loudly if the matrix drifts out of sync with `arena/constants.py` / `pyproject.toml` / `chat_extension/manifest.json`.
+- `tests/test_extension_v4_*.py` — version-pin asserts now read from the matrix.
+- 27 `any(...)` version-tuple asserts, 5 `constants.VERSION in (...)` tuples, and 8 legacy mixed tuples (that had `'version = "4.60.X"'` cruft glued next to `content.js` string chains from a prior bump-script accident) all replaced with helper calls.
+
+### Added
+`dev/bump_version.py` — release-bump helper. One command updates all files that AGENTS.md says must stay in sync.
+
+Bridge mode:
+
+```
+python dev/bump_version.py 4.60.8
+```
+
+Bumps `arena/constants.py` (`VERSION`), `pyproject.toml` (`version`), and appends the new entry to `BRIDGE_VERSIONS` in `tests/_version_matrix.py`.
+
+Extension mode:
+
+```
+python dev/bump_version.py --extension 0.14.43
+```
+
+Bumps `chat_extension/manifest.json` (`version`), `chat_extension/content.js` (`ARENA_CONTENT_SCRIPT_VERSION`), every `return 'X.Y.Z';` in `chat_extension/insert_strategies.js`, and appends to `EXT_VERSIONS` in the matrix.
+
+Uses AST-parse round-trips for the matrix (never string-searches ambiguous prose in docstrings) and JSON round-trips for the manifest, and rejects the write if the resulting file fails to parse. Supports `--dry-run`. Does not touch CHANGELOG (release notes are hand-written) and does not git-commit or tag.
+
+`tests/test_bump_version.py` — 9 self-tests covering both bridge and extension paths: invalid-version rejection, dry-run non-write, all-files-updated, refuses double-bump, `--help` returns 0 via subprocess.
+
+### Docs
+`RELEASE.md` step 2 updated to point at `python dev/bump_version.py x.y.z` as the canonical bump command.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.6 - admin.run cross-platform + sudo.run PermissionError fix
 
 ### Fixed

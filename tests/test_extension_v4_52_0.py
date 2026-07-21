@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from tests._version_matrix import any_bridge_in, any_ext_content_in, any_ext_return_in, any_pyproject_in
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CHAT_EXT = REPO_ROOT / "chat_extension"
@@ -22,11 +23,11 @@ def test_manifest_version_bumped():
 
 
 def test_content_script_version_bumped():
-    assert any(v in _read(CHAT_EXT / 'content.js') for v in ("const ARENA_CONTENT_SCRIPT_VERSION = '0.14.34';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.35';", "const ARENA_CONTENT_SCRIPT_VERSION = '0.14.42';", 'version = "4.60.3"', 'VERSION = "4.60.4"', 'VERSION = "4.60.5"', 'VERSION = "4.60.6"'))
+    assert any_ext_content_in(_read(CHAT_EXT / 'content.js'))
 
 
 def test_insert_strategies_version_bumped():
-    assert any(v in _read(CHAT_EXT / 'insert_strategies.js') for v in ("return '0.14.34';", "return '0.14.35';", "return '0.14.42';", 'version = "4.60.3"', 'version = "4.60.4"', 'version = "4.60.5"', 'version = "4.60.6"'))
+    assert any_ext_return_in(_read(CHAT_EXT / 'insert_strategies.js'))
 
 
 def test_readme_mentions_v4_52_0():
@@ -36,11 +37,11 @@ def test_readme_mentions_v4_52_0():
 
 
 def test_constants_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'arena' / 'constants.py') for v in ('VERSION = "4.52.0"', 'VERSION = "4.52.1"', 'VERSION = "4.52.2"', 'VERSION = "4.52.3"', 'VERSION = "4.52.4"', 'VERSION = "4.52.5"', 'VERSION = "4.52.6"', 'VERSION = "4.53.0"', 'VERSION = "4.53.1"', 'VERSION = "4.54.0"', 'VERSION = "4.54.1"', 'VERSION = "4.55.0"', 'VERSION = "4.55.1"', 'VERSION = "4.56.0"', 'VERSION = "4.57.0"', 'VERSION = "4.58.0"', 'VERSION = "4.59.0"', 'VERSION = "4.59.1"', 'VERSION = "4.60.0"', 'VERSION = "4.60.1"', 'VERSION = "4.60.2"', 'VERSION = "4.60.3"', 'VERSION = "4.60.4"', 'VERSION = "4.60.5"', 'VERSION = "4.60.6"'))
+    assert any_bridge_in(_read(REPO_ROOT / 'arena' / 'constants.py'))
 
 
 def test_pyproject_version_bumped():
-    assert any(v in _read(REPO_ROOT / 'pyproject.toml') for v in ('version = "4.52.0"', 'version = "4.52.1"', 'version = "4.52.2"', 'version = "4.52.3"', 'version = "4.52.4"', 'version = "4.52.5"', 'version = "4.52.6"', 'version = "4.53.0"', 'version = "4.53.1"', 'version = "4.54.0"', 'version = "4.54.1"', 'version = "4.55.0"', 'version = "4.55.1"', 'version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.60.0"', 'version = "4.60.1"', 'version = "4.60.2"', 'version = "4.60.3"', 'version = "4.60.4"', 'version = "4.60.5"', 'version = "4.60.6"'))
+    assert any_pyproject_in(_read(REPO_ROOT / 'pyproject.toml'))
 
 
 # ------------------------------------------------------------------

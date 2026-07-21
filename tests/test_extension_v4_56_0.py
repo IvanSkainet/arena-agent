@@ -19,6 +19,7 @@ from arena.extension_bridge.policy import (
     classify_tool_risk,
 )
 from arena.mcp.tool_mobile import handle_mobile_tool, _ROUTES
+from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -32,12 +33,12 @@ def _read(path: str) -> str:
 # 1. Version bump
 # ------------------------------------------------------------------
 def test_version_is_4_56_0():
-    assert constants.VERSION in ("4.56.0", "4.57.0", "4.58.0", "4.59.0", "4.59.1", "4.60.0", "4.60.1", "4.60.2", "4.60.3", "4.60.4", "4.60.5", "4.60.6")
+    assert constants.VERSION in BRIDGE_VERSIONS
 
 
 def test_pyproject_version_is_4_56_0():
     src = _read("pyproject.toml")
-    assert any(v in src for v in ('version = "4.56.0"', 'version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.60.0"', 'version = "4.60.1"', 'version = "4.60.2"', 'version = "4.60.3"', 'version = "4.60.4"', 'version = "4.60.5"', 'version = "4.60.6"'))
+    assert any_pyproject_in(src)
 
 
 # ------------------------------------------------------------------

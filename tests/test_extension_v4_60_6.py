@@ -7,6 +7,7 @@ from arena.mcp.tool_registry import MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from arena.mcp.tool_net import _handle_admin_run, _handle_sudo_run, handle_net_tool
 from arena.extension_bridge.policy import classify_tool_risk
+from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -17,11 +18,11 @@ def _read(p: str) -> str:
 
 
 def test_version_is_4_60_6():
-    assert constants.VERSION in ("4.60.6",)
+    assert constants.VERSION in BRIDGE_VERSIONS
 
 
 def test_pyproject_version_is_4_60_6():
-    assert 'version = "4.60.6"' in _read("pyproject.toml")
+    assert any_pyproject_in(_read("pyproject.toml"))
 
 
 def test_admin_run_registered_in_net_tools():

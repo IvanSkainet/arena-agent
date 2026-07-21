@@ -1,3 +1,46 @@
+## v4.60.7 - рефакторинг version-pin тестов + скрипт bump релиза
+
+### Изменено
+35+ ассертов с версионными кортежами в 17 файлах `tests/test_extension_v4_*.py` заменены единственным источником истины — `tests/_version_matrix.py`.
+
+Раньше каждый релиз требовал ручной правки 15+ кортежей в 20 файлах с разными вариантами кавычек. Только за цикл v4.60.3-v4.60.6 это породило три доп-коммита «follow-up».
+
+Новая структура:
+
+- `tests/_version_matrix.py` — константы `BRIDGE_VERSIONS`, `EXT_VERSIONS`, `LATEST_BRIDGE`, `LATEST_EXT` плюс хелперы `any_bridge_in()`, `any_pyproject_in()`, `any_ext_content_in()`, `any_ext_return_in()`.
+- `tests/test_version_matrix.py` — новые guards, падающие громко, если матрица разъезжается с `arena/constants.py` / `pyproject.toml` / `chat_extension/manifest.json`.
+- `tests/test_extension_v4_*.py` — version-pin ассерты теперь читают из матрицы.
+- Мигрированы: 27 ассертов `any(...)`, 5 кортежей `constants.VERSION in (...)` и 8 легаси-смешанных кортежей (в которые старый bump-скрипт по ошибке прилепил `'version = "4.60.X"'` рядом со строковыми цепочками `content.js`).
+
+### Добавлено
+`dev/bump_version.py` — хелпер bump'а релиза. Одна команда обновляет все файлы, которые AGENTS.md требует держать в синхроне.
+
+Режим bridge:
+
+```
+python dev/bump_version.py 4.60.8
+```
+
+Бампит `arena/constants.py` (`VERSION`), `pyproject.toml` (`version`) и дописывает запись в `BRIDGE_VERSIONS` в `tests/_version_matrix.py`.
+
+Режим extension:
+
+```
+python dev/bump_version.py --extension 0.14.43
+```
+
+Бампит `chat_extension/manifest.json` (`version`), `chat_extension/content.js` (`ARENA_CONTENT_SCRIPT_VERSION`), каждое вхождение `return 'X.Y.Z';` в `chat_extension/insert_strategies.js` и дописывает в `EXT_VERSIONS` в матрице.
+
+Использует AST-разбор для матрицы (не полагается на текстовый поиск, чтобы docstring с примером не давал false-positive) и JSON round-trip для manifest, отклоняет запись если результат не парсится. Поддерживает `--dry-run`. CHANGELOG не трогает (пишется руками), git не коммитит и не тэгирует.
+
+`tests/test_bump_version.py` — 9 self-тестов покрывают оба пути (bridge и extension): отклонение невалидной версии, dry-run не пишет, все файлы обновляются, отказ бампить одну версию дважды, `--help` возвращает 0 через subprocess.
+
+### Документация
+Шаг 2 в `RELEASE.md` обновлён — теперь канонический bump это `python dev/bump_version.py x.y.z`.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.6 - admin.run кроссплатформенный + фикс PermissionError у sudo.run
 
 ### Исправлено
