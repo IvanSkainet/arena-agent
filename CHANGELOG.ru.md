@@ -1,3 +1,28 @@
+## v4.60.8 - Windows testsuite hardening + фикс zerotier hint
+
+### Исправлено
+- `arena/admin/zerotier.py::_permission_hint` — ветки Windows и macOS молча отбрасывали аргумент `missing_reason`, скрывая от оператора upstream-причину (только Linux дописывал её). Теперь все платформы возвращают `Underlying error: <причина>` в хвосте.
+
+### Тесты (Windows baseline)
+Шестнадцать тестов падали на Windows на origin/master и не имели отношения к поведению моста — POSIX-only фикстуры, хардкод UTF-8, поплывший byte-count из-за Universal Newlines, cwd/PATH-предположения из эпохи Linux-only CI. Починил каждый по корневой причине, а не blanket-skip'ом:
+
+- `test_apk_staging_hardening.py` — выставляем `USERPROFILE` рядом с `HOME` (Python `Path.home()` читает первый на Windows).
+- `test_bootstrap.py::test_ensure_session_env_infers_session_type_and_kde` — `skipif(os.name != "posix")`; probe вызывает `os.getuid()`, которого на Windows нет.
+- `test_bore.py::test_system_candidates_shape_per_platform` — нормализуем разделители пути перед поиском `.cargo/bin/bore` (на Windows `Path.home() / ".cargo/bin/bore"` рендерится с backslash).
+- `test_capabilities.py::test_build_capabilities_uses_kwin_journal_for_kde_wayland_window_ops` — `skipif(os.name != "posix")`; KDE Wayland detection работает только на Linux.
+- `test_extension_v4_54_1.py::test_wait_for_file_expands_tilde` — выставляем `USERPROFILE` рядом с `HOME`, чтобы `os.path.expanduser("~/...")` резолвился на Windows.
+- `test_fs_tree_diff.py::test_tree_single_file` — используем `write_bytes(b"hello\n")` вместо `write_text("hello\n")`; последний конвертит в CRLF на Windows и раздувает счётчик с 6 до 7.
+- `test_fs_tree_diff.py::test_fs_diff_file_not_found` — принимаем locale-aware сообщения ENOENT (русская Windows возвращает «не удается найти», немецкая «kann die angegebene Datei nicht finden»), также матчим `errno`/`WinError` и имя отсутствующего файла.
+- `test_ngrok.py` — оба теста, где ngrok-бинарь моделировался через `chmod 0o755` + POSIX shebang, помечены `skipif(os.name != "posix")`; Windows резолвит бинари через PATHEXT и не может exec'нуть `#!`-заголовок.
+- `test_overview_gpu_errors_js.py` — `subprocess.run(..., text=True)` без `encoding=` использует `locale.getpreferredencoding()`, что на русской Windows это cp1251, и `°` в строках температуры превращается в мусор. Форсим `encoding="utf-8"` с `errors="replace"`.
+- `test_zerotier.py::test_permission_hint_includes_root_cause` — прошёл после фикса продукт-бага выше.
+- `test_exec_stream.py` — 4 теста переписаны на запуск ребёнка через `sys.executable -c "..."` и `tempfile.gettempdir()` в качестве `cwd`. Оригиналы хардкодили `cwd=Path("/tmp")` (NotADirectoryError на Windows) плюс POSIX-only `printf`/`sleep`. Теперь те же гарантии проверяются на обеих платформах.
+
+Netto на Linux CI: 3143 passed (без изменений); на Windows: 12 ранее красных тестов становятся зелёными.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.7 - рефакторинг version-pin тестов + скрипт bump релиза
 
 ### Изменено

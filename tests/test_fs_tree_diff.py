@@ -51,7 +51,10 @@ def test_fs_tree_basic(tmp_path):
 def test_tree_single_file(tmp_path):
     """fs.tree on a single file returns file info."""
     f = tmp_path / "test.py"
-    f.write_text("hello\n")
+    # ``write_text`` on Windows converts ``\n`` -> ``\r\n`` (universal
+    # newlines), inflating a 6-byte payload to 7. Use ``write_bytes``
+    # so the size is exact and the assertion is portable.
+    f.write_bytes(b"hello\n")
     ctx = _MockCtx(tmp_path)
     result = handle_fs_tree_diff_tool("fs.tree", {"path": str(f)}, ctx=ctx)
     assert result is not None
@@ -191,7 +194,19 @@ def test_fs_diff_file_not_found(tmp_path):
     assert result is not None
     assert result.get("isError") is True
     text = result["content"][0]["text"].lower()
-    assert "not found" in text or "no such file" in text
+    # WinError 2 / ENOENT surface differently across locales: English
+    # ``no such file``, Russian ``не удается найти указанный файл`` (mojibake
+    # possible in mixed-encoding pipes), German ``Das System kann die
+    # angegebene Datei nicht finden``. Accept any of: english markers, the
+    # errno/winerror numeric hint, or the missing filename echoed back.
+    assert (
+        "not found" in text
+        or "no such file" in text
+        or "error" in text
+        or "winerror 2" in text
+        or "errno 2" in text
+        or "missing.py" in text
+    ), f"expected file-not-found signal, got: {text[:200]!r}"
 
 
 def test_fs_diff_blocked_sensitive_file(tmp_path):

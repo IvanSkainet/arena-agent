@@ -158,7 +158,10 @@ def test_wait_for_file_times_out(tmp_path):
 def test_wait_for_file_expands_tilde(monkeypatch, tmp_path):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
+    # ``os.path.expanduser`` reads HOME on POSIX and USERPROFILE on
+    # Windows. Set both so this test is portable.
     monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.setenv("USERPROFILE", str(fake_home))
     (fake_home / "note.txt").write_text("hi")
     r = _wait_for_file("~/note.txt", timeout=1, poll=0.05)
     assert r["ok"] is True

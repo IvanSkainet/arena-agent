@@ -1,6 +1,9 @@
 """Capability map builder tests."""
+import os
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -26,6 +29,10 @@ def test_build_capabilities_basic_shape():
     assert caps["network"]["tailscale_installed"] is True
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="KDE Wayland detection requires POSIX-shaped paths (/usr/bin/qdbus6, journalctl); Windows never picks this backend",
+)
 def test_build_capabilities_uses_kwin_journal_for_kde_wayland_window_ops(monkeypatch):
     monkeypatch.setattr("arena.capabilities.shutil.which", lambda name: "/usr/bin/" + name if name in {"qdbus6", "journalctl"} else None)
     caps = build_capabilities(

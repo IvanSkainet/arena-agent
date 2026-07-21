@@ -4,6 +4,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
@@ -59,6 +61,10 @@ def test_resolve_token_priority_and_generation(tmp_path, monkeypatch):
     assert token_file.read_text(encoding="utf-8").strip() == tok
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="ensure_session_env probes /run/user/UID and X11 sockets that only exist on POSIX; Windows has no getuid()",
+)
 def test_ensure_session_env_infers_session_type_and_kde(monkeypatch):
     monkeypatch.setattr(os, "name", "posix", raising=False)
     monkeypatch.setattr(os, "getuid", lambda: 1000)

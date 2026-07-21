@@ -223,6 +223,10 @@ def test_action_status_when_nothing_installed_reports_gracefully(tmp_path, monke
 # ---------------------------------------------------------------------------
 # Region override is passed through
 # ---------------------------------------------------------------------------
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="Test relies on POSIX shell shebang + chmod 0o755 to fake an ngrok binary; Windows resolves binaries by extension via PATHEXT and cannot exec a #!-header",
+)
 def test_region_env_override_appears_in_argv(monkeypatch, tmp_path):
     """When ARENA_NGROK_REGION is set, ``--region <value>`` should
     end up on the subprocess argv. Uses a stubbed Popen so no real
@@ -291,6 +295,10 @@ def test_no_region_no_flag(monkeypatch, tmp_path):
     assert "--region" not in argv
 
 
+@pytest.mark.skipif(
+    os.name != "posix",
+    reason="Test relies on POSIX shell shebang + chmod 0o755 to fake an ngrok binary; Windows resolves binaries by extension via PATHEXT and cannot exec a #!-header",
+)
 def test_start_uses_local_api_first_then_stdout_fallback(monkeypatch, tmp_path):
     """When the local /api/tunnels responds with a URL, that URL
     must win -- do not wait for stdout to catch up."""

@@ -1,14 +1,37 @@
-"""Tests for POST /v1/exec/stream (v4.3.0 NDJSON streaming)."""
+"""Tests for POST /v1/exec/stream (v4.3.0 NDJSON streaming).
+
+Cross-platform note (v4.60.8): the streaming runner delegates to
+``asyncio.create_subprocess_shell``, which on Windows requires ``cwd``
+to be an existing directory and a shell that speaks the platform's
+command syntax. The tests below use ``tempfile.gettempdir()`` (points at
+``C:\\Users\\<user>\\AppData\\Local\\Temp`` on Windows, ``/tmp`` on POSIX)
+and drive the child through ``sys.executable`` -c "..." so the same
+harness works everywhere.
+"""
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
+
+
+_TMPDIR = Path(tempfile.gettempdir())
+_PY = sys.executable  # portable python launcher
+
+# ``env`` handed to the runner must include PATH plus, on Windows,
+# SYSTEMROOT (cmd.exe refuses to start without it) so the shell can find
+# its own libraries. ``os.environ`` is not passed directly to keep the
+# test hermetic; only the minimum required to spawn a shell.
+_MIN_ENV = {"PATH": os.environ.get("PATH", "")}
+if os.name == "nt":
+    _MIN_ENV["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", r"C:\Windows")
 
 
 def test_exec_stream_route_in_registry():
@@ -19,7 +42,7 @@ def test_exec_stream_route_in_registry():
 
 def test_exec_stream_route_wired_into_app():
     app = ub.make_app({
-        "token": "test", "profile": "owner-shell", "root": Path("/tmp"),
+        "token": "test", "profile": "owner-shell", "root": _TMPDIR,
         "active_exec": 0, "max_concurrent": 3, "audit": "audit",
         "timeout": 60, "max_timeout": 3600, "max_output": 2000000,
         "allow_any_cwd": False, "semaphore": asyncio.Semaphore(1),
@@ -66,9 +89,11 @@ def test_run_shell_command_stream_yields_events():
         events = []
         async for ev in run_shell_command_stream(
             request_id="t1",
-            cmd="printf 'hello\\nworld\\n'",
-            cwd=Path("/tmp"),
-            env={"PATH": "/usr/bin:/bin"},
+            # ``sys.executable -c "..."`` runs verbatim under both POSIX
+            # shells and cmd.exe, so the same test body works cross-platform.
+            cmd=f'"{_PY}" -c "import sys; sys.stdout.write(\'hello\\nworld\\n\')"',
+            cwd=_TMPDIR,
+            env=dict(_MIN_ENV),
             timeout=10,
             max_output=1024,
         ):
@@ -96,9 +121,9 @@ def test_run_shell_command_stream_captures_stderr():
         events = []
         async for ev in run_shell_command_stream(
             request_id="t2",
-            cmd="printf 'oops\\n' 1>&2; exit 3",
-            cwd=Path("/tmp"),
-            env={"PATH": "/usr/bin:/bin"},
+            cmd=f'"{_PY}" -c "import sys; sys.stderr.write(\'oops\\n\'); sys.exit(3)"',
+            cwd=_TMPDIR,
+            env=dict(_MIN_ENV),
             timeout=10,
             max_output=1024,
         ):
@@ -121,9 +146,10 @@ def test_run_shell_command_stream_timeout_marks_event():
         events = []
         async for ev in run_shell_command_stream(
             request_id="t3",
-            cmd="sleep 5",
-            cwd=Path("/tmp"),
-            env={"PATH": "/usr/bin:/bin"},
+            # ``time.sleep`` is portable — no dependency on POSIX ``sleep``.
+            cmd=f'"{_PY}" -c "import time; time.sleep(5)"',
+            cwd=_TMPDIR,
+            env=dict(_MIN_ENV),
             timeout=1,
             max_output=1024,
         ):
@@ -145,9 +171,9 @@ def test_run_shell_command_stream_max_output_truncates():
         async for ev in run_shell_command_stream(
             request_id="t4",
             # Emit ~20k bytes; cap at 4k.
-            cmd="python3 -c \"import sys; sys.stdout.write('A'*20000)\"",
-            cwd=Path("/tmp"),
-            env={"PATH": "/usr/bin:/bin"},
+            cmd=f'"{_PY}" -c "import sys; sys.stdout.write(\'A\'*20000)"',
+            cwd=_TMPDIR,
+            env=dict(_MIN_ENV),
             timeout=10,
             max_output=4096,
         ):

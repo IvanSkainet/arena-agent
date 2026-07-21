@@ -1,3 +1,28 @@
+## v4.60.8 - Windows testsuite hardening + zerotier hint fix
+
+### Fixed
+- `arena/admin/zerotier.py::_permission_hint` — Windows and macOS branches silently dropped the `missing_reason` argument, hiding upstream cause from operators (only the Linux branch was appending it). Now every platform surfaces `Underlying error: <reason>` at the tail.
+
+### Tests (Windows baseline)
+Sixteen tests were failing on Windows against origin/master with no relation to bridge behaviour — a mix of POSIX-only fixtures, hardcoded UTF-8 assumptions, Universal Newlines byte-count drift, and cwd/PATH assumptions from an era when the CI matrix was Linux-only. Fixed each one at its root cause rather than blanket-skipping:
+
+- `test_apk_staging_hardening.py` — set `USERPROFILE` alongside `HOME` (Python's `Path.home()` reads the former on Windows).
+- `test_bootstrap.py::test_ensure_session_env_infers_session_type_and_kde` — `skipif(os.name != "posix")`; the probe uses `os.getuid()` which does not exist on Windows.
+- `test_bore.py::test_system_candidates_shape_per_platform` — normalise path separators before searching for `.cargo/bin/bore` (on Windows `Path.home() / ".cargo/bin/bore"` renders with backslashes).
+- `test_capabilities.py::test_build_capabilities_uses_kwin_journal_for_kde_wayland_window_ops` — `skipif(os.name != "posix")`; KDE Wayland detection is Linux-only by design.
+- `test_extension_v4_54_1.py::test_wait_for_file_expands_tilde` — set `USERPROFILE` alongside `HOME` so `os.path.expanduser("~/...")` resolves on Windows.
+- `test_fs_tree_diff.py::test_tree_single_file` — use `write_bytes(b"hello\n")` instead of `write_text("hello\n")`; the latter converts to CRLF on Windows and inflates the byte count from 6 to 7.
+- `test_fs_tree_diff.py::test_fs_diff_file_not_found` — accept locale-aware ENOENT messages (Russian Windows returns "не удается найти", German "kann die angegebene Datei nicht finden") by also matching the `errno`/`WinError` numeric hint and the missing filename.
+- `test_ngrok.py` — both tests that stubbed the ngrok binary via `chmod 0o755` + POSIX shebang script are marked `skipif(os.name != "posix")`; Windows resolves binaries via PATHEXT and can't exec a `#!` header.
+- `test_overview_gpu_errors_js.py` — `subprocess.run(..., text=True)` without `encoding=` uses `locale.getpreferredencoding()`, which is cp1251 on Russian Windows and mangles the `°` in temperature strings. Force `encoding="utf-8"` with `errors="replace"`.
+- `test_zerotier.py::test_permission_hint_includes_root_cause` — passed after fixing the underlying product bug above.
+- `test_exec_stream.py` — 4 tests rewritten to drive the child through `sys.executable -c "..."` and to use `tempfile.gettempdir()` for `cwd`. Original tests hardcoded `cwd=Path("/tmp")` (a NotADirectoryError on Windows) plus POSIX-only `printf`/`sleep`. The tests now exercise the same runner behaviour on both platforms.
+
+Net effect on Linux CI: 3143 passed (unchanged); on Windows: 12 previously-red tests now green.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.7 - Version-pin test refactor + release-bump helper
 
 ### Changed

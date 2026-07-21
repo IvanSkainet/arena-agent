@@ -14,9 +14,15 @@ import pytest
 
 @pytest.fixture
 def apk_module(monkeypatch, tmp_path):
-    """Reload arena.mobile.apk_install with HOME pointing at a
-    fresh tmp dir so tests don't touch a real user's ~/.arena."""
+    """Reload arena.mobile.apk_install with the current user's home
+    pointing at a fresh tmp dir so tests don't touch a real user's
+    ~/.arena.
+
+    Note: on Windows ``Path.home()`` reads ``USERPROFILE``, not
+    ``HOME``. Set both so the fixture works regardless of platform.
+    """
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
     monkeypatch.delenv("ARENA_APK_STAGING", raising=False)
     import arena.mobile.apk_install as m
     importlib.reload(m)

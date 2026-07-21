@@ -151,8 +151,11 @@ class TestResolve:
         cands = bore_mod._system_candidates()
         assert "/usr/local/bin/bore" in cands
         # Cargo prefix included so `cargo install bore-cli` installs are picked up
-        # without operator intervention.
-        assert any(".cargo/bin/bore" in c for c in cands)
+        # without operator intervention. ``Path.home() / ".cargo/bin/bore"``
+        # renders with the OS-native separator, so on Windows the substring
+        # is ``.cargo\bin\bore``. Normalise separators for the check.
+        cands_norm = [c.replace("\\", "/") for c in cands]
+        assert any(".cargo/bin/bore" in c for c in cands_norm)
 
 
 # ---------------------------------------------------------------------------

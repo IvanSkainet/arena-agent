@@ -22,10 +22,15 @@ pytestmark = pytest.mark.skipif(shutil.which("node") is None,
 
 
 def _run_node(harness: str) -> dict:
+    # ``text=True`` without ``encoding=`` uses ``locale.getpreferredencoding()``
+    # which is cp1251 on a Russian Windows install and mangles the ``°`` in
+    # temperature strings. Force UTF-8 for both directions.
     proc = subprocess.run(
         ["node", "-e", harness],
         capture_output=True, text=True, timeout=15,
         cwd=str(_REPO),
+        encoding="utf-8",
+        errors="replace",
     )
     assert proc.returncode == 0, (
         f"node exit {proc.returncode}\n--- stderr ---\n{proc.stderr}\n"

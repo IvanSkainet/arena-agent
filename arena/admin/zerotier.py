@@ -120,18 +120,24 @@ def _install_hint() -> str:
 def _permission_hint(missing_reason: str) -> str:
     system = platform.system().lower()
     if system == "windows":
-        return "Run the Bridge as the same user that installed ZeroTier, or as an administrator."
-    if system == "darwin":
-        return "Grant the Bridge process access to /Library/Application Support/ZeroTier/One/, or run it under the ZeroTier admin account."
-    # Linux fallback: two options.
-    return (
-        "Either (a) allow the Bridge user to read the ZeroTier authtoken: "
-        "`sudo chmod 640 /var/lib/zerotier-one/authtoken.secret && sudo usermod -aG zerotier-one $USER` "
-        "(re-login after), or (b) install the optional sudo wrapper: "
-        "`echo \"$USER ALL=(root) NOPASSWD: /usr/bin/zerotier-cli\" | sudo tee /etc/sudoers.d/zerotier "
-        "&& sudo install -m 0755 /dev/stdin /usr/local/bin/zerotier-cli-wrapper <<< "
-        "'#!/bin/bash\\nexec sudo /usr/bin/zerotier-cli \"$@\"'`."
-    ) + f" Underlying error: {missing_reason}."
+        base = "Run the Bridge as the same user that installed ZeroTier, or as an administrator."
+    elif system == "darwin":
+        base = "Grant the Bridge process access to /Library/Application Support/ZeroTier/One/, or run it under the ZeroTier admin account."
+    else:
+        # Linux fallback: two options.
+        base = (
+            "Either (a) allow the Bridge user to read the ZeroTier authtoken: "
+            "`sudo chmod 640 /var/lib/zerotier-one/authtoken.secret && sudo usermod -aG zerotier-one $USER` "
+            "(re-login after), or (b) install the optional sudo wrapper: "
+            "`echo \"$USER ALL=(root) NOPASSWD: /usr/bin/zerotier-cli\" | sudo tee /etc/sudoers.d/zerotier "
+            "&& sudo install -m 0755 /dev/stdin /usr/local/bin/zerotier-cli-wrapper <<< "
+            "'#!/bin/bash\\nexec sudo /usr/bin/zerotier-cli \"$@\"'`."
+        )
+    # Always surface the underlying reason. Pre-v4.60.8 only the Linux
+    # branch appended it, which hid useful diagnostics on Windows/macOS.
+    if missing_reason:
+        return f"{base} Underlying error: {missing_reason}."
+    return base
 
 
 # ---------------------------------------------------------------------------
