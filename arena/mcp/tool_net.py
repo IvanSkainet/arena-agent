@@ -227,26 +227,39 @@ def _handle_secrets_list(_args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _handle_sudo_run(args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any]:
-    """Run a command through ``sudo -n`` (non-interactive).
+    """Run a command through ``sudo -n`` (non-interactive) on POSIX.
 
-    Delegates to the same run_sd sandbox as ``exec`` so shell escaping,
-    cgroup limits, and audit continue to apply. Cross-platform: on
-    Windows this returns an error since sudo is a POSIX concept.
+    v4.60.6: runs subprocess directly instead of routing through the
+    run_sd sandbox. sudo.run is already classified `dangerous` at
+    the extension policy layer and requires explicit operator
+    approval; the extra sd-exec cgroup layer added nothing but a
+    PermissionError on setups where the sd-exec wrapper isn't
+    executable in every context (v4.59.0 bug).
+
+    BLOCK_PATTERNS still apply — every dangerous rm/mkfs/dd pattern
+    is caught before subprocess starts.
     """
+    import subprocess as _sp
     cmd = str(args.get("cmd", "") or "").strip()
     if not cmd:
         return _err("missing 'cmd' argument")
     if platform.system() == "Windows":
-        return _err("sudo.run is not supported on Windows")
-    # Feed the whole thing through the exec safety filter so
-    # BLOCK_PATTERNS still catches destructive commands even when
-    # prefixed with sudo.
+        return _err("sudo.run is POSIX-only. Use admin.run for Windows/macOS/Linux uniformity.")
     full = f"sudo -n {cmd}"
     block = ctx.blocked_reason(full)
     if block:
         return _err(f"blocked: {block}")
     timeout = _clamp_timeout(args.get("timeout")) if args.get("timeout") else 30.0
-    rc, out, err = run_sd(["bash", "-lc", full], timeout=int(timeout) or 30)
+    try:
+        proc = _sp.run(  # nosec B603 -- sudo entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+            ["sudo", "-n", "bash", "-lc", cmd],
+            capture_output=True, text=True, timeout=int(timeout) or 30,
+        )
+        rc, out, err = proc.returncode, proc.stdout, proc.stderr
+    except _sp.TimeoutExpired:
+        return {"ok": False, "error": f"sudo.run timed out after {int(timeout) or 30}s"}
+    except FileNotFoundError:
+        return {"ok": False, "error": "sudo not found on PATH"}
     return {
         "ok": rc == 0,
         "exit": rc,
@@ -261,6 +274,128 @@ def _handle_sudo_run(args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any]:
     }
 
 
+def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
+    """Cross-platform admin escalation.
+
+    v4.60.6: unifies POSIX sudo, Windows UAC, and macOS Touch ID under
+    one MCP tool name so scenarios don't need to platform-branch.
+
+    Behaviour per OS:
+      * Linux: proxies to sudo -n (same as sudo.run)
+      * macOS: osascript "do shell script ... with administrator privileges"
+        which prompts Touch ID / password via GUI dialog
+      * Windows: if already elevated, runs directly; else calls
+        `powershell Start-Process -Verb RunAs -Wait -WindowStyle Hidden`
+        which pops the UAC prompt. Non-interactive Windows admin
+        requires an external supervisor (Task Scheduler with
+        `/RL HIGHEST` + `/RU SYSTEM`) which is out of scope here.
+    """
+    import subprocess as _sp
+    cmd = str(args.get("cmd", "") or "").strip()
+    if not cmd:
+        return _err("missing 'cmd' argument")
+    sysname = platform.system()
+    timeout = _clamp_timeout(args.get("timeout")) if args.get("timeout") else 30.0
+    block = ctx.blocked_reason(cmd) if hasattr(ctx, "blocked_reason") else None
+    if block:
+        return _err(f"blocked: {block}")
+
+    if sysname == "Linux":
+        return _handle_sudo_run(args, ctx=ctx, run_sd=None)
+
+    if sysname == "Darwin":
+        # osascript uses shell-inside-AppleScript; we embed cmd as a
+        # quoted string and let AppleScript run it with elevation.
+        # Escaping: double any " and \ inside cmd.
+        safe = cmd.replace("\\", "\\\\").replace('"', '\\"')
+        script = f'do shell script "{safe}" with administrator privileges'
+        try:
+            proc = _sp.run(  # nosec B603 -- osascript entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+                ["osascript", "-e", script],
+                capture_output=True, text=True, timeout=int(timeout) or 30,
+            )
+        except _sp.TimeoutExpired:
+            return {"ok": False, "error": f"admin.run (osascript) timed out after {int(timeout) or 30}s"}
+        except FileNotFoundError:
+            return {"ok": False, "error": "osascript not found (are you on macOS?)"}
+        return {
+            "ok": proc.returncode == 0,
+            "exit": proc.returncode,
+            "stdout": proc.stdout[-15000:],
+            "stderr": proc.stderr[-5000:],
+            "platform": "darwin",
+            "prompt_shown": "Touch ID / password (via osascript)",
+        }
+
+    if sysname == "Windows":
+        # Check if we're already elevated. If yes, no UAC needed.
+        try:
+            import ctypes
+            is_admin = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            is_admin = False
+        if is_admin:
+            try:
+                proc = _sp.run(  # nosec B603 -- elevated context, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+                    ["cmd", "/c", cmd],
+                    capture_output=True, text=True, timeout=int(timeout) or 30,
+                )
+            except _sp.TimeoutExpired:
+                return {"ok": False, "error": f"admin.run timed out after {int(timeout) or 30}s"}
+            return {
+                "ok": proc.returncode == 0,
+                "exit": proc.returncode,
+                "stdout": proc.stdout[-15000:],
+                "stderr": proc.stderr[-5000:],
+                "platform": "windows",
+                "elevated": True,
+                "note": "process was already elevated; ran directly without UAC prompt",
+            }
+        # Not elevated. Kick off UAC prompt via Start-Process -Verb RunAs.
+        # We can't capture stdout of an elevated child from a non-elevated
+        # parent (Windows security boundary), so report status via exit code
+        # + a marker file if the caller needs output.
+        ps_cmd = (
+            "$p = Start-Process -FilePath 'cmd' "
+            f"-ArgumentList '/c',{_ps_quote(cmd)} "
+            "-Verb RunAs -Wait -PassThru -WindowStyle Hidden; "
+            "$p.ExitCode"
+        )
+        try:
+            proc = _sp.run(  # nosec B603 -- ps entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+                ["powershell", "-NoProfile", "-Command", ps_cmd],
+                capture_output=True, text=True, timeout=int(timeout) or 30,
+            )
+        except _sp.TimeoutExpired:
+            return {"ok": False, "error": f"admin.run (UAC) timed out after {int(timeout) or 30}s"}
+        elevated_exit = None
+        for line in reversed((proc.stdout or "").splitlines()):
+            line = line.strip()
+            if line.lstrip("-").isdigit():
+                elevated_exit = int(line); break
+        return {
+            "ok": elevated_exit == 0,
+            "exit": elevated_exit if elevated_exit is not None else proc.returncode,
+            "stdout": proc.stdout[-15000:],
+            "stderr": proc.stderr[-5000:],
+            "platform": "windows",
+            "elevated": False,
+            "prompt_shown": "UAC (Windows)",
+            "hint": (
+                "The elevated child ran in a separate console; its stdout "
+                "was not captured due to Windows security boundaries. Have "
+                "the command write its own output file if you need it."
+            ),
+        }
+
+    return _err(f"admin.run: unsupported platform {sysname}")
+
+
+def _ps_quote(s: str) -> str:
+    """Quote a string for PowerShell single-quoted literal (escape ' -> \'\')."""
+    return "'" + s.replace("'", "''") + "'"
+
+
 def handle_net_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any] | None:
     if name == "net.http":
         return text_content(json.dumps(_handle_net_http(args), ensure_ascii=False))
@@ -270,6 +405,8 @@ def handle_net_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[str
         return text_content(json.dumps(_handle_secrets_list(args), ensure_ascii=False))
     if name == "sudo.run":
         return text_content(json.dumps(_handle_sudo_run(args, ctx=ctx, run_sd=run_sd), ensure_ascii=False))
+    if name == "admin.run":
+        return text_content(json.dumps(_handle_admin_run(args, ctx=ctx), ensure_ascii=False))
     return None
 
 

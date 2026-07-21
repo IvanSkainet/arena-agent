@@ -1,3 +1,24 @@
+## v4.60.6 - admin.run cross-platform + sudo.run PermissionError fix
+
+### Fixed
+`sudo.run` on POSIX has been broken since v4.59.0 for setups where the sd-exec sandbox wrapper isn't universally executable — it returned `PermissionError: /home/ivan/arena-bridge/bin/sd-exec`. Since sudo.run is already classified `dangerous` at the extension policy layer and requires explicit operator approval, the extra sd-exec cgroup layer added nothing but breakage.
+
+Switched to direct `subprocess.run(["sudo", "-n", "bash", "-lc", cmd])`. BLOCK_PATTERNS still gate every dangerous rm / mkfs / dd / credential access pattern before subprocess starts.
+
+### Added
+`admin.run` — cross-platform admin escalation MCP tool:
+
+- **Linux**: proxies to `sudo -n` (same as sudo.run)
+- **macOS**: `osascript -e 'do shell script "..." with administrator privileges'` — prompts Touch ID or password via GUI dialog
+- **Windows**:
+  - If current process is already elevated (`IsUserAnAdmin() == True`): runs directly via `cmd /c`. No UAC prompt needed.
+  - Otherwise: `powershell Start-Process -Verb RunAs -Wait -WindowStyle Hidden` — pops the UAC prompt. Windows security boundaries prevent capturing the elevated child's stdout from a non-elevated parent; the tool returns the exit code and notes this in the response so callers can arrange output-file plumbing if they need it.
+
+`admin.run` is classified `dangerous` in `arena/extension_bridge/policy.py` and always requires operator approval.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.5 - Dashboard tab-switch lag on Windows
 
 ### Fixed

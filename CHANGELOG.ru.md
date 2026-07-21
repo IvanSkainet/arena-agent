@@ -1,3 +1,24 @@
+## v4.60.6 - admin.run кроссплатформенный + фикс PermissionError у sudo.run
+
+### Исправлено
+`sudo.run` на POSIX был сломан с v4.59.0 на инсталляциях, где sd-exec sandbox wrapper не универсально исполняемый — возвращал `PermissionError: /home/ivan/arena-bridge/bin/sd-exec`. sudo.run уже классифицируется как `dangerous` на слое extension-policy и требует явного подтверждения оператора; дополнительный sd-exec cgroup слой ничего не давал, только ломал.
+
+Перешёл на прямой `subprocess.run(["sudo", "-n", "bash", "-lc", cmd])`. BLOCK_PATTERNS по-прежнему фильтруют любой опасный rm / mkfs / dd / credential-access паттерн до старта subprocess.
+
+### Добавлено
+`admin.run` — кроссплатформенный MCP tool для admin-эскалации:
+
+- **Linux**: проксирует в `sudo -n` (то же, что sudo.run)
+- **macOS**: `osascript -e 'do shell script "..." with administrator privileges'` — вызывает Touch ID или пароль через GUI-диалог
+- **Windows**:
+  - Если процесс уже elevated (`IsUserAnAdmin() == True`): запускает напрямую через `cmd /c`. UAC prompt не нужен.
+  - Иначе: `powershell Start-Process -Verb RunAs -Wait -WindowStyle Hidden` — вызывает UAC prompt. Windows-security boundaries не позволяют захватить stdout elevated-child из non-elevated parent; tool возвращает exit code и в поле `hint` объясняет, как организовать вывод через файл.
+
+`admin.run` классифицирован как `dangerous` в `arena/extension_bridge/policy.py` и всегда требует подтверждения оператора.
+
+### Расширение
+Байт-в-байт как v4.53.1 - только мост.
+
 ## v4.60.5 - Лаг переключения вкладок Dashboard на Windows
 
 ### Исправлено

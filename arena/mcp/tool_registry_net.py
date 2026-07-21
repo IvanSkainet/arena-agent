@@ -57,6 +57,24 @@ NET_MCP_TOOLS = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "admin.run",
+        "description": (
+            "Cross-platform admin escalation. Linux/macOS proxies to sudo/Touch ID; "
+            "Windows tries direct execution if already elevated, otherwise pops UAC "
+            "via `powershell Start-Process -Verb RunAs`. Under the same "
+            "BLOCK_PATTERNS gate as sudo.run and classified `dangerous` — always "
+            "requires operator approval at the extension policy layer."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "cmd": {"type": "string"},
+                "timeout": {"type": "integer", "default": 30},
+            },
+            "required": ["cmd"],
+        },
+    },
+    {
         "name": "sudo.run",
         "description": (
             "Run a command through 'sudo -n <cmd>' (non-interactive). "

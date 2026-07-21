@@ -51,7 +51,7 @@ _DANGEROUS_TOOLS = {
     # v4.56.0: mobile.* full-shell / IME hijack surfaces.
     "mobile.shell", "mobile.ime_set", "mobile.ime_reset",
     # v4.57.0: sudo runner.
-    "sudo.run",
+    "sudo.run", "admin.run",
     # v4.59.0: real GUI control + writing to device fs.
     "mobile.push_file", "desktop.click", "desktop.type", "desktop.key", "desktop.mouse",
 }
