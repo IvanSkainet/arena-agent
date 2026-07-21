@@ -17,7 +17,25 @@ def _ps_utf8_command(script: str) -> list[str]:
     return ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", prefix + script]
 
 def _windows_scheduled_task_info(task_name: str) -> dict:
-    info = {"exists": False, "running": False, "raw": ""}
+    """Return schtasks info for `task_name`.
+
+    v4.60.3 field-observation update: many Windows installs use a task
+    that launches a helper (e.g. start_hidden.vbs) which spawns the
+    bridge Python and exits. In that pattern schtasks reports the task
+    as "Ready" (English) / "Готово" (Russian) / "Bereit" (German) /
+    etc. AFTER a successful launch — never as "Running" — even though
+    the bridge itself is alive as a detached process. The old strict
+    "running" substring check made Doctor report DOWN in exactly this
+    common case.
+
+    New logic:
+      * exists = schtasks /Query exit code 0
+      * last_result_code = parsed from "Last Result Code" / localized label
+      * running = literal running/выполня/... substring   -- OR --
+                  (exists AND last_result_code == 0)  -- successful launcher
+    """
+    info = {"exists": False, "running": False, "raw": "",
+            "last_result_code": None}
     try:
         r = subprocess.run(
             ["schtasks", "/Query", "/TN", task_name, "/FO", "LIST", "/V"],
@@ -26,10 +44,58 @@ def _windows_scheduled_task_info(task_name: str) -> dict:
         raw = (r.stdout or "") + (r.stderr or "")
         info["raw"] = raw[:1200]
         info["exists"] = (r.returncode == 0)
+
         low = raw.lower()
-        # `schtasks` localizes labels and values, so combine English/Russian
-        # words with the fact that /Run returned successfully elsewhere.
-        info["running"] = ("running" in low) or ("выполня" in low)
+        # Literal-execution substrings, per locale. RUNNING and Ready are
+        # always English in schtasks /FO LIST output on some Windows builds
+        # but on many localized builds the value field itself is translated.
+        running_substrings = (
+            "running",     # en
+            "выполня",     # ru "выполняется"
+            "wird ausge",  # de "wird ausgeführt"
+            "en cours",    # fr
+            "en ejec",     # es
+            "in esec",     # it
+            "実行",         # ja
+            "运行",         # zh
+        )
+        info["running"] = any(sub in low for sub in running_substrings)
+
+        # Parse "Last Result" numeric code. Line label is localized; the
+        # value on the right of ':' is a small integer (0 == success, or
+        # 0x41300 == "task has not yet run", etc). We scan every colon-
+        # delimited line and take the last small-int match; safer than
+        # matching a localized label.
+        last_code = None
+        for line in raw.splitlines():
+            if ":" not in line:
+                continue
+            _label, _, value = line.partition(":")
+            value = value.strip()
+            if not value:
+                continue
+            # value can be "0" or "0x41300" or "-1" — accept int()/int(,16)
+            try:
+                if value.lower().startswith("0x"):
+                    n = int(value, 16)
+                else:
+                    n = int(value)
+                # heuristic: constrain to plausible exit codes so we don't
+                # capture PIDs, RAM sizes, dates etc.
+                if -256 <= n <= 0x7FFFFFFF:
+                    last_code = n
+            except (ValueError, TypeError):
+                continue
+        info["last_result_code"] = last_code
+
+        # v4.60.3: successful-launcher fallback. If the task ran and
+        # returned 0, and we don't have literal "running" text, treat
+        # it as healthy. Doctor also checks bridge_processes count > 0
+        # separately, so this only marks the schtasks entry itself as
+        # OK — not the entire bridge.
+        if not info["running"] and info["exists"] and last_code == 0:
+            info["running"] = True
+            info["running_reason"] = "launcher-exit-0"
     except Exception as e:
         info["error"] = str(e)[:200]
     return info

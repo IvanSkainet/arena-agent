@@ -333,6 +333,15 @@ if not errorlevel 1 (
 echo [INFO] bore not found. Installs INSIDE the bridge directory.
 echo       Path: %BRIDGE_DIR%\bore.exe - about 2 MB.
 echo       bore is the zero-account TCP relay through bore.pub - no signup needed.
+echo.
+echo [NOTE] Windows Defender is known to flag bore.exe as a false positive
+echo        (Trojan:Win32/Wacatac.B!ml). bore is a legitimate open-source
+echo        Rust binary from https://github.com/ekzhang/bore (source-buildable,
+echo        MIT-licensed, verified via published SHA256 after download).
+echo        If Defender removes it after install, either:
+echo          - add %BRIDGE_DIR%\bore.exe to Defender exclusions, or
+echo          - skip bore and use tailscale/cloudflared/ngrok instead.
+echo.
 set "BORE_CONFIRM="
 set /p "BORE_CONFIRM=Download bore.exe - about 2 MB - to bridge dir? [y/N]: "
 if /I not "%BORE_CONFIRM%"=="Y" (

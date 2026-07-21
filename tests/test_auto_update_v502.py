@@ -114,9 +114,9 @@ def test_admin_update_js_offers_unverified_install():
 # Inventory cache
 # ------------------------------------------------------------------
 
-def test_hardware_endpoint_has_60s_cache():
+def test_hardware_endpoint_has_hw_cache():
     src = _read("arena/inventory/handlers.py")
-    assert "_HW_CACHE_TTL_SEC = 60.0" in src
+    assert "_HW_CACHE_TTL_SEC = 900.0" in src
     assert "_hw_cache" in src and "_inv_cache" in src
     # Cache lookup + store helpers are present.
     assert "def _cache_lookup(" in src

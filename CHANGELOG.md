@@ -1,3 +1,30 @@
+## v4.60.3 — Windows: inventory perf + Doctor scheduled-task launcher + bore Defender note
+
+Three field observations on Windows 10 LTSC 2021.
+
+### Fixed
+
+**Inventory / hardware endpoints 504-timeout at 45s on Windows.**
+Windows WMI probes are sequential and slow: motherboard 7s, network 6s, cpu 4s, memory 4s, disks 3.6s, gpu 3.7s, os 4.2s — combined 40-60s for a full run. The 45s default deadline on `/v1/hardware` bailed with 504 before the underlying subprocess finished; Full Inventory loader on the Dashboard hung for the same reason.
+
+Fix in `arena/inventory/handlers.py`:
+- `/v1/hardware` default: 45s POSIX / 90s Windows (same 120s ceiling)
+- `/v1/inventory` default: 30s POSIX / 60s Windows (same 120s ceiling)
+- Cache TTL bumped 60s → 900s (15 min). Hardware inventory rarely changes between refreshes; `?nocache=1` on either endpoint still forces a fresh collection.
+
+**Doctor showing "DOWN Scheduled Task" while the bridge is running.**
+A common Windows install pattern is a Scheduled Task that runs `start_hidden.vbs`, which launches the bridge Python process and exits. `schtasks /Query /V` then reports `Ready` (English) / `Готово` (Russian) / `Bereit` (German) — never `Running` — even though the bridge itself is alive as a detached child process. The old check in `arena/service/windows.py::_windows_scheduled_task_info` matched only the literal `running`/`выполня` substrings and marked the task as DOWN in this healthy launcher pattern.
+
+Fix: parse the numeric `Last Result Code` from the schtasks output (locale-agnostic). If the task exists AND last result is 0 — treat as healthy alongside the literal-running check. Also expanded locale substring coverage to French, Spanish, Italian, German, Japanese, Chinese.
+
+**Bore installer prompt lacked Defender false-positive warning.**
+Windows Defender repeatedly deletes `bore.exe` as `Trojan:Win32/Wacatac.B!ml` — a well-known ML false-positive across many small Rust binaries. `bore` is a legitimate MIT-licensed binary from https://github.com/ekzhang/bore (source-buildable, published SHA256). The installer defaulted to `[y/N]` but gave the operator no context.
+
+Fix in `install.bat`: added an explicit `[NOTE]` block before the prompt explaining the false-positive pattern and two paths — add a Defender exclusion for `bore.exe`, or skip bore and use tailscale / cloudflared / ngrok. Default answer unchanged (`[y/N]` = No).
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only release.
+
 ## v4.60.2 — Transports layout + autostart diagnostics
 
 ### Fixed

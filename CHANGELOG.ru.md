@@ -1,3 +1,30 @@
+## v4.60.3 — Windows: производительность инвентаря + Doctor scheduled-task launcher + предупреждение о Defender для bore
+
+Три полевых наблюдения на Windows 10 LTSC 2021.
+
+### Исправлено
+
+**Inventory / hardware эндпоинты валят 504 на 45с на Windows.**
+WMI-пробы на Windows идут последовательно и медленно: motherboard 7с, network 6с, cpu 4с, memory 4с, disks 3.6с, gpu 3.7с, os 4.2с — суммарно 40-60с на полный проход. Дефолтный дедлайн 45с у `/v1/hardware` завершался 504 до того, как подпроцесс успевал закончить; Full Inventory на Dashboard висел по той же причине.
+
+Фикс в `arena/inventory/handlers.py`:
+- `/v1/hardware` дефолт: 45с POSIX / 90с Windows (та же верхняя граница 120с)
+- `/v1/inventory` дефолт: 30с POSIX / 60с Windows (та же 120с)
+- Cache TTL поднят с 60с до 900с (15 мин). Hardware inventory редко меняется между refresh; `?nocache=1` всё ещё форсирует свежий сбор.
+
+**Doctor показывает «DOWN Scheduled Task», когда мост запущен.**
+Типичный Windows-паттерн установки — Scheduled Task, запускающий `start_hidden.vbs`, который стартует Python-процесс моста и выходит. `schtasks /Query /V` тогда возвращает `Ready` (en) / `Готово` (ru) / `Bereit` (de) — но никогда `Running`, потому что сам таск не выполняется, только его дочерний процесс. Старая проверка в `arena/service/windows.py::_windows_scheduled_task_info` искала только литералы `running` / `выполня` и в здоровом launcher-паттерне помечала таск как DOWN.
+
+Фикс: парсим числовой `Last Result Code` из вывода schtasks (локализация не мешает — это всегда маленькое целое). Если таск существует и last result = 0 — считаем OK, независимо от литерала. Расширил локали для substring: французский, испанский, итальянский, немецкий, японский, китайский.
+
+**У инсталлятора bore нет предупреждения о Defender false-positive.**
+Windows Defender систематически удаляет `bore.exe` как `Trojan:Win32/Wacatac.B!ml` — известный ML false-positive для многих малых Rust бинарей. `bore` — легитимный MIT-лицензированный binary с https://github.com/ekzhang/bore (собирается из исходников, публичный SHA256). Инсталлятор по умолчанию говорил `[y/N]`, но не давал оператору контекста.
+
+Фикс в `install.bat`: добавил явный блок `[NOTE]` перед промптом с объяснением паттерна false-positive и двумя путями — добавить exclusion для `bore.exe` в Defender, либо пропустить bore и использовать tailscale / cloudflared / ngrok. Дефолт ответа не меняется (`[y/N]` = No).
+
+### Расширение
+Байт-в-байт как v4.53.1 — только мост.
+
 ## v4.60.2 — Layout Transports + диагностика autostart
 
 ### Исправлено

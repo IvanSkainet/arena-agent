@@ -16,7 +16,10 @@ from arena.handler_helpers import authed, err_json
 # of two full WMI startups (~ 30 s each). Cache is process-local; a
 # bridge restart flushes it. `nocache=1` query param on either
 # endpoint forces a fresh collection.
-_HW_CACHE_TTL_SEC = 60.0
+# v4.60.3: bumped from 60s to 15 min. Hardware/inventory rarely change
+# and a full Windows WMI run is 40-60s of process time. `nocache=1`
+# on either endpoint still forces a fresh collection.
+_HW_CACHE_TTL_SEC = 900.0
 _hw_cache: dict = {"at": 0.0, "result": None, "opts_key": None}
 _inv_cache: dict = {"at": 0.0, "result": None, "opts_key": None}
 
@@ -62,10 +65,15 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
         if fmt not in ("text", "json"):
             return ctx.cors_json_response({"ok": False, "error": "format must be 'text' or 'json'"}, status=400)
         try:
-            timeout = int(request.query.get("timeout", "30"))
+            # v4.60.3: Windows WMI slower than POSIX. Default 30s POSIX,
+            # 60s Windows. Same 120s ceiling.
+            import sys as _sys
+            _default_inv_timeout = 60 if _sys.platform == "win32" else 30
+            timeout = int(request.query.get("timeout", str(_default_inv_timeout)))
             timeout = min(max(5, timeout), 120)
         except Exception:
-            timeout = 30
+            import sys as _sys
+            timeout = 60 if _sys.platform == "win32" else 30
         loop = asyncio.get_running_loop()
         nocache = (request.query.get("nocache", "0").lower() in ("1", "true", "yes"))
         key = (section or "", fmt, int(timeout))
@@ -85,10 +93,15 @@ def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:
     async def handle_v1_hardware(request: web.Request) -> web.Response:
         """GET /v1/hardware — Canonical rich hardware/system inventory."""
         try:
-            timeout = int(request.query.get("timeout", "45"))
+            # v4.60.3: Windows WMI probes need more headroom. Default
+            # 45s on POSIX (unchanged), 90s on Windows. Same 120s ceiling.
+            import sys as _sys
+            _default_timeout = 90 if _sys.platform == "win32" else 45
+            timeout = int(request.query.get("timeout", str(_default_timeout)))
             timeout = min(max(10, timeout), 120)
         except Exception:
-            timeout = 45
+            import sys as _sys
+            timeout = 90 if _sys.platform == "win32" else 45
         include_inventory = (request.query.get("include_inventory", "1").lower() not in ("0", "false", "no"))
         nocache = (request.query.get("nocache", "0").lower() in ("1", "true", "yes"))
         key = (int(timeout), include_inventory)
