@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import platform
 import os
 from pathlib import Path
 from unittest import mock
@@ -43,9 +44,10 @@ def test_pyproject_version_is_4_57_0():
 # ------------------------------------------------------------------
 # Registry
 # ------------------------------------------------------------------
-def test_net_registry_declares_four_tools():
+def test_net_registry_declares_all_tools():
+    """v4.60.6: added admin.run alongside sudo.run for cross-platform coverage."""
     names = {t["name"] for t in NET_MCP_TOOLS}
-    assert names == {"net.http", "secrets.get", "secrets.list", "sudo.run"}
+    assert names == {"net.http", "secrets.get", "secrets.list", "sudo.run", "admin.run"}
 
 
 def test_net_tools_appear_in_MCP_TOOLS():
@@ -162,6 +164,7 @@ def test_secrets_missing_file_returns_empty(tmp_path, monkeypatch):
 # ------------------------------------------------------------------
 # sudo.run
 # ------------------------------------------------------------------
+@pytest.mark.skipif(platform.system() == "Windows", reason="sudo.run is POSIX-only")
 def test_sudo_run_requires_cmd():
     class _Ctx:
         def blocked_reason(self, _): return None
@@ -170,6 +173,7 @@ def test_sudo_run_requires_cmd():
     assert isinstance(out, dict) and out.get("isError")
 
 
+@pytest.mark.skipif(platform.system() == "Windows", reason="sudo.run is POSIX-only")
 def test_sudo_run_blocked_by_pattern():
     """rm -rf / must be caught by BLOCK_PATTERNS even when routed through sudo.run."""
     class _Ctx:
@@ -184,19 +188,38 @@ def test_sudo_run_blocked_by_pattern():
     assert "blocked" in out["content"][0]["text"].lower()
 
 
-def test_sudo_run_success_path():
+@pytest.mark.skipif(platform.system() == "Windows", reason="sudo.run is POSIX-only")
+def test_sudo_run_success_path(monkeypatch):
+    """v4.60.6: sudo.run now calls subprocess.run directly (was run_sd).
+    Mock subprocess to verify it received the right argv and returned the
+    stubbed stdout back through the tool wrapper."""
     captured = {}
-    def _fake_run(cmd, *, timeout):
-        captured["cmd"] = cmd
+    class _Result:
+        returncode = 0
+        stdout = "hello"
+        stderr = ""
+    def _fake_sp_run(argv, *, capture_output=None, text=None, timeout=None):
+        captured["argv"] = list(argv)
         captured["timeout"] = timeout
-        return (0, "hello", "")
+        return _Result()
     class _Ctx:
         def blocked_reason(self, _): return None
-    out = handle_net_tool("sudo.run", {"cmd": "id"}, ctx=_Ctx(), run_sd=_fake_run)
+    import arena.mcp.tool_net as _tn
+    monkeypatch.setattr(_tn, "subprocess", type("S", (), {
+        "run": staticmethod(_fake_sp_run),
+        "TimeoutExpired": Exception,
+    }))
+    # Also import subprocess as `_sp` inside the function — patch that.
+    import subprocess as _real_sp
+    monkeypatch.setattr(_real_sp, "run", _fake_sp_run)
+    out = handle_net_tool("sudo.run", {"cmd": "id"}, ctx=_Ctx(), run_sd=None)
     parsed = json.loads(out["content"][0]["text"])
     assert parsed["ok"] is True
     assert parsed["stdout"] == "hello"
-    assert captured["cmd"][2].startswith("sudo -n id")
+    # argv is ["sudo","-n","bash","-lc","id"]
+    assert captured["argv"][0] == "sudo"
+    assert captured["argv"][1] == "-n"
+    assert "id" in captured["argv"]
 
 
 # ------------------------------------------------------------------
