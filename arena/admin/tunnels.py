@@ -240,13 +240,31 @@ def _zerotier_snapshot(
     ]
     public_url = public_urls[0] if public_urls else None
 
+    # v4.60.1: ZeroTier's "connected" (from `zerotier-cli status`) reports
+    # planet-connectivity — whether ZT talks to a root server. On hosts
+    # behind restrictive NAT / offline planet, `status` prints OFFLINE
+    # even when the daemon happily peers with a local network via cached
+    # roots or LAN discovery, and the node has an assigned IP. Previously
+    # this made `active=false`, so both Overview (○ installed) and
+    # Transports (down) disagreed with reality — the URL http://<ip>:port
+    # worked, but the UI said the transport was inactive.
+    #
+    # Fix: recognise "LAN-only connected" — if there is at least one
+    # active network AND an assigned IP, consider the transport active
+    # regardless of what CLI status reports for planet-connectivity.
+    lan_connected = bool(active_nets) and bool(all_ips)
+    connected = bool(zt.get("connected")) or lan_connected
     return {
         "provider": "zerotier",
         "installed": bool(raw.get("installed")),
         "backend": raw.get("backend"),
         "cli_source": raw.get("cli_source"),
-        "connected": bool(zt.get("connected")),
-        "active": bool(zt.get("connected")) and bool(active_nets) and bool(all_ips),
+        "connected": connected,
+        # v4.60.1: was `connected AND active_nets AND all_ips`; the extra
+        # `connected` guard is redundant now that `connected` is a superset.
+        # Keep active as the stronger predicate: real network with real IP.
+        "active": lan_connected,
+        "planet_connected": bool(zt.get("connected")),
         "public_url": public_url,
         "public_urls": public_urls,
         "public_kind": "http-lan",

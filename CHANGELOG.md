@@ -1,3 +1,23 @@
+## v4.60.1 — ZeroTier LAN-only connectivity honestly recognised
+
+### Fixed
+`_zerotier_snapshot()` in `arena/admin/tunnels.py` previously used the CLI-reported `connected` flag directly. The ZeroTier CLI `status` command reports **planet-connectivity** — whether the daemon can reach a root server. On hosts behind restrictive NAT (or with a temporarily unreachable planet), that field prints `OFFLINE` even when the daemon happily peers with a local network via cached roots or LAN discovery, and the node has an assigned IP.
+
+Consequence: the transport was marked `active=False`, so the Overview card rendered `○` (installed but not active) while the Transports tab showed disagreement, even though `curl http://<zt-ip>:port` worked fine.
+
+Fix: recognise "LAN-only connected" — an active network plus an assigned IP is enough to consider the transport up. Planet status is now surfaced separately as `planet_connected` for callers that need it.
+
+### Semantic change
+- `connected` is now `zt.connected OR (active_nets AND assigned_ip)` — a superset of the old value.
+- `active` is now `active_nets AND assigned_ip` — matches "the URL works".
+- `planet_connected` is new — the raw `zt.connected` for callers that care about root-server reachability specifically.
+
+### Contract tests
+Three new tests in `tests/test_tunnels_probe.py` lock all three states: LAN-only (new), planet-online (existing behavior preserved), planet-offline-no-networks (still honestly inactive).
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only.
+
 ## v4.60.0 — real-world bug pass (Ivan's list #2, #7, #9 seed) + CI green streak
 
 Ivan came back from Windows / GNU/Linux + ZeroTier practice with 10 concrete field bugs. Not a feature release — a *listening* release. Three items fixed here; the rest queued as separate work.

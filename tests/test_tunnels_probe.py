@@ -219,3 +219,55 @@ def test_tunnels_probe_zerotier_dial_local_server(monkeypatch):
     finally:
         stop.set()
         t.join(timeout=3)
+
+
+# v4.60.1: ZT with active networks + assigned IP but planet OFFLINE
+# should still be considered active/connected in the transport
+# snapshot. Fixes UI disagreement where the URL worked but the
+# transport was marked down.
+def test_zerotier_snapshot_lan_only_connected():
+    """Planet OFFLINE + active LAN network + IP -> active=True, connected=True."""
+    def _stub():
+        return {
+            "ok": True, "installed": True, "backend": "cli",
+            "zerotier": {"node_id": "aabbccddee", "version": "1.16",
+                         "connected": False, "online": False},
+            "networks": [{"nwid": "abcdef0123456789", "active": True,
+                          "assignedAddresses": ["10.57.0.1/24"]}],
+            "active_count": 1,
+        }
+    snap = _zerotier_snapshot(_stub, port=8765)
+    assert snap["active"] is True, "active must be True with active LAN"
+    assert snap["connected"] is True, "connected must be True (superset)"
+    assert snap["planet_connected"] is False, "planet honestly reported offline"
+    assert snap["public_url"] == "http://10.57.0.1:8765"
+
+
+def test_zerotier_snapshot_planet_online_still_reports_planet_connected():
+    """Backwards compat: when the CLI reports connected=True (planet up),
+    planet_connected should be True too."""
+    def _stub():
+        return {
+            "ok": True, "installed": True,
+            "zerotier": {"node_id": "aabbccddee", "connected": True, "online": True},
+            "networks": [{"nwid": "abcdef0123456789", "active": True,
+                          "assignedAddresses": ["10.57.0.1/24"]}],
+            "active_count": 1,
+        }
+    snap = _zerotier_snapshot(_stub, port=8765)
+    assert snap["planet_connected"] is True
+    assert snap["connected"] is True
+    assert snap["active"] is True
+
+
+def test_zerotier_snapshot_offline_and_no_networks_stays_inactive():
+    """Planet OFFLINE + no active networks -> honestly inactive."""
+    def _stub():
+        return {
+            "ok": True, "installed": True,
+            "zerotier": {"connected": False}, "networks": [], "active_count": 0,
+        }
+    snap = _zerotier_snapshot(_stub, port=8765)
+    assert snap["active"] is False
+    assert snap["connected"] is False
+    assert snap["planet_connected"] is False
