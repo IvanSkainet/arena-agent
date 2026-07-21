@@ -1,3 +1,22 @@
+## v4.60.4 - Windows auto-update actually restarts the bridge
+
+### Fixed
+Field observation from Windows 10 LTSC 2021: Dashboard `Settings > Install` reported success, but the running bridge version never changed. The install kept saying `Bridge v4.60.2` even after multiple runs; the operator had to fall back to `install.bat` from a fresh zip.
+
+Root cause traced in `arena/admin/auto_update.py`:
+- `apply_update()` on Windows spawns `.arena-update-apply.cmd` detached. The cmd waits for the bridge PID to exit, then robocopies files.
+- `restart_process()` on Windows returned `{"restart": "pending"}` and did nothing else. The comment said "Windows service supervisor must relaunch bridge" but the "supervisor" is a Scheduled Task that only ran at boot and does not know about the Python child.
+- Result: bridge PID never exits, mover script waits forever, files never get copied, version never changes.
+
+Two-part fix:
+1. `restart_process` on Windows now schedules `os._exit(0)` in a background thread (delay 0.5s so the HTTP response drains first), matching the POSIX `os.execv` pattern.
+2. `_write_windows_installer` mover script, after copying files, tries in order: `schtasks /Run /TN <task_name>` → `wscript.exe start_hidden.vbs` → `start_bridge.bat`. Closes the loop so the Install button actually results in a running bridge on the new version.
+
+Task name resolution honours `ARENA_TASK_NAME` and `ARENA_SERVICE_NAME` env vars (same shape as service-status check), defaulting to `ArenaUnifiedBridge`.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.3 — Windows: inventory perf + Doctor scheduled-task launcher + bore Defender note
 
 Three field observations on Windows 10 LTSC 2021.

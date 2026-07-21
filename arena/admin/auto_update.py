@@ -447,7 +447,30 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
             f'if exist "{s}\\*" ( robocopy "{s}" "{d}" /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:1 ) '
             f'else ( if exist "{s}" copy /Y "{s}" "{d}" >NUL )'
         )
+    # v4.60.4: after copy, tell the operator's service supervisor to
+    # relaunch us. We try Scheduled Task first (Ivan's install path),
+    # then fall back to start_hidden.vbs (older installs), then to a
+    # plain python invocation (last-ditch). This closes the loop so
+    # the Dashboard's "Install" button actually results in a running
+    # bridge on the new version, not just a successful file swap.
+    task_name = os.environ.get("ARENA_TASK_NAME", "").strip() or                 os.environ.get("ARENA_SERVICE_NAME", "").strip() or                 "ArenaUnifiedBridge"
+    vbs = f"{dst}\\start_hidden.vbs"
+    bat = f"{dst}\\start_bridge.bat"
     lines.append(f'echo done > "{done_marker.as_posix().replace("/", chr(92))}"')
+    # Try Scheduled Task
+    lines.append(f'schtasks /Run /TN "{task_name}" >NUL 2>&1')
+    lines.append('if not errorlevel 1 goto relaunched')
+    # Fallback 1: start_hidden.vbs (installer creates this)
+    lines.append(f'if exist "{vbs}" (')
+    lines.append(f'  wscript.exe "{vbs}"')
+    lines.append(f'  goto relaunched')
+    lines.append(f')')
+    # Fallback 2: start_bridge.bat
+    lines.append(f'if exist "{bat}" (')
+    lines.append(f'  start "" /B "{bat}"')
+    lines.append(f'  goto relaunched')
+    lines.append(f')')
+    lines.append(':relaunched')
     script.write_text("\r\n".join(lines), encoding="utf-8")
     return script
 
@@ -550,12 +573,36 @@ def restart_process(*, delay_sec: float = 0.5) -> dict[str, Any]:
     """Best-effort restart of the current Python process.
 
     On Unix we re-exec into `sys.argv`; the systemd unit picks it up
-    as a clean restart. On Windows we just return -- the caller
-    (dashboard, service supervisor) must relaunch us.
+    as a clean restart.
+
+    On Windows (v4.60.4 fix) we schedule an os._exit() in a background
+    thread so the HTTP response can flush first, then the process
+    dies. The paired mover .cmd script (see _write_windows_installer)
+    sees our PID disappear, robocopies files, and re-launches the
+    bridge via the Scheduled Task or start_hidden.vbs.
+
+    Prior to v4.60.4 this returned {"restart":"pending"} without
+    doing anything — dashboard Install button reported success but
+    the mover script waited for our PID forever, files never got
+    copied, and the running version never changed.
     """
     if _WIN:
-        return {"ok": True, "restart": "pending",
-                "hint": "Windows service supervisor must relaunch bridge."}
+        # Fire-and-return: HTTP handler wants a JSON body back, so we
+        # can't call os._exit synchronously here. Schedule it a moment
+        # later and let the response drain.
+        import threading
+
+        def _do_win_exit():
+            time.sleep(max(0.5, delay_sec))
+            os._exit(0)
+
+        threading.Thread(target=_do_win_exit, daemon=True).start()
+        return {"ok": True, "restart": "scheduled",
+                "platform": "windows",
+                "delay_sec": max(0.5, delay_sec),
+                "hint": ("Bridge will exit; the mover script "
+                         "(.arena-update-apply.cmd) will relaunch it "
+                         "via Scheduled Task or start_hidden.vbs.")}
     # Give the HTTP handler a moment to flush its response before we
     # replace ourselves.
     import threading

@@ -1,3 +1,22 @@
+## v4.60.4 - Windows auto-update действительно перезапускает мост
+
+### Исправлено
+Полевое наблюдение с Windows 10 LTSC 2021: Dashboard `Settings > Install` рапортует об успехе, но версия работающего моста не меняется. После нескольких попыток он продолжал показывать `Bridge v4.60.2`; оператору пришлось запустить `install.bat` вручную из свежего zip.
+
+Корень в `arena/admin/auto_update.py`:
+- `apply_update()` на Windows запускает `.arena-update-apply.cmd` в detached-режиме. Cmd ждёт завершения PID моста, потом robocopy файлов.
+- `restart_process()` на Windows возвращал `{"restart": "pending"}` и больше ничего не делал. Комментарий утверждал, что "supervisor перезапустит", но "supervisor" — это Scheduled Task, который запустился один раз при старте системы и о Python-процессе ничего не знает.
+- Итог: PID моста не завершается, mover-скрипт ждёт бесконечно, файлы не копируются, версия не меняется.
+
+Двухчастный фикс:
+1. `restart_process` на Windows теперь планирует `os._exit(0)` в фоновом потоке (задержка 0.5с, чтобы HTTP-ответ успел уйти) — тот же паттерн, что POSIX `os.execv`.
+2. `_write_windows_installer` mover-скрипт после копирования файлов пытается по порядку: `schtasks /Run /TN <task_name>` → `wscript.exe start_hidden.vbs` → `start_bridge.bat`. Замыкает цикл — кнопка Install реально приводит к запущенному мосту на новой версии.
+
+Резолюция имени task'а уважает env `ARENA_TASK_NAME` и `ARENA_SERVICE_NAME` (то же, что для service-status), с дефолтом `ArenaUnifiedBridge`.
+
+### Расширение
+Байт-в-байт как v4.53.1 - только мост.
+
 ## v4.60.3 — Windows: производительность инвентаря + Doctor scheduled-task launcher + предупреждение о Defender для bore
 
 Три полевых наблюдения на Windows 10 LTSC 2021.
