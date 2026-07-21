@@ -1,3 +1,22 @@
+## v4.60.5 - Лаг переключения вкладок Dashboard на Windows
+
+### Исправлено
+Полевое наблюдение на Windows: переключение вкладок в боковой панели Dashboard имеет заметный лаг (100-300 мс неотзывчивого UI), которого нет на GNU/Linux с тем же билдом Chromium. Кеш полной страницы не помогает.
+
+Корень найден в двух усиливающих друг друга проблемах в переключателе вкладок:
+
+1. `.tab { display:none } / .tab.active { display:block }`. Переключение display заставляет браузер прогнать layout И paint для всего поддерева, которое становится видимым. На Windows Chromium композиция идёт через ANGLE + DirectComposition, что платит больше per-frame, чем Linux X11/Wayland композиторы. Все 22 tab-body (~132 КБ HTML) постоянно в DOM, поэтому каждое переключение инвалидирует layout по многим узлам.
+
+2. `document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"))` обходил 22 элемента на каждый клик, инвалидируя style для всего набора вместо пары prev+current.
+
+Двухчастный фикс:
+
+- `dashboard/assets/dashboard.css`: заменил `display:none/block` на `content-visibility:hidden/auto` + `contain: layout style paint` + `contain-intrinsic-size`. Скрытые tab-body теперь пропускают layout и paint полностью. На браузерах без поддержки content-visibility (Firefox < 2020, Safari < 15.4) CSS деградирует до нормального box-layout — регрессии нет.
+- `dashboard/assets/01-tab-switching.js`: точечное снятие `.active` с предыдущей nav-ссылки и предыдущего tab-body, точечное добавление на новые. Больше нет forEach по всем 22 элементам на каждый клик.
+
+### Расширение
+Байт-в-байт как v4.53.1 - только мост.
+
 ## v4.60.4 - Windows auto-update действительно перезапускает мост
 
 ### Исправлено

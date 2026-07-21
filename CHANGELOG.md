@@ -1,3 +1,22 @@
+## v4.60.5 - Dashboard tab-switch lag on Windows
+
+### Fixed
+Field observation on Windows: switching between Dashboard sidebar tabs has a visible lag (100-300 ms of unresponsive UI) that does not appear on GNU/Linux with the same Chromium build. Full-page cache does not help.
+
+Root cause traced to two amplifying issues in the tab switcher:
+
+1. `.tab { display:none } / .tab.active { display:block }`. Toggling display forces the browser to run layout AND paint on the entire subtree that becomes visible. On Windows Chromium the compositor path goes through ANGLE + DirectComposition which pays more per-frame cost than Linux X11/Wayland compositors. All 22 tab bodies (~132 KB of HTML) are permanently in the DOM, so every switch invalidates layout across a lot of nodes.
+
+2. `document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"))` swept 22 elements on every click, invalidating style for the entire set instead of just the previous+current pair.
+
+Two-part fix:
+
+- `dashboard/assets/dashboard.css`: replaced `display:none/block` with `content-visibility:hidden/auto` + `contain: layout style paint` + `contain-intrinsic-size`. Off-screen tab bodies now skip layout and paint entirely. On browsers without content-visibility support (Firefox < 2020, Safari < 15.4) the CSS degrades to normal box layout so there's no regression.
+- `dashboard/assets/01-tab-switching.js`: point-remove `.active` from the previous nav link and previous tab body, point-add on the new ones. No more forEach across all 22 elements on every click.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.4 - Windows auto-update actually restarts the bridge
 
 ### Fixed

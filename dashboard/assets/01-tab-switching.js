@@ -22,15 +22,22 @@
     const link = ev.target.closest && ev.target.closest(".sidebar nav a[data-tab]");
     if (!link) return;
 
+    // v4.60.5: point-remove on prev + point-add on new, instead of
+    // forEach across all 22 sidebar links + 22 tab bodies. The old
+    // sweep style-invalidated every element on every click and was a
+    // visible source of the Windows tab-switch lag.
     const prevActive = document.querySelector(".sidebar nav a.active");
     const prevName = prevActive ? prevActive.dataset.tab : null;
 
-    document.querySelectorAll(".sidebar nav a").forEach(x => x.classList.remove("active"));
-    document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+    if (prevActive && prevActive !== link) prevActive.classList.remove("active");
     link.classList.add("active");
     const tabName = link.dataset.tab;
     window.activeTab = tabName;
 
+    if (prevName && prevName !== tabName) {
+      const prevBody = document.getElementById("tab-" + prevName);
+      if (prevBody) prevBody.classList.remove("active");
+    }
     const el = document.getElementById("tab-" + tabName);
     if (el) el.classList.add("active");
 

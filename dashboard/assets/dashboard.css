@@ -10,8 +10,15 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex
 .sidebar nav a.active{background:var(--accent);color:#fff;border-left-color:var(--purple)}
 .sidebar nav a .icon{width:18px;text-align:center;font-size:14px}
 .main{flex:1;padding:24px;overflow-y:auto;max-height:100vh}
-.tab{display:none}
-.tab.active{display:block}
+/* v4.60.5: content-visibility skips layout+paint for off-screen tab
+   bodies entirely, killing the visible tab-switch lag on Windows
+   Chromium (ANGLE + DirectComposition). Old display:none/block
+   caused a full-subtree reflow on every switch; the new form leaves
+   the element in the tree but the browser skips its subtree until
+   it becomes on-screen. contain-intrinsic-size gives the layout a
+   default so the scrollbar doesn't jump. */
+.tab{content-visibility:hidden;contain:layout style paint;height:0;overflow:hidden}
+.tab.active{content-visibility:auto;contain-intrinsic-size:auto 800px;height:auto;overflow:visible}
 h1{font-size:22px;margin-bottom:16px;color:var(--text)}
 h2{font-size:16px;margin:16px 0 8px;color:var(--purple)}
 h3{font-size:14px;margin:12px 0 6px;color:var(--blue)}
