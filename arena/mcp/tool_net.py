@@ -30,6 +30,7 @@ require explicit approval, rather than hiding sudo inside a general
 from __future__ import annotations
 
 import base64
+import subprocess
 import json
 import os
 import platform
@@ -239,7 +240,6 @@ def _handle_sudo_run(args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any]:
     BLOCK_PATTERNS still apply — every dangerous rm/mkfs/dd pattern
     is caught before subprocess starts.
     """
-    import subprocess as _sp
     cmd = str(args.get("cmd", "") or "").strip()
     if not cmd:
         return _err("missing 'cmd' argument")
@@ -251,12 +251,12 @@ def _handle_sudo_run(args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any]:
         return _err(f"blocked: {block}")
     timeout = _clamp_timeout(args.get("timeout")) if args.get("timeout") else 30.0
     try:
-        proc = _sp.run(  # nosec B603 -- sudo entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+        proc = subprocess.run(  # nosec B603 -- sudo entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
             ["sudo", "-n", "bash", "-lc", cmd],
             capture_output=True, text=True, timeout=int(timeout) or 30,
         )
         rc, out, err = proc.returncode, proc.stdout, proc.stderr
-    except _sp.TimeoutExpired:
+    except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"sudo.run timed out after {int(timeout) or 30}s"}
     except FileNotFoundError:
         return {"ok": False, "error": "sudo not found on PATH"}
@@ -290,7 +290,6 @@ def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
         requires an external supervisor (Task Scheduler with
         `/RL HIGHEST` + `/RU SYSTEM`) which is out of scope here.
     """
-    import subprocess as _sp
     cmd = str(args.get("cmd", "") or "").strip()
     if not cmd:
         return _err("missing 'cmd' argument")
@@ -310,11 +309,11 @@ def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
         safe = cmd.replace("\\", "\\\\").replace('"', '\\"')
         script = f'do shell script "{safe}" with administrator privileges'
         try:
-            proc = _sp.run(  # nosec B603 -- osascript entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+            proc = subprocess.run(  # nosec B603 -- osascript entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
                 ["osascript", "-e", script],
                 capture_output=True, text=True, timeout=int(timeout) or 30,
             )
-        except _sp.TimeoutExpired:
+        except subprocess.TimeoutExpired:
             return {"ok": False, "error": f"admin.run (osascript) timed out after {int(timeout) or 30}s"}
         except FileNotFoundError:
             return {"ok": False, "error": "osascript not found (are you on macOS?)"}
@@ -336,11 +335,11 @@ def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
             is_admin = False
         if is_admin:
             try:
-                proc = _sp.run(  # nosec B603 -- elevated context, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+                proc = subprocess.run(  # nosec B603 -- elevated context, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
                     ["cmd", "/c", cmd],
                     capture_output=True, text=True, timeout=int(timeout) or 30,
                 )
-            except _sp.TimeoutExpired:
+            except subprocess.TimeoutExpired:
                 return {"ok": False, "error": f"admin.run timed out after {int(timeout) or 30}s"}
             return {
                 "ok": proc.returncode == 0,
@@ -362,11 +361,11 @@ def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
             "$p.ExitCode"
         )
         try:
-            proc = _sp.run(  # nosec B603 -- ps entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
+            proc = subprocess.run(  # nosec B603 -- ps entrypoint, BLOCK_PATTERNS gate applied above # nosemgrep: dangerous-subprocess-use-audit
                 ["powershell", "-NoProfile", "-Command", ps_cmd],
                 capture_output=True, text=True, timeout=int(timeout) or 30,
             )
-        except _sp.TimeoutExpired:
+        except subprocess.TimeoutExpired:
             return {"ok": False, "error": f"admin.run (UAC) timed out after {int(timeout) or 30}s"}
         elevated_exit = None
         for line in reversed((proc.stdout or "").splitlines()):
