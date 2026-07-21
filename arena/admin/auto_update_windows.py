@@ -11,6 +11,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from arena.admin.auto_update import _REPLACE_TARGETS
+
 
 def _write_windows_installer(payload_root: Path, install_root: Path,
                              done_marker: Path) -> Path:
