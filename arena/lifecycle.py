@@ -34,6 +34,9 @@ class LifecycleContext:
     version: str
     log_info: Callable[..., None]
     log_debug: Callable[..., None]
+    # v4.60.2: promoted autostart errors from log_debug to log_warning
+    # so Windows operators can see failures without --verbose.
+    log_warning: Callable[..., None] | None = None
     # v4.22.1: optional autostart hook for cloudflared. Called in
     # a background executor from on_startup so a slow tunnel spin-
     # up never blocks bridge boot. When None (the default), no
@@ -97,25 +100,48 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
         ]
         for label, hook in autostart_hooks:
             if hook is None:
+                # v4.60.2: log-only diagnostic so operators on Windows can
+                # see why nothing happened on boot. Previously a wired-but-
+                # None hook was silently skipped.
+                ctx.log_info("[%s] Autostart hook not wired (skipped)", label)
                 continue
             async def _autostart_bg(_label=label, _hook=hook):
                 try:
                     outcome = await asyncio.get_running_loop().run_in_executor(
                         ctx.executor, _hook)
-                    if outcome is not None and getattr(outcome, "attempted", False):
-                        if outcome.ok:
-                            ctx.log_info(
-                                "[%s] Autostart OK in %.2fs -- %s",
-                                _label, outcome.duration_sec,
-                                outcome.url or "(no url yet)",
-                            )
-                        else:
-                            ctx.log_info(
-                                "[%s] Autostart FAILED: %s (%.2fs)",
-                                _label, outcome.reason, outcome.duration_sec,
-                            )
+                    if outcome is None:
+                        # v4.60.2: hook returned None (usually means a
+                        # required dependency was not resolved). Surface
+                        # it so Windows debugging is possible.
+                        ctx.log_info(
+                            "[%s] Autostart hook returned None (dependencies not wired?)",
+                            _label,
+                        )
+                        return
+                    if not getattr(outcome, "attempted", False):
+                        # Marker+env both off. Normal, quiet path.
+                        return
+                    if outcome.ok:
+                        ctx.log_info(
+                            "[%s] Autostart OK in %.2fs -- %s",
+                            _label, outcome.duration_sec,
+                            outcome.url or "(no url yet)",
+                        )
+                    else:
+                        # v4.60.2: was log_info; promoted to log_warning so
+                        # it shows in default log filters. Actual failures
+                        # should not require --verbose to diagnose.
+                        (ctx.log_warning or ctx.log_info)(
+                            "[%s] Autostart FAILED: %s (%.2fs)",
+                            _label, outcome.reason, outcome.duration_sec,
+                        )
                 except Exception as e:  # noqa: BLE001
-                    ctx.log_debug("[%s] Autostart raised: %s", _label, e)
+                    # v4.60.2: was log_debug (hidden by default); promoted
+                    # to log_warning + include exception type.
+                    (ctx.log_warning or ctx.log_info)(
+                        "[%s] Autostart raised %s: %s",
+                        _label, type(e).__name__, e,
+                    )
             asyncio.ensure_future(_autostart_bg())
 
     async def on_cleanup(app: web.Application):

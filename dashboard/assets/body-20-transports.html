@@ -36,7 +36,7 @@
   #tab-transports .tr-refresh-dot.err{opacity:1;background:var(--red);animation:tr-pulse 1.4s infinite}
   @keyframes tr-pulse{0%,100%{opacity:1}50%{opacity:0.3}}
   /* Card grid -- one card per transport. */
-  #tab-transports .tr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px}
+  #tab-transports .tr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;justify-content:start}
   #tab-transports .tr-card{border:1px solid var(--accent);border-radius:8px;padding:14px;background:var(--bg2)}
   #tab-transports .tr-card h3{margin:0 0 8px 0;display:flex;align-items:center;gap:8px;font-size:15px}
   #tab-transports .tr-card h3 .tr-icon{font-size:18px}

@@ -33,11 +33,11 @@ def _read(p: str) -> str:
 # Version
 # ------------------------------------------------------------------
 def test_version_is_4_57_0():
-    assert constants.VERSION in ("4.57.0","4.58.0","4.59.0","4.59.1", "4.60.0", "4.60.1")
+    assert constants.VERSION in ("4.57.0","4.58.0","4.59.0","4.59.1", "4.60.0", "4.60.1", "4.60.2")
 
 
 def test_pyproject_version_is_4_57_0():
-    assert any(v in _read("pyproject.toml") for v in ('version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.60.0"', 'version = "4.60.1"'))
+    assert any(v in _read("pyproject.toml") for v in ('version = "4.57.0"', 'version = "4.58.0"', 'version = "4.59.0"', 'version = "4.59.1"', 'version = "4.60.0"', 'version = "4.60.1"', 'version = "4.60.2"'))
 
 
 # ------------------------------------------------------------------

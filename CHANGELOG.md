@@ -1,3 +1,20 @@
+## v4.60.2 — Transports layout + autostart diagnostics
+
+### Fixed
+`dashboard/assets/body-20-transports.html` — the transport-cards grid used `repeat(auto-fit, minmax(340px, 1fr))`, which stretches every card to fill the row when only a few transports are running. When there were fewer active transports than columns, the last card grew wide and the row visually shifted right. Changed to `auto-fill` + `justify-content:start`, so unused tracks stay empty and cards keep their intended width regardless of how many are rendered.
+
+### Improved diagnostics
+`arena/lifecycle.py` — autostart failures were logged at `debug` level and never surfaced by default. Operators reporting "checkbox saved but transport didn't autostart" had nothing to grep. Promoted to `warning`:
+- `[<label>] Autostart hook not wired (skipped)` — when a hook is None
+- `[<label>] Autostart hook returned None (dependencies not wired?)` — when the hook ran but couldn't produce an outcome
+- `[<label>] Autostart FAILED: <reason> (<duration>s)` — attempted-but-failed
+- `[<label>] Autostart raised <ExceptionType>: <message>` — hook itself threw
+
+Old `log_info` OK path preserved verbatim. `LifecycleContext` gained an optional `log_warning` field; falls back to `log_info` when not wired so old callers keep working.
+
+### Extension
+Byte-identical to v4.53.1 — bridge-only.
+
 ## v4.60.1 — ZeroTier LAN-only connectivity honestly recognised
 
 ### Fixed

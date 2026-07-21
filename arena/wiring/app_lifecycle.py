@@ -187,6 +187,7 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         version=env.VERSION,
         log_info=env.log.info,
         log_debug=env.log.debug,
+        log_warning=env.log.warning,
         cloudflared_autostart=_cloudflared_autostart,
         ngrok_autostart=_ngrok_autostart,
         tailscale_autostart=_tailscale_autostart,
