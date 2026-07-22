@@ -1,3 +1,11 @@
+## v4.60.15 - Живая проверка auto-update loop (nop-bump для полевого теста)
+
+### Назначение
+Никаких функциональных изменений. Существует чтобы v4.60.14 (в котором добавлено audit-событие `admin.update.apply.restart_scheduled` и on-disk `.arena-update-apply.log`) можно было проверить против реального новее-target. Клик Dashboard -> Install -> v4.60.15 из бегущего v4.60.14 моста; потом читаем audit trail + файл `<install-root>\.arena-update-apply.log` чтобы увидеть на какой фазе застрял mover.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.14 - Пофазная диагностика auto-update (audit + on-disk log)
 
 ### Добавлено

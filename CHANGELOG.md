@@ -1,3 +1,17 @@
+## v4.60.15 - Verify auto-update loop end-to-end (nop bump for field test)
+
+### Purpose
+No functional changes. Exists purely so v4.60.14 (which shipped
+`admin.update.apply.restart_scheduled` audit event + on-disk
+`.arena-update-apply.log`) can be tested against an actual
+newer-version target. Click Dashboard -> Install -> v4.60.15
+from the running v4.60.14 bridge; then read the audit trail plus
+the log file at `<install-root>\.arena-update-apply.log` to see
+which phase the mover reached.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.14 - Auto-update phase-by-phase diagnostics (audit + on-disk log)
 
 ### Added
