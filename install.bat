@@ -67,13 +67,30 @@ if exist "!BRIDGE_DIR!\_arena_helper.py" (
 )
 echo       Bridge v!VERSION!
 
-REM --- Soft version-check: query GitHub releases API via Python urllib ---
-REM We use Python urllib directly (no curl pipe, no \" escapes inside if-blocks)
-REM so the cmd parser does not break on quoted strings.
+REM --- Soft version-check: query GitHub releases via scripts/check_latest_release.py ---
+REM v4.60.12: moved out of an inline python one-liner in install.bat. The
+REM previous one-liner hit the GitHub API directly with no User-Agent and
+REM no token support, so anonymous rate-limits (60/h shared IP) produced
+REM 'offline or rate-limited' every couple of reruns.
+REM The helper script tries the 302-redirect path (not rate-limited) first
+REM and falls back to the API with User-Agent + optional GITHUB_TOKEN /
+REM GH_TOKEN / ARENA_GITHUB_TOKEN authentication.
 set "LATEST_VERSION="
-for /f "delims=" %%v in ('!PYTHON! -c "import urllib.request,json; req=urllib.request.Request('https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest'); print(json.load(urllib.request.urlopen(req,timeout=8)).get('tag_name','').lstrip('v'))" 2^>nul') do set "LATEST_VERSION=%%v"
+set "LATEST_HINT="
+if exist "!BRIDGE_DIR!\scripts\check_latest_release.py" (
+    for /f "delims=" %%v in ('!PYTHON! "!BRIDGE_DIR!\scripts\check_latest_release.py" 2^>"%TEMP%\arena_check_hint.txt"') do if not defined LATEST_VERSION set "LATEST_VERSION=%%v"
+    if exist "%TEMP%\arena_check_hint.txt" set /p LATEST_HINT=<"%TEMP%\arena_check_hint.txt"
+    del "%TEMP%\arena_check_hint.txt" >nul 2>&1
+) else (
+    REM Old install without the helper — fall back to the historical one-liner.
+    for /f "delims=" %%v in ('!PYTHON! -c "import urllib.request,json; req=urllib.request.Request('https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest',headers={'User-Agent':'arena-agent-installer/1.0'}); print(json.load(urllib.request.urlopen(req,timeout=8)).get('tag_name','').lstrip('v'))" 2^>nul') do set "LATEST_VERSION=%%v"
+)
 if not defined LATEST_VERSION (
-    echo       [INFO] Could not check GitHub for newer releases - offline or rate-limited.
+    if defined LATEST_HINT (
+        echo       [INFO] Could not check GitHub for newer releases: !LATEST_HINT!
+    ) else (
+        echo       [INFO] Could not check GitHub for newer releases - offline or rate-limited.
+    )
 ) else if /I "!LATEST_VERSION!"=="!VERSION!" (
     echo       [OK] You are on the latest release.
 ) else (

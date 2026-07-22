@@ -1,3 +1,25 @@
+## v4.60.12 - install.bat GitHub-check через redirect + token, больше не ложное "offline"
+
+### Исправлено
+`install.bat` печатал ``[INFO] Could not check GitHub for newer releases - offline or rate-limited.`` после нескольких перезапусков в тот же час. Причина: inline ``python -c "import urllib.request,json; ..."`` не имел ``User-Agent`` и ``Authorization``, поэтому anonymous rate limit GitHub (60/h с одного IP) выкидывал HTTP 403.
+
+Field observation: после перезапусков `install.bat` для итераций по ``arena-agent (N)\arena-agent`` фиксам, каждый следующий запуск печатал "offline" хотя сеть работала.
+
+### Изменено
+Вынес version-check в ``scripts/check_latest_release.py``:
+
+1. **HEAD на redirect ``/releases/latest`` первым** — GitHub 302 на ``/releases/tag/vX.Y.Z``, этот путь НЕ считается против API rate limit. Переживает многократные install-запуски.
+2. **API fallback с правильными хедерами** — если redirect не сработал, дёргает JSON API с ``User-Agent: arena-agent-installer/1.0`` (требуется GitHub API) и, если в env есть ``GITHUB_TOKEN`` / ``GH_TOKEN`` / ``ARENA_GITHUB_TOKEN``, добавляет ``Authorization: token <...>``. Токен поднимает лимит с 60/h до 5000/h.
+3. **Точный hint на failure** — вместо общего "offline or rate-limited" теперь ``GitHub API rate limit exceeded (60/h anonymous). Set GITHUB_TOKEN...``.
+
+install.bat сохраняет one-liner fallback для старых установок без нового скрипта.
+
+### Тесты
+`tests/test_check_latest_release_v4_60_12.py` — 13 тестов: redirect парсит ``v``-prefixed и без-prefix теги, HTTP 403/429 дают token hint, API добавляет токен когда он есть, User-Agent всегда установлен, импорт без side-effects, positional ``owner/repo`` работает.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.11 - Auto-update mover переживает пути со скобками + install.bat парсер-фиксы
 
 ### Исправлено

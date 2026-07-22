@@ -1,3 +1,25 @@
+## v4.60.12 - install.bat GitHub check uses redirect + token, no more spurious "offline"
+
+### Fixed
+`install.bat` used to print ``[INFO] Could not check GitHub for newer releases - offline or rate-limited.`` after a handful of reruns in the same hour. Root cause: the inline ``python -c "import urllib.request,json; ..."`` had no ``User-Agent`` header and no ``Authorization``, so GitHub anonymous rate limit (60/h shared IP) tripped as HTTP 403.
+
+Field observation: after Ivan re-ran ``install.bat`` several times to iterate on the ``arena-agent (N)rena-agent`` fixes, every subsequent run printed the "offline" message even though the network was fine.
+
+### Changed
+Moved the version check into ``scripts/check_latest_release.py``:
+
+1. **HEAD the ``/releases/latest`` redirect first** — GitHub 302s to ``/releases/tag/vX.Y.Z``, and this path is NOT counted against the API rate limit. Survives repeated install runs from the same box.
+2. **API fallback with proper headers** — if the redirect fails, try the JSON API with ``User-Agent: arena-agent-installer/1.0`` (required by GitHub API) and, if ``GITHUB_TOKEN`` / ``GH_TOKEN`` / ``ARENA_GITHUB_TOKEN`` is set, an ``Authorization: token <...>`` header. The token raises the limit from 60/h to 5000/h.
+3. **Precise hint on failure** — the caller now surfaces the real reason ("GitHub API rate limit exceeded (60/h anonymous). Set GITHUB_TOKEN...") instead of the generic "offline or rate-limited".
+
+install.bat keeps a one-liner fallback for old installs that don't have the new script yet.
+
+### Tests
+`tests/test_check_latest_release_v4_60_12.py` — 13 tests: redirect path parses ``v``-prefixed and un-prefixed tags, HTTP 403 / 429 produce the token hint, API path adds the token when present, User-Agent is always set, import is side-effect-free, positional ``owner/repo`` argument works.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.11 - Auto-update mover survives paren paths + install.bat parse fixes
 
 ### Fixed
