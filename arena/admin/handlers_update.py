@@ -179,7 +179,20 @@ def make_update_handlers(ctx):
         # attempt at auto-update in the v4.60.9 -> v4.60.12 series.
         # Remove the gate: rely on ``restart_process`` doing the right
         # thing on every platform.
+        #
+        # v4.60.14: also emit an ``admin.update.apply.restart_scheduled``
+        # audit event immediately BEFORE calling restart_process, so we
+        # can prove from the field audit trail that the handler reached
+        # this point. Missing event => handler bailed earlier (e.g.
+        # apply_update returned ok=False). Present event => bridge is
+        # about to exit and the mover should take over.
         if isinstance(res, dict) and res.get("ok") and restart:
+            ctx.audit({
+                "type": "admin.update.apply.restart_scheduled",
+                "tag": tag,
+                "platform": res.get("platform"),
+                "delay_sec": 1.0,
+            })
             _upd.restart_process(delay_sec=1.0)
             res["restart"] = "scheduled"
         return ctx.cors_json_response(res)

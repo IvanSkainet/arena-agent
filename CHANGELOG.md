@@ -1,3 +1,26 @@
+## v4.60.14 - Auto-update phase-by-phase diagnostics (audit + on-disk log)
+
+### Added
+Two diagnostics so future auto-update failures are debuggable from the field trail alone, without needing another round-trip:
+
+1. **`admin.update.apply.restart_scheduled` audit event.** `handlers_update.py` now emits this event right before it calls `restart_process()`. Presence of the event means "handler reached the restart point"; absence means "handler bailed earlier, look at `admin.update.apply` for the ok=False reason". The v4.60.13 fix removed the ``platform != "windows"`` gate, but there was no easy way to prove from a field audit trail that the handler was actually calling `restart_process`. Now there is.
+
+2. **`.arena-update-apply.log` next to the mover.** The Windows mover .cmd now writes a phase-by-phase log to a sibling file (owned by the install root, survives the payload temp cleanup). Phases logged:
+   - `mover-start pid_target=<pid>` — mover launched, waiting for bridge PID to disappear
+   - `bridge exited, starting copy` — got past the wait loop
+   - `copy done, launching relaunch` — all robocopy/copy steps complete
+   - `relaunched via schtasks` / `relaunched via start_hidden.vbs` / `relaunched via start_bridge.bat` — which relaunch mechanism actually fired
+   - `WARN no relaunch mechanism found` — bridge won't come back automatically
+   - `mover-done` — clean exit
+
+Any future report of "auto-update didn't work" can be diagnosed by reading this file at `<install-root>\.arena-update-apply.log`.
+
+### Tests
+`tests/test_auto_update_diagnostics_v4_60_14.py` — 4 guards: handler emits the restart-scheduled audit event, mover writes a phase log with at least 4 echo lines, the "no relaunch mechanism" warning branch exists, log path lives under install root (not payload temp).
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.13 - Auto-update actually restarts the bridge on Windows
 
 ### Fixed

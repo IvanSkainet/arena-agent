@@ -43,6 +43,9 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     pid = os.getpid()
     src = payload_root.as_posix().replace("/", "\\")
     dst = install_root.as_posix().replace("/", "\\")
+    # v4.60.14: sibling log file so operators can see what the mover did
+    # even when it runs detached in the background with no console.
+    log = f"{dst}\\.arena-update-apply.log"
 
     # Header: wait for the bridge PID to exit before touching files.
     lines: list[str] = [
@@ -52,12 +55,17 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         # are unusual but not forbidden), and delayed expansion would eat
         # them silently.
         "setlocal disableDelayedExpansion",
+        # v4.60.14: log every phase to .arena-update-apply.log next to
+        # the mover script, so a failure is diagnosable from disk even
+        # if the detached process is long gone.
+        f'echo [%DATE% %TIME%] mover-start pid_target={pid} > "{log}"',
         ":wait",
         f'tasklist /FI "PID eq {pid}" | find "{pid}" >NUL',
         "if errorlevel 1 goto :after_wait",
         "timeout /t 1 /nobreak >NUL",
         "goto :wait",
         ":after_wait",
+        f'echo [%DATE% %TIME%] bridge exited, starting copy >> "{log}"',
     ]
 
     # Per-target copy step, expressed as a straight-line sequence of
@@ -86,6 +94,7 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     # Mark done so any watcher can observe completion.
     done_win = done_marker.as_posix().replace("/", "\\")
     lines.append(f'echo done > "{done_win}"')
+    lines.append(f'echo [%DATE% %TIME%] copy done, launching relaunch >> "{log}"')
 
     # Relaunch: try Scheduled Task, then start_hidden.vbs, then start_bridge.bat.
     # Again — no ``if () else ()`` blocks; only ``if EXPR goto :label``.
@@ -99,16 +108,22 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     lines.extend([
         # 1) schtasks
         f'schtasks /Run /TN "{task_name}" >NUL 2>&1',
-        "if not errorlevel 1 goto :relaunched",
+        f'if not errorlevel 1 (echo [%DATE% %TIME%] relaunched via schtasks >> "{log}") & if not errorlevel 1 goto :relaunched',
         # 2) start_hidden.vbs
         f'if not exist "{vbs}" goto :try_bat',
         f'wscript.exe "{vbs}"',
+        f'echo [%DATE% %TIME%] relaunched via start_hidden.vbs >> "{log}"',
         "goto :relaunched",
         ":try_bat",
         # 3) start_bridge.bat
-        f'if not exist "{bat}" goto :relaunched',
+        f'if not exist "{bat}" goto :no_relaunch',
         f'start "" /B "{bat}"',
+        f'echo [%DATE% %TIME%] relaunched via start_bridge.bat >> "{log}"',
+        "goto :relaunched",
+        ":no_relaunch",
+        f'echo [%DATE% %TIME%] WARN no relaunch mechanism found >> "{log}"',
         ":relaunched",
+        f'echo [%DATE% %TIME%] mover-done >> "{log}"',
         "endlocal",
         "exit /b 0",
     ])
