@@ -1,3 +1,29 @@
+## v4.60.16 - Auto-update mover truly detached (was dying with parent)
+
+### Fixed
+Root cause of Ivan's persistent Windows auto-update failure, now proven with the v4.60.14 phase log:
+
+```
+[16:59:50] mover-start pid_target=14160
+(no further lines — mover died silently between mover-start and the :wait loop's first tasklist)
+```
+
+The mover was spawned via ``subprocess.Popen(["cmd", "/c", script], creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)``. On Windows, ``DETACHED_PROCESS`` is silently downgraded when the parent already has a console — the child ends up sharing the parent's console handles. When the parent bridge died 1 second later from ``os._exit(0)`` (v4.60.13 restart fix, working correctly), cmd.exe died with it. The ``:wait`` loop never got a chance to see the parent PID disappear, files never copied, ``schtasks /Run`` never fired, bridge never came back.
+
+Confirmed by direct-run experiment: manually invoking ``.arena-update-apply.cmd`` from a foreground cmd against a stale PID produced the full expected phase log:
+```
+mover-start / bridge exited / copy done / relaunched via schtasks / mover-done
+```
+and successfully copied files + relaunched. So the mover script itself is fine — only the detach was broken.
+
+### Fix
+`arena/admin/auto_update.py::apply_update` now spawns the mover via a one-line `.vbs` shim + `wscript.exe` (Windows Script Host is fully console-detached and survives parent death). The shim's only job is to run the .cmd with `WindowStyle=0` (hidden) and `WaitOnReturn=False`. The parent bridge exit no longer takes the mover down with it.
+
+Also added `wait-loop-entry` phase log to the mover so future "died before wait" vs "waiting for a PID that will never die" can be distinguished at a glance.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.15 - Verify auto-update loop end-to-end (nop bump for field test)
 
 ### Purpose

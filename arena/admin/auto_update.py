@@ -482,11 +482,33 @@ def apply_update(*, asset_url: str, asset_name: str,
     if _WIN:
         marker = staging / "done.txt"
         script = _write_windows_installer(payload_root, install_root, marker)
-        # Launch the mover DETACHED so it survives our exit.
+        # v4.60.16: launch the mover via wscript+VBS wrapper instead of
+        # subprocess.Popen(cmd, DETACHED_PROCESS). The naive Popen path
+        # ended up sharing the parent's console because DETACHED_PROCESS
+        # is silently downgraded when the parent already has a console;
+        # when the parent (this bridge) died 1s later from os._exit(0),
+        # the cmd.exe running the mover died with it, before the mover's
+        # ``:wait`` loop even started. Symptom in .arena-update-apply.log:
+        # only the ``mover-start`` line, never ``bridge exited``.
+        # Windows Script Host (wscript.exe) is properly detached from any
+        # console and survives parent exit. We drop a one-line .vbs
+        # shim next to the mover .cmd that just Runs it with WindowStyle
+        # hidden and NoWait, then spawn the .vbs.
+        vbs_shim = script.with_suffix(".vbs")
+        cmd_win = str(script).replace('"', '""')
+        vbs_shim.write_bytes((
+            'Set WshShell = CreateObject("WScript.Shell")\r\n'
+            f'WshShell.Run "cmd /c ""{cmd_win}""", 0, False\r\n'
+        ).encode("utf-8"))
         subprocess.Popen(
-            ["cmd", "/c", str(script)],
+            ["wscript.exe", str(vbs_shim)],
             creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
-                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+                | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                | getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
         )
         return {
             "ok": True,

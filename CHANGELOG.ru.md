@@ -1,3 +1,29 @@
+## v4.60.16 - Auto-update mover действительно detached (умирал вместе с родителем)
+
+### Исправлено
+Корневая причина упорного провала Windows auto-update Ivan-а, теперь подтверждённая v4.60.14 phase log:
+
+```
+[16:59:50] mover-start pid_target=14160
+(нет дальнейших строк — mover тихо умер между mover-start и первым tasklist в цикле :wait)
+```
+
+Mover запускался через ``subprocess.Popen(["cmd", "/c", script], creationflags=DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)``. На Windows ``DETACHED_PROCESS`` **молча даунгрейдится** когда у родителя уже есть console — child наследует родительские console handles. Когда родительский bridge умер через секунду от ``os._exit(0)`` (v4.60.13 restart fix, работал верно), cmd.exe умер с ним. Цикл ``:wait`` не успел даже раз проверить parent PID, файлы не скопировались, ``schtasks /Run`` не сработал, bridge не вернулся.
+
+Подтверждено direct-run экспериментом: ручной запуск ``.arena-update-apply.cmd`` из foreground cmd на устаревший PID дал полный ожидаемый phase log:
+```
+mover-start / bridge exited / copy done / relaunched via schtasks / mover-done
+```
+и успешно скопировал файлы + перезапустил. Так что сам mover-скрипт в порядке — detach был сломан.
+
+### Фикс
+`arena/admin/auto_update.py::apply_update` теперь спавнит mover через one-line `.vbs` шим + `wscript.exe` (Windows Script Host полностью detached от console и переживает смерть родителя). Единственная задача шима — запустить .cmd с `WindowStyle=0` (hidden) и `WaitOnReturn=False`. Смерть родителя больше не тянет mover за собой.
+
+Также добавлен `wait-loop-entry` phase log в mover, чтобы будущее "умер до wait" vs "ждёт PID который никогда не умрёт" можно было различить с первого взгляда.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.15 - Живая проверка auto-update loop (nop-bump для полевого теста)
 
 ### Назначение

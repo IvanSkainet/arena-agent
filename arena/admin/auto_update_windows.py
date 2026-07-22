@@ -59,6 +59,10 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
         # the mover script, so a failure is diagnosable from disk even
         # if the detached process is long gone.
         f'echo [%DATE% %TIME%] mover-start pid_target={pid} > "{log}"',
+        # v4.60.16: log wait-loop-entry so we can distinguish "mover
+        # died before the first tasklist" (Popen-detach broken) from
+        # "mover looping waiting for a PID that will never die".
+        f'echo [%DATE% %TIME%] wait-loop-entry >> "{log}"',
         ":wait",
         f'tasklist /FI "PID eq {pid}" | find "{pid}" >NUL',
         "if errorlevel 1 goto :after_wait",
