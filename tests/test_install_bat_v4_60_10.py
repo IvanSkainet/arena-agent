@@ -65,15 +65,22 @@ def test_echo_lines_do_not_contain_unescaped_bang_literals():
 
 def test_wacatac_reference_is_correctly_escaped():
     """The Windows Defender false-positive advisory must display the
-    canonical malware family name ``Wacatac.B!ml`` (not ``Wacatac.Bml``)."""
+    canonical malware family name ``Wacatac.B!ml`` (not ``Wacatac.Bml``).
+
+    v4.60.11: single-caret ``^!`` is not enough — cmd still eats ``!m!``
+    as an empty variable expansion under enabledelayedexpansion. The
+    correct escape is ``^^!``. See tests/test_install_bat_v4_60_11.py
+    for the strict form; this test just asserts *some* escape is present.
+    """
     src = _read()
-    # We should find the escaped form in the source
-    assert "Wacatac.B^!ml" in src, (
-        "install.bat missing escaped Wacatac.B^!ml token -- the delayed-expansion "
-        "eater will strip the ``!m!`` and produce ``Wacatac.Bml`` at runtime"
+    assert "Wacatac.B^^!ml" in src or "Wacatac.B^!ml" in src, (
+        "install.bat missing an escape for the '!' in Wacatac.B!ml"
     )
-    # And must NOT find the raw unescaped form (would round-trip incorrectly)
-    assert "Wacatac.B!ml" not in src.replace("Wacatac.B^!ml", ""), (
+    # If a single-caret escape is present, v4.60.11's stricter guard
+    # (test_wacatac_uses_double_caret_bang) will fail loudly.
+    # If a raw unescaped form is present, both guards fire.
+    raw = src.replace("Wacatac.B^^!ml", "").replace("Wacatac.B^!ml", "")
+    assert "Wacatac.B!ml" not in raw, (
         "install.bat still contains a raw ``Wacatac.B!ml`` (unescaped '!')"
     )
 
@@ -105,9 +112,14 @@ def test_camoufox_branch_attempts_uv_tool_install():
 
 def test_python_not_found_bang_is_escaped():
     """Ivan's terminal never triggered this branch, but the same
-    delayed-expansion eater lurks in the Python-not-found error banner."""
+    delayed-expansion eater lurks in the Python-not-found error banner.
+
+    v4.60.11: accept either single or double-caret escape here — the
+    v4.60.11-specific guard requires the double form. This test just
+    asserts some escape is present.
+    """
     src = _read()
-    assert "Python not found^!" in src, (
+    assert "Python not found^^!" in src or "Python not found^!" in src, (
         "install.bat 'Python not found' branch still has a bare '!' at the "
         "end that would be silently eaten by delayed expansion"
     )

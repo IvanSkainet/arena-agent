@@ -1,3 +1,35 @@
+## v4.60.11 - Auto-update mover survives paren paths + install.bat parse fixes
+
+### Fixed
+**Auto-update loop actually copies files now.** The generated `.arena-update-apply.cmd` used ``if exist "SRC\*" ( robocopy ... ) else ( ... )`` blocks. When the install root contained ``(`` or ``)`` — Ivan's actual path ``C:\Users\Ivan\Downloads\arena-agent (2)\arena-agent`` — the ``)`` inside the path closed the block early, the mover silently exited before touching any files, and `apply_update` returned ``"swapped": null`` on every attempt.
+
+Field audit trail (v4.60.9 install, Dashboard "Install v4.60.10" click):
+```
+10:28:36  admin.update.check   needs_update=true (4.60.9 -> 4.60.10)
+10:28:43  admin.update.apply   swapped=null  verification=unverified
+10:28:52  admin.update.check   STILL needs_update=true
+10:29:03  admin.update.restart restart=scheduled
+10:30:00  admin.update.check   STILL 4.60.9
+10:30:33  admin.update.apply   swapped=null AGAIN
+```
+
+Rewrote `arena/admin/auto_update_windows.py::_write_windows_installer` to emit ``if EXPR goto :label`` sequences instead of ``if () else ()`` blocks. Also switched to `setlocal disableDelayedExpansion` (paths can legitimately contain `!`) and fixed a pre-existing double-CRLF bug (`write_text("\r\n".join(...))` on Windows produced `\r\r\n` line endings).
+
+**Live-verified:** generated mover against `C:\...\arena-agent (99)\` — files copy correctly, exit 0.
+
+`install.bat`:
+- ``Wacatac.B!ml`` -> was printed as ``Wacatac.Bml`` in v4.60.10. Single-caret ``^!`` is not enough under `enabledelayedexpansion`; cmd still eats ``!m!`` as an empty variable expansion. Fixed with double-caret ``^^!`` (live-verified).
+- ``echo ... binary (~300MB)`` inside an ``if ... (`` block. The unescaped ``(`` in ``(~300MB)`` opened a phantom nested block that closed on the ``)`` inside ``(~300MB)``, leaving the outer ``) else (`` unmatched. Ivan's terminal printed "Непредвиденное появление: if." and bailed. Fixed by escaping ``^(~300MB^)`` (live-verified).
+- ``[ERROR] Python not found!`` also switched to ``^^!``.
+
+### Tests
+- `tests/test_install_bat_v4_60_11.py` — 3 guards: Wacatac uses ``^^!``, Python-not-found uses ``^^!``, no unescaped ``()`` on echo lines inside real if/for/else blocks (uses cmd's actual block-parsing rules, not naive ``(`` counting).
+- `tests/test_auto_update_windows_v4_60_11.py` — 5 guards: no ``if ... (`` control-flow blocks in generated mover, paren-containing paths appear verbatim, `disableDelayedExpansion` set, no ``\r\r\n`` line endings, `:relaunched` label + schtasks call present.
+- Existing v4.60.10 tests relaxed to accept either single or double-caret escape (v4.60.11 strict guards enforce the double form).
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.10 - install.bat Camoufox auto-install + delayed-expansion bang escapes
 
 ### Fixed

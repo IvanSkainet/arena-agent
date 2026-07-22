@@ -51,7 +51,7 @@ if not defined PYTHON where py >nul 2>&1
 if not defined PYTHON if not errorlevel 1 set "PYTHON=py"
 if not defined PYTHON (
     echo.
-    echo  [ERROR] Python not found^!
+    echo  [ERROR] Python not found^^!
     echo  Install Python 3.10+ and add to PATH.
     echo  Download: https://www.python.org/downloads/
     echo  Check "Add Python to PATH" during install.
@@ -350,7 +350,7 @@ echo       Path: !BRIDGE_DIR!\bore.exe - about 2 MB.
 echo       bore is the zero-account TCP relay through bore.pub - no signup needed.
 echo.
 echo [NOTE] Windows Defender is known to flag bore.exe as a false positive
-echo        ^(Trojan:Win32/Wacatac.B^!ml^). bore is a legitimate open-source
+echo        ^(Trojan:Win32/Wacatac.B^^!ml^). bore is a legitimate open-source
 echo        Rust binary from https://github.com/ekzhang/bore (source-buildable,
 echo        MIT-licensed, verified via published SHA256 after download).
 echo        If Defender removes it after install, either:
@@ -525,7 +525,7 @@ if not errorlevel 1 (
     del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
     echo [OK] Camoufox package now present: !CAMOUFOX_VERSION!
     echo       Run ``python -m camoufox fetch`` once to download the browser
-    echo       binary (~300MB) if you plan to use BrowserAct stealth mode.
+    echo       binary ^(~300MB^) if you plan to use BrowserAct stealth mode.
 ) else (
     echo [INFO] Camoufox added at uv-tool level but not visible in system python.
     echo        BrowserAct will pick it up via its own environment when used.

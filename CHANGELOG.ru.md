@@ -1,3 +1,35 @@
+## v4.60.11 - Auto-update mover переживает пути со скобками + install.bat парсер-фиксы
+
+### Исправлено
+**Auto-update теперь реально копирует файлы.** Генерируемый ``.arena-update-apply.cmd`` использовал ``if exist "SRC\*" ( robocopy ... ) else ( ... )`` блоки. Когда install root содержал ``(`` или ``)`` — Ivan'овский путь ``C:\Users\Ivan\Downloads\arena-agent (2)\arena-agent`` — ``)`` в пути закрывала блок раньше времени, mover молча выходил не тронув ни одного файла, и `apply_update` возвращал ``"swapped": null``.
+
+Field audit (v4.60.9 install, клик "Install v4.60.10" в Dashboard):
+```
+10:28:36  admin.update.check   needs_update=true (4.60.9 -> 4.60.10)
+10:28:43  admin.update.apply   swapped=null  verification=unverified
+10:28:52  admin.update.check   ВСЁ ЕЩЁ needs_update=true
+10:29:03  admin.update.restart restart=scheduled
+10:30:00  admin.update.check   ВСЁ ЕЩЁ 4.60.9
+10:30:33  admin.update.apply   swapped=null СНОВА
+```
+
+Переписал `arena/admin/auto_update_windows.py::_write_windows_installer` на sequences ``if EXPR goto :label`` вместо ``if () else ()`` блоков. Плюс `setlocal disableDelayedExpansion` (в путях легитимно бывают `!`) и фикс pre-existing double-CRLF бага (`write_text("\r\n".join(...))` на Windows давал `\r\r\n`).
+
+**Live-проверено:** сгенерированный mover против `C:\...\arena-agent (99)\` — файлы копируются, exit 0.
+
+`install.bat`:
+- ``Wacatac.B!ml`` -> печаталось как ``Wacatac.Bml`` в v4.60.10. Один caret ``^!`` не хватает при `enabledelayedexpansion`; cmd всё равно съедает ``!m!`` как пустую переменную. Фикс — двойной caret ``^^!`` (live-проверено).
+- ``echo ... binary (~300MB)`` внутри ``if ... (`` блока. Неэкранированная ``(`` в ``(~300MB)`` открыла фантомный вложенный блок, ``)`` его закрыла, внешний ``) else (`` остался без пары. У Ivan'а напечаталось "Непредвиденное появление: if." и вылет. Фикс — экранирование ``^(~300MB^)`` (live-проверено).
+- ``[ERROR] Python not found!`` тоже переведено на ``^^!``.
+
+### Тесты
+- `tests/test_install_bat_v4_60_11.py` — 3 guards: Wacatac использует ``^^!``, Python-not-found использует ``^^!``, нет неэкранированных ``()`` в echo внутри реальных if/for/else блоков (использует реальные правила cmd, а не наивный счётчик).
+- `tests/test_auto_update_windows_v4_60_11.py` — 5 guards: нет ``if ... (`` control-flow блоков в генерируемом mover, пути со скобками попадают verbatim, `disableDelayedExpansion` есть, нет ``\r\r\n``, `:relaunched` label + schtasks вызов на месте.
+- Существующие v4.60.10 тесты релаксированы принимать одинарный или двойной caret escape (v4.60.11 строгие guards требуют двойной).
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.10 - install.bat автоустановка Camoufox + escape восклицательных знаков
 
 ### Исправлено
