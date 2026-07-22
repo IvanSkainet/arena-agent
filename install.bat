@@ -51,7 +51,7 @@ if not defined PYTHON where py >nul 2>&1
 if not defined PYTHON if not errorlevel 1 set "PYTHON=py"
 if not defined PYTHON (
     echo.
-    echo  [ERROR] Python not found!
+    echo  [ERROR] Python not found^!
     echo  Install Python 3.10+ and add to PATH.
     echo  Download: https://www.python.org/downloads/
     echo  Check "Add Python to PATH" during install.
@@ -350,7 +350,7 @@ echo       Path: !BRIDGE_DIR!\bore.exe - about 2 MB.
 echo       bore is the zero-account TCP relay through bore.pub - no signup needed.
 echo.
 echo [NOTE] Windows Defender is known to flag bore.exe as a false positive
-echo        (Trojan:Win32/Wacatac.B!ml). bore is a legitimate open-source
+echo        ^(Trojan:Win32/Wacatac.B^!ml^). bore is a legitimate open-source
 echo        Rust binary from https://github.com/ekzhang/bore (source-buildable,
 echo        MIT-licensed, verified via published SHA256 after download).
 echo        If Defender removes it after install, either:
@@ -500,10 +500,36 @@ if not errorlevel 1 (
     )
     goto :camoufox_done
 )
-echo [INFO] Camoufox package not present. BrowserAct stealth mode may not work.
-echo       It should be auto-installed with browser-act-cli. Try:
-echo         uv tool install browser-act-cli --python 3.12 --force-reinstall
-goto :camoufox_done
+echo [INFO] Camoufox package not present. BrowserAct stealth mode requires it.
+where uv >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] uv not found - install manually with:
+    echo         pip install camoufox
+    echo         python -m camoufox fetch
+    goto :camoufox_done
+)
+REM Try to add camoufox alongside the existing browser-act-cli uv tool install.
+REM ``uv tool install --with camoufox browser-act-cli`` is idempotent and
+REM avoids a full --force-reinstall (which would re-download BrowserAct too).
+echo [INFO] Adding Camoufox to the existing browser-act-cli uv tool install...
+uv tool install --python 3.12 --with camoufox browser-act-cli >nul 2>&1
+if errorlevel 1 (
+    echo [WARN] Automatic install failed. Try manually:
+    echo         uv tool install browser-act-cli --python 3.12 --with camoufox --force-reinstall
+    goto :camoufox_done
+)
+REM Re-check that camoufox is importable via the uv-managed browser-act python.
+!PYTHON! -c "import camoufox;print(getattr(camoufox,'__version__','installed'))" >"%TEMP%\arena_camoufox_version.txt" 2>nul
+if not errorlevel 1 (
+    set /p CAMOUFOX_VERSION=<"%TEMP%\arena_camoufox_version.txt"
+    del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
+    echo [OK] Camoufox package now present: !CAMOUFOX_VERSION!
+    echo       Run ``python -m camoufox fetch`` once to download the browser
+    echo       binary (~300MB) if you plan to use BrowserAct stealth mode.
+) else (
+    echo [INFO] Camoufox added at uv-tool level but not visible in system python.
+    echo        BrowserAct will pick it up via its own environment when used.
+)
 :camoufox_done
 
 echo.

@@ -1,3 +1,26 @@
+## v4.60.10 - install.bat Camoufox auto-install + delayed-expansion bang escapes
+
+### Fixed
+Two ``echo`` lines in ``install.bat`` printed with mangled ``!`` characters because ``setlocal enabledelayedexpansion`` eats any unescaped ``!`` inside an argument (looking for a variable reference that doesn't exist):
+
+- ``(Trojan:Win32/Wacatac.B!ml)`` -> printed as ``(Trojan:Win32/Wacatac.Bml)``, hiding the true malware family name (documentation of a Defender false-positive)
+- ``[ERROR] Python not found!`` -> the trailing ``!`` was silently dropped
+
+Escaped with ``^!`` so cmd.exe passes them through verbatim.
+
+### Changed
+Camoufox missing-package branch used to just print a manual command and move on. Now it actively runs ``uv tool install --python 3.12 --with camoufox browser-act-cli`` (idempotent, adds camoufox alongside the existing BrowserAct install without full re-download) and re-checks importability. Gated on ``where uv`` so machines without uv still get a clean manual-fallback message rather than an error.
+
+### Tests
+``tests/test_install_bat_v4_60_10.py`` — 4 guards:
+1. Every ``echo`` line's ``!`` is either part of a ``!VAR!`` reference or escaped as ``^!``.
+2. Wacatac reference specifically escaped.
+3. Camoufox branch attempts ``uv tool install --with camoufox`` (not just prints a hint) and probes ``where uv`` first.
+4. Python-not-found branch's trailing ``!`` is escaped.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.9 - install.bat survives paths with parentheses
 
 ### Fixed
