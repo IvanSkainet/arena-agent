@@ -1,3 +1,27 @@
+## v4.60.9 - install.bat переживает пути со скобками
+
+### Исправлено
+`install.bat` падал на середине, если директория моста содержала `(` или `)` — паттерн, который Windows создаёт автоматически, когда браузер пере-скачивает уже существующий zip и получает `arena-agent (1).zip`, или когда оператор сам выбирает папку вида `C:\Tools\Arena (dev)\`.
+
+Корень: Windows batch парсит скобочные блоки заранее. Внутри `if exist "%BRIDGE_DIR%\cloudflared.exe" ( ... echo %BRIDGE_DIR%\cloudflared.exe ... )` cmd.exe расширяет `%BRIDGE_DIR%` **при парсинге**, и значение типа `C:\Users\Ivan\Downloads\arena-agent (1)\arena-agent` вставляет посторонний `)` из `(1)`, который закрывает блок раньше времени. Всё, что после, утекает в enclosing scope; установщик печатает "Непредвиденное появление: ...\arena-agent\cloudflared.exe" (локализованный "unexpected occurrence") и возвращает управление в `C:\Windows\system32>`.
+
+Field observation при свежей установке в `arena-agent (1)\arena-agent\`: скачивание cloudflared умерло на [3/6], bore умер на том же шаге в следующем запуске.
+
+### Фикс
+Все `%BRIDGE_DIR%` / `%TOKEN_FILE%` / `%REQ_FILE%` / `%PYTHON%` (88 мест) переведены на delayed expansion `!BRIDGE_DIR!` / `!TOKEN_FILE!` / `!REQ_FILE!` / `!PYTHON!`. Оставшиеся `%BRIDGE_DIR%` — только две строки, которые её задают или слайсят (`%~dp0`, `%BRIDGE_DIR:~-1%`, `%BRIDGE_DIR:~0,-1%`); они на top-level и никогда не в блоке.
+
+Добавлен диагностический баннер в начале: если install-директория содержит `(` или `)`, установщик выводит "[INFO] Install directory contains parentheses" — оператор знает, что путь через delayed expansion активен.
+
+### Тесты
+`tests/test_install_bat_v4_60_9.py` — 4 guards:
+- Нет `%VAR%` для path-переменных вне их `set` (регрессия скобок).
+- `setlocal enabledelayedexpansion` в первых 10 строках.
+- Баланс скобок (игнорируя REM/:: и кавычки).
+- Диагностический баннер на месте.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.8 - Windows testsuite hardening + фикс zerotier hint
 
 ### Исправлено

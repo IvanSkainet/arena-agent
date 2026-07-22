@@ -19,9 +19,24 @@ echo.
 
 set "BRIDGE_DIR=%~dp0"
 if "%BRIDGE_DIR:~-1%"=="\" set "BRIDGE_DIR=%BRIDGE_DIR:~0,-1%"
+REM v4.60.9: install.bat used to break when BRIDGE_DIR contained '(' or ')'
+REM (e.g. 'C:\Users\...\arena-agent (1)\arena-agent') because cmd.exe parses
+REM the entire body of a parenthesised block at once, and a ')' inside a
+REM %BRIDGE_DIR% expansion would close the block early. Every %BRIDGE_DIR%
+REM / %TOKEN_FILE% / %REQ_FILE% / %PYTHON% is now referenced via delayed
+REM expansion (!VAR!) so the value is inserted AFTER block parsing.
+echo !BRIDGE_DIR! | findstr /r "[()]" >nul 2>&1
+if not errorlevel 1 (
+    echo [INFO] Install directory contains parentheses:
+    echo        !BRIDGE_DIR!
+    echo        The v4.60.9+ installer handles this correctly via delayed
+    echo        expansion. If you see any "unexpected occurrence" errors,
+    echo        report them - they should be gone.
+    echo.
+)
 if defined ARENA_PORT (set "PORT=%ARENA_PORT%") else (set "PORT=8765")
 set "PROFILE=owner-shell"
-set "TOKEN_FILE=%BRIDGE_DIR%\token.txt"
+set "TOKEN_FILE=!BRIDGE_DIR!\token.txt"
 
 REM ============================================================
 REM Step 1: Find Python
@@ -43,12 +58,12 @@ if not defined PYTHON (
     echo.
     goto :end
 )
-for /f "delims=" %%v in ('%PYTHON% --version 2^>^&1') do echo       %%v found
+for /f "delims=" %%v in ('!PYTHON! --version 2^>^&1') do echo       %%v found
 
 REM --- Read version via helper ---
 set "VERSION=unknown"
-if exist "%BRIDGE_DIR%\_arena_helper.py" (
-    for /f "delims=" %%v in ('%PYTHON% "%BRIDGE_DIR%\_arena_helper.py" version 2^>nul') do set "VERSION=%%v"
+if exist "!BRIDGE_DIR!\_arena_helper.py" (
+    for /f "delims=" %%v in ('!PYTHON! "!BRIDGE_DIR!\_arena_helper.py" version 2^>nul') do set "VERSION=%%v"
 )
 echo       Bridge v!VERSION!
 
@@ -56,7 +71,7 @@ REM --- Soft version-check: query GitHub releases API via Python urllib ---
 REM We use Python urllib directly (no curl pipe, no \" escapes inside if-blocks)
 REM so the cmd parser does not break on quoted strings.
 set "LATEST_VERSION="
-for /f "delims=" %%v in ('%PYTHON% -c "import urllib.request,json; req=urllib.request.Request('https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest'); print(json.load(urllib.request.urlopen(req,timeout=8)).get('tag_name','').lstrip('v'))" 2^>nul') do set "LATEST_VERSION=%%v"
+for /f "delims=" %%v in ('!PYTHON! -c "import urllib.request,json; req=urllib.request.Request('https://api.github.com/repos/IvanSkainet/arena-agent/releases/latest'); print(json.load(urllib.request.urlopen(req,timeout=8)).get('tag_name','').lstrip('v'))" 2^>nul') do set "LATEST_VERSION=%%v"
 if not defined LATEST_VERSION (
     echo       [INFO] Could not check GitHub for newer releases - offline or rate-limited.
 ) else if /I "!LATEST_VERSION!"=="!VERSION!" (
@@ -106,25 +121,25 @@ REM Step 2: Install Python dependencies (PEP 668 aware, verified)
 REM ============================================================
 echo.
 echo [2/6] Installing Python dependencies...
-set "REQ_FILE=%BRIDGE_DIR%\requirements.txt"
-if not exist "%REQ_FILE%" set "REQ_FILE="
+set "REQ_FILE=!BRIDGE_DIR!\requirements.txt"
+if not exist "!REQ_FILE!" set "REQ_FILE="
 
 set "DEPS_OK="
 
 REM 1) Try plain install.
 if defined REQ_FILE (
-    %PYTHON% -m pip install -r "%REQ_FILE%"
+    !PYTHON! -m pip install -r "!REQ_FILE!"
 ) else (
-    %PYTHON% -m pip install aiohttp psutil websockets
+    !PYTHON! -m pip install aiohttp psutil websockets
 )
 if not errorlevel 1 set "DEPS_OK=plain"
 
 REM 2) --user (writable per-user site).
 if not defined DEPS_OK (
     if defined REQ_FILE (
-        %PYTHON% -m pip install --user -r "%REQ_FILE%"
+        !PYTHON! -m pip install --user -r "!REQ_FILE!"
     ) else (
-        %PYTHON% -m pip install --user aiohttp psutil websockets
+        !PYTHON! -m pip install --user aiohttp psutil websockets
     )
     if not errorlevel 1 set "DEPS_OK=user"
 )
@@ -132,9 +147,9 @@ if not defined DEPS_OK (
 REM 3) PEP 668 override (mostly for Cygwin/MSYS Python on Windows, harmless otherwise).
 if not defined DEPS_OK (
     if defined REQ_FILE (
-        %PYTHON% -m pip install --user --break-system-packages -r "%REQ_FILE%"
+        !PYTHON! -m pip install --user --break-system-packages -r "!REQ_FILE!"
     ) else (
-        %PYTHON% -m pip install --user --break-system-packages aiohttp psutil websockets
+        !PYTHON! -m pip install --user --break-system-packages aiohttp psutil websockets
     )
     if not errorlevel 1 set "DEPS_OK=pep668"
 )
@@ -142,33 +157,33 @@ if not defined DEPS_OK (
 REM 4) Project-local venv fallback.
 if not defined DEPS_OK (
     echo       [WARN] pip refused every strategy; falling back to a project venv
-    %PYTHON% -m venv "%BRIDGE_DIR%\.venv"
+    !PYTHON! -m venv "!BRIDGE_DIR!\.venv"
     if errorlevel 1 (
         echo       [ERR] venv creation failed
         goto :end
     )
-    set "PYTHON=%BRIDGE_DIR%\.venv\Scripts\python.exe"
+    set "PYTHON=!BRIDGE_DIR!\.venv\Scripts\python.exe"
     if defined REQ_FILE (
-        %PYTHON% -m pip install -r "%REQ_FILE%"
+        !PYTHON! -m pip install -r "!REQ_FILE!"
     ) else (
-        %PYTHON% -m pip install aiohttp psutil websockets
+        !PYTHON! -m pip install aiohttp psutil websockets
     )
     if errorlevel 1 (
         echo       [ERR] venv pip install failed
         goto :end
     )
-    set "DEPS_OK=venv:%BRIDGE_DIR%\.venv"
+    set "DEPS_OK=venv:!BRIDGE_DIR!\.venv"
 )
 
 REM Verify the import actually works before pretending everything is fine.
-%PYTHON% -c "import aiohttp, sys; print('aiohttp', aiohttp.__version__)"
+!PYTHON! -c "import aiohttp, sys; print('aiohttp', aiohttp.__version__)"
 if errorlevel 1 (
     echo       [ERR] Python packages installed but 'import aiohttp' still fails
     echo       Try manually:
-    echo         %PYTHON% -m pip install --user -r "%REQ_FILE%"
+    echo         !PYTHON! -m pip install --user -r "!REQ_FILE!"
     echo       Or create a venv:
-    echo         %PYTHON% -m venv "%BRIDGE_DIR%\.venv"
-    echo         "%BRIDGE_DIR%\.venv\Scripts\python.exe" -m pip install -r "%REQ_FILE%"
+    echo         !PYTHON! -m venv "!BRIDGE_DIR!\.venv"
+    echo         "!BRIDGE_DIR!\.venv\Scripts\python.exe" -m pip install -r "!REQ_FILE!"
     goto :end
 )
 echo       Done. (via: %DEPS_OK%)
@@ -179,19 +194,19 @@ REM ============================================================
 echo.
 echo [3/6] Creating directory structure...
 for %%d in (memory missions hooks hooks\pre_skill.d hooks\post_skill.d logs queue queue\inbox queue\running queue\done queue\failed reports reports\shots backups mcp subagents projects skills scripts bin) do (
-    if not exist "%BRIDGE_DIR%\%%d" mkdir "%BRIDGE_DIR%\%%d"
+    if not exist "!BRIDGE_DIR!\%%d" mkdir "!BRIDGE_DIR!\%%d"
 )
 echo       Done.
 
-if not exist "%TOKEN_FILE%" (
-    %PYTHON% -c "import secrets;print(secrets.token_urlsafe(32),end='')" >"%TOKEN_FILE%"
+if not exist "!TOKEN_FILE!" (
+    !PYTHON! -c "import secrets;print(secrets.token_urlsafe(32),end='')" >"!TOKEN_FILE!"
     echo       New auth token generated.
 ) else (
     echo       Existing token preserved.
 )
 
 set "AUTH_TOKEN="
-if exist "%TOKEN_FILE%" set /p "AUTH_TOKEN=" <"%TOKEN_FILE%"
+if exist "!TOKEN_FILE!" set /p "AUTH_TOKEN=" <"!TOKEN_FILE!"
 
 REM ============================================================
 REM Step 4: Optional Components
@@ -249,7 +264,7 @@ if errorlevel 1 (
 )
 echo [OK] Tailscale is installed
 set "TS_URL="
-for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| %PYTHON% -c "import json,sys;d=json.load(sys.stdin);dns=d.get('Self',{}).get('DNSName','')or d.get('DNSName','');print(dns.rstrip('.'))if dns else''" 2^>nul') do set "TS_URL=%%u"
+for /f "delims=" %%u in ('tailscale status --json 2^>nul ^| !PYTHON! -c "import json,sys;d=json.load(sys.stdin);dns=d.get('Self',{}).get('DNSName','')or d.get('DNSName','');print(dns.rstrip('.'))if dns else''" 2^>nul') do set "TS_URL=%%u"
 if not defined TS_URL (
     echo [WARN] Tailscale installed but not logged in. Run: tailscale login
     goto :tailscale_done
@@ -263,7 +278,7 @@ where cloudflared >nul 2>&1
 if not errorlevel 1 (
     for /f "delims=" %%p in ('where cloudflared 2^>nul') do if not defined CLOUDFLARED_BIN set "CLOUDFLARED_BIN=%%p"
 )
-if not defined CLOUDFLARED_BIN if exist "%BRIDGE_DIR%\cloudflared.exe" set "CLOUDFLARED_BIN=%BRIDGE_DIR%\cloudflared.exe"
+if not defined CLOUDFLARED_BIN if exist "!BRIDGE_DIR!\cloudflared.exe" set "CLOUDFLARED_BIN=!BRIDGE_DIR!\cloudflared.exe"
 if defined CLOUDFLARED_BIN (
     for /f "delims=" %%v in ('"%CLOUDFLARED_BIN%" --version 2^>nul') do if not defined CLOUDFLARED_VERSION set "CLOUDFLARED_VERSION=%%v"
     echo [OK] cloudflared present: !CLOUDFLARED_VERSION!
@@ -273,7 +288,7 @@ if defined CLOUDFLARED_BIN (
     goto :cloudflared_done
 )
 echo [INFO] cloudflared not found. It installs INSIDE the bridge directory.
-echo       Path: %BRIDGE_DIR%\cloudflared.exe - 50 MB. Tailscale Funnel is the
+echo       Path: !BRIDGE_DIR!\cloudflared.exe - 50 MB. Tailscale Funnel is the
 echo       recommended option; cloudflared is an alternative for environments
 echo       where Tailscale cannot run.
 set "CF_CONFIRM="
@@ -284,11 +299,11 @@ if /I not "%CF_CONFIRM%"=="Y" (
     goto :cloudflared_done
 )
 echo [INFO] Downloading cloudflared.exe for Cloudflare Quick Tunnels...
-curl --max-time 120 -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "%BRIDGE_DIR%\cloudflared.exe" 2>nul
-if exist "%BRIDGE_DIR%\cloudflared.exe" (
-    set "CLOUDFLARED_BIN=%BRIDGE_DIR%\cloudflared.exe"
-    for /f "delims=" %%v in ('"%BRIDGE_DIR%\cloudflared.exe" --version 2^>nul') do if not defined CLOUDFLARED_VERSION set "CLOUDFLARED_VERSION=%%v"
-    echo [OK] cloudflared installed at %BRIDGE_DIR%\cloudflared.exe - !CLOUDFLARED_VERSION!
+curl --max-time 120 -fsSL "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe" -o "!BRIDGE_DIR!\cloudflared.exe" 2>nul
+if exist "!BRIDGE_DIR!\cloudflared.exe" (
+    set "CLOUDFLARED_BIN=!BRIDGE_DIR!\cloudflared.exe"
+    for /f "delims=" %%v in ('"!BRIDGE_DIR!\cloudflared.exe" --version 2^>nul') do if not defined CLOUDFLARED_VERSION set "CLOUDFLARED_VERSION=%%v"
+    echo [OK] cloudflared installed at !BRIDGE_DIR!\cloudflared.exe - !CLOUDFLARED_VERSION!
 ) else (
     echo [WARN] cloudflared download skipped/failed. Get it later: https://github.com/cloudflare/cloudflared/releases/latest
 )
@@ -298,14 +313,14 @@ REM --- bore (v4.47.0 - zero-account TCP relay through bore.pub) ---
 REM Not bundled. Two install paths on Windows:
 REM   1. If Rust's cargo is present, 'cargo install bore-cli' (~30s build).
 REM   2. Otherwise fetch the release zip and unpack bore.exe into
-REM      %BRIDGE_DIR%. System-first resolution in arena/admin/bore.py
-REM      finds either source (PATH or %BRIDGE_DIR%\bore.exe).
+REM      !BRIDGE_DIR!. System-first resolution in arena/admin/bore.py
+REM      finds either source (PATH or !BRIDGE_DIR!\bore.exe).
 set "BORE_BIN="
 where bore >nul 2>&1
 if not errorlevel 1 (
     for /f "delims=" %%p in ('where bore 2^>nul') do if not defined BORE_BIN set "BORE_BIN=%%p"
 )
-if not defined BORE_BIN if exist "%BRIDGE_DIR%\bore.exe" set "BORE_BIN=%BRIDGE_DIR%\bore.exe"
+if not defined BORE_BIN if exist "!BRIDGE_DIR!\bore.exe" set "BORE_BIN=!BRIDGE_DIR!\bore.exe"
 if defined BORE_BIN (
     set "BORE_VERSION="
     for /f "delims=" %%v in ('"%BORE_BIN%" --version 2^>nul') do if not defined BORE_VERSION set "BORE_VERSION=%%v"
@@ -331,7 +346,7 @@ if not errorlevel 1 (
 
 :bore_download
 echo [INFO] bore not found. Installs INSIDE the bridge directory.
-echo       Path: %BRIDGE_DIR%\bore.exe - about 2 MB.
+echo       Path: !BRIDGE_DIR!\bore.exe - about 2 MB.
 echo       bore is the zero-account TCP relay through bore.pub - no signup needed.
 echo.
 echo [NOTE] Windows Defender is known to flag bore.exe as a false positive
@@ -339,7 +354,7 @@ echo        (Trojan:Win32/Wacatac.B!ml). bore is a legitimate open-source
 echo        Rust binary from https://github.com/ekzhang/bore (source-buildable,
 echo        MIT-licensed, verified via published SHA256 after download).
 echo        If Defender removes it after install, either:
-echo          - add %BRIDGE_DIR%\bore.exe to Defender exclusions, or
+echo          - add !BRIDGE_DIR!\bore.exe to Defender exclusions, or
 echo          - skip bore and use tailscale/cloudflared/ngrok instead.
 echo.
 set "BORE_CONFIRM="
@@ -359,29 +374,29 @@ set "BORE_ZIP=%TEMP%\bore-%BORE_TAG%.zip"
 set "BORE_URL=https://github.com/ekzhang/bore/releases/download/%BORE_TAG%/bore-%BORE_TAG%-x86_64-pc-windows-msvc.zip"
 
 echo [INFO] Downloading bore %BORE_TAG% for Windows x86_64...
-curl --max-time 120 -fsSL "%BORE_URL%" -o "%BORE_ZIP%" 2>nul
-if not exist "%BORE_ZIP%" (
+curl --max-time 120 -fsSL "!BORE_URL!" -o "!BORE_ZIP!" 2>nul
+if not exist "!BORE_ZIP!" (
     echo [WARN] bore download failed - network/GitHub unavailable. Get it later: https://github.com/ekzhang/bore/releases
     goto :bore_done
 )
 
 REM Windows 10 1803+ has a built-in tar that unpacks zips.
-tar -xf "%BORE_ZIP%" -C "%BRIDGE_DIR%" 2>nul
-if exist "%BRIDGE_DIR%\bore.exe" (
-    set "BORE_BIN=%BRIDGE_DIR%\bore.exe"
-    for /f "delims=" %%v in ('"%BRIDGE_DIR%\bore.exe" --version 2^>nul') do if not defined BORE_VERSION set "BORE_VERSION=%%v"
-    echo [OK] bore %BORE_TAG% installed at %BRIDGE_DIR%\bore.exe - !BORE_VERSION!
+tar -xf "!BORE_ZIP!" -C "!BRIDGE_DIR!" 2>nul
+if exist "!BRIDGE_DIR!\bore.exe" (
+    set "BORE_BIN=!BRIDGE_DIR!\bore.exe"
+    for /f "delims=" %%v in ('"!BRIDGE_DIR!\bore.exe" --version 2^>nul') do if not defined BORE_VERSION set "BORE_VERSION=%%v"
+    echo [OK] bore %BORE_TAG% installed at !BRIDGE_DIR!\bore.exe - !BORE_VERSION!
 ) else (
     echo [WARN] bore zip downloaded but extraction failed. Older Windows without built-in tar?
-    echo        Unzip %BORE_ZIP% manually and place bore.exe in %BRIDGE_DIR%
+    echo        Unzip !BORE_ZIP! manually and place bore.exe in !BRIDGE_DIR!
 )
-del "%BORE_ZIP%" >nul 2>&1
+del "!BORE_ZIP!" >nul 2>&1
 :bore_done
 
 REM --- SuperPowers ---
-if exist "%BRIDGE_DIR%\skills\superpowers\skills" goto :sp_exists
+if exist "!BRIDGE_DIR!\skills\superpowers\skills" goto :sp_exists
 echo [INFO] SuperPowers is a 14-skill agentic framework - TDD, debugging, planning.
-echo       It clones into the bridge directory: %BRIDGE_DIR%\skills\superpowers
+echo       It clones into the bridge directory: !BRIDGE_DIR!\skills\superpowers
 set "SP_CONFIRM="
 set /p "SP_CONFIRM=Install SuperPowers? [y/N]: "
 if /I not "%SP_CONFIRM%"=="Y" (
@@ -390,8 +405,8 @@ if /I not "%SP_CONFIRM%"=="Y" (
     goto :sp_done
 )
 echo [INFO] Installing SuperPowers from GitHub...
-git clone --depth 1 https://github.com/obra/superpowers.git "%BRIDGE_DIR%\skills\superpowers" >nul 2>&1
-if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
+git clone --depth 1 https://github.com/obra/superpowers.git "!BRIDGE_DIR!\skills\superpowers" >nul 2>&1
+if exist "!BRIDGE_DIR!\skills\superpowers\skills" (
     echo [OK] SuperPowers installed
 ) else (
     echo [WARN] SuperPowers clone failed. Install later:
@@ -399,11 +414,11 @@ if exist "%BRIDGE_DIR%\skills\superpowers\skills" (
 )
 goto :sp_done
 :sp_exists
-for /f %%c in ('dir /b "%BRIDGE_DIR%\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
-if exist "%BRIDGE_DIR%\skills\superpowers\.git" (
-    for /f "delims=" %%r in ('git -C "%BRIDGE_DIR%\skills\superpowers" rev-parse --short HEAD 2^>nul') do echo [INFO] SuperPowers revision: %%r
+for /f %%c in ('dir /b "!BRIDGE_DIR!\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
+if exist "!BRIDGE_DIR!\skills\superpowers\.git" (
+    for /f "delims=" %%r in ('git -C "!BRIDGE_DIR!\skills\superpowers" rev-parse --short HEAD 2^>nul') do echo [INFO] SuperPowers revision: %%r
     echo [INFO] Checking SuperPowers updates...
-    git -C "%BRIDGE_DIR%\skills\superpowers" pull --ff-only --quiet >nul 2>&1
+    git -C "!BRIDGE_DIR!\skills\superpowers" pull --ff-only --quiet >nul 2>&1
     if errorlevel 1 (
         echo [WARN] SuperPowers update check failed/skipped.
     ) else (
@@ -454,15 +469,15 @@ if errorlevel 1 (
 )
 for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
 echo [OK] BrowserAct installed: !BA_VERSION!
-if not exist "%BRIDGE_DIR%\skills\browseract" mkdir "%BRIDGE_DIR%\skills\browseract"
-if not exist "%BRIDGE_DIR%\skills\browseract\SKILL.md" curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "%BRIDGE_DIR%\skills\browseract\SKILL.md" 2>nul
+if not exist "!BRIDGE_DIR!\skills\browseract" mkdir "!BRIDGE_DIR!\skills\browseract"
+if not exist "!BRIDGE_DIR!\skills\browseract\SKILL.md" curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "!BRIDGE_DIR!\skills\browseract\SKILL.md" 2>nul
 :ba_done
 
 REM --- Camoufox ---
 where browser-act >nul 2>&1
 if errorlevel 1 goto :camoufox_done
 echo [INFO] Checking Camoufox stealth browser...
-%PYTHON% -c "import camoufox;print(getattr(camoufox,'__version__','installed'))" >"%TEMP%\arena_camoufox_version.txt" 2>nul
+!PYTHON! -c "import camoufox;print(getattr(camoufox,'__version__','installed'))" >"%TEMP%\arena_camoufox_version.txt" 2>nul
 if not errorlevel 1 (
     set /p CAMOUFOX_VERSION=<"%TEMP%\arena_camoufox_version.txt"
     del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
@@ -477,7 +492,7 @@ if not errorlevel 1 (
         goto :camoufox_done
     )
     echo [INFO] Ensuring Camoufox browser files are present/current...
-    %PYTHON% -m camoufox fetch >nul 2>&1
+    !PYTHON! -m camoufox fetch >nul 2>&1
     if errorlevel 1 (
         echo [WARN] Camoufox fetch/update failed or skipped.
     ) else (
@@ -515,14 +530,14 @@ ping -n 2 127.0.0.1 >nul
 for /f "tokens=5" %%P in ('netstat -ano 2^>nul ^| findstr ":%PORT% "') do taskkill /F /PID %%P >nul 2>nul
 ping -n 2 127.0.0.1 >nul
 
-echo @echo off> "%BRIDGE_DIR%\start_bridge.bat"
-echo cd /d "%BRIDGE_DIR%">> "%BRIDGE_DIR%\start_bridge.bat"
-echo set ARENA_AGENT_HOME=%BRIDGE_DIR%>> "%BRIDGE_DIR%\start_bridge.bat"
-echo set ARENA_TOKEN_FILE=%TOKEN_FILE%>> "%BRIDGE_DIR%\start_bridge.bat"
-echo %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT%>> "%BRIDGE_DIR%\start_bridge.bat"
+echo @echo off> "!BRIDGE_DIR!\start_bridge.bat"
+echo cd /d "!BRIDGE_DIR!">> "!BRIDGE_DIR!\start_bridge.bat"
+echo set ARENA_AGENT_HOME=!BRIDGE_DIR!>> "!BRIDGE_DIR!\start_bridge.bat"
+echo set ARENA_TOKEN_FILE=!TOKEN_FILE!>> "!BRIDGE_DIR!\start_bridge.bat"
+echo !PYTHON! -u unified_bridge.py serve --root "%USERPROFILE%" --profile %PROFILE% --port %PORT%>> "!BRIDGE_DIR!\start_bridge.bat"
 
-echo Set WshShell = CreateObject^("WScript.Shell"^)> "%BRIDGE_DIR%\start_hidden.vbs"
-echo WshShell.Run """%BRIDGE_DIR%\start_bridge.bat""", 0, False>> "%BRIDGE_DIR%\start_hidden.vbs"
+echo Set WshShell = CreateObject^("WScript.Shell"^)> "!BRIDGE_DIR!\start_hidden.vbs"
+echo WshShell.Run """!BRIDGE_DIR!\start_bridge.bat""", 0, False>> "!BRIDGE_DIR!\start_hidden.vbs"
 
 set "SERVICE_METHOD=none"
 where nssm >nul 2>&1
@@ -532,7 +547,7 @@ if not errorlevel 1 goto :use_nssm
 set "SERVICE_METHOD=schtasks"
 echo       NSSM not found, using Scheduled Task with hidden window...
 schtasks /delete /tn "ArenaUnifiedBridge" /f >nul 2>&1
-schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"%BRIDGE_DIR%\start_hidden.vbs\"" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
+schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"!BRIDGE_DIR!\start_hidden.vbs\"" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
 schtasks /run /tn "ArenaUnifiedBridge" >nul 2>&1
 echo       [OK] Scheduled task installed and started.
 goto :service_installed
@@ -541,20 +556,20 @@ goto :service_installed
 set "SERVICE_METHOD=nssm"
 echo       Using NSSM service manager...
 nssm remove ArenaUnifiedBridge confirm >nul 2>&1
-set "PYW=%PYTHON%"
-for %%p in ("%PYTHON%") do (
+set "PYW=!PYTHON!"
+for %%p in ("!PYTHON!") do (
     if exist "%%~dpPpythonw%%~xP" set "PYW=%%~dpPpythonw%%~xP"
 )
-nssm install ArenaUnifiedBridge "!PYW!" "-u %BRIDGE_DIR%\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
-nssm set ArenaUnifiedBridge AppDirectory "%BRIDGE_DIR%" >nul 2>&1
+nssm install ArenaUnifiedBridge "!PYW!" "-u !BRIDGE_DIR!\unified_bridge.py serve --root %USERPROFILE% --profile %PROFILE% --port %PORT%" >nul 2>&1
+nssm set ArenaUnifiedBridge AppDirectory "!BRIDGE_DIR!" >nul 2>&1
 nssm set ArenaUnifiedBridge DisplayName "Arena Unified Bridge v!VERSION!" >nul 2>&1
 nssm set ArenaUnifiedBridge Start SERVICE_AUTO_START >nul 2>&1
-nssm set ArenaUnifiedBridge AppStdout "%BRIDGE_DIR%\logs\bridge.log" >nul 2>&1
-nssm set ArenaUnifiedBridge AppStderr "%BRIDGE_DIR%\logs\bridge_err.log" >nul 2>&1
+nssm set ArenaUnifiedBridge AppStdout "!BRIDGE_DIR!\logs\bridge.log" >nul 2>&1
+nssm set ArenaUnifiedBridge AppStderr "!BRIDGE_DIR!\logs\bridge_err.log" >nul 2>&1
 nssm set ArenaUnifiedBridge AppRotateFiles 1 >nul 2>&1
 nssm set ArenaUnifiedBridge AppRotateBytes 5242880 >nul 2>&1
 nssm set ArenaUnifiedBridge AppRotateBackups 3 >nul 2>&1
-nssm set ArenaUnifiedBridge AppEnvironmentExtra ARENA_AGENT_HOME=%BRIDGE_DIR% ARENA_TOKEN_FILE=%TOKEN_FILE% >nul 2>&1
+nssm set ArenaUnifiedBridge AppEnvironmentExtra ARENA_AGENT_HOME=!BRIDGE_DIR! ARENA_TOKEN_FILE=!TOKEN_FILE! >nul 2>&1
 nssm start ArenaUnifiedBridge >nul 2>&1
 echo       [OK] NSSM service installed and started.
 
@@ -578,7 +593,7 @@ for /L %%i in (1,1,30) do (
         if not errorlevel 1 (
             set "HEALTHY=1"
             set "HEALTH_VERSION=!VERSION!"
-            for /f "delims=" %%v in ('%PYTHON% -c "import json;print(json.load(open(r'%TEMP%\arena_health.json')).get('version',''))" 2^>nul') do set "HEALTH_VERSION=%%v"
+            for /f "delims=" %%v in ('!PYTHON! -c "import json;print(json.load(open(r'%TEMP%\arena_health.json')).get('version',''))" 2^>nul') do set "HEALTH_VERSION=%%v"
             del "%TEMP%\arena_health.json" >nul 2>&1
             echo       Bridge is healthy. v!HEALTH_VERSION!
         ) else (
@@ -591,12 +606,12 @@ if "!HEALTHY!"=="1" goto :healthy_ok
 echo.
 echo  [WARN] Bridge not responding after 90 seconds.
 echo.
-echo  Check logs: %BRIDGE_DIR%\logs\bridge.log
-echo  %BRIDGE_DIR%\logs\bridge_err.log
+echo  Check logs: !BRIDGE_DIR!\logs\bridge.log
+echo  !BRIDGE_DIR!\logs\bridge_err.log
 echo.
 echo  Start manually:
-echo    cd /d "%BRIDGE_DIR%"
-echo    %PYTHON% -u unified_bridge.py serve --root "%USERPROFILE%" --port %PORT%
+echo    cd /d "!BRIDGE_DIR!"
+echo    !PYTHON! -u unified_bridge.py serve --root "%USERPROFILE%" --port %PORT%
 echo.
 :healthy_ok
 
@@ -608,10 +623,10 @@ echo  ========================================
 echo   INSTALLATION COMPLETE
 echo  ========================================
 echo.
-echo   Directory:  %BRIDGE_DIR%
+echo   Directory:  !BRIDGE_DIR!
 echo   Dashboard:  http://127.0.0.1:%PORT%/gui
 echo   Health:     http://127.0.0.1:%PORT%/health
-echo   Token file: %TOKEN_FILE%
+echo   Token file: !TOKEN_FILE!
 echo.
 
 if not defined AUTH_TOKEN goto :no_token
@@ -668,7 +683,7 @@ echo   Optional:
 echo   tailscale funnel --bg %PORT%
 echo.
 echo   Installed skills:
-if exist "%BRIDGE_DIR%\skills\superpowers\skills" echo   SuperPowers   - skills\superpowers\
+if exist "!BRIDGE_DIR!\skills\superpowers\skills" echo   SuperPowers   - skills\superpowers\
 where browser-act >nul 2>&1
 if not errorlevel 1 echo   BrowserAct    - installed
 echo.

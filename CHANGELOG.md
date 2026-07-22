@@ -1,3 +1,27 @@
+## v4.60.9 - install.bat survives paths with parentheses
+
+### Fixed
+`install.bat` used to crash halfway through when the bridge directory contained `(` or `)` — the pattern Windows creates automatically when a browser re-downloads an existing zip and gets `arena-agent (1).zip`, or when an operator picks their own folder like `C:\Tools\Arena (dev)\`.
+
+Root cause: Windows batch parses parenthesised blocks up-front. Inside `if exist "%BRIDGE_DIR%\cloudflared.exe" ( ... echo %BRIDGE_DIR%\cloudflared.exe ... )`, cmd.exe expands `%BRIDGE_DIR%` **during parse**, so a value like `C:\Users\Ivan\Downloads\arena-agent (1)\arena-agent` inserts a stray `)` from `(1)` that closes the block early. Everything after leaks into the enclosing scope; the installer prints "Непредвиденное появление: ...\arena-agent\cloudflared.exe" (localised "unexpected occurrence") and returns to `C:\Windows\system32>`.
+
+Field observation from a fresh install into `arena-agent (1)\arena-agent\`: cloudflared download died at step [3/6], bore download died at the same step in a subsequent run.
+
+### Fix
+Switched every `%BRIDGE_DIR%` / `%TOKEN_FILE%` / `%REQ_FILE%` / `%PYTHON%` reference (88 sites) to delayed expansion `!BRIDGE_DIR!` / `!TOKEN_FILE!` / `!REQ_FILE!` / `!PYTHON!`. The only surviving `%BRIDGE_DIR%` uses are the two lines that set or slice it (`%~dp0`, `%BRIDGE_DIR:~-1%`, `%BRIDGE_DIR:~0,-1%`), which run at top-level and never inside a block.
+
+Added a diagnostic banner near the top: if the install directory contains `(` or `)`, the installer prints a one-line "[INFO] Install directory contains parentheses" heads-up so the operator knows the delayed-expansion path is active.
+
+### Tests
+`tests/test_install_bat_v4_60_9.py` — 4 guards:
+- No path-variable `%VAR%` reference outside its `set` line (would regress the parens bug).
+- `setlocal enabledelayedexpansion` present in the first 10 lines.
+- Balanced parenthesis depth (ignores REM/:: comments and quoted regions).
+- Diagnostic banner is still shipped.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.8 - Windows testsuite hardening + zerotier hint fix
 
 ### Fixed
