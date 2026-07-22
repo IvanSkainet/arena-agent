@@ -20,7 +20,7 @@ from aiohttp import web
 
 from arena.handler_context import ObservabilityHandlerContext
 from arena.handler_helpers import authed, err_json
-from arena.http import CORS_HEADERS
+from arena.web_utils import CORS_HEADERS
 
 
 @dataclass(frozen=True)

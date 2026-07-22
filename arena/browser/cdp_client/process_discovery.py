@@ -76,7 +76,13 @@ def _build_session_env() -> dict:
     can function in headless mode.
     """
     env = os.environ.copy()
-    uid = os.getuid()
+    # v4.60.18: cross-platform guard. The systemd/X11/Wayland session
+    # vars below are Linux-only; on Windows/macOS just pass the inherited
+    # environment through (os.getuid()/pwd do not exist on Windows and
+    # would crash import of this module, killing the whole CDP path).
+    if platform.system() != "Linux":
+        return env
+    uid = os.getuid() if hasattr(os, "getuid") else 0
 
     # HOME — critical for Chromium to find its config/cache dirs
     if not env.get("HOME"):

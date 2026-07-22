@@ -1,3 +1,57 @@
+## v4.60.18 - Cross-platform core hardening + scenario-driver prep
+
+### Purpose
+First release driven by the scenario-as-stress-test methodology. Scenarios are
+real, complex user tasks that the vanilla bridge either handles or doesn't -
+and what it can't do, we extend into the core as a general capability (not a
+task-specific hack), then ship.
+
+The "voice on phone -> transfer -> transcribe -> chat" scenario is the first
+driver. Three real general gaps showed up and are fixed in this release;
+online browser-based transcription is wired and live-tested.
+
+### Fixed
+
+1. **CDP / browser path crashes on Windows at import** (`process_discovery.py`).
+   `os.getuid()` (POSIX-only) and `pwd` were called unconditionally at module
+   load, so importing `cdp_browser` on Windows blew up with
+   `module 'os' has no attribute 'getuid'` and killed the entire
+   `/v1/browser/*` route surface. Now the function is cross-platform: on
+   non-Linux it returns the inherited environment unchanged; on Linux it
+   guards `os.getuid()` with `hasattr` (defence in depth).
+
+2. **stdlib `http` shadowed on Python 3.14** (`arena/http.py` -> `arena/web_utils.py`).
+   A 29-line file called `arena/http.py` (just `cors_json_response` +
+   `CORS_HEADERS`) shadowed stdlib `http` on Python 3.14, where stdlib `http`
+   is now a package. Importing aiohttp -> `from http import HTTPStatus` then
+   picked up our helpers file and circular-imported, breaking server start
+   in subtle ways. Renamed the file to `arena/web_utils.py` and updated the
+   3 absolute import sites
+   (`exec/handlers.py`, `observability/handlers.py`,
+   `runtime_deps/observability_system_wiring.py`). File content unchanged,
+   only the module name.
+
+### Added
+
+3. **`fs.write_base64` MCP tool** (`mcp/tool_fs.py`). Vanilla `fs.write` only
+   writes text. Needed for materialising binary payloads (e.g. phone recordings
+   pulled via `mobile.record_pull` which returns base64) as real on-disk
+   files that downstream tools (`asr.transcribe`, `browser.interact`) can
+   consume. Decodes base64 (strict first, lenient fallback) and writes
+   binary; returns a graceful `isError` envelope on invalid input rather
+   than crashing.
+
+### Tests
+`tests/test_fs_write_base64.py` - 2 guards: round-trip binary write
+(including non-UTF8 bytes `\x00\x01`) and graceful rejection of
+non-base64 input as an `isError` dict.
+
+Live smoke: `cdp_browser` import OK on Windows; `CDPTabManager` constructs;
+`os.getuid` import error no longer reproducible.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.17 - Live target for v4.60.16 auto-update detach fix
 
 ### Purpose

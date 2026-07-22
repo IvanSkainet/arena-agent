@@ -1,7 +1,7 @@
 """unified_bridge import surface: observability system wiring imports."""
 from __future__ import annotations
 
-from arena.http import (  # noqa: E402,F401
+from arena.web_utils import (  # noqa: E402,F401
     CORS_HEADERS,
     _cors_json_response,
     cors_json_response,

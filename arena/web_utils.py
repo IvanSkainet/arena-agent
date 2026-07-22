@@ -1,4 +1,7 @@
-"""HTTP response helpers shared by bridge handlers."""
+"""HTTP/CORS response helpers shared by bridge handlers.
+
+Renamed from http.py in v4.60.18 to stop shadowing stdlib `http` on Python 3.14.
+"""
 from __future__ import annotations
 
 from typing import Any

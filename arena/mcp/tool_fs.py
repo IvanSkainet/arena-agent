@@ -48,7 +48,7 @@ def _safe_edit_text_result(result: dict[str, Any]) -> dict[str, Any]:
 
 
 def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
-    if name not in {"fs.read", "fs.write", "fs.list", "fs.edit", "fs.view", "fs.create", "fs.edit_apply", "fs.edit_rollback"}:
+    if name not in {"fs.read", "fs.write", "fs.list", "fs.edit", "fs.view", "fs.create", "fs.edit_apply", "fs.edit_rollback", "fs.write_base64"}:
         return None
 
     if name == "fs.edit_apply":
@@ -83,6 +83,21 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
             return text_content(f"wrote {len(content)} bytes to {path}")
+
+        if name == "fs.write_base64":
+            import base64 as _b64
+            raw = str(args.get("base64", "") or "")
+            try:
+                data = _b64.b64decode(raw, validate=True)
+            except Exception:
+                try:
+                    data = _b64.b64decode(raw)
+                except Exception as exc:
+                    return {"isError": True, "content": [{"type": "text", "text": f"ERROR: invalid base64: {exc}"}]}
+            os.makedirs(os.path.dirname(str(path)) or ".", exist_ok=True)
+            with open(path, "wb") as f:
+                f.write(data)
+            return text_content(f"wrote {len(data)} bytes to {path}")
         if name == "fs.list":
             return text_content(json.dumps(sorted(os.listdir(path))))
     except PermissionError:

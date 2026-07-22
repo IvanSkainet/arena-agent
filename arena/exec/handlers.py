@@ -38,7 +38,7 @@ from arena.app_keys import APP_CFG
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
-from arena.http import CORS_HEADERS
+from arena.web_utils import CORS_HEADERS
 
 _BLOCKED_ENV_PATTERNS = [
     "ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY",
