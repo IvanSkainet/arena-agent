@@ -1,3 +1,33 @@
+## v4.60.13 - Auto-update actually restarts the bridge on Windows
+
+### Fixed
+Dashboard "Install v4.60.X" click on Windows silently did nothing after the download step — the mover file was written, the mover process was spawned, but the bridge itself kept running and the mover waited for its PID to disappear forever.
+
+Field audit trail from v4.60.11 install click:
+```
+11:16:37  admin.update.apply    swapped=null  verification=unverified
+11:16:45  admin.update.check    STILL needs_update=true
+11:16:53  admin.update.check    STILL needs_update=true
+```
+**No** `admin.update.restart` event. Meanwhile the mover is spinning at `tasklist /FI "PID eq <bridge-pid>"` waiting for the bridge to exit.
+
+Root cause in `arena/admin/handlers_update.py`:
+```python
+if (isinstance(res, dict) and res.get("ok")
+        and restart and res.get("platform") != "windows"):
+    _upd.restart_process(delay_sec=1.0)
+    res["restart"] = "scheduled"
+```
+That `!= "windows"` gate is a leftover from pre-v4.60.4 when `restart_process()` on Windows was a no-op that just returned `{"restart": "pending"}`. v4.60.4 fixed `restart_process` to actually schedule `os._exit(0)` on a daemon thread so the HTTP response can flush first — but this handler-side gate was never removed. Result: Dashboard reports success, bridge stays alive, mover waits forever, version never changes. Ivan hit this on every field auto-update attempt in the v4.60.9 → v4.60.12 series and had to fall back to running `install.bat` manually each time.
+
+**Fix:** drop the gate — `restart_process` is now called on every platform after a successful apply, exactly as `restart=true` in the request body asks.
+
+### Tests
+`tests/test_handlers_update_v4_60_13.py` — 3 guards on the actual executable source (docstrings/comments stripped via AST): no `platform != "windows"` gate remains, `restart_process(delay_sec=1.0)` is still called, `res["restart"] = "scheduled"` marker still returned for the Dashboard auto-refresh.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.12 - install.bat GitHub check uses redirect + token, no more spurious "offline"
 
 ### Fixed

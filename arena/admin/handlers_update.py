@@ -164,13 +164,22 @@ def make_update_handlers(ctx):
             "swapped": (res.get("swapped") if isinstance(res, dict) else None),
             "ok": res.get("ok") if isinstance(res, dict) else False,
         })
-        # If apply succeeded AND caller wanted restart AND we're
-        # on POSIX -- schedule an execv AFTER we return the HTTP
-        # response.
-        if (isinstance(res, dict) and res.get("ok")
-                and restart and res.get("platform") != "windows"):
-            # Kick off restart in the background so this handler
-            # can finish flushing.
+        # If apply succeeded AND caller wanted restart, schedule an
+        # in-process exit / execv AFTER we return the HTTP response.
+        #
+        # v4.60.13: pre-v4.60.13 this branch was gated on
+        # ``res.get("platform") != "windows"`` because before v4.60.4
+        # ``restart_process`` on Windows was a no-op returning
+        # ``{"restart": "pending"}``. v4.60.4 fixed ``restart_process``
+        # to actually schedule ``os._exit(0)`` on a background thread,
+        # but this gate was never removed -- so the Dashboard "Install"
+        # button reported success but the bridge kept running, the
+        # mover script waited for our PID to disappear forever, and
+        # the version never changed. Ivan hit this on every field
+        # attempt at auto-update in the v4.60.9 -> v4.60.12 series.
+        # Remove the gate: rely on ``restart_process`` doing the right
+        # thing on every platform.
+        if isinstance(res, dict) and res.get("ok") and restart:
             _upd.restart_process(delay_sec=1.0)
             res["restart"] = "scheduled"
         return ctx.cors_json_response(res)

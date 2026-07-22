@@ -1,3 +1,33 @@
+## v4.60.13 - Auto-update действительно перезапускает мост на Windows
+
+### Исправлено
+Клик "Install v4.60.X" в Dashboard на Windows после скачивания молча ничего не делал — mover-файл записан, mover-процесс запущен, но сам bridge продолжал работать, а mover ждал исчезновения его PID вечно.
+
+Field audit trail из клика в v4.60.11:
+```
+11:16:37  admin.update.apply    swapped=null  verification=unverified
+11:16:45  admin.update.check    ВСЁ ЕЩЁ needs_update=true
+11:16:53  admin.update.check    ВСЁ ЕЩЁ needs_update=true
+```
+Событие `admin.update.restart` **отсутствует**. Mover тем временем крутит `tasklist /FI "PID eq <bridge-pid>"` в ожидании exit'а бриджа.
+
+Корень в `arena/admin/handlers_update.py`:
+```python
+if (isinstance(res, dict) and res.get("ok")
+        and restart and res.get("platform") != "windows"):
+    _upd.restart_process(delay_sec=1.0)
+    res["restart"] = "scheduled"
+```
+Гейт `!= "windows"` — legacy из времён до v4.60.4, когда `restart_process()` на Windows был no-op и возвращал `{"restart": "pending"}`. v4.60.4 починил `restart_process` — теперь он schedule'ит `os._exit(0)` в daemon thread, чтобы HTTP response успел flush'нуться — но этот handler-гейт никто не убрал. Итог: Dashboard рапортует success, bridge жив, mover ждёт вечно, версия не меняется. Ivan упирался в это на каждой попытке auto-update в цикле v4.60.9 → v4.60.12 и каждый раз откатывался на ручной `install.bat`.
+
+**Фикс:** убран гейт — `restart_process` теперь вызывается на всех платформах после успешного apply, ровно как просит `restart=true` в body запроса.
+
+### Тесты
+`tests/test_handlers_update_v4_60_13.py` — 3 guards по исполняемому исходнику (docstrings/comments вырезаются через AST): гейта `platform != "windows"` больше нет, `restart_process(delay_sec=1.0)` всё ещё вызывается, `res["restart"] = "scheduled"` маркер всё ещё возвращается для Dashboard auto-refresh.
+
+### Расширение
+Побайтно идентично v4.53.1 - релиз только для моста.
+
 ## v4.60.12 - install.bat GitHub-check через redirect + token, больше не ложное "offline"
 
 ### Исправлено
