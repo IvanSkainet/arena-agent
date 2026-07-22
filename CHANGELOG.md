@@ -1,3 +1,11 @@
+## v4.60.17 - Live target for v4.60.16 auto-update detach fix
+
+### Purpose
+No functional changes vs v4.60.16. Exists so v4.60.16 (auto-update mover truly detached via wscript+VBS shim) can be exercised end-to-end from a running v4.60.16 bridge. Dashboard -> Install -> v4.60.17 should complete the full loop this time.
+
+### Extension
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.16 - Auto-update mover truly detached (was dying with parent)
 
 ### Fixed
