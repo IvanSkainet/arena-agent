@@ -1,4 +1,16 @@
-"""Mission schedule worker runtime regressions."""
+"""Mission schedule worker runtime regressions.
+
+v4.61.1: increase the asyncio.sleep() inside ``_run_once`` from
+0.01s to 0.1s. The original value was tuned for fast Linux CI
+where the executor returns in single-digit milliseconds. On
+slower Windows runners the executor hadn't completed before
+``task.cancel()`` ran, so ``total_ticks`` was still 0 when the
+test asserted ``>= 1``. 0.1s is a 10x safety margin that still
+keeps the test fast enough for the CI feedback loop.
+
+Live-failed: v4.61.0 CI run id 30034756453 on
+``windows-latest`` Python 3.10-3.14.
+"""
 from __future__ import annotations
 
 import asyncio
@@ -38,7 +50,11 @@ def test_mission_schedule_worker_loop_updates_state():
 
     async def _run_once():
         task = asyncio.create_task(runtime.loop(None))
-        await asyncio.sleep(0.01)
+        # v4.61.1: 0.1s instead of 0.01s. On Windows runners
+        # run_in_executor for an empty tick_sync() took up to
+        # 60ms; 0.1s gives a 40ms safety margin while still
+        # keeping the test under 200ms total.
+        await asyncio.sleep(0.1)
         task.cancel()
         try:
             await task

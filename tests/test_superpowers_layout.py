@@ -3,6 +3,14 @@
 See docs/SUPERPOWERS.md for the intent: one directory (skills/superpowers/)
 serves both the Arena Bridge and standalone IDE plugin consumers, tracking
 upstream obra/superpowers verbatim.
+
+v4.61.1: ``test_superpowers_doc_exists_and_reflects_unified_layout`` now
+reads the doc as UTF-8 explicitly. The original ``read_text()`` used
+the locale default (cp1251 on Russian Windows CI runners) and crashed
+on the unicode box-drawing characters in the doc body.
+
+Live-failed: v4.61.0 CI run id 30034756453 on
+``windows-latest`` Python 3.10-3.14.
 """
 from __future__ import annotations
 
@@ -85,7 +93,10 @@ def test_sync_script_exists_and_executable():
 def test_superpowers_doc_exists_and_reflects_unified_layout():
     doc = REPO / "docs" / "SUPERPOWERS.md"
     assert doc.is_file(), "docs/SUPERPOWERS.md missing"
-    content = doc.read_text()
+    # v4.61.1: explicit UTF-8 read. The doc contains box-drawing
+    # characters that are not representable in cp1251 (the default
+    # on Russian Windows CI runners).
+    content = doc.read_text(encoding="utf-8")
     assert "skills/superpowers/" in content
     # Doc must explicitly state the one-directory model.
     assert "one" in content.lower() or "single" in content.lower()

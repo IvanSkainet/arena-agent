@@ -1,6 +1,21 @@
-"""Sound helper tests."""
+"""Sound helper tests.
+
+v4.61.1: ``test_play_beep_simulates_without_device`` is now
+skipped on ``win32``. The test only exercises the Linux
+subprocess path (``paplay`` / ``aplay`` / ``beep``); on
+Windows the dispatch in ``play_beep`` goes through
+``winsound.Beep``, which is a no-op + ``True`` return on a
+machine with no sound device but the path is not what this
+test is asserting. The test is still valuable on Linux so
+we keep it; we just skip the Windows platform.
+
+Live-failed: v4.61.0 CI run id 30034756453 on
+``windows-latest`` Python 3.10-3.14.
+"""
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -14,6 +29,16 @@ def test_generate_wav_bytes_header():
     assert b"WAVE" in data[:16]
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "This test exercises the Linux subprocess path "
+        "(paplay/aplay/beep) by mocking shutil.which to return "
+        "None. The Windows dispatch in play_beep goes through "
+        "winsound.Beep, which is not what this test asserts. "
+        "The Linux path is still covered on Linux runners."
+    ),
+)
 def test_play_beep_simulates_without_device(monkeypatch):
     import arena.system.sound as snd
     monkeypatch.setattr(snd.shutil, "which", lambda name: None)
