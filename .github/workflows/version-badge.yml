@@ -1,0 +1,80 @@
+# .github/workflows/version-badge.yml
+# v4.64.0: Refresh docs/version.json on every release tag and on every push
+# to master (so the dynamic-json badge in README.md always has current data
+# sourced from a URL we control, not from shields.io's GitHub API proxy).
+#
+# This is a self-defending build surface: if the workflow file itself is
+# broken, actionlint catches it; if the script is broken, the commit
+# fails and the workflow doesn't update; if the JSON is malformed, the
+# badge shows "invalid" which is debuggable from the README itself.
+name: refresh version badge
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+    branches:
+      - master
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve current release
+        id: resolve
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Use the GitHub API to resolve the latest release. On tag pushes
+          # GH_API_TAG is the tag we just pushed; on master pushes (no tag)
+          # it falls back to the most recent release.
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            tag=$(curl -sS -H "Authorization: token ${GH_TOKEN}" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
+              | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])")
+          fi
+          # Strip the leading 'v' for the bare semver field.
+          bare="${tag#v}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "bare=${bare}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved tag: ${tag}"
+
+      - name: Write docs/version.json
+        run: |
+          set -euo pipefail
+          mkdir -p docs
+          # JSON is consumed by shields.io dynamic-json badge, so the
+          # schema is intentionally tiny: tag_name, semver, updated_at.
+          cat > docs/version.json <<EOF
+          {
+            "tag_name": "${{ steps.resolve.outputs.tag }}",
+            "semver": "${{ steps.resolve.outputs.bare }}",
+            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+          cat docs/version.json
+
+      - name: Commit if changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet docs/version.json; then
+            echo "version.json is up-to-date, nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/version.json
+          git commit -m "chore(badge): refresh version.json to ${{ steps.resolve.outputs.tag }}"
+          git push

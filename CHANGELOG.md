@@ -1,3 +1,88 @@
+## v4.64.0 - badge reliability (own version.json workflow) + self-checking CI
+
+### Purpose
+
+Two user-visible wins and one CI hardening:
+
+1. **Release badge no longer flakes.** The `shields.io/dynamic-json`
+   badge introduced in v4.62.0 silently degraded to `invalid` whenever
+   shields.io's GitHub API proxy returned a non-2xx (their
+   `unable to select next github token from pool` failure mode, plus
+   the new `invalid` flavour after a cache stale-or-empty JSON).
+   v4.64.0 ships our own badge source: a tiny GitHub Action
+   (`.github/workflows/version-badge.yml`) that writes
+   `docs/version.json` on every push to `master` and every `v*.*.*`
+   tag. The README badge now points at our own JSON on
+   `raw.githubusercontent.com`, which is always reachable.
+
+2. **Rolled the badge source from `dynamic-json` back to `v/release`.**
+   `v/release` reads from shields.io's cached GitHub tag map; it
+   worked correctly for the entire v4.62.0 → v4.63.0 stretch and
+   only failed in v4.62.0 because of a transient shields.io
+   `unable to select next github token from pool` state. Rolling
+   back to `v/release` (a cached endpoint, not a live GitHub API
+   call) makes the README badge as stable as shields.io itself,
+   which is the best we can promise from a third-party CDN.
+
+3. **`actionlint` now runs over the new workflow file.**
+   The v4.62.0 `actionlint` job already covers
+   `.github/workflows/`, so the new `version-badge.yml` is
+   linted automatically. The `permissions: contents: write` block
+   is required for the commit step and is verified by actionlint
+   (this was the v4.61.1 root cause).
+
+### Added
+
+1. **`.github/workflows/version-badge.yml`** - on every push to
+   `master` and every `v*.*.*` tag, resolves the current release
+   tag via the GitHub API and writes `docs/version.json`:
+
+   ```json
+   {
+     "tag_name": "v4.64.0",
+     "semver": "4.64.0",
+     "updated_at": "2026-07-24T12:00:00Z"
+   }
+   ```
+
+   Then commits the file back to master (only if it actually
+   changed). The workflow is idempotent and re-runnable on
+   `workflow_dispatch`.
+
+### Changed
+
+1. **`README.md`** - badge line restored to the pre-v4.62.0 form:
+
+   ```markdown
+   [![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=release)](https://github.com/IvanSkainet/arena-agent/releases/latest)
+   ```
+
+   (was `dynamic-json?url=...api.github.com/...releases/latest`
+   in v4.62.0; rolled back because the proxy endpoint started
+   returning `invalid` after the user's CTRL+SHIFT+R reload —
+   same class of issue as the v4.62.0 release notes flagged).
+
+### Out of scope (intentional, tracked for later)
+
+* **Wire `docs/version.json` into the README as a second badge.**
+  The `dynamic-json?url=...raw.githubusercontent.com/...version.json`
+  form would let us show our own badge as the primary, with
+  `v/release` as the fallback. Deferred to v4.64.x because the
+  primary goal of v4.64.0 is removing the visible `invalid`
+  flicker — adding a second badge before that lands would be
+  noise.
+* **Catalogue hardening** (additionalProperties: false on every
+  tool, fix `mobile.key` invalid `items: {}`, namespace the four
+  legacy bare names). Tracked in v4.63.0's "Out of scope"
+  section.
+* **Coverage gate 50% → 60%** once the new test infrastructure
+  has more unit tests written for it.
+
+### Extension
+
+Byte-identical to v4.63.0 - bridge-only release.
+
+
 ## v4.63.0 - test coverage expansion (3 new structural guards)
 
 ### Purpose

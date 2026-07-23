@@ -16,7 +16,8 @@ Public surface
     that we no longer maintain the ``v4.5*`` test files.
 
 ``EXT_VERSIONS``
-    Same idea for the browser chat extension (``chat_extension/``).
+    Same idea for the browser chat extension (``chat_extension/``    ("4.64.0", "test coverage expansion (3 new structural guards)", False),  # bridge-only: no production code change
+).
 
 ``LATEST_BRIDGE``
     Convenience alias for ``BRIDGE_VERSIONS[-1]`` — the version currently

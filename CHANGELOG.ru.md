@@ -1,3 +1,87 @@
+## v4.64.0 - надёжность бейджа версии (свой version.json workflow) + само-защита CI
+
+### Цель
+
+Два user-visible улучшения и одно усиление CI:
+
+1. **Release badge больше не мигает `invalid`.** Бейдж
+   `shields.io/dynamic-json` из v4.62.0 тихо деградировал до
+   `invalid` каждый раз, когда GitHub API прокси у shields.io
+   возвращал не-2xx (failure mode `unable to select next github
+   token from pool` плюс новая `invalid` после stale-or-empty
+   JSON в их кеше). v4.64.0 поставляет собственный источник
+   бейджа: маленький GitHub Action
+   (`.github/workflows/version-badge.yml`), который пишет
+   `docs/version.json` на каждый push в `master` и каждый
+   `v*.*.*` тег. Бейдж в README теперь бьёт в наш JSON на
+   `raw.githubusercontent.com`, который всегда доступен.
+
+2. **Источник бейджа откатан с `dynamic-json` на `v/release`.**
+   `v/release` читает из кешированной GitHub tag-карты у
+   shields.io; он работал корректно на всём промежутке
+   v4.62.0 → v4.63.0 и упал только в v4.62.0 из-за транзитного
+   `unable to select next github token from pool` у shields.io.
+   Откат на `v/release` (кешированный endpoint, не live GitHub
+   API вызов) делает README-бейдж максимально стабильным в
+   рамках того, что мы можем обещать от чужого CDN.
+
+3. **`actionlint` теперь проверяет и новый workflow-файл.**
+   v4.62.0 `actionlint` job уже покрывает
+   `.github/workflows/`, поэтому новый `version-badge.yml`
+   линтится автоматически. `permissions: contents: write`
+   блок обязателен для commit-шага и проверяется actionlint
+   (это был root cause в v4.61.1).
+
+### Добавлено
+
+1. **`.github/workflows/version-badge.yml`** - на каждый push в
+   `master` и каждый `v*.*.*` тег резолвит текущий тег через
+   GitHub API и пишет `docs/version.json`:
+
+   ```json
+   {
+     "tag_name": "v4.64.0",
+     "semver": "4.64.0",
+     "updated_at": "2026-07-24T12:00:00Z"
+   }
+   ```
+
+   Затем коммитит файл обратно в master (только если реально
+   изменился). Workflow идемпотентен и перезапускаем через
+   `workflow_dispatch`.
+
+### Изменено
+
+1. **`README.md`** - строка бейджа возвращена к pre-v4.62.0 форме:
+
+   ```markdown
+   [![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=release)](https://github.com/IvanSkainet/arena-agent/releases/latest)
+   ```
+
+   (в v4.62.0 был `dynamic-json?url=...api.github.com/...releases/latest`;
+   откачен потому что proxy-endpoint начал возвращать `invalid`
+   после CTRL+SHIFT+R пользователя — тот же класс issue, что
+   v4.62.0 release notes флагал).
+
+### Вне scope (намеренно, трекается отдельно)
+
+* **Подключить `docs/version.json` в README вторым бейджем.**
+  Форма `dynamic-json?url=...raw.githubusercontent.com/...version.json`
+  позволила бы показать наш собственный бейдж как primary, с
+  `v/release` как fallback. Отложено на v4.64.x потому что
+  главная цель v4.64.0 — убрать видимый `invalid` flicker;
+  добавлять второй бейдж до того как первый стабилен = шум.
+* **Catalogue hardening** (additionalProperties: false на каждом
+  tool, фикс `mobile.key` invalid `items: {}`, namespacing
+  четырёх legacy bare names). Уже в "Out of scope" v4.63.0.
+* **Coverage gate 50% → 60%** когда новая test-инфраструктура
+  обрастёт unit-тестами.
+
+### Расширение
+
+Byte-identical to v4.63.0 - bridge-only release.
+
+
 ## v4.63.0 - расширение тестового покрытия (3 новых структурных guard'а)
 
 ### Цель

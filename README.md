@@ -11,7 +11,7 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 **🌐 English · [Русский](README.ru.md)**
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fapi.github.com%2Frepos%2FIvanSkainet%2Farena-agent%2Freleases%2Flatest&query=%24.tag_name&label=release&color=blue)](https://github.com/IvanSkainet/arena-agent/releases/latest)
+[![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=release)](https://github.com/IvanSkainet/arena-agent/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 

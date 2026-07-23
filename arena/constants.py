@@ -1,7 +1,7 @@
 """Version, filesystem paths and tunable limits for the bridge.
 
 ``BRIDGE_DIR`` is the directory that contains ``unified_bridge.py``. Because this
-module lives in ``<repo>/arena/constants.py``, the repo root is this file's
+module lives in ``/arena/constants.py``, the repo root is this file's
 grandparent (``parent.parent``) — NOT ``parent`` (which would be the ``arena/``
 package directory).
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-VERSION = "4.63.0"
+VERSION = "4.64.0"
 AUDIT_CMD_LIMIT = 4000
 
 # Directory containing unified_bridge.py (the install/repo root).
@@ -23,19 +23,3 @@ AUDIT = APP_DIR / "audit.jsonl"
 MAX_BODY = 1024 * 1024
 DEFAULT_MAX_OUTPUT = 2 * 1024 * 1024
 DEFAULT_MAX_CONCURRENT = 3
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
