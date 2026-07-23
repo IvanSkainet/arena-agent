@@ -119,13 +119,6 @@ skip_covered = false
 show_missing = true
 
 # ---------------------------------------------------------------------------
-# mypy. v4.61.0 starts with strict type checking on the narrow
-# surface that the test infrastructure and the auto-update hot path
-# live in. The full `arena/` tree is still under gradual typing;
-# extend `[[tool.mypy.overrides]]` per module as more code gets
-# annotated. CI runs `mypy --strict` only on the listed modules
-# so the wider codebase is not yet penalised.
-# ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.10"
 ignore_missing_imports = true
