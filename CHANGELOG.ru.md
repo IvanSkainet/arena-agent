@@ -1,3 +1,207 @@
+## v4.61.0 - Релиз тестовой инфраструктуры (hypothesis + контракты + усиление CI)
+
+### Цель
+
+Перестать поставлять тесты, которые выглядят зелёными, но не ловят
+регрессии. В линейке v4.60.x прятались три настоящих класса багов:
+
+* Рефакторинги MCP-инструментов молча ломают публичную поверхность
+  (переименованный handler или удалённое имя tool невидимы до тех
+  пор, пока пользователь не запустит сценарий, который его вызывает).
+* Изменения парсера `scripts/spec_kit_to_scenarios.py` опираются
+  на example-based тесты, которые проходят на happy path и молча
+  ломаются на краевых входах.
+* CI прогоняет тот же набор тестов на той же OS / Python, что и
+  разработчик локально, поэтому платформенные регрессии доезжают
+  до master незамеченными.
+
+Этот релиз добавляет три слоя защиты:
+
+1. **Property-based тесты** для spec-kit адаптера (`hypothesis`,
+   100 фаззинг-примеров на инвариант) — ловят поломки парсера на
+   входах, для которых автор теста не писал.
+2. **Контрактные тесты** MCP-инструментов — каждый
+   `arena/mcp/tool_*.py` AST-сканируется на `handle_*` функции
+   и `namespace.action` строковые литералы, затем сравнивается с
+   закоммиченным snapshot. Переименования, удаления и тихое гниение
+   dispatch'а ловятся тестом с понятным diff.
+3. **Усиление CI** — матрица Python расширена до 3.10–3.14,
+   добавлен Windows runner для кросс-платформенных тестов,
+   coverage gate (`--cov-fail-under=70`) применяется к каждой
+   ячейке матрицы, узкий `mypy --strict` прогон на auto-update
+   и service-restart модулях — будущие рефакторинги горячего пути
+   падают как PR-failure, а не как "мост мёртв" ночью.
+
+Плюс один операционный инструмент:
+
+4. **`scripts/inspect_update_log.py`** — read-only диагностика
+   для auto-update mover'а по его `.arena-update-apply.log`.
+   Когда в следующий раз auto-update зависнет, одна команда
+   `python -m inspect_update_log` покажет, до какой фазы дошёл
+   mover, вместо гадания по полутораминутному `curl /health`.
+
+### Добавлено
+
+1. **`scripts/inspect_update_log.py`** (244 строки). Чистая
+   stdlib-диагностика. Парсит `[DATE TIME] marker` строки,
+   которые пишет
+   `arena/admin/auto_update_windows.py::_write_windows_installer`,
+   классифицирует каждую фазу (`mover-start`,
+   `wait-loop-entry`, `bridge exited`, `copy done`,
+   `relaunched`, `mover-done`, опционально
+   `relaunched via <mechanism>`, опционально
+   `WARN no relaunch mechanism found`) и печатает
+   человекочитаемую сводку. Exit code: 0 если mover
+   завершился чисто (`mover-done` присутствует),
+   2 если застрял (последняя фаза ≠ `mover-done`),
+   1 если логов не найдено. Флаги `--all` (все логи под
+   root), `--verbose` (каждая распарсенная запись) и
+   `--root <path>` (по умолчанию — родительский каталог
+   скрипта).
+
+2. **`scripts/refresh_mcp_contract_snapshot.py`** (100 строк).
+   Регенерирует `tests/_mcp_contract_snapshot.json` из
+   текущего `arena/mcp/tool_*.py`. Контрактный тест падает,
+   когда разработчик добавляет/удаляет/переименовывает tool;
+   фикс — запуск скрипта осознанно и коммит нового snapshot,
+   а не глушение теста.
+
+3. **`tests/test_spec_kit_parser_property.py`** (250 строк).
+   Hypothesis-инварианты для
+   `scripts/spec_kit_to_scenarios.py`:
+   * `parse_tasks` тотален (никогда не бросает ни на каком
+     текстовом входе).
+   * Уникальные ID на входе остаются уникальными на выходе.
+   * Количество распарсенных шагов никогда не превышает
+     количество task-start строк во входе.
+   * Извлечённые `Args` блоки всегда round-trip через
+     `json.dumps` + `json.loads`.
+   * `build_scenario` всегда выдаёт документированный
+     top-level shape (`name`, `description`, `version`,
+     `steps`, `final`).
+   * `arguments` в шагах `build_scenario` всегда dict,
+     который JSON-сериализуется без ошибок.
+   Тесты сами skip'аются, если `hypothesis` не установлен —
+   остальной suite остаётся зелёным на операторах без dev
+   extra.
+
+4. **`tests/test_mcp_tool_contracts.py`** (230 строк, 6
+   guard'ов). AST-сканирует каждый `arena/mcp/tool_*.py`,
+   извлекает `handle_*` функции и `namespace.action`
+   литералы, сравнивает со snapshot в
+   `tests/_mcp_contract_snapshot.json`. Дополнительно
+   проверяет: нет дубликатов tool names между handler
+   модулями (registry модули исключены — они намеренно
+   перечисляют все имена); каждая `handle_*` функция
+   живёт в модуле, который также содержит dot-style
+   tool names (legacy `tool_exec.py` — единственное
+   документированное исключение); все tool names
+   подчиняются regex `lower_snake.namespace`. На текущем
+   дереве это фиксирует 28 модулей / 22 handler'а / 234
+   tool name.
+
+5. **`tests/test_tool_exec_legacy_dispatch.py`** (2
+   guard'а). Проверяет, что `tool_exec.py` действительно
+   диспатчит legacy pre-MCP tool'ы (`ping`, `echo`, `exec`)
+   И что будущее изменение не вставит туда dot-style имена
+   без предварительного обновления contract snapshot.
+   Подтяжка для единственного legacy-острова.
+
+6. **`tests/test_inspect_update_log.py`** (17 guard'ов).
+   Покрывает саму диагностику: shape regex, классификация
+   хорошего лога, детекция фазы для неполного лога,
+   surfacing `WARN no relaunch`, толерантность к
+   пустым/неизвестным строкам, обработка missing-file,
+   порядок resolution логов (новейший первый; `--all`
+   показывает все), exit codes (0 clean / 2 stalled / 1
+   no logs), verbose mode.
+
+### Изменено
+
+1. **`pyproject.toml`** — добавлены dev-extras в
+   `[project.optional-dependencies]` (`pytest-cov`,
+   `hypothesis`, `mypy`). Добавлен `[tool.coverage.*]`
+   (paths, exclude, `term-missing` отчёт, `xml` отчёт,
+   `--cov-fail-under=70` глобальный gate, branch coverage).
+   Добавлен `[tool.mypy]` с узким `[[tool.mypy.overrides]]`
+   списком auto-update и service-restart модулей под
+   `--strict` (широкое дерево `arena/` остаётся под
+   gradual typing и пока НЕ штрафуется). pytest `addopts`
+   расширен: `--cov=arena`, `--cov-report=term-missing`,
+   `--cov-report=xml:coverage.xml`, `--cov-branch`,
+   `--cov-fail-under=70`, `--strict-markers`.
+
+2. **`.github/workflows/ci.yml`** — матрица тестов
+   расширена до
+   `python-version: ["3.10","3.11","3.12","3.13","3.14"]`
+   на `os: [ubuntu-latest, windows-latest]`. Coverage
+   отчёт загружается как `coverage-xml` артефакт в каждой
+   ячейке матрицы — PR, который роняет coverage на Windows,
+   не пройдёт только потому, что Linux всё ещё 80%.
+   Новая `typecheck` job запускает `mypy --strict` против
+   модулей из `pyproject.toml` overrides (auto-discovery
+   через `tomllib`, так что добавление модуля в override
+   автоматически подхватывается здесь). Lint job без
+   изменений (`ruff --select F821,F811` blocking,
+   полный rule set informational).
+
+### Тесты
+
+* `tests/test_inspect_update_log.py` — 17 guard'ов.
+* `tests/test_spec_kit_parser_property.py` — 23 passed
+  + 1 hypothesis skip (на входе по случайности были
+  дубликаты ID; парсер намеренно не дедуплицирует).
+* `tests/test_mcp_tool_contracts.py` — 6/6 guard'ов.
+* `tests/test_tool_exec_legacy_dispatch.py` — 2/2 guard'а.
+* `tests/_mcp_contract_snapshot.json` — 28 модулей / 22
+  handler'а / 234 tool name; bootstrap и обновление
+  через `python scripts/refresh_mcp_contract_snapshot.py`.
+
+Суммарно добавлено в релизе: **48 новых guard'ов**.
+
+### Живой smoke
+
+* `ruff check . --select F821,F811` — все checks passed.
+* `python -m py_compile` по всем новым файлам — passed.
+* `pytest tests/test_inspect_update_log.py` — 17/17 green.
+* `pytest tests/test_spec_kit_parser_property.py` — 23
+  passed, 1 skip (~6s wall).
+* `pytest tests/test_mcp_tool_contracts.py` — 6/6 green
+  против живого AST-скана всех 29 `arena/mcp/tool_*.py`
+  файлов в master.
+* `pytest tests/test_tool_exec_legacy_dispatch.py` —
+  2/2 green.
+* Контрактный тест преднамеренно нагружен удалением
+  `fs.write_base64` из snapshot — падает немедленно с
+  человекочитаемым diff:
+  ``+ arena/mcp/tool_fs.py: ... tool_names=[..., 'fs.write_base64']``
+  ``- arena/mcp/tool_fs.py: ... tool_names=[..., 'fs.write_base64']``
+  подтверждая, что guard настоящий, а не декоративный.
+
+### Вне scope (намеренно)
+
+* **Mutation testing** (mutmut / cosmic-ray) — слишком
+  тяжёлый для текущего coverage; в очереди на v4.62.0
+  после того, как coverage gate постоит стабильно
+  несколько релизов.
+* **Полный `mypy --strict` на всё дерево `arena/`** —
+  слишком много шума для одного релиза. Узкий подход
+  через `[[tool.mypy.overrides]]` растёт модуль за
+  модулем по мере аннотирования кода.
+* **Рефакторинг auto-update mover'а** — вне scope;
+  добавлена только диагностика. Настоящий фикс
+  (не-elevated worker process) остаётся в очереди
+  на v4.62.x.
+* **Сценарий voice→transcription с конкретным online
+  STT** — всё ещё в очереди. v4.61.0 поставляет
+  тестовую инфраструктуру, на которую будущие voice
+  сценарии будут опираться; сам сценарий — отдельный
+  workstream.
+
+### Расширение
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.20 - Диагностика запуска браузера (без починки Edge-headless)
 
 ### Назначение

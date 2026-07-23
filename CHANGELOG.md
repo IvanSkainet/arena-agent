@@ -1,3 +1,196 @@
+## v4.61.0 - Test-infrastructure release (hypothesis + contracts + CI hardening)
+
+### Purpose
+
+Stop shipping tests that look green but cannot catch a regression.
+Three real classes of bugs were lurking in the v4.60.x line:
+* MCP tool refactors silently break the public surface (a renamed
+  handler or a dropped tool name is invisible until a user runs a
+  scenario that calls it).
+* Parser changes to `scripts/spec_kit_to_scenarios.py` rely on
+  example-based tests that pass on the happy path and silently
+  regress on edge inputs.
+* CI runs the same subset of tests on the same OS / Python combo
+  that the developer has locally, so platform-specific regressions
+  reach master before anyone notices.
+
+This release adds three layers of defence:
+
+1. **Property-based tests** for the spec-kit adapter (`hypothesis`,
+   100 fuzzed examples per invariant) — catches the parser breaking
+   on inputs the author never wrote a test for.
+2. **Contract tests** for the MCP tool surface — every
+   `arena/mcp/tool_*.py` file is AST-scanned for `handle_*`
+   functions and `namespace.action` tool-name literals, then
+   compared to a checked-in snapshot. Renames, deletions, and
+   silent handler rot trip the test with a clear diff.
+3. **CI hardening** — Python matrix extended to 3.10–3.14,
+   Windows runner added for the cross-platform tests, coverage
+   gate (`--cov-fail-under=70`) enforced on every matrix cell,
+   narrow mypy `--strict` pass on the auto-update and
+   service-restart modules so future refactors of the hot path
+   land as PR failures instead of "bridge is dead" pages.
+
+Also includes one operational tool:
+
+4. **`scripts/inspect_update_log.py`** — read-only diagnostic for
+   the auto-update mover's `.arena-update-apply.log`. A future
+   "auto-update hung" report now has a one-line `python -m
+   inspect_update_log` to tell you which phase the mover
+   reached, instead of guessing from a 1.5-minute `curl /health`
+   poll.
+
+### Added
+
+1. **`scripts/inspect_update_log.py`** (244 lines). Pure-stdlib
+   diagnostic. Parses the `[DATE TIME] marker` lines emitted by
+   `arena/admin/auto_update_windows.py::_write_windows_installer`,
+   classifies each phase (`mover-start`, `wait-loop-entry`,
+   `bridge exited`, `copy done`, `relaunched`, `mover-done`,
+   optional `relaunched via <mechanism>`, optional
+   `WARN no relaunch mechanism found`), and prints a short
+   human-readable summary. Exit code 0 when the mover finished
+   cleanly (`mover-done` present), 2 when it stalled (last
+   phase != `mover-done`), 1 when no logs found. Supports
+   `--all` (every log under the root), `--verbose` (every
+   parsed entry), and `--root <path>` (default: script's
+   parent directory).
+
+2. **`scripts/refresh_mcp_contract_snapshot.py`** (100 lines).
+   Regenerates `tests/_mcp_contract_snapshot.json` from the
+   current `arena/mcp/tool_*.py` source tree. The contract
+   test fails when a developer adds/removes/renames a tool;
+   the fix is to run this script deliberately and commit the
+   new snapshot, not to mute the test.
+
+3. **`tests/test_spec_kit_parser_property.py`** (250 lines).
+   Hypothesis-driven invariants for
+   `scripts/spec_kit_to_scenarios.py`:
+   * `parse_tasks` is total (never raises on any text input).
+   * Unique input IDs are preserved as unique output IDs.
+   * Number of parsed steps never exceeds the number of
+     task-start lines in the input (we never invent steps).
+   * Extracted `Args` blocks always round-trip through
+     `json.dumps` + `json.loads`.
+   * `build_scenario` always produces the documented top-level
+     shape (`name`, `description`, `version`, `steps`, `final`).
+   * `build_scenario` step `arguments` is always a dict that
+     JSON-serializes without errors.
+   Tests self-skip when `hypothesis` is not installed, so the
+   rest of the suite stays green on operators without the dev
+   extra.
+
+4. **`tests/test_mcp_tool_contracts.py`** (230 lines, 6
+   guards). AST-scans every `arena/mcp/tool_*.py`, extracts
+   `handle_*` functions and `namespace.action` string
+   literals, and compares to the snapshot at
+   `tests/_mcp_contract_snapshot.json`. Also asserts: no
+   duplicate tool names across handler modules (registry
+   modules are exempt — they intentionally re-list every name);
+   every `handle_*` function lives in a module that also
+   contains dot-style tool names (the legacy `tool_exec.py`
+   is the single documented exception); every tool name obeys
+   the `lower_snake.namespace` regex. On the current tree
+   this locks 28 modules / 22 handlers / 234 tool names.
+
+5. **`tests/test_tool_exec_legacy_dispatch.py`** (2 guards).
+   Pin `tool_exec.py` actually dispatches the legacy
+   pre-MCP tools (`ping`, `echo`, `exec`) AND that a future
+   change doesn't accidentally introduce dot-style names
+   there without first updating the contract snapshot.
+   Belt-and-suspenders for the only legacy-tool island.
+
+6. **`tests/test_inspect_update_log.py`** (17 guards). Covers
+   the diagnostic itself: line-regex shape, good log
+   classification, incomplete log phase detection, `WARN
+   no relaunch` warning surfacing, blank/unknown-line
+   tolerance, missing-file error reporting, log-resolution
+   ordering (newest first; `--all` shows every log), exit
+   codes (0 clean / 2 stalled / 1 no logs), and verbose
+   mode.
+
+### Changed
+
+1. **`pyproject.toml`** — added `[project.optional-dependencies].dev`
+   extras (`pytest-cov`, `hypothesis`, `mypy`). Added
+   `[tool.coverage.*]` (paths, exclude, `term-missing` report,
+   `xml` report, `--cov-fail-under=70` global gate, branch
+   coverage on). Added `[tool.mypy]` with a narrow
+   `[[tool.mypy.overrides]]` list of the auto-update and
+   service-restart modules for `--strict` enforcement (the
+   wider `arena/` tree is still under gradual typing and is
+   NOT yet penalised). pytest `addopts` extended with
+   `--cov=arena`, `--cov-report=term-missing`,
+   `--cov-report=xml:coverage.xml`, `--cov-branch`,
+   `--cov-fail-under=70`, `--strict-markers`.
+
+2. **`.github/workflows/ci.yml`** — test matrix extended to
+   `python-version: ["3.10","3.11","3.12","3.13","3.14"]`
+   on `os: [ubuntu-latest, windows-latest]`. Coverage report
+   uploaded as a `coverage-xml` artifact on every matrix cell
+   so a PR that drops coverage on Windows can't sneak
+   through just because Linux coverage is still 80%. New
+   `typecheck` job runs `mypy --strict` against the modules
+   listed in `pyproject.toml`'s mypy overrides (auto-discovery
+   via `tomllib` so adding a module to the override list
+   picks it up here automatically). Lint job unchanged
+   (`ruff --select F821,F811` blocking, full rule set
+   informational).
+
+### Tests
+
+* `tests/test_inspect_update_log.py` — 17 guards.
+* `tests/test_spec_kit_parser_property.py` — 23 passed + 1
+  hypothesis skip (input had duplicate IDs by chance;
+  the parser intentionally does not dedupe).
+* `tests/test_mcp_tool_contracts.py` — 6 guards.
+* `tests/test_tool_exec_legacy_dispatch.py` — 2 guards.
+* `tests/_mcp_contract_snapshot.json` — 28 modules / 22
+  handlers / 234 tool names; bootstrap and run with
+  `python scripts/refresh_mcp_contract_snapshot.py`.
+
+Combined test additions in this release: **48 new guards**.
+
+### Live smoke
+
+* `ruff check . --select F821,F811` — all checks passed.
+* `python -m py_compile` across all new files — passed.
+* `pytest tests/test_inspect_update_log.py` — 17/17 green.
+* `pytest tests/test_spec_kit_parser_property.py` — 23
+  passed, 1 skip (~6s wall).
+* `pytest tests/test_mcp_tool_contracts.py` — 6/6 green
+  against the live AST scan of all 29 `arena/mcp/tool_*.py`
+  files in master.
+* `pytest tests/test_tool_exec_legacy_dispatch.py` — 2/2
+  green.
+* Contract test deliberately stressed by removing
+  `fs.write_base64` from the snapshot — fails immediately
+  with a human-readable diff:
+  ``+ arena/mcp/tool_fs.py: ... tool_names=[..., 'fs.write_base64']``
+  ``- arena/mcp/tool_fs.py: ... tool_names=[..., 'fs.write_base64']``
+  confirming the guard is real, not decorative.
+
+### Out of scope (intentional)
+
+* **Mutation testing** (mutmut / cosmic-ray) — too heavy
+  for the current coverage; queued for v4.62.0 once the
+  coverage gate is stable for a few releases.
+* **Full `mypy --strict` on the whole `arena/` tree** —
+  too much noise to land in one release. The narrow
+  `[[tool.mypy.overrides]]` approach grows module-by-module
+  as more code gets annotations.
+* **Auto-update mover refactor** — out of scope; only the
+  diagnostic was added. The real fix (non-elevated worker
+  process) remains tracked for v4.62.x.
+* **Voice→transcription scenario with concrete online STT**
+  — still queued. v4.61.0 ships the test infrastructure
+  that future voice scenarios will rely on; the scenario
+  itself is a separate workstream.
+
+### Extension
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.20 - Browser-launch diagnostic (no Edge-headless fix)
 
 ### Purpose

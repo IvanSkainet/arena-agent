@@ -28,10 +28,19 @@ full = [
     "psutil>=5.9",
     "websockets>=12.0",
 ]
-# Tooling for contributors.
+# Tooling for contributors. v4.61.0 adds:
+#   * hypothesis>=6.0  -- property-based testing (skip if missing, tests self-skip)
+#   * pytest-cov>=4.0  -- coverage gate; the dev install pulls it in for
+#                        `make coverage` and CI.
+#   * mypy>=1.10       -- type checking. The codebase is large; only a
+#                        subset is type-checked strictly (see [tool.mypy]
+#                        below). Extend module-by-module as it stabilises.
 dev = [
     "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "hypothesis>=6.0",
     "ruff>=0.4",
+    "mypy>=1.10",
 ]
 
 [project.urls]
@@ -61,20 +70,88 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q"
+# v4.61.0: --cov with a coverage gate. The threshold is intentionally
+# permissive (70%) so the new gate doesn't break the existing suite on
+# day one. Tighten per-module as the suite grows. Coverage reports go
+# to coverage.xml (for CI artefact upload) and to stdout (for human
+# review). The `branch` flag catches the most common case of a missed
+# branch on a function with a single early-return.
+addopts = [
+    "-q",
+    "--strict-markers",
+    "--cov=arena",
+    "--cov-report=term-missing",
+    "--cov-report=xml:coverage.xml",
+    "--cov-branch",
+    "--cov-fail-under=70",
+]
 
+# ---------------------------------------------------------------------------
+# Coverage: which paths count, which are excluded. v4.61.0 starts with
+# `arena/` only — dashboard / docs / scripts are excluded so the gate
+# measures runtime code, not glue.
+# ---------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["arena"]
+branch = true
+omit = [
+    "arena/__main__.py",
+    "arena/conftest.py",
+    "arena/tests/*",
+    "*/__pycache__/*",
+    "*/.pytest_cache/*",
+    "*/site-packages/*",
+]
 
+[tool.coverage.report]
+# Per-module thresholds are aspirational; they trip on PRs that drop
+# coverage on a critical path. The global 70% gate above is the
+# day-one safety net.
+exclude_lines = [
+    "pragma: no cover",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "\\.\\.\\.",
+]
+sort = "Cover"
+skip_covered = false
+show_missing = true
 
+# ---------------------------------------------------------------------------
+# mypy. v4.61.0 starts with strict type checking on the narrow
+# surface that the test infrastructure and the auto-update hot path
+# live in. The full `arena/` tree is still under gradual typing;
+# extend `[[tool.mypy.overrides]]` per module as more code gets
+# annotated. CI runs `mypy --strict` only on the listed modules
+# so the wider codebase is not yet penalised.
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_return_any = false
+disallow_untyped_defs = false      # most of arena/ has no annotations
+disallow_any_generics = false
+no_implicit_optional = true
+check_untyped_defs = true
 
-
-
-
-
-
-
-
-
-
-
-
-
+[[tool.mypy.overrides]]
+# Auto-update and the restart helpers are the path we actively
+# maintain and where regressions hurt the most. Type-check them
+# strictly so a refactor that breaks the contract lands as a PR
+# failure, not as a 3am "bridge is dead" page.
+module = [
+    "arena.service.restart",
+    "arena.service.restart_common",
+    "arena.service.restart_darwin",
+    "arena.service.restart_linux",
+    "arena.service.restart_windows",
+    "arena.admin.auto_update_windows",
+    "scripts.inspect_update_log",
+]
+strict = true
+disallow_untyped_defs = true
+disallow_any_generics = true
+warn_unused_ignores = true

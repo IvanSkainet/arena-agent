@@ -1,0 +1,447 @@
+[
+  {
+    "file": "arena/mcp/tool_agentic.py",
+    "handlers": [
+      "handle_agentic_tool"
+    ],
+    "tool_names": [
+      "react.run",
+      "reflect.run"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_asr.py",
+    "handlers": [
+      "handle_asr_tool"
+    ],
+    "tool_names": [
+      "asr.models",
+      "asr.transcribe"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_browser.py",
+    "handlers": [
+      "handle_browser_tool"
+    ],
+    "tool_names": [
+      "browser.read",
+      "browser.search",
+      "browser.shot"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_browser_headed.py",
+    "handlers": [
+      "handle_browser_headed_tool"
+    ],
+    "tool_names": [
+      "browser.close",
+      "browser.launch",
+      "browser.list"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_desktop.py",
+    "handlers": [
+      "handle_desktop_tool"
+    ],
+    "tool_names": [
+      "desktop.click_text",
+      "desktop.displays",
+      "desktop.find_text",
+      "desktop.focus",
+      "desktop.ocr",
+      "desktop.resolve_text_target",
+      "desktop.text_action",
+      "desktop.window_action",
+      "desktop.windows"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_desktop_input.py",
+    "handlers": [
+      "handle_desktop_input_tool"
+    ],
+    "tool_names": [
+      "desktop.click",
+      "desktop.key",
+      "desktop.mouse",
+      "desktop.type"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_exec.py",
+    "handlers": [
+      "handle_exec_tool"
+    ],
+    "tool_names": []
+  },
+  {
+    "file": "arena/mcp/tool_fs.py",
+    "handlers": [
+      "handle_fs_tool"
+    ],
+    "tool_names": [
+      "fs.create",
+      "fs.edit",
+      "fs.edit_apply",
+      "fs.edit_rollback",
+      "fs.list",
+      "fs.read",
+      "fs.view",
+      "fs.write",
+      "fs.write_base64"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_fs_search.py",
+    "handlers": [
+      "handle_fs_search_tool"
+    ],
+    "tool_names": [
+      "fs.grep",
+      "fs.search"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_fs_tree_diff.py",
+    "handlers": [
+      "handle_fs_tree_diff_tool"
+    ],
+    "tool_names": [
+      "fs.diff",
+      "fs.tree"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_git.py",
+    "handlers": [
+      "handle_git_tool"
+    ],
+    "tool_names": [
+      "git.commit",
+      "git.diff",
+      "git.status"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_memory.py",
+    "handlers": [
+      "handle_memory_tool"
+    ],
+    "tool_names": [
+      "mem.get",
+      "mem.set",
+      "memory.digest",
+      "memory.recall"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_memory_export_import.py",
+    "handlers": [
+      "handle_memory_export_import_tool"
+    ],
+    "tool_names": [
+      "memory.export",
+      "memory.import"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_misc.py",
+    "handlers": [
+      "handle_misc_tool"
+    ],
+    "tool_names": [
+      "hooks.list",
+      "skill.list",
+      "skill.run",
+      "subagent.list",
+      "subagent.spawn",
+      "sys.status"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_mission.py",
+    "handlers": [
+      "handle_mission_tool"
+    ],
+    "tool_names": [
+      "mission.catalog",
+      "mission.compose",
+      "mission.create",
+      "mission.family",
+      "mission.followup",
+      "mission.history",
+      "mission.iterate",
+      "mission.lineage",
+      "mission.propose",
+      "mission.recover",
+      "mission.report",
+      "mission.rerun",
+      "mission.run",
+      "mission.schedule_delete",
+      "mission.schedule_save",
+      "mission.schedule_state",
+      "mission.schedule_tick",
+      "mission.schedules",
+      "mission.status",
+      "mission.templates"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_mobile.py",
+    "handlers": [
+      "handle_mobile_tool"
+    ],
+    "tool_names": [
+      "mobile.camera_capture",
+      "mobile.camera_launch",
+      "mobile.camera_photos",
+      "mobile.camera_pull",
+      "mobile.camera_record_start",
+      "mobile.camera_record_stop",
+      "mobile.camera_shutter",
+      "mobile.devices",
+      "mobile.gesture",
+      "mobile.helpers_status",
+      "mobile.ime_reset",
+      "mobile.ime_set",
+      "mobile.ime_status",
+      "mobile.info",
+      "mobile.key",
+      "mobile.key_combo",
+      "mobile.packages",
+      "mobile.paste",
+      "mobile.record_list",
+      "mobile.record_pull",
+      "mobile.record_start",
+      "mobile.record_stop",
+      "mobile.screenshot",
+      "mobile.scroll",
+      "mobile.sensors",
+      "mobile.shell",
+      "mobile.swipe",
+      "mobile.tap",
+      "mobile.tap_by",
+      "mobile.transport_status",
+      "mobile.type",
+      "mobile.ui"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_mobile_ext.py",
+    "handlers": [
+      "handle_mobile_ext_tool"
+    ],
+    "tool_names": [
+      "mobile.launch_app",
+      "mobile.list_files",
+      "mobile.pull_file",
+      "mobile.push_file"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_net.py",
+    "handlers": [
+      "handle_net_tool"
+    ],
+    "tool_names": [
+      "admin.run",
+      "net.http",
+      "secrets.get",
+      "secrets.list",
+      "sudo.run"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_plan.py",
+    "handlers": [
+      "handle_plan_tool"
+    ],
+    "tool_names": [
+      "plan.create"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry.py",
+    "handlers": [],
+    "tool_names": [
+      "browser.read",
+      "browser.search",
+      "browser.shot",
+      "desktop.click_text",
+      "desktop.displays",
+      "desktop.find_text",
+      "desktop.focus",
+      "desktop.ocr",
+      "desktop.resolve_text_target",
+      "desktop.text_action",
+      "desktop.window_action",
+      "desktop.windows",
+      "fs.create",
+      "fs.diff",
+      "fs.edit",
+      "fs.edit_apply",
+      "fs.edit_rollback",
+      "fs.grep",
+      "fs.list",
+      "fs.read",
+      "fs.search",
+      "fs.tree",
+      "fs.view",
+      "fs.write",
+      "git.commit",
+      "git.diff",
+      "git.status",
+      "hooks.list",
+      "mem.get",
+      "mem.set",
+      "memory.digest",
+      "memory.export",
+      "memory.import",
+      "memory.recall",
+      "plan.create",
+      "react.run",
+      "reflect.run",
+      "skill.list",
+      "skill.run",
+      "subagent.list",
+      "subagent.spawn",
+      "sys.status",
+      "watch.files"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_asr.py",
+    "handlers": [],
+    "tool_names": [
+      "asr.models",
+      "asr.transcribe"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_mission.py",
+    "handlers": [],
+    "tool_names": [
+      "mission.catalog",
+      "mission.compose",
+      "mission.create",
+      "mission.family",
+      "mission.followup",
+      "mission.history",
+      "mission.iterate",
+      "mission.lineage",
+      "mission.propose",
+      "mission.recover",
+      "mission.report",
+      "mission.rerun",
+      "mission.run",
+      "mission.schedule_delete",
+      "mission.schedule_save",
+      "mission.schedule_state",
+      "mission.schedule_tick",
+      "mission.schedules",
+      "mission.status",
+      "mission.templates"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_mobile.py",
+    "handlers": [],
+    "tool_names": [
+      "mobile.camera_capture",
+      "mobile.camera_launch",
+      "mobile.camera_photos",
+      "mobile.camera_pull",
+      "mobile.camera_record_start",
+      "mobile.camera_record_stop",
+      "mobile.camera_shutter",
+      "mobile.devices",
+      "mobile.gesture",
+      "mobile.helpers_status",
+      "mobile.ime_reset",
+      "mobile.ime_set",
+      "mobile.ime_status",
+      "mobile.info",
+      "mobile.key",
+      "mobile.key_combo",
+      "mobile.packages",
+      "mobile.paste",
+      "mobile.record_list",
+      "mobile.record_pull",
+      "mobile.record_start",
+      "mobile.record_stop",
+      "mobile.screenshot",
+      "mobile.scroll",
+      "mobile.sensors",
+      "mobile.shell",
+      "mobile.swipe",
+      "mobile.tap",
+      "mobile.tap_by",
+      "mobile.transport_status",
+      "mobile.type",
+      "mobile.ui"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_net.py",
+    "handlers": [],
+    "tool_names": [
+      "admin.run",
+      "net.http",
+      "secrets.get",
+      "secrets.list",
+      "sudo.run"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_scenarios.py",
+    "handlers": [],
+    "tool_names": [
+      "scenario.delete",
+      "scenario.get",
+      "scenario.history",
+      "scenario.list",
+      "scenario.preview",
+      "scenario.run",
+      "scenario.save"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_scenarios.py",
+    "handlers": [
+      "handle_scenario_tool"
+    ],
+    "tool_names": [
+      "scenario.delete",
+      "scenario.get",
+      "scenario.history",
+      "scenario.list",
+      "scenario.preview",
+      "scenario.run",
+      "scenario.save"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_speckit.py",
+    "handlers": [
+      "handle_speccy"
+    ],
+    "tool_names": [
+      "speccy.bogus",
+      "speccy.check",
+      "speccy.run",
+      "speccy.version"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_watch.py",
+    "handlers": [
+      "handle_watch_tool"
+    ],
+    "tool_names": [
+      "watch.files"
+    ]
+  }
+]
