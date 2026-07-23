@@ -48,11 +48,30 @@ class CDPTabManagerConnectLaunchMixin:
             return launch_diag, ""
 
     def _raise_browser_exit(self, prefix: str, stderr_info: str, launch_diag: dict) -> None:
+        """Raise ConnectionError with an actionable diagnostic when possible.
+
+        v4.60.20: if diagnose_elevation recognises a known Chromium/Edge
+        refusal (e.g. 'running elevated: 1'), the message includes the
+        full hint so the user sees the workaround inline. Otherwise we
+        fall back to the original behaviour (raw stderr).
+        """
         rc = self._browser_proc.returncode if self._browser_proc else None
         logger.error("[CDPManager] %s (rc=%s) stderr=%s", prefix, rc, stderr_info[:300])
+        try:
+            from arena.browser.diagnose_elevation import diagnose_browser_exit
+            diag = diagnose_browser_exit(
+                return_code=rc or 0,
+                stdout="",
+                stderr=stderr_info,
+            )
+        except Exception as _e:  # pragma: no cover (defensive)
+            diag = None
+        extra = ""
+        if diag is not None:
+            extra = "\n\nDiagnostic: " + diag["content"][0]["text"]
         raise ConnectionError(
             f"{prefix} (rc={rc}). stderr: {stderr_info[:500] or '(empty)'}. "
-            f"Launch diag: {launch_diag}"
+            f"Launch diag: {launch_diag}{extra}"
         )
 
     async def _launch_if_needed(self, existing_tabs: list[dict], loop, t0: float) -> list[dict]:

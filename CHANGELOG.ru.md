@@ -1,3 +1,78 @@
+## v4.60.20 - Диагностика запуска браузера (без починки Edge-headless)
+
+### Назначение
+
+Задокументировать и **сделать видимой** проблему Edge-headless,
+которую мы впервые увидели в smoke-прогонах v4.60.18. Причина —
+upstream-политика Chromium (`Edge is running elevated: 1`), а не
+баг моста. Этот релиз добавляет actionable-диагностику, чтобы
+пользователь видел **workaround** вместо `Browser process exited
+(rc=0) stderr=`.
+
+### Добавлено
+
+1. **`arena/browser/diagnose_elevation.py`** — новый модуль,
+   который проверяет stderr на известные Chromium/Edge-маркеры
+   отказа (сейчас: `running elevated: 1`, `elevation is not
+   supported`). Возвращает структурированный `isError` с
+   конкретным next-step: либо запустить мост от non-admin
+   пользователя, либо использовать BrowserAct cloud, либо
+   поставить Camoufox. Диагностика строго аддитивна — если
+   маркер не найден, возвращается `None` и поведение
+   идентично прежнему.
+
+2. **`docs/browser-headless-on-windows.md`** — полный статус
+   ситуации с Edge headless на Windows, три workaround'а с
+   trade-off'ами, и явная секция «что мы НЕ сделали» чтобы
+   не преувеличивать фикс в будущих изменениях.
+
+### Изменено
+
+3. **`arena/browser/cdp_client/tab_manager_connect_launch.py`** —
+   `_raise_browser_exit` теперь импортирует `diagnose_elevation`
+   и добавляет actionable-сообщение к `ConnectionError` при
+   обнаружении известного маркера. Оригинальный raw-stderr
+   сохранён рядом (defensive: ничего не теряется).
+
+### Тесты
+
+`tests/test_diagnose_elevation.py` (10 гардов):
+- пустой stderr -> None
+- здоровый stderr -> None
+- `running elevated: 1` детектируется
+- альтернативный `elevation is not supported` детектируется
+- сообщение actionable (длина + упоминание workaround'а)
+- `diagnose_browser_exit` -> None на нормальном запуске
+- пустой stdout + rc=0 детектируется
+- elevated-warning приоритетнее empty-output
+- substring-mismatch детектируется
+- комбинированная логика приоритетов
+
+### Live smoke
+
+После коммита диагностика отрабатывает на реальном запуске
+`msedge.exe --headless --dump-dom`, который упал в v4.60.18.
+Корректно показывает: «Edge is running elevated: 1. Headless
+mode from an admin process is blocked by Chromium's security
+policy. Workarounds: (1) run the bridge as a non-admin service;
+(2) use BrowserAct's cloud browser; (3) install Camoufox
+(Firefox-based, no elevation block) and use
+`browser.launch --type=camoufox` instead of Edge. See
+docs/browser-headless-on-windows.md for details.» Проверено
+локально до релиза.
+
+### Out of scope (намеренно, зафиксировано в docs)
+
+- Сама проблема Edge-headless **не починена**. Диагностика —
+  и есть фикс. Три workaround'а в docs-файле — это реальные
+  фиксы; пользователь выбирает.
+- Non-elevated browser-worker процесс — принципиальный фикс,
+  отслеживается для v4.61.x.
+
+### Расширение
+
+Байт-в-байт идентично v4.53.1 - релиз только моста.
+
 ## v4.60.19 - Интеграция Spec-Kit (опционально, opt-in)
 
 ### Назначение
