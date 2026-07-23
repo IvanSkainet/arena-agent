@@ -46,8 +46,7 @@ DESKTOP_INPUT_MCP_TOOLS = [
                 "activate": {"type": "boolean", "default": True},
                 "require_active_title": {"type": "string", "description": "Refuse to click unless active window title contains this substring."},
             },
-            "required": ["x", "y"],
-        },
+            "required": ["x", "y"], "additionalProperties": False},
     },
     {
         "name": "desktop.type",
@@ -66,8 +65,7 @@ DESKTOP_INPUT_MCP_TOOLS = [
                 "ensure_latin": {"type": "boolean", "default": True},
                 "require_active_title": {"type": "string"},
             },
-            "required": ["text"],
-        },
+            "required": ["text"], "additionalProperties": False},
     },
     {
         "name": "desktop.key",
@@ -82,8 +80,7 @@ DESKTOP_INPUT_MCP_TOOLS = [
                 "key": {"type": "string", "description": "Single key name (Return, Escape, Tab, F5, ...)"},
                 "keys": {"type": "array", "items": {"type": "string"}, "description": "Key chord to press together"},
                 "require_active_title": {"type": "string"},
-            },
-        },
+            }, "additionalProperties": False},
     },
     {
         "name": "desktop.mouse",
@@ -95,8 +92,7 @@ DESKTOP_INPUT_MCP_TOOLS = [
                 "y": {"type": "integer"},
                 "absolute": {"type": "boolean", "default": True},
             },
-            "required": ["x", "y"],
-        },
+            "required": ["x", "y"], "additionalProperties": False},
     },
 ]
 

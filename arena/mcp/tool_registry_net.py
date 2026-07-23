@@ -34,8 +34,7 @@ NET_MCP_TOOLS = [
                 },
                 "timeout": {"type": "number", "default": 20, "description": "Seconds, clamped [1, 60]."},
             },
-            "required": ["url"],
-        },
+            "required": ["url"], "additionalProperties": False},
     },
     {
         "name": "secrets.get",
@@ -48,13 +47,12 @@ NET_MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"key": {"type": "string"}},
-            "required": ["key"],
-        },
+            "required": ["key"], "additionalProperties": False},
     },
     {
         "name": "secrets.list",
         "description": "List available secret keys (values never returned).",
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "admin.run",
@@ -71,8 +69,7 @@ NET_MCP_TOOLS = [
                 "cmd": {"type": "string"},
                 "timeout": {"type": "integer", "default": 30},
             },
-            "required": ["cmd"],
-        },
+            "required": ["cmd"], "additionalProperties": False},
     },
     {
         "name": "sudo.run",
@@ -88,8 +85,7 @@ NET_MCP_TOOLS = [
                 "cmd": {"type": "string"},
                 "timeout": {"type": "integer", "default": 30},
             },
-            "required": ["cmd"],
-        },
+            "required": ["cmd"], "additionalProperties": False},
     },
 ]
 

@@ -14,7 +14,7 @@ SCENARIO_MCP_TOOLS = [
             "List all saved scenarios (name, title, description, step count, "
             "tools used, file path, mtime)."
         ),
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "scenario.get",
@@ -25,8 +25,7 @@ SCENARIO_MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        },
+            "required": ["name"], "additionalProperties": False},
     },
     {
         "name": "scenario.save",
@@ -41,8 +40,7 @@ SCENARIO_MCP_TOOLS = [
                 "source": {"type": "string", "description": "JSON (or YAML if enabled) source"}, "yaml": {"type": "string", "description": "Alias for source (legacy)"},
                 "overwrite": {"type": "boolean", "default": True},
             },
-            "required": ["name"],
-        },
+            "required": ["name"], "additionalProperties": False},
     },
     {
         "name": "scenario.delete",
@@ -50,8 +48,7 @@ SCENARIO_MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        },
+            "required": ["name"], "additionalProperties": False},
     },
     {
         "name": "scenario.preview",
@@ -62,8 +59,7 @@ SCENARIO_MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        },
+            "required": ["name"], "additionalProperties": False},
     },
     {
         "name": "scenario.run",
@@ -83,8 +79,7 @@ SCENARIO_MCP_TOOLS = [
                 "approve": {"type": "boolean", "default": True},
                 "dry_run": {"type": "boolean", "default": False},
             },
-            "required": ["name"],
-        },
+            "required": ["name"], "additionalProperties": False},
     },
     {
         "name": "scenario.history",
@@ -92,8 +87,7 @@ SCENARIO_MCP_TOOLS = [
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string"}},
-            "required": ["name"],
-        },
+            "required": ["name"], "additionalProperties": False},
     },
 ]
 

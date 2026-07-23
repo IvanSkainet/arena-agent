@@ -248,8 +248,7 @@ BROWSER_HEADED_MCP_TOOLS = [
                 "height": {"type": "integer", "default": 768},
                 "incognito": {"type": "boolean", "default": False},
                 "kiosk": {"type": "boolean", "default": False},
-            },
-        },
+            }, "additionalProperties": False},
     },
     {
         "name": "browser.close",
@@ -259,13 +258,12 @@ BROWSER_HEADED_MCP_TOOLS = [
             "properties": {
                 "session": {"type": "string", "default": "default"},
                 "force": {"type": "boolean", "default": False},
-            },
-        },
+            }, "additionalProperties": False},
     },
     {
         "name": "browser.list",
         "description": "List all still-running browser sessions started via browser.launch.",
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
 ]
 

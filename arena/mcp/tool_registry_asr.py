@@ -22,8 +22,7 @@ ASR_MCP_TOOLS = [
                 "threads": {"type": "integer", "description": "CPU threads (defaults to whisper.cpp's own default)."},
                 "timeout": {"type": "number", "default": 120, "description": "Seconds, clamped [10, 900]."},
             },
-            "required": ["file"],
-        },
+            "required": ["file"], "additionalProperties": False},
     },
     {
         "name": "asr.models",
@@ -32,7 +31,7 @@ ASR_MCP_TOOLS = [
             "/usr/share/whisper.cpp, and ARENA_WHISPER_MODEL. "
             "Also reports which whisper binary is on PATH."
         ),
-        "inputSchema": {"type": "object", "properties": {}},
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
 ]
 

@@ -211,8 +211,7 @@ MOBILE_EXT_MCP_TOOLS = [
                 "activity": {"type": "string", "description": "e.g. .StartActivity"},
                 "action": {"type": "string", "description": "Intent action (optional; without package = generic intent)"},
             },
-            "required": ["serial"],
-        },
+            "required": ["serial"], "additionalProperties": False},
     },
     {
         "name": "mobile.pull_file",
@@ -229,8 +228,7 @@ MOBILE_EXT_MCP_TOOLS = [
                 "local": {"type": "string", "description": "Absolute host path (optional)"},
                 "return_bytes": {"type": "boolean", "default": False},
             },
-            "required": ["serial", "remote"],
-        },
+            "required": ["serial", "remote"], "additionalProperties": False},
     },
     {
         "name": "mobile.push_file",
@@ -242,8 +240,7 @@ MOBILE_EXT_MCP_TOOLS = [
                 "local": {"type": "string"},
                 "remote": {"type": "string"},
             },
-            "required": ["serial", "local", "remote"],
-        },
+            "required": ["serial", "local", "remote"], "additionalProperties": False},
     },
     {
         "name": "mobile.list_files",
@@ -257,8 +254,7 @@ MOBILE_EXT_MCP_TOOLS = [
                 "serial": {"type": "string"},
                 "path": {"type": "string", "default": "/sdcard/"},
             },
-            "required": ["serial"],
-        },
+            "required": ["serial"], "additionalProperties": False},
     },
 ]
 
