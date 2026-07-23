@@ -114,6 +114,43 @@ added without ``additionalProperties: false`` fails the new
   `MCP_TOOLS` descriptions and remove them entirely in
   v4.75.0. Tracked.
 
+
+### Follow-up (commits 6fd5c701, cba91a86)
+
+Two follow-up commits the v4.67.0 release needed:
+
+* **`6fd5c701` — fix(catalogue):** the v4.67.0
+  `apply_catalogue_hardening.py` run was supposed to add
+  `additionalProperties: false` to 125 tool entries, but
+  only actually modified 48 in `tool_registry.py` because
+  of how I sequenced the apply step and the commit. The
+  other 9 registry files (tool_registry_mission,
+  tool_registry_scenarios, etc.) were left untouched
+  and the catalogue-harden CI job failed with "77 missing".
+  Fix: rewrite those 9 files from the (already-updated)
+  local master_clone, commit the missing edits. catalogue
+  audit now reports 0 missing. Same kind of fix-and-rebase
+  pattern as 710b84b0 (v4.64.0 follow-up): the new CI guard
+  caught a missed apply, the maintainer-fixed follow-up
+  is what ships.
+
+* **`cba91a86` — fix(tests):** v4.67.0 added the
+  namespaced `exec.*` dispatch to `tool_exec.py` and the
+  contract test's `_LEGACY_HANDLER_MODULES` exempt list
+  (which kept `tool_exec.py` exempt from "every handler
+  must have tool names") needed to go away. Plus the
+  legacy test `test_tool_exec_does_not_accidentally_introduce_dot_names`
+  fired exactly as designed: v4.67.0 INTENTIONALLY adds
+  dot-names. Replaced it with
+  `test_tool_exec_handles_both_bare_and_namespaced_names`
+  which positively asserts the new contract. Also extended
+  the AST walker in `test_tool_exec_legacy_dispatch.py`
+  to match `if name in (X, Y)` style (v4.61.0 only knew
+  about `if name == 'X'`). Two follow-up fixes the new
+  contract test caught; the v4.61.0 contract was
+  conditional on namespacing not happening, and v4.67.0
+  is the release that did the namespacing.
+
 ### Extension
 
 Byte-identical to v4.66.0 - bridge-only release. No

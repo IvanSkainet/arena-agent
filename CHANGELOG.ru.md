@@ -118,6 +118,42 @@ v4.63.0 soft-warn'ы теперь hard fail. Любой новый tool
   `MCP_TOOLS` descriptions и удалить их полностью в
   v4.75.0. В очереди.
 
+
+### Follow-up (коммиты 6fd5c701, cba91a86)
+
+Два follow-up коммита которые потребовались v4.67.0:
+
+* **`6fd5c701` — fix(catalogue):** запуск v4.67.0
+  `apply_catalogue_hardening.py` должен был добавить
+  `additionalProperties: false` в 125 tool entries, но
+  фактически изменил только 48 в `tool_registry.py`
+  из-за того, как я секвенировал apply и commit.
+  Остальные 9 registry файлов остались нетронутыми и
+  catalogue-harden CI job упала с "77 missing". Фикс:
+  переписать эти 9 файлов из (уже обновлённого) локального
+  master_clone, закоммитить недостающие правки. catalogue
+  audit теперь сообщает 0 missing. Тот же fix-and-rebase
+  паттерн что 710b84b0 (v4.64.0 follow-up): новый CI guard
+  поймал пропущенный apply, мейнтейнер-fixed follow-up это
+  то что отгружается.
+
+* **`cba91a86` — fix(tests):** v4.67.0 добавил namespaced
+  `exec.*` dispatch в `tool_exec.py` и exempt list
+  `_LEGACY_HANDLER_MODULES` в contract test (который
+  делал `tool_exec.py` exempt от "каждый handler должен
+  иметь tool names") нужно убрать. Плюс старый тест
+  `test_tool_exec_does_not_accidentally_introduce_dot_names`
+  сработал именно как и был задуман: v4.67.0 НАМЕРЕННО
+  добавляет dot-names. Заменён на
+  `test_tool_exec_handles_both_bare_and_namespaced_names`
+  который позитивно утверждает новый контракт. Также
+  расширил AST walker в `test_tool_exec_legacy_dispatch.py`
+  чтобы матчить `if name in (X, Y)` стиль (v4.61.0
+  знал только `if name == 'X'`). Два follow-up фикса
+  которые поймал новый contract test; v4.61.0 контракт
+  был conditional на том что namespacing не произойдёт,
+  и v4.67.0 это релиз который делает namespacing.
+
 ### Расширение
 
 Byte-identical to v4.66.0 - bridge-only release. Никаких
