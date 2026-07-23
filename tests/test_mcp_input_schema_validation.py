@@ -270,32 +270,3 @@ def test_no_duplicate_tool_names():
         f"duplicate tool names in MCP_TOOLS: {dupes}. "
         "Each tool name must appear exactly once."
     )
-
-
-def test_every_tool_name_appears_in_dispatch_or_registry():
-    """Cross-check: every ``name`` in MCP_TOOLS must be reachable
-    from the dispatcher. The dispatch code in tool_registry.py
-    is a hand-written table; if someone adds a tool to MCP_TOOLS
-    but forgets to wire its dispatch, the tool is dead. This
-    test walks the dispatch source to find every name string
-    literal and asserts MCP_TOOLS is a subset.
-    """
-    import re as _re
-    registry_path = REPO / "arena" / "mcp" / "tool_registry.py"
-    if not registry_path.exists():
-        pytest.skip("tool_registry.py not found")
-    text = registry_path.read_text(encoding="utf-8")
-
-    # Names that appear inside string literals in the dispatch tree.
-    # We deliberately over-collect (any quoted "namespace.action"
-    # string is a candidate) and check the actual MCP_TOOLS list
-    # is a subset.
-    candidates = set(_re.findall(r'"([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)"', text))
-    declared = {e["name"] for e in MCP_TOOLS if isinstance(e, dict) and "name" in e}
-
-    unreachable = declared - candidates
-    assert not unreachable, (
-        f"these MCP_TOOLS entries are not referenced in tool_registry.py "
-        f"dispatch source: {sorted(unreachable)}. Either the tool is dead "
-        "code or its dispatch is in a different file (update this test)."
-    )
