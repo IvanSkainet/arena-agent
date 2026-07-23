@@ -1,3 +1,111 @@
+## v4.66.0 - release-process guard rails (version sync, CHANGELOG freshness, pre-release check)
+
+### Purpose
+
+The v4.51.0 → v4.65.0 release chain shipped 16+ releases. Three
+classes of bug kept showing up in the follow-up commits (710b84b0,
+3ff3dff9, a9a6b3b3, acd85a2, 250de6f8):
+
+1. **The four version sources drift.** `arena/constants.py:VERSION`,
+   `pyproject.toml:version`, `tests/_version_matrix.py:BRIDGE_VERSIONS`
+   (last entry), and `LATEST_BRIDGE` (= `BRIDGE_VERSIONS[-1]`)
+   should all be the same string. When they drift, the
+   `tests/test_extension_v4_5*_*.py::test_*_version_bumped` chain
+   starts failing and the README badge shows the wrong tag.
+2. **The CHANGELOG stops being current.** A 60+ day gap between
+   releases is usually a sign of a release that should have shipped
+   but didn't (or a CHANGELOG that needs a hand-written "security
+   fix" entry the maintainer forgot to add).
+3. **Pre-release ritual is hand-tracked.** A maintainer can ship
+   a release where the changelog, the tag, the version bump, and
+   the badge workflow are all out of step, because each one
+   was edited in a separate commit and no single check confirms
+   they're in agreement.
+
+v4.66.0 ships three small scripts (and 27 unit tests for them)
+that turn all three classes of bug into "fail the PR that
+introduced the drift" / "fail the build that ships the release"
+problems. None of these guards are blocking on day one — they're
+introduced as separate, fast CI jobs that the maintainer can
+inspect without slowing down the test matrix.
+
+### Added
+
+1. **`scripts/version_sync.py`** (207 lines, stdlib-only) —
+   parses `arena/constants.py`, `pyproject.toml`, and
+   `tests/_version_matrix.py` (all three via Python `ast` for
+   the Python files, regex for the TOML) and asserts that the
+   version is the same in all four places. Exits 0 on success,
+   1 on drift, supports `--json` for machine-readable output.
+
+2. **`scripts/changelog_freshness.py`** (127 lines, stdlib-only) —
+   scans `CHANGELOG.md` and `CHANGELOG.ru.md` for date literals
+   (ISO 8601, including the `+00:00` offset form) and reports
+   the age of the most recent one. Default threshold is 90
+   days; configurable via `--max-age-days`. Fails if either
+   CHANGELOG is older than the threshold; warns (but does not
+   fail) if no date is found.
+
+3. **`scripts/pre_release_check.py`** (184 lines, stdlib-only) —
+   the release-readiness check. Runs the version-sync logic
+   first, then verifies:
+   - The top entry of `CHANGELOG.md` is `## v<current_version>`.
+   - The top entry of `CHANGELOG.ru.md` is the same.
+   - `docs/version.json` exists and its `tag_name` matches
+     `v<current_version>` (i.e. the badge workflow has caught up).
+   - The git state is consistent (HEAD is either already tagged
+     with the current version, or no tag for this version exists
+     yet — the "about to tag" case).
+   Designed to be run by the maintainer by hand right before
+   the release, NOT in every CI run (the git-tag check would
+   always fail between releases).
+
+4. **`tests/test_version_sync.py`** (9 guards) — covers:
+   - all four sources in sync (passes)
+   - drift in any one of the four (fails)
+   - missing source (constants.py without VERSION literal)
+   - JSON output mode
+   - the shipped repo state (no false positive on v4.65.0)
+
+5. **`tests/test_changelog_freshness.py`** (10 guards) — covers:
+   - recent entry (passes)
+   - old entry (fails)
+   - missing file (warns, does not fail)
+   - no date literal (warns, does not fail)
+   - custom `--max-age-days`
+   - picks the latest of multiple dates
+   - ISO 8601 with `+00:00` offset
+   - the shipped CHANGELOG (no false positive on v4.65.0)
+
+6. **`tests/test_pre_release_check.py`** (8 guards) — covers:
+   - all five checks pass on a minimal release candidate
+   - top entry doesn't match current version (fails)
+   - version drift (fails)
+   - `docs/version.json` mismatch (fails)
+   - `docs/version.json` missing (passes, with warning)
+   - the shipped repo state (no false positive on v4.65.0)
+
+### Out of scope (intentional, tracked for later)
+
+* **Catalogue hardening** — `additionalProperties: false` for
+  the ~50 tools that lack it; namespace the four legacy
+  bare names; fix `mobile.key` invalid `items: {}`. Deferred
+  to v4.67.0; the v4.66.0 guards don't depend on it.
+* **Re-enable Windows runner** — needs more `skipif` markers
+  for the platform-specific edge cases. The diff guard
+  already runs on `ubuntu-latest` only, so this is no
+  longer a v4.66.0 concern.
+* **Mypy strict mode rollout** beyond `arena.service.restart`
+  (already strict). Same as v4.61.0.
+* **Mutation testing** (mutmut/cosmic-ray) — needs mature
+  coverage first; the diff guard is the prerequisite.
+
+### Extension
+
+Byte-identical to v4.65.0 - bridge-only release. No
+production code change.
+
+
 ## v4.65.0 - CI process hardening (coverage diff, dependabot, stale bot)
 
 ### Purpose

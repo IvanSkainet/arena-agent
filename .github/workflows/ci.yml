@@ -103,11 +103,6 @@ jobs:
   # compares the line-rate in coverage.xml against
   # docs/coverage-baseline.json and fails the build if coverage
   # dropped more than 1 percentage point since the last release.
-  #
-  # Why a separate job: a coverage drop is a different kind of
-  # failure than a test failure, and the GitHub UI makes a
-  # dedicated "Coverage diff" red X easier to triage than a
-  # buried assertion in a 5-cell matrix.
   # ----------------------------------------------------------------
   coverage-diff:
     name: Coverage diff (vs ${{ github.event.repository.default_branch }})
@@ -128,15 +123,60 @@ jobs:
           path: .
 
       - name: Run coverage diff guard
-        # Exit 0 = within tolerance, exit 1 = dropped too much,
-        # exit 2 = missing baseline (first run only). The script's
-        # stdout is the human-readable explanation; the exit code
-        # is what the job reads.
         run: |
           python scripts/coverage_diff.py \
             --xml coverage.xml \
             --baseline docs/coverage-baseline.json \
             --max-drop 1.0
+
+  # ----------------------------------------------------------------
+  # v4.66.0: version-sync guard. Stdlib-only script that parses
+  # the four sources of the bridge version (constants.py,
+  # pyproject.toml, BRIDGE_VERSIONS, LATEST_BRIDGE) and fails
+  # the build if they drift. Runs early in the pipeline so a
+  # drift is visible as its own red X rather than buried in
+  # 5 identical test cells.
+  # ----------------------------------------------------------------
+  version-sync:
+    name: Version sync (4 sources in lockstep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run version sync guard
+        run: |
+          python scripts/version_sync.py --repo-root .
+
+  # ----------------------------------------------------------------
+  # v4.66.0: CHANGELOG freshness guard. Catches the case where
+  # the most recent dated entry in CHANGELOG.md / CHANGELOG.ru.md
+  # is more than 90 days old. Default threshold is generous
+  # (90d) so the guard only fires on real "we forgot to ship
+  # a release" cases, not on a busy maintainer who shipped two
+  # releases 80 days apart.
+  # ----------------------------------------------------------------
+  changelog-freshness:
+    name: CHANGELOG freshness (>= 90d old = fail)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run CHANGELOG freshness guard
+        run: |
+          python scripts/changelog_freshness.py \
+            --en CHANGELOG.md \
+            --ru CHANGELOG.ru.md \
+            --max-age-days 90
 
   # ----------------------------------------------------------------
   # Lint: ruff F821/F811 are blocking. Full rule set is
@@ -156,15 +196,9 @@ jobs:
       - name: Install ruff
         run: pip install ruff
 
-      # Blocking: critical correctness rules that catch real bugs
-      # (undefined names, redefinitions). These currently pass and
-      # must keep passing.
       - name: Critical lint (blocking)
         run: ruff check . --select F821,F811
 
-      # Informational: the full rule set. The codebase is large
-      # and organically grown, so the rest is reported but not
-      # enforced yet. Tighten over time as modules get cleaned up.
       - name: Full lint (informational)
         run: ruff check . --statistics || true
 

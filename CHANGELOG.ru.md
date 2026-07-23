@@ -1,3 +1,115 @@
+## v4.66.0 - защитные рельсы release-процесса (version sync, CHANGELOG freshness, pre-release check)
+
+### Цель
+
+Цепочка релизов v4.51.0 → v4.65.0 выпустила 16+ релизов. Три
+класса багов продолжали появляться в follow-up коммитах
+(710b84b0, 3ff3dff9, a9a6b3b3, acd85a2, 250de6f8):
+
+1. **Четыре источника версии дрифтятся.** `arena/constants.py:VERSION`,
+   `pyproject.toml:version`, `tests/_version_matrix.py:BRIDGE_VERSIONS`
+   (последняя запись), и `LATEST_BRIDGE` (= `BRIDGE_VERSIONS[-1]`)
+   должны быть одной и той же строкой. Когда они дрифтятся, цепочка
+   `tests/test_extension_v4_5*_*.py::test_*_version_bumped` начинает
+   падать, и бейдж README показывает неправильный тег.
+2. **CHANGELOG перестаёт быть актуальным.** Разрыв в 60+ дней
+   между релизами обычно знак, что релиз должен был выйти но
+   не вышел (или что CHANGELOG нуждается в hand-written записи
+   о security-фиксе, которую мейнтейнер забыл добавить).
+3. **Pre-release ритуал трекается вручную.** Мейнтейнер может
+   отгрузить релиз где changelog, тег, version bump, и badge
+   workflow рассинхронизированы, потому что каждый
+   редактировался в отдельном коммите, и ни одна проверка
+   не подтверждает их согласованность.
+
+v4.66.0 поставляет три маленьких скрипта (и 27 unit-тестов
+для них) которые превращают все три класса багов в
+"провалить PR который внёс дрифт" / "провалить билд который
+отгружает релиз". Ни один из этих guard'ов не блокирует в
+день первый — они вводятся как отдельные, быстрые CI job'ы
+которые мейнтейнер может инспектировать без замедления
+тестовой матрицы.
+
+### Добавлено
+
+1. **`scripts/version_sync.py`** (207 строк, stdlib-only) —
+   парсит `arena/constants.py`, `pyproject.toml`, и
+   `tests/_version_matrix.py` (все три через Python `ast` для
+   Python-файлов, regex для TOML) и проверяет что версия
+   одинакова во всех четырёх местах. Exit 0 на успехе, 1
+   на дрифт, поддерживает `--json` для machine-readable выхода.
+
+2. **`scripts/changelog_freshness.py`** (127 строк, stdlib-only) —
+   сканирует `CHANGELOG.md` и `CHANGELOG.ru.md` на date literals
+   (ISO 8601, включая форму с `+00:00` offset) и сообщает
+   возраст самой свежей. Default threshold 90 дней;
+   настраивается через `--max-age-days`. Падает если любой
+   CHANGELOG старше threshold; предупреждает (но не падает)
+   если дата не найдена.
+
+3. **`scripts/pre_release_check.py`** (184 строки, stdlib-only) —
+   release-readiness проверка. Сначала запускает version-sync
+   логику, затем проверяет:
+   - Top entry `CHANGELOG.md` это `## v<current_version>`.
+   - Top entry `CHANGELOG.ru.md` тот же.
+   - `docs/version.json` существует и его `tag_name`
+     соответствует `v<current_version>` (т.е. badge workflow
+     догнал).
+   - Git-состояние консистентно (HEAD либо уже затегирован
+     текущей версией, либо тег для этой версии ещё не
+     существует — "собираемся затегить" случай).
+   Дизайн: запускается мейнтейнером вручную прямо перед
+   релизом, НЕ в каждом CI run (git-tag проверка всегда бы
+   падала между релизами).
+
+4. **`tests/test_version_sync.py`** (9 guard'ов) - покрывает:
+   - все четыре источника в sync (passes)
+   - дрифт в любом из четырёх (fails)
+   - отсутствующий источник (constants.py без VERSION literal)
+   - JSON output mode
+   - shipped repo state (нет false positive на v4.65.0)
+
+5. **`tests/test_changelog_freshness.py`** (10 guard'ов) -
+   покрывает:
+   - свежая запись (passes)
+   - старая запись (fails)
+   - отсутствующий файл (warns, не fails)
+   - нет date literal (warns, не fails)
+   - custom `--max-age-days`
+   - берёт самую свежую из нескольких дат
+   - ISO 8601 с `+00:00` offset
+   - shipped CHANGELOG (нет false positive на v4.65.0)
+
+6. **`tests/test_pre_release_check.py`** (8 guard'ов) -
+   покрывает:
+   - все пять проверок проходят на минимальном release candidate
+   - top entry не соответствует текущей версии (fails)
+   - version drift (fails)
+   - `docs/version.json` mismatch (fails)
+   - `docs/version.json` отсутствует (passes, с warning)
+   - shipped repo state (нет false positive на v4.65.0)
+
+### Вне scope (намеренно, в очереди)
+
+* **Catalogue hardening** — `additionalProperties: false` для
+  ~50 tool'ов у которых его нет; namespacing четырёх legacy
+  bare names; фикс `mobile.key` invalid `items: {}`. Отложено
+  на v4.67.0; v4.66.0 guard'ы не зависят от этого.
+* **Re-enable Windows runner** — нужны дополнительные
+  `skipif` маркеры для platform-specific edge cases. Diff
+  guard уже бежит только на `ubuntu-latest`, так что это
+  больше не проблема v4.66.0.
+* **Mypy strict mode rollout** за пределами `arena.service.restart`
+  (уже strict). То же что в v4.61.0.
+* **Mutation testing** (mutmut/cosmic-ray) — нужно сначала
+  зрелое покрытие; diff guard — это prerequisite.
+
+### Расширение
+
+Byte-identical to v4.65.0 - bridge-only release. Никаких
+изменений в production-коде.
+
+
 ## v4.65.0 - усиление CI-процесса (coverage diff, dependabot, stale bot)
 
 ### Цель
