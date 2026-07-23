@@ -181,8 +181,6 @@ def handle_speccy(name: str, args: dict, *, ctx) -> dict:
 # ---------------------------------------------------------------------------
 def _smoke() -> int:
     """Run a couple of in-process checks (no Tailscale / no bridge)."""
-    import json
-
     def _safe_print(s: str) -> None:
         """Print string safely even when stdout is cp1251 (Windows bridge log).
 
