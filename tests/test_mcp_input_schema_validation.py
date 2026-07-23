@@ -72,6 +72,24 @@ _DRAFT_7_META = {
         "minItems": {"type": "integer", "minimum": 0},
         "maxItems": {"type": "integer", "minimum": 0},
         "items": {"type": "object"},
+        # v4.67.0: Draft 7 composition keywords. `anyOf` / `oneOf` /
+        # `allOf` take a list of schemas; `not` takes a single
+        # schema. We don't recursively walk into them in the
+        # structural validator — that would require resolving
+        # `$ref` and adds noise. We just need to *recognise* the
+        # keywords as valid so a tool entry that uses anyOf
+        # (e.g. mobile.key.keycode = integer-or-string) doesn't
+        # get flagged as "unknown JSON Schema keys".
+        "anyOf": {"type": "array"},
+        "oneOf": {"type": "array"},
+        "allOf": {"type": "array"},
+        "not": {"type": "object"},
+        "format": {"type": "string"},
+        "title": {"type": "string"},
+        "examples": {"type": "array"},
+        "$schema": {"type": "string"},
+        "$id": {"type": "string"},
+        "$ref": {"type": "string"},
     },
     "additionalProperties": True,
 }
@@ -203,19 +221,13 @@ def test_tool_input_schema_is_valid_json_schema_draft_7(entry):
     errors = _validate_against_metaschema(schema, f"{name}.inputSchema")
     if not errors:
         return
-    # v4.63.0: a structural warning, not a hard fail. The
-    # validator walks every tool and the catalogue has 234
-    # entries; some are likely to have non-conforming
-    # schemas. Flipping these to hard fails is v4.64.0 work;
-    # for now we surface every error in the test log so
-    # they're visible at PR review time.
-    warnings.warn(
+    # v4.67.0: hard fail. The catalogue has been cleaned up in v4.67.0
+    # (additionalProperties: false added to 125 entries, Draft 7
+    # composition keywords added to the metaschema). Any new
+    # schema that fails structural validation is a real bug.
+    pytest.fail(
         f"tool {name!r} has an invalid inputSchema:\n  "
         + "\n  ".join(errors)
-        + "\n  v4.64.0 should turn this into a hard fail after"
-        " the catalogue is cleaned up.",
-        PendingDeprecationWarning,
-        stacklevel=2,
     )
 
 
@@ -243,13 +255,14 @@ def test_tool_input_schema_rejects_extra_properties(entry):
         pytest.skip(f"{name}: top-level type is not object")
     if schema.get("additionalProperties") is False:
         return
-    warnings.warn(
+    # v4.67.0: hard fail. v4.67.0 adds additionalProperties: false to
+    # every object-typed inputSchema in the catalogue; a future
+    # refactor that omits it is a defence-in-depth regression that
+    # would silently accept typo'd field names from the model.
+    pytest.fail(
         f"tool {name!r} lacks additionalProperties: false on the top-level"
         " object. A model that emits a typo'd field name will be silently"
-        " accepted by the dispatch layer. v4.64.0 should add it to every"
-        " tool entry.",
-        PendingDeprecationWarning,
-        stacklevel=2,
+        " accepted by the dispatch layer."
     )
 
 

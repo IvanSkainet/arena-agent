@@ -75,7 +75,11 @@
     "handlers": [
       "handle_exec_tool"
     ],
-    "tool_names": []
+    "tool_names": [
+      "exec.echo",
+      "exec.exec",
+      "exec.ping"
+    ]
   },
   {
     "file": "arena/mcp/tool_fs.py",
@@ -153,6 +157,7 @@
       "handle_misc_tool"
     ],
     "tool_names": [
+      "exec.snapshot",
       "hooks.list",
       "skill.list",
       "skill.run",
@@ -279,6 +284,10 @@
       "desktop.text_action",
       "desktop.window_action",
       "desktop.windows",
+      "exec.echo",
+      "exec.exec",
+      "exec.ping",
+      "exec.snapshot",
       "fs.create",
       "fs.diff",
       "fs.edit",

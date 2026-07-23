@@ -10,11 +10,17 @@ from arena.mcp.tool_utils import text_content
 
 
 def handle_exec_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any] | None:
-    if name == "ping":
+    # v4.67.0: accept both the legacy bare names and the
+    # namespaced exec.* form. The bare names are kept for
+    # backward compat with chat-extension adapters that have
+    # not been updated yet; new code should call exec.ping /
+    # exec.echo / exec.exec. See arena.mcp.tool_registry for
+    # the canonical entry definitions.
+    if name in ("ping", "exec.ping"):
         return text_content("pong")
-    if name == "echo":
+    if name in ("echo", "exec.echo"):
         return text_content(str(args.get("text", "")))
-    if name != "exec":
+    if name not in ("exec", "exec.exec"):
         return None
 
     cmd = args.get("cmd", "")

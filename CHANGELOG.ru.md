@@ -1,3 +1,128 @@
+## v4.67.0 - hardening каталога (additionalProperties: false везде, namespaced legacy tools)
+
+### Цель
+
+Тестовый suite v4.63.0 отгрузил два структурных guard'а как
+soft-warn'ы (PendingDeprecationWarning): "у этого tool'а
+inputSchema имеет unknown JSON Schema keys" и "этому tool'у
+не хватает additionalProperties: false на top level". План
+тогда был: "v4.64.0 должен превратить это в hard fail после
+того, как каталог будет почищен". v4.67.0 — это релиз чистки
+каталога. После него:
+
+- 0 из 129 tool entries без ``additionalProperties: false``
+  на top level (было 125 из 125 object-typed entries на
+  v4.66.0).
+- 0 unknown JSON Schema keywords где-либо в каталоге
+  (Draft 7 metaschema в структурном тесте теперь
+  распознаёт ``anyOf`` / ``oneOf`` / ``allOf`` / ``not``).
+- 4 legacy bare names (``ping`` / ``echo`` / ``exec`` /
+  ``snapshot``) получили namespaced siblings
+  (``exec.ping`` / ``exec.echo`` / ``exec.exec`` /
+  ``exec.snapshot``); dispatch layer принимает обе формы.
+  Bare names остаются в ``MCP_TOOLS`` для backward compat
+  с chat-extension adapters которые ещё не обновлены.
+
+v4.63.0 soft-warn'ы теперь hard fail. Любой новый tool
+добавленный без ``additionalProperties: false`` падает на
+новой ``catalogue-harden`` CI job'е и на существующем
+``test_mcp_input_schema_validation.py`` в матрице.
+
+### Добавлено
+
+1. **`scripts/catalogue_harden.py`** (174 строки, stdlib-only) —
+   аудитит живой ``MCP_TOOLS`` каталог на отсутствующий
+   ``additionalProperties: false``. Exit 0 если каждый
+   object-typed inputSchema имеет property, 1 если хоть
+   один без, 2 на import error. `--json` режим для
+   machine-readable выхода. Скрипт — guard, не fixer;
+   v4.67.0 релиз был сгенерирован через его запуск,
+   hand-reviewing per-file патчей из
+   `scripts/apply_catalogue_hardening.py` и committing
+   per-file edits отдельным изменением.
+
+2. **`scripts/apply_catalogue_hardening.py`** (170 строк,
+   stdlib-only) — one-shot fixer использованный для
+   генерации v4.67.0 patch set. Обходит 9 registry
+   файлов, добавляет ``"additionalProperties": False`` в
+   каждый object-typed inputSchema block. Полностью
+   идемпотентен (повторный запуск даёт zero diff). Не
+   часть CI.
+
+3. **`tests/test_catalogue_harden.py`** (7 guard'ов) -
+   покрывает happy path, JSON output, missing-repo path,
+   `--apply` rejection.
+
+4. **``.github/workflows/ci.yml`** — новая `catalogue-harden`
+   job (между `changelog-freshness` и `lint`). Запускает
+   `python scripts/catalogue_harden.py --repo-root .`.
+   Виден как отдельный красный крест в Actions UI.
+
+### Изменено
+
+1. **9 registry файлов** — ``additionalProperties: false``
+   добавлен в 125 tool entries:
+   - ``arena/mcp/tool_registry.py`` (+48)
+   - ``arena/mcp/tool_registry_asr.py`` (+2)
+   - ``arena/mcp/tool_registry_mission.py`` (+20)
+   - ``arena/mcp/tool_registry_mobile.py`` (+32)
+   - ``arena/mcp/tool_registry_net.py`` (+5)
+   - ``arena/mcp/tool_registry_scenarios.py`` (+7)
+   - ``arena/mcp/tool_desktop_input.py`` (+4)
+   - ``arena/mcp/tool_mobile_ext.py`` (+4)
+   - ``arena/mcp/tool_browser_headed.py`` (+3)
+
+2. **`tests/test_mcp_input_schema_validation.py`** —
+   - расширен `_DRAFT_7_META` чтобы распознавать
+     Draft 7 composition keywords (``anyOf`` / ``oneOf`` /
+     ``allOf`` / ``not``) и annotation keywords
+     (``format`` / ``title`` / ``examples`` / ``$schema` /
+     ``$id`` / ``$ref``).
+   - оба soft-warn'а переключены на hard fail
+     (``pytest.fail(...)``).
+
+3. **4 namespaced tool entries** добавлены в
+   ``arena/mcp/tool_registry.py``:
+   - ``exec.ping`` / ``exec.echo`` / ``exec.exec`` /
+     ``exec.snapshot``. Новый код должен вызывать
+     эти формы.
+
+4. **3 dispatch модуля** обновлены чтобы принимать обе
+   формы (bare + namespaced):
+   - ``arena/mcp/tool_exec.py`` (legacy `if name == "ping"`,
+     и т.д. → `if name in ("ping", "exec.ping")`, и т.д.)
+   - ``arena/mcp/tool_misc.py`` (`snapshot` → также
+     `exec.snapshot`)
+   - ``arena/mcp/standalone_tools.py`` (то же)
+
+5. **`tests/_mcp_contract_snapshot.json`** — обновлён
+   чтобы включать 4 новых namespaced tool names.
+
+### Вне scope (намеренно, в очереди)
+
+* **Coverage gate 50% → 60%** — всё ещё 50% в v4.67.0.
+  Catalogue hardening структурный, не поведенческий,
+  так что новые test guards не двигают coverage.
+  Следующий релиз с новыми behavioural tests (например
+  mutmut mutation coverage) — место для бампа gate'а.
+* **Mypy strict mode rollout** за пределами
+  `arena.service.restart`. То же что в v4.61.0.
+* **Re-enable Windows runner** — v4.61.1 platform-specific
+  фиксы на месте, но матрица всё ещё только на
+  ubuntu-latest. То же что в v4.65.0.
+* **Mutation testing** (mutmut/cosmic-ray) — нужно
+  зрелое покрытие сначала.
+* **Deprecate the bare names в будущем релизе** — v4.67.0
+  dispatch принимает обе формы. v4.70.0 follow-up
+  может пометить bare names как "deprecated" в
+  `MCP_TOOLS` descriptions и удалить их полностью в
+  v4.75.0. В очереди.
+
+### Расширение
+
+Byte-identical to v4.66.0 - bridge-only release. Никаких
+изменений в production-коде.
+
 ## v4.66.0 - защитные рельсы release-процесса (version sync, CHANGELOG freshness, pre-release check)
 
 ### Цель

@@ -7,9 +7,9 @@ from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
 def call_tool(name: str, args: dict) -> dict:
     """Диспетчер — возвращает MCP content payload."""
     try:
-        if name == "ping": return text_content("pong")
-        if name == "echo": return text_content(str(args.get("text", "")))
-        if name == "exec":
+        if name in ("exec.ping", "ping"): return text_content("pong")
+        if name in ("exec.echo", "echo"): return text_content(str(args.get("text", "")))
+        if name in ("exec.exec", "exec"):
             rc, out, err = run_sd(["bash", "-lc", args["cmd"]], timeout=args.get("timeout", 60))
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
         if name == "fs.read":
@@ -96,7 +96,7 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "hooks.list":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "hooks_runner.py"), "list"], timeout=10)
             return text_content(out or err)
-        if name == "snapshot":
+        if name in ("exec.snapshot", "snapshot"):
             rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", "system/sys-snapshot"], timeout=60)
             return text_content(out or err)
         if name == "subagent.spawn":

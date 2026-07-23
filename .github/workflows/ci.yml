@@ -179,6 +179,42 @@ jobs:
             --max-age-days 90
 
   # ----------------------------------------------------------------
+  # v4.67.0: catalogue hardening guard. Runs the audit-mode
+  # catalogue_harden.py script. Exits 1 if any object-typed
+  # tool inputSchema lacks ``additionalProperties: false`` on
+  # the top level (a model that emits a typo'd field name would
+  # be silently accepted by the dispatch layer).
+  #
+  # v4.67.0 also turned the long-running soft-warns in
+  # ``tests/test_mcp_input_schema_validation.py`` into hard
+  # fails. A new tool entry added without
+  # ``additionalProperties: false`` would fail that test
+  # inside the matrix; this job surfaces the failure as its
+  # own red X so a "I added a tool and forgot the property"
+  # regression is visible at PR time, not buried in a
+  # 5-cell matrix.
+  # ----------------------------------------------------------------
+  catalogue-harden:
+    name: 'Catalogue hardening (every tool has additionalProperties: false)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Install runtime deps so MCP_TOOLS can be imported
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run catalogue hardening guard
+        run: |
+          python scripts/catalogue_harden.py --repo-root .
+
+  # ----------------------------------------------------------------
   # Lint: ruff F821/F811 are blocking. Full rule set is
   # informational.
   # ----------------------------------------------------------------

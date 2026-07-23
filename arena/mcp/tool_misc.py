@@ -37,7 +37,8 @@ def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict
                         hooks.append({"phase": phase, "name": f.name, "path": str(f)})
         return text_content(json.dumps({"ok": True, "count": len(hooks), "hooks": hooks}, ensure_ascii=False))
 
-    if name == "snapshot":
+    # v4.67.0: accept both legacy "snapshot" and namespaced "exec.snapshot".
+    if name in ("snapshot", "exec.snapshot"):
         result = ctx.skills_run_sync("system/sys-snapshot", [])
         return text_content(json.dumps(result, ensure_ascii=False))
 
