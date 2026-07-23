@@ -78,6 +78,47 @@ Two user-visible wins and one CI hardening:
 * **Coverage gate 50% → 60%** once the new test infrastructure
   has more unit tests written for it.
 
+
+### Follow-up (commits 710b84b0, 3ff3dff9, a9a6b3b3, 4ff32cf2)
+
+The first three commits after the v4.64.0 tag are not user-visible
+fixes; they make the new `version-badge.yml` workflow actually
+functional. Recording them here so the chain of "what went wrong
+and why" stays traceable.
+
+* **`710b84b0` — fix(version-matrix):** the original v4.64.0
+  release accidentally wrote the new BRIDGE_VERSIONS entry as a
+  3-tuple (`("4.64.0", "test coverage expansion...", False)`) and
+  inserted the line in the wrong place (the module docstring,
+  not the tuple body). This broke every `test_*_version_bumped`
+  test for the past bridge versions. The commit rewrites the
+  file from the current master HEAD and re-inserts the entry in
+  the correct shape and location. AST-validated before commit
+  (per the v4.60.3 byte-level-edit lesson).
+* **`3ff3dff9` — fix(version-badge) #1:** the workflow's
+  "Commit if changed" step used `git diff --quiet`, which only
+  considers tracked files. On the very first run, `docs/version.json`
+  was a brand-new untracked file, so `git diff` returned empty
+  and the commit was skipped. Switched to `git status --porcelain
+  docs/version.json` so both modified AND untracked changes
+  are detected.
+* **`a9a6b3b3` — fix(version-badge) #2:** the workflow was
+  triggered by a tag push (refs/tags/v4.64.0). `actions/checkout`
+  by default checks out the tagged commit in detached HEAD, so
+  `git push` failed with "fatal: You are not currently on a
+  branch." Force-passed `ref: master` to `actions/checkout` so
+  the runner is on a real branch regardless of trigger type.
+* **`4ff32cf2` — chore(badge):** the workflow now successfully
+  committed `docs/version.json` with `v4.64.0` as the first run
+  after the workflow fix landed.
+
+Net effect: the README badge shows `v4.64.0` (verified via
+`https://img.shields.io/github/v/release/...?cacheBust=1` →
+`{"label":"release","message":"v4.64.0",...}`), and
+`docs/version.json` is the source of truth for a future
+`dynamic-json?url=...raw.githubusercontent.com/.../version.json`
+badge that the README can adopt as a second badge in v4.64.x.
+
 ### Extension
 
 Byte-identical to v4.63.0 - bridge-only release.

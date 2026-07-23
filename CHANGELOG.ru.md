@@ -77,6 +77,46 @@
 * **Coverage gate 50% → 60%** когда новая test-инфраструктура
   обрастёт unit-тестами.
 
+
+### Follow-up (коммиты 710b84b0, 3ff3dff9, a9a6b3b3, 4ff32cf2)
+
+Первые три коммита после тега v4.64.0 — не user-visible фиксы;
+они делают новый workflow `version-badge.yml` функциональным.
+Фиксирую их здесь, чтобы цепочка "что сломалось и почему"
+осталась трассируемой.
+
+* **`710b84b0` — fix(version-matrix):** первоначальный релиз
+  v4.64.0 случайно записал новую запись BRIDGE_VERSIONS как
+  3-кортеж (`("4.64.0", "test coverage expansion...", False)`) и
+  вставил строку не туда (в docstring модуля, а не в тело
+  кортежа). Это сломало каждый `test_*_version_bumped` тест
+  для прошлых bridge-версий. Коммит переписывает файл с текущего
+  master HEAD и пере-вставляет запись в правильной форме и
+  месте. AST-валидация перед коммитом (по уроку v4.60.3 о
+  byte-level edits).
+* **`3ff3dff9` — fix(version-badge) #1:** шаг "Commit if changed"
+  в workflow использовал `git diff --quiet`, который учитывает
+  только tracked файлы. На самом первом запуске `docs/version.json`
+  был новым untracked файлом, поэтому `git diff` вернул пусто
+  и commit был пропущен. Переключился на `git status --porcelain
+  docs/version.json` чтобы детектить и modified, и untracked.
+* **`a9a6b3b3` — fix(version-badge) #2:** workflow был вызван
+  push'ем тега (refs/tags/v4.64.0). `actions/checkout` по
+  умолчанию чекаутит тег в detached HEAD, поэтому `git push`
+  упал с "fatal: You are not currently on a branch." Принудительно
+  передал `ref: master` в `actions/checkout` чтобы runner был
+  на реальной ветке независимо от типа триггера.
+* **`4ff32cf2` — chore(badge):** workflow теперь успешно
+  закоммитил `docs/version.json` с `v4.64.0` на первом запуске
+  после фикса.
+
+Чистый эффект: бейдж в README показывает `v4.64.0` (проверено
+через `https://img.shields.io/github/v/release/...?cacheBust=1` →
+`{"label":"release","message":"v4.64.0",...}`), и `docs/version.json`
+является source of truth для будущего
+`dynamic-json?url=...raw.githubusercontent.com/.../version.json`
+бейджа, который README может принять как второй бейдж в v4.64.x.
+
 ### Расширение
 
 Byte-identical to v4.63.0 - bridge-only release.
