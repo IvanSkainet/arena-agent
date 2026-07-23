@@ -1,3 +1,117 @@
+## v4.65.0 - CI process hardening (coverage diff, dependabot, stale bot)
+
+### Purpose
+
+Three additions to the CI surface, none of them in the test matrix
+itself — they make the matrix more useful and the maintainer's
+inbox less noisy.
+
+1. **Coverage diff guard.** A small Python script
+   (`scripts/coverage_diff.py`) compares the `line-rate` in the
+   freshly-produced `coverage.xml` against a checked-in baseline
+   in `docs/coverage-baseline.json`. If coverage dropped more
+   than 1 percentage point since the last release, the new
+   `coverage-diff` job fails. This catches the class of bug
+   where a PR adds a code path that no test covers, all tests
+   pass, and the project silently becomes less tested with every
+   commit. The previous `cov-fail-under=50` safety net stays in
+   place; the diff guard is the *trend* signal on top of it.
+
+2. **Dependabot weekly.** A `.github/dependabot.yml` config
+   opens a small weekly PR per ecosystem (pip dev / pip runtime)
+   with a clean diff against the previous good build. CI then
+   validates the bump. The maintainer reviews the PR + green CI
+   before merge, so a regression in a transitive dep can be
+   caught before it lands on master. GitHub Actions are
+   *deliberately excluded* — they're pinned to commit SHAs in
+   `ci.yml` / `version-badge.yml` since v4.62.0, and dependabot
+   would only propose tag bumps we don't want.
+
+3. **Stale bot.** A `.github/workflows/stale.yml` runs daily at
+   02:30 UTC. Issues with no activity for 60 days get the
+   `stale` label, then are closed 7 days later if no comment
+   revives them. PRs follow the same pattern with a 30-day
+   grace period. Anything tagged `pinned`, `security`, or
+   `release-blocker` is exempt. The bot is a CI-of-process job:
+   it doesn't run tests, but it does enforce the same policy
+   across issues and PRs so the maintainer (Ivan) isn't the
+   only one keeping the queue clean.
+
+### Added
+
+1. **`scripts/coverage_diff.py`** (188 lines) - reads a
+   coverage.py cobertura XML, parses the root `line-rate` /
+   `branch-rate` attributes, and diffs against a baseline JSON.
+   Exits 0 on within-tolerance, 1 on too-large a drop, 2 on
+   missing/malformed baseline (treated as "first run, don't
+   block"). Stdlib-only — no `coverage` package required at
+   runtime.
+
+2. **`docs/coverage-baseline.json`** - the checked-in baseline.
+   Captured from the v4.65.0 release run: line-rate 53.6%,
+   branch-rate 38.92%, 17240 / 32166 lines covered. The
+   `captured_at` / `captured_for_commit` fields are metadata;
+   the script only reads the two `*_pct` keys.
+
+3. **`tests/test_coverage_diff.py`** (12 guards) - covers:
+   - script + baseline files exist
+   - baseline has the required keys
+   - no baseline → first-run, exit 0
+   - malformed baseline → first-run, exit 0
+   - baseline missing key → first-run, exit 0
+   - coverage within drop → exit 0
+   - coverage increase → exit 0
+   - coverage drop too much → exit 1
+   - missing coverage.xml → non-zero exit (loud failure)
+   - malformed coverage.xml → non-zero exit (loud failure)
+   - the real shipped coverage.xml (testdata) passes against
+     the shipped baseline (no false positive on the released
+     state)
+
+4. **`scripts/_testdata/coverage.xml`** (1.5 MB) - real
+   coverage.xml from the v4.64.0 release CI run, committed
+   so the test can prove "running the guard against the
+   current state returns 0" without needing a live CI run.
+
+5. **`.github/dependabot.yml`** - weekly pip PRs grouped by
+   runtime vs dev deps, max 5 open PRs, `dependencies` +
+   `automated-pr` labels, monday schedule.
+
+6. **`.github/workflows/stale.yml`** - daily stale-bot run,
+   pinned to `actions/stale@v9`. 60-day issue / 30-day PR
+   grace periods, 7-day close window, exempt lists for pinned
+   / security / release-blocker / draft PR.
+
+7. **`.github/workflows/ci.yml`** - new `coverage-diff` job
+   between `test` and `lint`. Runs after the test matrix
+   completes, downloads the 3.12 coverage.xml artifact, runs
+   the guard. The job is a separate red X in the Actions UI
+   so a coverage drop is visible at PR time without having to
+   scroll through 5 identical test cells.
+
+### Out of scope (intentional, tracked for later)
+
+* **Mutmut / cosmic-ray mutation testing.** Would catch the
+  class of test that runs but doesn't actually assert anything
+  meaningful. Needs mature coverage first (the v4.65.0 diff
+  guard is the prerequisite; mutmut on top of 53% coverage
+  would be noise).
+* **Coveralls / Codecov integration** for the coverage trend
+  graph. The current diff guard gives the trend signal at PR
+  time; the graph is nice-to-have.
+* **PR title conventional-commits lint** — would catch
+  mis-titled PRs but is mostly cosmetic. Skipping.
+* **Mypy strict mode rollout** beyond `arena.service.restart`
+  (which is already strict in `[tool.mypy.overrides]`). The
+  codebase is large; the contract is "module by module as it
+  stabilises". Same as v4.61.0.
+
+### Extension
+
+Byte-identical to v4.64.0 - bridge-only release. No
+production code change.
+
+
 ## v4.64.0 - badge reliability (own version.json workflow) + self-checking CI
 
 ### Purpose

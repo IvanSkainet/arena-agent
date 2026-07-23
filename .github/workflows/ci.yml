@@ -29,10 +29,10 @@ jobs:
     name: Workflow lint (actionlint)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Run actionlint
-        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca  # v1.7.12
+        uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
         with:
           # actionlint ships its own binary; we just point it at
           # the workflow directory. The README badge URL we ship
@@ -55,10 +55,10 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         os: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.0.0
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -78,12 +78,12 @@ jobs:
         # results for the JUnit upload step below.
         run: |
           pytest -q --cov-fail-under=50 \
-            --strict-markers \
-            --junitxml=test-results-${{ matrix.python-version }}.xml
+          --strict-markers \
+          --junitxml=test-results-${{ matrix.python-version }}.xml
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.0.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.0.0
         with:
           name: test-results-${{ matrix.python-version }}
           path: test-results-${{ matrix.python-version }}.xml
@@ -91,11 +91,52 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.0.0
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.0.0
         with:
           name: coverage-xml-${{ matrix.python-version }}
           path: coverage.xml
           retention-days: 14
+
+  # ----------------------------------------------------------------
+  # v4.65.0: coverage diff guard. Runs after the test matrix so
+  # it can download one of the coverage.xml artifacts. The guard
+  # compares the line-rate in coverage.xml against
+  # docs/coverage-baseline.json and fails the build if coverage
+  # dropped more than 1 percentage point since the last release.
+  #
+  # Why a separate job: a coverage drop is a different kind of
+  # failure than a test failure, and the GitHub UI makes a
+  # dedicated "Coverage diff" red X easier to triage than a
+  # buried assertion in a 5-cell matrix.
+  # ----------------------------------------------------------------
+  coverage-diff:
+    name: Coverage diff (vs ${{ github.event.repository.default_branch }})
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Download coverage.xml from a 3.12 cell
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
+        with:
+          name: coverage-xml-3.12
+          path: .
+
+      - name: Run coverage diff guard
+        # Exit 0 = within tolerance, exit 1 = dropped too much,
+        # exit 2 = missing baseline (first run only). The script's
+        # stdout is the human-readable explanation; the exit code
+        # is what the job reads.
+        run: |
+          python scripts/coverage_diff.py \
+            --xml coverage.xml \
+            --baseline docs/coverage-baseline.json \
+            --max-drop 1.0
 
   # ----------------------------------------------------------------
   # Lint: ruff F821/F811 are blocking. Full rule set is
@@ -105,10 +146,10 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.0.0
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
         with:
           python-version: "3.12"
 
@@ -138,10 +179,10 @@ jobs:
     name: MCP contract test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.0.0
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
         with:
           python-version: "3.12"
 

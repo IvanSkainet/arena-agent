@@ -1,0 +1,10 @@
+{
+  "version": "4.65.0",
+  "line_rate_pct": 53.6,
+  "branch_rate_pct": 38.92,
+  "lines_covered": 17240,
+  "lines_valid": 32166,
+  "captured_at": "2026-07-24T00:00:00Z",
+  "captured_for_commit": "f3b16ba3de7e18cc4b83e62939aeb76a9a054f04",
+  "source": "CI run 30045375639 (commit a16fa0aa, Python 3.13 cell). Captured at release time to lock in the per-release coverage floor."
+}

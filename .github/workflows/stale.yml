@@ -1,0 +1,75 @@
+# .github/workflows/stale.yml
+# v4.65.0: close stale issues and PRs to keep the queue manageable.
+#
+# This is a CI-of-process job: it doesn't run tests, but it does
+# enforce the same policy across issues and PRs so the maintainer
+# (Ivan) isn't the only one keeping the queue clean.
+#
+# Why: the v4.61.0-v4.63.0 release chain shipped 5+ releases in
+# a few weeks, which means the issue tracker accumulates
+# "is X still relevant?" questions faster than a single maintainer
+# can triage. The stale bot marks them stale after 60 days, then
+# closes them after 7 more days of inactivity. A re-open or a new
+# comment revives the issue.
+name: stale
+
+on:
+  schedule:
+    # Every day at 02:30 UTC. Off-peak so it doesn't compete with
+    # the test matrix for runner capacity.
+    - cron: "30 2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mark stale issues and PRs
+        uses: actions/stale@v9
+        with:
+          # Operate on both issues and PRs, but with different timing:
+          # issues get a longer grace period because they tend to be
+          # questions / proposals, while PRs are typically a fix
+          # that's either landed or abandoned.
+          days-before-issue-stale: 60
+          days-before-pr-stale: 30
+          days-before-issue-close: 7
+          days-before-pr-close: 7
+          # Don't ping the maintainer every run; only on first stale.
+          only: "issues and pulls"
+          # Skip anything marked as a release label or pinned.
+          exempt-issue-labels: "pinned,security,release-blocker"
+          exempt-pr-labels: "pinned,security,work-in-progress"
+          # Limit how many we touch per run so a flood of stale items
+          # doesn't generate a flood of comments.
+          operations-per-run: 30
+          # Pin messages so the bot doesn't re-ping on every run.
+          stale-issue-message: |
+            This issue has been marked stale because it has not had
+            activity in the last 60 days. It will be closed in 7 days
+            if no further activity occurs.
+
+            If this is still relevant, please leave a comment with an
+            update (a one-liner is fine) and the stale label will be
+            removed automatically.
+          close-issue-message: |
+            Closing as stale. If this is still relevant, please open
+            a new issue with a fresh description — closed issues
+            don't get re-triaged automatically.
+          stale-pr-message: |
+            This PR has been marked stale because it has not had
+            activity in the last 30 days. It will be closed in 7 days
+            if no further activity occurs.
+
+            If you're still working on this, push a commit (even an
+            empty one with `--allow-empty`) to refresh the activity
+            timestamp.
+          close-pr-message: |
+            Closing as stale. Feel free to re-open if you come back
+            to it — GitHub will preserve the diff and conversation.
+          # Don't operate on PRs that are already drafts.
+          exempt-draft-prs: true

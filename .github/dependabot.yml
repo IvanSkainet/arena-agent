@@ -1,0 +1,50 @@
+# .github/dependabot.yml
+# v4.65.0: weekly dependency-update PRs.
+#
+# Why now: the v4.61.0-v4.63.0 sweep pinned GitHub Actions to commit
+# SHAs (good — those don't float), but the pip dev/runtime deps
+# (aiohttp, psutil, websockets, hypothesis, pytest-cov, ruff, mypy)
+# are still floating. Dependabot opens a small weekly PR per
+# ecosystem with a clean diff against the previous good build,
+# so the test matrix + security scan catch a regression before
+# the dep lands on master.
+#
+# Why not pin everything to exact versions:
+# - Pip dev deps (hypothesis, pytest-cov, ruff, mypy) are tooling
+#   and benefit from staying on the latest minor; security + lint
+#   fixes flow through automatically.
+# - Runtime deps (aiohttp, psutil, websockets) are already
+#   constrained to ">=X.Y" in pyproject.toml, so Dependabot's
+#   PRs propose the latest minor and CI validates them.
+# - We don't auto-merge; the maintainer reviews the PR + CI run.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    # Keep PR volume down: one per dev dep, group minor+patches
+    # for runtime deps so we don't get 6 PRs the same day.
+    groups:
+      runtime:
+        dependency-type: "production"
+      dev:
+        dependency-type: "development"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    # Don't update GitHub Actions here — they're pinned to SHAs in
+    # ci.yml / version-badge.yml and dependabot would only propose
+    # tag bumps we explicitly don't want.
+    ignore:
+      - dependency-name: "aiohttp"
+        # v4.61.0 baseline; bump manually after testing the websocket
+        # reconnect path against the new version.
+        versions: [">=4.0"]
+    labels:
+      - "dependencies"
+      - "automated-pr"
+    # PRs stay open for a week so the maintainer has time to read
+    # the diff before CI inevitably decides to rebase it.
+    open-pull-requests-limit: 5
