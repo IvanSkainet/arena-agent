@@ -40,7 +40,7 @@ jobs:
           days-before-issue-close: 7
           days-before-pr-close: 7
           # Don't ping the maintainer every run; only on first stale.
-          only: "issues and pulls"
+          # (action defaults to "issues and pulls" when no `only:` input is set.)
           # Skip anything marked as a release label or pinned.
           exempt-issue-labels: "pinned,security,release-blocker"
           exempt-pr-labels: "pinned,security,work-in-progress"
@@ -72,4 +72,4 @@ jobs:
             Closing as stale. Feel free to re-open if you come back
             to it — GitHub will preserve the diff and conversation.
           # Don't operate on PRs that are already drafts.
-          exempt-draft-prs: true
+          exempt-draft-pr: true
