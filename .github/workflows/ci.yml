@@ -134,4 +134,4 @@ jobs:
           print(' '.join(mods))
           ")
           echo "Type-checking: $MODULES"
-          mypy --ignore-missing-imports $MODULES
+          mypy --ignore-missing-imports --explicit-package-bases $MODULES
