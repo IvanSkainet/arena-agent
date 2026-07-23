@@ -10,6 +10,15 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# v4.61.1: explicit permissions for all jobs. GitHub
+# Actions' default token pool can return 'unable to select next
+# github token from pool' on forks / restricted repos when
+# GITHUB_TOKEN is requested without an explicit permissions
+# block. contents: read is enough for the test + lint + typecheck
+# jobs (none of them push back to the repo).
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
