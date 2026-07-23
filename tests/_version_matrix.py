@@ -16,8 +16,7 @@ Public surface
     that we no longer maintain the ``v4.5*`` test files.
 
 ``EXT_VERSIONS``
-    Same idea for the browser chat extension (``chat_extension/``    "4.65.0",
-).
+    Same idea for the browser chat extension (``chat_extension/``).
 
 ``LATEST_BRIDGE``
     Convenience alias for ``BRIDGE_VERSIONS[-1]`` — the version currently
@@ -91,6 +90,7 @@ BRIDGE_VERSIONS: Tuple[str, ...] = (
     "4.62.0",
     "4.63.0",
     "4.64.0",
+    "4.65.0",
 )
 
 # ---------------------------------------------------------------------------
