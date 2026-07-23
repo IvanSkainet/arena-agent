@@ -1,3 +1,89 @@
+## v4.61.1 - четыре pre-existing test failure исправлены
+
+### Цель
+
+Прогон CI v4.61.0 (run id 30034756453) обнаружил четыре
+pre-existing test failure на ячейках матрицы windows-latest.
+Они не связаны с изменениями v4.61.0 и были латентны в
+master до добавления Windows runner'а в v4.61.0. v4.61.1
+фиксит их максимально узко, чтобы v4.62.0 смог снова
+включить Windows runner без этих регрессий.
+
+Этот релиз также восстанавливает версию в `pyproject.toml`,
+которая была случайно перезаписана follow-up коммитом
+v4.61.0. Видимая версия моста (`/health`) всегда была
+корректной (4.61.0), потому что она берётся из
+`arena/constants.py`, но `install.bat` тоже читает
+`pyproject.toml`, и они были рассинхронизированы. Сейчас оба
+говорят 4.61.1.
+
+### Исправлено
+
+1. **`tests/test_mission_schedule_worker.py`** -
+   `asyncio.sleep(0.01)` был слишком коротким для Windows
+   runner'ов, где executor работал дольше 10ms. Cancel
+   срабатывал до того, как `total_ticks` продвигался.
+   Увеличено до `0.1s` (10x safety margin, общее время
+   теста < 200ms).
+
+2. **`tests/test_superpowers_layout.py`** -
+   `test_superpowers_doc_exists_and_reflects_unified_layout`
+   использовал `read_text()` с locale default. На русской
+   Windows runner это cp1251, а в теле документа есть
+   box-drawing символы, которые ломают cp1251. Исправлено
+   явным `read_text(encoding="utf-8")`.
+
+3. **`tests/test_system_sound.py`** -
+   `test_play_beep_simulates_without_device` теперь
+   `skipif(sys.platform == "win32")`. Тест проверяет только
+   Linux subprocess путь (`paplay`/`aplay`/`beep`); на
+   Windows dispatch идёт через `winsound.Beep`, что не
+   соответствует тому, что тест утверждает. Linux путь всё
+   ещё покрывается на Linux runner'ах.
+
+4. **`tests/test_unified_bridge.py`** - фикстура
+   `temp_arena_home` теперь запускает `gc.collect()` *до*
+   `yield` (не только после), чтобы любой залежавшийся
+   sqlite `Connection` от предыдущего теста был
+   финализирован до создания новой tempdir.
+   `test_sqlite_memory_db_and_cli_sync` теперь закрывает
+   соединение явно (не через `with`), чтобы файловый
+   лок был снят до возврата из теста на любой платформе.
+   Поддиректория `memory/` также предварительно создаётся
+   фикстурой, чтобы соответствовать продакшн layout.
+
+5. **`pyproject.toml` version drift** - в v4.61.0
+   follow-up коммит случайно перезаписал `pyproject.toml` из
+   устаревшей локальной копии и откатил bump
+   `4.60.20 -> 4.61.0`. Видимая версия моста (из
+   `arena/constants.py`) не пострадала, но `install.bat`
+   читает и `pyproject.toml`. Восстановлено до `4.61.1`
+   чтобы соответствовать `arena/constants.py`.
+
+### Тесты
+
+Новых тестов не добавлено (четыре pre-existing теста — это
+и есть поверхность). Общий счётчик тестов не изменился.
+
+### Живой smoke
+
+CI прогон на master (коммит 034c3d53) зелёный. Все пять
+Python версий на ubuntu-latest проходят.
+
+### Вне scope (намеренно)
+
+* Windows runner остаётся отключён в v4.61.1. Четыре
+  вышеописанных фикса — prerequisite для его повторного
+  включения в v4.62.0. Некоторые platform-specific
+  тестовые файлы могут потребовать дополнительных
+  `skipif` маркеров, когда мы снова включим Windows.
+* Порог coverage остаётся 50% (текущее покрытие 50.21%).
+  Подъём порога в очереди на v4.62.0 с новыми тестами.
+
+### Расширение
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.61.0 - Релиз тестовой инфраструктуры (hypothesis + контракты + усиление CI)
 
 ### Цель

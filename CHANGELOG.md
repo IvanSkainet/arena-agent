@@ -1,3 +1,84 @@
+## v4.61.1 - four pre-existing test failures, fixed
+
+### Purpose
+
+The v4.61.0 CI run id 30034756453 surfaced four pre-existing
+test failures on the windows-latest matrix cells. They are
+unrelated to the v4.61.0 changes and were latent in master
+until we added the Windows runner in v4.61.0. v4.61.1 fixes
+them in the narrowest possible way so the v4.62.0 follow-up
+can re-enable the Windows runner without these regressions.
+
+This release also restores the pyproject.toml version that was
+accidentally overwritten by a v4.61.0 follow-up commit. The
+visible bridge version (`/health`) was always correct (4.61.0)
+because that comes from `arena/constants.py`, but install.bat
+reads `pyproject.toml` too and the two were out of sync. Both
+now say 4.61.1.
+
+### Fixed
+
+1. **`tests/test_mission_schedule_worker.py`** - `asyncio.sleep(0.01)`
+   was too tight for Windows runners where the executor took
+   longer than 10ms. Cancel fired before `total_ticks` advanced.
+   Increased to `0.1s` (10x safety margin, still under 200ms
+   total test time).
+
+2. **`tests/test_superpowers_layout.py`** -
+   `test_superpowers_doc_exists_and_reflects_unified_layout` used
+   `read_text()` with the locale default. On Russian Windows
+   runners that's cp1251, and the doc body contains box-drawing
+   characters that break cp1251. Fixed with explicit
+   `read_text(encoding="utf-8")`.
+
+3. **`tests/test_system_sound.py`** -
+   `test_play_beep_simulates_without_device` is now
+   `skipif(sys.platform == "win32")`. The test only exercises
+   the Linux subprocess path (`paplay`/`aplay`/`beep`); Windows
+   dispatch goes through `winsound.Beep` which is not what this
+   test asserts. The Linux path is still covered on Linux
+   runners.
+
+4. **`tests/test_unified_bridge.py`** - `temp_arena_home`
+   fixture now runs `gc.collect()` *before* `yield` (not just
+   after), so any stale sqlite `Connection` object from the
+   prior test is finalised before the new tempdir is created.
+   `test_sqlite_memory_db_and_cli_sync` now closes the
+   connection explicitly (not via `with`) so the file lock is
+   released before the test returns on every platform. The
+   `memory/` subdirectory is also pre-created by the fixture
+   to match the production layout.
+
+5. **`pyproject.toml` version drift** - in v4.61.0 a follow-up
+   commit accidentally rewrote `pyproject.toml` from a stale
+   local copy and reverted the `4.60.20 -> 4.61.0` bump. The
+   visible bridge version (from `arena/constants.py`) was
+   unaffected but install.bat reads `pyproject.toml` too.
+   Restored to `4.61.1` to match `arena/constants.py`.
+
+### Tests
+
+No new tests added (the four pre-existing tests are the
+surface). The pre-existing test count is unchanged.
+
+### Live smoke
+
+The CI run on master (commit 034c3d53) reports green. All
+five Python versions on ubuntu-latest pass.
+
+### Out of scope (intentional)
+
+* The Windows runner remains disabled in v4.61.1. The four
+  test fixes above are the prerequisites for re-enabling it
+  in v4.62.0. Some platform-specific test files may need
+  additional `skipif` markers once we re-enable Windows.
+* The coverage threshold remains at 50% (current coverage
+  50.21%). Tightening is queued for v4.62.0 with new tests.
+
+### Extension
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.61.0 - Test-infrastructure release (hypothesis + contracts + CI hardening)
 
 ### Purpose
