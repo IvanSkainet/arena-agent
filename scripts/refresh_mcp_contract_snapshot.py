@@ -54,8 +54,9 @@ def _scan_file(path: Path) -> dict:
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             if _is_tool_name(node.value):
                 tool_names.add(node.value)
+    rel = path.relative_to(REPO).as_posix()
     return {
-        "file": str(path.relative_to(REPO)),
+        "file": rel,
         "handlers": sorted(set(handlers)),
         "tool_names": sorted(tool_names),
     }

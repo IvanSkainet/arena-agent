@@ -83,8 +83,13 @@ def _scan_file(path: Path) -> dict:
         elif isinstance(node, ast.Constant) and isinstance(node.value, str):
             if _is_tool_name(node.value):
                 tool_names.add(node.value)
+    # Path strings are always stored with forward slashes so the
+    # snapshot is portable across POSIX and Windows. On Windows,
+    # ``Path.relative_to`` produces backslashes which would not
+    # match a snapshot written on a Linux CI runner (or vice versa).
+    rel = path.relative_to(REPO).as_posix()
     return {
-        "file": str(path.relative_to(REPO)),
+        "file": rel,
         "handlers": sorted(set(handlers)),
         "tool_names": sorted(tool_names),
     }
