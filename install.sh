@@ -823,6 +823,52 @@ echo ""
 
 # ============================================================
 # Step 7: Install as system service
+elif [ -d "$INSTALL_DIR/skills/browseract" ]; then
+    info "BrowserAct skill files present but browser-act CLI not found."
+    info "Install BrowserAct first: uv tool install browser-act-cli --python 3.12"
+fi
+
+# --- 6e: SpecKit (v4.60.19) ---
+# Optional: GitHub Spec-Kit CLI for spec-driven development (constitution/spec/plan/tasks).
+# The arena-bridge exposes it as the `speccy.*` MCP tool family (see arena/mcp/tool_speckit.py)
+# and `scripts/spec_kit_to_scenarios.py` converts `tasks.md` into a scenario JSON.
+# Install is opt-in: default N. No hard dependency on the bridge.
+if command -v specify >/dev/null 2>&1; then
+    SPECKIT_VERSION="$(specify --version 2>/dev/null || echo 'installed')"
+    ok "SpecKit already installed: $SPECKIT_VERSION"
+    if command -v uv >/dev/null 2>&1; then
+        info "Checking SpecKit updates via uv..."
+        uv tool upgrade specify-cli >/dev/null 2>&1 && ok "SpecKit is up to date or upgraded" || warn "SpecKit update check failed/skipped"
+    fi
+else
+    if command -v uv >/dev/null 2>&1; then
+        info "SpecKit installs GLOBALLY via \`uv tool\` (in ~/.local/bin or equivalent),"
+        info "NOT inside the bridge directory. The bridge calls \`specify\` via PATH,"
+        info "so a global install is required for it to work."
+        if ask "Install SpecKit globally via uv? (spec-driven development CLI - constitution, spec, plan, tasks)"; then
+            info "Installing SpecKit via uv tool (global, outside bridge dir)..."
+            uv tool install specify-cli 2>/dev/null
+            if command -v specify >/dev/null 2>&1; then
+                ok "SpecKit installed: $(specify --version 2>/dev/null || echo 'OK')"
+            else
+                warn "SpecKit installation may have failed. Install manually:"
+                echo "  uv tool install specify-cli"
+            fi
+        else
+            info "SpecKit skipped. Install later with:"
+            echo "  uv tool install specify-cli"
+        fi
+    else
+        info "SpecKit requires \`uv\` package manager. Install uv first:"
+        echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+        echo "  Then: uv tool install specify-cli"
+    fi
+fi
+
+echo ""
+
+# ============================================================
+# Step 7: Install as system service
 # ============================================================
 info "Installing as system service..."
 OS="$(uname -s)"

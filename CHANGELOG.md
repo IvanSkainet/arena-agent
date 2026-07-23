@@ -1,3 +1,62 @@
+## v4.60.19 - Spec-Kit integration (optional, opt-in)
+
+### Purpose
+
+Add first-class support for `github/spec-kit` so that complex
+features can be specified via the standard spec-kit flow
+(constitution -> spec -> plan -> tasks) and then **executed** by
+the bridge via our existing `scenario.save` MCP tool. The
+integration is **optional and opt-in**; the bridge runs fine
+without `specify` on PATH.
+
+### Added
+
+1. **`scripts/spec_kit_to_scenarios.py`** - adapter that reads a
+   spec-kit `tasks.md` (T0..Tn, Args: JSON, Save as, [P], [Story]
+   tags) and emits a JSON document suitable for `scenario.save`.
+   Uses balanced-brace JSON extraction with `{{ ... }}` placeholder
+   escapes, so inter-step references (`{{ steps.T0.result.id }}`)
+   survive intact.
+2. **`arena/mcp/tool_speckit.py`** - thin MCP-tool wrapper around
+   the `specify` CLI. Surface: `speccy.run`, `speccy.check`,
+   `speccy.version`. Non-interactive (no TTY), graceful `isError`
+   if the CLI is missing, never blocks on prompts.
+3. **Optional install step** in `install.bat` and `install.sh`
+   (between the Camoufox block and Step 5 / Step 7). Default
+   **No**, like Browseract and SuperPowers. No hard runtime
+   dependency.
+
+### Tests
+
+`tests/test_spec_kit_adapter.py` (9 guards): minimal tasks, parallel
+and story flag propagation, JSON args with `{{ ... }}`
+placeholders, three `Save as` phrasings, malformed-args warning,
+and an end-to-end voice-transcription-shaped fixture.
+
+`tests/test_speckit_tool.py` (8 guards): unknown tool name -> isError,
+non-list args -> isError, non-string elements -> isError, missing
+CLI -> isError, version probe, unknown-subcommand exit code,
+dispatcher for `speccy.version` and `speccy.check`. Live tests
+skip cleanly if the CLI is missing.
+
+### Documentation
+
+`docs/spec-kit-integration.md` - end-to-end usage, the adapter
+contract, the MCP tool surface, install behaviour, out-of-scope
+notes, and a checklist for the user.
+
+### Out of scope (intentional)
+
+- We did **not** add a new `Integration` subclass to spec-kit
+  upstream. This is a *consumer*-side adapter, not a fork.
+- The `voice on phone -> PC -> transcribe -> chat` scenario
+  itself remains a separate workstream. v4.60.19 ships the
+  tooling; the scenario-specific service choice is a follow-up.
+
+### Extension
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.60.18 - Cross-platform core hardening + scenario-driver prep
 
 ### Purpose

@@ -1,3 +1,61 @@
+## v4.60.19 - Интеграция Spec-Kit (опционально, opt-in)
+
+### Назначение
+
+Полноценная поддержка `github/spec-kit`: сложные фичи теперь можно
+специфицировать стандартным spec-kit-флоу (constitution -> spec ->
+plan -> tasks), а затем **исполнять** мостом через существующий
+MCP-инструмент `scenario.save`. Интеграция **опциональная и
+opt-in**: мост работает и без `specify` в PATH.
+
+### Добавлено
+
+1. **`scripts/spec_kit_to_scenarios.py`** - адаптер, читает
+   spec-kit `tasks.md` (T0..Tn, Args: JSON, Save as, [P], [Story]
+   флаги) и эмитит JSON-документ для `scenario.save`. Использует
+   balanced-brace парсинг JSON с пробросом `{{ ... }}` плейсхолдеров,
+   поэтому межшаговые ссылки (`{{ steps.T0.result.id }}`) остаются
+   нетронутыми.
+2. **`arena/mcp/tool_speckit.py`** - тонкая MCP-обёртка над
+   CLI `specify`. Поверхность: `speccy.run`, `speccy.check`,
+   `speccy.version`. Non-interactive (без TTY), корректный `isError`
+   при отсутствии CLI, никогда не блокируется на промптах.
+3. **Опциональный install-шаг** в `install.bat` и `install.sh`
+   (между Camoufox-блоком и Step 5 / Step 7). По умолчанию
+   **No**, как у Browseract и SuperPowers. Никаких жёстких
+   рантайм-зависимостей.
+
+### Тесты
+
+`tests/test_spec_kit_adapter.py` (9 гардов): минимальный таск,
+флаги parallel и story, JSON-аргументы с `{{ ... }}` плейсхолдерами,
+три формы `Save as`, обработка невалидного JSON, end-to-end
+фикстура в форме voice-transcription.
+
+`tests/test_speckit_tool.py` (8 гардов): unknown tool -> isError,
+не-list args -> isError, не-string элементы -> isError, отсутствующий
+CLI -> isError, version probe, unknown-subcommand exit code,
+диспетчер для `speccy.version` и `speccy.check`. Live-тесты
+скипаются чисто, если CLI нет.
+
+### Документация
+
+`docs/spec-kit-integration.md` - end-to-end использование, контракт
+адаптера, поверхность MCP-инструмента, поведение install, явный
+out-of-scope, чек-лист для пользователя.
+
+### Out of scope (намеренно)
+
+- Мы **не** добавили новый `Integration` subclass в upstream
+  spec-kit. Это адаптер на стороне **потребителя**, не форк.
+- Сценарий «голос на телефоне -> ПК -> транскрибация -> чат» сам
+  по себе остаётся отдельной задачей. v4.60.19 поставляет
+  инструментарий; выбор сервиса транскрибации — следующий шаг.
+
+### Расширение
+
+Байт-в-байт идентично v4.53.1 - релиз только моста.
+
 ## v4.60.18 - Кросс-платформенное укрепление ядра + подготовка к сценарному драйверу
 
 ### Назначение
