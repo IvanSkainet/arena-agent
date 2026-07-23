@@ -104,6 +104,24 @@ v4.66.0 поставляет три маленьких скрипта (и 27 uni
 * **Mutation testing** (mutmut/cosmic-ray) — нужно сначала
   зрелое покрытие; diff guard — это prerequisite.
 
+
+### Follow-up (коммит 08f49fe3)
+
+* **`08f49fe3` — fix(test-pre-release):** тест
+  `tests/test_pre_release_check.py::test_against_real_master`
+  вызывал полный `pre_release_check.py` end-to-end против
+  реального master. Это включало `docs/version.json` + git
+  tag проверки, которые привязаны к "этому точному моменту
+  release-цикла" и падали бы между релизами. Фикс: в CI мы
+  тестируем только две части которые стабильны через release
+  цикл (версия в lockstep + top entry CHANGELOG совпадает).
+  Мейнтейнер запускает полный pre_release_check вручную
+  прямо перед тегированием, когда version.json и git-tag
+  проверки реально осмыслены. Тот же fix-and-rebase паттерн
+  что 250de6f8 (v4.65.0 follow-up): новый CI guard поймал
+  реальную проблему в тесте который его использовал,
+  мейнтейнер-fixed follow-up это то что отгружается.
+
 ### Расширение
 
 Byte-identical to v4.65.0 - bridge-only release. Никаких

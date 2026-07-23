@@ -100,6 +100,24 @@ inspect without slowing down the test matrix.
 * **Mutation testing** (mutmut/cosmic-ray) — needs mature
   coverage first; the diff guard is the prerequisite.
 
+
+### Follow-up (commit 08f49fe3)
+
+* **`08f49fe3` — fix(test-pre-release):** the
+  `tests/test_pre_release_check.py::test_against_real_master`
+  was calling the full `pre_release_check.py` script end-to-end
+  against the actual master. That includes the `docs/version.json`
+  + git tag checks, which are inherently tied to "this exact
+  moment in the release cycle" and would fail between releases.
+  Fix: in CI we test only the two parts that ARE stable across
+  the release cycle (version in lockstep + CHANGELOG top entry
+  matches). The maintainer runs the full pre_release_check by
+  hand immediately before tagging, when the version.json and
+  git-tag checks are actually meaningful. Same fix-and-rebase
+  pattern as 250de6f8 (v4.65.0 follow-up): the new CI guard
+  caught a real issue with the test that exercised it, the
+  maintainer-fixed follow-up is what ships.
+
 ### Extension
 
 Byte-identical to v4.65.0 - bridge-only release. No
