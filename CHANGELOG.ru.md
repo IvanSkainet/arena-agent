@@ -1,3 +1,106 @@
+## v4.62.0 - усиление CI v2 (pinned actions, actionlint, JUnit, contract job)
+
+### Цель
+
+Пять конкретных улучшений, превращающих CI в самозащищающуюся
+тестовую поверхность:
+
+1. **GitHub Actions закреплены на commit SHA.** Плавающие
+   теги (@v4, @v5) переписываются, если мейнтейнер actions
+   пушит breaking change. SHA-pin'ы гарантируют бит-в-бит
+   воспроизводимость. У каждого action теперь есть комментарий
+   с соответствующим плавающим тегом для grep-а.
+
+2. **actionlint job ловит синтаксические ошибки workflow
+   до того, как они дойдут до runner'а.** Запускает
+   `rhysd/actionlint@v1.7.12` на `.github/workflows/`.
+   Ловит: опечатки в `if:` / `uses:`, неправильные имена
+   событий, ошибки в matrix, отсутствующий permissions
+   block (причина v4.61.1 "unable to select next github
+   token from pool").
+
+3. **JUnit XML upload на каждую ячейку матрицы.**
+   `pytest --junitxml` пишет JUnit-формат, загружается как
+   `test-results-<python-version>` artifact. Виден как
+   drill-down view в GitHub Actions UI для каждой ячейки.
+   Полезно при triage когда одна из 5 ячеек падает.
+
+4. **MCP contract test как отдельный CI job.** Тест
+   `test_mcp_tool_contracts.py` из v4.61.0 бежал внутри
+   основной pytest-матрицы. v4.62.0 выносит его в
+   собственный `contract` job, чтобы contract failure
+   (например, кто-то переименовал `handle_fs_tool` без
+   обновления `scripts/refresh_mcp_contract_snapshot.py`)
+   был виден как отдельный красный крест в Actions UI, а
+   не терялся в 5 одинаковых ячейках.
+
+5. **Добавлен `--strict-markers` в pytest запуски.**
+   Неизвестный `@pytest.mark.foo` теперь валит сборку, а не
+   проходит молча.
+
+### Изменено
+
+1. **`.github/workflows/ci.yml`** - полностью переписан
+   с 5 улучшениями выше. Pinned actions:
+   - `actions/checkout@11d5960a326750d5838078e36cf38b85af677262` (v4)
+   - `actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065` (v5)
+   - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02` (v4)
+   - `rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca` (v1.7.12)
+   Новые job'ы: `actionlint`, `contract`. Существующий `test`
+   job теперь также производит JUnit XML и загружает его.
+
+2. **`README.md`** - заменён `shields.io` version badge на
+   `shields.io/dynamic-json`, чтобы badge тянул тег из
+   публичного `releases/latest` JSON. Старый `github/v/release`
+   endpoint иногда возвращал "unable to select next github
+   token from pool" при rate limiting / service issues, и
+   README показывал битый placeholder вместо текущего
+   тега. Новый endpoint использует тот же JSON, который
+   install.sh уже polls для soft version check, так что
+   новой зависимости не добавляется.
+
+### Тесты
+
+* Live: CI run `30040890831` на коммите `52eeba8e` полностью
+  зелёный (8/8 job'ов: actionlint + lint + 5 ячеек
+  тестовой матрицы + contract).
+* Первая попытка CI run упала, потому что SHA для
+  `actions/checkout@v4` не существовал; фикс в `93f47c7`
+  (проверено через `/git/refs/tags/v4` → `/git/tags/<tag-sha>`).
+* Вторая попытка упала, потому что contract job передал
+  `--no-cov`, но pyproject.toml addopts также содержит
+  `--cov-fail-under=70`, и pytest отказывается их смешивать.
+  Фикс: передать `-o addopts="..."`, чтобы переопределить
+  pyproject addopts для двух contract test запусков.
+  Contract тесты и не нуждаются в coverage (они структурные,
+  не поведенческие).
+
+### Живой smoke
+
+После цепочки коммитов v4.62.0, `gh actions runs list`
+показывает последний CI run как success на каждом job'е.
+README release badge теперь показывает `v4.62.0` (проверено
+через `curl https://img.shields.io/badge/dynamic/json?url=...`).
+
+### Вне scope (намеренно)
+
+* **Re-enable Windows runner** - отложен на v4.62.x.
+  4 pre-existing test failure (mission-schedule bash probe,
+  cp1251 decode, sound-device skip, sqlite file locking)
+  починены в v4.61.1, но matrix-комментарий отмечает, что
+  Windows runner всё ещё нуждается в дополнительных `skipif`
+  маркерах. Чистое re-enable — отдельный релиз.
+* **Coverage gate tightening** - 50% остаётся; подъём
+  в очереди на v4.62.x по мере добавления тестов.
+* **mypy informational job** - удалён в v4.61.1 из-за бага
+  mypy 1.x с module resolution, который путает sibling
+  модули в одном пакете. Mypy вернётся в follow-up релизе,
+  когда модули получат полные аннотации.
+
+### Расширение
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.61.1 - четыре pre-existing test failure исправлены
 
 ### Цель

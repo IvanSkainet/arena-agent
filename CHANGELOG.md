@@ -1,3 +1,109 @@
+## v4.62.0 - CI hardening v2 (pinned actions, actionlint, JUnit, contract job)
+
+### Purpose
+
+Five concrete improvements that turn CI into a self-defending
+test surface:
+
+1. **Pinned GitHub Actions to commit SHAs.** Floating tags
+   (@v4, @v5) get rewritten if the action maintainer pushes a
+   breaking change. SHA pins guarantee bit-for-bit
+   reproducibility. Every used action now has a comment with
+   the matching floating tag for grep-ability.
+
+2. **actionlint job catches workflow syntax errors before
+   they reach the runner.** Runs `rhysd/actionlint@v1.7.12`
+   over `.github/workflows/`. Catches: typo'd `if:` / `uses:`,
+   wrong event names, matrix misconfiguration, missing
+   permissions block (the v4.61.1 "unable to select next
+   github token from pool" failure mode).
+
+3. **JUnit XML upload per matrix cell.** `pytest --junitxml`
+   writes a JUnit-format results file, uploaded as
+   `test-results-<python-version>` artifact. Shows up as a
+   drill-down view in the GitHub Actions UI for every matrix
+   cell. Useful for triage when one of the 5 cells fails.
+
+4. **MCP contract test as a separate CI job.** The
+   `test_mcp_tool_contracts.py` test from v4.61.0 was running
+   inside the main pytest matrix. v4.62.0 promotes it to its
+   own `contract` job so a contract failure (e.g. someone
+   renamed `handle_fs_tool` without updating
+   `scripts/refresh_mcp_contract_snapshot.py`) shows up as
+   its own red X in the Actions UI, not buried in 5 identical
+   test matrix cells.
+
+5. **`--strict-markers` added to pytest runs.** An unknown
+   `@pytest.mark.foo` in a test file now fails the build
+   instead of passing silently.
+
+### Changed
+
+1. **`.github/workflows/ci.yml`** - completely rewritten
+   with the 5 improvements above. Pinned actions:
+   - `actions/checkout@11d5960a326750d5838078e36cf38b85af677262` (v4)
+   - `actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065` (v5)
+   - `actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02` (v4)
+   - `rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca` (v1.7.12)
+   New jobs: `actionlint`, `contract`. Existing `test` job now
+   also produces JUnit XML and uploads it.
+
+2. **`README.md`** - replaced the `shields.io` version badge
+   with `shields.io/dynamic-json` so the badge pulls the tag
+   from the public `releases/latest` JSON payload. The old
+   `github/v/release` endpoint was occasionally returning
+   "unable to select next github token from pool" on rate
+   limiting / service issues, which made the README show a
+   broken placeholder instead of the current release tag.
+   The new endpoint uses the same JSON payload install.sh
+   already polls for the soft version check, so it doesn't
+   add a new dependency.
+
+### Tests
+
+* Live: CI run `30040890831` on commit `52eeba8e` is fully
+  green (8/8 jobs: actionlint + lint + 5 test matrix cells
+  + contract).
+* The first attempt of the CI run failed because the
+  `actions/checkout@v4` SHA I used didn't exist; the fix
+  is `93f47c7` (verified via `/git/refs/tags/v4` →
+  `/git/tags/<tag-sha>`).
+* The second attempt failed because the contract job passed
+  `--no-cov` but the pyproject.toml addopts also includes
+  `--cov-fail-under=70`, and pytest refuses to mix them.
+  Fix: pass `-o addopts="..."` to override the pyproject
+  addopts for the two contract test invocations. The
+  contract tests don't need coverage anyway (they're
+  structural, not behavioural).
+
+### Live smoke
+
+After the v4.62.0 commit chain, `gh actions runs list` shows
+the latest CI run as success on every job. The README
+release badge now shows `v4.62.0` (verified via
+`curl https://img.shields.io/badge/dynamic/json?url=...`).
+
+### Out of scope (intentional)
+
+* **Windows runner re-enablement** - deferred to v4.62.x.
+  The 4 pre-existing test failures (mission-schedule bash
+  probe, cp1251 decode, sound-device skip, sqlite file
+  locking) are fixed in v4.61.1, but the matrix comment
+  notes the Windows runner would still need additional
+  `skipif` markers. Re-enabling it cleanly is a follow-up
+  release.
+* **Coverage gate tightening** - 50% stays put; tightening
+  is queued for v4.62.x as new tests are added.
+* **mypy informational job** - removed in v4.61.1 due to a
+  mypy 1.x module-resolution bug that confuses sibling
+  modules with the same parent package. Mypy will return in
+  a follow-up release once the underlying modules get
+  proper type annotations.
+
+### Extension
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.61.1 - four pre-existing test failures, fixed
 
 ### Purpose
