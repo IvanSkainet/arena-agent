@@ -153,7 +153,7 @@ jobs:
         # against tests/_mcp_contract_snapshot.json. A diff
         # means a tool was added/removed/renamed without
         # running scripts/refresh_mcp_contract_snapshot.py.
-        run: pytest -q --no-cov tests/test_mcp_tool_contracts.py
+        run: pytest -q -o addopts="-q --strict-markers" tests/test_mcp_tool_contracts.py
 
       - name: Run property-based spec-kit parser test
-        run: pip install hypothesis && pytest -q --no-cov tests/test_spec_kit_parser_property.py
+        run: pip install hypothesis && pytest -q -o addopts="-q --strict-markers" tests/test_spec_kit_parser_property.py
