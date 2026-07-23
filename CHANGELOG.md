@@ -106,6 +106,36 @@ inbox less noisy.
   codebase is large; the contract is "module by module as it
   stabilises". Same as v4.61.0.
 
+
+### Follow-up (commits acd85a2, 250de6f8)
+
+Two commits that don't change behaviour but are recorded so the
+"what went wrong and why" chain stays traceable.
+
+* **`acd85a2` — fix(version-matrix):** the v4.65.0 release used
+  the same paren-counter-based helper to insert the new version
+  into `BRIDGE_VERSIONS` that the v4.64.0 release used. The
+  helper counts `(` / `)` to find the closing paren of the
+  tuple, but the module docstring has a `(` inside backticks
+  (the `chat_extension/` example) that confuses the counter, so
+  the new entry landed in the docstring instead of the tuple.
+  The bug is the same as `710b84b0`. The fix is the same:
+  rewrite the file from master HEAD and re-insert in the right
+  place, with an AST-validate step before commit.
+  *Long-term fix:* the paren-counting helper needs to be
+  rewritten to skip docstrings (a real `bump_version.py`
+  script is queued for v4.66.0; this is a follow-up, not a
+  blocker).
+* **`250de6f8` — fix(stale):** actionlint caught two invalid
+  input names in `.github/workflows/stale.yml` on the first
+  v4.65.0 PR. `only: "issues and pulls"` doesn't exist in
+  `actions/stale@v9` (the action defaults to it), and
+  `exempt-draft-prs` should be `exempt-draft-pr` (no trailing
+  's'). Both fixed in the same commit. This is the third
+  actionlint follow-up in the v4.62.0 / v4.64.0 / v4.65.0
+  sweep and reinforces the case for the actionlint job: it
+  catches the typo before it ever runs on a real PR.
+
 ### Extension
 
 Byte-identical to v4.64.0 - bridge-only release. No
