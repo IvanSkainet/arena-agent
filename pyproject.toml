@@ -144,8 +144,6 @@ check_untyped_defs = true
 # failure, not as a 3am "bridge is dead" page.
 module = [
     "arena.service.restart",
-    "arena.admin.auto_update_windows",
-    "scripts.inspect_update_log",
 ]
 strict = true
 disallow_untyped_defs = true
