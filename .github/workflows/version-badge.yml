@@ -67,9 +67,13 @@ jobs:
           cat docs/version.json
 
       - name: Commit if changed
+        # v4.64.0 follow-up: use `git status --porcelain` instead of
+        # `git diff --quiet` so untracked new files are detected as
+        # changes (a plain `git diff` on an untracked path returns 0
+        # and skips the commit step).
         run: |
           set -euo pipefail
-          if git diff --quiet docs/version.json; then
+          if [[ -z "$(git status --porcelain docs/version.json)" ]]; then
             echo "version.json is up-to-date, nothing to commit."
             exit 0
           fi
