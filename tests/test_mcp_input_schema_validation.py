@@ -162,24 +162,10 @@ def _iter_tools():
 # ---------------------------------------------------------------------------
 
 
-# v4.63.0: legacy pre-MCP tool names that predate the
-# namespace.action convention. Listed in
-# arena/mcp/tool_exec.py as the bare identifiers ``ping``,
-# ``echo``, ``exec`` plus ``snapshot`` (the legacy
-# installer-time state dumper). They are dispatched by
-# handle_exec_tool and intentionally not namespaced.
-_LEGACY_BARE_NAMES = frozenset({"ping", "echo", "exec", "snapshot"})
-
-
 @pytest.mark.parametrize("entry", list(_iter_tools()), ids=lambda e: e.get("name", "?"))
 def test_tool_name_follows_namespace_dot_action_convention(entry):
     name = entry.get("name")
     assert isinstance(name, str), f"name must be a string, got {type(name).__name__}"
-    if name in _LEGACY_BARE_NAMES:
-        # v4.63.0: tolerated for now. The plan is to namespace
-        # them as ``exec.ping`` / ``exec.echo`` / ``exec.exec``
-        # in v4.64.x and remove this whitelist then.
-        return
     assert _NAME_RE.match(name), (
         f"tool name {name!r} does not match the required 'namespace.action' "
         "convention (lowercase letters, digits, underscores, exactly one dot)"
@@ -195,29 +181,14 @@ def test_tool_description_is_nonempty_string(entry):
 
 @pytest.mark.parametrize("entry", list(_iter_tools()), ids=lambda e: e.get("name", "?"))
 def test_tool_input_schema_is_valid_json_schema_draft_7(entry):
-    import warnings
     name = entry.get("name", "?")
     schema = entry.get("inputSchema")
     if schema is None:
         pytest.skip(f"{name}: no inputSchema (some no-arg tools legitimately omit it)")
     errors = _validate_against_metaschema(schema, f"{name}.inputSchema")
-    if not errors:
-        return
-    # v4.63.0: a structural warning, not a hard fail. The
-    # validator walks every tool and the catalogue has 234
-    # entries; some are likely to have non-conforming
-    # schemas (e.g. ``items`` without a value, an
-    # ``additionalProperties: 1`` typo, etc). Flipping
-    # these to hard fails is v4.64.0 work; for now we
-    # surface every error in the test log so they're
-    # visible at PR review time.
-    warnings.warn(
+    assert not errors, (
         f"tool {name!r} has an invalid inputSchema:\n  "
         + "\n  ".join(errors)
-        + "\n  v4.64.0 should turn this into a hard fail after"
-        " the catalogue is cleaned up.",
-        PendingDeprecationWarning,
-        stacklevel=2,
     )
 
 
