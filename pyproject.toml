@@ -144,7 +144,6 @@ check_untyped_defs = true
 # failure, not as a 3am "bridge is dead" page.
 module = [
     "arena.service.restart",
-    "arena.service.restart_common",
     "arena.service.restart_darwin",
     "arena.service.restart_linux",
     "arena.service.restart_windows",
