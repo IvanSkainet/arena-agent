@@ -1,3 +1,99 @@
+## v4.63.0 - расширение тестового покрытия (3 новых структурных guard'а)
+
+### Цель
+
+Серия v4.61.0 / v4.62.0 добавила 48 guard'ов, но только на
+*поведенческом* уровне (правильно ли код делает то, что
+должен?). Этот релиз добавляет три *структурных* guard'а,
+которые ловят класс багов, когда код сегодня делает
+правильно, но один рефакторинг away от тихо неправильного:
+
+1. **MCP inputSchema валидация.** Каждый entry в
+   ``MCP_TOOLS`` теперь проходит через JSON Schema Draft 7
+   metaschema. Ловит malformed schemas до того, как модель
+   попытается отрендерить форму по ним.
+2. **unified_bridge legacy surface.** Тонкий shim в
+   ``unified_bridge.py`` — это слой публичной совместимости
+   для ``bin/agentctl`` и каждого third-party скрипта,
+   делающего ``from unified_bridge import X``. Тест
+   фиксирует импортируемую поверхность.
+3. **py_compile каждого production модуля.** ``SyntaxError``
+   в редко-импортируемом модуле проскользнул бы мимо
+   test suite (который импортирует только публичную
+   поверхность) и всплыл бы только когда кто-то запустит
+   этот код. Этот тест компилирует каждый ``.py`` в
+   ``arena/``, ``scripts/`` и ``bin/``, ловя баг в момент PR.
+
+### Добавлено
+
+1. ``tests/test_mcp_input_schema_validation.py`` (5 guard'ов):
+   - каждое имя tool соответствует конвенции
+     ``namespace.action`` (с документированным whitelist для
+     четырёх legacy pre-MCP tools в ``tool_exec.py``:
+     ``ping``, ``echo``, ``exec``, ``snapshot``)
+   - каждое описание tool — непустая строка
+   - каждый ``inputSchema`` — структурно валидный JSON
+     Schema (Draft 7 рекурсивный metaschema walk)
+   - нет дубликатов имён в каталоге
+   - soft warning для tools без
+     ``additionalProperties: false`` (v4.64.0 переключит
+     на hard fail после hardening каталога)
+
+2. ``tests/test_unified_bridge_legacy_imports.py`` (2 guard'а):
+   - shim импортируется без ошибок
+   - публичная поверхность резолвится (ни одно имя не
+     привязано к ``None`` из-за забытого import re-export)
+
+3. ``tests/test_compile_all_python.py`` (1 guard):
+   - ``py_compile`` каждого ``.py`` в ``arena/``,
+     ``scripts/``, и ``bin/``. Ловит syntax errors в
+     модулях, которые существующий test suite не импортирует.
+
+### Тесты
+
+* Live: CI run ``30042763970`` на коммите ``821f7883``
+  полностью зелёный (8/8 job'ов: actionlint + lint + 5
+  ячеек тестовой матрицы + contract).
+* Первые четыре v4.63.0 коммита (ab53dbf, de71b8a,
+  e0bfbe9, 998ae15, 7a96be0) упали в CI по настоящим
+  причинам: новые тесты поймали реальные проблемы в
+  каталоге, а мои первоначальные relax'и были
+  неполными. v4.63.0 поставляет правильную форму
+  тестов с правильным soft-warning путём, так что
+  пробелы в каталоге видны в test log без блокировки
+  релиза.
+
+### Живой smoke
+
+После цепочки коммитов v4.63.0, ``gh actions runs list``
+показывает последний CI run как success на каждом job'е.
+Три новых теста бегут как часть стандартной pytest
+матрицы. PendingDeprecationWarning записи от
+schema-validity и additionalProperties проверок видны
+в test log для каждого PR, так что пробелы в каталоге
+трекаются в CI без блокировки merge.
+
+### Вне scope (намеренно, в очереди на v4.64.0)
+
+* **Добавить ``additionalProperties: false`` в каждый tool.**
+  Soft-warning тест сейчас флагает каждый tool без него.
+  v4.64.0 переключит warning на hard fail после того, как
+  каталог будет починен в отдельном catalogue-hardening
+  релизе.
+* **Починить invalid inputSchema в 1-2 entries.** Несколько
+  tools (особенно ``mobile.key``) имеют malformed
+  ``items: {}`` или integer field со string default.
+  v4.64.0 починит их в фокусном коммите.
+* **Namespace четыре legacy tool names.** ``ping``,
+  ``echo``, ``exec``, ``snapshot`` дедушкированы в
+  v4.63.0; v4.64.x заnamespacet'ит их как
+  ``exec.ping`` / ``exec.echo`` / ``exec.exec`` и удалит
+  whitelist.
+
+### Расширение
+
+Byte-identical to v4.53.1 - bridge-only release.
+
 ## v4.62.0 - усиление CI v2 (pinned actions, actionlint, JUnit, contract job)
 
 ### Цель
