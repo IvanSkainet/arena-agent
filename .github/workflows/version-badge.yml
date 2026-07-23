@@ -27,6 +27,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # v4.64.0 follow-up: on tag pushes `actions/checkout` checks
+          # out the tagged commit in detached HEAD, and `git push`
+          # then refuses to update master. Force a master checkout so
+          # the workflow file is the same on tag and branch pushes.
+          ref: master
           fetch-depth: 1
 
       - name: Resolve current release
@@ -35,9 +40,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Use the GitHub API to resolve the latest release. On tag pushes
-          # GH_API_TAG is the tag we just pushed; on master pushes (no tag)
-          # it falls back to the most recent release.
+          # On tag pushes, use the tag we just pushed. On master pushes,
+          # resolve the latest release via the GitHub API.
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
           else
@@ -69,8 +73,8 @@ jobs:
       - name: Commit if changed
         # v4.64.0 follow-up: use `git status --porcelain` instead of
         # `git diff --quiet` so untracked new files are detected as
-        # changes (a plain `git diff` on an untracked path returns 0
-        # and skips the commit step).
+        # changes. Also: ensure we're on a real branch (the checkout
+        # step is configured to force-checkout master above).
         run: |
           set -euo pipefail
           if [[ -z "$(git status --porcelain docs/version.json)" ]]; then
