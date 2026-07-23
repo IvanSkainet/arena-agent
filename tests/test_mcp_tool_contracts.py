@@ -189,30 +189,20 @@ def test_no_duplicate_tool_names_across_handler_modules() -> None:
     )
 
 
-# v4.61.0: tool_exec.py hosts the legacy pre-MCP tools (ping, echo,
-# exec) whose names do not follow the namespace.action convention.
-# They are dispatched by handle_exec_tool but their tool names are
-# bare identifiers, so the dot-style "every handler must have tool
-# names" check would falsely fire. v4.62.x will normalise them to
-# exec.ping / exec.echo / exec.exec and this list can shrink.
-_LEGACY_HANDLER_MODULES = frozenset({"arena/mcp/tool_exec.py"})
-
-
 def test_every_handler_function_is_in_a_module_with_tool_names() -> None:
     """A ``handle_*`` function that does NOT have any tool-name string
     literals in its module is suspicious -- either the handler is
     dead code, or its dispatch table is in a constants file (e.g.
     ``tool_registry.py``) that we should also cover.
 
-    The exception is ``tool_exec.py``, which dispatches legacy
-    pre-MCP tools with bare names (``ping``, ``echo``, ``exec``)
-    rather than the standard ``namespace.action`` format. We do
-    not enforce the convention there in v4.61.0.
+    v4.67.0: the legacy ``ping`` / ``echo`` / ``exec`` / ``snapshot``
+    bare names have namespaced siblings (``exec.ping`` / ``exec.echo`` /
+    ``exec.exec`` / ``exec.snapshot``) and the dispatch in
+    ``tool_exec.py`` accepts both forms, so tool_exec.py now has
+    tool-name literals and is no longer exempt.
     """
     data = _scan_all()
     for entry in data:
-        if entry["file"] in _LEGACY_HANDLER_MODULES:
-            continue
         if entry["handlers"] and not entry["tool_names"]:
             pytest.fail(
                 f"{entry['file']} declares handler(s) {entry['handlers']!r} "
