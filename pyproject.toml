@@ -1,6 +1,6 @@
 [project]
 name = "arena-unified-bridge"
-version = "4.60.20"
+version = "4.61.1"
 description = "Cross-platform local automation bridge for AI agents — one process, one port, modular Python architecture."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -70,11 +70,12 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-# v4.61.0: --cov collects coverage; the fail-under gate lives in CI
-# (`.github/workflows/ci.yml`) so a brand-new module that drops
-# coverage below the global threshold does not block every developer's
-# local `pytest -q` run. The CI gate runs with `--cov-fail-under=70`
-# explicitly so the same threshold still applies on every PR.
+# v4.61.0: --cov with a coverage gate. The threshold is intentionally
+# permissive (70%) so the new gate doesn't break the existing suite on
+# day one. Tighten per-module as the suite grows. Coverage reports go
+# to coverage.xml (for CI artefact upload) and to stdout (for human
+# review). The `branch` flag catches the most common case of a missed
+# branch on a function with a single early-return.
 addopts = [
     "-q",
     "--strict-markers",
@@ -82,6 +83,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=xml:coverage.xml",
     "--cov-branch",
+    "--cov-fail-under=70",
 ]
 
 # ---------------------------------------------------------------------------
