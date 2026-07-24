@@ -1,3 +1,62 @@
+## v4.68.0 - re-enable Windows runner
+
+### Цель
+
+Windows runner был отключён в v4.61.0 потому что 4
+pre-existing platform-specific test failure были пойманы в
+первом CI run (mission-schedule bash probe, cp1251 decode,
+sound-device assertion, sqlite file locking). Три из них
+были починены в v4.61.1 (добавлены `skipif(sys.platform ==
+"win32")` маркеры) и matrix сократили до
+`os: [ubuntu-latest]`. План тогда был: "Windows runner
+отложен на v4.62.x после того как platform-specific
+test failure починены или skipif'нуты". v4.68.0 — релиз
+который это делает, теперь когда:
+
+- v4.62.0 добавил actionlint + contract job separation
+  (Windows-only test failure больше не нужно прятаться
+  в 5 одинаковых test cells).
+- v4.65.0 добавил coverage-diff + dependabot + stale bot
+  (CI поверхность больше и полезнее, так что добавить
+  6-й runner к matrix — это маленькая маржинальная стоимость).
+- v4.66.0 добавил version-sync + changelog-freshness
+  (Windows-specific failure Python тестов не рискует
+  спрятать release-process regression).
+- v4.67.0 добавил catalogue-harden (структурные guard'ы
+  которые не зависят от платформы).
+
+Первый CI run после этого commit'а выявит новые
+Windows-specific failure; v4.68.0 follow-up commits
+добавят `skipif` маркеры для каждого, и matrix достигнет
+green на Windows за небольшое количество follow-up commits.
+
+### Изменено
+
+1. **`.github/workflows/ci.yml`** — `os: [ubuntu-latest]` →
+   `os: [ubuntu-latest, windows-latest]`. Matrix теперь
+   запускает каждую версию Python (3.10-3.14) и на Linux,
+   и на Windows, так что 10 test cells на PR вместо 5.
+
+### Вне scope (намеренно, в очереди)
+
+* **Deprecate the bare names** в `MCP_TOOLS`
+  (`ping` / `echo` / `exec` / `snapshot`) — v4.67.0
+  отгрузил namespaced siblings и оставил bare names для
+  backward compat. v4.70.0 должен пометить их
+  deprecated в descriptions и v4.75.0 должен удалить
+  их. В очереди.
+* **Coverage gate 50% → 60%** — нужны новые behavioural
+  тесты, не только структурные. В очереди.
+* **Mutation testing** (mutmut/cosmic-ray) — нужно
+  зрелое покрытие. В очереди.
+* **Mypy strict rollout** за пределами
+  `arena.service.restart` — то же что в v4.61.0.
+
+### Расширение
+
+Byte-identical to v4.67.0 - bridge-only release. Никаких
+изменений в production-коде.
+
 ## v4.67.0 - hardening каталога (additionalProperties: false везде, namespaced legacy tools)
 
 ### Цель

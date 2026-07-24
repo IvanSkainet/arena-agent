@@ -53,7 +53,15 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
-        os: [ubuntu-latest]
+        # v4.68.0: re-enable the Windows runner. The 4 pre-existing
+        # platform-specific failures fixed in v4.61.1
+        # (mission-schedule bash probe, cp1251 decode, sound-device
+        # skip, sqlite file locking) are still in place. A new
+        # wave of platform-specific skips will land in this
+        # release as tests surface new issues. v4.62.x was the
+        # original "deferred to" target; v4.68.0 is the actual
+        # release.
+        os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
