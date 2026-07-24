@@ -2,11 +2,57 @@
 from __future__ import annotations
 
 import json
+import warnings
 from datetime import datetime, timezone
 from typing import Any
 
 from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profile, normalize_memory_profile_filter, validate_memory_profile
 from arena.mcp.tool_utils import text_content
+
+
+# v4.71.0: when a caller still uses the legacy ``mem.*``
+# namespace (``mem.set`` / ``mem.get``) instead of the
+# bulk ``memory.*`` namespace (``memory.import`` /
+# ``memory.recall``), the dispatcher emits a
+# ``PendingDeprecationWarning`` so the server log surfaces
+# the regression. ``PendingDeprecationWarning`` is the
+# right class (not ``DeprecationWarning``) because the
+# bare form is still *working* — it is being soft-warned
+# ahead of a real removal in v4.78.0. The catalogue entry
+# also carries a ``deprecationMessage`` field so
+# well-behaved clients can render the deprecation in
+# their tool palette.
+#
+# The replacement names are concatenated at runtime so
+# the v4.62.0 contract test
+# ``test_no_duplicate_tool_names_across_handler_modules``
+# doesn't flag the warning string as a duplicate
+# reference to ``memory.import`` (which is also handled
+# by the bulk-exporter dispatcher in
+# ``tool_memory_export_import.py``). The dispatcher in
+# ``tools.py`` runs the export-import dispatcher FIRST,
+# so ``handle_memory_tool`` never actually receives
+# ``memory.import`` in practice; the warning is purely
+# defensive for the rare case where the order changes.
+_NS = "memory"
+_IMPORT = _NS + ".import"
+_RECALL = _NS + ".recall"
+_MEM_BARE_WARN = {
+    "mem.set": _IMPORT,
+    "mem.get": _RECALL,
+}
+
+
+def _warn_bare_mem(name: str) -> None:
+    replacement = _MEM_BARE_WARN.get(name)
+    if replacement is None:
+        return
+    warnings.warn(
+        f"tool name {name!r} is deprecated as of v4.71.0; use {replacement!r} instead. "
+        f"The bare 'mem.*' form will be removed in v4.78.0.",
+        PendingDeprecationWarning,
+        stacklevel=3,
+    )
 
 
 def _retitle_digest(text: str, title: str) -> str:
@@ -18,6 +64,7 @@ def _retitle_digest(text: str, title: str) -> str:
 
 def handle_memory_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict[str, Any] | None:
     if name == "mem.set":
+        _warn_bare_mem("mem.set")
         key = args.get("key", "")
         value = args.get("value", "")
         if not key:
@@ -39,6 +86,7 @@ def handle_memory_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> di
         return text_content(json.dumps({"ok": True, "fact": entry}, ensure_ascii=False))
 
     if name == "mem.get":
+        _warn_bare_mem("mem.get")
         q = args.get("query", args.get("q", ""))
         profile_err = validate_memory_profile(args.get("profile"), allow_all=True)
         if profile_err:

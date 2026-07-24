@@ -102,6 +102,7 @@ _WHITELISTED_MIXED: frozenset[tuple[str, str, str]] = frozenset({
     ("arena/mcp/tool_misc.py", "handle_misc_tool", "Misc dispatcher groups sys / skill / hooks / subagent / snapshot on purpose"),
     ("arena/mcp/tool_net.py", "handle_net_tool", "Net dispatcher groups net / admin / secrets / sudo on purpose (cross-cutting network ops)"),
     ("arena/mcp/tool_agentic.py", "handle_agentic_tool", "Agentic dispatcher handles both react.* and reflect.* on purpose"),
+    ("arena/mcp/tool_memory.py", "handle_memory_tool", "v4.71.0 deprecation: mem.* (deprecated) + memory.* (canonical) live in the same dispatch"),
 })
 
 
@@ -194,6 +195,14 @@ def _detect_shadow_namespaces(mcp_tools) -> list[tuple[str, str, str, str]]:
             continue
         n = entry.get("name")
         if not isinstance(n, str) or "." not in n:
+            continue
+        # v4.71.0: skip entries that are explicitly marked
+        # deprecated. A deprecated entry is by definition
+        # the "shadow" side of a shadow pair — the catalogue
+        # already says "use the other one". Counting it as a
+        # shadow on top of that would be a double-flag for
+        # the same deprecation.
+        if isinstance(entry.get("deprecationMessage"), str) and entry["deprecationMessage"].strip():
             continue
         ns = n.split(".", 1)[0]
         by_ns.setdefault(ns, []).append(entry)

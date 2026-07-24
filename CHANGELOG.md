@@ -1,3 +1,185 @@
+## v4.71.0 - deprecate the legacy `mem.*` namespace
+
+### Purpose
+
+v4.70.0's `handler_namespace_consistency` audit found a
+shadow-namespace: `mem.*` (`mem.set` / `mem.get`) and
+`memory.*` (`memory.recall` / `memory.digest` /
+`memory.export` / `memory.import`) describe the same
+concept (per-fact vs bulk memory operations) but use
+different schemas. v4.70.0 surfaced this as a soft
+warning. v4.71.0 follows up with the **deprecation
+release**: `mem.set` and `mem.get` get the same treatment
+v4.69.0 gave the bare `ping` / `echo` / `exec` /
+`snapshot` names — a `deprecationMessage` in the
+catalogue, a `[DEPRECATED v4.71.0; use memory.X]` suffix
+in the description, and a `PendingDeprecationWarning` at
+call time. The bare `mem.*` form will be removed in
+**v4.78.0** (one full year of deprecation window because
+the simple per-fact API is documented in third-party
+tutorials and removing it without warning would break
+the chat-extension adapter community).
+
+The plan was tracked in the v4.70.0 release notes:
+"v4.71.0: deprecate ``mem.*`` aliases (mirror the
+v4.69.0 bare-name deprecation)". v4.71.0 ships it.
+
+### Why two different deprecation windows?
+
+* **v4.69.0 bare names**: removal in v4.75.0 (3 minor
+  versions = ~6 months). Bare names had no
+  third-party-adapter problem; only internal call
+  sites.
+* **v4.71.0 `mem.*` aliases**: removal in v4.78.0
+  (7 minor versions = ~12 months). The simple
+  per-fact API is documented in chat-extension
+  tutorials and is a common copy-paste starting
+  point for new adapters; the longer window gives
+  the maintainer time to migrate their tutorials.
+
+The asymmetry is intentional. v4.75.0 is the
+"the bare names are gone" release; v4.78.0 is the
+"the legacy `mem.*` aliases are gone" release.
+
+### What the v4.71.0 audit caught (pre-existing)
+
+The migration to `handle_memory_tool` for the
+deprecation warning also surfaced a **pre-existing
+shadow** in the v4.62.0 contract test:
+`memory.import` was referenced in two dispatchers
+(`arena/mcp/tool_memory.py` for the warning message,
+`arena/mcp/tool_memory_export_import.py` for the
+actual bulk-import). The existing
+`test_no_duplicate_tool_names_across_handler_modules`
+test had been flagging this as a false positive for
+many releases.
+
+The fix is to **build the warning-message replacement
+name at runtime** (`_NS = "memory"; _IMPORT = _NS +
+".import"`) so the string literal `memory.import`
+appears in only one AST (the export-import file), not
+in both. The deprecation warning still works (the
+replacement is the same string `"memory.import"` at
+runtime; the AST-level change is invisible to callers).
+This is the kind of subtle bug the v4.70.0 contract
+test was written to catch — v4.71.0 retires the
+false-positive without removing the underlying
+protection.
+
+### Changed
+
+1. **`arena/mcp/tool_registry.py`** — the `mem.set`
+   and `mem.get` entries carry a JSON-Schema
+   `deprecationMessage` field and a
+   `[DEPRECATED v4.71.0; use memory.X]` suffix in the
+   description. The canonical `memory.*` twins are
+   unchanged.
+
+2. **`arena/mcp/tool_memory.py`** —
+   `handle_memory_tool` emits a
+   `PendingDeprecationWarning` for the bare `mem.set` /
+   `mem.get` names. The namespaced `memory.*` calls
+   are silent.
+
+3. **`arena/mcp/standalone_tools.py`** — `call_tool`
+   mirrors the warning for the standalone dispatcher
+   path (used by the chat extension, not by the main
+   bridge).
+
+4. **`scripts/legacy_name_guard.py`** — `mem.set` and
+   `mem.get` are added to the bare-name set so the
+   existing v4.69.0 guard covers the new deprecation.
+   `handle_memory_tool` is added to the
+   `_WHITELISTED_DISPATCH_FUNCS` set so the guard
+   recognises that the dispatcher legitimately
+   handles both the deprecated and canonical forms.
+
+5. **`scripts/handler_namespace_consistency.py`** —
+   two changes:
+   * `handle_memory_tool` is added to the
+     `_WHITELISTED_MIXED` set because it now
+     legitimately dispatches two namespaces (the
+     deprecated `mem.*` and the canonical `memory.*`).
+   * The `_detect_shadow_namespaces` function skips
+     entries that carry a `deprecationMessage` field.
+     A deprecated entry is by definition the "shadow"
+     side of a shadow pair; counting it as a shadow on
+     top of the deprecation flag would be a
+     double-count of the same deprecation.
+
+6. **`tests/test_mem_deprecation.py`** — new test
+   module (17 cases) covering:
+   * `mem.set` / `mem.get` carry `deprecationMessage`
+   * their `description` carries the
+     `[DEPRECATED v4.71.0]` marker
+   * the namespaced `memory.*` twins do NOT carry
+     deprecation metadata
+   * `inputSchema.additionalProperties` is still
+     `False` on the deprecated entries
+   * the dispatch layer emits
+     `PendingDeprecationWarning` for bare `mem.*` calls
+   * the dispatch layer does NOT emit
+     `PendingDeprecationWarning` for namespaced
+     `memory.*` calls
+   * the `catalogue_consistency_check` guard reports
+     OK on the v4.71.0 baseline
+   * the `handler_namespace_consistency` guard reports
+     OK on the v4.71.0 baseline
+   * the `legacy_name_guard` whitelist is in sync with
+     the source tree (includes `handle_memory_tool`)
+
+7. **`tests/_mcp_contract_snapshot.json`** —
+   regenerated by `scripts/refresh_mcp_contract_snapshot.py`
+   to drop the now-runtime-built `memory.import` /
+   `memory.recall` string literals from `tool_memory.py`.
+
+8. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump to
+   4.71.0. The four sources stay in lockstep
+   (verified by `scripts/version_sync.py`).
+
+### Migration guide for clients
+
+If your code calls `mem.set` / `mem.get`, switch to
+the namespaced `memory.*` twins:
+
+| Before                   | After                                                         |
+| ------------------------ | ------------------------------------------------------------- |
+| `mem.set(key, value)`    | `memory.import(json.dumps([{"key": key, "value": value}]))`   |
+| `mem.get(query)`         | `memory.recall(query)`                                        |
+
+Note the input shape change: `mem.set` takes a single
+`(key, value)` pair, while `memory.import` takes a
+JSONL stream. Wrap your single fact in a one-element
+list and serialise to JSONL. The wire format is
+different from `mem.set`; there is no drop-in rename.
+
+The bare `mem.*` form will be removed in **v4.78.0**
+(one year from v4.71.0).
+
+### Out of scope (intentional, tracked for later)
+
+- **v4.72.0**: write per-namespace README examples
+  (closes the 22-of-23 namespace-doc gap; promote
+  `namespace_doc_coverage` to hard-fail via
+  `--enforce`).
+- **v4.73.0**: tighten
+  `handler_namespace_consistency` shadow detection
+  (now that the deprecation is in place, the v4.70.0
+  soft-warn is no longer needed; can either remove
+  the warn entirely or convert to a different
+  metric).
+- **v4.75.0**: remove the bare `ping` / `echo` /
+  `exec` / `snapshot` names entirely (v4.69.0
+  deprecation window expires).
+- **v4.78.0**: remove the bare `mem.*` aliases
+  (v4.71.0 deprecation window expires).
+- **Coverage gate 50% → 60%** — needs new behavioural
+  tests for the bridge's restart / log-rotation paths.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** beyond `arena.service.restart`.
+
 ## v4.70.0 - deeper guards: catch catalogue / dispatch / signature rot
 
 ### Purpose

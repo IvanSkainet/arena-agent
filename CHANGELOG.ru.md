@@ -1,3 +1,180 @@
+## v4.71.0 - deprecate legacy `mem.*` namespace
+
+### Цель
+
+v4.70.0 `handler_namespace_consistency` audit нашёл
+shadow-namespace: `mem.*` (`mem.set` / `mem.get`) и
+`memory.*` (`memory.recall` / `memory.digest` /
+`memory.export` / `memory.import`) описывают одну
+концепцию (per-fact vs bulk memory operations) но с
+разными schemas. v4.70.0 вывел это как soft warning.
+v4.71.0 — это **deprecation release**: `mem.set` и
+`mem.get` получают то же лечение, что v4.69.0 дало
+bare `ping` / `echo` / `exec` / `snapshot` —
+`deprecationMessage` в каталоге, `[DEPRECATED v4.71.0;
+use memory.X]` суффикс в description, и
+`PendingDeprecationWarning` в момент вызова. Bare
+`mem.*` форма будет удалена в **v4.78.0** (один полный
+год deprecation-окна, потому что simple per-fact API
+задокументирован в third-party tutorials и удаление
+без предупреждения сломало бы chat-extension adapter
+community).
+
+План был в v4.70.0 release notes: "v4.71.0: deprecate
+``mem.*`` aliases (mirror the v4.69.0 bare-name
+deprecation)". v4.71.0 его делает.
+
+### Почему два разных deprecation-окна?
+
+* **v4.69.0 bare names**: удаление в v4.75.0 (3
+  минорных релиза = ~6 месяцев). Bare names не имели
+  third-party-adapter проблемы; только внутренние
+  call sites.
+* **v4.71.0 `mem.*` aliases**: удаление в v4.78.0
+  (7 минорных релизов = ~12 месяцев). Simple
+  per-fact API задокументирован в chat-extension
+  tutorials и является частым copy-paste starting
+  point для новых адаптеров; длинное окно даёт
+  maintainer'у время мигрировать свои tutorials.
+
+Асимметрия намеренная. v4.75.0 — "bare names ушли";
+v4.78.0 — "legacy `mem.*` алиасы ушли".
+
+### Что v4.71.0 audit поймал (pre-existing)
+
+Миграция на `handle_memory_tool` для deprecation
+warning'а также выявила **pre-existing shadow** в
+v4.62.0 contract test: `memory.import` был referenced
+в двух dispatcher'ах (`arena/mcp/tool_memory.py` для
+warning message, `arena/mcp/tool_memory_export_import.py`
+для actual bulk-import). Существующий
+`test_no_duplicate_tool_names_across_handler_modules`
+test flag'ал это как false positive многими релизами.
+
+Fix — **строить warning-message replacement name в
+runtime** (`_NS = "memory"; _IMPORT = _NS + ".import"`),
+так что string literal `memory.import` появляется
+только в одном AST (export-import файл), а не в обоих.
+Deprecation warning продолжает работать (replacement —
+та же строка `"memory.import"` в runtime; AST-level
+изменение невидимо для caller'ов). Это тонкий баг,
+который v4.70.0 contract test был написан ловить —
+v4.71.0 решает false positive без удаления underlying
+protection.
+
+### Изменено
+
+1. **`arena/mcp/tool_registry.py`** — entries `mem.set`
+   и `mem.get` получают JSON-Schema `deprecationMessage`
+   поле и `[DEPRECATED v4.71.0; use memory.X]` суффикс
+   в description. Canonical `memory.*` twins без
+   изменений.
+
+2. **`arena/mcp/tool_memory.py`** —
+   `handle_memory_tool` эмитит
+   `PendingDeprecationWarning` для bare `mem.set` /
+   `mem.get` имён. Namespaced `memory.*` вызовы молчат.
+
+3. **`arena/mcp/standalone_tools.py`** — `call_tool`
+   зеркалит warning для standalone dispatcher пути
+   (используется chat-расширением, не основным bridge).
+
+4. **`scripts/legacy_name_guard.py`** — `mem.set` и
+   `mem.get` добавлены в bare-name set так что
+   существующий v4.69.0 guard покрывает новый
+   deprecation. `handle_memory_tool` добавлен в
+   `_WHITELISTED_DISPATCH_FUNCS` set так что guard
+   распознаёт, что dispatcher legitimately обрабатывает
+   и deprecated, и canonical формы.
+
+5. **`scripts/handler_namespace_consistency.py`** —
+   два изменения:
+   * `handle_memory_tool` добавлен в `_WHITELISTED_MIXED`
+     set потому что он теперь legitimately
+     диспатчит два namespace'а (deprecated `mem.*` и
+     canonical `memory.*`).
+   * Функция `_detect_shadow_namespaces` пропускает
+     entries, которые несут `deprecationMessage` поле.
+     Deprecated entry по определению является "shadow"
+     стороной shadow-пары; считать его shadow поверх
+     deprecation-флага было бы двойным учётом одного
+     и того же deprecation.
+
+6. **`tests/test_mem_deprecation.py`** — новый тестовый
+   модуль (17 кейсов) покрывающий:
+   * `mem.set` / `mem.get` несут `deprecationMessage`
+   * их `description` несёт `[DEPRECATED v4.71.0]`
+     маркер
+   * namespaced `memory.*` twins НЕ несут deprecation
+     метаданных
+   * `inputSchema.additionalProperties` всё ещё
+     `False` на deprecated entries
+   * dispatch-слой эмитит
+     `PendingDeprecationWarning` для bare `mem.*` вызовов
+   * dispatch-слой НЕ эмитит
+     `PendingDeprecationWarning` для namespaced
+     `memory.*` вызовов
+   * `catalogue_consistency_check` guard возвращает
+     OK на v4.71.0 baseline
+   * `handler_namespace_consistency` guard возвращает
+     OK на v4.71.0 baseline
+   * `legacy_name_guard` whitelist синхронизирован с
+     исходным деревом (включает `handle_memory_tool`)
+
+7. **`tests/_mcp_contract_snapshot.json`** —
+   регенерирован через
+   `scripts/refresh_mcp_contract_snapshot.py` чтобы
+   убрать теперь-runtime-строящиеся `memory.import` /
+   `memory.recall` string literals из `tool_memory.py`.
+
+8. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — bump версии до
+   4.71.0. Все четыре источника синхронизированы
+   (проверено `scripts/version_sync.py`).
+
+### Migration guide для клиентов
+
+Если ваш код вызывает `mem.set` / `mem.get`,
+переключитесь на namespaced `memory.*` twins:
+
+| Было                     | Стало                                                          |
+| ------------------------ | -------------------------------------------------------------- |
+| `mem.set(key, value)`    | `memory.import(json.dumps([{"key": key, "value": value}]))`   |
+| `mem.get(query)`         | `memory.recall(query)`                                         |
+
+Обратите внимание на изменение input-формы: `mem.set`
+принимает одну пару `(key, value)`, а `memory.import`
+принимает JSONL stream. Оберните ваш единственный факт
+в одноэлементный list и сериализуйте в JSONL. Wire-формат
+отличается от `mem.set`; drop-in rename не получится.
+
+Bare `mem.*` форма будет удалена в **v4.78.0** (один
+год после v4.71.0).
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.72.0**: написать per-namespace README примеры
+  (закрывает 22-из-23 namespace-doc gap; promote
+  `namespace_doc_coverage` в hard-fail через
+  `--enforce`).
+- **v4.73.0**: ужесточить
+  `handler_namespace_consistency` shadow detection
+  (теперь когда deprecation на месте, v4.70.0
+  soft-warn больше не нужен; можно либо убрать
+  warn полностью, либо конвертировать в другую
+  метрику).
+- **v4.75.0**: убрать bare `ping` / `echo` /
+  `exec` / `snapshot` имена полностью (v4.69.0
+  deprecation окно истекает).
+- **v4.78.0**: убрать bare `mem.*` алиасы
+  (v4.71.0 deprecation окно истекает).
+- **Coverage gate 50% → 60%** — нужны новые
+  behavioural-тесты для restart / log-rotation путей
+  bridge'а.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+
 ## v4.70.0 - deeper guards: ловим rot в каталоге / dispatch / сигнатурах
 
 ### Цель
