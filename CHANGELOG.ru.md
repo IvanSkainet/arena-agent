@@ -1,3 +1,147 @@
+## v4.75.0 - remove the legacy bare tool names
+
+### Цель
+
+v4.69.0 deprecated четыре bare tool names
+(``ping`` / ``echo`` / ``exec`` / ``snapshot``) в
+пользу их namespaced ``exec.*`` близнецов. v4.69.0
+также установил 6-month deprecation window с планом
+убрать bare entries в v4.75.0. v4.75.0 это делает.
+
+v4.75.0 release notes которые были запланированы в
+v4.69.0 entry: "The plan is to remove the bare
+entries in v4.75.0."
+
+### Изменено
+
+1. **`arena/mcp/tool_registry.py`** — четыре bare
+   entries (``ping`` / ``echo`` / ``exec`` /
+   ``snapshot``) удалены из ``MCP_TOOLS``. Namespaced
+   ``exec.*`` близнецы без изменений. ``MCP_TOOLS``
+   лист идёт от 130 до 126 entries.
+   ``deprecationMessage`` поле больше не присутствует
+   на namespaced близнецах (deprecation lifecycle
+   закончился с bare-form removal).
+
+2. **`arena/mcp/tool_exec.py`** —
+   ``handle_exec_tool`` dispatcher больше не
+   принимает ``ping`` / ``echo`` / ``exec``.
+   Теперь диспатчит только namespaced
+   ``exec.ping`` / ``exec.echo`` / ``exec.exec``.
+   Вызовы bare form возвращают ``None`` (bridge's
+   outer call wrapper превращает это в no-such-tool
+   error для caller'а). v4.69.0 ``_BARE_NAME_WARN`` и
+   ``_warn_bare`` helpers удалены; ``warnings`` import
+   тоже удалён (больше не используется).
+
+3. **`arena/mcp/tool_misc.py`** —
+   ``handle_misc_tool`` больше не принимает
+   ``snapshot``. v4.69.0 ``_warn_bare_snapshot``
+   helper удалён; ``warnings`` import тоже удалён.
+
+4. **`arena/mcp/standalone_tools.py`** — ``call_tool``
+   dispatcher больше не принимает ``ping`` / ``echo``
+   / ``exec`` / ``snapshot``. v4.69.0
+   ``_BARE_NAME_WARN`` и ``_warn_bare`` helpers
+   удалены (для bare names; v4.71.0
+   ``_MEM_BARE_WARN`` / ``_warn_bare_mem`` helpers
+   остаются потому что ``mem.*`` deprecation всё ещё
+   в своём окне).
+
+5. **`scripts/legacy_name_guard.py`** — ``_BARE_NAMES``
+   set больше не включает ``ping`` / ``echo`` /
+   ``exec`` / ``snapshot`` (сами bare names удалены
+   из каталога и dispatcher'ов в v4.75.0). Set теперь
+   просто ``{"mem.set", "mem.get"}``.
+   ``_WHITELISTED_DISPATCH_FUNCS`` set больше не
+   включает ``tool_exec.handle_exec_tool`` или
+   ``tool_misc.handle_misc_tool`` (те dispatcher'ы
+   больше не ссылаются на bare names). Whitelist
+   теперь просто
+   ``{"tool_memory.handle_memory_tool",
+   "standalone_tools.call_tool"}`` (единственный
+   оставшийся mixed dispatcher; включение
+   standalone dispatcher'а это тот же fix что и
+   v4.71.0 для ``mem.*`` references).
+
+6. **`scripts/handler_namespace_consistency.py`** —
+   ``_WHITELISTED_MIXED`` set больше не включает
+   ``tool_exec.handle_exec_tool`` (v4.69.0 причина —
+   что dispatcher принимал и bare и namespaced формы
+   во время deprecation window — больше не
+   применяется). Другие entries (tool_misc, tool_net,
+   tool_agentic, tool_memory) остаются без изменений.
+
+7. **`tests/test_legacy_names_removed_v4750.py`** —
+   новый тестовый модуль (18 кейсов) который
+   фиксирует post-removal state:
+
+   * четыре bare names НЕ в ``MCP_TOOLS``;
+   * namespaced ``exec.*`` близнецы В ``MCP_TOOLS``;
+   * namespaced близнецы НЕ несут ``deprecationMessage``
+     (deprecation lifecycle закончился с bare-form
+     removal);
+   * legacy-name-guard's bare-name set это просто
+     ``mem.*``;
+   * legacy-name-guard's whitelist это просто
+     ``handle_memory_tool`` (и standalone ``call_tool``);
+   * dispatcher возвращает ``None`` (no-match) для
+     четырёх bare names.
+
+8. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — bump версии до
+   4.75.0. Все четыре источника синхронизированы
+   (проверено `scripts/version_sync.py`).
+
+### Что v4.75.0 НЕ трогает
+
+* **``mem.*`` aliases** (deprecated в v4.71.0) всё
+  ещё в каталоге и dispatcher'ах. v4.71.0 deprecation
+  window истекает в v4.78.0 (один полный год после
+  deprecation). `legacy_name_guard` всё ещё включает
+  `mem.set` / `mem.get` в bare-name set.
+* **Pre-existing Windows-specific test failures**
+  (sqlite file lock, asyncio WinError 87, Node
+  child-process timeout) не затронуты v4.75.0. Они
+  решены в предыдущих релизах с
+  `skipif(sys.platform == "win32", ...)` маркерами.
+* **Pre-existing `decode_output` cp1251 bug**
+  (обнаружен v4.74.0 follow-up #3 тестом) в очереди
+  на v4.80.0. v4.75.0 не меняет `decode_output`.
+
+### Migration guide для клиентов
+
+Если у вас есть клиент который всё ещё вызывает
+``ping`` / ``echo`` / ``exec`` / ``snapshot``:
+
+| Было       | Стало         |
+| ---------- | ------------- |
+| `ping`     | `exec.ping`   |
+| `echo`     | `exec.echo`   |
+| `exec`     | `exec.exec`   |
+| `snapshot` | `exec.snapshot` |
+
+Wire-формат идентичен. Вызовы bare form теперь
+вернут no-such-tool error от bridge, что является
+правильным поведением в конце 6-month deprecation
+window.
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.76.0**: coverage gate 51% → 55% (Linux) /
+  46% → 50% (Windows) — второй шаг трёх-шагового
+  gradual tightening.
+- **v4.78.0**: убрать bare `mem.*` алиасы
+  (v4.71.0 deprecation окно истекает).
+- **v4.79.0**: coverage gate 55% → 60% (Linux) /
+  50% → 55% (Windows) — третий шаг.
+- **v4.80.0**: починить pre-existing `decode_output`
+  cp1251 bug (использовать `errors='strict'` в
+  fallback codecs). В очереди с v4.74.0 follow-up #3.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+
 ## v4.74.0 - постепенное ужесточение coverage gate (50% → 51%)
 
 ### Цель

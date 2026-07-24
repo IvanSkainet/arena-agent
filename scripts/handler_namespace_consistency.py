@@ -96,8 +96,11 @@ _TOOL_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$")
 # asserts the whitelist is in lockstep with the source
 # tree, so a renamed function trips a clear red X.
 _WHITELISTED_MIXED: frozenset[tuple[str, str, str]] = frozenset({
-    ("arena/mcp/tool_exec.py", "handle_exec_tool", "v4.69.0 deprecation: bare names + namespaced twins live in the same dispatch"),
-    ("arena/mcp/tool_misc.py", "handle_misc_tool", "Misc dispatcher groups sys / skill / hooks / subagent / snapshot on purpose"),
+    # v4.75.0: tool_exec removed from the mixed-namespace
+    # whitelist. The v4.69.0 rationale (the dispatcher
+    # accepted both bare and namespaced forms during the
+    # deprecation window) no longer applies.
+    ("arena/mcp/tool_misc.py", "handle_misc_tool", "Misc dispatcher groups sys / skill / hooks / subagent / exec.snapshot on purpose"),
     ("arena/mcp/tool_net.py", "handle_net_tool", "Net dispatcher groups net / admin / secrets / sudo on purpose (cross-cutting network ops)"),
     ("arena/mcp/tool_agentic.py", "handle_agentic_tool", "Agentic dispatcher handles both react.* and reflect.* on purpose"),
     ("arena/mcp/tool_memory.py", "handle_memory_tool", "v4.71.0 deprecation: mem.* (deprecated) + memory.* (canonical) live in the same dispatch"),

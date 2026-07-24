@@ -71,34 +71,27 @@ from typing import Iterable
 # renamed or a function is removed, the test fails so the
 # maintainer has to consciously update both ends.
 _WHITELISTED_DISPATCH_FUNCS: frozenset[tuple[str, str]] = frozenset({
-    # arena/mcp/tool_exec.py — handle_exec_tool handles ping / echo / exec.
-    ("arena/mcp/tool_exec.py", "handle_exec_tool"),
-    # arena/mcp/tool_misc.py — handle_misc_tool handles snapshot.
-    ("arena/mcp/tool_misc.py", "handle_misc_tool"),
     # arena/mcp/tool_memory.py — handle_memory_tool handles
     # mem.set / mem.get (deprecated v4.71.0) plus
     # memory.recall / memory.digest / memory.export /
     # memory.import (canonical). The bare-name references
     # are intentional during the deprecation window.
     ("arena/mcp/tool_memory.py", "handle_memory_tool"),
-    # arena/mcp/standalone_tools.py — call_tool covers all four.
+    # arena/mcp/standalone_tools.py — call_tool is the
+    # standalone dispatcher used by the chat extension;
+    # it handles the same mem.set / mem.get deprecated
+    # forms as the main bridge dispatcher.
     ("arena/mcp/standalone_tools.py", "call_tool"),
 })
 
 
 # The four bare names themselves. (The namespaced twins live in
-# catalogue_harden.LEGACY_BARE_NAMES_NS.)
-#
-# v4.71.0 also includes the legacy ``mem.*`` namespace
-# (mem.set / mem.get), which is deprecated in favour of
-# the bulk ``memory.*`` namespace (memory.import /
-# memory.recall). The bare form is kept in MCP_TOOLS and
-# in the dispatcher for one full year of deprecation
-# window; the plan is to remove it in v4.78.0. The
-# handler for these tools (handle_memory_tool in
-# arena/mcp/tool_memory.py) emits a
-# PendingDeprecationWarning at call time.
-_BARE_NAMES: frozenset[str] = frozenset({"ping", "echo", "exec", "snapshot", "mem.set", "mem.get"})
+# v4.75.0: ping / echo / exec / snapshot removed from
+# the bare-name set (the bare names themselves were
+# removed from the catalogue and the dispatchers in
+# v4.75.0). mem.set / mem.get remain because their
+# deprecation window expires in v4.78.0.
+_BARE_NAMES: frozenset[str] = frozenset({"mem.set", "mem.get"})
 
 
 def _iter_dispatch_files(repo_root: Path) -> Iterable[Path]:

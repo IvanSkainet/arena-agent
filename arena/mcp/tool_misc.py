@@ -4,22 +4,9 @@ from __future__ import annotations
 import json
 import os
 import sys
-import warnings
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
-
-
-# v4.69.0: emit a PendingDeprecationWarning when a caller
-# still uses the legacy bare ``snapshot`` name. See
-# ``arena.mcp.tool_exec`` for the rationale.
-def _warn_bare_snapshot() -> None:
-    warnings.warn(
-        "tool name 'snapshot' is deprecated as of v4.69.0; use 'exec.snapshot' instead. "
-        "The bare form will be removed in v4.75.0.",
-        PendingDeprecationWarning,
-        stacklevel=3,
-    )
 
 
 def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict[str, Any] | None:
@@ -50,11 +37,8 @@ def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict
                         hooks.append({"phase": phase, "name": f.name, "path": str(f)})
         return text_content(json.dumps({"ok": True, "count": len(hooks), "hooks": hooks}, ensure_ascii=False))
 
-    # v4.67.0: accept both legacy "snapshot" and namespaced "exec.snapshot".
-    # v4.69.0: emit a PendingDeprecationWarning for the bare form.
-    if name in ("snapshot", "exec.snapshot"):
-        if name == "snapshot":
-            _warn_bare_snapshot()
+    # v4.75.0: bare 'snapshot' name removed.
+    if name == "exec.snapshot":
         result = ctx.skills_run_sync("system/sys-snapshot", [])
         return text_content(json.dumps(result, ensure_ascii=False))
 

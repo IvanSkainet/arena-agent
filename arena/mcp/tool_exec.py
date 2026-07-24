@@ -4,61 +4,24 @@ from __future__ import annotations
 import json
 import os
 import platform
-import warnings
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
 
-# v4.69.0: when a caller still uses the legacy bare form
-# (ping / echo / exec / snapshot), the dispatcher emits a
-# ``PendingDeprecationWarning`` so the server log surfaces the
-# regression. ``PendingDeprecationWarning`` is the right class
-# here (not ``DeprecationWarning``) because the bare form is
-# still *working* — it is being *soft-warned* ahead of a real
-# removal in v4.75.0. The catalogue entry also carries a
-# ``deprecationMessage`` field so well-behaved clients can
-# render the deprecation in their tool palette.
-_BARE_NAME_WARN = {
-    "ping": "exec.ping",
-    "echo": "exec.echo",
-    "exec": "exec.exec",
-}
-
-
-def _warn_bare(name: str) -> None:
-    replacement = _BARE_NAME_WARN.get(name)
-    if replacement is None:
-        return
-    warnings.warn(
-        f"tool name {name!r} is deprecated as of v4.69.0; use {replacement!r} instead. "
-        f"The bare form will be removed in v4.75.0.",
-        PendingDeprecationWarning,
-        stacklevel=3,
-    )
-
 
 def handle_exec_tool(name: str, args: dict[str, Any], *, ctx, run_sd) -> dict[str, Any] | None:
-    # v4.67.0: accept both the legacy bare names and the
-    # namespaced exec.* form. The bare names are kept for
-    # backward compat with chat-extension adapters that have
-    # not been updated yet; new code should call exec.ping /
-    # exec.echo / exec.exec. See arena.mcp.tool_registry for
-    # the canonical entry definitions.
-    #
-    # v4.69.0: bare-name calls now emit a PendingDeprecationWarning.
-    if name in ("ping", "exec.ping"):
-        if name == "ping":
-            _warn_bare("ping")
+    # v4.75.0: bare names (ping / echo / exec) removed.
+    # The v4.69.0 deprecation window has expired. The
+    # dispatcher now accepts only the namespaced exec.*
+    # form. Chat-extension adapters that still send the
+    # bare form will get a clean ``None`` return (the
+    # dispatcher doesn't recognise the name) and the
+    # bridge will report a no-such-tool error.
+    if name == "exec.ping":
         return text_content("pong")
-    if name in ("echo", "exec.echo"):
-        if name == "echo":
-            _warn_bare("echo")
+    if name == "exec.echo":
         return text_content(str(args.get("text", "")))
-    if name in ("exec", "exec.exec"):
-        if name == "exec":
-            _warn_bare("exec")
-        # fall through to the actual exec handler below
-    else:
+    if name != "exec.exec":
         return None
 
     cmd = args.get("cmd", "")

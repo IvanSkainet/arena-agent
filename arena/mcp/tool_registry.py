@@ -9,37 +9,9 @@ from arena.mcp.tool_registry_asr import ASR_MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
 MCP_TOOLS = [
-    {"name": "ping", "description": "Return pong (liveness) [DEPRECATED v4.69.0; use exec.ping]",
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-     "deprecationMessage": "The bare 'ping' tool is deprecated as of v4.69.0. Use 'exec.ping' instead. The bare form will be removed in v4.75.0."},
-    {"name": "echo", "description": "Echo arguments back [DEPRECATED v4.69.0; use exec.echo]",
-     "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"], "additionalProperties": False},
-     "deprecationMessage": "The bare 'echo' tool is deprecated as of v4.69.0. Use 'exec.echo' instead. The bare form will be removed in v4.75.0."},
-    {"name": "exec", "description": "Run shell command outside bridge cgroup (via sd-exec) [DEPRECATED v4.69.0; use exec.exec]",
-     "inputSchema": {"type": "object", "properties": {
-         "cmd": {"type": "string"}, "timeout": {"type": "integer", "default": 60}},
-         "required": ["cmd"], "additionalProperties": False},
-     "deprecationMessage": "The bare 'exec' tool is deprecated as of v4.69.0. Use 'exec.exec' instead. The bare form will be removed in v4.75.0."},
-    # v4.67.0: namespaced versions of the four legacy bare-name
-    # tools. The bare names are kept in MCP_TOOLS for backward
-    # compat with chat-extension adapters that haven't been
-    # updated yet, but new code should call the ``exec.*`` form.
-    # The test ``tests/test_mcp_input_schema_validation.py``
-    # still whitelists the bare names (see the LEGACY_BARE_NAMES
-    # set in ``scripts/catalogue_harden.py``) so the namespace-
-    # convention guard doesn't fail on the pre-existing entries.
-    # The dispatch in ``arena.mcp.tool_exec`` /
-    # ``arena.mcp.tool_misc`` accepts both forms.
-    #
-    # v4.69.0: the four bare-name entries below are now marked
-    # deprecated. The JSON-schema ``deprecationMessage`` field
-    # is a non-standard but well-known extension that lets
-    # well-behaved clients (e.g. the vscode-mcp inspector) render
-    # a strike-through in the tool palette. The dispatch layer
-    # in ``arena.mcp.tool_exec`` / ``arena.mcp.tool_misc`` also
-    # emits a ``PendingDeprecationWarning`` at call time so
-    # server-side logs surface any caller that hasn't migrated.
-    # The plan is to remove the bare entries in v4.75.0.
+    # v4.75.0: bare names (ping / echo / exec) removed.
+    # The v4.69.0 deprecation window has expired. Use
+    # exec.ping / exec.echo / exec.exec instead.
     {"name": "exec.ping", "description": "Namespaced alias for ``ping``. Return pong (liveness).",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "exec.echo", "description": "Namespaced alias for ``echo``. Echo arguments back.",
@@ -201,13 +173,11 @@ MCP_TOOLS = [
          "required": ["name"], "additionalProperties": False}},
     {"name": "hooks.list", "description": "List configured hooks per event",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    # v4.67.0: namespaced version of the legacy bare ``snapshot``.
-    # See the note above on exec.ping/echo/exec for the rationale.
+    # v4.75.0: bare 'snapshot' name removed (v4.69.0
+    # deprecation window has expired). Use exec.snapshot
+    # instead.
     {"name": "exec.snapshot", "description": "Namespaced alias for ``snapshot``. Run system snapshot skill and return JSON path.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    {"name": "snapshot", "description": "Run system snapshot skill and return JSON path [DEPRECATED v4.69.0; use exec.snapshot]",
-     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
-     "deprecationMessage": "The bare 'snapshot' tool is deprecated as of v4.69.0. Use 'exec.snapshot' instead. The bare form will be removed in v4.75.0."},
     {"name": "subagent.spawn", "description": "Spawn isolated subagent for delegated work; returns summary",
      "inputSchema": {"type": "object", "properties": {
          "cmd": {"type": "string"}, "name": {"type": "string"},

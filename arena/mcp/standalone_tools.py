@@ -6,27 +6,12 @@ import warnings
 from arena.mcp.standalone_common import *  # noqa: F401,F403
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
 
-# v4.69.0: emit a PendingDeprecationWarning when a caller
-# still uses one of the legacy bare names. Mirrors the
-# warning in arena.mcp.tool_exec / arena.mcp.tool_misc.
-_BARE_NAME_WARN = {
-    "ping": "exec.ping",
-    "echo": "exec.echo",
-    "exec": "exec.exec",
-    "snapshot": "exec.snapshot",
-}
-
-
-def _warn_bare(name: str) -> None:
-    replacement = _BARE_NAME_WARN.get(name)
-    if replacement is None:
-        return
-    warnings.warn(
-        f"tool name {name!r} is deprecated as of v4.69.0; use {replacement!r} instead. "
-        f"The bare form will be removed in v4.75.0.",
-        PendingDeprecationWarning,
-        stacklevel=3,
-    )
+# v4.75.0: bare-name warnings removed. The v4.69.0
+# deprecation window has expired; the bare names
+# (ping / echo / exec / snapshot) are no longer
+# accepted by the dispatcher. Clients that still
+# send them will get a clean no-match (the dispatcher
+# returns None and the bridge reports no-such-tool).
 
 
 # v4.71.0: emit a PendingDeprecationWarning when a caller
@@ -69,17 +54,13 @@ def _warn_bare_mem(name: str) -> None:
 def call_tool(name: str, args: dict) -> dict:
     """Диспетчер — возвращает MCP content payload."""
     try:
-        if name in ("exec.ping", "ping"):
-            if name == "ping":
-                _warn_bare("ping")
+        # v4.75.0: bare names (ping / echo / exec) removed.
+        # Only the namespaced exec.* form is accepted.
+        if name == "exec.ping":
             return text_content("pong")
-        if name in ("exec.echo", "echo"):
-            if name == "echo":
-                _warn_bare("echo")
+        if name == "exec.echo":
             return text_content(str(args.get("text", "")))
-        if name in ("exec.exec", "exec"):
-            if name == "exec":
-                _warn_bare("exec")
+        if name == "exec.exec":
             rc, out, err = run_sd(["bash", "-lc", args["cmd"]], timeout=args.get("timeout", 60))
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
         if name == "fs.read":
@@ -168,9 +149,8 @@ def call_tool(name: str, args: dict) -> dict:
         if name == "hooks.list":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "hooks_runner.py"), "list"], timeout=10)
             return text_content(out or err)
-        if name in ("exec.snapshot", "snapshot"):
-            if name == "snapshot":
-                _warn_bare("snapshot")
+        # v4.75.0: bare 'snapshot' name removed.
+        if name == "exec.snapshot":
             rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", "system/sys-snapshot"], timeout=60)
             return text_content(out or err)
         if name == "subagent.spawn":
