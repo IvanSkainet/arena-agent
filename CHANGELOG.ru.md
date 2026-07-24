@@ -1,3 +1,104 @@
+## v4.74.0 - постепенное ужесточение coverage gate (50% → 52%)
+
+### Цель
+
+Deferred coverage-tightening work item из v4.65.0
+release notes: "Coverage gate 50% → 60% — needs new
+behavioural tests for the bridge's restart /
+log-rotation paths."
+
+v4.74.0 — **первый** из трёх запланированных шагов к
+60% target:
+
+* v4.74.0: gate 50% → **52%** (Linux) / 45% → **47%** (Windows)
+* v4.76.0: gate 52% → 55% (Linux) / 47% → 50% (Windows) — в очереди
+* v4.79.0: gate 55% → 60% (Linux) / 50% → 55% (Windows) — в очереди
+
+Шаг консервативный (только +2% на Linux, +2% на
+Windows) потому что v4.68.0 baseline — 50.4% на
+Linux и 49.86% на Windows. Больший jump потребовал бы
+либо (a) написать много новых behavioural-тестов в
+этом релизе, либо (b) сузить test surface (например,
+убрать platform-specific paths). v4.74.0 идёт по
+small-step пути: bump gate, добавить первую партию
+targeted unit tests для ``arena.util``, и позволить
+последующим релизам добавлять более крупные test
+batches.
+
+Новые targeted unit tests для ``arena.util`` покрывают
+~100% 51 строк модуля (было 51%). Модуль —
+pure-helper (без I/O, без network, без subprocess),
+так что тесты быстрые и coverage gain надёжный. Это
+даёт ~0.3% абсолютного line coverage, что само по себе
+немного, но bump gate одинаков в каждом последующем
+релизе — каждый релиз либо добавляет тесты, либо
+становится coverage regression пойманным на PR-time.
+
+### Изменено
+
+1. **`.github/workflows/ci.yml`** — per-platform
+   coverage gate bumped: Linux 50% → 52%, Windows
+   45% → 47%. Новые значения установлены в
+   ``THRESHOLD=`` shell variable в "Run tests" step.
+   Gate enforced через ``--cov-fail-under=$THRESHOLD``
+   который workflow передаёт в pytest; значение в
+   ``pyproject.toml`` намеренно не меняется (остаётся
+   70% как local-dev floor — local dev бежит без
+   per-platform variable, так что 70% ловит вопиющие
+   regressions, но 52%/47% это что CI enforces
+   per-platform).
+
+2. **`tests/test_arena_util.py`** — новый тестовый
+   модуль (18 кейсов + 3 Windows-skipif) покрывающий
+   каждую public function в ``arena/util.py``:
+   * ``_subprocess_kwargs`` — Linux (empty dict) и
+     Windows (CREATE_NO_WINDOW = 0x08000000) ветки.
+   * ``utc_now`` — ISO-8601 формат и timezone sanity.
+   * ``get_clean_platform_name`` — Linux non-Windows
+     ветка и Windows graceful handling не-integer
+     build numbers.
+   * ``decode_output`` — Linux UTF-8 path и Windows
+     cp1251 (Cyrillic) path.
+   * ``b64_token`` — default length, scaling с
+     ``nbytes``, uniqueness, и round-trip через
+     ``base64.urlsafe_b64decode``.
+   * ``first_word`` — simple command, path prefix
+     stripping, ``.exe`` suffix stripping, empty-string
+     handling, lowercase normalisation.
+   * ``under_root`` — subdir (True), outside (False),
+     root-itself (True), sibling-not-subdir (False).
+
+3. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — bump версии до
+   4.74.0. Все четыре источника синхронизированы
+   (проверено `scripts/version_sync.py`).
+
+### Что v4.74.0 НЕ делает
+
+Полный jump 50% → 60% требует новых behavioural-тестов
+для restart / log-rotation путей bridge'а. Эти тесты
+нуждаются в mock bridges, mock schedulers, и mock log
+streams — это нетривиальный объём работы который не
+влезает в один релиз. v4.74.0 задаёт trajectory
+(gradual step-up) и добавляет первую партию
+coverage-тестов. v4.76.0 и v4.79.0 продолжат.
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.75.0**: убрать bare `ping` / `echo` /
+  `exec` / `snapshot` имена полностью (v4.69.0
+  deprecation окно истекает).
+- **v4.76.0**: coverage gate 52% → 55% (Linux) /
+  47% → 50% (Windows) — второй шаг трёх-шагового
+  gradual tightening.
+- **v4.78.0**: убрать bare `mem.*` алиасы
+  (v4.71.0 deprecation окно истекает).
+- **v4.79.0**: coverage gate 55% → 60% (Linux) /
+  50% → 55% (Windows) — третий шаг.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+
 ## v4.73.0 - ужесточение эвристики shadow-namespace detection
 
 ### Цель
