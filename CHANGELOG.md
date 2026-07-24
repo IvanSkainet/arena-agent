@@ -1,3 +1,91 @@
+## v4.78.0 - remove the legacy mem.* aliases
+
+### Purpose
+
+v4.71.0 deprecated the two legacy aliases ``mem.set`` /
+``mem.get`` in favour of the bulk ``memory.*``
+namespace. v4.71.0 set a **one full year** deprecation
+window (longer than v4.69.0's six months) because the
+simple per-fact API is documented in third-party
+tutorials. v4.78.0 ships the removal.
+
+### What was removed
+
+* The two ``mem.set`` / ``mem.get`` entries in
+  ``MCP_TOOLS``.
+* The bare-name branches in
+  ``handle_memory_tool`` and ``call_tool``.
+* The v4.71.0 ``_MEM_BARE_WARN`` dict and
+  ``_warn_bare_mem`` helper.
+* The ``mem.set`` / ``mem.get`` entries in the
+  legacy-name-guard's ``_BARE_NAMES`` set (now empty).
+* The ``tool_memory`` entry in
+  ``handler_namespace_consistency.py``'s
+  ``_WHITELISTED_MIXED`` set.
+
+### What v4.78.0 also closes
+
+* The legacy-name-guard's ``_BARE_NAMES`` set is now
+  empty (all bare-name deprecations have expired).
+* The legacy-name-guard's
+  ``_WHITELISTED_DISPATCH_FUNCS`` set is now empty.
+
+### Changed
+
+1. **`arena/mcp/tool_registry.py`** — ``mem.set`` /
+   ``mem.get`` removed. 126 → 124 entries; 23 → 22
+   namespaces.
+2. **`arena/mcp/tool_memory.py`** — bare-name
+   branches removed; ``_MEM_BARE_WARN`` /
+   ``_warn_bare_mem`` removed; ``warnings`` import
+   removed.
+3. **`arena/mcp/standalone_tools.py`** — bare-name
+   branches removed; ``_MEM_BARE_WARN`` /
+   ``_warn_bare_mem`` removed; ``warnings`` import
+   removed.
+4. **`scripts/legacy_name_guard.py`** —
+   ``_BARE_NAMES`` is now empty; whitelist is empty.
+5. **`scripts/handler_namespace_consistency.py`** —
+   ``_WHITELISTED_MIXED`` no longer includes
+   ``tool_memory``.
+6. **`tests/test_legacy_names_removed_v4750.py`** —
+   extended with v4.78.0 cases.
+7. **`tests/test_memory_profiles.py`** — updated
+   ``test_mcp_memory_tools_accept_profile`` to use
+   ``memory.recall`` instead of ``mem.set`` /
+   ``mem.get``.
+8. **`tests/test_mem_deprecation.py`** — deleted
+   (replaced by the extended v4.75.0 test file).
+9. **`arena/constants.py`** / **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump to
+   4.78.0.
+
+### What v4.78.0 does NOT touch
+
+* The `agentctl` CLI functions
+  ``agentctl_memory.mem_set`` and ``mem_get`` are
+  unchanged — they are CLI-level wrappers, not MCP
+  tool names. Renaming them would break every
+  chat-extension tutorial.
+* Pre-existing Windows-specific test failures are
+  not affected by v4.78.0.
+
+### Migration guide
+
+| Before            | After                                                       |
+| ----------------- | ----------------------------------------------------------- |
+| ``mem.set``       | ``memory.import(json.dumps([{"key": key, "value": value}]))`` |
+| ``mem.get(query)`` | ``memory.recall(query)``                                    |
+
+### Out of scope (tracked for later)
+
+- **v4.79.0**: coverage gate 55% → 60% (Linux) /
+  50% → 55% (Windows) — third step.
+- **v4.80.0**: fix the pre-existing `decode_output`
+  cp1251 bug.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** beyond `arena.service.restart`.
+
 ## v4.76.0 - coverage gate gradual tightening (51% → 55%)
 
 ### Purpose

@@ -103,7 +103,12 @@ _WHITELISTED_MIXED: frozenset[tuple[str, str, str]] = frozenset({
     ("arena/mcp/tool_misc.py", "handle_misc_tool", "Misc dispatcher groups sys / skill / hooks / subagent / exec.snapshot on purpose"),
     ("arena/mcp/tool_net.py", "handle_net_tool", "Net dispatcher groups net / admin / secrets / sudo on purpose (cross-cutting network ops)"),
     ("arena/mcp/tool_agentic.py", "handle_agentic_tool", "Agentic dispatcher handles both react.* and reflect.* on purpose"),
-    ("arena/mcp/tool_memory.py", "handle_memory_tool", "v4.71.0 deprecation: mem.* (deprecated) + memory.* (canonical) live in the same dispatch"),
+    # v4.78.0: tool_memory removed from the mixed-namespace
+    # whitelist. The v4.71.0 rationale (the dispatcher
+    # accepted both bare mem.* and namespaced memory.*
+    # forms during the deprecation window) no longer
+    # applies; tool_memory now dispatches only the
+    # memory.* namespaced form.
 })
 
 

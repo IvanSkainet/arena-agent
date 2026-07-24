@@ -1,7 +1,6 @@
 """Standalone MCP tool dispatcher."""
 from __future__ import annotations
 
-import warnings
 
 from arena.mcp.standalone_common import *  # noqa: F401,F403
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
@@ -14,41 +13,12 @@ from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
 # returns None and the bridge reports no-such-tool).
 
 
-# v4.71.0: emit a PendingDeprecationWarning when a caller
-# still uses the legacy ``mem.*`` namespace instead of
-# the bulk ``memory.*`` namespace. Mirrors the warning in
-# ``arena.mcp.tool_memory.handle_memory_tool``.
-#
-# The replacement names are concatenated at runtime so
-# the v4.62.0 contract test
-# ``test_no_duplicate_tool_names_across_handler_modules``
-# doesn't flag the warning string as a duplicate
-# reference to ``memory.import`` (which is also handled
-# by the bulk-exporter dispatcher in
-# ``tool_memory_export_import.py``). The dispatcher in
-# ``call_tool`` runs the export-import dispatcher FIRST,
-# so the mem branches never actually receive
-# ``memory.import`` in practice; the warning is purely
-# defensive for the rare case where the order changes.
-_NS = "memory"
-_IMPORT = _NS + ".import"
-_RECALL = _NS + ".recall"
-_MEM_BARE_WARN = {
-    "mem.set": _IMPORT,
-    "mem.get": _RECALL,
-}
-
-
-def _warn_bare_mem(name: str) -> None:
-    replacement = _MEM_BARE_WARN.get(name)
-    if replacement is None:
-        return
-    warnings.warn(
-        f"tool name {name!r} is deprecated as of v4.71.0; use {replacement!r} instead. "
-        f"The bare 'mem.*' form will be removed in v4.78.0.",
-        PendingDeprecationWarning,
-        stacklevel=3,
-    )
+# v4.78.0: mem.set / mem.get removed. The v4.71.0
+# deprecation window has expired; the bare forms are
+# no longer accepted by the dispatcher. Clients that
+# still send them will get a clean no-match (the
+# dispatcher returns None and the bridge reports
+# no-such-tool).
 
 
 def call_tool(name: str, args: dict) -> dict:
@@ -124,17 +94,8 @@ def call_tool(name: str, args: dict) -> dict:
                                     f"--user-data-dir={ud}", "--window-size=1366,768",
                                     f"--screenshot={png}", args["url"]], timeout=45)
             return text_content(json.dumps({"ok": rc == 0, "screenshot": png, "url": args["url"]}))
-        if name == "mem.set":
-            _warn_bare_mem("mem.set")
-            tags = args.get("tags") or []
-            cmd_args = [os.path.join(BIN, "agentctl"), "mem", "set", args["key"], args["value"]]
-            if tags: cmd_args += ["--tags"] + list(tags)
-            rc, out, err = run_local(cmd_args, timeout=15)
-            return text_content(out or err)
-        if name == "mem.get":
-            _warn_bare_mem("mem.get")
-            rc, out, err = run_local([os.path.join(BIN, "agentctl"), "mem", "get", args["query"]], timeout=15)
-            return text_content(out or err)
+
+
         if name == "sys.status":
             rc, out, err = run_local([os.path.join(BIN, "agentctl"), "sys", "status"], timeout=30)
             return text_content(out or err)

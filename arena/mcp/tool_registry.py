@@ -138,31 +138,9 @@ MCP_TOOLS = [
          "recursive": {"type": "boolean", "default": True},
          "patterns": {"type": "array", "items": {"type": "string"}},
          "label": {"type": "string"}}, "additionalProperties": False}},
-    # v4.71.0: deprecate the legacy ``mem.*`` namespace in
-    # favour of the bulk ``memory.*`` namespace. ``mem.set``
-    # and ``mem.get`` are the simple per-fact API that
-    # pre-dated the JSONL-bulk ``memory.import`` /
-    # ``memory.recall`` pair. The semantics are similar but
-    # not identical: ``mem.set`` writes a single (key, value)
-    # fact, while ``memory.import`` writes a JSONL stream of
-    # facts; ``mem.get`` is a substring query, while
-    # ``memory.recall`` is a TF-score query. Migration is
-    # straightforward: replace ``mem.set(key, value)`` with
-    # ``memory.import(json.dumps([{"key": key, "value":
-    # value}]))``, and ``mem.get(query)`` with
-    # ``memory.recall(query)``. The bare ``mem.*`` form will
-    # be removed in v4.78.0 (one full year of deprecation
-    # window because the simple per-fact API is documented
-    # in third-party tutorials).
-    {"name": "mem.set", "description": "Remember a fact in a memory profile [DEPRECATED v4.71.0; use memory.import]",
-     "inputSchema": {"type": "object", "properties": {
-         "profile": {"type": "string", "description": "Memory profile id (default: default)"},
-         "key": {"type": "string"}, "value": {"type": "string"},
-         "tags": {"type": "array", "items": {"type": "string"}}}, "required": ["key", "value"], "additionalProperties": False},
-     "deprecationMessage": "The 'mem.set' tool is deprecated as of v4.71.0. Use 'memory.import' (with a single-fact JSONL payload) instead. The bare 'mem.set' form will be removed in v4.78.0."},
-    {"name": "mem.get", "description": "Recall facts matching query substring, optionally scoped to a memory profile [DEPRECATED v4.71.0; use memory.recall]",
-     "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}, "profile": {"type": "string", "description": "Memory profile id, or '*' / 'all' for all profiles"}}, "required": ["query"], "additionalProperties": False},
-     "deprecationMessage": "The 'mem.get' tool is deprecated as of v4.71.0. Use 'memory.recall' instead. The bare 'mem.get' form will be removed in v4.78.0."},
+    # v4.78.0: bare 'mem.set' / 'mem.get' names removed
+    # (the v4.71.0 deprecation window has expired). Use
+    # memory.import / memory.recall instead.
     {"name": "sys.status", "description": "Bridge/services/funnel status",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "skill.list", "description": "List available agent skills",

@@ -135,7 +135,6 @@
       "handle_memory_tool"
     ],
     "tool_names": [
-      "mem.get",
       "mem.set",
       "memory.digest",
       "memory.recall"
@@ -305,8 +304,6 @@
       "git.diff",
       "git.status",
       "hooks.list",
-      "mem.get",
-      "mem.set",
       "memory.digest",
       "memory.export",
       "memory.import",

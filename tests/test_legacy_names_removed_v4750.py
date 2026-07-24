@@ -1,10 +1,17 @@
-"""Tests for the v4.75.0 removal of the four bare tool names.
+"""Tests for the v4.75.0 / v4.78.0 removal of bare tool names.
 
-v4.69.0 deprecated ``ping`` / ``echo`` / ``exec`` /
-``snapshot`` in favour of their namespaced ``exec.*``
-twins. v4.75.0 ships the removal.
+v4.69.0 deprecated four bare tool names
+(``ping`` / ``echo`` / ``exec`` / ``snapshot``) in
+favour of their namespaced ``exec.*`` twins. v4.75.0
+shipped the removal of those four.
 
-This test module pins the post-removal state.
+v4.71.0 deprecated two more bare names (``mem.set`` /
+``mem.get``) in favour of the namespaced
+``memory.*`` twins. v4.78.0 ships the removal of
+those two.
+
+This test module pins the post-removal state for both
+batches.
 """
 from __future__ import annotations
 
@@ -34,24 +41,26 @@ except Exception:  # pragma: no cover
     pytest.skip("MCP_TOOLS not importable", allow_module_level=True)
 
 
-_REMOVED_BARE_NAMES = ["ping", "echo", "exec", "snapshot"]
-_NAMESPACED_TWINS = ["exec.ping", "exec.echo", "exec.exec", "exec.snapshot"]
+_V4750_REMOVED = ["ping", "echo", "exec", "snapshot"]
+_V4750_NAMESPACED = ["exec.ping", "exec.echo", "exec.exec", "exec.snapshot"]
+_V4780_REMOVED = ["mem.set", "mem.get"]
+_V4780_NAMESPACED = ["memory.import", "memory.recall", "memory.digest", "memory.export"]
 
 
-@pytest.mark.parametrize("bare", _REMOVED_BARE_NAMES)
-def test_bare_name_removed_from_catalogue(bare: str) -> None:
+@pytest.mark.parametrize("bare", _V4750_REMOVED)
+def test_v4750_bare_name_removed_from_catalogue(bare: str) -> None:
     names = {entry.get("name") for entry in MCP_TOOLS}
     assert bare not in names
 
 
-@pytest.mark.parametrize("namespaced", _NAMESPACED_TWINS)
-def test_namespaced_twin_present_in_catalogue(namespaced: str) -> None:
+@pytest.mark.parametrize("namespaced", _V4750_NAMESPACED)
+def test_v4750_namespaced_twin_present_in_catalogue(namespaced: str) -> None:
     names = {entry.get("name") for entry in MCP_TOOLS}
     assert namespaced in names
 
 
-@pytest.mark.parametrize("namespaced", _NAMESPACED_TWINS)
-def test_namespaced_twin_has_no_deprecation_message(namespaced: str) -> None:
+@pytest.mark.parametrize("namespaced", _V4750_NAMESPACED)
+def test_v4750_namespaced_twin_has_no_deprecation_message(namespaced: str) -> None:
     for entry in MCP_TOOLS:
         if entry.get("name") == namespaced:
             assert "deprecationMessage" not in entry
@@ -61,28 +70,24 @@ def test_namespaced_twin_has_no_deprecation_message(namespaced: str) -> None:
         pytest.fail(f"namespaced twin {namespaced!r} not found")
 
 
-def test_legacy_name_guard_bare_names_is_mem_only() -> None:
+def test_legacy_name_guard_bare_names_is_empty_v4780() -> None:
+    """v4.78.0: the bare-name set is now empty."""
     guard = _import_guard("legacy_name_guard")
     bare_names = guard._BARE_NAMES
-    assert "ping" not in bare_names
-    assert "echo" not in bare_names
-    assert "exec" not in bare_names
-    assert "snapshot" not in bare_names
-    assert "mem.set" in bare_names
-    assert "mem.get" in bare_names
+    for n in ["ping", "echo", "exec", "snapshot", "mem.set", "mem.get"]:
+        assert n not in bare_names
+    assert len(bare_names) == 0
 
 
-def test_legacy_name_guard_whitelist_excludes_tool_exec_and_tool_misc() -> None:
+def test_legacy_name_guard_whitelist_is_empty_v4780() -> None:
+    """v4.78.0: the whitelist is also empty."""
     guard = _import_guard("legacy_name_guard")
     whitelist = guard._WHITELISTED_DISPATCH_FUNCS
-    whitelisted_paths = {rel for rel, _fn in whitelist}
-    assert "arena/mcp/tool_exec.py" not in whitelisted_paths
-    assert "arena/mcp/tool_misc.py" not in whitelisted_paths
-    assert "arena/mcp/tool_memory.py" in whitelisted_paths
+    assert len(whitelist) == 0
 
 
-@pytest.mark.parametrize("bare", _REMOVED_BARE_NAMES)
-def test_dispatch_returns_none_for_removed_bare_name(bare: str) -> None:
+@pytest.mark.parametrize("bare", _V4750_REMOVED)
+def test_v4750_dispatch_returns_none_for_removed_bare_name(bare: str) -> None:
     from arena.mcp.tool_exec import handle_exec_tool
     from arena.mcp.tool_misc import handle_misc_tool
 
@@ -98,3 +103,32 @@ def test_dispatch_returns_none_for_removed_bare_name(bare: str) -> None:
     elif bare == "snapshot":
         result = handle_misc_tool(bare, {}, ctx=_StubCtx(), run_local=_run_stub)
         assert result is None
+
+
+@pytest.mark.parametrize("bare", _V4780_REMOVED)
+def test_v4780_bare_name_removed_from_catalogue(bare: str) -> None:
+    names = {entry.get("name") for entry in MCP_TOOLS}
+    assert bare not in names
+
+
+@pytest.mark.parametrize("namespaced", _V4780_NAMESPACED)
+def test_v4780_namespaced_twin_present_in_catalogue(namespaced: str) -> None:
+    names = {entry.get("name") for entry in MCP_TOOLS}
+    assert namespaced in names
+
+
+@pytest.mark.parametrize("bare", _V4780_REMOVED)
+def test_v4780_dispatch_returns_none_for_removed_bare_name(bare: str) -> None:
+    from arena.mcp.tool_memory import handle_memory_tool
+
+    class _StubCtx:
+        pass
+
+    def _run_stub(*args, **kwargs):
+        return 0, "", ""
+
+    if bare == "mem.set":
+        result = handle_memory_tool(bare, {"key": "k", "value": "v"}, ctx=_StubCtx(), run_local=_run_stub)
+    else:
+        result = handle_memory_tool(bare, {"query": "x"}, ctx=_StubCtx(), run_local=_run_stub)
+    assert result is None
