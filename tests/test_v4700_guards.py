@@ -212,12 +212,21 @@ def test_namespace_doc_coverage_warns_by_default() -> None:
     assert rc == 0, f"soft-warn should return 0; got {rc}"
 
 
-def test_namespace_doc_coverage_enforce_fails_on_baseline() -> None:
+def test_namespace_doc_coverage_enforce_passes_on_baseline() -> None:
+    """v4.72.0 closes the documentation gap: every namespace now has a README example.
+
+    The v4.70.0 baseline had 22 of 23 namespaces
+    uncovered, so ``--enforce`` correctly returned 1.
+    v4.72.0 adds a per-namespace example table to
+    README.md / README.ru.md and promotes the guard to
+    ``--enforce`` mode. The new test reflects the new
+    baseline: ``--enforce`` now returns 0.
+    """
     guard = _import_guard("namespace_doc_coverage")
     rc = guard._run(REPO, enforce=True)
-    # v4.70.0 baseline: many namespaces lack examples, so
-    # enforce mode returns 1.
-    assert rc == 1, f"enforce mode should return 1 on baseline; got {rc}"
+    # v4.72.0 baseline: all 23 namespaces covered, so
+    # enforce mode returns 0.
+    assert rc == 0, f"enforce mode should return 0 on v4.72.0 baseline; got {rc}"
 
 
 # -------------------------------------------------------------------
