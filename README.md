@@ -460,6 +460,43 @@ CHANGELOG are the public entry points.
 
 ---
 
+## Tool reference (per-namespace examples)
+
+Each tool is registered in the `MCP_TOOLS` catalogue with a stable `namespace.action`
+name and a JSON-Schema `inputSchema`. Below is one canonical call per namespace,
+to make the bridge surface discoverable from the README without reading the
+source. The full catalogue is in `arena/mcp/tool_registry.py`.
+
+| Namespace | Example call |
+| --- | --- |
+| `admin` | `admin.run` — Cross-platform admin escalation. Linux/macOS proxies to sudo |
+| `asr` | `asr.transcribe` — Transcribe an audio file locally with whisper.cpp. Auto-conv |
+| `browser` | `browser.search` — DuckDuckGo search via pure-Python (no chromium) |
+| `desktop` | `desktop.ocr` — Run OCR on a fresh desktop screenshot and return recognized  |
+| `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
+| `fs` | `fs.read` — Read file contents (utf-8) |
+| `git` | `git.status` — Show git status for a repository. |
+| `hooks` | `hooks.list` — List configured hooks per event |
+| `mem` | `mem.set` — Remember a fact in a memory profile |
+| `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
+| `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
+| `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |
+| `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |
+| `plan` | `plan.create` — Create a structured execution plan for a goal, with suggeste |
+| `react` | `react.run` — Run a bounded reason-act-observe loop using safe observation |
+| `reflect` | `reflect.run` — Reflect on a prior react/planning run and produce concerns,  |
+| `scenario` | `scenario.run` — Execute a scenario's steps in order, interpolating {{ steps. |
+| `secrets` | `secrets.list` — List available secret keys (values never returned). |
+| `skill` | `skill.list` — List available agent skills |
+| `subagent` | `subagent.spawn` — Spawn isolated subagent for delegated work; returns summary |
+| `sudo` | `sudo.run` — Run a command through 'sudo -n <cmd>' (non-interactive). Req |
+| `sys` | `sys.status` — Bridge/services/funnel status |
+| `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
+
+All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.
+
+---
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

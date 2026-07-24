@@ -442,6 +442,32 @@ jobs:
         run: |
           python scripts/handler_namespace_consistency.py --repo-root .
 
+  # ----------------------------------------------------------------
+  # v4.72.0: namespace documentation coverage. v4.70.0
+  # shipped the namespace_doc_coverage.py script in
+  # soft-warn mode (the v4.70.0 baseline had 22 of 23
+  # namespaces lacking README examples). v4.72.0
+  # closes the documentation gap (the README now has a
+  # per-namespace example for every namespace) and
+  # promotes the guard to --enforce mode so any future
+  # namespace added without a README example trips a
+  # red X at PR time.
+  # ----------------------------------------------------------------
+  namespace-doc-coverage:
+    name: 'Namespace doc coverage (every namespace has a README example)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run namespace-doc coverage (enforce mode)
+        run: |
+          python scripts/namespace_doc_coverage.py --repo-root . --enforce
+
   contract:
     name: MCP contract test
     runs-on: ubuntu-latest

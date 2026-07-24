@@ -1,3 +1,98 @@
+## v4.72.0 - close the README documentation gap (per-namespace examples)
+
+### Цель
+
+v4.70.0 `namespace_doc_coverage` guard сообщил что 22
+из 23 namespaces не имеют примера в `README.md` /
+`README.ru.md`. v4.70.0 поставил guard в soft-warn режим
+(exit 0, отчёт в stderr) чтобы maintainer видел
+documentation debt, накапливающийся с релизами, без
+блокировки. v4.72.0 закрывает долг: каждый namespace
+теперь имеет хотя бы один пример в обоих README
+файлах, и guard promote'нут в `--enforce` режим (через
+новую CI job) так что любой будущий namespace,
+добавленный без примера в README, ловит red X на PR.
+
+Аудит был в v4.70.0 release notes: "v4.72.0: write
+per-namespace README examples and promote
+namespace_doc_coverage to --enforce." v4.72.0 это делает.
+
+### Изменено
+
+1. **`README.md`** — добавлена новая секция "Tool
+   reference (per-namespace examples)". Для каждого из
+   23 namespace'ов в каталоге (`admin`, `asr`,
+   `browser`, `desktop`, `exec`, `fs`, `git`, `hooks`,
+   `mem`, `memory`, `mission`, `mobile`, `net`, `plan`,
+   `react`, `reflect`, `scenario`, `secrets`, `skill`,
+   `subagent`, `sudo`, `sys`, `watch`), секция
+   перечисляет один канонический example-tool с
+   одно-строчным описанием. Полный каталог — в
+   `arena/mcp/tool_registry.py`; README-таблица — это
+   discoverability aid, не замена.
+
+2. **`README.ru.md`** — та же секция на русском.
+
+3. **`.github/workflows/ci.yml`** — добавлена новая
+   `namespace-doc-coverage` CI job, которая запускает
+   guard в `--enforce` режиме. Всего CI jobs: 15 (было
+   14 в v4.71.0).
+
+4. **`tests/test_v4720_doc_coverage.py`** — новый
+   тестовый модуль (3 кейса):
+   * v4.72.0 baseline проходит в soft-warn режиме (все
+     23 namespace'а покрыты);
+   * v4.72.0 baseline проходит в enforce режиме;
+   * новый namespace, добавленный без примера в README,
+     ловит enforce режим (возвращает 1) при этом всё
+     ещё проходя soft-warn (возвращает 0). Синтетическая
+     entry добавляется через monkey-patch на
+     `arena.mcp.tool_registry.MCP_TOOLS`; исходный файл
+     не модифицируется.
+
+5. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — bump версии до
+   4.72.0. Все четыре источника синхронизированы
+   (проверено `scripts/version_sync.py`).
+
+### Почему per-namespace, а не per-tool?
+
+MCP-каталог имеет 130+ tool entries. Секция "по
+примеру на tool" в README была бы ~130 строк таблицы —
+слишком плотно для skim'а, слишком boilerplate'но для
+поддержки. Секция "по примеру на namespace" — ~25
+строк: достаточно плотно для скана, достаточно
+разреженно чтобы быть approachable для нового
+пользователя, который ещё не знает какой tool ему
+нужен. Полная per-tool документация живёт в самом
+каталоге (поля `description` и `inputSchema` являются
+self-documenting для MCP-aware клиента).
+
+v4.70.0 audit нашёл 22 из 23 namespace'ов пропущенными;
+v4.72.0 сводит это к 0 из 23. Guard теперь hard-fail
+через `--enforce` в CI, так что gap не может снова
+открыться silently.
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.73.0**: ужесточить
+  `handler_namespace_consistency` shadow detection
+  (теперь когда deprecation в v4.71.0 на месте,
+  v4.70.0 soft-warn больше не нужен; можно либо
+  убрать warn полностью, либо конвертировать в другую
+  метрику).
+- **v4.75.0**: убрать bare `ping` / `echo` /
+  `exec` / `snapshot` имена полностью (v4.69.0
+  deprecation окно истекает).
+- **v4.78.0**: убрать bare `mem.*` алиасы
+  (v4.71.0 deprecation окно истекает).
+- **Coverage gate 50% → 60%** — нужны новые
+  behavioural-тесты для restart / log-rotation путей
+  bridge'а.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+
 ## v4.71.0 - deprecate legacy `mem.*` namespace
 
 ### Цель
