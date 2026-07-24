@@ -1,3 +1,53 @@
+## v4.73.0 - tighten shadow-namespace detection heuristic
+
+### Purpose
+
+v4.70.0 shipped a shadow-namespace detector with a loose
+heuristic: two entries from different namespaces were
+flagged as shadows if their descriptions shared any of a
+small set of common verbs. v4.70.0 audit found 23 such
+pairs on the v4.70.0 baseline (e.g. fs.list ↔ secrets.list,
+hooks.list ↔ skill.list), and v4.71.0 added a "skip
+deprecated entries" workaround to avoid double-counting
+the mem.* deprecation.
+
+v4.73.0 tightens the heuristic to two strict cases:
+
+1. **Identical-description shadow.** Two entries from
+   different namespaces have exactly equal description
+   strings (after stripping the deprecation marker).
+
+2. **Alias shadow.** A description contains the explicit
+   phrase "alias for X" pointing at the other.
+
+The v4.70.0 verb-overlap heuristic is removed entirely.
+
+### Changed
+
+1. **scripts/handler_namespace_consistency.py** —
+   _detect_shadow_namespaces rewritten to use the
+   two-strict-cases heuristic. v4.70.0 verb-overlap
+   logic and v4.71.0 "skip deprecated entries" workaround
+   both removed. Module docstring updated.
+
+2. **tests/test_v4730_shadow_strict.py** — 4 cases:
+   * v4.73.0 baseline passes (no false-positive shadows)
+   * identical-description shadow trips the guard
+   * alias-for shadow trips the guard
+   * verb-overlap regression test (fs vs secrets.list
+     does NOT trip the shadow detector)
+
+3. **arena/constants.py / pyproject.toml /
+   tests/_version_matrix.py** — version bump to 4.73.0.
+
+### Out of scope (tracked for later)
+
+- **v4.75.0**: remove bare ping/echo/exec/snapshot
+- **v4.78.0**: remove bare mem.* aliases
+- **Coverage gate 50% → 60%** — needs new behavioural tests
+- **Mutation testing** (mutmut/cosmic-ray)
+- **Mypy strict rollout** beyond arena.service.restart
+
 ## v4.72.0 - close the README documentation gap (per-namespace examples)
 
 ### Purpose

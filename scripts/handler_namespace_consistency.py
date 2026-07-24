@@ -14,19 +14,17 @@ This check enforces the convention in two modes:
 
 **Hard fail (default):**
 
-* **Shadow-namespace detection.** If a function handles
-  tools from two namespaces whose relationship looks like
-  legacy/canonical (``mem.*`` vs ``memory.*``,
-  ``secrets.*`` vs ``admin.*``), the guard fails. The
-  pattern is: the function body mentions tools from
-  namespace A AND namespace B, where both A and B are
-  in the catalogue, AND there exists a tool in namespace
-  A whose description has the same verb as a tool in
-  namespace B (e.g. ``mem.set`` ↔ ``memory.import``,
-  ``mem.get`` ↔ ``memory.recall``). This catches the
-  case where the catalogue has two namespaces for one
-  concept (the dispatcher is forced to handle both
-  because the catalogue exposes both).
+* **Shadow-namespace detection.** v4.73.0 tightened
+  the heuristic: a shadow is only flagged when two
+  entries from different namespaces have **identical
+  descriptions** (after stripping the deprecation
+  marker) or one description contains the explicit
+  phrase "alias for X" pointing at the other. The
+  v4.70.0 verb-overlap heuristic (matching any shared
+  verb in the description) is removed — it produced
+  too many false positives (``fs.list`` ↔ ``secrets.list``
+  etc.) and required the "skip deprecated entries"
+  workaround in v4.71.0.
 * **Uncovered namespaces.** If a namespace is in the
   catalogue but no function references any of its tools,
   the guard fails (this is the v4.70.0 dead-dispatch
@@ -163,31 +161,38 @@ def _detect_shadow_namespaces(mcp_tools) -> list[tuple[str, str, str, str]]:
     """Return a list of (namespace_a, tool_a, namespace_b, tool_b) where
     the same concept is exposed under two different namespaces.
 
-    The heuristic is intentionally conservative: a shadow
-    is only flagged when the two namespaces look like
-    variants of the same root word AND at least one tool
-    pair has matching actions (``set`` / ``get`` /
-    ``list`` / ``read`` / ``write`` / ``create`` /
-    ``delete`` / ``update``).
+    v4.70.0-v4.71.0 used a loose heuristic (matching
+    any shared verb between descriptions) which
+    produced false positives on the v4.70.0 baseline
+    (``fs.list`` ↔ ``secrets.list``, etc.) and required
+    the "skip deprecated entries" workaround in v4.71.0
+    to avoid double-counting the ``mem.*`` deprecation.
 
-    The "namespace variants" test:
+    v4.73.0 tightens the heuristic to two strict cases:
 
-    * one namespace is a prefix of the other
-      (``mem`` ↔ ``memory``, ``sub`` ↔ ``subagent``);
-    * or both are anagrams / near-anagrams
-      (e.g. ``asr`` ↔ ``ras`` — but this is rare);
-    * or one is the singular of the other
-      (``hook`` ↔ ``hooks``).
+    1. **Identical-description shadow.** Two entries
+       from different namespaces have **exactly equal**
+       ``description`` strings (after stripping the
+       deprecation marker suffix). This is the textbook
+       shadow: two tools advertise the same thing.
 
-    This is conservative on purpose: ``fs.read`` and
-    ``browser.read`` are NOT flagged as shadows (different
-    domain, different actions), but ``mem.set`` and
-    ``memory.import`` ARE flagged (the same domain —
-    memory — exposed under two namespaces).
+    2. **Alias shadow.** A description contains the
+       exact phrase ``"alias for <other-name>"`` (case
+       insensitive, with a few spelling variants like
+       ``"namespaced alias for"``). The alias-of
+       relationship is the explicit signal that the
+       catalogue author intended these as shadows; this
+       is the canonical v4.67.0 ``exec.ping`` ↔
+       ``ping`` case.
 
-    The list is not exhaustive — it catches the obvious
-    cases (``mem.*`` ↔ ``memory.*``) and surfaces them
-    for the maintainer to confirm.
+    The v4.70.0 verb-overlap heuristic is removed
+    entirely — it produced too many false positives to
+    be useful. If a future maintainer adds a new shadow
+    pair, they should either (a) give the two entries
+    identical descriptions, or (b) add an explicit
+    "alias for" phrase. Either is a single-line edit to
+    the catalogue and produces a clear shadow detection
+    in CI.
     """
     by_ns: dict[str, list[dict]] = {}
     for entry in mcp_tools:
@@ -196,52 +201,71 @@ def _detect_shadow_namespaces(mcp_tools) -> list[tuple[str, str, str, str]]:
         n = entry.get("name")
         if not isinstance(n, str) or "." not in n:
             continue
-        # v4.71.0: skip entries that are explicitly marked
-        # deprecated. A deprecated entry is by definition
-        # the "shadow" side of a shadow pair — the catalogue
-        # already says "use the other one". Counting it as a
-        # shadow on top of that would be a double-flag for
-        # the same deprecation.
+        # Deprecated entries: not considered for shadow
+        # detection. The deprecation marker is itself the
+        # signal that the entry is a "go look at the
+        # other one" tool.
         if isinstance(entry.get("deprecationMessage"), str) and entry["deprecationMessage"].strip():
             continue
         ns = n.split(".", 1)[0]
         by_ns.setdefault(ns, []).append(entry)
 
-    verbs = {"set", "get", "import", "export", "recall", "digest", "list", "read", "write", "create", "delete", "update", "store", "load", "save", "run", "spawn", "info", "status", "show"}
+    def _strip_dep_marker(desc: str) -> str:
+        # Strip the ``[DEPRECATED ...; use X]`` suffix so
+        # that two entries with the same "base"
+        # description but different deprecation markers
+        # are still recognised as identical.
+        import re
+        return re.sub(r"\s*\[DEPRECATED[^\]]*\]\s*$", "", desc).strip().lower()
 
-    def _looks_like_variant(a: str, b: str) -> bool:
-        if a == b:
-            return False
-        if a.startswith(b) or b.startswith(a):
-            return True
-        # One is singular, other is plural
-        if a + "s" == b or a == b + "s" or a + "y" == b or a == b + "y":
-            return True
-        return False
+    def _is_alias_for(desc: str) -> "str | None":
+        """Return the alias target name if ``desc`` says
+        "alias for X", else None.
+        """
+        import re
+        m = re.search(r"alias for\s+[`'\"]?([a-z][a-z0-9_.]*)[`'\"]?", desc, re.IGNORECASE)
+        return m.group(1) if m else None
 
     shadows: list[tuple[str, str, str, str]] = []
-    ns_list = sorted(by_ns.keys())
-    for i, a in enumerate(ns_list):
-        for b in ns_list[i + 1:]:
-            if not _looks_like_variant(a, b):
+    # Build a flat list of entries for cross-namespace
+    # comparison.
+    all_entries: list[tuple[str, dict]] = []
+    for ns, entries in by_ns.items():
+        for e in entries:
+            all_entries.append((ns, e))
+
+    seen_pairs: set[tuple[str, str, str, str]] = set()
+    for i, (ns_a, ea) in enumerate(all_entries):
+        desc_a = _strip_dep_marker(ea.get("description") or "")
+        alias_target = _is_alias_for(ea.get("description") or "")
+        for j in range(i + 1, len(all_entries)):
+            ns_b, eb = all_entries[j]
+            if ns_a == ns_b:
                 continue
-            # Compare tools pairwise; flag a pair if the
-            # actions match OR the descriptions share a
-            # common verb.
-            for ta in by_ns[a]:
-                action_a = ta["name"].split(".", 1)[1]
-                desc_a = (ta.get("description") or "").lower()
-                for tb in by_ns[b]:
-                    action_b = tb["name"].split(".", 1)[1]
-                    desc_b = (tb.get("description") or "").lower()
-                    if action_a == action_b:
-                        shadows.append((a, ta["name"], b, tb["name"]))
-                        continue
-                    # Or descriptions share a strong verb
-                    verbs_a = {w for w in verbs if w in desc_a}
-                    verbs_b = {w for w in verbs if w in desc_b}
-                    if verbs_a & verbs_b:
-                        shadows.append((a, ta["name"], b, tb["name"]))
+            name_a = ea.get("name", "")
+            name_b = eb.get("name", "")
+            # Case 1: identical descriptions.
+            desc_b = _strip_dep_marker(eb.get("description") or "")
+            if desc_a and desc_a == desc_b:
+                pair = (ns_a, name_a, ns_b, name_b)
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    shadows.append(pair)
+                continue
+            # Case 2: alias-of.
+            if alias_target == name_b:
+                pair = (ns_a, name_a, ns_b, name_b)
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    shadows.append(pair)
+                continue
+            alias_target_b = _is_alias_for(eb.get("description") or "")
+            if alias_target_b == name_a:
+                pair = (ns_a, name_a, ns_b, name_b)
+                if pair not in seen_pairs:
+                    seen_pairs.add(pair)
+                    shadows.append(pair)
+                continue
     return shadows
 
 

@@ -1,3 +1,44 @@
+## v4.73.0 - ужесточение эвристики shadow-namespace detection
+
+### Цель
+
+v4.70.0 поставил shadow-namespace detector с мягкой
+эвристикой: две entries из разных namespace'ов флагались
+как shadows если их descriptions делили любой из малого
+набора общих глаголов. v4.70.0 audit нашёл 23 таких пары
+на baseline (fs.list ↔ secrets.list, и т.д.), и v4.71.0
+добавил "skip deprecated entries" workaround.
+
+v4.73.0 ужесточает эвристику до двух строгих случаев:
+
+1. **Identical-description shadow.** Две entries из
+   разных namespace'ов имеют точно равные строки
+   description.
+
+2. **Alias shadow.** Описание содержит явную фразу
+   "alias for X".
+
+v4.70.0 verb-overlap эвристика убрана полностью.
+
+### Изменено
+
+1. **scripts/handler_namespace_consistency.py** —
+   _detect_shadow_namespaces переписана. Docstring
+   обновлены.
+
+2. **tests/test_v4730_shadow_strict.py** — 4 кейса.
+
+3. **arena/constants.py / pyproject.toml /
+   tests/_version_matrix.py** — bump версии до 4.73.0.
+
+### Вне scope (в очереди)
+
+- **v4.75.0**: убрать bare ping/echo/exec/snapshot
+- **v4.78.0**: убрать bare mem.* алиасы
+- **Coverage gate 50% → 60%**
+- **Mutation testing** (mutmut/cosmic-ray)
+- **Mypy strict rollout**
+
 ## v4.72.0 - close the README documentation gap (per-namespace examples)
 
 ### Цель
