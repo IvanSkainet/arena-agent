@@ -26,28 +26,6 @@ def _retitle_digest(text: str, title: str) -> str:
 
 
 def handle_memory_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict[str, Any] | None:
-    if name == "mem.set":
-        _warn_bare_mem("mem.set")
-        key = args.get("key", "")
-        value = args.get("value", "")
-        if not key:
-            return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing 'key' argument"}]}
-        profile_err = validate_memory_profile(args.get("profile"))
-        if profile_err:
-            return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {profile_err}"}]}
-        profile = normalize_memory_profile(args.get("profile"))
-        tags = args.get("tags") or []
-        entry = {
-            "profile": profile,
-            "key": key,
-            "value": value,
-            "tags": tags,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        ctx.write_fact(entry)
-        ctx.audit({"type": "memory_set", "key": key, "profile": profile, "via": "mcp"})
-        return text_content(json.dumps({"ok": True, "fact": entry}, ensure_ascii=False))
-
     if name == "memory.recall":
         profile_err = validate_memory_profile(args.get("profile"), allow_all=True)
         if profile_err:

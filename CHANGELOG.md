@@ -1,3 +1,53 @@
+## v4.78.0 follow-up #1 - finish removing the mem.set dispatch branch
+
+### Purpose
+
+The v4.78.0 commit (c21028a) removed the ``mem.set`` /
+``mem.get`` entries from ``MCP_TOOLS`` and deleted the
+``_MEM_BARE_WARN`` / ``_warn_bare_mem`` helper. It
+forgot to delete the corresponding ``if name ==
+"mem.set":`` branch inside ``handle_memory_tool`` in
+``arena/mcp/tool_memory.py``. That branch still called
+``_warn_bare_mem("mem.set")`` on its first line, so
+the module failed to import (``F821 undefined name
+'_warn_bare_mem'``), which in turn failed all 10
+CI test cells (5 Linux + 5 Windows).
+
+This follow-up deletes the orphan ``mem.set`` block
+and leaves ``handle_memory_tool`` to dispatch only
+``memory.recall`` and ``memory.digest``.
+
+### Changed
+
+1. **`arena/mcp/tool_memory.py`** — deleted the
+   ``if name == "mem.set":`` branch (18 lines plus
+   the orphan ``_warn_bare_mem`` call). The block
+   rewrote a single fact with ``ctx.write_fact``;
+   the bulk ``memory.import`` namespace is the
+   documented replacement. No behaviour change for
+   clients that already migrated to ``memory.*`` —
+   the namespaced dispatchers are unchanged.
+
+### Tests
+
+* Local AST parse: OK.
+* Local `ruff check --select F821`: passes.
+* Local `scripts/legacy_name_guard.py`: still 0
+  whitelisted hits, 40 files scanned.
+* Local `scripts/handler_namespace_consistency.py`:
+  still 21 handle_*_tool / 22 namespaces consistent.
+* All 10 CI test cells (5 Linux + 5 Windows) +
+  `lint` (ruff) should now pass on master.
+
+### Out of scope (still tracked)
+
+* **v4.79.0**: coverage gate 55% → 60%.
+* **v4.80.0**: fix the pre-existing `decode_output`
+  cp1251 bug.
+* **Mutation testing** (mutmut / cosmic-ray).
+* **Mypy strict rollout** beyond
+  `arena.service.restart`.
+
 ## v4.78.0 - remove the legacy mem.* aliases
 
 ### Purpose

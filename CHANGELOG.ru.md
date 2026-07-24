@@ -1,3 +1,149 @@
+## v4.78.0 - удаление legacy mem.* aliases
+
+### Цель
+
+v4.71.0 объявил устаревшими два legacy aliases
+``mem.set`` / ``mem.get`` в пользу bulk ``memory.*``
+namespace. v4.71.0 установил **один полный год**
+deprecation window (длиннее, чем v4.69.0's шесть
+месяцев) потому что простой per-fact API
+задокументирован в third-party tutorials.
+v4.78.0 отгружает удаление.
+
+### Что было удалено
+
+* Два ``mem.set`` / ``mem.get`` entries в
+  ``MCP_TOOLS``.
+* Bare-name branches в ``handle_memory_tool`` и
+  ``call_tool``.
+* v4.71.0 ``_MEM_BARE_WARN`` dict и
+  ``_warn_bare_mem`` helper.
+* ``mem.set`` / ``mem.get`` entries в
+  legacy-name-guard's ``_BARE_NAMES`` set (теперь
+  пустой).
+* ``tool_memory`` entry в
+  ``handler_namespace_consistency.py``'s
+  ``_WHITELISTED_MIXED`` set.
+
+### Что v4.78.0 также закрывает
+
+* Legacy-name-guard's ``_BARE_NAMES`` set теперь
+  пустой (все bare-name deprecations истекли).
+* Legacy-name-guard's
+  ``_WHITELISTED_DISPATCH_FUNCS`` set теперь
+  пустой.
+
+### Изменено
+
+1. **`arena/mcp/tool_registry.py`** — ``mem.set`` /
+   ``mem.get`` удалены. 126 → 124 entries; 23 → 22
+   namespaces.
+2. **`arena/mcp/tool_memory.py`** — bare-name
+   branches удалены; ``_MEM_BARE_WARN`` /
+   ``_warn_bare_mem`` удалены; ``warnings`` import
+   удалён.
+3. **`arena/mcp/standalone_tools.py`** — bare-name
+   branches удалены; ``_MEM_BARE_WARN`` /
+   ``_warn_bare_mem`` удалены; ``warnings`` import
+   удалён.
+4. **`scripts/legacy_name_guard.py`** —
+   ``_BARE_NAMES`` теперь пустой; whitelist пуст.
+5. **`scripts/handler_namespace_consistency.py`** —
+   ``_WHITELISTED_MIXED`` больше не включает
+   ``tool_memory``.
+6. **`tests/test_legacy_names_removed_v4750.py`** —
+   расширен v4.78.0 cases.
+7. **`tests/test_memory_profiles.py`** — обновлён
+   ``test_mcp_memory_tools_accept_profile`` чтобы
+   использовать ``memory.recall`` вместо
+   ``mem.set`` / ``mem.get``.
+8. **`tests/test_mem_deprecation.py`** — удалён
+   (заменён расширенным v4.75.0 test file).
+9. **`arena/constants.py`** / **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump до
+   4.78.0.
+
+### Что v4.78.0 НЕ трогает
+
+* `agentctl` CLI функции
+  ``agentctl_memory.mem_set`` и ``mem_get``
+  без изменений — это CLI-level wrappers, не MCP
+  tool names. Переименование сломало бы каждый
+  chat-extension tutorial.
+* Pre-existing Windows-specific test failures
+  не затронуты v4.78.0.
+
+### Migration guide
+
+| До                | После                                                        |
+| ----------------- | ------------------------------------------------------------ |
+| ``mem.set``       | ``memory.import(json.dumps([{"key": key, "value": value}]))`` |
+| ``mem.get(query)`` | ``memory.recall(query)``                                    |
+
+### Вне scope (отслеживается для будущих релизов)
+
+- **v4.79.0**: coverage gate 55% → 60% (Linux) /
+  50% → 55% (Windows) — третий шаг.
+- **v4.80.0**: исправить pre-existing `decode_output`
+  cp1251 bug.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** за пределами
+  `arena.service.restart`.
+
+## v4.78.0 follow-up #1 - завершить удаление mem.set dispatch branch
+
+### Цель
+
+v4.78.0 commit (c21028a) удалил ``mem.set`` /
+``mem.get`` entries из ``MCP_TOOLS`` и удалил
+``_MEM_BARE_WARN`` / ``_warn_bare_mem`` helper. Но
+забыл удалить соответствующий ``if name ==
+"mem.set":`` branch внутри ``handle_memory_tool`` в
+``arena/mcp/tool_memory.py``. Этот branch всё ещё
+вызывал ``_warn_bare_mem("mem.set")`` на первой
+строке, так что модуль не мог импортироваться
+(``F821 undefined name '_warn_bare_mem'``), что в
+свою очередь роняло все 10 CI test cells (5 Linux +
+5 Windows).
+
+Этот follow-up удаляет orphan ``mem.set`` block и
+оставляет ``handle_memory_tool`` dispatching только
+``memory.recall`` и ``memory.digest``.
+
+### Изменено
+
+1. **`arena/mcp/tool_memory.py`** — удалён
+   ``if name == "mem.set":`` branch (18 строк плюс
+   orphan ``_warn_bare_mem`` call). Block
+   переписывал один fact через ``ctx.write_fact``;
+   bulk ``memory.import`` namespace — задокументированный
+   replacement. Никаких behaviour changes для
+   клиентов, которые уже мигрировали на
+   ``memory.*`` — namespaced dispatchers без
+   изменений.
+
+### Тесты
+
+* Локальный AST parse: OK.
+* Локальный `ruff check --select F821`: passes.
+* Локальный `scripts/legacy_name_guard.py`: всё ещё
+  0 whitelisted hits, 40 файлов просканировано.
+* Локальный `scripts/handler_namespace_consistency.py`:
+  всё ещё 21 handle_*_tool / 22 namespaces
+  consistent.
+* Все 10 CI test cells (5 Linux + 5 Windows) +
+  `lint` (ruff) теперь должны проходить на
+  master.
+
+### Вне scope (всё ещё отслеживается)
+
+* **v4.79.0**: coverage gate 55% → 60%.
+* **v4.80.0**: исправить pre-existing
+  `decode_output` cp1251 bug.
+* **Mutation testing** (mutmut / cosmic-ray).
+* **Mypy strict rollout** за пределами
+  `arena.service.restart`.
+
 ## v4.76.0 - постепенное ужесточение coverage gate (51% → 55%)
 
 ### Цель
