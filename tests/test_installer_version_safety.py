@@ -117,7 +117,7 @@ VERSION_TEST_CASES = [
 ]
 
 
-def test_arena_version_lt_semver():
+def test_arena_version_lt_semver(tmp_path):
     """_arena_version_lt must correctly compare X.Y.Z versions."""
     if not _has_bash():
         sys.stderr.write("\n[skip] bash not available, cannot test _arena_version_lt\n")
@@ -127,10 +127,14 @@ def test_arena_version_lt_semver():
     assert fn_body, "Could not extract _arena_version_lt() from install.sh"
 
     # Build a tiny bash test script
+    cases = " ".join(
+        f"{v1}:{v2}:{'true' if exp else 'false'}"
+        for v1, v2, exp in VERSION_TEST_CASES
+    )
     test_script = f"""#!/usr/bin/env bash
 {fn_body}
 
-for tc in '{"' '".join(f"{v1}:{v2}:{'true' if exp else 'false'}" for v1,v2,exp in VERSION_TEST_CASES)}'; do
+for tc in {cases}; do
     v1="${{tc%%:*}}"
     rest="${{tc#*:}}"
     v2="${{rest%%:*}}"
@@ -145,8 +149,20 @@ for tc in '{"' '".join(f"{v1}:{v2}:{'true' if exp else 'false'}" for v1,v2,exp i
 done
 echo "ALL_PASS"
 """
+    # v4.68.0: write the test script to a temp file and invoke it as
+    # ``bash script.sh`` rather than ``bash -c "...script..."``.
+    # On Windows, ``bash -c "..."`` from the Git-Bash-on-Windows
+    # action runner prepends a Windows-Subsystem-for-Linux
+    # recommendation banner to stdout (the action runner has
+    # ``wsl`` on PATH but no installed distributions). The banner
+    # appears before the script's own output, which trips the
+    # ``"ALL_PASS" in result.stdout`` assertion. Writing the
+    # script to a file and invoking it directly avoids the
+    # ``-c`` codepath on Windows. Linux and macOS are unaffected.
+    script_path = tmp_path / "test_arena_version_lt.sh"
+    script_path.write_text(test_script, encoding="utf-8")
     result = subprocess.run(
-        ["bash", "-c", test_script],
+        ["bash", str(script_path)],
         capture_output=True,
         text=True,
         encoding="utf-8",
