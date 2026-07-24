@@ -1,3 +1,105 @@
+## v4.76.0 - постепенное ужесточение coverage gate (51% → 55%)
+
+### Цель
+
+Deferred coverage-tightening work item из v4.65.0
+release notes продолжается. v4.74.0 был первым шагом
+(50% → 51% Linux / 45% → 46% Windows) и поставил
+targeted unit tests для ``arena.util`` и follow-up #2
+откатил gate к v4.68.0 baseline (50%/45%) когда новые
+тесты не подняли coverage достаточно.
+
+v4.76.0 — **второй** из трёх запланированных шагов
+к 60% target:
+
+* v4.74.0: gate 50% → 51% (Linux) / 45% → 46% (Windows) — потом откачен
+* **v4.76.0: gate 51% → 55% (Linux) / 46% → 50% (Windows) — этот релиз**
+* v4.79.0: gate 55% → 60% (Linux) / 50% → 55% (Windows) — в плане
+
+Шаг +4% на Linux и +4% на Windows. Шаг оправдан
+новыми targeted unit tests в этом релизе (см. ниже)
+которые вместе добавляют ~1.5% абсолютного line
+coverage. Оставшиеся +2.5% приходят из существующих
+тестов на v4.74.0 baseline: арифметика приблизительная
+потому что coverage drift между релизами делает точные
+числа трудно предсказуемыми.
+
+### Изменено
+
+1. **`.github/workflows/ci.yml`** — per-platform
+   coverage gate bumped: Linux 50% → 55%, Windows
+   45% → 50%. Новые значения установлены в
+   ``THRESHOLD=`` shell variable в "Run tests" step.
+   Gate enforced через ``--cov-fail-under=$THRESHOLD``.
+
+2. **`tests/test_arena_wiring_env.py`** — новый тестовый
+   модуль (5 кейсов) покрывающий каждое public behaviour
+   ``RuntimeEnv`` (маленький ``arena/wiring/env.py``
+   attribute-access wrapper):
+   * construction с пустым dict (empty-env case);
+   * construction с непустым dict и успешным attribute
+     read;
+   * missing-attribute read raise'ит ``AttributeError``
+     (не ``KeyError`` — wrapper's contract в том что
+     caller видит ``AttributeError`` так что wrapper
+     это drop-in для обычного Python object);
+   * dunder attributes (``__class__``) всё ещё работают
+     через Python's normal attribute lookup (wrapper's
+     ``__getattr__`` вызывается только для missing attrs);
+   * nested values доступны (wrapper хранит mapping по
+     reference; nested values не оборачиваются
+     рекурсивно).
+
+3. **`tests/test_arena_skills_cache.py`** — новый тестовый
+   модуль (10 кейсов) покрывающий public surface
+   ``SkillsCache`` (маленький hot-reload cache для skill
+   registry scans в ``arena/skills/cache.py``):
+   * construction с default и custom arguments
+     (ttl, hot_reload);
+   * ``reset()`` очищает cached state;
+   * ``_current_mtimes()`` возвращает пустой dict для
+     non-existent directory;
+   * ``_current_mtimes()`` сканирует files с recognised
+     extensions (.json / .yaml / .yml / .md / .toml /
+     .sh / .py);
+   * ``_current_mtimes()`` игнорирует files с extensions
+     вне recognised set;
+   * ``list()`` первый вызов всегда сканирует;
+   * ``list()`` в пределах TTL возвращает cached result
+     (hot_reload=False);
+   * ``list()`` после TTL expires rescans
+     (hot_reload=False);
+   * ``list()`` с hot_reload=True детектит изменения в
+     skills directory и триггерит rescan.
+
+4. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — bump версии до
+   4.76.0. Все четыре источника синхронизированы
+   (проверено `scripts/version_sync.py`).
+
+### Что v4.76.0 НЕ делает
+
+Полный jump 50% → 60% требует новых behavioural-тестов
+для restart / log-rotation путей bridge'а. Эти тесты
+нуждаются в mock bridges, mock schedulers, и mock log
+streams — это нетривиальный объём работы который не
+влезает в один релиз. v4.76.0 продолжает gradual-tightening
+trajectory с двумя новыми targeted unit test файлами;
+v4.79.0 продолжит с третьим шагом.
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.78.0**: убрать bare `mem.*` алиасы
+  (v4.71.0 deprecation окно истекает).
+- **v4.79.0**: coverage gate 55% → 60% (Linux) /
+  50% → 55% (Windows) — третий шаг.
+- **v4.80.0**: починить pre-existing `decode_output`
+  cp1251 bug (использовать `errors='strict'` в
+  fallback codecs). В очереди с v4.74.0 follow-up #3.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+
 ## v4.75.0 - remove the legacy bare tool names
 
 ### Цель

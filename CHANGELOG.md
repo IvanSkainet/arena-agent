@@ -1,3 +1,109 @@
+## v4.76.0 - coverage gate gradual tightening (51% → 55%)
+
+### Purpose
+
+The deferred coverage-tightening work item from the
+v4.65.0 release notes continues. v4.74.0 was the
+first step (50% → 51% Linux / 45% → 46% Windows) and
+shipped targeted unit tests for ``arena.util`` and
+the follow-up #2 rolled the gate back to the v4.68.0
+baseline (50%/45%) when the new tests didn't bring
+coverage up enough.
+
+v4.76.0 is the **second** of three planned steps
+toward the 60% target:
+
+* v4.74.0: gate 50% → 51% (Linux) / 45% → 46% (Windows) — then rolled back
+* **v4.76.0: gate 51% → 55% (Linux) / 46% → 50% (Windows) — this release**
+* v4.79.0: gate 55% → 60% (Linux) / 50% → 55% (Windows) — planned
+
+The step is +4% on Linux and +4% on Windows. The
+step is justified by the new targeted unit tests in
+this release (see below) which together add ~1.5%
+absolute line coverage. The remaining +2.5% comes
+from existing tests on the v4.74.0 baseline: the
+arithmetic is approximate because coverage drift
+across releases makes exact numbers hard to predict.
+
+### Changed
+
+1. **`.github/workflows/ci.yml`** — per-platform
+   coverage gate bumped: Linux 50% → 55%, Windows
+   45% → 50%. The new values are set in the
+   ``THRESHOLD=`` shell variable in the "Run tests"
+   step. The gate is enforced by
+   ``--cov-fail-under=$THRESHOLD``.
+
+2. **`tests/test_arena_wiring_env.py`** — new test
+   module (5 cases) covering every public behaviour
+   of ``RuntimeEnv`` (the small ``arena/wiring/env.py``
+   attribute-access wrapper):
+   * construction with an empty dict (the empty-env
+     case);
+   * construction with a non-empty dict and a
+     successful attribute read;
+   * missing-attribute read raises ``AttributeError``
+     (not ``KeyError`` — the wrapper's contract is
+     that the caller sees ``AttributeError`` so the
+     wrapper is a drop-in for a regular Python object);
+   * dunder attributes (``__class__``) still work via
+     Python's normal attribute lookup (the wrapper's
+     ``__getattr__`` is only called for missing attrs);
+   * nested values are accessible (the wrapper stores
+     the mapping by reference; nested values are not
+     recursively wrapped).
+
+3. **`tests/test_arena_skills_cache.py`** — new test
+   module (10 cases) covering the public surface of
+   ``SkillsCache`` (the small hot-reload cache for
+   skill registry scans in ``arena/skills/cache.py``):
+   * construction with default and custom arguments
+     (ttl, hot_reload);
+   * ``reset()`` clears the cached state;
+   * ``_current_mtimes()`` returns an empty dict for
+     a non-existent directory;
+   * ``_current_mtimes()`` scans files with recognised
+     extensions (.json / .yaml / .yml / .md / .toml /
+     .sh / .py);
+   * ``_current_mtimes()`` ignores files with
+     extensions outside the recognised set;
+   * ``list()`` first call always scans;
+   * ``list()`` within the TTL returns the cached
+     result (hot_reload=False);
+   * ``list()`` after the TTL expires rescans
+     (hot_reload=False);
+   * ``list()`` with hot_reload=True detects changes
+     to the skills directory and triggers a rescan.
+
+4. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump to
+   4.76.0. The four sources stay in lockstep
+   (verified by `scripts/version_sync.py`).
+
+### What v4.76.0 does NOT do
+
+The full 50% → 60% jump requires new behavioural
+tests for the bridge's restart / log-rotation paths.
+Those tests need mock bridges, mock schedulers, and
+mock log streams — they're a non-trivial body of work
+that doesn't fit in a single release. v4.76.0
+continues the gradual-tightening trajectory with two
+new targeted unit test files; v4.79.0 will continue
+with the third step.
+
+### Out of scope (intentional, tracked for later)
+
+- **v4.78.0**: remove the bare `mem.*` aliases
+  (v4.71.0 deprecation window expires).
+- **v4.79.0**: coverage gate 55% → 60% (Linux) /
+  50% → 55% (Windows) — third step.
+- **v4.80.0**: fix the pre-existing `decode_output`
+  cp1251 bug (use `errors='strict'` in the fallback
+  codecs). Tracked since v4.74.0 follow-up #3.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** beyond `arena.service.restart`.
+
 ## v4.75.0 - remove the legacy bare tool names
 
 ### Purpose
