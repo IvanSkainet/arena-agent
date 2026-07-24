@@ -23,7 +23,9 @@ _SAFE_TOOLS = {
     "mobile.list_files", "browser.list",
 }
 _MEDIUM_TOOLS = {
-    "fs.create", "memory.import", "mem.get", "mem.set",
+    # v4.78.0: mem.get / mem.set removed (long deprecation window from
+    # v4.71.0 expired). Use memory.import + memory.recall instead.
+    "fs.create", "memory.import",
     "mission.compose", "mission.create", "mission.followup", "mission.propose",
     "mission.schedule_delete", "mission.schedule_save", "react.run", "reflect.run",
     # v4.54.0: scenario mutators. `scenario.run` is DELIBERATELY

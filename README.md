@@ -477,7 +477,6 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |
 | `hooks` | `hooks.list` — List configured hooks per event |
-| `mem` | `mem.set` — Remember a fact in a memory profile |
 | `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
 | `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
 | `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |

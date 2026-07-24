@@ -96,8 +96,11 @@ def build_plan(
         required_tools.add("/v1/tasks")
 
     steps.append(_step(len(steps) + 1, "Execute the main action", "Perform the smallest useful action that advances the goal.", ["/v1/exec", "fs.edit", "browser.browse"], confirm=any(f in goal.lower() for f in ("delete", "remove", "restart", "publish", "commit"))))
-    steps.append(_step(len(steps) + 1, "Verify results and record outcomes", f"Confirm success, then store important facts back into memory profile '{profile}'.", ["/v1/doctor", "memory.recall", "mem.set"]))
-    required_tools.update({"/v1/exec", "fs.edit", "browser.browse", "/v1/doctor", "mem.set"})
+    # v4.78.0: replaced "mem.set" with "memory.import" in the
+    # verify-and-record step. The bare mem.set is gone; bulk
+    # memory.import is the documented replacement.
+    steps.append(_step(len(steps) + 1, "Verify results and record outcomes", f"Confirm success, then store important facts back into memory profile '{profile}'.", ["/v1/doctor", "memory.recall", "memory.import"]))
+    required_tools.update({"/v1/exec", "fs.edit", "browser.browse", "/v1/doctor", "memory.import"})
 
     steps = steps[:max_steps]
     return {

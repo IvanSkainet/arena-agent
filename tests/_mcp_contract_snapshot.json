@@ -135,7 +135,6 @@
       "handle_memory_tool"
     ],
     "tool_names": [
-      "mem.set",
       "memory.digest",
       "memory.recall"
     ]
