@@ -45,7 +45,9 @@ _MEDIUM_TOOLS = {
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
-    "exec", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
+    # v4.75.0: bare "exec" replaced with "exec.exec"
+    # (the bare form was removed in v4.75.0).
+    "exec.exec", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
     "git.commit", "mission.iterate", "mission.recover", "mission.rerun",
     "mission.run", "mission.schedule_tick", "skill.run", "subagent.spawn",
     # v4.56.0: mobile.* full-shell / IME hijack surfaces.

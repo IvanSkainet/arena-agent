@@ -96,7 +96,9 @@ def test_dangerous_category_only_lists_dangerous_tools():
     for entry in catalog:
         assert entry["risk"] == "dangerous"
     names = {entry["name"] for entry in catalog}
-    for expected in ("exec", "fs.write", "mission.run"):
+    # v4.75.0: bare "exec" replaced with "exec.exec"
+    # (the bare form was removed in v4.75.0).
+    for expected in ("exec.exec", "fs.write", "mission.run"):
         assert expected in names
 
 

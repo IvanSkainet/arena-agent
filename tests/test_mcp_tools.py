@@ -30,6 +30,8 @@ def test_mcp_rpc_initialize_tools_and_unknown():
 
 
 def test_mcp_call_tool_simple_tools():
-    assert ub.call_tool("ping", {}) == {"content": [{"type": "text", "text": "pong"}]}
-    assert ub.call_tool("echo", {"text": "hello"}) == {"content": [{"type": "text", "text": "hello"}]}
+    # v4.75.0: bare "ping" / "echo" removed in favour of the
+    # namespaced "exec.ping" / "exec.echo" twins.
+    assert ub.call_tool("exec.ping", {}) == {"content": [{"type": "text", "text": "pong"}]}
+    assert ub.call_tool("exec.echo", {"text": "hello"}) == {"content": [{"type": "text", "text": "hello"}]}
     assert ub.call_tool("unknown", {})["isError"] is True
