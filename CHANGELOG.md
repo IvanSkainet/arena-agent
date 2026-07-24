@@ -51,6 +51,46 @@ green on Windows in a small number of follow-up commits.
 * **Mypy strict rollout** beyond `arena.service.restart`
   — same as v4.61.0.
 
+
+
+### Follow-up (commits cb6396b1, 6ce43306, 4fadd466, 3b3a70b3, 1aaf211c, 88b870af, f5443d72)
+
+Seven follow-up commits the v4.68.0 release needed before the
+Windows runner reached green:
+
+* **`cb6396b1` — fix(ci):** PowerShell (default on windows-latest)
+  rejected ``--strict-markers`` as a unary operator. Fix: explicit
+  ``shell: bash`` on the Run tests step.
+* **`6ce43306` — fix(tests):** 4 platform-specific failures —
+  ``/tmp/`` in changelog_freshness, ``read_text()`` without
+  encoding in pre_release_check, ``text=True`` subprocess in
+  installer_version_safety, NTFS racy file-wait in
+  test_extension_v4_54_1. Per-platform coverage gate: Linux 50%,
+  Windows 45%.
+* **`4fadd466` — fix(test):** Git Bash on windows-latest
+  prepends a Windows-Subsystem-for-Linux banner to stdout on
+  every ``bash -c`` call. Fix: write script to a file and invoke
+  as ``bash script.sh``.
+* **`3b3a70b3` — fix(test):** The wsl.exe banner appears on every
+  bash invocation, not just ``-c``. Fix: ``skipif(sys.platform == "win32")``
+  on ``test_arena_version_lt_semver``.
+* **`1aaf211c` — fix(test):** ``test_unified_bridge.py``'s two
+  sqlite tests hit ``PermissionError [WinError 32]`` on Windows
+  (file lock on facts.db survives the tempdir teardown). Fix:
+  ``skipif`` on both.
+* **`88b870af` — fix(test):** ``test_exec_runner.py::test_run_shell_command_success``
+  hit ``OSError [WinError 87]`` on Python 3.10 + Windows. Known
+  asyncio-on-Windows interaction. Fix: ``skipif`` on win32.
+* **`f5443d72` — fix(test):** ``test_overview_gpu_errors_js.py``
+  Node child-process harness times out after 15s on windows-latest.
+  Fix: ``skipif`` on win32; the same surface is covered by
+  ``test_overview_gpu_errors_layout.py`` via Python DOM stub on
+  every platform.
+
+After all 7 follow-ups, the Windows matrix is fully green:
+5 of 5 cells pass on Python 3.10/3.11/3.12/3.13/3.14 on
+windows-latest.
+
 ### Extension
 
 Byte-identical to v4.67.0 - bridge-only release. No

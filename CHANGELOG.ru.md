@@ -52,6 +52,35 @@ green на Windows за небольшое количество follow-up commit
 * **Mypy strict rollout** за пределами
   `arena.service.restart` — то же что в v4.61.0.
 
+
+
+### Follow-up (коммиты cb6396b1, 6ce43306, 4fadd466, 3b3a70b3, 1aaf211c, 88b870af, f5443d72)
+
+Семь follow-up коммитов которые потребовались v4.68.0
+прежде чем Windows runner достиг green:
+
+* **`cb6396b1` — fix(ci):** PowerShell (default на windows-latest)
+  отверг ``--strict-markers`` как unary operator. Фикс: explicit
+  ``shell: bash`` на Run tests step.
+* **`6ce43306` — fix(tests):** 4 platform-specific failure.
+  Per-platform coverage gate: Linux 50%, Windows 45%.
+* **`4fadd466` — fix(test):** Git Bash на windows-latest добавляет
+  Windows-Subsystem-for-Linux banner в stdout на каждом ``bash -c``.
+  Фикс: писать script в файл и вызывать ``bash script.sh``.
+* **`3b3a70b3` — fix(test):** wsl.exe banner появляется на
+  каждом bash invocation, не только ``-c``. Фикс: ``skipif``.
+* **`1aaf211c` — fix(test):** sqlite tests в test_unified_bridge.py
+  попали в ``PermissionError [WinError 32]`` на Windows. Фикс:
+  ``skipif``.
+* **`88b870af` — fix(test):** ``test_run_shell_command_success``
+  попал в ``OSError [WinError 87]`` на Python 3.10 + Windows.
+  Известная asyncio-on-Windows interaction. Фикс: ``skipif``.
+* **`f5443d72` — fix(test):** Node child-process harness таймаутит
+  после 15s на windows-latest. Фикс: ``skipif``.
+
+После всех 7 follow-up'ов Windows matrix полностью green:
+5 из 5 cells pass на Python 3.10/3.11/3.12/3.13/3.14.
+
 ### Расширение
 
 Byte-identical to v4.67.0 - bridge-only release. Никаких
