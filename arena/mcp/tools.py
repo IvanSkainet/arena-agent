@@ -102,7 +102,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_agentic_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_input_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_tool(name, args, ctx=ctx),
-                lambda: handle_mobile_ext_tool(name, args),
+                lambda: handle_mobile_ext_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_tool(name, args, ctx=ctx),
                 lambda: handle_net_tool(name, args, ctx=ctx, run_sd=run_sd),
                 lambda: handle_asr_tool(name, args, ctx=ctx),

@@ -18,7 +18,7 @@ import re
 import sys
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent
+REPO = Path(__file__).resolve().parent.parent
 TOOL_DIR = REPO / "arena" / "mcp"
 SNAPSHOT = REPO / "tests" / "_mcp_contract_snapshot.json"
 

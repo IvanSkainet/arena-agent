@@ -300,6 +300,7 @@
       "fs.tree",
       "fs.view",
       "fs.write",
+      "fs.write_base64",
       "git.commit",
       "git.diff",
       "git.status",

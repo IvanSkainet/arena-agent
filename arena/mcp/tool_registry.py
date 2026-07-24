@@ -56,6 +56,9 @@ MCP_TOOLS = [
     {"name": "fs.write", "description": "Write file (utf-8). Creates directories.",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"], "additionalProperties": False}},
+    {"name": "fs.write_base64", "description": "Write binary file from base64-encoded content. Creates directories.",
+     "inputSchema": {"type": "object", "properties": {
+         "path": {"type": "string"}, "base64": {"type": "string"}}, "required": ["path", "base64"], "additionalProperties": False}},
     {"name": "fs.list", "description": "List directory entries",
      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"], "additionalProperties": False}},
     {"name": "fs.edit", "description": "Find-and-replace in a text file (str_replace_editor semantics). old_text must be unique unless replace_all=true. Set preview=true for a safe preview/confirm workflow.",

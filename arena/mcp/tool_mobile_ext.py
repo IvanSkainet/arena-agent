@@ -172,7 +172,7 @@ def _list_files(serial: str, args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "path": path, "count": len(rows), "entries": rows[:1000]}
 
 
-def handle_mobile_ext_tool(name: str, args: dict[str, Any]) -> dict[str, Any] | None:
+def handle_mobile_ext_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     """Dispatch v4.59.0 mobile.* additions. Returns None if not ours so
     the main mobile dispatcher can try its _ROUTES table."""
     serial_required = {"mobile.launch_app", "mobile.pull_file", "mobile.push_file", "mobile.list_files"}

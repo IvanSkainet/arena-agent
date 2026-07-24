@@ -1,3 +1,210 @@
+## v4.70.0 - deeper guards: ловим rot в каталоге / dispatch / сигнатурах
+
+### Цель
+
+v4.67.0 — v4.69.0 добавили три структурных CI guard'а
+(catalogue-hardening для `additionalProperties: false`,
+version-sync, legacy-name guard для deprecate bare names).
+v4.70.0 расширяет guard-поверхность на следующий слой
+failure modes, которые guard'ы v4.67.0 — v4.69.0 не
+ловят — "каталог тебе врёт".
+
+Пять новых guard'ов (шесть скриптов плюс один
+информационный отчёт) были вдохновлены прогоном новых
+проверок на v4.69.0 baseline и нахождением реальных
+проблем. Самое важное открытие — **dead dispatch**:
+``fs.write_base64`` обрабатывался в
+``arena/mcp/tool_fs.py`` (строка 51), но не был
+зарегистрирован в ``MCP_TOOLS``. Tool работал, если
+caller знал имя, но каталог говорил что такого tool нет,
+так что MCP-клиенты его не показывали.
+``dead-dispatch-check`` ловит ровно этот класс багов
+(handler есть в dispatcher'е, но нет в каталоге, или
+наоборот).
+
+Аудит v4.70.0 также нашёл:
+
+* ``handle_mobile_ext_tool`` имел уникальную сигнатуру —
+  без ``ctx`` keyword-only параметра — единственный
+  dispatcher в ``arena/mcp/``, не соответствующий
+  v4.x handler-конвенции. ``handler-signature-check``
+  guard поймал бы это на PR-time.
+* В каталоге 22 из 24 namespaces не имеют примера в
+  ``README.md`` / ``README.ru.md``. Это не баг кода, а
+  documentation debt, который молча растёт с каждым
+  релизом. ``namespace-doc-coverage`` работает в
+  soft-warn режиме по умолчанию (build не роняет) и
+  накапливает долг в CI-отчёте, чтобы maintainer видел
+  как он уменьшается (или растёт) со временем.
+  ``--enforce`` повышает до hard fail, когда README
+  догнал каталог.
+* ``mem.*`` (``mem.set`` / ``mem.get``) и
+  ``memory.*`` (``memory.import`` / ``memory.recall`` и
+  т.д.) — shadow API: два namespace'а для одной
+  концепции. ``handler-namespace-consistency`` сообщает
+  об этом как soft warning, оставляя timeline
+  deprecation'а на усмотрение maintainer'а.
+
+### Изменено
+
+1. **`arena/mcp/tool_registry.py`** — добавлена entry
+   ``fs.write_base64`` (inputSchema: ``{path, base64}`` с
+   ``additionalProperties: false``). Handler уже был в
+   ``arena/mcp/tool_fs.py``; каталог просто о нём не
+   знал. v4.70.0 синхронизирует каталог с dispatcher'ом.
+
+2. **`arena/mcp/tool_mobile_ext.py`** —
+   ``handle_mobile_ext_tool(name, args)`` →
+   ``handle_mobile_ext_tool(name, args, *, ctx)``.
+   Функция не использовала ``ctx`` (работает только с
+   ``args.get("serial")``), но каждый другой dispatcher
+   в проекте принимает ``ctx``, и будущий maintainer,
+   добавляющий ``ctx``-зависимую фичу в этот
+   dispatcher, столкнулся бы с "подожди, а почему тут
+   нет ctx?" тупиком.
+
+3. **`arena/mcp/tools.py`** — lambda, вызывающая
+   ``handle_mobile_ext_tool``, теперь передаёт
+   ``ctx=ctx``. Функция его игнорирует; call site
+   соответствует конвенции.
+
+4. **`scripts/refresh_mcp_contract_snapshot.py`** —
+   однострочный fix давнего REPO-root бага
+   (``Path(__file__).resolve().parent`` →
+   ``Path(__file__).resolve().parent.parent``). Скрипт
+   теперь корректно находит репо из своей ``scripts/``
+   позиции. Это было в deferred списке с v4.67.0;
+   v4.70.0 подбирает это, потому что новая
+   ``fs.write_base64`` entry требует регенерации
+   snapshot'а, а скрипт должен для этого работать.
+
+5. **`tests/_mcp_contract_snapshot.json`** —
+   регенерирован через
+   ``scripts/refresh_mcp_contract_snapshot.py`` чтобы
+   включить новое имя ``fs.write_base64``. 28 tool
+   modules, 22 handlers, 243 tool names в свежем
+   snapshot'е.
+
+6. **`scripts/catalogue_consistency_check.py`** — новый
+   guard (180 строк). Объединяет 5 инвариантов каталога
+   (naming convention, name uniqueness, description
+   non-empty, ``additionalProperties: false``,
+   deprecation metadata consistency) в один audit.
+   v4.67.0 ``catalogue_harden`` и v4.69.0
+   ``legacy_name_guard`` подразумеваются этим
+   (остаются на месте для backward-compat с v4.67.0 /
+   v4.69.0 release notes; новые CI jobs могут
+   использовать консолидированный guard).
+
+7. **`scripts/dead_dispatch_check.py`** — новый guard
+   (180 строк). Cross-reference'ит каждый tool каталога
+   против каждого string-literal имени tool'а в
+   ``arena/mcp/*.py`` dispatch-файлах. Ловит dead tools
+   (в каталоге, но не обработаны) и dead references (в
+   dispatcher'е, но не в каталоге). Использует
+   AST-walker с фильтром "looks like a tool name"
+   (namespace.action regex с namespace в known set
+   каталога, или whitelisted bare name) так что SQL
+   фрагменты, error messages и binary names типа
+   ``whisper.cpp`` не триггерят проверку.
+
+8. **`scripts/json_schema_check.py`** — новый guard
+   (220 строк). Stdlib-only Draft-7 metaschema walker.
+   Валидирует что каждый ``inputSchema`` структурно
+   валиден (нет typo'd keywords типа
+   ``addtionalProperties``, нет плохих primitive types,
+   нет ``required`` поля не из ``properties``). v4.70.0
+   baseline проходит; guard существует чтобы
+   предотвращать regressions.
+
+9. **`scripts/namespace_doc_coverage.py`** — новый guard
+   (140 строк). Сканирует ``README.md`` и
+   ``README.ru.md`` на наличие хотя бы одной строки
+   примера на namespace. Работает в soft-warn режиме по
+   умолчанию (exit 0, отчёт в stderr); ``--enforce``
+   повышает до hard fail.
+
+10. **`scripts/handler_signature_check.py`** — новый
+    guard (180 строк). AST-обходит каждую
+    ``handle_*_tool`` функцию в ``arena/mcp/`` и
+    проверяет сигнатуру: минимум два positional
+    параметра с именами ``name`` и ``args``; первый
+    keyword-only параметр — ``ctx``; дополнительные
+    keyword-only параметры из малого whitelist'а
+    (``run_local``, ``run_sd``); return annotation —
+    dict / None / Optional. Ловит класс багов, который
+    v4.70.0 audit нашёл в ``handle_mobile_ext_tool``.
+
+11. **`scripts/handler_namespace_consistency.py`** —
+    новый guard (220 строк). Детектирует shadow
+    namespace'ы (например, ``mem.*`` ↔ ``memory.*``) и
+    mixed-namespace dispatchers. Hard-fail на shadow
+    namespace'ах (явный сигнал deprecation); soft-warn
+    на mixed-namespace dispatcher'ах, которых нет в
+    whitelist'е. Whitelist покрывает v4.69.0 deprecation
+    (``tool_exec``) плюс legit shared-dispatch паттерны в
+    ``tool_misc`` / ``tool_net`` / ``tool_agentic``.
+
+12. **`.github/workflows/ci.yml`** — добавляет 5 новых
+    CI jobs: ``catalogue-consistency``,
+    ``dead-dispatch``, ``json-schema-check``,
+    ``handler-signature``,
+    ``handler-namespace-consistency``.
+    ``namespace-doc-coverage`` намеренно НЕ добавлен
+    как job в v4.70.0 (он бы всегда fail'ил на текущем
+    README); он живёт как opt-in скрипт, который
+    maintainer может запустить локально.
+
+13. **`tests/test_v4700_guards.py`** — новый тестовый
+    модуль (250 строк, 13 кейсов). У каждого guard'а
+    есть "passes on baseline" тест и "catches known
+    violation" тест, который инжектит синтетический
+    failure через throwaway ``tool_v4700_tmp.py`` файл
+    (убирается в ``finally`` блоке).
+
+14. **`arena/constants.py`** /
+    **`pyproject.toml`** /
+    **`tests/_version_matrix.py`** — bump версии до
+    4.70.0.
+
+### Что v4.70.0 audit нашёл (до фиксов)
+
+* 1 dead reference: ``fs.write_base64`` обрабатывается
+  в ``tool_fs.py``, но не в каталоге.
+* 1 сигнатурная несогласованность:
+  ``handle_mobile_ext_tool`` был единственным
+  dispatcher'ом в ``arena/mcp/`` без ``*, ctx``.
+* 1 shadow-namespace: ``mem.*`` и ``memory.*``
+  описывают одну концепцию.
+* 22 из 23 namespaced namespaces не имеют примера в
+  README.
+
+Все 4 находки имеют follow-up commits в этом релизе:
+пункты 1, 2 исправлены в release commit'е; пункты 3, 4
+высвечиваются как soft warnings в
+``handler_namespace_consistency`` и
+``namespace_doc_coverage`` соответственно, с timeline'ом
+deprecation/discovery на усмотрение maintainer'а.
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.71.0**: deprecate ``mem.*`` алиасы (зеркало
+  v4.69.0 bare-name deprecation: catalogue entry
+  получает ``deprecationMessage`` + soft-warn в
+  dispatcher'е; план удалить в v4.78.0).
+- **v4.72.0**: написать per-namespace README примеры
+  (закрывает 22-из-23 namespace-doc gap; promote
+  ``namespace_doc_coverage`` в hard-fail через
+  ``--enforce``).
+- **v4.73.0**: ужесточить
+  ``handler_namespace_consistency`` в hard-fail на
+  ``mem.*`` shadow после того как deprecation встанет.
+- **Coverage gate 50% → 60%** — нужны новые
+  behavioural-тесты для restart / log-rotation путей
+  bridge'а.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+
 ## v4.69.0 - deprecate bare tool names (deprecate bare-имена)
 
 ### Цель
