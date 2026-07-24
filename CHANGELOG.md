@@ -1,3 +1,132 @@
+## v4.69.0 - deprecate bare tool names
+
+### Purpose
+
+v4.67.0 introduced namespaced aliases
+(`exec.ping` / `exec.echo` / `exec.exec` / `exec.snapshot`) for
+the four legacy bare tool names
+(`ping` / `echo` / `exec` / `snapshot`). The bare names were
+kept in `MCP_TOOLS` and in the dispatch layer for backward
+compatibility with chat-extension adapters that hadn't been
+updated yet. The plan in v4.67.0 was: "the next release
+deprecates the bare form, the release after that removes it."
+
+v4.69.0 is the deprecation release. The bare form is still
+fully functional — calling `ping` returns `pong` exactly as
+before — but every layer of the stack now signals the
+deprecation:
+
+1. **Catalogue** — the four bare entries carry a JSON-Schema
+   `deprecationMessage` field (the standard extension for
+   deprecation in JSON-Schema-based tool catalogues) and a
+   `[DEPRECATED v4.69.0; use exec.X]` suffix in the
+   `description`. Well-behaved MCP clients (e.g. the
+   vscode-mcp inspector) render the deprecation as a
+   strike-through in the tool palette.
+2. **Dispatch** — every call to a bare-name tool emits a
+   `PendingDeprecationWarning` at call time, so the server
+   log surfaces any caller that hasn't migrated. The
+   namespaced twin is silent, so a regression (a new caller
+   accidentally using the bare form) is immediately visible
+   in the log.
+3. **CI guard** — a new `legacy-name-guard` job
+   (`scripts/legacy_name_guard.py`) AST-walks every
+   dispatch file in `arena/mcp/`. Any new file or function
+   that compares a bare-name string literal against `name`
+   fails the build, with a clear message pointing to the
+   namespaced twin. The whitelist is exactly the three
+   pre-existing v4.67.0 dispatch sites
+   (`tool_exec.handle_exec_tool`,
+   `tool_misc.handle_misc_tool`,
+   `standalone_tools.call_tool`); the guard's own test
+   asserts the whitelist is in lockstep with the source
+   tree, so a renamed function trips a clear red X.
+
+The plan is to remove the bare entries in v4.75.0 (two minor
+versions away, giving clients six months to migrate).
+
+### Changed
+
+1. **`arena/mcp/tool_registry.py`** — the four bare entries
+   now carry `deprecationMessage` and the `[DEPRECATED]`
+   description suffix. Namespaced twins are unchanged.
+
+2. **`arena/mcp/tool_exec.py`** —
+   `handle_exec_tool` emits
+   `PendingDeprecationWarning` for the bare form of
+   `ping` / `echo` / `exec`. Namespaced calls are silent.
+
+3. **`arena/mcp/tool_misc.py`** —
+   `handle_misc_tool` emits
+   `PendingDeprecationWarning` for the bare form of
+   `snapshot`. The namespaced call is silent.
+
+4. **`arena/mcp/standalone_tools.py`** — `call_tool` mirrors
+   the warning for the standalone dispatcher path
+   (used by the chat extension, not by the main bridge).
+
+5. **`scripts/legacy_name_guard.py`** — new CI guard (188
+   lines). Runs as a new `legacy-name-guard` CI job on
+   every push. Exits 0 on a clean repo, 1 on a new bare-name
+   reference outside the whitelist, 2 if the script can't
+   import the package.
+
+6. **`.github/workflows/ci.yml`** — adds the
+   `legacy-name-guard` job. The job runs on ubuntu-latest
+   with Python 3.12, like every other structural guard.
+
+7. **`tests/test_legacy_name_deprecation.py`** — new test
+   module (30 cases). Covers:
+   - bare entries carry `deprecationMessage`
+   - bare `description` carries the `[DEPRECATED v4.69.0]`
+     marker
+   - namespaced twins do NOT carry deprecation metadata
+   - `inputSchema.additionalProperties` is still `False` on
+     the bare entries (deprecation didn't drop the hardening)
+   - the dispatch layer emits
+     `PendingDeprecationWarning` for bare calls
+   - the dispatch layer does NOT emit
+     `PendingDeprecationWarning` for namespaced calls
+   - the guard script's CLI exits 0 on a clean repo
+   - the guard script's CLI exits 1 on a new dispatch file
+     that uses a bare name
+
+8. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump to
+   `4.69.0`. The four sources stay in lockstep
+   (verified by `scripts/version_sync.py`).
+
+### Migration guide for clients
+
+If your code calls `ping` / `echo` / `exec` / `snapshot`,
+replace each call with the namespaced twin:
+
+| Before        | After         |
+| ------------- | ------------- |
+| `ping`        | `exec.ping`   |
+| `echo`        | `exec.echo`   |
+| `exec`        | `exec.exec`   |
+| `snapshot`    | `exec.snapshot` |
+
+The wire format is identical. The bare form will be
+removed in v4.75.0.
+
+### Out of scope (intentional, tracked for later)
+
+- **v4.70.0**: extend the deprecation window with release
+  notes + a `/v1/admin/bare_name_callers` endpoint that
+  returns the count of bare-name calls per client (so a
+  maintainer can see at a glance who hasn't migrated).
+- **v4.75.0**: remove the bare-name entries from
+  `MCP_TOOLS` and from the dispatch layer entirely.
+- **Coverage gate 50% → 60%** — needs new behavioural
+  tests for the bridge's restart / log-rotation paths.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** beyond `arena.service.restart`.
+- **Second README badge** — `dynamic-json` via
+  `docs/version.json` next to the existing `v/release` badge.
+
 ## v4.68.0 - re-enable Windows runner
 
 ### Purpose

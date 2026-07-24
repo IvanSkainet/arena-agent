@@ -1,3 +1,136 @@
+## v4.69.0 - deprecate bare tool names (deprecate bare-имена)
+
+### Цель
+
+В v4.67.0 были введены namespaced-алиасы
+(`exec.ping` / `exec.echo` / `exec.exec` / `exec.snapshot`)
+для четырёх legacy bare-имён (`ping` / `echo` / `exec` /
+`snapshot`). Bare-имена были оставлены в `MCP_TOOLS` и в
+dispatch-слое для обратной совместимости с chat-extension
+адаптерами, которые ещё не обновились. План v4.67.0 был:
+"следующий релиз deprecate'ит bare-форму, через релиз —
+удаляет".
+
+v4.69.0 — это релиз deprecation. Bare-форма всё ещё
+полностью функциональна — вызов `ping` возвращает `pong`,
+как и раньше — но каждый слой стека теперь сигнализирует
+deprecation:
+
+1. **Каталог** — четыре bare-entry содержат JSON-Schema поле
+   `deprecationMessage` (стандартное расширение для
+   deprecation в JSON-Schema-based tool-каталогах) и суффикс
+   `[DEPRECATED v4.69.0; use exec.X]` в `description`.
+   Well-behaved MCP-клиенты (например, vscode-mcp inspector)
+   отрисовывают deprecation как зачёркнутую запись в tool
+   palette.
+2. **Dispatch** — каждый вызов bare-name инструмента эмитит
+   `PendingDeprecationWarning` в момент вызова, так что
+   server-лог показывает любой caller, который не мигрировал.
+   Namespaced-близнец молчит, так что регрессия (новый
+   caller случайно использует bare-форму) сразу видна в логе.
+3. **CI guard** — новая `legacy-name-guard` job
+   (`scripts/legacy_name_guard.py`) AST-обходит все
+   dispatch-файлы в `arena/mcp/`. Любой новый файл или
+   функция, которая сравнивает bare-name string literal
+   с `name`, роняет build, с понятным сообщением,
+   указывающим на namespaced-близнец. Whitelist — это ровно
+   три pre-existing v4.67.0 dispatch-сайта
+   (`tool_exec.handle_exec_tool`,
+   `tool_misc.handle_misc_tool`,
+   `standalone_tools.call_tool`); собственный тест guard'а
+   проверяет, что whitelist синхронизирован с исходниками,
+   так что переименованная функция ловится ясным red X.
+
+План — удалить bare-entry в v4.75.0 (через два минорных
+релиза, давая клиентам шесть месяцев на миграцию).
+
+### Изменено
+
+1. **`arena/mcp/tool_registry.py`** — четыре bare-entry
+   теперь содержат `deprecationMessage` и суффикс
+   `[DEPRECATED]` в `description`. Namespaced-близнецы
+   без изменений.
+
+2. **`arena/mcp/tool_exec.py`** —
+   `handle_exec_tool` эмитит
+   `PendingDeprecationWarning` для bare-формы
+   `ping` / `echo` / `exec`. Namespaced-вызовы молчат.
+
+3. **`arena/mcp/tool_misc.py`** —
+   `handle_misc_tool` эмитит
+   `PendingDeprecationWarning` для bare-формы
+   `snapshot`. Namespaced-вызов молчит.
+
+4. **`arena/mcp/standalone_tools.py`** — `call_tool` зеркалит
+   warning для standalone dispatcher-пути
+   (используется chat-расширением, не основным bridge).
+
+5. **`scripts/legacy_name_guard.py`** — новый CI guard
+   (188 строк). Запускается как новая `legacy-name-guard`
+   CI job на каждом push. Exit 0 на чистом репо, 1 на новой
+   bare-name ссылке вне whitelist, 2 если скрипт не может
+   импортировать пакет.
+
+6. **`.github/workflows/ci.yml`** — добавлена
+   `legacy-name-guard` job. Job запускается на
+   ubuntu-latest с Python 3.12, как и все остальные
+   структурные guard'ы.
+
+7. **`tests/test_legacy_name_deprecation.py`** — новый
+   тестовый модуль (30 кейсов). Покрывает:
+   - bare-entry содержат `deprecationMessage`
+   - bare `description` содержит маркер
+     `[DEPRECATED v4.69.0]`
+   - namespaced-близнецы НЕ содержат deprecation-метаданных
+   - `inputSchema.additionalProperties` всё ещё `False`
+     на bare-entry (deprecation не убрал hardening)
+   - dispatch-слой эмитит
+     `PendingDeprecationWarning` для bare-вызовов
+   - dispatch-слой НЕ эмитит
+     `PendingDeprecationWarning` для namespaced-вызовов
+   - guard-скрипт CLI exit 0 на чистом репо
+   - guard-скрипт CLI exit 1 на новом dispatch-файле,
+     использующем bare-имя
+
+8. **`arena/constants.py`** /
+   **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — bump версии до
+   `4.69.0`. Все четыре источника остаются
+   синхронизированы (проверено
+   `scripts/version_sync.py`).
+
+### Migration guide для клиентов
+
+Если ваш код вызывает `ping` / `echo` / `exec` / `snapshot`,
+замените каждый вызов на namespaced-близнец:
+
+| Было          | Стало         |
+| ------------- | ------------- |
+| `ping`        | `exec.ping`   |
+| `echo`        | `exec.echo`   |
+| `exec`        | `exec.exec`   |
+| `snapshot`    | `exec.snapshot` |
+
+Wire-формат идентичен. Bare-форма будет удалена в v4.75.0.
+
+### Вне scope (намеренно, в очереди)
+
+- **v4.70.0**: расширить deprecation-окно через release
+  notes + endpoint `/v1/admin/bare_name_callers`,
+  возвращающий счётчик bare-name вызовов на клиента
+  (чтобы maintainer с одного взгляда видел, кто не
+  мигрировал).
+- **v4.75.0**: убрать bare-name entries из `MCP_TOOLS` и
+  из dispatch-слоя полностью.
+- **Coverage gate 50% → 60%** — нужны новые
+  behavioural-тесты для restart / log-rotation путей
+  bridge'а.
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** дальше `arena.service.restart`.
+- **Второй README-бейдж** — `dynamic-json` через
+  `docs/version.json` рядом с существующим `v/release`
+  бейджем.
+
 ## v4.68.0 - re-enable Windows runner
 
 ### Цель

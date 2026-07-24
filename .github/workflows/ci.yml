@@ -278,6 +278,35 @@ jobs:
   # rot. This runs as a separate job so a contract failure shows
   # up as its own red X in the Actions UI.
   # ----------------------------------------------------------------
+  # ----------------------------------------------------------------
+  # v4.69.0: legacy bare-name guard. Runs the AST-based
+  # legacy_name_guard.py script, which fails the build if any
+  # new dispatch file or function compares a bare-name
+  # string literal (``ping`` / ``echo`` / ``exec`` /
+  # ``snapshot``) against the ``name`` parameter. The
+  # deprecation of the bare form was signalled in v4.69.0
+  # (see arena/mcp/tool_registry.py for the catalogue
+  # deprecationMessage and arena/mcp/tool_exec.py for the
+  # dispatch PendingDeprecationWarning); this job exists so
+  # a future maintainer who reaches for a bare name in a NEW
+  # code path trips a CI red X at PR time, instead of
+  # silently expanding the deprecation surface.
+  # ----------------------------------------------------------------
+  legacy-name-guard:
+    name: 'Legacy bare-name guard (no new dispatch on ping/echo/exec/snapshot)'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Run legacy bare-name guard
+        run: |
+          python scripts/legacy_name_guard.py --repo-root .
+
   contract:
     name: MCP contract test
     runs-on: ubuntu-latest

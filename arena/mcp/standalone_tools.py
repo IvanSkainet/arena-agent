@@ -1,15 +1,48 @@
 """Standalone MCP tool dispatcher."""
 from __future__ import annotations
 
+import warnings
+
 from arena.mcp.standalone_common import *  # noqa: F401,F403
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
+
+# v4.69.0: emit a PendingDeprecationWarning when a caller
+# still uses one of the legacy bare names. Mirrors the
+# warning in arena.mcp.tool_exec / arena.mcp.tool_misc.
+_BARE_NAME_WARN = {
+    "ping": "exec.ping",
+    "echo": "exec.echo",
+    "exec": "exec.exec",
+    "snapshot": "exec.snapshot",
+}
+
+
+def _warn_bare(name: str) -> None:
+    replacement = _BARE_NAME_WARN.get(name)
+    if replacement is None:
+        return
+    warnings.warn(
+        f"tool name {name!r} is deprecated as of v4.69.0; use {replacement!r} instead. "
+        f"The bare form will be removed in v4.75.0.",
+        PendingDeprecationWarning,
+        stacklevel=3,
+    )
+
 
 def call_tool(name: str, args: dict) -> dict:
     """Диспетчер — возвращает MCP content payload."""
     try:
-        if name in ("exec.ping", "ping"): return text_content("pong")
-        if name in ("exec.echo", "echo"): return text_content(str(args.get("text", "")))
+        if name in ("exec.ping", "ping"):
+            if name == "ping":
+                _warn_bare("ping")
+            return text_content("pong")
+        if name in ("exec.echo", "echo"):
+            if name == "echo":
+                _warn_bare("echo")
+            return text_content(str(args.get("text", "")))
         if name in ("exec.exec", "exec"):
+            if name == "exec":
+                _warn_bare("exec")
             rc, out, err = run_sd(["bash", "-lc", args["cmd"]], timeout=args.get("timeout", 60))
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
         if name == "fs.read":
@@ -97,6 +130,8 @@ def call_tool(name: str, args: dict) -> dict:
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "hooks_runner.py"), "list"], timeout=10)
             return text_content(out or err)
         if name in ("exec.snapshot", "snapshot"):
+            if name == "snapshot":
+                _warn_bare("snapshot")
             rc, out, err = run_local([os.path.join(BIN, "agentctl"), "skill", "run", "system/sys-snapshot"], timeout=60)
             return text_content(out or err)
         if name == "subagent.spawn":
