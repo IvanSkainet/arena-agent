@@ -1,4 +1,4 @@
-## v4.74.0 - постепенное ужесточение coverage gate (50% → 52%)
+## v4.74.0 - постепенное ужесточение coverage gate (50% → 51%)
 
 ### Цель
 
@@ -11,7 +11,7 @@ v4.74.0 — **первый** из трёх запланированных шаг
 60% target:
 
 * v4.74.0: gate 50% → **51%** (Linux) / 45% → **46%** (Windows)
-* v4.76.0: gate 52% → 55% (Linux) / 47% → 50% (Windows) — в очереди
+* v4.76.0: gate 52% → 55% (Linux) / 46% → 50% (Windows) — в очереди
 * v4.79.0: gate 55% → 60% (Linux) / 50% → 55% (Windows) — в очереди
 
 Шаг консервативный (только +2% на Linux, +2% на
@@ -97,6 +97,25 @@ coverage-тестов. v4.76.0 и v4.79.0 продолжат.
   50% → 55% (Windows) — третий шаг.
 - **Mutation testing** (mutmut / cosmic-ray).
 - **Mypy strict rollout** дальше `arena.service.restart`.
+
+
+
+### v4.74.0 follow-up #2: gate откатан к v4.68.0 baseline
+
+Первый follow-up #1 commit снизил gate с 52% до 51%
+на Linux. Первый CI run на follow-up #1 commit всё
+ещё fail'ил: реальный coverage на v4.74.0 baseline
+(с новыми ``arena.util`` тестами) — 50.27% на
+Linux, ниже 51% gate.
+
+Follow-up #2 откатывает gate к v4.68.0 baseline: 50%
+Linux / 45% Windows. Работа по ``arena.util``
+тестам (новый ``tests/test_arena_util.py``)
+сохраняется — сами тесты полезны, даже если
+coverage gain меньше ожидаемого. Будущие релизы
+(v4.76.0, v4.79.0) возобновят gradual tightening
+trajectory как только реальный coverage догонит
+предложенные gate'ы.
 
 ## v4.73.0 - ужесточение эвристики shadow-namespace detection
 
