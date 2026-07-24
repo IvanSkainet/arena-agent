@@ -143,10 +143,10 @@ def test_against_real_master() -> None:
     if not (REPO / "arena" / "constants.py").exists():
         pytest.skip("not running inside the actual repo")
     import re as _re
-    src = (REPO / "arena" / "constants.py").read_text()
+    src = (REPO / "arena" / "constants.py").read_text(encoding="utf-8")
     m = _re.search(r'VERSION = "(\d+\.\d+\.\d+)"', src)
     assert m, "could not extract VERSION from arena/constants.py"
-    cl = (REPO / "CHANGELOG.md").read_text()
+    cl = (REPO / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## v{m.group(1)}" in cl, (
         f"top CHANGELOG entry doesn't match version {m.group(1)}"
     )

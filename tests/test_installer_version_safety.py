@@ -149,6 +149,8 @@ echo "ALL_PASS"
         ["bash", "-c", test_script],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=10,
     )
     assert result.returncode == 0, (

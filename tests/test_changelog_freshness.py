@@ -120,11 +120,10 @@ def test_against_real_master() -> None:
     assert r.returncode == 0, f"changelog_freshness failed against the real repo: {r.stdout}"
 
 
-def test_iso8601_with_timezone_offset() -> None:
+def test_iso8601_with_timezone_offset(tmp_path) -> None:
     """Regression: a date with a `+00:00` offset should parse, not crash."""
     today = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-    p = Path("/tmp/_cl_iso_test.md")
+    p = tmp_path / "_cl_iso_test.md"
     p.write_text(f"captured_at: \"{today}\"\n## v4.0.0\n\nNo date here.\n", encoding="utf-8")
-    r = _run(["--en", str(p), "--max-age-days", "30"], Path("/tmp"))
-    p.unlink()
+    r = _run(["--en", str(p), "--max-age-days", "30"], tmp_path)
     assert r.returncode == 0
