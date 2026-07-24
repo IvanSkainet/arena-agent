@@ -84,6 +84,16 @@ jobs:
         # marker in a test file trips the build instead of
         # passing silently. --junitxml produces machine-readable
         # results for the JUnit upload step below.
+        #
+        # v4.68.0: explicit ``shell: bash`` so the test run uses
+        # Git Bash on windows-latest. Without it, the runner
+        # defaults to PowerShell, which interprets
+        # ``--strict-markers`` as "Missing expression after
+        # unary operator '--'." (PowerShell parses ``--`` as a
+        # unary operator in some contexts.) The Python tests
+        # are platform-agnostic; the only thing that was
+        # platform-specific was the runner's default shell.
+        shell: bash
         run: |
           pytest -q --cov-fail-under=50 \
           --strict-markers \
