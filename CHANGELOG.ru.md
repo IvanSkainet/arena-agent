@@ -10,7 +10,7 @@ log-rotation paths."
 v4.74.0 — **первый** из трёх запланированных шагов к
 60% target:
 
-* v4.74.0: gate 50% → **52%** (Linux) / 45% → **47%** (Windows)
+* v4.74.0: gate 50% → **51%** (Linux) / 45% → **46%** (Windows)
 * v4.76.0: gate 52% → 55% (Linux) / 47% → 50% (Windows) — в очереди
 * v4.79.0: gate 55% → 60% (Linux) / 50% → 55% (Windows) — в очереди
 
@@ -45,7 +45,7 @@ pure-helper (без I/O, без network, без subprocess),
    ``pyproject.toml`` намеренно не меняется (остаётся
    70% как local-dev floor — local dev бежит без
    per-platform variable, так что 70% ловит вопиющие
-   regressions, но 52%/47% это что CI enforces
+   regressions, но 51%/46% это что CI enforces
    per-platform).
 
 2. **`tests/test_arena_util.py`** — новый тестовый
@@ -89,8 +89,7 @@ coverage-тестов. v4.76.0 и v4.79.0 продолжат.
 - **v4.75.0**: убрать bare `ping` / `echo` /
   `exec` / `snapshot` имена полностью (v4.69.0
   deprecation окно истекает).
-- **v4.76.0**: coverage gate 52% → 55% (Linux) /
-  47% → 50% (Windows) — второй шаг трёх-шагового
+- **v4.76.0**: coverage gate 52% → 55% (Linux) / 46% → 50% (Windows) — второй шаг трёх-шагового
   gradual tightening.
 - **v4.78.0**: убрать bare `mem.*` алиасы
   (v4.71.0 deprecation окно истекает).
