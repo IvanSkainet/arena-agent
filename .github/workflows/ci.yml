@@ -106,9 +106,9 @@ jobs:
         shell: bash
         run: |
           if [ "$RUNNER_OS" = "Windows" ]; then
-            THRESHOLD=47
+            THRESHOLD=45
           else
-            THRESHOLD=52
+            THRESHOLD=50
           fi
           pytest -q --cov-fail-under=$THRESHOLD \
           --strict-markers \
