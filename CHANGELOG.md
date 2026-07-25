@@ -1,3 +1,81 @@
+## v4.79.0 - coverage gate 50% → 51% (third gradual-tightening step)
+
+### Purpose
+
+The deferred coverage-tightening work item from the v4.65.0
+release notes continues. v4.74.0 was the first step (50% → 51%
+Linux / 45% → 46% Windows) and the follow-up rolled the gate
+back to the v4.68.0 baseline (50%/45%) when the new tests
+didn't bring coverage up enough. v4.76.0 was the second step
+(50% → 55% Linux / 45% → 50% Windows) and was also rolled back
+after the real coverage gain was only ~0.0% (the project had
+already plateaued at ~50.3% with the existing test suite).
+
+v4.79.0 is the **third** planned step and the first one that
+ships a *real* coverage lift before bumping the gate. Five
+new test files exercise previously-untested code:
+
+* `tests/test_arena_mcp_ws_frames.py` (10 cases) — WebSocket
+  framing helpers in `arena/mcp/ws_frames.py` (0% → 60%).
+* `tests/test_arena_mcp_ws_push.py` (10 cases) — topic-based
+  push notifications in `arena/mcp/ws_push.py` (0% → 57%).
+* `tests/test_arena_chat_cli_common.py` (10 cases) — chat REPL
+  utility helpers (slugify, now_iso, write_event, open_session)
+  in `arena/chat_cli/common.py` (0% → ~40%).
+* `tests/test_arena_agent_helpers_files.py` (7 cases) — agent
+  filesystem helpers (safe_write, backup_file, now_iso) in
+  `arena/agent_helpers/files.py` (0% → ~25%).
+* `tests/test_arena_agent_helpers_runtime.py` (6 cases) —
+  JSONL fact reader/writer (load_facts, put_fact) in
+  `arena/agent_helpers/runtime.py` (0% → ~25%).
+
+### What v4.79.0 actually achieves
+
+- **+43 unit tests** in 5 new test files.
+- **Real coverage lift**: 50.29% → 51.06% (+0.77 pp).
+- **Gate bumped**: 50% → 51% (Linux) / 45% → 46% (Windows).
+
+### Why only +1%, not the planned +5%
+
+The roadmap item originally called for a 55% → 60% jump,
+but the v4.76.0 experiment showed that the *real* coverage
+ceiling for this codebase is ~50.3% without an order-of-
+magnitude more tests (the codebase is ~32k stmts, and most
+of the missing coverage is in CLI / script entry points that
+require a running bridge installation to exercise). v4.79.0
+takes the smaller, sustainable step: +1% with a real
+test lift, not a synthetic gate bump that immediately rolls
+back.
+
+### Changed
+
+1. **`.github/workflows/ci.yml`** — coverage gate bumped
+   50% → 51% (Linux) / 45% → 46% (Windows); comment
+   refreshed to point at v4.79.0.
+2. **`arena/constants.py`** / **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump to
+   4.79.0 (new entry appended to `BRIDGE_VERSIONS`).
+3. **5 new test files** listed above.
+
+### What v4.79.0 does NOT touch
+
+- The roadmap item to "tighten to 60%" is now an explicit
+  multi-step project that requires a separate test-authoring
+  pass; it is not on the v4.80+ critical path.
+- Mutation testing (mutmut / cosmic-ray).
+- Mypy strict rollout beyond `arena.service.restart`.
+
+### Out of scope (still tracked)
+
+- **v4.80.0**: fix the pre-existing `decode_output` cp1251
+  bug (the next release in the queue; the xfail test in
+  `tests/test_arena_util.py` is the target).
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** beyond `arena.service.restart`.
+- **Coverage roadmap**: a longer-term effort to write
+  targeted tests for the remaining CLI entry points so the
+  60% target becomes reachable.
+
 ## v4.78.0 follow-up #1 - finish removing the mem.set dispatch branch
 
 ### Purpose
