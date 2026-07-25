@@ -1,3 +1,46 @@
+## v4.84.0 - The bridge can hear: first-class microphone capture (Arena VoiceRecorder)
+
+### Purpose
+
+Gives the bridge a "hearing" sense to match its "sight" (screenshot / ui
+dump). A tiny signed helper app records microphone audio on the device and
+the new `mobile.voice_record` tool drives it end to end — install once,
+record for a duration, pull the MP4 back — ready to hand to
+`asr.transcribe`. This unblocks voice-driven scenarios (voice memo ->
+transcription -> action) with a durable, app-independent component: capture
+is fully bridge-controlled, the system Recorder app is NOT driven.
+
+### Changes
+
+* **New `mobile.voice_record` MCP tool** (MEDIUM risk, approval-gated):
+  - Records `duration_ms` (500..600000) of microphone audio into AAC-in-MP4.
+  - Auto-installs the bundled recorder app on first use (idempotent, checked
+    via `pm path`), grants `RECORD_AUDIO` and `MANAGE_EXTERNAL_STORAGE`.
+  - Starts the recording via `am start`, polls the `<output>.done` marker
+    the app writes on completion, pulls the file to
+    `~/.arena/voice-captures/` and returns
+    `{ok, remote, local, size_bytes, status, record_ms, mime}` (plus
+    `bytes_b64` with `return_bytes=true`).
+  - Transcription stays a separate `asr.transcribe(path=<local>)` call — the
+    agent composes the two general capabilities (hearing + transcription).
+
+* **New core module `arena/mobile/audio_capture.py`:** install / permissions
+  / record / pull orchestration plus pure, unit-tested helpers
+  (`pm_path_installed`, `parse_done_marker`, `default_output_path`,
+  `bundled_apk_path`, `voice_capture_dir`).
+
+* **Bundled `assets/apks/arena-voicerecorder.apk`:** a minimal signed
+  (APK Signature Scheme v3) Android app — `com.arena.voicerecorder`,
+  `MediaRecorder` with `AudioSource.MIC` -> MPEG_4/AAC — built from source
+  via the aapt2 + javac + d8 + zipalign + apksigner pipeline.
+
+* **Policy:** `mobile.voice_record` classified MEDIUM (state-changing and
+  privacy-sensitive; requires approval like the other mobile actions).
+
+* **Tests:** `tests/test_mobile_audio_capture.py` (helper logic + a guard
+  that the recorder APK actually ships and is a valid zip); MCP contract
+  snapshot refreshed for the new tool.
+
 ## v4.83.0 - Scenario-driven mobile hardening: honest audio capability, honored recording duration, robust adb discovery
 
 ### Purpose

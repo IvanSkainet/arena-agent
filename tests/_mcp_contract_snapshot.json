@@ -241,7 +241,8 @@
       "mobile.launch_app",
       "mobile.list_files",
       "mobile.pull_file",
-      "mobile.push_file"
+      "mobile.push_file",
+      "mobile.voice_record"
     ]
   },
   {

@@ -27,6 +27,7 @@ from typing import Any
 
 from arena.mcp.tool_utils import text_content
 from arena.mobile.adb import find_adb as _find_adb, install_hint as _adb_install_hint
+from arena.mobile import audio_capture as _audio
 
 
 _MAX_PULL_BYTES = 100 * 1024 * 1024  # 100 MiB safety cap on pulled files
@@ -180,10 +181,25 @@ def _list_files(serial: str, args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "path": path, "count": len(rows), "entries": rows[:1000]}
 
 
+def _voice_record(serial: str, args: dict[str, Any]) -> dict[str, Any]:
+    duration = args.get("duration_ms", args.get("duration"))
+    try:
+        duration_ms = int(duration) if duration is not None else 8000
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"duration_ms must be an integer, got {duration!r}"}
+    return _audio.voice_record(
+        serial,
+        duration_ms=duration_ms,
+        return_bytes=bool(args.get("return_bytes", False)),
+        keep_on_device=bool(args.get("keep_on_device", False)),
+    )
+
+
 def handle_mobile_ext_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
-    """Dispatch v4.59.0 mobile.* additions. Returns None if not ours so
+    """Dispatch v4.59.0+ mobile.* additions. Returns None if not ours so
     the main mobile dispatcher can try its _ROUTES table."""
-    serial_required = {"mobile.launch_app", "mobile.pull_file", "mobile.push_file", "mobile.list_files"}
+    serial_required = {"mobile.launch_app", "mobile.pull_file", "mobile.push_file",
+                       "mobile.list_files", "mobile.voice_record"}
     if name not in serial_required:
         return None
     serial = str(args.get("serial", "") or "").strip()
@@ -198,6 +214,8 @@ def handle_mobile_ext_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str,
         return text_content(json.dumps(_push_file(serial, args), ensure_ascii=False))
     if name == "mobile.list_files":
         return text_content(json.dumps(_list_files(serial, args), ensure_ascii=False))
+    if name == "mobile.voice_record":
+        return text_content(json.dumps(_voice_record(serial, args), ensure_ascii=False))
     return None
 
 
@@ -261,6 +279,31 @@ MOBILE_EXT_MCP_TOOLS = [
             "properties": {
                 "serial": {"type": "string"},
                 "path": {"type": "string", "default": "/sdcard/"},
+            },
+            "required": ["serial"], "additionalProperties": False},
+    },
+    {
+        "name": "mobile.voice_record",
+        "description": (
+            "Record MICROPHONE audio from the device into an MP4 (AAC) and "
+            "pull it back to the bridge host. The bridge installs a tiny "
+            "signed helper app (com.arena.voicerecorder) on first use, "
+            "grants RECORD_AUDIO, records for `duration_ms`, and returns the "
+            "captured file's local host path. Transcribe the result with "
+            "asr.transcribe(path=<local>). This is the bridge's 'hearing' "
+            "sense — capture is fully bridge-controlled (the system Recorder "
+            "app is not driven)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "serial": {"type": "string"},
+                "duration_ms": {"type": "integer", "default": 8000,
+                                "description": "recording length in ms (500..600000)"},
+                "return_bytes": {"type": "boolean", "default": False,
+                                 "description": "also embed the MP4 as base64"},
+                "keep_on_device": {"type": "boolean", "default": False,
+                                   "description": "do not delete the on-device file after pulling"},
             },
             "required": ["serial"], "additionalProperties": False},
     },

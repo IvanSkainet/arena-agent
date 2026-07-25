@@ -37,7 +37,7 @@ _MEDIUM_TOOLS = {
     # already surfaces as "requires approval".
     "scenario.save", "scenario.delete",
     # v4.56.0: mobile.* input/camera actions (state-changing but locally reversible).
-    "mobile.tap", "mobile.swipe", "mobile.type", "mobile.key", "mobile.key_combo", "mobile.scroll", "mobile.gesture", "mobile.tap_by", "mobile.paste", "mobile.camera_launch", "mobile.camera_shutter", "mobile.camera_capture", "mobile.camera_pull", "mobile.camera_record_start", "mobile.camera_record_stop", "mobile.record_start", "mobile.record_stop", "mobile.record_pull",
+    "mobile.tap", "mobile.swipe", "mobile.type", "mobile.key", "mobile.key_combo", "mobile.scroll", "mobile.gesture", "mobile.tap_by", "mobile.paste", "mobile.camera_launch", "mobile.camera_shutter", "mobile.camera_capture", "mobile.camera_pull", "mobile.camera_record_start", "mobile.camera_record_stop", "mobile.record_start", "mobile.record_stop", "mobile.record_pull", "mobile.voice_record",
     # v4.57.0: typed HTTP client + secret metadata reads.
     "net.http", "secrets.get",
     # v4.58.0: local speech-to-text via whisper.cpp.
