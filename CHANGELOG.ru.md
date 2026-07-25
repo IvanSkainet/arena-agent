@@ -1,3 +1,22 @@
+## v4.86.1 - CI hotfix: README для OCR namespace, legacy mobile-ext test и security annotations
+
+### Цель
+
+Исправляет CI-регрессии, появившиеся в сценарных релизах v4.85.0/v4.86.0.
+Runtime-фичи были рабочими, но CI поймал недообновлённые guard’ы: старое
+ожидание registry mobile-ext, README namespace coverage и security scan
+annotations.
+
+### Изменения
+
+* В README namespace table добавлен `ocr`, чтобы проходил namespace-doc coverage.
+* Legacy v4.59 mobile-ext registry test теперь принимает additive tools вроде
+  `mobile.voice_record`, а не требует точного исторического множества.
+* Добавлены security annotations для одобренных bootstrap downloads
+  (`asr.bootstrap`, `ocr.bootstrap`) и owner-only `voice-captures` chmod.
+* Локально проверено: namespace-doc coverage, targeted tests, semgrep, bandit и
+  ruff blocking rules.
+
 ## v4.86.0 - Generic OCR: health, bootstrap и OCR произвольного image-файла
 
 ### Цель

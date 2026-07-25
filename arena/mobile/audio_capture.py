@@ -98,7 +98,7 @@ def voice_capture_dir() -> Path:
                 or (Path.home() / ".arena" / "voice-captures")).expanduser()
     root.mkdir(parents=True, exist_ok=True)
     try:
-        os.chmod(root, 0o700)
+        os.chmod(root, 0o700)  # nosemgrep: insecure-file-permissions -- intentionally tighten pulled voice-capture dir to owner-only 0700
     except OSError:
         pass
     return root

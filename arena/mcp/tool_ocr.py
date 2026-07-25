@@ -117,7 +117,8 @@ def _download_atomic(url: str, dest: Path, *, force: bool = False) -> dict[str, 
     if tmp.exists():
         tmp.unlink()
     req = urllib.request.Request(url, headers={"User-Agent": "arena-agent"})
-    with urllib.request.urlopen(req, timeout=60) as r, tmp.open("wb") as f:
+    with urllib.request.urlopen(  # nosec B310 -- controlled HTTPS bootstrap URL/override is an approved runtime installer input # nosemgrep: dynamic-urllib-use-detected -- OCR bootstrap downloads approved HTTPS runtime assets; caller must approve ocr.bootstrap
+        req, timeout=60) as r, tmp.open("wb") as f:
         while True:
             chunk = r.read(1024 * 1024)
             if not chunk:

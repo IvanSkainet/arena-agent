@@ -481,6 +481,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
 | `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |
 | `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |
+| `ocr` | `ocr.extract` — Run OCR on any image file and return text + word boxes |
 | `plan` | `plan.create` — Create a structured execution plan for a goal, with suggeste |
 | `react` | `react.run` — Run a bounded reason-act-observe loop using safe observation |
 | `reflect` | `reflect.run` — Reflect on a prior react/planning run and produce concerns,  |

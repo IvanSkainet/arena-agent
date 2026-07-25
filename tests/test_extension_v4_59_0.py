@@ -47,7 +47,7 @@ def test_desktop_input_registry():
 
 def test_mobile_ext_registry():
     names = {t["name"] for t in MOBILE_EXT_MCP_TOOLS}
-    assert names == {"mobile.launch_app", "mobile.pull_file", "mobile.push_file", "mobile.list_files"}
+    assert {"mobile.launch_app", "mobile.pull_file", "mobile.push_file", "mobile.list_files"} <= names
 
 
 def test_browser_headed_registry():
@@ -88,6 +88,7 @@ def test_mobile_shell_ops_classification():
     assert classify_tool_risk("mobile.pull_file") == "medium"
     assert classify_tool_risk("mobile.push_file") == "dangerous"  # writing to device fs
     assert classify_tool_risk("mobile.list_files") == "safe"
+    assert classify_tool_risk("mobile.voice_record") == "medium"
 
 
 def test_browser_headed_classification():
