@@ -25,11 +25,13 @@ def test_image_registry_and_policy():
     assert classify_tool_risk("image.preprocess_for_ocr") == "medium"
 
 
-def test_image_health_reports_pillow():
+def test_image_health_reports_runtime_shape():
+    # CI does not guarantee Pillow/OpenCV are installed. image.health must
+    # report availability honestly; preprocessing tests import-skip Pillow.
     h = ip.image_health()
-    assert "pillow" in h
-    assert "opencv" in h
-    assert h["pillow"]["ok"] is True
+    assert "ok" in h
+    assert "pillow" in h and "ok" in h["pillow"]
+    assert "opencv" in h and "ok" in h["opencv"]
 
 
 def test_default_output_path_lands_in_ocr_dir(tmp_path, monkeypatch):

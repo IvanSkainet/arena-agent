@@ -1,3 +1,18 @@
+## v4.89.1 - CI hotfix: image.health test does not require Pillow in CI
+
+### Purpose
+
+Fixes CI failures from v4.87+/v4.88+/v4.89 where the image health test
+incorrectly required Pillow to be installed in the GitHub Actions runtime.
+`image.health` is a diagnostic tool and must report missing Pillow honestly;
+only actual preprocessing tests should skip when Pillow is unavailable.
+
+### Changes
+
+* `test_image_health_reports_runtime_shape` now validates the health payload
+  shape instead of asserting `pillow.ok=true`.
+* Preprocessing tests keep using `pytest.importorskip("PIL.Image")`.
+
 ## v4.89.0 - Document structuring layer (`document.*`)
 
 ### Purpose
