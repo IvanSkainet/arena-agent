@@ -1,3 +1,71 @@
+## v4.80.0 - fix the pre-existing `decode_output` cp1251 bug
+
+### Purpose
+
+`arena/util.py::decode_output` is the Windows-aware bytes → str
+helper used by every console-capture path. The pre-v4.80.0
+implementation tried three codecs (``utf-8``, ``cp866``,
+``cp1251``) but used ``errors="replace"`` on every one, which
+meant the codecs *never* raised -- so the cp1251 / cp866
+fallbacks were never actually tried. The first iteration
+succeeded with replacement characters (``\ufffd``) and the
+function returned the wrong output for any Windows console
+capture that wasn't already valid UTF-8.
+
+The bug was surfaced by the v4.74.0 test
+`test_decode_output_handles_cp1251_on_windows`, which has been
+marked `xfail` with a comment pointing at v4.80.0 since then.
+
+### The fix
+
+Use ``errors="strict"`` on ``utf-8`` and ``cp1251`` (the two
+codecs that are strict enough to reject misencoded bytes), and
+keep ``errors="replace"`` on the final fallback (``cp866``)
+as a safety net so the function never raises.
+
+The codec order also changes: ``cp1251`` is now tried *before*
+``cp866`` (instead of after). The reason is that ``cp866``'s
+Cyrillic range is a subset of ``cp1251``'s, so a ``cp1251``
+capture would be accepted by ``cp866`` and produce garbled
+output. Putting ``cp1251`` first means the more common Windows
+default ANSI code page roundtrips correctly; ``cp866`` is now
+only the legacy-DOS safety net.
+
+### Changed
+
+1. **`arena/util.py`** — `decode_output` rewritten: strict-mode
+   utf-8 / cp1251 cascade with a cp866 ``errors="replace"``
+   safety net. Old implementation used ``errors="replace"``
+   on every codec, which made the fallbacks unreachable.
+2. **`tests/test_arena_util.py`** — the
+   `test_decode_output_handles_cp1251_on_windows` xfail marker
+   is removed (the test now passes on Windows). The test
+   itself is unchanged; the comment was refreshed to point at
+   v4.80.0 as the source of the fix.
+3. **`arena/constants.py`** / **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump to 4.80.0
+   (new entry appended to `BRIDGE_VERSIONS`).
+
+### What v4.80.0 does NOT touch
+
+- The Linux branch of `decode_output` is unchanged
+  (`data.decode("utf-8", "replace")`). The fix is
+  Windows-only because that's the only platform where
+  console output can be cp1251 / cp866 encoded.
+- Mutation testing (mutmut / cosmic-ray).
+- Mypy strict rollout beyond `arena.service.restart`.
+- The roadmap item to push the coverage gate to 60% is
+  still a multi-step project; v4.79.0's +1% step is the
+  furthest we've gotten.
+
+### Out of scope (still tracked)
+
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** beyond `arena.service.restart`.
+- **Coverage roadmap**: a longer-term effort to write
+  targeted tests for the remaining CLI entry points so the
+  60% target becomes reachable.
+
 ## v4.79.0 - coverage gate 50% → 51% (third gradual-tightening step)
 
 ### Purpose

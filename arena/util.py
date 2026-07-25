@@ -44,11 +44,38 @@ def get_clean_platform_name() -> str:
 
 def decode_output(data: bytes) -> str:
     if os.name == "nt":
-        for codec in ["utf-8", "cp866", "cp1251"]:
+        # v4.80.0: the pre-v4.80.0 implementation used
+        # ``errors="replace"`` on every codec, which made the
+        # codecs *never* raise -- so the cp1251 / cp866
+        # fallbacks were never actually tried (the first
+        # iteration succeeded with replacement characters and
+        # the function returned the wrong output for any
+        # Windows console capture that wasn't already valid
+        # UTF-8).
+        #
+        # The fix: try codecs in *strict* mode (utf-8 first,
+        # then cp1251 which is the Windows default ANSI code
+        # page for almost all Latin-1 / Cyrillic
+        # installations) so the loop has a chance to fall
+        # through to the next codec when the current one
+        # rejects the bytes. The very last fallback is cp866
+        # with ``errors="replace"`` -- a safety net for
+        # legacy DOS-encoded captures; the function never
+        # raises so callers can always rely on getting a
+        # ``str`` back.
+        #
+        # Note: cp866 is *tried after* cp1251 (not before)
+        # because cp866's Cyrillic range is a subset of
+        # cp1251's. Putting cp1251 first means a cp1251
+        # capture roundtrips correctly; cp866 would also
+        # accept those bytes but produce garbled output,
+        # which is the bug the previous codec order had.
+        for codec in ("utf-8", "cp1251"):
             try:
-                return data.decode(codec, errors="replace")
+                return data.decode(codec, errors="strict")
             except Exception:
                 continue
+        return data.decode("cp866", errors="replace")
     return data.decode("utf-8", "replace")
 
 

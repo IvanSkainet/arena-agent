@@ -1,3 +1,74 @@
+## v4.80.0 - исправление pre-existing `decode_output` cp1251 bug
+
+### Цель
+
+`arena/util.py::decode_output` — это Windows-aware bytes → str
+helper, используемый каждым console-capture path. Pre-v4.80.0
+реализация пробовала три кодека (``utf-8``, ``cp866``,
+``cp1251``), но использовала ``errors="replace"`` на каждом,
+что означало, что кодеки *никогда* не raise-или -- поэтому
+fallback-и на cp1251 / cp866 никогда реально не пробовались.
+Первая итерация успешно завершалась с replacement characters
+(``\ufffd``), и функция возвращала неправильный output для
+любого Windows console capture, который не был уже валидным
+UTF-8.
+
+Bug был обнаружен тестом v4.74.0
+`test_decode_output_handles_cp1251_on_windows`, который с тех
+пор был помечен `xfail` с комментарием, указывающим на
+v4.80.0.
+
+### Исправление
+
+Использовать ``errors="strict"`` на ``utf-8`` и ``cp1251``
+(двух кодеках, достаточно строгих, чтобы отклонять
+неправильно закодированные байты), и оставить
+``errors="replace"`` на финальном fallback-е (``cp866``) в
+качестве safety net, чтобы функция никогда не raise-ила.
+
+Порядок кодеков тоже меняется: ``cp1251`` теперь пробуется
+*до* ``cp866`` (вместо после). Причина в том, что Cyrillic
+range ``cp866`` — подмножество ``cp1251``, поэтому cp1251
+capture был бы принят cp866 и выдал бы garbled output.
+Поставив cp1251 первым, более распространённый Windows
+default ANSI code page roundtrips правильно; cp866 теперь —
+только legacy-DOS safety net.
+
+### Изменено
+
+1. **`arena/util.py`** — `decode_output` переписан: strict-mode
+   utf-8 / cp1251 cascade с cp866 ``errors="replace"`` safety
+   net. Старая реализация использовала ``errors="replace"``
+   на каждом кодеке, что делало fallback-и недостижимыми.
+2. **`tests/test_arena_util.py`** — xfail маркер на
+   `test_decode_output_handles_cp1251_on_windows` удалён
+   (тест теперь проходит на Windows). Сам тест не изменён;
+   комментарий обновлён, чтобы указывать на v4.80.0 как
+   источник исправления.
+3. **`arena/constants.py`** / **`pyproject.toml`** /
+   **`tests/_version_matrix.py`** — version bump до 4.80.0
+   (новая запись добавлена в `BRIDGE_VERSIONS`).
+
+### Что v4.80.0 НЕ трогает
+
+- Linux-ветка `decode_output` не изменена
+  (`data.decode("utf-8", "replace")`). Исправление только
+  для Windows, потому что это единственная платформа, где
+  console output может быть закодирован в cp1251 / cp866.
+- Mutation testing (mutmut / cosmic-ray).
+- Mypy strict rollout за пределами `arena.service.restart`.
+- Roadmap item по push coverage gate до 60% остаётся
+  multi-step проектом; +1% шаг v4.79.0 — максимум, которого
+  мы достигли.
+
+### Вне scope (всё ещё отслеживается)
+
+- **Mutation testing** (mutmut / cosmic-ray).
+- **Mypy strict rollout** за пределами `arena.service.restart`.
+- **Coverage roadmap**: долгосрочный effort по написанию
+  targeted tests для оставшихся CLI entry points, чтобы
+  60% target стал достижим.
+
 ## v4.79.0 - coverage gate 50% → 51% (третий шаг постепенного ужесточения)
 
 ### Цель
