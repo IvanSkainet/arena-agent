@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 _SAFE_TOOLS = {
     "browser.fetch", "browser.head", "browser.read", "browser.search",
     "fs.diff", "fs.grep", "fs.list", "fs.read", "fs.search", "fs.tree", "fs.view",
+    "document.extract_tasks", "document.structure",
     "git.diff", "git.log", "git.status",
     "memory.digest", "memory.export", "memory.recall",
     "mission.catalog", "mission.family", "mission.history", "mission.lineage",

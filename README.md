@@ -473,6 +473,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `asr` | `asr.transcribe` — Transcribe an audio file locally with whisper.cpp. Auto-conv |
 | `browser` | `browser.search` — DuckDuckGo search via pure-Python (no chromium) |
 | `desktop` | `desktop.ocr` — Run OCR on a fresh desktop screenshot and return recognized  |
+| `document` | `document.structure` — Structure OCR/ASR/text into tasks or physics homework JSON |
 | `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |

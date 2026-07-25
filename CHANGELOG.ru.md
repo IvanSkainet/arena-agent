@@ -1,3 +1,22 @@
+## v4.89.0 - Document structuring layer (`document.*`)
+
+### Цель
+
+Добавляет semantic structuring слой, который возник после обсуждения OCR/vision.
+У моста уже есть разные способы получить text-like input (OCR, ASR, browser,
+files, мультимодальные агенты). Этот релиз добавляет deterministic tools,
+которые превращают сырой текст в стабильный JSON без внешних LLM-вызовов.
+
+### Изменения
+
+* Новая MCP-тула `document.extract_tasks` (SAFE): извлекает checklist-like
+  tasks из OCR/ASR/text в `{tasks:[...]}` с `due_text` hints.
+* Новая MCP-тула `document.structure` (SAFE): поддерживает `kind=auto`,
+  `task_note` и `physics_homework`; для физики извлекает variables, formulas,
+  find lines и answer lines.
+* Новый helper module `arena.document.structure` с deterministic parsers.
+* README namespace coverage и MCP contract snapshot обновлены под `document.*`.
+
 ## v4.88.0 - OCR auto-quality runner (`ocr.extract_best`)
 
 ### Цель

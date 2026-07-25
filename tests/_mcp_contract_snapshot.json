@@ -73,6 +73,16 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_document.py",
+    "handlers": [
+      "handle_document_tool"
+    ],
+    "tool_names": [
+      "document.extract_tasks",
+      "document.structure"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_exec.py",
     "handlers": [
       "handle_exec_tool"
@@ -353,6 +363,14 @@
       "asr.health",
       "asr.models",
       "asr.transcribe"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_document.py",
+    "handlers": [],
+    "tool_names": [
+      "document.extract_tasks",
+      "document.structure"
     ]
   },
   {
