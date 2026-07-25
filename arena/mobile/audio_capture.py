@@ -175,6 +175,7 @@ def voice_record(
     serial: str,
     *,
     duration_ms: int = 8000,
+    pre_delay_ms: int = 0,
     return_bytes: bool = False,
     keep_on_device: bool = False,
     install_timeout_s: int = 180,
@@ -191,6 +192,8 @@ def voice_record(
         return _err("serial required")
     if not isinstance(duration_ms, int) or not (500 <= duration_ms <= 600_000):
         return _err(f"duration_ms out of range 500..600000: {duration_ms}")
+    if not isinstance(pre_delay_ms, int) or not (0 <= pre_delay_ms <= 120_000):
+        return _err(f"pre_delay_ms out of range 0..120000: {pre_delay_ms}")
 
     inst = ensure_installed(serial)
     if not inst.get("ok"):
@@ -206,6 +209,9 @@ def voice_record(
         run(["shell", "rm", "-f", marker], serial=serial, timeout=5)
     except Exception:
         pass
+
+    if pre_delay_ms:
+        time.sleep(pre_delay_ms / 1000.0)
 
     started = time.monotonic()
     start = run(
@@ -256,6 +262,7 @@ def voice_record(
         "size_bytes": size_bytes,
         "status": "ok",
         "record_ms": record_ms,
+        "pre_delay_ms": pre_delay_ms,
         "mime": "audio/mp4",
         "package": PKG,
     }

@@ -1,3 +1,38 @@
+## v4.85.0 - ASR runtime hardening: health, bootstrap, atomic model downloads, and voice-record pre-delay
+
+### Purpose
+
+Hardens the voice scenario after v4.84.0 proved that the bridge can hear.
+The live run exposed the next layer: the ASR environment was not vanilla —
+`ffmpeg`, `whisper-cli`, and a complete model had to be installed by hand,
+and an interrupted model download looked present but failed at runtime. This
+release turns that manual setup into bridge-level diagnostics and bootstrap
+capability, and makes voice recording easier to coordinate with humans.
+
+### Changes
+
+* **New `asr.health` MCP tool** (SAFE): reports `ffmpeg`, `whisper-cli`,
+  discovered models, selected model, partial/corrupt model detection, PATH,
+  and a bootstrap hint.
+
+* **New `asr.bootstrap` MCP tool** (DANGEROUS, approval-gated): Windows ASR
+  bootstrapper that downloads `ffmpeg`, official whisper.cpp Windows x64
+  binaries, and a ggml model into user-local locations (`~/.local/bin`,
+  `~/.whisper`). Model downloads are atomic (`.tmp` -> final) so a timed-out
+  partial file is never treated as valid.
+
+* **Model discovery hardened:** explicit `model` / `ARENA_WHISPER_MODEL`
+  still win, but auto-discovery now prefers `ggml-small.bin` over `base` for
+  better Russian accuracy and refuses known partial/corrupt model files.
+
+* **`mobile.voice_record` UX:** new `pre_delay_ms` argument delays recording
+  after install/permissions and before microphone start, matching the real
+  coordination pattern from the live voice test.
+
+* **Tests:** ASR registry/policy/health/partial-model coverage, bootstrap
+  non-Windows guard, and `pre_delay_ms` argument wiring. MCP contract snapshot
+  refreshed for `asr.health` and `asr.bootstrap`.
+
 ## v4.84.0 - The bridge can hear: first-class microphone capture (Arena VoiceRecorder)
 
 ### Purpose

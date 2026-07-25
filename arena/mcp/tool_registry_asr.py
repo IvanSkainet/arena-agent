@@ -29,9 +29,37 @@ ASR_MCP_TOOLS = [
         "description": (
             "List discovered whisper models under ~/.whisper, "
             "/usr/share/whisper.cpp, and ARENA_WHISPER_MODEL. "
-            "Also reports which whisper binary is on PATH."
+            "Reports size/partial validity and the selected model."
         ),
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "asr.health",
+        "description": (
+            "Diagnose the local ASR runtime: ffmpeg, whisper-cli, discovered "
+            "models, selected model, PATH and bootstrap hint. Safe/read-only."
+        ),
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "asr.bootstrap",
+        "description": (
+            "Bootstrap the Windows ASR runtime by downloading ffmpeg, official "
+            "whisper.cpp Windows binaries and a ggml model into user-local "
+            "paths (~/.local/bin and ~/.whisper). Uses atomic .tmp -> final "
+            "model downloads so interrupted downloads are never considered valid."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "default": "small", "description": "tiny/base/small/medium or ggml-*.bin"},
+                "force": {"type": "boolean", "default": False, "description": "redownload model even if present"},
+                "bin_dir": {"type": "string", "description": "override binary destination (must be on PATH)"},
+                "model_dir": {"type": "string", "description": "override model destination"},
+                "whisper_zip_url": {"type": "string", "description": "override whisper.cpp Windows zip URL"},
+                "model_url": {"type": "string", "description": "override model URL"},
+            },
+            "additionalProperties": False},
     },
 ]
 

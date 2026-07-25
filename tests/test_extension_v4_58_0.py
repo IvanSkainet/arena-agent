@@ -15,8 +15,11 @@ from arena.mcp.tool_asr import (
     _clamp_timeout,
     _find_model,
     _find_whisper_binary,
+    _handle_asr_bootstrap,
+    _handle_asr_health,
     _handle_asr_models,
     _handle_asr_transcribe,
+    _model_health,
     handle_asr_tool,
 )
 from arena.extension_bridge.policy import classify_tool_risk
@@ -40,9 +43,9 @@ def test_pyproject_version_is_4_58_0():
 
 
 # --------- Registry ---------
-def test_asr_registry_two_tools():
+def test_asr_registry_tools():
     names = {t["name"] for t in ASR_MCP_TOOLS}
-    assert names == {"asr.transcribe", "asr.models"}
+    assert names == {"asr.transcribe", "asr.models", "asr.health", "asr.bootstrap"}
 
 
 def test_asr_tools_appear_in_MCP_TOOLS():
@@ -63,8 +66,14 @@ def test_asr_transcribe_is_medium():
     assert classify_tool_risk("asr.transcribe") == "medium"
 
 
-def test_asr_models_is_safe():
+def test_asr_models_and_health_are_safe():
     assert classify_tool_risk("asr.models") == "safe"
+    assert classify_tool_risk("asr.health") == "safe"
+
+
+def test_asr_bootstrap_is_dangerous():
+    # Downloads executables/models and writes user-local runtime files.
+    assert classify_tool_risk("asr.bootstrap") == "dangerous"
 
 
 # --------- _clamp_timeout ---------
@@ -102,12 +111,36 @@ def test_find_model_respects_env(tmp_path, monkeypatch):
 def test_find_model_fallback_to_home_whisper_dir(tmp_path, monkeypatch):
     home = tmp_path
     (home / ".whisper").mkdir()
-    m = home / ".whisper" / "ggml-base.bin"
+    m = home / ".whisper" / "ggml-custom.bin"
     m.write_bytes(b"x")
     monkeypatch.delenv("ARENA_WHISPER_MODEL", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     path, err = _find_model(None)
     assert path == str(m) and err is None
+
+
+def test_find_model_prefers_small_over_base(tmp_path, monkeypatch):
+    home = tmp_path
+    d = home / ".whisper"; d.mkdir()
+    base = d / "ggml-base.bin"; base.write_bytes(b"x" * 10)
+    small = d / "ggml-small.bin"; small.write_bytes(b"x" * 10)
+    monkeypatch.setitem(__import__("arena.mcp.tool_asr", fromlist=["_KNOWN_MODEL_MIN_BYTES"])._KNOWN_MODEL_MIN_BYTES, "ggml-base.bin", 1)
+    monkeypatch.setitem(__import__("arena.mcp.tool_asr", fromlist=["_KNOWN_MODEL_MIN_BYTES"])._KNOWN_MODEL_MIN_BYTES, "ggml-small.bin", 1)
+    monkeypatch.delenv("ARENA_WHISPER_MODEL", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    path, err = _find_model(None)
+    assert path == str(small) and err is None
+
+
+def test_find_model_rejects_known_partial_model(tmp_path, monkeypatch):
+    home = tmp_path
+    d = home / ".whisper"; d.mkdir()
+    partial = d / "ggml-base.bin"; partial.write_bytes(b"x" * 1024)
+    monkeypatch.delenv("ARENA_WHISPER_MODEL", raising=False)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    path, err = _find_model(None)
+    assert path is None
+    assert "partial" in err
 
 
 def test_find_model_hint_when_nothing(tmp_path, monkeypatch):
@@ -143,7 +176,7 @@ def test_asr_transcribe_reports_missing_binary(tmp_path, monkeypatch):
 def test_asr_transcribe_happy_path_wav(tmp_path, monkeypatch):
     audio = tmp_path / "a.wav"
     audio.write_bytes(b"RIFF" + b"0" * 100)
-    model = tmp_path / "ggml-tiny.bin"
+    model = tmp_path / "ggml-test.bin"
     model.write_bytes(b"x")
 
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
@@ -176,7 +209,7 @@ def test_asr_transcribe_happy_path_wav(tmp_path, monkeypatch):
 
 def test_asr_transcribe_reports_whisper_timeout(tmp_path, monkeypatch):
     audio = tmp_path / "a.wav"; audio.write_bytes(b"RIFF")
-    model = tmp_path / "ggml-tiny.bin"; model.write_bytes(b"x")
+    model = tmp_path / "ggml-test.bin"; model.write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
 
     def _fake_run(*a, **kw):
@@ -189,7 +222,7 @@ def test_asr_transcribe_reports_whisper_timeout(tmp_path, monkeypatch):
 
 def test_asr_transcribe_reports_whisper_nonzero(tmp_path, monkeypatch):
     audio = tmp_path / "a.wav"; audio.write_bytes(b"RIFF")
-    model = tmp_path / "ggml-tiny.bin"; model.write_bytes(b"x")
+    model = tmp_path / "ggml-test.bin"; model.write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
 
     def _fake_run(*a, **kw):
@@ -206,7 +239,7 @@ def test_asr_transcribe_reports_whisper_nonzero(tmp_path, monkeypatch):
 def test_asr_models_lists_home_whisper(tmp_path, monkeypatch):
     home = tmp_path
     (home / ".whisper").mkdir()
-    m = home / ".whisper" / "ggml-base.bin"
+    m = home / ".whisper" / "ggml-custom.bin"
     m.write_bytes(b"x" * 1024)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.delenv("ARENA_WHISPER_MODEL", raising=False)
@@ -214,11 +247,41 @@ def test_asr_models_lists_home_whisper(tmp_path, monkeypatch):
     out = _handle_asr_models({})
     assert out["ok"] is True
     assert out["count"] >= 1
-    assert any(mdl["name"] == "ggml-base.bin" for mdl in out["models"])
+    assert any(mdl["name"] == "ggml-custom.bin" for mdl in out["models"])
     assert out["binary"] == "/usr/bin/whisper-cli"
+    assert out["selected_model"] == str(m)
 
 
 # --------- Full dispatch through handle_asr_tool ---------
+def test_asr_health_reports_runtime(tmp_path, monkeypatch):
+    home = tmp_path
+    d = home / ".whisper"; d.mkdir()
+    m = d / "ggml-custom.bin"; m.write_bytes(b"model")
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/bin/whisper-cli")
+    monkeypatch.setattr("arena.mcp.tool_asr.shutil.which", lambda n: "/bin/ffmpeg" if n == "ffmpeg" else None)
+    out = _handle_asr_health({})
+    assert out["ok"] is True
+    assert out["ffmpeg"] == "/bin/ffmpeg"
+    assert out["whisper_binary"] == "/bin/whisper-cli"
+    assert out["model"] == str(m)
+
+
+def test_asr_bootstrap_non_windows(monkeypatch):
+    monkeypatch.setattr("arena.mcp.tool_asr.platform.system", lambda: "Linux")
+    out = _handle_asr_bootstrap({})
+    assert out["ok"] is False
+    assert "Windows" in out["error"]
+
+
+def test_model_health_marks_known_partial(tmp_path):
+    m = tmp_path / "ggml-base.bin"
+    m.write_bytes(b"x" * 1024)
+    h = _model_health(m)
+    assert h["partial"] is True
+    assert h["valid"] is False
+
+
 def test_handle_asr_tool_returns_none_for_non_asr():
     assert handle_asr_tool("fs.read", {"path": "/tmp"}) is None
 

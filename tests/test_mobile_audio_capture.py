@@ -82,3 +82,33 @@ def test_voice_capture_dir_uses_env_override(tmp_path, monkeypatch):
     got = ac.voice_capture_dir()
     assert got == target
     assert target.is_dir()
+
+
+# ---------------------------------------------------------------------------
+# mobile.voice_record MCP wrapper argument wiring
+# ---------------------------------------------------------------------------
+def test_voice_record_wrapper_forwards_pre_delay(monkeypatch):
+    from arena.mcp import tool_mobile_ext as ext
+
+    captured = {}
+
+    def fake_voice_record(serial, **kw):
+        captured["serial"] = serial
+        captured.update(kw)
+        return {"ok": True}
+
+    monkeypatch.setattr(ext._audio, "voice_record", fake_voice_record)
+    out = ext._voice_record("serial-1", {
+        "duration_ms": 12_000,
+        "pre_delay_ms": 7_000,
+        "return_bytes": True,
+        "keep_on_device": True,
+    })
+    assert out == {"ok": True}
+    assert captured == {
+        "serial": "serial-1",
+        "duration_ms": 12_000,
+        "pre_delay_ms": 7_000,
+        "return_bytes": True,
+        "keep_on_device": True,
+    }

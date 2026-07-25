@@ -187,9 +187,15 @@ def _voice_record(serial: str, args: dict[str, Any]) -> dict[str, Any]:
         duration_ms = int(duration) if duration is not None else 8000
     except (TypeError, ValueError):
         return {"ok": False, "error": f"duration_ms must be an integer, got {duration!r}"}
+    pre_delay = args.get("pre_delay_ms", 0)
+    try:
+        pre_delay_ms = int(pre_delay) if pre_delay is not None else 0
+    except (TypeError, ValueError):
+        return {"ok": False, "error": f"pre_delay_ms must be an integer, got {pre_delay!r}"}
     return _audio.voice_record(
         serial,
         duration_ms=duration_ms,
+        pre_delay_ms=pre_delay_ms,
         return_bytes=bool(args.get("return_bytes", False)),
         keep_on_device=bool(args.get("keep_on_device", False)),
     )
@@ -300,6 +306,8 @@ MOBILE_EXT_MCP_TOOLS = [
                 "serial": {"type": "string"},
                 "duration_ms": {"type": "integer", "default": 8000,
                                 "description": "recording length in ms (500..600000)"},
+                "pre_delay_ms": {"type": "integer", "default": 0,
+                                 "description": "delay before starting the recording, after install/permissions (0..120000)"},
                 "return_bytes": {"type": "boolean", "default": False,
                                  "description": "also embed the MP4 as base64"},
                 "keep_on_device": {"type": "boolean", "default": False,
