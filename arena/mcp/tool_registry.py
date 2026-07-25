@@ -44,10 +44,11 @@ MCP_TOOLS = [
          "path": {"type": "string"},
          "view_range": {"type": "array", "items": {"type": "integer"}, "maxItems": 2}},
          "required": ["path"], "additionalProperties": False}},
-    {"name": "fs.create", "description": "Create a new text file. Fails if file already exists (use fs.edit to modify).",
+    {"name": "fs.create", "description": "Create a new file. Fails if file already exists (use fs.edit to modify). Supports 'base64' encoding for binary files.",
      "inputSchema": {"type": "object", "properties": {
          "path": {"type": "string"},
-         "content": {"type": "string"}},
+         "content": {"type": "string"},
+         "encoding": {"type": "string", "enum": ["utf-8", "base64"], "default": "utf-8"}},
          "required": ["path", "content"], "additionalProperties": False}},
     {"name": "fs.search", "description": "Search file contents by regex pattern. Returns matches with file path, line number, and line content.",
      "inputSchema": {"type": "object", "properties": {

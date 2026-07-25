@@ -51,6 +51,50 @@ async def perform_window_action(
         if backend_detail.get("ok"):
             backend = backend_detail.get("backend", "kwin_window_action")
 
+    import sys
+    if backend == "none" and sys.platform == "win32":
+        try:
+            import ctypes
+            user32 = ctypes.windll.user32
+            hwnd = int(target_id)
+            if user32.IsWindow(hwnd):
+                ok = False
+                if effective_action == "minimize":
+                    user32.ShowWindow(hwnd, 6) # SW_MINIMIZE
+                    ok = bool(user32.IsIconic(hwnd))
+                elif effective_action in {"restore", "unmaximize", "unfullscreen"}:
+                    user32.ShowWindow(hwnd, 9) # SW_RESTORE
+                    ok = not bool(user32.IsIconic(hwnd))
+                elif effective_action in {"maximize", "fullscreen"}:
+                    user32.ShowWindow(hwnd, 3) # SW_MAXIMIZE
+                    ok = True
+                elif effective_action == "close":
+                    ok = bool(user32.PostMessageW(hwnd, 0x0010, 0, 0)) # WM_CLOSE
+                elif effective_action in {"move", "resize", "move_resize"}:
+                    class RECT(ctypes.Structure):
+                        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+                    rect = RECT()
+                    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                    curr_x = rect.left
+                    curr_y = rect.top
+                    curr_w = rect.right - rect.left
+                    curr_h = rect.bottom - rect.top
+                    
+                    nx = int(curr_x if x is None else x)
+                    ny = int(curr_y if y is None else y)
+                    nw = int(curr_w if width is None else width)
+                    nh = int(curr_h if height is None else height)
+                    
+                    # SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040
+                    flags = 0x0004 | 0x0010 | 0x0040
+                    ok = bool(user32.SetWindowPos(hwnd, 0, nx, ny, nw, nh, flags))
+                
+                if ok or effective_action == "close":
+                    backend = "windows_user32"
+                    backend_detail = {"ok": True, "exit_code": 0, "stdout": "", "stderr": ""}
+        except Exception as e:
+            backend_detail = {"ok": False, "error": str(e)}
+
     if backend == "none" and shutil.which("wmctrl"):
         cmd = _wmctrl_command(effective_action, target_id, before, x=x, y=y, width=width, height=height, display_env=display_env)
         if cmd:

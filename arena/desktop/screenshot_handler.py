@@ -15,7 +15,7 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
     @authed(ctx)
     async def handle_v1_desktop_screenshot(request: web.Request) -> web.Response:
         qs = parse_qs(request.query_string)
-        fmt = qs.get("format", ["base64"])[0].lower()
+        fmt = qs.get("format", ["raw"])[0].lower()
 
         def _qs_float(name):
             try:

@@ -108,7 +108,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
 
     @authed(ctx, auto_record=False)
     async def handle_v1_fs_create(request: web.Request) -> web.Response:
-        """POST /v1/fs/create — create a new text file (fails if it exists)."""
+        """POST /v1/fs/create — create a new file (fails if it exists). Supports base64 encoding."""
         data, jerr = await parse_json_body(request, ctx)
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
@@ -125,17 +125,34 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         )
         if err:
             return _err(ctx, err, status)
-        try:
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            target_path.write_text(content, encoding="utf-8")
-        except Exception:
-            return _err(ctx, "Internal error", 500)
+        
+        encoding = str(data.get("encoding", "")).strip().lower()
+        if encoding == "base64":
+            import base64
+            try:
+                binary_content = base64.b64decode(content.strip())
+            except Exception:
+                return _err(ctx, "invalid base64 content", 400)
+            try:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_bytes(binary_content)
+                bytes_written = len(binary_content)
+            except Exception:
+                return _err(ctx, "Internal error writing binary file", 500)
+        else:
+            try:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_text(content, encoding="utf-8")
+                bytes_written = len(content.encode("utf-8"))
+            except Exception:
+                return _err(ctx, "Internal error", 500)
+
         ctx.audit({"type": "file_create",
                    "path": str(target_path),
-                   "bytes": len(content)})
+                   "bytes": bytes_written})
         ctx.record_request()
         return ctx.cors_json_response(
-            {"ok": True, "path": str(target_path), "bytes": len(content)},
+            {"ok": True, "path": str(target_path), "bytes": bytes_written},
         )
 
     return FsViewCreateHandlers(

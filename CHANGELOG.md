@@ -1,3 +1,27 @@
+## v4.82.0 - Binary-safe file creation, raw binary screenshot default, and native Windows window actions
+
+### Purpose
+
+This release brings three major high-value improvements to the desktop automation and file-system surface:
+1. **Binary-safe file creation:** Support for base64 decoding on `POST /v1/fs/create` and the `fs.create` MCP tool, allowing agents to write binary files natively without shelling out.
+2. **Raw binary screenshots as default:** Changed the default response of `GET /v1/desktop/screenshot` from a Base64-wrapped JSON envelope to raw binary PNG/JPEG/WebP bytes. Base64 wrapping remains available via `format=base64`.
+3. **Native Windows window actions:** Fully native execution of window actions (maximize, move_resize, minimize, close, restore) inside `perform_window_action` on Windows using direct ctypes calls, eliminating the need for ad-hoc powershell/python scripts.
+
+### Changes
+
+* **Binary-safe file creation (`/v1/fs/create` & `fs.create` MCP):**
+  - Added support for `"encoding": "base64"` to both the REST endpoint and the MCP tool.
+  - Automatically decodes and writes files as raw binary bytes when `base64` is specified.
+  - Updated input schemas to document the new `encoding` parameter.
+
+* **Raw binary screenshot default (`/v1/desktop/screenshot`):**
+  - Changed the default format from `"base64"` to `"raw"`.
+  - Calling the endpoint without query params now instantly returns raw image bytes with correct content types (`image/png`, etc.).
+
+* **Native Windows window actions (`perform_window_action`):**
+  - Added native ctypes-based execution for `minimize`, `restore`, `maximize`, `close`, and `move_resize` on Windows platforms.
+  - Fully integrated with the existing window cataloging and verification layers.
+
 ## v4.81.1 - v4.81.0 CI hotfix (module split + Windows-only test gates)
 
 ### Purpose

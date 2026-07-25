@@ -177,11 +177,30 @@ def _handle_fs_create(path: Path, args: dict[str, Any]) -> dict[str, Any]:
         return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing or empty 'content' argument"}]}
     if path.exists():
         return {"isError": True, "content": [{"type": "text", "text": f"ERROR: file already exists: {path} (use fs.edit to modify existing files)"}]}
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(content, encoding="utf-8")
-    except PermissionError:
-        return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
-    except Exception as e:
-        return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {type(e).__name__}: {e}"}]}
-    return text_content(f"created {path}: {len(content)} bytes")
+    
+    encoding = str(args.get("encoding", "")).strip().lower()
+    if encoding == "base64":
+        import base64
+        try:
+            binary_content = base64.b64decode(content.strip())
+        except Exception:
+            return {"isError": True, "content": [{"type": "text", "text": "ERROR: invalid base64 content"}]}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(binary_content)
+            bytes_written = len(binary_content)
+        except PermissionError:
+            return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+        except Exception as e:
+            return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {type(e).__name__}: {e}"}]}
+        return text_content(f"created {path}: {bytes_written} bytes")
+    else:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+            bytes_written = len(content)
+        except PermissionError:
+            return {"isError": True, "content": [{"type": "text", "text": "ERROR: permission denied"}]}
+        except Exception as e:
+            return {"isError": True, "content": [{"type": "text", "text": f"ERROR: {type(e).__name__}: {e}"}]}
+        return text_content(f"created {path}: {bytes_written} bytes")

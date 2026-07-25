@@ -102,6 +102,20 @@ def test_mcp_fs_create_success(tmp_path):
     assert f.read_text() == "print('hello')\n"
 
 
+def test_mcp_fs_create_base64_success(tmp_path):
+    """fs.create creates a new binary file using base64 encoding."""
+    import base64
+    f = tmp_path / "binary.bin"
+    ctx = _MockCtx(tmp_path)
+    content_bytes = b"hello binary world \x00\xff\x01"
+    b64_content = base64.b64encode(content_bytes).decode("utf-8")
+    result = handle_fs_tool("fs.create", {"path": str(f), "content": b64_content, "encoding": "base64"}, ctx=ctx)
+    assert result is not None
+    assert not result.get("isError"), f"expected success, got: {result}"
+    assert "created" in result["content"][0]["text"]
+    assert f.read_bytes() == content_bytes
+
+
 def test_mcp_fs_create_already_exists(tmp_path):
     """fs.create fails if file already exists."""
     f = tmp_path / "existing.py"
