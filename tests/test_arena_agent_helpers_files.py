@@ -6,13 +6,34 @@ agent-side scripts (``now_iso``, ``safe_write``, ``backup_file``,
 coverage (89 statements, 24 branches, never imported by any
 test). These tests focus on the parts that can run without
 ``agentctl`` / a real bridge installation.
+
+The POSIX permission-bit checks (``chmod 0o600``) only work on
+POSIX filesystems -- Windows NTFS uses ACLs and the
+``stat.S_IMODE`` value is whatever the file was created with
+(0o666 by default). Those tests are therefore skipped on
+``sys.platform == "win32"``.
 """
 from __future__ import annotations
 
 import os
 import stat
+import sys
 import tempfile
 from pathlib import Path
+
+import pytest
+
+
+# Skip the POSIX permission-bit assertions on Windows: NTFS
+# uses ACLs, and stat.S_IMODE on a freshly-created file is
+# 0o666 regardless of the chmod call. The other 6 tests still
+# run on Windows -- they exercise the function logic, not the
+# permission-bit semantics.
+_POSIX_ONLY = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX permission bits (chmod 0o600) are not "
+           "enforced on Windows NTFS",
+)
 
 
 # Point ARENA_AGENT_HOME at a tmp dir before importing the
@@ -41,6 +62,7 @@ def test_safe_write_creates_parent_dirs(tmp_path):
     assert p.read_text(encoding="utf-8") == "hello"
 
 
+@_POSIX_ONLY
 def test_safe_write_sets_owner_only_mode(tmp_path):
     p = tmp_path / "secret.txt"
     files.safe_write(p, "shh", mode=0o600)

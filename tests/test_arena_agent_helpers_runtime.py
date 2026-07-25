@@ -4,14 +4,32 @@ Covers ``load_facts`` and ``put_fact`` -- the JSONL-backed
 ``memory/facts.jsonl`` reader/writer. These functions are
 touched by the agent-side chat scripts but were never
 imported by the test suite.
+
+The POSIX permission-bit check (``chmod 0o600``) only works
+on POSIX filesystems -- Windows NTFS uses ACLs. The
+permission assertion is therefore skipped on
+``sys.platform == "win32"``.
 """
 from __future__ import annotations
 
 import json
 import os
 import stat
+import sys
 import tempfile
 from pathlib import Path
+
+import pytest
+
+
+# Same POSIX-only check as test_arena_agent_helpers_files:
+# NTFS ignores chmod, so the stat.S_IMODE == 0o600 assertion
+# only makes sense on POSIX.
+_POSIX_ONLY = pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX permission bits (chmod 0o600) are not "
+           "enforced on Windows NTFS",
+)
 
 
 _tmp_home = Path(tempfile.mkdtemp(prefix="arena_helpers_runtime_"))
@@ -39,13 +57,13 @@ def test_put_fact_appends_jsonl_record(monkeypatch, tmp_path):
     assert rec["ts"].endswith("+00:00")
 
 
+@_POSIX_ONLY
 def test_put_fact_sets_owner_only_mode(monkeypatch, tmp_path):
     target = tmp_path / "facts.jsonl"
     monkeypatch.setattr(runtime, "FACTS", target)
     runtime.put_fact("k", "v")
-    if hasattr(os, "geteuid"):  # POSIX
-        mode = stat.S_IMODE(target.stat().st_mode)
-        assert mode == 0o600
+    mode = stat.S_IMODE(target.stat().st_mode)
+    assert mode == 0o600
 
 
 def test_load_facts_filters_by_query(monkeypatch, tmp_path):
