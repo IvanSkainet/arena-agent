@@ -18,7 +18,7 @@ _SAFE_TOOLS = {
     # v4.57.0: net/secrets read-only surface.
     "secrets.list",
     # v4.58.0: asr model discovery.
-    "asr.models", "asr.health",
+    "asr.models", "asr.health", "ocr.health",
     # v4.59.0: read-only device/browser inspection.
     "mobile.list_files", "browser.list",
 }
@@ -41,7 +41,7 @@ _MEDIUM_TOOLS = {
     # v4.57.0: typed HTTP client + secret metadata reads.
     "net.http", "secrets.get",
     # v4.58.0: local speech-to-text via whisper.cpp.
-    "asr.transcribe",
+    "asr.transcribe", "ocr.extract",
     # v4.59.0: state-changing but reversible ops.
     "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
 }
@@ -49,7 +49,7 @@ _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
     # v4.75.0: bare "exec" replaced with "exec.exec"
     # (the bare form was removed in v4.75.0).
-    "exec.exec", "asr.bootstrap", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
+    "exec.exec", "asr.bootstrap", "ocr.bootstrap", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
     "git.commit", "mission.iterate", "mission.recover", "mission.rerun",
     "mission.run", "mission.schedule_tick", "skill.run", "subagent.spawn",
     # v4.56.0: mobile.* full-shell / IME hijack surfaces.

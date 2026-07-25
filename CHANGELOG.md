@@ -1,3 +1,33 @@
+## v4.86.0 - Generic OCR: health, bootstrap, and image-file OCR
+
+### Purpose
+
+Starts the next scenario family: phone camera -> photo/document -> OCR ->
+structured action. The repo already had `desktop.ocr`, but that capability
+was tied to fresh desktop screenshots and the live Windows bridge had no OCR
+runtime installed. This release makes OCR a first-class, generic image-file
+capability instead of a desktop-only helper.
+
+### Changes
+
+* **New `ocr.health` MCP tool** (SAFE): reports the Tesseract binary,
+  tessdata directory, installed languages and bootstrap hint.
+
+* **New `ocr.bootstrap` MCP tool** (DANGEROUS, approval-gated): Windows OCR
+  bootstrapper that installs Tesseract via winget and downloads
+  `rus.traineddata` atomically (`.tmp` -> final).
+
+* **New `ocr.extract` MCP tool** (MEDIUM): OCR any image file on the bridge
+  host with Tesseract and return plain text, word bounding boxes and optional
+  query matches. This is the new general primitive for pulled phone photos,
+  screenshots, receipts, notes and documents.
+
+* **Parser reuse:** `ocr.extract` reuses the existing desktop OCR TSV parser
+  and text matching helpers instead of introducing a second OCR parser.
+
+* **Tests:** registry/policy coverage, health/bootstrap guards, OCR extraction
+  success/error paths and MCP contract snapshot refreshed for `ocr.*`.
+
 ## v4.85.0 - ASR runtime hardening: health, bootstrap, atomic model downloads, and voice-record pre-delay
 
 ### Purpose

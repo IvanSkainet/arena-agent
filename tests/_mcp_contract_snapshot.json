@@ -261,6 +261,19 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_ocr.py",
+    "handlers": [
+      "handle_ocr_tool"
+    ],
+    "tool_names": [
+      "eng.traineddata",
+      "ocr.bootstrap",
+      "ocr.extract",
+      "ocr.health",
+      "rus.traineddata"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_plan.py",
     "handlers": [
       "handle_plan_tool"
@@ -404,6 +417,15 @@
       "secrets.get",
       "secrets.list",
       "sudo.run"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_ocr.py",
+    "handlers": [],
+    "tool_names": [
+      "ocr.bootstrap",
+      "ocr.extract",
+      "ocr.health"
     ]
   },
   {

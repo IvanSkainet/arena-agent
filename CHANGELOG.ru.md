@@ -1,3 +1,33 @@
+## v4.86.0 - Generic OCR: health, bootstrap и OCR произвольного image-файла
+
+### Цель
+
+Запускает следующий класс сценариев: камера телефона -> фото/документ -> OCR
+-> структурированное действие. В репо уже был `desktop.ocr`, но эта
+способность была привязана к свежему desktop screenshot, а на живом Windows
+мосту OCR-runtime не был установлен. Этот релиз делает OCR первоклассной
+общей способностью для любого image-файла, а не desktop-only помощником.
+
+### Изменения
+
+* **Новая MCP-тула `ocr.health`** (SAFE): показывает Tesseract binary,
+  tessdata directory, установленные языки и подсказку по bootstrap.
+
+* **Новая MCP-тула `ocr.bootstrap`** (DANGEROUS, требует одобрения):
+  Windows-bootstrap OCR runtime — ставит Tesseract через winget и скачивает
+  `rus.traineddata` атомарно (`.tmp` -> final).
+
+* **Новая MCP-тула `ocr.extract`** (MEDIUM): OCR любого image-файла на хосте
+  моста через Tesseract с возвратом plain text, word bounding boxes и
+  optional query matches. Это новая общая способность для фото с телефона,
+  screenshots, чеков, заметок и документов.
+
+* **Переиспользование парсера:** `ocr.extract` использует существующий TSV
+  parser и text matching helpers из desktop OCR, не плодит второй OCR-парсер.
+
+* **Тесты:** registry/policy coverage, health/bootstrap guards, success/error
+  paths для OCR extraction и обновлённый MCP contract snapshot под `ocr.*`.
+
 ## v4.85.0 - Укрепление ASR runtime: health, bootstrap, атомарные загрузки моделей и pre-delay для записи голоса
 
 ### Цель
