@@ -172,6 +172,7 @@ globalThis.refreshOverview = function() {
     dotClasses,
     metaMentionsError: meta.indexOf("boom-net") >= 0,
   }));
+  process.exit(0);
 })();
 """
     out = _run_node(harness)

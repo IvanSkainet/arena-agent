@@ -1,3 +1,13 @@
+## v4.86.2 - CI hotfix: deterministic Node toolbar rejection test
+
+### Purpose
+
+Fixes a Windows Python 3.10 CI flake where `test_wrapper_captures_rejection_and_pulses_error_dot` timed out because the Node harness left the error-dot `setTimeout` in the event loop.
+
+### Changes
+
+* The rejection-path Node harness now calls `process.exit(0)` after printing its JSON result, matching the deterministic cleanup style used by the other toolbar tests.
+
 ## v4.86.1 - CI hotfix: OCR namespace docs, legacy mobile-ext test, security annotations
 
 ### Purpose

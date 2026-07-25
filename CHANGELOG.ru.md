@@ -1,3 +1,13 @@
+## v4.86.2 - CI hotfix: детерминированный Node-тест rejection path toolbar
+
+### Цель
+
+Исправляет Windows Python 3.10 CI-flake: `test_wrapper_captures_rejection_and_pulses_error_dot` уходил в timeout, потому что Node harness оставлял `setTimeout` от error-dot pulse в event loop.
+
+### Изменения
+
+* Rejection-path Node harness теперь вызывает `process.exit(0)` после вывода JSON, как это уже делают соседние toolbar tests с таймерами.
+
 ## v4.86.1 - CI hotfix: README для OCR namespace, legacy mobile-ext test и security annotations
 
 ### Цель
