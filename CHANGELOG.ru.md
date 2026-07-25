@@ -1,3 +1,153 @@
+## v4.81.0 - Windows desktop backend (нативный user32/gdi32)
+
+### Цель
+
+Каждый endpoint под `/v1/desktop/*` (screenshot, windows,
+active_window, focus, click, type, key, mouse) был
+Linux-only до v4.81.0 — реализации shell-выкидывались в
+`spectacle` / `grim` / `scrot` / `xdotool` / `ydotool` и
+возвращали `"No screenshot tool available (need spectacle,
+grim, or scrot)"` на Windows. API-поверхность
+существовала; backend'а не было.
+
+Этот релиз добавляет `arena/desktop/backends/windows.py`,
+stdlib-only (`ctypes`) модуль, который реализует всю
+поверхность через `user32.dll` + `gdi32.dll`. Routing
+слой в каждом существующем helper'е выбирает нативный
+backend когда `sys.platform == "win32"` и падает в
+существующий Linux path иначе, так что нулевая
+регрессия на Linux и никаких новых зависимостей (Pillow
+используется opportunistically для PNG/JPEG re-encoding —
+если его нет, `capture_screenshot` возвращает BMP-буфер,
+который любой downstream клиент может transcode).
+
+Эта проблема была обнаружена сценарием Cheat Engine
+tutorial в `findings_ce_scenario.md`: весь сценарий
+пришлось driver'ить hand-written PowerShell + P/Invoke
+round-trip'ами потому что собственные `/v1/desktop/*`
+endpoint'ы моста ничего не делали на Windows.
+
+### Добавлено
+
+1. *`arena/desktop/backends/__init__.py`** — package marker.
+
+2. *`arena/desktop/backends/windows.py`** (~400 строк,
+   stdlib-only) — реализует каждую операцию, которую
+   Linux helpers exposed:
+
+   - `virtual_screen_rect()` — полный virtual-desktop rect
+     через `GetSystemMetrics(SM_XVIRTUALSCREEN)` и т.д.
+     Корректно обрабатывает multi-monitor setups с
+     монитором слева от primary (отрицательный X).
+   - `capture_screenshot(region_x, region_y, region_width,
+     region_height)` — full desktop или region grab через
+     `BitBlt` из desktop DC. Возвращает PNG bytes когда
+     Pillow доступен, BMP bytes иначе.
+   - `list_windows(visible_only)` — `EnumWindows` walker
+     возвращающий id/title/class/pid/geometry/visible/
+     minimized/active для каждого top-level window.
+   - `get_active_window()` — `GetForegroundWindow()` +
+     record shape matching `list_windows`.
+   - `find_main_window_for_pid(pid)` — эвристика, которая
+     обрабатывает Delphi/Lazarus/LCL "скрытый TApplication
+     frame" паттерн: выбирает on-screen `TCustomForm`
+     с title, не off-screen frame, который возвращает
+     `Get-Process MainWindowHandle`.
+   - `find_window_by_title(needle, exact)` — case-
+     insensitive substring поиск по всем видимым
+     top-level windows.
+   - `focus_window(hwnd)` — выводит окно в foreground,
+     restore'ит если minimized. Использует "нажать ALT
+     один раз, потом SetForegroundWindow" trick чтобы
+     обойти Windows foreground lock, который иначе
+     блокирует cross-process переходы (особенно между
+     elevated и non-elevated apps).
+   - `move_window(hwnd, x, y, w, h)` — resize+move+show
+     через `SetWindowPos(SWP_SHOWWINDOW)`.
+   - `click(x, y, button, double)` — `SetCursorPos` +
+     `mouse_event` sequence со стандартным 30ms
+     down/up gap.
+   - `mouse_move(x, y)` / `cursor_position()` — cursor
+     helpers.
+   - `type_text(text, delay_ms)` — Unicode text delivery
+     через `keybd_event(KEYEVENTF_UNICODE)`, по одному
+     BMP char за раз.
+   - `key(name, modifiers)` — named virtual-key press
+     (`Enter`, `F1`, `ctrl+o`, и т.д.) с 40-entry alias
+     table для common keys.
+
+3. *`tests/test_desktop_windows_backend.py`** (12 тестов) —
+   5 platform-agnostic тестов всегда run (module imports,
+   env routing, `NotImplementedError` на non-Windows, BMP
+   fallback encoder, VK map sanity); 7 live тестов
+   skip'аются везде кроме native Windows Python.
+
+### Изменено
+
+1. *`arena/desktop/env.py`** — `_detect_desktop_env` теперь
+   детектит `sys.platform == "win32"` и возвращает
+   `has_win32_screenshot / has_win32_input /
+   has_win32_windows = True` рядом с существующими
+   `has_spectacle / has_grim / has_scrot / has_ydotool /
+   has_xdotool / has_wtype` флагами. Linux флаги остаются
+   `False` на Windows так что Linux dispatch short-circuits.
+
+2. *`arena/desktop/screenshot.py`** — `capture_desktop_screenshot`
+   теперь проверяет `env.get("has_win32_screenshot")` перед
+   Linux tool chain и, если true, делегирует
+   `backends.windows.capture_screenshot`. Pillow
+   crop / scale / re-encode pipeline вынесен в
+   `_finalize_screenshot` так что оба backends его делят.
+
+3. *`arena/desktop/active_window.py`** — `_get_active_window`
+   short-circuits в `backends.windows.get_active_window`
+   на Windows перед тем как трогать KWin / xdotool / wmctrl.
+
+4. *`arena/desktop/focus.py`** — `focus_window` обрабатывает
+   Windows через `backends.windows.focus_window` (с
+   ALT-trick foreground-lock release). Принимает либо
+   numeric window id (HWND как decimal string), либо
+   `title_contains`.
+
+5. *`arena/desktop/input_handlers.py`** — все четыре
+   handlers (`click`, `type`, `key`, `mouse`) роутятся в
+   Windows backend когда env flag set. named-key
+   parser принимает и `Ctrl+O` string form, и
+   `["ctrl","o"]` list form.
+
+6. *`arena/desktop/window_catalog.py`** —
+   `list_desktop_windows` возвращает `EnumWindows` result
+   на Windows без хождения по Linux fallbacks.
+
+### Тесты
+
+Локальный narrow smoke: 615 pass, 10 skip (7 Windows-live
+тестов + 3 pre-existing Windows-only skips). 51
+существующий `test_desktop_*.py` тест — все проходят.
+Linux path не тронут.
+
+### Что v4.81.0 НЕ делает
+
+- Никаких новых HTTP endpoint'ов; существующие
+  `/v1/desktop/*` routes просто работают на Windows теперь.
+- Никакого binary-response fast path для
+  `GET /v1/desktop/screenshot` ещё — это finding #5 из
+  `findings_ce_scenario.md` и лендится в v4.83.0.
+- Никакого `/v1/fs/upload` binary-safe endpoint — это
+  finding #3/#4 и лендится в v4.82.0.
+- Mutation testing / mypy strict / coverage 60% — тот же
+  статус что v4.80.0.
+
+### Вне scope (всё ещё отслеживается)
+
+- **v4.82.0**: bridge FS binary upload (`fs/create`
+  base64 support + `overwrite` flag).
+- **v4.83.0**: `GET /v1/desktop/screenshot` возвращает
+  `image/png` bytes напрямую.
+- Mutation testing (mutmut / cosmic-ray).
+- Mypy strict rollout за пределами `arena.service.restart`.
+- Coverage roadmap 51% → 60%.
+
 ## v4.80.0 - исправление pre-existing `decode_output` cp1251 bug
 
 ### Цель

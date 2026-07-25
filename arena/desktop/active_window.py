@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 
 from arena.desktop.exec import _desktop_exec
 from arena.desktop.kwin import _kwin_windows_via_script
@@ -11,14 +12,27 @@ from arena.desktop.kwin import _kwin_windows_via_script
 async def _get_active_window() -> dict | None:
     """Get currently active (focused) window info. Used by input guard.
 
-    Backend order is chosen to avoid interactive desktop prompts on KDE/Wayland:
-    1. Native KWin journal-backed window list (preferred on KDE/Wayland)
-    2. xdotool (X11 / XWayland)
-    3. kdotool (KDE Wayland fallback)
-    4. wmctrl (generic fallback)
+    Backend order:
+    1. Windows native (user32.GetForegroundWindow) if on Windows
+    2. Native KWin journal-backed window list (preferred on KDE/Wayland)
+    3. xdotool (X11 / XWayland)
+    4. kdotool (KDE Wayland fallback)
+    5. wmctrl (generic fallback)
 
     Returns dict with id, title, pid, class or None.
     """
+    # v4.81.0: Windows native path (no subprocess).
+    if sys.platform == "win32":
+        try:
+            from arena.desktop.backends import windows as _win
+            w = _win.get_active_window()
+            if w:
+                w.setdefault("backend", "windows_user32")
+                return w
+        except Exception:
+            pass
+        return None
+
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
     kwin_list = await _kwin_windows_via_script()

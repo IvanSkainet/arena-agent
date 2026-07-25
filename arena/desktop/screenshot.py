@@ -53,6 +53,38 @@ async def capture_desktop_screenshot(
     """
     fmt = (fmt or "base64").lower()
     quality = max(1, min(100, int(quality or 80)))
+    env = detect_env()
+
+    # v4.81.0: on Windows, capture via native user32/gdi32 rather
+    # than shelling out to Linux-only tools. The rest of the
+    # transform pipeline (crop / scale / re-encode via Pillow)
+    # is shared with the Linux path.
+    if env.get("has_win32_screenshot"):
+        try:
+            from arena.desktop.backends import windows as _win  # local import: ctypes only exists on Windows
+            img_bytes = _win.capture_screenshot(
+                region_x=region_x,
+                region_y=region_y,
+                region_width=region_width,
+                region_height=region_height,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"Windows screenshot failed: {exc}"}
+        return _finalize_screenshot(
+            img_bytes,
+            tool="user32",
+            fmt=fmt,
+            scale=scale,
+            max_width=max_width,
+            quality=quality,
+            region_x=region_x,
+            region_y=region_y,
+            region_width=region_width,
+            region_height=region_height,
+            audit_fn=audit_fn,
+            already_cropped=(region_x is not None and region_y is not None and region_width and region_height),
+        )
+
     # v4.42.0: tempfile.mktemp() is TOCTOU-racy and predictable
     # (mode 0o644 shared /tmp). Screenshot tools (spectacle,
     # grim, scrot) create the file themselves, so we cannot use
@@ -63,7 +95,6 @@ async def capture_desktop_screenshot(
     # file) in the finally block after we've read the bytes.
     tmp_dir = tempfile.mkdtemp(prefix="arena_desktop_")
     tmp_path = os.path.join(tmp_dir, "shot.png")
-    env = detect_env()
 
     cmd = None
     if env.get("has_spectacle"):
@@ -143,4 +174,94 @@ async def capture_desktop_screenshot(
         "transformed": transformed,
         "tool": tool,
         "crop_region": None if None in (region_x, region_y, region_width, region_height) else {"x": int(region_x), "y": int(region_y), "width": int(region_width), "height": int(region_height)},
+    }
+
+
+def _finalize_screenshot(
+    img_bytes: bytes,
+    *,
+    tool: str,
+    fmt: str,
+    scale: float | None,
+    max_width: int | None,
+    quality: int,
+    region_x: int | None,
+    region_y: int | None,
+    region_width: int | None,
+    region_height: int | None,
+    audit_fn: AuditFn | None,
+    already_cropped: bool = False,
+) -> dict[str, Any]:
+    """Apply crop/scale/re-encode transforms uniformly across backends.
+
+    v4.81.0: extracted from ``capture_desktop_screenshot`` so the
+    Windows backend can reuse the exact same transform pipeline
+    (crop → resize → re-encode) without duplicating 40 lines of
+    Pillow logic.
+    """
+    if not img_bytes:
+        return {"ok": False, "error": "Screenshot file is empty"}
+
+    out_format = "png"
+    transformed = False
+
+    needs_transform = (
+        fmt in ("jpeg", "jpg", "webp")
+        or scale
+        or max_width
+        or (not already_cropped and None not in (region_x, region_y, region_width, region_height))
+    )
+    if needs_transform:
+        try:
+            from PIL import Image as _PILImage
+            import io as _io
+
+            im = _PILImage.open(_io.BytesIO(img_bytes))
+            if not already_cropped and None not in (region_x, region_y, region_width, region_height):
+                x = max(0, int(region_x or 0))
+                y = max(0, int(region_y or 0))
+                width = max(1, int(region_width or 1))
+                height = max(1, int(region_height or 1))
+                right = min(im.size[0], x + width)
+                bottom = min(im.size[1], y + height)
+                im = im.crop((x, y, right, bottom))
+                transformed = True
+            w, h = im.size
+            target_w = w
+            if scale and 0 < scale <= 1:
+                target_w = int(w * scale)
+            if max_width and max_width > 0:
+                target_w = min(target_w, max_width)
+            if target_w != w and target_w > 0:
+                target_h = max(1, int(h * (target_w / w)))
+                im = im.resize((target_w, target_h), _PILImage.LANCZOS)
+                transformed = True
+            buf = _io.BytesIO()
+            if fmt in ("jpeg", "jpg"):
+                im.convert("RGB").save(buf, format="JPEG", quality=quality)
+                out_format = "jpeg"
+                transformed = True
+            elif fmt == "webp":
+                im.save(buf, format="WEBP", quality=quality)
+                out_format = "webp"
+                transformed = True
+            else:
+                im.save(buf, format="PNG", optimize=True)
+                out_format = "png"
+            img_bytes = buf.getvalue()
+        except Exception as exc:
+            if audit_fn:
+                audit_fn({"type": "screenshot_transform_failed", "error": str(exc)})
+            out_format = "png"
+
+    return {
+        "ok": True,
+        "bytes": img_bytes,
+        "encoding": out_format,
+        "transformed": transformed,
+        "tool": tool,
+        "crop_region": None if None in (region_x, region_y, region_width, region_height) else {
+            "x": int(region_x), "y": int(region_y),
+            "width": int(region_width), "height": int(region_height),
+        },
     }

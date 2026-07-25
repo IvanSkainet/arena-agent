@@ -5,6 +5,7 @@ import asyncio
 import os
 import shlex
 import shutil
+import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -28,6 +29,46 @@ async def focus_window(
     """Focus a desktop window by ID or title and optionally verify it."""
     active_before = await get_active_window()
     env = detect_env()
+
+    # v4.81.0: Windows native path via user32.
+    if sys.platform == "win32":
+        try:
+            from arena.desktop.backends import windows as _win
+        except Exception as exc:
+            return {"ok": False, "error": f"windows backend import failed: {exc}", "active_before": active_before}
+        target_hwnd: int | None = None
+        chosen_title = target_title or ""
+        if window_id:
+            try:
+                target_hwnd = int(window_id)
+            except ValueError:
+                return {"ok": False, "error": "invalid window_id (expected integer HWND)", "active_before": active_before, "status": 400}
+        elif title_contains:
+            match = _win.find_window_by_title(title_contains)
+            if not match:
+                return {"ok": False, "error": "window_not_found",
+                        "message": f"Could not find window matching: {title_contains}",
+                        "active_before": active_before, "status": 404}
+            target_hwnd = int(match["id"])
+            chosen_title = match.get("title", "")
+        if target_hwnd is None:
+            return {"ok": False, "error": "no window_id or title_contains provided",
+                    "active_before": active_before, "status": 400}
+        ok = _win.focus_window(target_hwnd)
+        active_after = await get_active_window() if verify else None
+        verified = None
+        if verify and active_after:
+            verified = str(active_after.get("id")) == str(target_hwnd)
+        return {
+            "ok": ok,
+            "backend": "windows_user32",
+            "window_id": str(target_hwnd),
+            "title": chosen_title,
+            "active_before": active_before,
+            "active_after": active_after,
+            "verified": verified,
+        }
+
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
 
     target_id = window_id

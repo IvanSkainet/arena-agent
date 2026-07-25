@@ -3,10 +3,39 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 
 
 def _detect_desktop_env() -> dict:
-    """Detect the desktop environment and available tools."""
+    """Detect the desktop environment and available tools.
+
+    v4.81.0: on Windows, we set ``session_type="windows"`` and
+    the ``has_*_win32`` flags to True, so callers can route to
+    the native Windows backend (``arena.desktop.backends.windows``)
+    instead of shelling out to Linux-only tools.
+    """
+    if sys.platform == "win32":
+        return {
+            "session_type": "windows",
+            "desktop": "windows",
+            "desktop_session": "windows",
+            "wayland": False,
+            "x11": False,
+            "windows": True,
+            # Native Windows API is always available; these flags are
+            # what the routing layer checks.
+            "has_win32_screenshot": True,
+            "has_win32_input": True,
+            "has_win32_windows": True,
+            # Linux tool flags stay False so the Linux branches short-circuit.
+            "has_ydotool": False,
+            "has_xdotool": False,
+            "has_spectacle": False,
+            "has_grim": False,
+            "has_scrot": False,
+            "has_wtype": False,
+        }
+
     wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
     display = os.environ.get("DISPLAY", "")
     session_type = os.environ.get("XDG_SESSION_TYPE") or ("wayland" if wayland_display else ("x11" if display else "unknown"))
@@ -17,6 +46,10 @@ def _detect_desktop_env() -> dict:
         "desktop_session": os.environ.get("DESKTOP_SESSION", ""),
         "wayland": bool(wayland_display),
         "x11": bool(display),
+        "windows": False,
+        "has_win32_screenshot": False,
+        "has_win32_input": False,
+        "has_win32_windows": False,
         "has_ydotool": shutil.which("ydotool") is not None,
         "has_xdotool": shutil.which("xdotool") is not None,
         "has_spectacle": shutil.which("spectacle") is not None,

@@ -107,6 +107,28 @@ async def list_desktop_windows(*, desktop_exec, detect_env, kwin_windows_via_scr
     env = detect_env()
     display_env = f'DISPLAY={os.environ.get("DISPLAY", ":0")}'
     attempts = []
+
+    # v4.81.0: on Windows, use native EnumWindows via ctypes.
+    if env.get("has_win32_windows"):
+        try:
+            import asyncio as _asyncio
+            from arena.desktop.backends import windows as _win
+            loop = _asyncio.get_event_loop()
+            wins = await loop.run_in_executor(None, lambda: _win.list_windows(visible_only=True))
+            attempts.append({"tool": "user32.EnumWindows", "ok": True})
+            return {
+                "ok": True,
+                "count": len(wins),
+                "windows": wins,
+                "tool": "windows_user32",
+                "backend": "windows",
+                "attempts": attempts,
+                "displays": [],
+            }
+        except Exception as exc:
+            attempts.append({"tool": "user32.EnumWindows", "ok": False, "error": str(exc)})
+            return {"ok": False, "error": str(exc), "windows": [], "tool": "windows_user32", "attempts": attempts, "displays": []}
+
     try:
         displays = (await get_displays(desktop_exec=desktop_exec)).get("displays", [])
     except Exception:
