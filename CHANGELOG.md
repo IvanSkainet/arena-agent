@@ -1,3 +1,17 @@
+## v4.82.1 - Hotfix for Windows window-action RECT type mismatch
+
+### Purpose
+
+In `v4.82.0`, the native Windows window-action API introduced a ctypes argument type conflict. We declared `GetWindowRect.argtypes` to expect `ctypes.POINTER(wt.RECT)`, but inside `window_action.py` we defined and passed a local `RECT` structure instead. This caused a ctypes `ArgumentError` when calling `GetWindowRect`, resulting in a 500 Internal Server Error for the `/v1/desktop/window_action` endpoint on Windows.
+
+This release is a critical hotfix that replaces the local structure with the correct `ctypes.wintypes.RECT` (`wt.RECT`), resolving the type conflict and restoring native window-action capabilities.
+
+### Changes
+
+* **Fixed Windows window actions (`perform_window_action`):**
+  - Swapped out the local `RECT` class in `window_action.py` for `ctypes.wintypes.RECT` (`wt.RECT`).
+  - Successfully validated window moving, resizing, and restoring on the live Windows host.
+
 ## v4.82.0 - Binary-safe file creation, raw binary screenshot default, and native Windows window actions
 
 ### Purpose
