@@ -1,3 +1,14 @@
+## v4.86.3 - OCR live-run hotfix: tessdata prefix and camera_pull argument alias
+
+### Purpose
+
+Fixes two issues found during the first live camera -> OCR scenario run.
+
+### Changes
+
+* `ocr.extract` now sets `TESSDATA_PREFIX` to the actual `tessdata` directory, matching the Windows Tesseract runtime installed by `ocr.bootstrap`.
+* `mobile.camera_pull` HTTP handler now accepts both `path` and the MCP-declared `remote_path` argument, fixing a schema/handler mismatch exposed by the scenario.
+
 ## v4.86.2 - CI hotfix: deterministic Node toolbar rejection test
 
 ### Purpose

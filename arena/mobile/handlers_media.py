@@ -63,7 +63,7 @@ def make_media_handlers(ctx, *, run, read_json, cors):
     async def handle_camera_pull(request):
         serial = _serial(request)
         body = await read_json(request)
-        path = body.get("path", "")
+        path = body.get("path") or body.get("remote_path", "")
         res = await run(
             _camera.pull_photo, serial, path,
             max_size=body.get("max_size"),

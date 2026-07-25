@@ -94,7 +94,7 @@ def test_ocr_extract_happy_path(tmp_path, monkeypatch):
     def fake_run(cmd, capture_output, text, timeout, env):
         assert cmd[0] == str(exe)
         assert cmd[-1] == "tsv"
-        assert env.get("TESSDATA_PREFIX") == str(tess.parent)
+        assert env.get("TESSDATA_PREFIX") == str(tess)
         class R:
             returncode = 0
             stdout = tsv

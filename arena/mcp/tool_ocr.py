@@ -200,7 +200,7 @@ def _handle_ocr_extract(args: dict[str, Any]) -> dict[str, Any]:
     cmd = [binary, str(src), "stdout", "--psm", str(psm), "-l", lang, "tsv"]
     env = os.environ.copy()
     if tessdata:
-        env["TESSDATA_PREFIX"] = str(Path(tessdata).parent)
+        env["TESSDATA_PREFIX"] = str(Path(tessdata))
     try:
         proc = subprocess.run(  # nosec B603 -- controlled argv, no shell
             cmd, capture_output=True, text=True, timeout=timeout, env=env,
