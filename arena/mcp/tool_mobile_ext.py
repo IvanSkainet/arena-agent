@@ -21,12 +21,12 @@ import os
 import json
 import re
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
+from arena.mobile.adb import find_adb as _find_adb, install_hint as _adb_install_hint
 
 
 _MAX_PULL_BYTES = 100 * 1024 * 1024  # 100 MiB safety cap on pulled files
@@ -38,13 +38,21 @@ def _err(msg: str) -> dict[str, Any]:
 
 
 def _adb_path() -> str | None:
-    return shutil.which("adb")
+    # Use the SAME cross-platform discovery as the rest of the mobile
+    # module (explicit SDK candidate paths via find_adb), not just
+    # shutil.which("adb"). adb is commonly installed under the Android
+    # SDK platform-tools dir WITHOUT being on the bridge process PATH;
+    # relying on PATH alone silently broke launch_app / pull_file /
+    # push_file / list_files on such hosts while mobile.ui / mobile.shell
+    # (which use find_adb) kept working. Found by the voice-memo scenario
+    # drive; fixed in v4.83.0.
+    return _find_adb()
 
 
 def _run_adb(args: list[str], timeout: int = _DEFAULT_ADB_TIMEOUT) -> tuple[int, str, str]:
     adb = _adb_path()
     if not adb:
-        return -1, "", "adb not found on PATH"
+        return -1, "", f"adb not found ({_adb_install_hint()})"
     try:
         r = subprocess.run(  # nosec B603 -- fully controlled args # nosemgrep: dangerous-subprocess-use-audit
             [adb, *args], capture_output=True, timeout=timeout, text=True,

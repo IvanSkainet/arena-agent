@@ -13,9 +13,14 @@ def make_recording_handlers(ctx, *, run, read_json, cors):
     async def handle_record_sync(request: web.Request) -> web.Response:
         serial = request.match_info.get("serial", "")
         body = await read_json(request)
+        audio_err = _rec.audio_unsupported_error(body)
+        if audio_err is not None:
+            ctx.audit({"type": "mobile.record_sync", "serial": serial,
+                       "ok": False, "error_type": "unsupported_capability"})
+            return cors(audio_err)
         res = await run(
             _rec.record_sync, serial,
-            duration_ms=int(body.get("duration_ms", 5000)),
+            duration_ms=_rec.resolve_duration_ms(body, 5000),
             size=body.get("size"),
             bit_rate=int(body.get("bit_rate", 4_000_000)),
             include_bytes=bool(body.get("include_bytes", True)),
@@ -31,9 +36,14 @@ def make_recording_handlers(ctx, *, run, read_json, cors):
     async def handle_record_start(request: web.Request) -> web.Response:
         serial = request.match_info.get("serial", "")
         body = await read_json(request)
+        audio_err = _rec.audio_unsupported_error(body)
+        if audio_err is not None:
+            ctx.audit({"type": "mobile.record_start", "serial": serial,
+                       "ok": False, "error_type": "unsupported_capability"})
+            return cors(audio_err)
         res = await run(
             _rec.start_async, serial,
-            duration_ms=int(body.get("duration_ms", 30_000)),
+            duration_ms=_rec.resolve_duration_ms(body, 30_000),
             size=body.get("size"),
             bit_rate=int(body.get("bit_rate", 4_000_000)),
         )

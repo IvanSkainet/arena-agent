@@ -1,3 +1,58 @@
+## v4.83.0 - Scenario-driven mobile hardening: honest audio capability, honored recording duration, robust adb discovery
+
+### Purpose
+
+This release is the first cut using the scenario-driven development
+method: a real, complex use case ("record a voice memo on the phone ->
+transfer to PC -> transcribe -> deliver to chat") was driven against the
+vanilla bridge, and the general defects it surfaced were fixed in the
+core (not patched per-task). Three issues were found and closed; the
+unpublished v4.82.1 Windows RECT hotfix is folded into this release so
+it finally reaches the published line.
+
+### Changes
+
+* **Honest audio capability (`mobile.record_start` / `mobile.record_sync`):**
+  - The `screenrecord` CLI records **video only** — it has no audio source
+    option (verified against AOSP `frameworks/av/cmds/screenrecord`). The
+    tool surface previously advertised "captures device audio+mic on
+    API 31+" but silently dropped the `audio` argument, producing a silent
+    MP4 that downstream transcription then turned into nothing.
+  - Requesting `audio=true` now returns an explicit
+    `{"ok": false, "error_type": "unsupported_capability"}` response with a
+    hint pointing at the working voice-capture path, instead of lying by
+    omission. The misleading tool comment is corrected.
+
+* **Honored recording duration (`resolve_duration_ms`):**
+  - The MCP surface sends `time_limit` (seconds, screenrecord semantics)
+    while the handler only read `duration_ms`, so a requested length was
+    silently ignored (always 30 s). Both fields are now resolved, with
+    `duration_ms` (ms) taking precedence over `time_limit` (s).
+
+* **Robust adb discovery for the v4.59.0 mobile tools (`tool_mobile_ext`):**
+  - `mobile.launch_app` / `pull_file` / `push_file` / `list_files` resolved
+    adb via `shutil.which("adb")` (PATH-only) and failed with "adb not
+    found on PATH" on hosts where adb lives under the Android SDK
+    platform-tools dir without being on PATH — while `mobile.ui` /
+    `mobile.shell` (which use the cross-platform `find_adb`) kept working.
+  - These tools now use the same `arena.mobile.adb.find_adb` discovery, and
+    the not-found error carries the platform-specific install hint.
+
+* **Windows RECT hotfix (folded in from the unpublished v4.82.1):**
+  - `perform_window_action` move/resize now uses `ctypes.wintypes.RECT`
+    instead of an ad-hoc `ctypes.Structure` with `c_long` fields, fixing a
+    RECT type mismatch on 64-bit Windows.
+
+* **Tests:** `tests/test_mobile_recording_contract.py` (audio honesty +
+  duration resolution), `tests/test_mobile_ext_adb_discovery.py`
+  (adb discovery wiring) and `tests/test_make_release_zip_exclude.py`
+  (release-zip exclusions) pin the new behaviour.
+
+* **Release tooling (`scripts/make_release_zip.py`):** rotated runtime logs
+  (`requests.jsonl.2`, `audit.jsonl.N`, `bridge.log.N`) are now excluded
+  from the release zip — previously only the exact base names were matched,
+  so a tracked `requests.jsonl.2` (~10 MB) leaked into the archive.
+
 ## v4.82.0 - Binary-safe file creation, raw binary screenshot default, and native Windows window actions
 
 ### Purpose

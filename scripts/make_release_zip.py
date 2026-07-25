@@ -35,6 +35,11 @@ EXCLUDE_FILES = {
     "token.txt", "audit.jsonl", "bridge.log", "requests.jsonl",
     "facts.jsonl", "history.jsonl",
 }
+# Rotated runtime logs (logrotate-style: requests.jsonl.1, requests.jsonl.2,
+# audit.jsonl.3, bridge.log.1, ...) must not ship either. Match on prefix so
+# any rotation suffix is caught, not just the exact base name. (Found while
+# cutting v4.83.0: a tracked requests.jsonl.2 leaked into the release zip.)
+EXCLUDE_LOG_PREFIXES = ("requests.jsonl", "audit.jsonl", "bridge.log")
 EXCLUDE_PATH_PATTERNS = (
     "queue/running/", "queue/done/", "queue/failed/",
     "memory/sessions/", "memory/facts.jsonl", "memory/history.jsonl",
@@ -63,6 +68,8 @@ def should_exclude(rel_path: str) -> bool:
             return True
     basename = parts[-1]
     if basename in EXCLUDE_FILES or basename in EXCLUDE_EXTRA:
+        return True
+    if any(basename.startswith(p) for p in EXCLUDE_LOG_PREFIXES):
         return True
     for suf in EXCLUDE_SUFFIXES:
         if basename.endswith(suf):

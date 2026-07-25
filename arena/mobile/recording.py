@@ -83,6 +83,78 @@ def _validate_settings(duration_ms: int, size: str | None,
     return None
 
 
+# ---------------------------------------------------------------------------
+# Request-shape helpers (v4.83.0) — keep the HTTP handlers thin and the
+# contract honest. Both are pure so they are trivially unit-testable and
+# never require adb or a connected device.
+# ---------------------------------------------------------------------------
+
+# The screenrecord CLI records the DISPLAY only. Verified against AOSP
+# (frameworks/av/cmds/screenrecord): its option set is --size/--bit-rate/
+# --time-limit/--bugreport/--display-id/--output-format/--rotate/--verbose/
+# --version/--help — there is NO audio source flag. Audio in Android screen
+# capture is a MediaProjection/SystemUI concern, not the CLI binary. Before
+# v4.83.0 the `audio` argument was advertised ("captures device audio+mic on
+# API 31+") but silently dropped, so callers received a silent MP4 and then
+# produced empty transcriptions. We now refuse loudly instead.
+_AUDIO_UNSUPPORTED = {
+    "ok": False,
+    "error": (
+        "audio capture is not supported here: the screenrecord CLI records "
+        "video only and has no audio source option"
+    ),
+    "error_type": "unsupported_capability",
+    "hint": (
+        "For microphone/voice capture, drive the device's Recorder app via "
+        "mobile.ui + mobile.tap_by and pull the saved file, or use a "
+        "dedicated mic-capture component."
+    ),
+}
+
+
+def audio_unsupported_error(body: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a fresh honest-error dict when audio capture was requested.
+
+    Returning a *copy* (not the shared constant) lets callers mutate the
+    payload (e.g. attach audit fields) without poisoning the template.
+    Returns ``None`` when audio was not requested so the caller can fall
+    through to the normal video path.
+    """
+    if isinstance(body, dict) and body.get("audio"):
+        return dict(_AUDIO_UNSUPPORTED)
+    return None
+
+
+def resolve_duration_ms(body: dict[str, Any] | None, default: int) -> int:
+    """Resolve the requested recording length from a request body.
+
+    Two field names are honoured for back-compat:
+      * ``duration_ms`` — milliseconds (canonical bridge field).
+      * ``time_limit``  — seconds, mirroring screenrecord's own
+        ``--time-limit``; converted to ms (``*1000``).
+
+    ``duration_ms`` wins when both are present. Unparseable values fall
+    back to ``default`` rather than raising, matching the previous
+    "best-effort" handler behaviour while no longer silently ignoring a
+    well-formed ``time_limit``.
+    """
+    if not isinstance(body, dict):
+        return default
+    raw = body.get("duration_ms")
+    if raw is not None:
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            pass
+    raw = body.get("time_limit")
+    if raw is not None:
+        try:
+            return int(float(raw) * 1000)
+        except (TypeError, ValueError):
+            pass
+    return default
+
+
 def _ensure_record_dir(serial: str) -> None:
     """Create /sdcard/DCIM/ArenaRecordings on demand. Ignores errors —
     if this fails, screenrecord itself will surface a friendlier one."""

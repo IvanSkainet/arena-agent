@@ -136,7 +136,12 @@ _ROUTES: dict[str, tuple[str, str, tuple[str, ...], bool]] = {
     # Camera (video) — recording via camera app UI
     "mobile.camera_record_start":("POST", "/v1/mobile/{serial}/camera/record/start",           (),                        False),
     "mobile.camera_record_stop": ("POST", "/v1/mobile/{serial}/camera/record/stop",            (),                        False),
-    # Screen recording (screencap style, records the screen; captures device audio+mic on API 31+)
+    # Screen VIDEO recording via `screenrecord`. Video only: the screenrecord
+    # CLI has no audio source option (verified against AOSP), so `audio` is
+    # accepted for forward-compat but the handler returns an explicit
+    # `unsupported_capability` error instead of silently writing a silent
+    # file. `time_limit` is in SECONDS (screenrecord semantics); the handler
+    # also accepts `duration_ms` (milliseconds).
     "mobile.record_start":       ("POST", "/v1/mobile/{serial}/recording/start",               ("bit_rate", "time_limit", "size", "audio"), False),
     "mobile.record_list":        ("GET",  "/v1/mobile/{serial}/recordings",                    (),                        False),
     # Devops

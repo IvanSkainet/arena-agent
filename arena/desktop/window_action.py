@@ -71,9 +71,8 @@ async def perform_window_action(
                 elif effective_action == "close":
                     ok = bool(user32.PostMessageW(hwnd, 0x0010, 0, 0)) # WM_CLOSE
                 elif effective_action in {"move", "resize", "move_resize"}:
-                    class RECT(ctypes.Structure):
-                        _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long), ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
-                    rect = RECT()
+                    import ctypes.wintypes as wt
+                    rect = wt.RECT()
                     user32.GetWindowRect(hwnd, ctypes.byref(rect))
                     curr_x = rect.left
                     curr_y = rect.top
