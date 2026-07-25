@@ -1,3 +1,22 @@
+## v4.88.0 - OCR auto-quality runner (`ocr.extract_best`)
+
+### Purpose
+
+Adds the quality runner discovered by the live book-page OCR scenario. Fixed
+preprocessing profiles are not universally better: one profile improved the
+title while reducing overall text coverage. The bridge now tries multiple OCR
+variants and scores them instead of forcing a single guess.
+
+### Changes
+
+* New `ocr.extract_best` MCP tool (MEDIUM): runs multiple OCR/preprocess
+  variants, scores them by word count, confidence and noise ratio, and returns
+  the best result plus diagnostics for every variant.
+* Added OCR scoring helpers that penalise punctuation/garbage-heavy outputs.
+* Keeps `ocr.extract` and `image.preprocess_for_ocr` as separate base
+  capabilities; `extract_best` is the orchestration layer for quality.
+* Tests cover scoring, best-variant selection and MCP dispatch wrapping.
+
 ## v4.87.0 - Image preprocessing for OCR
 
 ### Purpose

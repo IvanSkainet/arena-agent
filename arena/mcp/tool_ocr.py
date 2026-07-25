@@ -243,6 +243,103 @@ def _handle_ocr_extract(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _score_ocr(words: list[dict[str, Any]], text: str) -> dict[str, Any]:
+    total = len(words)
+    if total <= 0:
+        return {
+            "score": 0.0, "word_count": 0, "mean_confidence": 0.0,
+            "garbage_ratio": 1.0, "short_ratio": 1.0,
+        }
+    confs = [float(w.get("confidence") or 0.0) for w in words]
+    mean_conf = sum(confs) / max(1, len(confs))
+    texts = [str(w.get("text") or "") for w in words]
+    garbage = sum(1 for t in texts if not any(ch.isalnum() for ch in t)) / total
+    short = sum(1 for t in texts if len(t.strip()) <= 1) / total
+    # Prefer more usable words and higher confidence, penalise punctuation/noise.
+    score = total * 5.0 + mean_conf - garbage * 80.0 - short * 20.0
+    return {
+        "score": round(score, 3),
+        "word_count": total,
+        "mean_confidence": round(mean_conf, 3),
+        "garbage_ratio": round(garbage, 3),
+        "short_ratio": round(short, 3),
+    }
+
+
+def _best_variants(args: dict[str, Any]) -> list[dict[str, Any]]:
+    base = {
+        "file": args.get("file"),
+        "lang": args.get("lang") or _DEFAULT_LANG,
+        "min_confidence": int(args.get("min_confidence") or 25),
+        "timeout": float(args.get("timeout") or 120),
+    }
+    variants = [
+        ("baseline_psm6", {**base, "psm": 6}),
+        ("baseline_psm4", {**base, "psm": 4}),
+        ("gray_auto_2200_psm6", {**base, "psm": 6, "preprocess": True,
+                                  "preprocess_max_size": 2200,
+                                  "preprocess_grayscale": True,
+                                  "preprocess_autocontrast": True}),
+        ("gray_auto_4096_psm6", {**base, "psm": 6, "preprocess": True,
+                                  "preprocess_max_size": 4096,
+                                  "preprocess_grayscale": True,
+                                  "preprocess_autocontrast": True}),
+        ("gray_auto_2200_psm4", {**base, "psm": 4, "preprocess": True,
+                                  "preprocess_max_size": 2200,
+                                  "preprocess_grayscale": True,
+                                  "preprocess_autocontrast": True}),
+        ("threshold_170_psm6", {**base, "psm": 6, "preprocess": True,
+                                "preprocess_max_size": 2200,
+                                "preprocess_grayscale": True,
+                                "preprocess_autocontrast": True,
+                                "preprocess_threshold": True,
+                                "preprocess_threshold_value": 170}),
+    ]
+    max_variants = int(args.get("max_variants") or len(variants))
+    return [{"name": name, "args": vargs} for name, vargs in variants[:max(1, max_variants)]]
+
+
+def _handle_ocr_extract_best(args: dict[str, Any]) -> dict[str, Any]:
+    file_arg = str(args.get("file", "") or "").strip()
+    if not file_arg:
+        return _err("missing 'file' argument")
+    results = []
+    best = None
+    best_score = None
+    for variant in _best_variants(args):
+        res = _handle_ocr_extract(variant["args"])
+        if not isinstance(res, dict) or res.get("isError"):
+            diag = {"variant": variant["name"], "ok": False, "error": res}
+            results.append(diag)
+            continue
+        words = res.get("words") or []
+        metrics = _score_ocr(words, str(res.get("text") or ""))
+        diag = {
+            "variant": variant["name"],
+            "ok": bool(res.get("ok")),
+            **metrics,
+            "file": res.get("file"),
+            "psm": res.get("psm"),
+            "preprocessed": res.get("preprocessed"),
+            "text_prefix": str(res.get("text") or "")[:500],
+        }
+        results.append(diag)
+        if res.get("ok") and (best_score is None or metrics["score"] > best_score):
+            best = res
+            best_score = metrics["score"]
+            best["selected_variant"] = variant["name"]
+            best["score"] = metrics
+    if not best:
+        return {"ok": False, "error": "all OCR variants failed", "variants": results}
+    return {
+        "ok": True,
+        "selected_variant": best.get("selected_variant"),
+        "score": best.get("score"),
+        "result": best,
+        "variants": sorted(results, key=lambda r: r.get("score", -999999), reverse=True),
+    }
+
+
 def handle_ocr_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[str, Any] | None:
     if name == "ocr.health":
         return text_content(json.dumps(_handle_ocr_health(args), ensure_ascii=False))
@@ -250,6 +347,8 @@ def handle_ocr_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[str, A
         return text_content(json.dumps(_handle_ocr_bootstrap(args), ensure_ascii=False))
     if name == "ocr.extract":
         return text_content(json.dumps(_handle_ocr_extract(args), ensure_ascii=False))
+    if name == "ocr.extract_best":
+        return text_content(json.dumps(_handle_ocr_extract_best(args), ensure_ascii=False))
     return None
 
 

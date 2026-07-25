@@ -52,6 +52,24 @@ OCR_MCP_TOOLS = [
             },
             "required": ["file"], "additionalProperties": False},
     },
+    {
+        "name": "ocr.extract_best",
+        "description": (
+            "Run multiple OCR/preprocess variants on an image file, score them "
+            "by word count/confidence/noise, and return the best result plus "
+            "diagnostics for every variant."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "file": {"type": "string", "description": "Absolute path to image file on the bridge host."},
+                "lang": {"type": "string", "default": "eng+rus"},
+                "min_confidence": {"type": "integer", "default": 25},
+                "timeout": {"type": "number", "default": 120},
+                "max_variants": {"type": "integer", "default": 6},
+            },
+            "required": ["file"], "additionalProperties": False},
+    },
 ]
 
 __all__ = ["OCR_MCP_TOOLS"]

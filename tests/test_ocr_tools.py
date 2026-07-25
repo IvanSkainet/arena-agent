@@ -24,7 +24,7 @@ from arena.mcp.tool_registry_ocr import OCR_MCP_TOOLS
 
 def test_ocr_registry_and_mcp_tools():
     names = {t["name"] for t in OCR_MCP_TOOLS}
-    assert names == {"ocr.health", "ocr.bootstrap", "ocr.extract"}
+    assert names == {"ocr.health", "ocr.bootstrap", "ocr.extract", "ocr.extract_best"}
     all_names = {t["name"] for t in MCP_TOOLS}
     assert names <= all_names
 
@@ -32,6 +32,7 @@ def test_ocr_registry_and_mcp_tools():
 def test_ocr_policy():
     assert classify_tool_risk("ocr.health") == "safe"
     assert classify_tool_risk("ocr.extract") == "medium"
+    assert classify_tool_risk("ocr.extract_best") == "medium"
     assert classify_tool_risk("ocr.bootstrap") == "dangerous"
 
 
@@ -164,3 +165,65 @@ def test_ocr_extract_with_preprocess_uses_output(tmp_path, monkeypatch):
     assert out["file"] == str(pre)
     assert out["preprocessed"]["output"] == str(pre)
     assert out["text"] == "Hello"
+
+
+def test_ocr_score_penalises_garbage():
+    from arena.mcp.tool_ocr import _score_ocr
+    good = [
+        {"text": "Hello", "confidence": 90},
+        {"text": "world", "confidence": 90},
+    ]
+    noisy = [
+        {"text": "|", "confidence": 90},
+        {"text": "_", "confidence": 90},
+    ]
+    assert _score_ocr(good, "Hello world")["score"] > _score_ocr(noisy, "| _")["score"]
+
+
+def test_ocr_extract_best_selects_highest_scoring_variant(tmp_path, monkeypatch):
+    from arena.mcp import tool_ocr as mod
+
+    img = tmp_path / "doc.png"; img.write_bytes(b"PNG")
+    calls = []
+
+    def fake_extract(args):
+        calls.append(args)
+        if args.get("preprocess"):
+            return {
+                "ok": True,
+                "file": "pre.png",
+                "psm": args.get("psm"),
+                "word_count": 1,
+                "words": [{"text": "|", "confidence": 10}],
+                "text": "|",
+                "preprocessed": {"steps": ["grayscale"]},
+            }
+        return {
+            "ok": True,
+            "file": str(img),
+            "psm": args.get("psm"),
+            "word_count": 3,
+            "words": [
+                {"text": "Buy", "confidence": 90},
+                {"text": "coffee", "confidence": 90},
+                {"text": "tomorrow", "confidence": 80},
+            ],
+            "text": "Buy coffee tomorrow",
+            "preprocessed": None,
+        }
+
+    monkeypatch.setattr(mod, "_handle_ocr_extract", fake_extract)
+    out = mod._handle_ocr_extract_best({"file": str(img), "max_variants": 3})
+    assert out["ok"] is True
+    assert out["selected_variant"].startswith("baseline")
+    assert out["result"]["text"] == "Buy coffee tomorrow"
+    assert len(out["variants"]) == 3
+    assert calls[0]["file"] == str(img)
+
+
+def test_handle_ocr_tool_extract_best_wraps_content(tmp_path, monkeypatch):
+    from arena.mcp import tool_ocr as mod
+    monkeypatch.setattr(mod, "_handle_ocr_extract_best", lambda args: {"ok": True, "selected_variant": "x"})
+    out = mod.handle_ocr_tool("ocr.extract_best", {"file": "x.png"})
+    parsed = json.loads(out["content"][0]["text"])
+    assert parsed == {"ok": True, "selected_variant": "x"}

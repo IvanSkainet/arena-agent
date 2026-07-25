@@ -279,6 +279,7 @@
       "eng.traineddata",
       "ocr.bootstrap",
       "ocr.extract",
+      "ocr.extract_best",
       "ocr.health",
       "rus.traineddata"
     ]
@@ -443,6 +444,7 @@
     "tool_names": [
       "ocr.bootstrap",
       "ocr.extract",
+      "ocr.extract_best",
       "ocr.health"
     ]
   },

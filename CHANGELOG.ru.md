@@ -1,3 +1,22 @@
+## v4.88.0 - OCR auto-quality runner (`ocr.extract_best`)
+
+### Цель
+
+Добавляет quality runner, который вскрыл живой OCR сценарий с книжной
+страницей. Фиксированный preprocessing-профиль не всегда лучше: один профиль
+улучшил заголовок, но ухудшил общий coverage текста. Теперь мост пробует
+несколько OCR-вариантов и оценивает их, вместо того чтобы угадывать один.
+
+### Изменения
+
+* Новая MCP-тула `ocr.extract_best` (MEDIUM): запускает несколько
+  OCR/preprocess variants, оценивает их по word count, confidence и noise
+  ratio, возвращает лучший результат и diagnostics по каждому варианту.
+* Добавлены OCR scoring helpers, штрафующие punctuation/garbage-heavy outputs.
+* `ocr.extract` и `image.preprocess_for_ocr` остаются отдельными базовыми
+  способностями; `extract_best` — orchestration layer для качества.
+* Тесты покрывают scoring, выбор лучшего варианта и MCP dispatch wrapping.
+
 ## v4.87.0 - Image preprocessing для OCR
 
 ### Цель

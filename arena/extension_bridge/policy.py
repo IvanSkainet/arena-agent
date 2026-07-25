@@ -41,7 +41,7 @@ _MEDIUM_TOOLS = {
     # v4.57.0: typed HTTP client + secret metadata reads.
     "net.http", "secrets.get",
     # v4.58.0: local speech-to-text via whisper.cpp.
-    "asr.transcribe", "ocr.extract", "image.preprocess_for_ocr",
+    "asr.transcribe", "ocr.extract", "ocr.extract_best", "image.preprocess_for_ocr",
     # v4.59.0: state-changing but reversible ops.
     "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
 }
