@@ -1,3 +1,17 @@
+## v4.86.4 - OCR Windows UTF-8 stdout hotfix
+
+### Purpose
+
+Fixes the live OCR extraction path on Windows. Tesseract emits UTF-8 TSV,
+but Python `subprocess.run(text=True)` decoded stdout with the local Windows
+code page, which could make `proc.stdout` unavailable after a reader-thread
+UnicodeDecodeError.
+
+### Changes
+
+* `ocr.extract` now reads Tesseract stdout with `encoding="utf-8"` and
+  `errors="replace"`, so Russian TSV is parseable on Windows.
+
 ## v4.86.3 - OCR live-run hotfix: tessdata prefix and camera_pull argument alias
 
 ### Purpose

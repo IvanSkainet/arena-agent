@@ -91,7 +91,7 @@ def test_ocr_extract_happy_path(tmp_path, monkeypatch):
           "5\t1\t1\t1\t1\t1\t10\t20\t30\t40\t95\tCoffee\n" \
           "5\t1\t1\t1\t1\t2\t50\t20\t20\t40\t90\ttomorrow\n"
 
-    def fake_run(cmd, capture_output, text, timeout, env):
+    def fake_run(cmd, capture_output, text, timeout, env, **kwargs):
         assert cmd[0] == str(exe)
         assert cmd[-1] == "tsv"
         assert env.get("TESSDATA_PREFIX") == str(tess)

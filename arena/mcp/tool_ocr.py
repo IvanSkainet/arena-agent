@@ -203,7 +203,7 @@ def _handle_ocr_extract(args: dict[str, Any]) -> dict[str, Any]:
         env["TESSDATA_PREFIX"] = str(Path(tessdata))
     try:
         proc = subprocess.run(  # nosec B603 -- controlled argv, no shell
-            cmd, capture_output=True, text=True, timeout=timeout, env=env,
+            cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, env=env,
         )
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": f"tesseract timed out after {timeout}s"}
