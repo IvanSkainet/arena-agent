@@ -21,7 +21,10 @@ new test files exercise previously-untested code:
   push notifications in `arena/mcp/ws_push.py` (0% → 57%).
 * `tests/test_arena_chat_cli_common.py` (10 cases) — chat REPL
   utility helpers (slugify, now_iso, write_event, open_session)
-  in `arena/chat_cli/common.py` (0% → ~40%).
+  in `arena/chat_cli/common.py` (0% → ~40%). **POSIX-only**:
+  the module is skipped on Windows because
+  `arena/chat_cli/common.py` imports `fcntl` at module load
+  time. The chat REPL is documented as a Linux/macOS path.
 * `tests/test_arena_agent_helpers_files.py` (7 cases) — agent
   filesystem helpers (safe_write, backup_file, now_iso) in
   `arena/agent_helpers/files.py` (0% → ~25%).

@@ -6,14 +6,36 @@ writes). Until v4.79.0 it had 0% line coverage (71 statements,
 8 branches, never imported by any test). These tests focus on
 the pure functions; the ``fcntl``-protected ``write_event``
 path is exercised on Linux only.
+
+``arena.chat_cli.common`` imports ``fcntl`` at module load
+time, which is unavailable on Windows. The whole module is
+therefore skipped on ``sys.platform == "win32"`` -- the
+production code itself is POSIX-only by design (the chat
+REPL is documented as a Linux/macOS path).
 """
 from __future__ import annotations
 
 import json
 import os
 import re
+import sys
 import tempfile
 from pathlib import Path
+
+import pytest
+
+
+# Skip the entire file on Windows because arena.chat_cli.common
+# imports fcntl at top level, and fcntl is a POSIX-only module.
+# The chat REPL itself is documented as a Linux/macOS path, so
+# the skip is not masking a real bug -- it just avoids
+# collection-time ImportError on the Windows CI cells.
+if sys.platform == "win32":
+    pytest.skip(
+        "arena.chat_cli.common requires fcntl (POSIX-only); "
+        "the chat REPL is a Linux/macOS path",
+        allow_module_level=True,
+    )
 
 
 # chat_cli.common does ``os.umask(0o077)`` and binds HOME at

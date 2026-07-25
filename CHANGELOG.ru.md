@@ -22,6 +22,9 @@ v4.79.0 — **третий** запланированный шаг и первы
 * `tests/test_arena_chat_cli_common.py` (10 кейсов) — chat
   REPL utility helpers (slugify, now_iso, write_event,
   open_session) в `arena/chat_cli/common.py` (0% → ~40%).
+  **Только POSIX**: модуль пропускается на Windows, потому что
+  `arena/chat_cli/common.py` импортирует `fcntl` на уровне
+  модуля. Chat REPL задокументирован как Linux/macOS path.
 * `tests/test_arena_agent_helpers_files.py` (7 кейсов) —
   agent filesystem helpers (safe_write, backup_file, now_iso)
   в `arena/agent_helpers/files.py` (0% → ~25%).
