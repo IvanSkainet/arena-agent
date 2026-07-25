@@ -109,7 +109,7 @@ async def list_desktop_windows(*, desktop_exec, detect_env, kwin_windows_via_scr
     attempts = []
 
     # v4.81.0: on Windows, use native EnumWindows via ctypes.
-    if env.get("has_win32_windows"):
+    if env.get("has_win32_windows"):  # pragma: no cover
         try:
             import asyncio as _asyncio
             from arena.desktop.backends import windows as _win

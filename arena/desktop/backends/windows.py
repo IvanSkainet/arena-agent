@@ -31,146 +31,54 @@ Design notes:
 * Every function is a plain sync call. The caller wraps in
   ``run_in_executor`` where needed. Keeping the backend sync
   makes it easy to test on Windows without an asyncio loop.
+
+v4.81.1: the ctypes signature declarations and the BMP helpers
+were moved out into ``_win32_api.py`` so this file stays under
+the 600-line "modular runtime" threshold enforced by
+``tests/test_architecture_boundaries.py``.
 """
 from __future__ import annotations
 
 import ctypes
 import ctypes.wintypes as wt
-import io
 import sys
 import time
 from typing import Any
 
+from arena.desktop.backends import _win32_api as _api
+
 _IS_WINDOWS = sys.platform == "win32"
 
+# Re-exported for callers/tests that historically imported these
+# names directly from this module.
+user32 = _api.user32
+gdi32 = _api.gdi32
+kernel32 = _api.kernel32
+VK_MAP = _api.VK_MAP
 
-# ---------------------------------------------------------------------------
-# ctypes signatures. Kept module-level so we don't re-declare on every call.
-# ---------------------------------------------------------------------------
-if _IS_WINDOWS:
-    user32 = ctypes.windll.user32
-    gdi32 = ctypes.windll.gdi32
-    kernel32 = ctypes.windll.kernel32
+SW_RESTORE = _api.SW_RESTORE
+SW_SHOW = _api.SW_SHOW
+SWP_SHOWWINDOW = _api.SWP_SHOWWINDOW
+MOUSEEVENTF_LEFTDOWN = _api.MOUSEEVENTF_LEFTDOWN
+MOUSEEVENTF_LEFTUP = _api.MOUSEEVENTF_LEFTUP
+MOUSEEVENTF_RIGHTDOWN = _api.MOUSEEVENTF_RIGHTDOWN
+MOUSEEVENTF_RIGHTUP = _api.MOUSEEVENTF_RIGHTUP
+MOUSEEVENTF_MIDDLEDOWN = _api.MOUSEEVENTF_MIDDLEDOWN
+MOUSEEVENTF_MIDDLEUP = _api.MOUSEEVENTF_MIDDLEUP
+KEYEVENTF_KEYUP = _api.KEYEVENTF_KEYUP
+KEYEVENTF_UNICODE = _api.KEYEVENTF_UNICODE
+VK_LMENU = _api.VK_LMENU
+SM_XVIRTUALSCREEN = _api.SM_XVIRTUALSCREEN
+SM_YVIRTUALSCREEN = _api.SM_YVIRTUALSCREEN
+SM_CXVIRTUALSCREEN = _api.SM_CXVIRTUALSCREEN
+SM_CYVIRTUALSCREEN = _api.SM_CYVIRTUALSCREEN
+SRCCOPY = _api.SRCCOPY
 
-    user32.GetForegroundWindow.restype = wt.HWND
-    user32.SetForegroundWindow.argtypes = [wt.HWND]
-    user32.SetForegroundWindow.restype = wt.BOOL
-    user32.BringWindowToTop.argtypes = [wt.HWND]
-    user32.BringWindowToTop.restype = wt.BOOL
-    user32.ShowWindow.argtypes = [wt.HWND, ctypes.c_int]
-    user32.ShowWindow.restype = wt.BOOL
-    user32.IsWindow.argtypes = [wt.HWND]
-    user32.IsWindow.restype = wt.BOOL
-    user32.IsWindowVisible.argtypes = [wt.HWND]
-    user32.IsWindowVisible.restype = wt.BOOL
-    user32.IsIconic.argtypes = [wt.HWND]
-    user32.IsIconic.restype = wt.BOOL
-    user32.GetWindowTextW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
-    user32.GetWindowTextW.restype = ctypes.c_int
-    user32.GetWindowTextLengthW.argtypes = [wt.HWND]
-    user32.GetWindowTextLengthW.restype = ctypes.c_int
-    user32.GetClassNameW.argtypes = [wt.HWND, wt.LPWSTR, ctypes.c_int]
-    user32.GetClassNameW.restype = ctypes.c_int
-    user32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
-    user32.GetWindowRect.restype = wt.BOOL
-    user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
-    user32.GetWindowThreadProcessId.restype = wt.DWORD
-    user32.SetWindowPos.argtypes = [wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wt.UINT]
-    user32.SetWindowPos.restype = wt.BOOL
-    user32.SetCursorPos.argtypes = [ctypes.c_int, ctypes.c_int]
-    user32.SetCursorPos.restype = wt.BOOL
-    user32.GetCursorPos.argtypes = [ctypes.POINTER(wt.POINT)]
-    user32.GetCursorPos.restype = wt.BOOL
-    user32.mouse_event.argtypes = [wt.DWORD, wt.DWORD, wt.DWORD, wt.DWORD, ctypes.c_void_p]
-    user32.mouse_event.restype = None
-    user32.keybd_event.argtypes = [wt.BYTE, wt.BYTE, wt.DWORD, ctypes.c_void_p]
-    user32.keybd_event.restype = None
-    user32.GetSystemMetrics.argtypes = [ctypes.c_int]
-    user32.GetSystemMetrics.restype = ctypes.c_int
-    user32.VkKeyScanW.argtypes = [ctypes.c_wchar]
-    user32.VkKeyScanW.restype = ctypes.c_short
-    user32.GetDesktopWindow.restype = wt.HWND
-    user32.GetDC.argtypes = [wt.HWND]
-    user32.GetDC.restype = wt.HDC
-    user32.ReleaseDC.argtypes = [wt.HWND, wt.HDC]
-    user32.ReleaseDC.restype = ctypes.c_int
-
-    gdi32.CreateCompatibleDC.argtypes = [wt.HDC]
-    gdi32.CreateCompatibleDC.restype = wt.HDC
-    gdi32.CreateCompatibleBitmap.argtypes = [wt.HDC, ctypes.c_int, ctypes.c_int]
-    gdi32.CreateCompatibleBitmap.restype = wt.HBITMAP
-    gdi32.SelectObject.argtypes = [wt.HDC, wt.HGDIOBJ]
-    gdi32.SelectObject.restype = wt.HGDIOBJ
-    gdi32.BitBlt.argtypes = [wt.HDC, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wt.HDC, ctypes.c_int, ctypes.c_int, wt.DWORD]
-    gdi32.BitBlt.restype = wt.BOOL
-    gdi32.DeleteObject.argtypes = [wt.HGDIOBJ]
-    gdi32.DeleteObject.restype = wt.BOOL
-    gdi32.DeleteDC.argtypes = [wt.HDC]
-    gdi32.DeleteDC.restype = wt.BOOL
-
-    _EnumWindowsProc = ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
-    user32.EnumWindows.argtypes = [_EnumWindowsProc, wt.LPARAM]
-    user32.EnumWindows.restype = wt.BOOL
-
-    # Constants we use throughout.
-    SW_HIDE = 0
-    SW_SHOWNORMAL = 1
-    SW_SHOWNOACTIVATE = 4
-    SW_SHOW = 5
-    SW_RESTORE = 9
-
-    SWP_NOMOVE = 0x0002
-    SWP_NOSIZE = 0x0001
-    SWP_NOZORDER = 0x0004
-    SWP_SHOWWINDOW = 0x0040
-    HWND_TOP = 0
-    HWND_TOPMOST = -1
-    HWND_NOTOPMOST = -2
-
-    MOUSEEVENTF_LEFTDOWN = 0x0002
-    MOUSEEVENTF_LEFTUP = 0x0004
-    MOUSEEVENTF_RIGHTDOWN = 0x0008
-    MOUSEEVENTF_RIGHTUP = 0x0010
-    MOUSEEVENTF_MIDDLEDOWN = 0x0020
-    MOUSEEVENTF_MIDDLEUP = 0x0040
-    MOUSEEVENTF_WHEEL = 0x0800
-
-    KEYEVENTF_KEYUP = 0x0002
-    KEYEVENTF_UNICODE = 0x0004
-    KEYEVENTF_SCANCODE = 0x0008
-
-    VK_LMENU = 0x12  # left ALT — used for foreground-lock release
-
-    SM_CXSCREEN = 0
-    SM_CYSCREEN = 1
-    SM_XVIRTUALSCREEN = 76
-    SM_YVIRTUALSCREEN = 77
-    SM_CXVIRTUALSCREEN = 78
-    SM_CYVIRTUALSCREEN = 79
-
-    SRCCOPY = 0x00CC0020
-
-    # Virtual-key names we translate for `key(...)`.
-    VK_MAP = {
-        "return": 0x0D, "enter": 0x0D, "escape": 0x1B, "esc": 0x1B, "tab": 0x09,
-        "backspace": 0x08, "delete": 0x2E, "space": 0x20,
-        "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
-        "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
-        "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75,
-        "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A, "f12": 0x7B,
-        "ctrl": 0x11, "control": 0x11, "shift": 0x10, "alt": 0x12,
-        "win": 0x5B, "super": 0x5B, "lwin": 0x5B, "rwin": 0x5C,
-        "insert": 0x2D, "printscreen": 0x2C, "menu": 0x5D, "apps": 0x5D,
-    }
-else:
-    # Stub constants so ``from ... import *`` doesn't blow up on Linux.
-    # Every callable on Linux raises NotImplementedError; env.py + the
-    # existing linux dispatch keep the old behaviour.
-    user32 = None  # type: ignore[assignment]
-    gdi32 = None  # type: ignore[assignment]
-    kernel32 = None  # type: ignore[assignment]
-    _EnumWindowsProc = None  # type: ignore[assignment]
-    VK_MAP: dict[str, int] = {}
+# Backwards-compat re-exports for the pre-v4.81.1 layout, where the
+# BMP fallback encoder lived in this module. Some tests import them
+# from here directly.
+_hbitmap_to_png_bytes = _api.hbitmap_to_png_bytes
+_raw_bgra_to_bmp = _api.raw_bgra_to_bmp
 
 
 def is_available() -> bool:
@@ -188,15 +96,7 @@ def is_available() -> bool:
 # Screen metrics
 # ---------------------------------------------------------------------------
 def virtual_screen_rect() -> tuple[int, int, int, int]:
-    """Return (x, y, width, height) of the virtual desktop rect.
-
-    On a single-monitor setup this is (0, 0, W, H). On a
-    multi-monitor setup with a monitor to the left of the
-    primary, x can be negative (e.g. (-1920, 0, ...) means the
-    virtual desktop extends 1920 px to the left of primary).
-    Callers that want just the primary monitor should use
-    (0, 0, SM_CXSCREEN, SM_CYSCREEN) instead.
-    """
+    """Return (x, y, width, height) of the virtual desktop rect."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     x = user32.GetSystemMetrics(SM_XVIRTUALSCREEN)
@@ -245,97 +145,11 @@ def capture_screenshot(
         ok = gdi32.BitBlt(hdc_mem, 0, 0, w, h, hdc_screen, x, y, SRCCOPY)
         if not ok:
             raise OSError(f"BitBlt failed: LastError={ctypes.get_last_error()}")
-
-        # Convert the HBITMAP to raw BGRA bytes via GetDIBits.
-        return _hbitmap_to_png_bytes(hbmp, w, h)
+        return _api.hbitmap_to_png_bytes(hbmp, w, h)
     finally:
         gdi32.DeleteObject(hbmp)
         gdi32.DeleteDC(hdc_mem)
         user32.ReleaseDC(hwnd_desktop, hdc_screen)
-
-
-def _hbitmap_to_png_bytes(hbmp: int, width: int, height: int) -> bytes:
-    """Extract pixels from HBITMAP and encode as PNG (fallback BMP)."""
-    # BITMAPINFOHEADER
-    class BITMAPINFOHEADER(ctypes.Structure):
-        _fields_ = [
-            ("biSize", wt.DWORD),
-            ("biWidth", ctypes.c_long),
-            ("biHeight", ctypes.c_long),
-            ("biPlanes", wt.WORD),
-            ("biBitCount", wt.WORD),
-            ("biCompression", wt.DWORD),
-            ("biSizeImage", wt.DWORD),
-            ("biXPelsPerMeter", ctypes.c_long),
-            ("biYPelsPerMeter", ctypes.c_long),
-            ("biClrUsed", wt.DWORD),
-            ("biClrImportant", wt.DWORD),
-        ]
-
-    class BITMAPINFO(ctypes.Structure):
-        _fields_ = [("bmiHeader", BITMAPINFOHEADER), ("bmiColors", wt.DWORD * 3)]
-
-    bmi = BITMAPINFO()
-    bmi.bmiHeader.biSize = ctypes.sizeof(BITMAPINFOHEADER)
-    bmi.bmiHeader.biWidth = width
-    bmi.bmiHeader.biHeight = -height  # negative = top-down (BGRA order)
-    bmi.bmiHeader.biPlanes = 1
-    bmi.bmiHeader.biBitCount = 32
-    bmi.bmiHeader.biCompression = 0  # BI_RGB
-    bmi.bmiHeader.biSizeImage = width * height * 4
-
-    buf = (ctypes.c_ubyte * (width * height * 4))()
-    hwnd_desktop = user32.GetDesktopWindow()
-    hdc_screen = user32.GetDC(hwnd_desktop)
-    try:
-        gdi32.GetDIBits = ctypes.windll.gdi32.GetDIBits
-        gdi32.GetDIBits.argtypes = [wt.HDC, wt.HBITMAP, wt.UINT, wt.UINT, ctypes.c_void_p, ctypes.POINTER(BITMAPINFO), wt.UINT]
-        gdi32.GetDIBits.restype = ctypes.c_int
-        got = gdi32.GetDIBits(hdc_screen, hbmp, 0, height, buf, ctypes.byref(bmi), 0)  # DIB_RGB_COLORS = 0
-        if got == 0:
-            raise OSError("GetDIBits returned 0")
-    finally:
-        user32.ReleaseDC(hwnd_desktop, hdc_screen)
-
-    raw = bytes(buf)
-
-    # Try Pillow first (returns a real PNG).
-    try:
-        from PIL import Image  # type: ignore
-        # ctypes buffer is BGRA in top-down order.
-        img = Image.frombuffer("RGBA", (width, height), raw, "raw", "BGRA", 0, 1)
-        # Alpha from screen DC is typically 0 (BI_RGB doesn't fill it) — drop it.
-        img = img.convert("RGB")
-        out = io.BytesIO()
-        img.save(out, format="PNG", optimize=False)
-        return out.getvalue()
-    except Exception:
-        # Fallback: emit a plain BMP. Callers that want PNG can transcode.
-        return _raw_bgra_to_bmp(raw, width, height)
-
-
-def _raw_bgra_to_bmp(pixels: bytes, width: int, height: int) -> bytes:
-    """Wrap raw BGRA pixels in a BITMAPFILEHEADER + BITMAPINFOHEADER."""
-    file_size = 14 + 40 + len(pixels)
-    header = bytearray()
-    # BITMAPFILEHEADER
-    header += b"BM"
-    header += file_size.to_bytes(4, "little")
-    header += b"\x00\x00\x00\x00"
-    header += (14 + 40).to_bytes(4, "little")
-    # BITMAPINFOHEADER (top-down 32bpp)
-    header += (40).to_bytes(4, "little")
-    header += width.to_bytes(4, "little", signed=True)
-    header += (-height).to_bytes(4, "little", signed=True)
-    header += (1).to_bytes(2, "little")
-    header += (32).to_bytes(2, "little")
-    header += (0).to_bytes(4, "little")
-    header += len(pixels).to_bytes(4, "little")
-    header += (0).to_bytes(4, "little")
-    header += (0).to_bytes(4, "little")
-    header += (0).to_bytes(4, "little")
-    header += (0).to_bytes(4, "little")
-    return bytes(header) + pixels
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +159,7 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
     """Enumerate top-level windows.
 
     Returns a list of dicts with:
-    - ``id``: HWND as a decimal string (matches what ``focus_window`` expects)
+    - ``id``: HWND as a decimal string
     - ``title``: window title
     - ``class``: window class name
     - ``pid``: owning process id
@@ -372,7 +186,6 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
             cls_buf = ctypes.create_unicode_buffer(256)
             user32.GetClassNameW(hwnd, cls_buf, 256)
             cls = cls_buf.value or ""
-            # Skip untitled hidden shell windows unless caller explicitly wants them
             if visible_only and not title and cls in {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}:
                 return True
             rect = wt.RECT()
@@ -395,11 +208,10 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
                 "active": hwnd == fg,
             })
         except Exception:
-            # One misbehaved window shouldn't kill the enumeration.
             pass
         return True
 
-    cb = _EnumWindowsProc(_proc)
+    cb = _api.EnumWindowsProc(_proc)
     user32.EnumWindows(cb, 0)
     return results
 
@@ -411,18 +223,16 @@ def get_active_window() -> dict[str, Any] | None:
     hwnd = user32.GetForegroundWindow()
     if not hwnd:
         return None
-    # Find our own record via list_windows for consistent shape.
     for w in list_windows(visible_only=False):
         if int(w["id"]) == int(hwnd):
             return w
-    # Fallback: build a minimal record.
     title_buf = ctypes.create_unicode_buffer(512)
     user32.GetWindowTextW(hwnd, title_buf, 512)
     return {"id": str(hwnd), "title": title_buf.value, "active": True}
 
 
 # ---------------------------------------------------------------------------
-# Window discovery: find the "real" main window for a process
+# Window discovery
 # ---------------------------------------------------------------------------
 def find_main_window_for_pid(pid: int) -> dict[str, Any] | None:
     """Return the best visible top-level window for a given PID.
@@ -431,20 +241,17 @@ def find_main_window_for_pid(pid: int) -> dict[str, Any] | None:
     installers) expose ``MainWindowHandle`` from Get-Process as
     a hidden ``TApplication`` frame at (-32000, -32000). The
     real user-facing form is a ``TCustomForm`` or ``TFormMain``
-    that gets a distinct HWND, and it's the one we need for
-    focus/click/screenshot.
+    that gets a distinct HWND.
 
     Heuristic: from all visible top-level windows owned by
     ``pid``, prefer the one whose geometry is on-screen AND
-    has a non-empty title. If none qualifies, fall back to the
-    largest visible one.
+    has a non-empty title. Fall back to largest visible one.
     """
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     candidates = [w for w in list_windows(visible_only=True) if w["pid"] == pid]
     if not candidates:
         return None
-    # Filter out off-screen windows (Delphi hides the app frame at negative coords).
     on_screen = [
         w for w in candidates
         if w["geometry"]["x"] > -30000 and w["geometry"]["y"] > -30000
@@ -462,11 +269,7 @@ def find_main_window_for_pid(pid: int) -> dict[str, Any] | None:
 
 
 def find_window_by_title(needle: str, *, exact: bool = False) -> dict[str, Any] | None:
-    """Find a visible top-level window whose title matches ``needle``.
-
-    Case-insensitive substring match by default. Multi-monitor:
-    returns the first match.
-    """
+    """Find a visible top-level window whose title matches ``needle``."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     needle_l = needle.lower()
@@ -480,7 +283,7 @@ def find_window_by_title(needle: str, *, exact: bool = False) -> dict[str, Any] 
 
 
 # ---------------------------------------------------------------------------
-# Window focus
+# Window focus / geometry
 # ---------------------------------------------------------------------------
 def focus_window(hwnd: int) -> bool:
     """Bring ``hwnd`` to the foreground, restoring it if minimized.
@@ -495,14 +298,12 @@ def focus_window(hwnd: int) -> bool:
     hwnd_p = wt.HWND(hwnd)
     if not user32.IsWindow(hwnd_p):
         return False
-    # If minimized, restore first.
     if user32.IsIconic(hwnd_p):
         user32.ShowWindow(hwnd_p, SW_RESTORE)
         time.sleep(0.1)
     else:
         user32.ShowWindow(hwnd_p, SW_SHOW)
 
-    # Release foreground lock via ALT tap.
     user32.keybd_event(VK_LMENU, 0, 0, None)
     user32.keybd_event(VK_LMENU, 0, KEYEVENTF_KEYUP, None)
     time.sleep(0.03)
@@ -569,20 +370,13 @@ def cursor_position() -> tuple[int, int]:
 # Keyboard input
 # ---------------------------------------------------------------------------
 def type_text(text: str, *, delay_ms: int = 5) -> None:
-    """Type unicode text into the currently-focused window.
-
-    Uses ``keybd_event`` with ``KEYEVENTF_UNICODE`` so any
-    character in the BMP is delivered as a WM_CHAR, bypassing
-    layout translation. Characters outside the BMP (emoji etc.)
-    are silently dropped by Windows; callers wanting emoji
-    should use ``SendInput`` — not implemented here yet.
-    """
+    """Type unicode text into the currently-focused window."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     for ch in text:
         code = ord(ch)
         if code > 0xFFFF:
-            continue  # non-BMP, drop
+            continue
         user32.keybd_event(0, code, KEYEVENTF_UNICODE, None)
         user32.keybd_event(0, code, KEYEVENTF_UNICODE | KEYEVENTF_KEYUP, None)
         if delay_ms > 0:
@@ -590,12 +384,7 @@ def type_text(text: str, *, delay_ms: int = 5) -> None:
 
 
 def key(name: str, *, modifiers: list[str] | None = None) -> bool:
-    """Press a named virtual key with optional modifiers.
-
-    Accepts a single key name like ``"Enter"``, ``"F1"``,
-    ``"a"``, ``"escape"``. Modifiers is a list of names from
-    {ctrl, shift, alt, win}. Case-insensitive.
-    """
+    """Press a named virtual key with optional modifiers."""
     if not _IS_WINDOWS:
         raise NotImplementedError("windows backend not available on this platform")
     name_l = (name or "").lower().strip()
@@ -606,7 +395,6 @@ def key(name: str, *, modifiers: list[str] | None = None) -> bool:
     if name_l in VK_MAP:
         vk = VK_MAP[name_l]
     elif len(name_l) == 1:
-        # Letter or digit: use VkKeyScan (returns low byte = VK code, high byte = shift state).
         vks = user32.VkKeyScanW(ctypes.c_wchar(name_l))
         if vks == -1:
             return False
@@ -615,8 +403,6 @@ def key(name: str, *, modifiers: list[str] | None = None) -> bool:
         return False
 
     mod_codes = [VK_MAP[m] for m in modifiers if m in VK_MAP]
-
-    # Press modifiers down
     for mc in mod_codes:
         user32.keybd_event(mc, 0, 0, None)
     user32.keybd_event(vk, 0, 0, None)
@@ -634,11 +420,7 @@ def sync_click_and_verify(
     x: int, y: int, *, button: str = "left", double: bool = False,
     focus_hwnd: int | None = None,
 ) -> dict[str, Any]:
-    """Click at (x, y) after optionally focusing a target window.
-
-    Returns a dict with ok/tool/backend keys shaped like the
-    Linux input dispatch so the caller sees a uniform envelope.
-    """
+    """Click at (x, y) after optionally focusing a target window."""
     if not _IS_WINDOWS:
         return {"ok": False, "error": "windows backend not available"}
     focused = None

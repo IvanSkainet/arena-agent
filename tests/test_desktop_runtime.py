@@ -35,6 +35,8 @@ def test_get_active_window_prefers_kwin_window_list(monkeypatch):
             ],
         }
 
+    # v4.81.1: force the Linux branch on Windows CI runners.
+    monkeypatch.setattr(aw, "_USE_WIN32_ACTIVE_WINDOW", False)
     monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
     result = asyncio.run(aw._get_active_window())
     assert result["backend"] == "kwin_journal"
@@ -55,6 +57,7 @@ def test_get_active_window_uses_kwin_window_list_minimal_shape(monkeypatch):
             ],
         }
 
+    monkeypatch.setattr(aw, "_USE_WIN32_ACTIVE_WINDOW", False)
     monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
     result = asyncio.run(aw._get_active_window())
     assert result["backend"] == "kwin_journal"
@@ -83,6 +86,7 @@ def test_get_active_window_falls_back_to_xdotool_when_kwin_list_fails(monkeypatc
             return {"ok": True, "stdout": "Window 123\n  Position: 1,2 (screen: 0)\n  Geometry: 3x4\n", "stderr": ""}
         return {"ok": False, "stdout": "", "stderr": "unexpected"}
 
+    monkeypatch.setattr(aw, "_USE_WIN32_ACTIVE_WINDOW", False)
     monkeypatch.setattr(aw, "_kwin_windows_via_script", _kwin_list)
     monkeypatch.setattr(aw.shutil, "which", lambda name: "/usr/bin/xdotool" if name == "xdotool" else None)
     monkeypatch.setattr(aw, "_desktop_exec", _exec)

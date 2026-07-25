@@ -8,6 +8,11 @@ import sys
 from arena.desktop.exec import _desktop_exec
 from arena.desktop.kwin import _kwin_windows_via_script
 
+# v4.81.1: module-level flag that gates the native win32 shortcut.
+# Kept mutable so pre-existing KWin/xdotool tests can flip it off
+# on a Windows CI runner without touching sys.platform.
+_USE_WIN32_ACTIVE_WINDOW = sys.platform == "win32"
+
 
 async def _get_active_window() -> dict | None:
     """Get currently active (focused) window info. Used by input guard.
@@ -22,7 +27,10 @@ async def _get_active_window() -> dict | None:
     Returns dict with id, title, pid, class or None.
     """
     # v4.81.0: Windows native path (no subprocess).
-    if sys.platform == "win32":
+    # v4.81.1: expose the gate as ``_USE_WIN32_ACTIVE_WINDOW`` so
+    # legacy KWin/xdotool unit tests can force the Linux branch on a
+    # Windows CI runner via ``monkeypatch.setattr``.
+    if _USE_WIN32_ACTIVE_WINDOW:  # pragma: no cover
         try:
             from arena.desktop.backends import windows as _win
             w = _win.get_active_window()

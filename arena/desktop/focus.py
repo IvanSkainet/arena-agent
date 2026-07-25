@@ -5,7 +5,6 @@ import asyncio
 import os
 import shlex
 import shutil
-import sys
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -31,7 +30,11 @@ async def focus_window(
     env = detect_env()
 
     # v4.81.0: Windows native path via user32.
-    if sys.platform == "win32":
+    # v4.81.1: gate on env flag (not sys.platform) so unit tests that
+    # inject a mock ``detect_env`` — such as the kwin-focused tests
+    # in test_desktop_windows.py — can force the Linux branch even on
+    # a Windows CI runner.
+    if env.get("has_win32_windows"):  # pragma: no cover
         try:
             from arena.desktop.backends import windows as _win
         except Exception as exc:

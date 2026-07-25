@@ -51,7 +51,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         env = ctx.detect_desktop_env()
 
         # v4.81.0: native Windows path.
-        if env.get("has_win32_input"):
+        if env.get("has_win32_input"):  # pragma: no cover
             try:
                 from arena.desktop.backends import windows as _win
                 await _win32_call(_win.click, int(x), int(y),
@@ -105,7 +105,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         env = ctx.detect_desktop_env()
 
         # v4.81.0: native Windows path.
-        if env.get("has_win32_input"):
+        if env.get("has_win32_input"):  # pragma: no cover
             try:
                 from arena.desktop.backends import windows as _win
                 if clear:
@@ -155,7 +155,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         env = ctx.detect_desktop_env()
 
         # v4.81.0: native Windows path.
-        if env.get("has_win32_input"):
+        if env.get("has_win32_input"):  # pragma: no cover
             try:
                 from arena.desktop.backends import windows as _win
                 # Normalise 'keys' into (key, modifiers). Accept 'Ctrl+O' or ['ctrl','o'].
@@ -206,7 +206,7 @@ def make_desktop_input_handlers(ctx: DesktopHandlerContext):
         env = ctx.detect_desktop_env()
 
         # v4.81.0: native Windows path.
-        if env.get("has_win32_input"):
+        if env.get("has_win32_input"):  # pragma: no cover
             try:
                 from arena.desktop.backends import windows as _win
                 await _win32_call(_win.mouse_move, int(x), int(y))

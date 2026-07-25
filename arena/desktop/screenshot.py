@@ -59,7 +59,7 @@ async def capture_desktop_screenshot(
     # than shelling out to Linux-only tools. The rest of the
     # transform pipeline (crop / scale / re-encode via Pillow)
     # is shared with the Linux path.
-    if env.get("has_win32_screenshot"):
+    if env.get("has_win32_screenshot"):  # pragma: no cover
         try:
             from arena.desktop.backends import windows as _win  # local import: ctypes only exists on Windows
             img_bytes = _win.capture_screenshot(

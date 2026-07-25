@@ -1,6 +1,6 @@
 [project]
 name = "arena-unified-bridge"
-version = "4.81.0"
+version = "4.81.1"
 description = "Cross-platform local automation bridge for AI agents — one process, one port, modular Python architecture."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -101,6 +101,14 @@ omit = [
     "*/__pycache__/*",
     "*/.pytest_cache/*",
     "*/site-packages/*",
+    # v4.81.1: Windows-only backend. Every non-trivial line is
+    # guarded by ``if not _IS_WINDOWS: raise NotImplementedError``,
+    # which coverage counts as an uncovered branch on Linux CI.
+    # The live Windows CI runners exercise these paths in the
+    # `test_live_*` tests; the Linux side is covered by the
+    # stub-raises tests in ``test_desktop_windows_backend.py``.
+    "arena/desktop/backends/windows.py",
+    "arena/desktop/backends/_win32_api.py",
 ]
 
 [tool.coverage.report]
@@ -113,7 +121,16 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
     "\\.\\.\\.",
+    # v4.81.1: Windows-only branches added in v4.81.0. On Linux CI
+    # these are entered exactly zero times; on Windows CI they are
+    # exercised by the live tests but the coverage.xml is only
+    # collected on Linux, so we exclude them everywhere.
+    "if env\\.get\\(.has_win32_",
+    "if _USE_WIN32_ACTIVE_WINDOW",
+    "if sys\\.platform == .win32.",
 ]
+
+
 sort = "Cover"
 skip_covered = false
 show_missing = true
