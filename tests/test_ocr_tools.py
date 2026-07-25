@@ -137,3 +137,30 @@ def test_handle_ocr_tool_wraps_content():
 
 def test_handle_ocr_tool_none_for_other():
     assert handle_ocr_tool("asr.health", {}) is None
+
+
+def test_ocr_extract_with_preprocess_uses_output(tmp_path, monkeypatch):
+    img = tmp_path / "doc.png"; img.write_bytes(b"PNG")
+    pre = tmp_path / "doc.pre.png"; pre.write_bytes(b"PNG2")
+    monkeypatch.setattr("arena.mcp.tool_ocr._find_tesseract", lambda: "/bin/tesseract")
+    monkeypatch.setattr("arena.mcp.tool_ocr._find_tessdata_dir", lambda binary=None: None)
+    monkeypatch.setattr("arena.mcp.tool_ocr.preprocess_for_ocr", lambda *a, **kw: {"ok": True, "output": str(pre), "steps": ["grayscale"]})
+
+    tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n" \
+          "5\t1\t1\t1\t1\t1\t1\t2\t3\t4\t90\tHello\n"
+
+    def fake_run(cmd, capture_output, text, timeout, env, **kwargs):
+        assert cmd[1] == str(pre)
+        assert kwargs.get("encoding") == "utf-8"
+        class R:
+            returncode = 0
+            stdout = tsv
+            stderr = ""
+        return R()
+
+    with mock.patch("arena.mcp.tool_ocr.subprocess.run", fake_run):
+        out = _handle_ocr_extract({"file": str(img), "preprocess": True})
+    assert out["ok"] is True
+    assert out["file"] == str(pre)
+    assert out["preprocessed"]["output"] == str(pre)
+    assert out["text"] == "Hello"

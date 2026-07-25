@@ -24,6 +24,7 @@ from typing import Any
 
 from arena.desktop.ocr import parse_tesseract_tsv
 from arena.desktop.text_matching import build_ocr_text, find_text_matches
+from arena.image.preprocess import preprocess_for_ocr
 from arena.mcp.tool_utils import text_content
 
 _DEFAULT_LANG = "eng+rus"
@@ -187,6 +188,21 @@ def _handle_ocr_extract(args: dict[str, Any]) -> dict[str, Any]:
         return _err(f"file not found: {src}")
     if not src.is_file():
         return _err(f"not a file: {src}")
+    preprocessed = None
+    if bool(args.get("preprocess", False)):
+        preprocessed = preprocess_for_ocr(
+            src,
+            max_size=int(args.get("preprocess_max_size") or 2200),
+            grayscale=bool(args.get("preprocess_grayscale", True)),
+            autocontrast=bool(args.get("preprocess_autocontrast", True)),
+            threshold=bool(args.get("preprocess_threshold", False)),
+            threshold_value=int(args.get("preprocess_threshold_value") or 170),
+            deskew=bool(args.get("preprocess_deskew", False)),
+        )
+        if not preprocessed.get("ok"):
+            return preprocessed
+        src = Path(str(preprocessed["output"]))
+
     binary = _find_tesseract()
     if not binary:
         return _err("tesseract not found. Run ocr.bootstrap or install Tesseract OCR.")
@@ -223,6 +239,7 @@ def _handle_ocr_extract(args: dict[str, Any]) -> dict[str, Any]:
         "best_match": matches[0] if matches else None,
         "tesseract": binary,
         "tessdata": tessdata,
+        "preprocessed": preprocessed,
     }
 
 

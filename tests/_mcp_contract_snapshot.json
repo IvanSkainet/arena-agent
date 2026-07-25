@@ -132,6 +132,16 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_image.py",
+    "handlers": [
+      "handle_image_tool"
+    ],
+    "tool_names": [
+      "image.health",
+      "image.preprocess_for_ocr"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_memory.py",
     "handlers": [
       "handle_memory_tool"
@@ -342,6 +352,14 @@
       "asr.health",
       "asr.models",
       "asr.transcribe"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_image.py",
+    "handlers": [],
+    "tool_names": [
+      "image.health",
+      "image.preprocess_for_ocr"
     ]
   },
   {

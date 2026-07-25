@@ -1,3 +1,20 @@
+## v4.87.0 - Image preprocessing for OCR
+
+### Purpose
+
+Adds the quality layer discovered by the live book-page OCR scenario: generic
+OCR works, but real camera photos need preprocessing (resize, grayscale,
+autocontrast, threshold, optional deskew) before extraction.
+
+### Changes
+
+* New `image.health` MCP tool (SAFE): reports Pillow and optional OpenCV runtime.
+* New `image.preprocess_for_ocr` MCP tool (MEDIUM): produces an OCR-friendly PNG
+  from any host image file.
+* `ocr.extract(preprocess=true)` now runs preprocessing before Tesseract and
+  returns the preprocessing metadata.
+* README namespace coverage and MCP contract snapshot updated for `image.*`.
+
 ## v4.86.4 - OCR Windows UTF-8 stdout hotfix
 
 ### Purpose

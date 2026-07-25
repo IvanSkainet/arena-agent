@@ -18,7 +18,7 @@ _SAFE_TOOLS = {
     # v4.57.0: net/secrets read-only surface.
     "secrets.list",
     # v4.58.0: asr model discovery.
-    "asr.models", "asr.health", "ocr.health",
+    "asr.models", "asr.health", "ocr.health", "image.health",
     # v4.59.0: read-only device/browser inspection.
     "mobile.list_files", "browser.list",
 }
@@ -41,7 +41,7 @@ _MEDIUM_TOOLS = {
     # v4.57.0: typed HTTP client + secret metadata reads.
     "net.http", "secrets.get",
     # v4.58.0: local speech-to-text via whisper.cpp.
-    "asr.transcribe", "ocr.extract",
+    "asr.transcribe", "ocr.extract", "image.preprocess_for_ocr",
     # v4.59.0: state-changing but reversible ops.
     "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
 }
