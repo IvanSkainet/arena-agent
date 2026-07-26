@@ -411,15 +411,23 @@ del "!BORE_ZIP!" >nul 2>&1
 :bore_done
 
 REM --- SuperPowers ---
+REM v4.92.2: call/exit-b subroutine (robust against the goto-in-block label
+REM bug that broke the SpecKit step) + re-sync from upstream when there is no
+REM .git. Release-zip copies ship skills\superpowers WITHOUT .git, so the old
+REM `git pull` path never ran and SuperPowers stayed stale forever.
+call :superpowers_step
+goto :sp_after
+
+:superpowers_step
 if exist "!BRIDGE_DIR!\skills\superpowers\skills" goto :sp_exists
 echo [INFO] SuperPowers is a 14-skill agentic framework - TDD, debugging, planning.
 echo       It clones into the bridge directory: !BRIDGE_DIR!\skills\superpowers
 set "SP_CONFIRM="
 set /p "SP_CONFIRM=Install SuperPowers? [y/N]: "
-if /I not "%SP_CONFIRM%"=="Y" (
+if /I not "!SP_CONFIRM!"=="Y" (
     echo [INFO] SuperPowers skipped. Install later with:
     echo        git clone https://github.com/obra/superpowers.git skills\superpowers
-    goto :sp_done
+    exit /b
 )
 echo [INFO] Installing SuperPowers from GitHub...
 git clone --depth 1 https://github.com/obra/superpowers.git "!BRIDGE_DIR!\skills\superpowers" >nul 2>&1
@@ -429,22 +437,42 @@ if exist "!BRIDGE_DIR!\skills\superpowers\skills" (
     echo [WARN] SuperPowers clone failed. Install later:
     echo        git clone https://github.com/obra/superpowers.git skills\superpowers
 )
-goto :sp_done
+exit /b
+
 :sp_exists
 for /f %%c in ('dir /b "!BRIDGE_DIR!\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
+echo [INFO] Checking SuperPowers updates...
 if exist "!BRIDGE_DIR!\skills\superpowers\.git" (
     for /f "delims=" %%r in ('git -C "!BRIDGE_DIR!\skills\superpowers" rev-parse --short HEAD 2^>nul') do echo [INFO] SuperPowers revision: %%r
-    echo [INFO] Checking SuperPowers updates...
     git -C "!BRIDGE_DIR!\skills\superpowers" pull --ff-only --quiet >nul 2>&1
-    if errorlevel 1 (
-        echo [WARN] SuperPowers update check failed/skipped.
-    ) else (
-        echo [OK] SuperPowers is up to date or fast-forwarded.
-    )
+    if errorlevel 1 (echo [WARN] SuperPowers update failed/skipped.) else (echo [OK] SuperPowers is up to date or fast-forwarded.)
+    exit /b
 )
-:sp_done
+REM No .git: this copy came from the release zip. Re-clone from upstream so it
+REM is both the latest version and git-managed for future updates.
+echo [INFO] SuperPowers has no .git (release-zip copy) - re-syncing from upstream...
+git clone --depth 1 https://github.com/obra/superpowers.git "!BRIDGE_DIR!\skills\superpowers.new" >nul 2>&1
+if exist "!BRIDGE_DIR!\skills\superpowers.new\skills" (
+    rmdir /s /q "!BRIDGE_DIR!\skills\superpowers" >nul 2>&1
+    ren "!BRIDGE_DIR!\skills\superpowers.new" "superpowers" >nul 2>&1
+    for /f %%c in ('dir /b "!BRIDGE_DIR!\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers re-synced to latest - %%c skills.
+) else (
+    rmdir /s /q "!BRIDGE_DIR!\skills\superpowers.new" >nul 2>&1
+    echo [WARN] SuperPowers re-sync failed; keeping the existing copy.
+)
+exit /b
+
+:sp_after
 
 REM --- BrowserAct ---
+REM v4.92.2: call/exit-b subroutine (the previous version used
+REM `goto :ba_done` from inside a parenthesised block that also contained a
+REM `for /f` -- the same construct that aborted the installer at the SpecKit
+REM step). `uv tool upgrade` keeps browser-act-cli at the latest version.
+call :browseract_step
+goto :ba_after
+
+:browseract_step
 where browser-act >nul 2>&1
 if not errorlevel 1 (
     set "BA_VERSION="
@@ -454,41 +482,39 @@ if not errorlevel 1 (
     if not errorlevel 1 (
         echo [INFO] Checking BrowserAct updates via uv...
         uv tool upgrade browser-act-cli >nul 2>&1
-        if errorlevel 1 (
-            echo [WARN] BrowserAct update check failed/skipped.
-        ) else (
-            echo [OK] BrowserAct is up to date or upgraded.
-        )
+        if errorlevel 1 (echo [WARN] BrowserAct update check failed/skipped.) else (echo [OK] BrowserAct is up to date or upgraded.)
     )
-    goto :ba_done
+    exit /b
 )
 where uv >nul 2>&1
 if errorlevel 1 (
     echo [INFO] BrowserAct requires uv. Install: https://docs.astral.sh/uv/getting-started/installation/
-    goto :ba_done
+    exit /b
 )
 echo [INFO] BrowserAct installs GLOBALLY via uv tool - in your user PATH,
 echo       outside the bridge directory. The bridge calls browser-act via PATH,
 echo       so a global install is required for it to work.
 set "BA_CONFIRM="
 set /p "BA_CONFIRM=Install BrowserAct globally via uv? [y/N]: "
-if /I not "%BA_CONFIRM%"=="Y" (
+if /I not "!BA_CONFIRM!"=="Y" (
     echo [INFO] BrowserAct skipped. Install later with:
     echo        uv tool install browser-act-cli --python 3.12
-    goto :ba_done
+    exit /b
 )
 echo [INFO] Installing BrowserAct via uv tool - global, outside bridge dir...
 uv tool install browser-act-cli --python 3.12 >nul 2>&1
 where browser-act >nul 2>&1
 if errorlevel 1 (
     echo [WARN] BrowserAct install may have failed. Try: uv tool install browser-act-cli --python 3.12
-    goto :ba_done
+    exit /b
 )
 for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
 echo [OK] BrowserAct installed: !BA_VERSION!
 if not exist "!BRIDGE_DIR!\skills\browseract" mkdir "!BRIDGE_DIR!\skills\browseract"
 if not exist "!BRIDGE_DIR!\skills\browseract\SKILL.md" curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "!BRIDGE_DIR!\skills\browseract\SKILL.md" 2>nul
-:ba_done
+exit /b
+
+:ba_after
 
 REM --- Camoufox ---
 where browser-act >nul 2>&1

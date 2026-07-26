@@ -1,3 +1,36 @@
+## v4.92.2 - CI green on Python 3.13/Windows, broader macOS matrix, installer keeps SuperPowers/BrowserAct at latest
+
+### Fixed
+
+- **CI: Python 3.13 on windows-latest no longer fails.** The Node-harness
+  test `test_overview_toolbar_js.py::test_auto_refresh_uses_interval_value_from_dom`
+  spawns a `node -e` child whose trapped `setInterval` handle stays alive on
+  win32 (the `clearInterval()` call passes no id), so the subprocess hung past
+  the 15s timeout. Marked `skipif win32`, matching the two sibling toolbar
+  timer tests that already carry this skip.
+
+- **Installer: SuperPowers now actually updates to latest.** Release-zip
+  copies ship `skills/superpowers/` **without** `.git` (the zip excludes
+  `.git`), so the old `git pull --ff-only` update path never ran and
+  SuperPowers was frozen at whatever version the zip contained. When there is
+  no `.git`, the installer now re-clones from upstream (latest, and
+  git-managed for future updates). Verified live: a zip-installed copy
+  re-synced to latest correctly.
+
+- **Installer: SuperPowers and BrowserAct steps hardened.** Both were
+  rewritten as `call`/`exit /b` subroutines. The previous BrowserAct step
+  used `goto :ba_done` from inside a parenthesised block that also contained
+  a `for /f` -- the same construct that aborted the installer at the SpecKit
+  step in v4.91.x. BrowserAct still upgrades via `uv tool upgrade
+  browser-act-cli` (latest).
+
+### Changed
+
+- **CI: macOS matrix expanded** from a single Python 3.12 cell to 3.11 /
+  3.12 / 3.13, so the cross-platform promise is checked across an older, the
+  current, and a newer Python (still far cheaper than the full 5x2 matrix).
+  The per-platform coverage gate already treats macOS like Windows (46%).
+
 ## v4.92.1 - Installer hotfix: fix SpecKit step aborting install.bat
 
 ### Fixed

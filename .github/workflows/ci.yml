@@ -64,11 +64,18 @@ jobs:
         # release.
         os: [ubuntu-latest, windows-latest]
         include:
-          # v4.89.2: first macOS CI coverage. Keep it to one stable
-          # Python version to avoid doubling the matrix cost while still
-          # catching platform-specific path/subprocess/import issues.
+          # v4.89.2: first macOS CI coverage. v4.92.2: expanded from a
+          # single 3.12 cell to 3.11 / 3.12 / 3.13 so the cross-platform
+          # promise is checked across an older, the current, and a newer
+          # Python (still far cheaper than the full 5x2 matrix). The
+          # per-platform coverage gate below treats macOS like Windows
+          # (46% floor).
+          - os: macos-latest
+            python-version: "3.11"
           - os: macos-latest
             python-version: "3.12"
+          - os: macos-latest
+            python-version: "3.13"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 

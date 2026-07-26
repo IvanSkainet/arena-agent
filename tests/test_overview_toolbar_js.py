@@ -182,6 +182,7 @@ globalThis.refreshOverview = function() {
     assert out["metaMentionsError"] is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Node child-process harness leaves the trapped setInterval handle alive on win32 and the subprocess hangs past the 15s timeout (v4.92.2; same pattern as the other toolbar timer tests above)")
 def test_auto_refresh_uses_interval_value_from_dom():
     """Set the interval selector to a small value, tick the check-
     box, then inspect the last setInterval delay."""

@@ -1,3 +1,34 @@
+## v4.92.2 - Зелёный CI на Python 3.13/Windows, шире macOS-матрица, инсталлятор держит SuperPowers/BrowserAct на latest
+
+### Исправлено
+
+- **CI: Python 3.13 на windows-latest больше не падает.** Node-тест
+  `test_overview_toolbar_js.py::test_auto_refresh_uses_interval_value_from_dom`
+  спавнит `node -e`, чей trapped `setInterval` остаётся жив на win32 (вызов
+  `clearInterval()` без id), поэтому подпроцесс вис до 15с таймаута. Помечен
+  `skipif win32` — как два соседних toolbar-теста с таймерами, уже имеющих
+  этот skip.
+
+- **Инсталлятор: SuperPowers теперь реально обновляется до latest.** Zip-копии
+  содержат `skills/superpowers/` **без** `.git` (zip исключает `.git`), поэтому
+  старый путь `git pull --ff-only` не выполнялся и SuperPowers был заморожен на
+  версии из zip. При отсутствии `.git` инсталлятор теперь делает re-clone из
+  upstream (latest + git-управляемость для будущих обновлений). Проверено
+  живьём: zip-копия корректно подтянулась к latest.
+
+- **Инсталлятор: шаги SuperPowers и BrowserAct усилены.** Оба переписаны как
+  подпрограммы `call`/`exit /b`. Прежний шаг BrowserAct использовал
+  `goto :ba_done` изнутри parenthesised-блока с `for /f` — та же конструкция,
+  что оборвала инсталлятор на SpecKit-шаге в v4.91.x. BrowserAct по-прежнему
+  обновляется через `uv tool upgrade browser-act-cli` (latest).
+
+### Изменено
+
+- **CI: macOS-матрица расширена** с одной ячейки Python 3.12 до 3.11 / 3.12 /
+  3.13 — кросс-платформенность проверяется на более старом, текущем и более
+  новом Python (всё ещё сильно дешевле полной матрицы 5x2). Порог покрытия уже
+  трактует macOS как Windows (46%).
+
 ## v4.92.1 - Хотфикс инсталлятора: фикс SpecKit-шага, прерывавшего install.bat
 
 ### Исправлено
