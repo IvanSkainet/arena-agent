@@ -19,6 +19,7 @@ class SystemWiringContext:
     sysinfo_sync: Callable[..., dict[str, Any]]
     play_beep_sync: Callable[..., dict[str, Any]]
     send_notification_sync: Callable[[str, str], dict[str, Any]]
+    send_notification_sync: Callable[[str, str], dict[str, Any]]
 
 
 def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., Any]]:

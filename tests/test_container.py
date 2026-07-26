@@ -95,6 +95,7 @@ def test_build_system_service_admin_handlers_from_container(tmp_path):
         doctor_sync=lambda token: {"ok": True},
         sysinfo_sync=lambda root: {"ok": True},
         play_beep_sync=lambda beep_type, freq, dur: {"ok": True},
+        send_notification_sync=lambda title, msg: {"ok": True},
     ))
     assert "handle_v1_status" in system
     assert system["handle_v1_status"].__module__ == "arena.system.handlers"
