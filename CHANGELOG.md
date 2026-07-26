@@ -1,3 +1,49 @@
+## v4.93.0 - Honest notifications, installers that offer (not force) updates, install.sh fixed, full macOS CI matrix
+
+### Fixed
+
+- **Notifications no longer report a false `ok`.** The Windows toast was
+  created with an unregistered AppUserModelID ("Arena Unified Bridge"), which
+  Windows silently drops while PowerShell still exits 0 — so `sys.notify` /
+  `POST /v1/notify` returned `ok: true` even though nothing appeared on
+  screen. The toast now uses PowerShell's own *registered* AUMID (so it
+  actually renders in the notification area), runs with
+  `$ErrorActionPreference=Stop` + try/catch so a genuine failure surfaces as a
+  non-zero exit, and escapes title/message for both the XML payload and the
+  PowerShell single-quoted string (verified live with Cyrillic + `&` + `'`).
+  On failure the result now carries a `detail` explaining why. macOS/Linux
+  notifiers also return `(ok, detail)` and escape their arguments.
+
+- **install.sh had a fatal syntax error and did not run at all on
+  Linux/macOS.** A duplicated `elif [ -d .../skills/browseract ]` block (with
+  a misplaced "# Step 7" comment) left a dangling `elif` — `bash -n` failed.
+  Removed the duplicate; the script now parses and runs.
+
+### Changed
+
+- **Installers OFFER updates instead of forcing them.** SuperPowers and
+  BrowserAct previously auto-updated (`git pull --ff-only` / `uv tool
+  upgrade`) with no prompt. Both install.bat and install.sh now ask
+  "Check for … updates? [y/N]" (default N) before updating, so a
+  non-interactive run changes nothing silently. SuperPowers also offers to
+  re-sync from upstream when the copy has no `.git` (release-zip copies ship
+  without `.git`, so the old `git pull` path never ran and it stayed stale).
+
+- **install.bat optional-component steps hardened.** SuperPowers, BrowserAct
+  and Camoufox are all `call`/`exit /b` subroutines now — removing the last
+  `goto`-from-inside-block landmines (the same construct that aborted the
+  installer at the SpecKit step in v4.91.x). Verified live on a real Windows
+  install.
+
+- **Camoufox de-emphasized.** It is an OPTIONAL anti-detection layer; the
+  installer now notes that a regular Chrome/Chromium through BrowserAct
+  usually works fine and can look more human to anti-bot systems, and every
+  Camoufox action is opt-in (default N).
+
+- **CI: macOS matrix now mirrors the full ubuntu/windows Python matrix**
+  (3.10 / 3.11 / 3.12 / 3.13 / 3.14) instead of a single 3.12 cell, so the
+  cross-platform promise is checked on every supported Python version.
+
 ## v4.92.2 - CI green on Python 3.13/Windows, broader macOS matrix, installer keeps SuperPowers/BrowserAct at latest
 
 ### Fixed

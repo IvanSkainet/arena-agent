@@ -695,52 +695,70 @@ else
 fi
 
 # --- 6b: SuperPowers (agentic skills framework) ---
+# v4.93.0: updates are OFFERED (ask, default N), never automatic, so a
+# non-interactive run changes nothing silently. Release-zip / bundled copies
+# ship skills/superpowers WITHOUT .git, so when there is no .git the offered
+# update re-clones from upstream (latest + git-managed for future updates).
 SP_DIR="$INSTALL_DIR/skills/superpowers/skills"
 if [ -d "$SP_DIR" ]; then
     SP_COUNT=$(ls -1 "$SP_DIR" 2>/dev/null | wc -l)
     ok "SuperPowers already installed — $SP_COUNT skills in skills/superpowers/skills/"
-    if [ -d "$INSTALL_DIR/skills/superpowers/.git" ]; then
-        SP_REV="$(git -C "$INSTALL_DIR/skills/superpowers" rev-parse --short HEAD 2>/dev/null || true)"
-        [ -n "$SP_REV" ] && info "SuperPowers revision: $SP_REV"
+    if ask "Check for SuperPowers updates?"; then
         info "Checking SuperPowers updates..."
-        git -C "$INSTALL_DIR/skills/superpowers" pull --ff-only --quiet 2>/dev/null && ok "SuperPowers is up to date or fast-forwarded" || warn "SuperPowers update check failed/skipped"
+        if [ -d "$INSTALL_DIR/skills/superpowers/.git" ]; then
+            SP_REV="$(git -C "$INSTALL_DIR/skills/superpowers" rev-parse --short HEAD 2>/dev/null || true)"
+            [ -n "$SP_REV" ] && info "SuperPowers revision: $SP_REV"
+            git -C "$INSTALL_DIR/skills/superpowers" pull --ff-only --quiet 2>/dev/null && ok "SuperPowers is up to date or fast-forwarded" || warn "SuperPowers update failed/skipped"
+        else
+            info "SuperPowers has no .git (release-zip copy) — syncing from upstream..."
+            if git clone --depth 1 https://github.com/obra/superpowers.git "$INSTALL_DIR/skills/superpowers.new" 2>/dev/null && [ -d "$INSTALL_DIR/skills/superpowers.new/skills" ]; then
+                rm -rf "$INSTALL_DIR/skills/superpowers"
+                mv "$INSTALL_DIR/skills/superpowers.new" "$INSTALL_DIR/skills/superpowers"
+                SP_COUNT=$(ls -1 "$INSTALL_DIR/skills/superpowers/skills" 2>/dev/null | wc -l)
+                ok "SuperPowers synced to latest — $SP_COUNT skills"
+            else
+                rm -rf "$INSTALL_DIR/skills/superpowers.new"
+                warn "SuperPowers sync failed; keeping the existing copy"
+            fi
+        fi
+    else
+        info "SuperPowers update check skipped."
     fi
 else
-    # Check if bundled in repo (skills/superpowers/skills/ ships with the repo)
-    BUNDLED_SP="$INSTALL_DIR/skills/superpowers/skills"
-    if [ -d "$BUNDLED_SP" ]; then
-        SP_COUNT=$(ls -1 "$BUNDLED_SP" 2>/dev/null | wc -l)
-        ok "SuperPowers bundled — $SP_COUNT skills available"
-    else
-        if ask "Install SuperPowers? (agentic TDD, debugging, planning skills for AI agents)"; then
-            info "Cloning SuperPowers from GitHub..."
-            git clone --depth 1 https://github.com/obra/superpowers.git "$INSTALL_DIR/skills/superpowers" 2>/dev/null
-            if [ -d "$INSTALL_DIR/skills/superpowers/skills" ]; then
-                ok "SuperPowers installed — 14 skills available (TDD, debugging, planning, etc.)"
-            else
-                warn "SuperPowers clone failed. You can install later:"
-                echo "  git clone https://github.com/obra/superpowers.git $INSTALL_DIR/skills/superpowers"
-            fi
+    if ask "Install SuperPowers? (agentic TDD, debugging, planning skills for AI agents)"; then
+        info "Cloning SuperPowers from GitHub..."
+        git clone --depth 1 https://github.com/obra/superpowers.git "$INSTALL_DIR/skills/superpowers" 2>/dev/null
+        if [ -d "$INSTALL_DIR/skills/superpowers/skills" ]; then
+            ok "SuperPowers installed — 14 skills available (TDD, debugging, planning, etc.)"
         else
-            info "SuperPowers skipped. Install later with:"
+            warn "SuperPowers clone failed. You can install later:"
             echo "  git clone https://github.com/obra/superpowers.git $INSTALL_DIR/skills/superpowers"
         fi
+    else
+        info "SuperPowers skipped. Install later with:"
+        echo "  git clone https://github.com/obra/superpowers.git $INSTALL_DIR/skills/superpowers"
     fi
 fi
 
 # --- 6c: BrowserAct (browser automation for AI agents) ---
+# v4.93.0: updates are OFFERED (ask, default N), not automatic.
 if command -v browser-act >/dev/null 2>&1; then
     BA_VERSION="$(browser-act --version 2>/dev/null || echo 'installed')"
     ok "BrowserAct already installed: $BA_VERSION"
-    if command -v uv >/dev/null 2>&1; then
-        info "Checking BrowserAct updates via uv..."
-        uv tool upgrade browser-act-cli >/dev/null 2>&1 && ok "BrowserAct is up to date or upgraded" || warn "BrowserAct update check failed/skipped"
+    if ask "Check for BrowserAct updates?"; then
+        if command -v uv >/dev/null 2>&1; then
+            info "Checking BrowserAct updates via uv..."
+            uv tool upgrade browser-act-cli >/dev/null 2>&1 && ok "BrowserAct is up to date or upgraded" || warn "BrowserAct update check failed/skipped"
+        else
+            info "BrowserAct updates require 'uv'."
+        fi
+    else
+        info "BrowserAct update check skipped."
     fi
 else
-    # Check for uv
     if command -v uv >/dev/null 2>&1; then
-        info "BrowserAct installs GLOBALLY via `uv tool` (in ~/.local/bin or equivalent),"
-        info "NOT inside the bridge directory. The bridge calls `browser-act` via PATH,"
+        info "BrowserAct installs GLOBALLY via 'uv tool' (in ~/.local/bin or equivalent),"
+        info "NOT inside the bridge directory. The bridge calls 'browser-act' via PATH,"
         info "so a global install is required for it to work."
         if ask "Install BrowserAct globally via uv? (browser automation CLI — browse, click, forms, CAPTCHAs)"; then
             info "Installing BrowserAct via uv tool (global, outside bridge dir)..."
@@ -762,38 +780,38 @@ else
     fi
 fi
 
-# --- 6d: Camoufox (stealth browser engine for BrowserAct) ---
-# camoufox is bundled as a pip dependency of browser-act-cli, but the
-# browser binary (~300MB) must be downloaded separately.
+# --- 6d: Camoufox (OPTIONAL stealth browser engine for BrowserAct) ---
+# v4.93.0: toned down. Camoufox is an OPTIONAL anti-detection layer; for most
+# sites a plain Chrome/Chromium through BrowserAct works fine and can look MORE
+# human to anti-bot systems. Everything here is opt-in (default N). The camoufox
+# Python package ships as a browser-act-cli dependency; the ~300MB browser
+# binary must be fetched separately into a system cache dir.
 if command -v browser-act >/dev/null 2>&1; then
-    # Check if camoufox Python package is available (it's a dependency of browser-act-cli)
-    # We need to find the Python that browser-act uses (it's installed via uv tool)
+    info "Camoufox is an OPTIONAL stealth browser for BrowserAct."
+    info "A regular Chrome/Chromium usually works fine and often looks more"
+    info "human to anti-bot systems; Camoufox is only for aggressive blocking."
     BA_PYTHON=""
-    # uv tool installs use their own venv — find it
     if command -v uv >/dev/null 2>&1; then
         BA_VENV="$(uv tool dir 2>/dev/null)/browser-act-cli" || BA_VENV=""
         if [ -n "$BA_VENV" ] && [ -d "$BA_VENV" ]; then
             BA_PYTHON="$BA_VENV/bin/python"
         fi
     fi
-    # Fallback: try the system python with camoufox
     if [ -z "$BA_PYTHON" ] || [ ! -x "$BA_PYTHON" ]; then
         BA_PYTHON="$PY"
     fi
-
     CAMOUFOX_CHECK="$($BA_PYTHON -c 'import camoufox; print("ok")' 2>/dev/null)" || CAMOUFOX_CHECK=""
     if [ "$CAMOUFOX_CHECK" = "ok" ]; then
-        # Check if browser binary is already downloaded
         CAMOUFOX_PATH="$($BA_PYTHON -m camoufox path 2>/dev/null)" || CAMOUFOX_PATH=""
         if [ -n "$CAMOUFOX_PATH" ] && [ -x "$CAMOUFOX_PATH" ]; then
             ok "Camoufox stealth browser ready: $CAMOUFOX_PATH"
-            info "Checking Camoufox browser files..."
-            $BA_PYTHON -m camoufox fetch >/dev/null 2>&1 && ok "Camoufox browser files are present/current" || warn "Camoufox fetch/update failed or skipped"
+            if ask "Refresh the Camoufox browser files (camoufox fetch)?"; then
+                $BA_PYTHON -m camoufox fetch >/dev/null 2>&1 && ok "Camoufox browser files are present/current" || warn "Camoufox fetch/update failed or skipped"
+            fi
         else
             info "Camoufox downloads ~300MB to a SYSTEM CACHE directory"
             info "(typically ~/.cache/camoufox on Linux), NOT inside the bridge directory."
-            info "This is required by the camoufox Python package and cannot be redirected."
-            if ask "Download Camoufox stealth browser? (~300MB to system cache, enables BrowserAct stealth mode)"; then
+            if ask "Download the optional Camoufox stealth browser? (~300MB; BrowserAct works fine without it)"; then
                 info "Downloading Camoufox browser binary to system cache..."
                 $BA_PYTHON -m camoufox fetch 2>&1
                 CAMOUFOX_PATH="$($BA_PYTHON -m camoufox path 2>/dev/null)" || CAMOUFOX_PATH=""
@@ -804,15 +822,12 @@ if command -v browser-act >/dev/null 2>&1; then
                     echo "  $BA_PYTHON -m camoufox fetch"
                 fi
             else
-                info "Camoufox browser skipped. Download later with:"
-                echo "  $BA_PYTHON -m camoufox fetch"
-                info "BrowserAct will still work with regular Chrome/Chromium."
+                info "Camoufox skipped. BrowserAct will use regular Chrome/Chromium."
             fi
         fi
     else
-        info "Camoufox Python package not found. BrowserAct stealth mode may not work."
-        info "It should be auto-installed with browser-act-cli. Try:"
-        echo "  uv tool install browser-act-cli --python 3.12 --force-reinstall"
+        info "Camoufox Python package not found (optional). Install manually if you want stealth:"
+        echo "  uv tool install browser-act-cli --python 3.12 --with camoufox --force-reinstall"
     fi
 elif [ -d "$INSTALL_DIR/skills/browseract" ]; then
     info "BrowserAct skill files present but browser-act CLI not found."
@@ -820,13 +835,6 @@ elif [ -d "$INSTALL_DIR/skills/browseract" ]; then
 fi
 
 echo ""
-
-# ============================================================
-# Step 7: Install as system service
-elif [ -d "$INSTALL_DIR/skills/browseract" ]; then
-    info "BrowserAct skill files present but browser-act CLI not found."
-    info "Install BrowserAct first: uv tool install browser-act-cli --python 3.12"
-fi
 
 # --- 6e: SpecKit (v4.60.19) ---
 # Optional: GitHub Spec-Kit CLI for spec-driven development (constitution/spec/plan/tasks).

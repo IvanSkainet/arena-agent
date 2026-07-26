@@ -90,13 +90,14 @@ def test_camoufox_branch_attempts_uv_tool_install():
     automatic ``uv tool install --with camoufox`` rather than just
     printing a manual hint."""
     src = _read()
-    # Grab the Camoufox section (between the marker and the ``:camoufox_done``
-    # LABEL — not any ``goto :camoufox_done`` earlier in the section).
+    # Grab the Camoufox section. v4.93.0 rewrote it as a call/exit-b
+    # subroutine: the marker gained an "(OPTIONAL ...)" suffix and the
+    # closing label is now ``:camoufox_after`` (was ``:camoufox_done``).
     m = re.search(
-        r"REM --- Camoufox ---(.*?)^:camoufox_done\b",
+        r"REM --- Camoufox.*?---(.*?)^:camoufox_after\b",
         src, re.DOTALL | re.MULTILINE,
     )
-    assert m, "install.bat missing Camoufox section (marker or label)"
+    assert m, "install.bat missing Camoufox section (marker or :camoufox_after label)"
     section = m.group(1)
     assert "uv tool install" in section and "--with camoufox" in section, (
         "Camoufox section does not attempt automatic install via "

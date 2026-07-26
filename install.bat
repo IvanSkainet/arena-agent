@@ -411,10 +411,12 @@ del "!BORE_ZIP!" >nul 2>&1
 :bore_done
 
 REM --- SuperPowers ---
-REM v4.92.2: call/exit-b subroutine (robust against the goto-in-block label
-REM bug that broke the SpecKit step) + re-sync from upstream when there is no
-REM .git. Release-zip copies ship skills\superpowers WITHOUT .git, so the old
-REM `git pull` path never ran and SuperPowers stayed stale forever.
+REM v4.93.0: updates are OFFERED (prompt, default N), never automatic, so a
+REM non-interactive run changes nothing silently. Still a call/exit-b
+REM subroutine (robust against the goto-in-block label bug that broke the
+REM SpecKit step in v4.91.x). Release-zip copies ship skills\superpowers
+REM WITHOUT .git, so when there is no .git the offered update re-clones from
+REM upstream (latest + git-managed for future updates).
 call :superpowers_step
 goto :sp_after
 
@@ -441,6 +443,12 @@ exit /b
 
 :sp_exists
 for /f %%c in ('dir /b "!BRIDGE_DIR!\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers already installed - %%c skills
+set "SP_UPD="
+set /p "SP_UPD=Check for SuperPowers updates? [y/N]: "
+if /I not "!SP_UPD!"=="Y" (
+    echo [INFO] SuperPowers update check skipped.
+    exit /b
+)
 echo [INFO] Checking SuperPowers updates...
 if exist "!BRIDGE_DIR!\skills\superpowers\.git" (
     for /f "delims=" %%r in ('git -C "!BRIDGE_DIR!\skills\superpowers" rev-parse --short HEAD 2^>nul') do echo [INFO] SuperPowers revision: %%r
@@ -448,44 +456,33 @@ if exist "!BRIDGE_DIR!\skills\superpowers\.git" (
     if errorlevel 1 (echo [WARN] SuperPowers update failed/skipped.) else (echo [OK] SuperPowers is up to date or fast-forwarded.)
     exit /b
 )
-REM No .git: this copy came from the release zip. Re-clone from upstream so it
-REM is both the latest version and git-managed for future updates.
-echo [INFO] SuperPowers has no .git (release-zip copy) - re-syncing from upstream...
+REM No .git: this copy came from the release zip; sync it to latest upstream.
+echo [INFO] SuperPowers has no .git (release-zip copy) - syncing from upstream...
 git clone --depth 1 https://github.com/obra/superpowers.git "!BRIDGE_DIR!\skills\superpowers.new" >nul 2>&1
 if exist "!BRIDGE_DIR!\skills\superpowers.new\skills" (
     rmdir /s /q "!BRIDGE_DIR!\skills\superpowers" >nul 2>&1
     ren "!BRIDGE_DIR!\skills\superpowers.new" "superpowers" >nul 2>&1
-    for /f %%c in ('dir /b "!BRIDGE_DIR!\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers re-synced to latest - %%c skills.
+    for /f %%c in ('dir /b "!BRIDGE_DIR!\skills\superpowers\skills" 2^>nul ^| find /c /v ""') do echo [OK] SuperPowers synced to latest - %%c skills.
 ) else (
     rmdir /s /q "!BRIDGE_DIR!\skills\superpowers.new" >nul 2>&1
-    echo [WARN] SuperPowers re-sync failed; keeping the existing copy.
+    echo [WARN] SuperPowers sync failed; keeping the existing copy.
 )
 exit /b
 
 :sp_after
 
 REM --- BrowserAct ---
-REM v4.92.2: call/exit-b subroutine (the previous version used
-REM `goto :ba_done` from inside a parenthesised block that also contained a
-REM `for /f` -- the same construct that aborted the installer at the SpecKit
-REM step). `uv tool upgrade` keeps browser-act-cli at the latest version.
+REM v4.93.0: updates are OFFERED (prompt, default N), not automatic.
+REM call/exit-b subroutine (the old `goto :ba_done` from inside a block that
+REM also held a `for /f` was the same construct that aborted the installer at
+REM the SpecKit step). BrowserAct still upgrades via `uv tool upgrade` WHEN
+REM the user accepts the offered update check.
 call :browseract_step
 goto :ba_after
 
 :browseract_step
 where browser-act >nul 2>&1
-if not errorlevel 1 (
-    set "BA_VERSION="
-    for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
-    echo [OK] BrowserAct already installed: !BA_VERSION!
-    where uv >nul 2>&1
-    if not errorlevel 1 (
-        echo [INFO] Checking BrowserAct updates via uv...
-        uv tool upgrade browser-act-cli >nul 2>&1
-        if errorlevel 1 (echo [WARN] BrowserAct update check failed/skipped.) else (echo [OK] BrowserAct is up to date or upgraded.)
-    )
-    exit /b
-)
+if not errorlevel 1 goto :ba_exists
 where uv >nul 2>&1
 if errorlevel 1 (
     echo [INFO] BrowserAct requires uv. Install: https://docs.astral.sh/uv/getting-started/installation/
@@ -508,72 +505,100 @@ if errorlevel 1 (
     echo [WARN] BrowserAct install may have failed. Try: uv tool install browser-act-cli --python 3.12
     exit /b
 )
+set "BA_VERSION="
 for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
 echo [OK] BrowserAct installed: !BA_VERSION!
 if not exist "!BRIDGE_DIR!\skills\browseract" mkdir "!BRIDGE_DIR!\skills\browseract"
 if not exist "!BRIDGE_DIR!\skills\browseract\SKILL.md" curl --max-time 10 -fsSL "https://raw.githubusercontent.com/browser-act/skills/main/browser-act/SKILL.md" -o "!BRIDGE_DIR!\skills\browseract\SKILL.md" 2>nul
 exit /b
 
+:ba_exists
+set "BA_VERSION="
+for /f "delims=" %%v in ('browser-act --version 2^>nul') do if not defined BA_VERSION set "BA_VERSION=%%v"
+echo [OK] BrowserAct already installed: !BA_VERSION!
+set "BA_UPD="
+set /p "BA_UPD=Check for BrowserAct updates? [y/N]: "
+if /I not "!BA_UPD!"=="Y" (
+    echo [INFO] BrowserAct update check skipped.
+    exit /b
+)
+where uv >nul 2>&1
+if errorlevel 1 (
+    echo [INFO] BrowserAct updates require uv.
+    exit /b
+)
+echo [INFO] Checking BrowserAct updates via uv...
+uv tool upgrade browser-act-cli >nul 2>&1
+if errorlevel 1 (echo [WARN] BrowserAct update check failed/skipped.) else (echo [OK] BrowserAct is up to date or upgraded.)
+exit /b
+
 :ba_after
 
-REM --- Camoufox ---
+REM --- Camoufox (OPTIONAL stealth browser for BrowserAct) ---
+REM v4.93.0: call/exit-b subroutine (removes the goto-in-block landmines) and
+REM deliberately toned down. Camoufox is an OPTIONAL anti-detection layer; for
+REM most sites a plain Chrome/Chromium through BrowserAct works fine and can
+REM look MORE human to anti-bot systems. Everything here is opt-in (default N).
+call :camoufox_step
+goto :camoufox_after
+
+:camoufox_step
 where browser-act >nul 2>&1
-if errorlevel 1 goto :camoufox_done
-echo [INFO] Checking Camoufox stealth browser...
+if errorlevel 1 exit /b
+echo [INFO] Camoufox is an OPTIONAL stealth browser for BrowserAct.
+echo       A regular Chrome/Chromium usually works fine and often looks more
+echo       human to anti-bot systems; Camoufox is only for aggressive blocking.
 !PYTHON! -c "import camoufox;print(getattr(camoufox,'__version__','installed'))" >"%TEMP%\arena_camoufox_version.txt" 2>nul
 if not errorlevel 1 (
     set /p CAMOUFOX_VERSION=<"%TEMP%\arena_camoufox_version.txt"
     del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
     echo [OK] Camoufox package present: !CAMOUFOX_VERSION!
-    echo [INFO] Camoufox downloads ~300MB to a SYSTEM cache directory
-    echo       in LOCALAPPDATA\camoufox or USERPROFILE\.cache\camoufox,
-    echo       NOT inside the bridge directory.
     set "CAM_CONFIRM="
-    set /p "CAM_CONFIRM=Download/refresh Camoufox browser - 300MB to system cache? [y/N]: "
+    set /p "CAM_CONFIRM=Download/refresh the ~300MB Camoufox browser binary to system cache? [y/N]: "
     if /I not "!CAM_CONFIRM!"=="Y" (
         echo [INFO] Camoufox fetch skipped. BrowserAct will use regular Chrome/Chromium.
-        goto :camoufox_done
+        exit /b
     )
     echo [INFO] Ensuring Camoufox browser files are present/current...
     !PYTHON! -m camoufox fetch >nul 2>&1
-    if errorlevel 1 (
-        echo [WARN] Camoufox fetch/update failed or skipped.
-    ) else (
-        echo [OK] Camoufox stealth browser ready.
-    )
-    goto :camoufox_done
+    if errorlevel 1 (echo [WARN] Camoufox fetch/update failed or skipped.) else (echo [OK] Camoufox stealth browser ready.)
+    exit /b
 )
-echo [INFO] Camoufox package not present. BrowserAct stealth mode requires it.
+echo [INFO] Camoufox package not present (optional).
 where uv >nul 2>&1
 if errorlevel 1 (
-    echo [INFO] uv not found - install manually with:
+    echo [INFO] uv not found - install manually if you want stealth:
     echo         pip install camoufox
     echo         python -m camoufox fetch
-    goto :camoufox_done
+    exit /b
 )
-REM Try to add camoufox alongside the existing browser-act-cli uv tool install.
-REM ``uv tool install --with camoufox browser-act-cli`` is idempotent and
-REM avoids a full --force-reinstall (which would re-download BrowserAct too).
+set "CAM_INSTALL="
+set /p "CAM_INSTALL=Add the optional Camoufox package to the browser-act uv install? [y/N]: "
+if /I not "!CAM_INSTALL!"=="Y" (
+    echo [INFO] Camoufox skipped. BrowserAct will use regular Chrome/Chromium.
+    exit /b
+)
 echo [INFO] Adding Camoufox to the existing browser-act-cli uv tool install...
 uv tool install --python 3.12 --with camoufox browser-act-cli >nul 2>&1
 if errorlevel 1 (
     echo [WARN] Automatic install failed. Try manually:
     echo         uv tool install browser-act-cli --python 3.12 --with camoufox --force-reinstall
-    goto :camoufox_done
+    exit /b
 )
-REM Re-check that camoufox is importable via the uv-managed browser-act python.
 !PYTHON! -c "import camoufox;print(getattr(camoufox,'__version__','installed'))" >"%TEMP%\arena_camoufox_version.txt" 2>nul
 if not errorlevel 1 (
     set /p CAMOUFOX_VERSION=<"%TEMP%\arena_camoufox_version.txt"
     del "%TEMP%\arena_camoufox_version.txt" >nul 2>&1
     echo [OK] Camoufox package now present: !CAMOUFOX_VERSION!
-    echo       Run ``python -m camoufox fetch`` once to download the browser
-    echo       binary ^(~300MB^) if you plan to use BrowserAct stealth mode.
+    echo       Run "python -m camoufox fetch" once to download the ~300MB browser
+    echo       binary if you plan to use BrowserAct stealth mode.
 ) else (
     echo [INFO] Camoufox added at uv-tool level but not visible in system python.
     echo        BrowserAct will pick it up via its own environment when used.
 )
-:camoufox_done
+exit /b
+
+:camoufox_after
 
 echo.
 
