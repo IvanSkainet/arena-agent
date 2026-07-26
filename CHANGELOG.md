@@ -1,3 +1,24 @@
+## v4.92.1 - Installer hotfix: fix SpecKit step aborting install.bat
+
+### Fixed
+
+- **install.bat no longer aborts at the SpecKit step.** The optional SpecKit
+  block (added in v4.60.19) used `goto :speckit_done` from INSIDE
+  parenthesised `if` blocks. cmd.exe cannot resolve a `goto` target label from
+  within a `( ... )` block (worsened by the `for /f 'command'` in the same
+  block), so the installer died with *"cannot find batch file label -
+  speckit_done"* right after reporting SpecKit status — before reaching the
+  service-install and bridge-start steps.
+- Rewrote the SpecKit step as a `call :speckit_step` / `exit /b` subroutine,
+  the robust batch pattern that returns correctly from inside blocks. The step
+  is still optional/opt-in (default N) and unchanged in behaviour.
+- `install.sh` (bash) was already correct (plain `if/else`); no change.
+
+### Note
+
+v4.92.0 fixed the bridge itself (it now boots); v4.92.1 fixes the Windows
+installer that delivers it. Install/upgrade with v4.92.1.
+
 ## v4.92.0 - Restore bridge startup: fix notification-wiring syntax error, withdraw v4.91.x
 
 ### Purpose

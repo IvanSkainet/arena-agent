@@ -558,6 +558,15 @@ REM Optional: GitHub Spec-Kit CLI for spec-driven development (constitution/spec
 REM The arena-bridge exposes it as the `speccy.*` MCP tool family (see arena\mcp\tool_speckit.py)
 REM and `scripts\spec_kit_to_scenarios.py` converts `tasks.md` into a scenario JSON.
 REM Install is opt-in: default N. No hard dependency on the bridge.
+REM
+REM v4.92.1: implemented as a call/exit-b subroutine. The original version
+REM used `goto :speckit_done` from INSIDE parenthesised if-blocks, which
+REM cmd.exe cannot resolve ("cannot find batch file label - speckit_done")
+REM and aborted the installer immediately after this step.
+call :speckit_step
+goto :speckit_continue
+
+:speckit_step
 where specify >nul 2>&1
 if not errorlevel 1 (
     for /f "delims=" %%v in ('specify --version 2^>nul') do set "SPECKIT_VERSION=%%v"
@@ -568,22 +577,22 @@ if not errorlevel 1 (
         uv tool upgrade specify-cli >nul 2>&1
         if errorlevel 1 (echo [WARN] SpecKit update check failed/skipped.) else (echo [OK] SpecKit is up to date or upgraded.)
     )
-    goto :speckit_done
+    exit /b
 )
 where uv >nul 2>&1
 if errorlevel 1 (
     echo [INFO] SpecKit requires uv. Install: https://docs.astral.sh/uv/getting-started/installation/
-    goto :speckit_done
+    exit /b
 )
 echo [INFO] SpecKit installs GLOBALLY via uv tool - in your user PATH,
 echo       outside the bridge directory. The bridge calls `specify` via PATH
 echo       (see arena\mcp\tool_speckit.py), so a global install is required for it to work.
 set "SPECKIT_CONFIRM="
 set /p "SPECKIT_CONFIRM=Install SpecKit globally via uv? [y/N]: "
-if /I not "%SPECKIT_CONFIRM%"=="Y" (
+if /I not "!SPECKIT_CONFIRM!"=="Y" (
     echo [INFO] SpecKit skipped. Install later with:
     echo        uv tool install specify-cli
-    goto :speckit_done
+    exit /b
 )
 echo [INFO] Installing SpecKit via uv tool (global, outside bridge dir)...
 uv tool install specify-cli >nul 2>&1
@@ -593,7 +602,9 @@ if not errorlevel 1 (
 ) else (
     echo [WARN] SpecKit install may have failed. Try: uv tool install specify-cli
 )
-:speckit_done
+exit /b
+
+:speckit_continue
 
 REM ============================================================
 REM Step 5: Install and start bridge service
