@@ -23,6 +23,7 @@ class SystemHandlers:
     doctor: object
     sysinfo: object
     beep: object
+    notify: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -112,6 +113,21 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, ctx.play_beep_sync, beep_type, freq, dur)
         return ctx.cors_json_response(result)
+    @authed(ctx)
+    async def handle_v1_notify(request: web.Request) -> web.Response:
+        try:
+            data = await request.json()
+        except Exception:
+            data = {}
+        title = str(data.get("title", "Arena Bridge"))
+        message = str(data.get("message", ""))
+        sound = bool(data.get("sound", True))
+        loop = asyncio.get_running_loop()
+        res_v = await loop.run_in_executor(ctx.executor, ctx.send_notification_sync, title, message)
+        if sound:
+            await loop.run_in_executor(ctx.executor, ctx.play_beep_sync, "success", 800, 300)
+        return ctx.cors_json_response(res_v)
+
     return SystemHandlers(
         version=handle_v1_version,
         info=handle_v1_info,
@@ -120,4 +136,5 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         doctor=handle_v1_doctor,
         sysinfo=handle_v1_sysinfo,
         beep=handle_v1_beep,
+        notify=handle_v1_notify,
     )

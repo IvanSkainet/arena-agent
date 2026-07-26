@@ -23,6 +23,7 @@ def build_system_public_admin_registries(g: MutableMapping[str, Any]) -> dict[st
         doctor_sync=env._doctor_sync,
         sysinfo_sync=env._sysinfo_sync,
         play_beep_sync=env._play_beep_sync,
+        send_notification_sync=env._send_notification_sync,
     ))
     registry.update(_system_handler_registry)
 

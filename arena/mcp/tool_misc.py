@@ -4,12 +4,22 @@ from __future__ import annotations
 import json
 import os
 import sys
+from arena.system.notification import send_notification
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
 
 
 def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict[str, Any] | None:
+    if name == "sys.notify":
+        title = args.get("title", "Arena Bridge")
+        msg = args.get("message", "")
+        sound = args.get("sound", True)
+        res = send_notification(title, msg)
+        if sound:
+            ctx.play_beep_sync("success", 800, 300)
+        return text_content(json.dumps(res, ensure_ascii=False))
+
     if name == "sys.status":
         cfg = ctx.app_config()
         return text_content(json.dumps(ctx.common_status(cfg), ensure_ascii=False))

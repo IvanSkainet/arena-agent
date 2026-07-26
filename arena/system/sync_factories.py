@@ -51,6 +51,16 @@ def make_play_beep_sync(
     return _play_beep_sync
 
 
+def make_send_notification_sync(
+    *,
+    send_notification_fn: Callable[[str, str], dict[str, Any]],
+) -> Callable[[str, str], dict[str, Any]]:
+    def _send_notification_sync(title: str, message: str) -> dict[str, Any]:
+        return send_notification_fn(title, message)
+
+    return _send_notification_sync
+
+
 def make_sysinfo_cim_sync(
     *,
     sysinfo_cim_cpu_counts_fn: Callable[..., tuple[int, int]],

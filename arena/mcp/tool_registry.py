@@ -145,6 +145,12 @@ MCP_TOOLS = [
     # v4.78.0: bare 'mem.set' / 'mem.get' names removed
     # (the v4.71.0 deprecation window has expired). Use
     # memory.import / memory.recall instead.
+    {"name": "sys.notify", "description": "Send a visual and optional sound notification to the bridge host desktop",
+     "inputSchema": {"type": "object", "properties": {
+         "title": {"type": "string", "default": "Arena Bridge"},
+         "message": {"type": "string"},
+         "sound": {"type": "boolean", "default": true}},
+         "required": ["message"], "additionalProperties": False}},
     {"name": "sys.status", "description": "Bridge/services/funnel status",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "skill.list", "description": "List available agent skills",

@@ -1,5 +1,6 @@
 """system helper wiring for unified_bridge."""
 from __future__ import annotations
+from arena.system.notification import send_notification
 
 import os
 from pathlib import Path
@@ -9,6 +10,9 @@ from typing import Any, MutableMapping
 def build_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:
     helpers = {
         "_check_internet_sync": g["make_check_internet_sync"](g["check_internet"]),
+        "_send_notification_sync": g["make_send_notification_sync"](
+            send_notification_fn=send_notification,
+        ),
         "_play_beep_sync": g["make_play_beep_sync"](
             play_beep_fn=g["play_beep"],
             subprocess_kwargs_fn=g["_subprocess_kwargs"],

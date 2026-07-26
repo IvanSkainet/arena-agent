@@ -18,6 +18,7 @@ class SystemWiringContext:
     doctor_sync: Callable[[str], dict[str, Any]]
     sysinfo_sync: Callable[..., dict[str, Any]]
     play_beep_sync: Callable[..., dict[str, Any]]
+    send_notification_sync: Callable[[str, str], dict[str, Any]]
 
 
 def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., Any]]:
@@ -35,6 +36,7 @@ def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., A
         doctor_sync=ctx.doctor_sync,
         sysinfo_sync=ctx.sysinfo_sync,
         play_beep_sync=ctx.play_beep_sync,
+        send_notification_sync=ctx.send_notification_sync,
     )
     handlers = make_system_handlers(system_ctx)
     return {
@@ -45,6 +47,7 @@ def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., A
         "handle_v1_doctor": handlers.doctor,
         "handle_v1_sysinfo": handlers.sysinfo,
         "handle_v1_beep": handlers.beep,
+        "handle_v1_notify": handlers.notify,
     }
 
 
