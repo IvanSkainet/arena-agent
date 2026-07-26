@@ -79,6 +79,7 @@
     ],
     "tool_names": [
       "document.extract_tasks",
+      "document.input_quality",
       "document.structure"
     ]
   },
@@ -370,6 +371,7 @@
     "handlers": [],
     "tool_names": [
       "document.extract_tasks",
+      "document.input_quality",
       "document.structure"
     ]
   },

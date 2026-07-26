@@ -1,3 +1,23 @@
+## v4.90.0 - Document input quality gates
+
+### Цель
+
+Защищает от ложной структуры из шумного OCR/ASR/text. Сценарий с рукописной
+заметкой показал, что Tesseract может вернуть мусор из сетки/пунктуации, а
+`document.extract_tasks` раньше превращал этот мусор в фейковые задачи. Этот
+релиз добавляет общий quality gate: document tools могут честно отказаться от
+низкокачественного входа вместо действий по галлюцинированной структуре.
+
+### Изменения
+
+* Новая MCP-тула `document.input_quality` (SAFE): оценивает пригодность raw text
+  для дальнейшего извлечения по общим метрикам — alnum ratio, noise ratio,
+  garbage-line ratio, short-line ratio и optional upstream OCR quality metrics.
+* `document.extract_tasks` теперь по умолчанию использует quality gate и
+  возвращает понятную low-quality ошибку вместо фейковых задач.
+* Добавлен явный override `allow_low_quality=true` для best-effort extraction.
+* Тесты покрывают чистое извлечение задач, отказ на OCR-мусоре и явный override.
+
 ## v4.89.3 - CI hotfix: macOS platform expectations и Windows Node timeout
 
 ### Цель

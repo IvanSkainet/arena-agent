@@ -1,3 +1,25 @@
+## v4.90.0 - Document input quality gates
+
+### Purpose
+
+Prevents false structure from noisy OCR/ASR/text. The handwritten task-note
+scenario showed that Tesseract can return grid/punctuation-heavy garbage and
+`document.extract_tasks` would previously convert that garbage into fake tasks.
+This release adds a generic quality gate so document tools can refuse low-quality
+input instead of acting on hallucinated structure.
+
+### Changes
+
+* New `document.input_quality` MCP tool (SAFE): reports whether raw text is
+  usable for downstream extraction, using generic metrics such as alnum ratio,
+  noise ratio, garbage-line ratio, short-line ratio, and optional upstream OCR
+  quality metrics.
+* `document.extract_tasks` now uses the quality gate by default and returns a
+  clear low-quality error instead of fake tasks when input looks like OCR noise.
+* Added explicit `allow_low_quality=true` override for callers that intentionally
+  want best-effort extraction.
+* Tests cover clean task extraction, OCR-noise rejection, and explicit override.
+
 ## v4.89.3 - CI hotfix: macOS platform expectations and Windows Node timeout
 
 ### Purpose

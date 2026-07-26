@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.document.structure import extract_tasks, structure_document, structure_physics_homework
+from arena.document.structure import assess_text_quality, extract_tasks, structure_document, structure_physics_homework
 from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp.tool_document import handle_document_tool
 from arena.mcp.tool_registry import MCP_TOOLS
@@ -16,10 +16,36 @@ from arena.mcp.tool_registry_document import DOCUMENT_MCP_TOOLS
 
 def test_document_registry_and_policy():
     names = {t["name"] for t in DOCUMENT_MCP_TOOLS}
-    assert names == {"document.extract_tasks", "document.structure"}
+    assert names == {"document.input_quality", "document.extract_tasks", "document.structure"}
     assert names <= {t["name"] for t in MCP_TOOLS}
+    assert classify_tool_risk("document.input_quality") == "safe"
     assert classify_tool_risk("document.extract_tasks") == "safe"
     assert classify_tool_risk("document.structure") == "safe"
+
+
+def test_input_quality_rejects_ocr_grid_noise():
+    noisy = """| | \\ ee ae
+= Pe ae | р PE АЕ } ‘ | | | f : | р | |
+| | | | | | | | |
+"""
+    q = assess_text_quality(noisy, {"garbage_ratio": 0.64, "short_ratio": 0.78, "mean_confidence": 44})
+    assert q["usable"] is False
+    assert "source_high_garbage_ratio" in q["reasons"]
+
+
+def test_extract_tasks_refuses_low_quality_ocr_noise():
+    noisy = "| Ue i ih с\nsa ec a ОР О ВИ ИО\ni : | | ; | | \\ |\n"
+    out = extract_tasks(noisy, source_quality={"garbage_ratio": 0.64, "short_ratio": 0.78})
+    assert out["ok"] is False
+    assert out["count"] == 0
+    assert out["quality"]["usable"] is False
+
+
+def test_extract_tasks_allow_low_quality_override():
+    noisy = "- странная строка | |"
+    out = extract_tasks(noisy, source_quality={"garbage_ratio": 0.9}, allow_low_quality=True)
+    assert out["ok"] is True
+    assert out["count"] == 1
 
 
 def test_extract_tasks_basic_ru():
@@ -67,6 +93,8 @@ def test_structure_auto_chooses_tasks_then_physics():
 
 
 def test_handle_document_tool_wraps_content():
+    q = handle_document_tool("document.input_quality", {"text": "- купить кофе"})
+    assert json.loads(q["content"][0]["text"])["usable"] is True
     out = handle_document_tool("document.extract_tasks", {"text": "- купить кофе"})
     assert out and "content" in out
     parsed = json.loads(out["content"][0]["text"])
