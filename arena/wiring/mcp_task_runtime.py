@@ -67,6 +67,8 @@ def build_mcp_task_runtimes(g: MutableMapping[str, Any]) -> dict[str, Any]:
         skills_run_sync=lambda *args, **kwargs: g["_skills_run_sync"](*args, **kwargs),
         play_beep_sync=lambda *args, **kwargs: g["_play_beep_sync"](*args, **kwargs),
         send_notification_sync=lambda *args, **kwargs: g["_send_notification_sync"](*args, **kwargs),
+        play_beep_sync=lambda *args, **kwargs: g["_play_beep_sync"](*args, **kwargs),
+        send_notification_sync=lambda *args, **kwargs: g["_send_notification_sync"](*args, **kwargs),
     )
     mcp_tool_runtime = env.make_mcp_tool_runtime(mcp_tool_ctx)
     registry.update({
