@@ -1,3 +1,21 @@
+## v4.89.2 - CI: add macOS test coverage
+
+### Purpose
+
+Starts real macOS coverage for the bridge. The maintainer does not have a
+macOS device locally, so CI now runs one macOS smoke cell to catch path,
+subprocess and import differences early instead of relying only on
+Windows/Linux.
+
+### Changes
+
+* Added `macos-latest` to the test matrix for Python 3.12.
+* macOS uses the same conservative coverage floor as Windows (46%) for the
+first platform pass; Linux remains at 51%.
+* Test/coverage artifact names now include both OS and Python version to avoid
+  matrix artifact collisions.
+* Coverage diff now explicitly downloads the Ubuntu 3.12 coverage artifact.
+
 ## v4.89.1 - CI hotfix: image.health test does not require Pillow in CI
 
 ### Purpose

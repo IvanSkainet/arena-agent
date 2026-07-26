@@ -42,9 +42,10 @@ jobs:
           ignore: 'workflow-call-usage'
 
   # ----------------------------------------------------------------
-  # Test matrix: 5 Python versions on ubuntu-latest.
-  # Windows runner deferred to v4.62.x once platform-specific
-  # test failures are fixed or skipif'd.
+  # Test matrix: 5 Python versions on ubuntu-latest + windows-latest,
+  # plus one macOS smoke cell (3.12). The macOS cell keeps the
+  # cross-platform promise alive even though the maintainer has no
+  # macOS device locally.
   # ----------------------------------------------------------------
   test:
     name: Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
@@ -62,6 +63,12 @@ jobs:
         # original "deferred to" target; v4.68.0 is the actual
         # release.
         os: [ubuntu-latest, windows-latest]
+        include:
+          # v4.89.2: first macOS CI coverage. Keep it to one stable
+          # Python version to avoid doubling the matrix cost while still
+          # catching platform-specific path/subprocess/import issues.
+          - os: macos-latest
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
@@ -105,28 +112,28 @@ jobs:
         # fail.
         shell: bash
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then
+          if [ "$RUNNER_OS" = "Windows" ] || [ "$RUNNER_OS" = "macOS" ]; then
             THRESHOLD=46
           else
             THRESHOLD=51
           fi
           pytest -q --cov-fail-under=$THRESHOLD \
           --strict-markers \
-          --junitxml=test-results-${{ matrix.python-version }}.xml
+          --junitxml=test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.0.0
         with:
-          name: test-results-${{ matrix.python-version }}
-          path: test-results-${{ matrix.python-version }}.xml
+          name: test-results-${{ matrix.os }}-${{ matrix.python-version }}
+          path: test-results-${{ matrix.os }}-${{ matrix.python-version }}.xml
           retention-days: 14
 
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.0.0
         with:
-          name: coverage-xml-${{ matrix.python-version }}
+          name: coverage-xml-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage.xml
           retention-days: 14
 
@@ -149,10 +156,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Download coverage.xml from a 3.12 cell
+      - name: Download coverage.xml from the ubuntu-latest 3.12 cell
         uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16 # v4.1.8
         with:
-          name: coverage-xml-3.12
+          name: coverage-xml-ubuntu-latest-3.12
           path: .
 
       - name: Run coverage diff guard

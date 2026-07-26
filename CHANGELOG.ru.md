@@ -1,3 +1,20 @@
+## v4.89.2 - CI: добавлен macOS test coverage
+
+### Цель
+
+Запускает реальное macOS-покрытие для моста. У мейнтейнера нет macOS-устройства
+локально, поэтому CI теперь гоняет один macOS smoke cell, чтобы раньше ловить
+различия в path, subprocess и imports, а не полагаться только на Windows/Linux.
+
+### Изменения
+
+* В test matrix добавлен `macos-latest` для Python 3.12.
+* Для первого macOS-прохода используется такой же conservative coverage floor,
+  как на Windows (46%); Linux остаётся на 51%.
+* Имена test/coverage artifacts теперь включают OS и Python version, чтобы не
+  было collisions внутри matrix.
+* Coverage diff теперь явно скачивает Ubuntu 3.12 coverage artifact.
+
 ## v4.89.1 - CI hotfix: image.health test не требует Pillow в CI
 
 ### Цель
