@@ -155,6 +155,7 @@ def test_wrapper_replaces_refresh_and_captures_duration():
     assert out["metaMentionsManual"] is True
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Node child-process harness can leave timer handles alive on win32")
 def test_wrapper_captures_rejection_and_pulses_error_dot():
     harness = _DOM_STUB + r"""
 // Override the refresher to reject.

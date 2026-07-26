@@ -30,8 +30,8 @@ def test_build_capabilities_basic_shape():
 
 
 @pytest.mark.skipif(
-    os.name != "posix",
-    reason="KDE Wayland detection requires POSIX-shaped paths (/usr/bin/qdbus6, journalctl); Windows never picks this backend",
+    sys.platform != "linux",
+    reason="KDE Wayland kwin_journal backend is Linux-specific; macOS has pending-macos desktop backend",
 )
 def test_build_capabilities_uses_kwin_journal_for_kde_wayland_window_ops(monkeypatch):
     monkeypatch.setattr("arena.capabilities.shutil.which", lambda name: "/usr/bin/" + name if name in {"qdbus6", "journalctl"} else None)

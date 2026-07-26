@@ -296,12 +296,14 @@ def get_firewall_status() -> dict:
             info["error"] = "no known Linux firewall CLI on PATH"
 
     elif sys_name == "Darwin":
-        # pfctl requires root; socketfilterfw is user-accessible.
+        # pfctl requires root; socketfilterfw is user-accessible when present.
         if _which("socketfilterfw"):
             out = _run(["socketfilterfw", "--getglobalstate"], timeout=3)
             info["backend"] = "pf/alf"
             info["active"] = "enabled" in out.lower()
             info["available"] = True
+        else:
+            info["error"] = "socketfilterfw not found on PATH"
 
     elif sys_name == "Windows":
         ps = "(Get-NetFirewallProfile | Select-Object Name,Enabled | ConvertTo-Json -Compress)"

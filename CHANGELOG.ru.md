@@ -1,3 +1,20 @@
+## v4.89.3 - CI hotfix: macOS platform expectations и Windows Node timeout
+
+### Цель
+
+Исправляет первый реальный macOS CI pass и оставшийся Windows 3.14 timeout
+в Node harness. Новый macOS runner корректно вскрыл Linux-specific
+предположения в тестах.
+
+### Изменения
+
+* KDE/Wayland `kwin_journal` capability test теперь Linux-only, а не generic
+  POSIX.
+* macOS firewall probe теперь возвращает явный `error`, если `socketfilterfw`
+  недоступен.
+* Overview toolbar rejection-path Node harness skip-ается на win32, как соседний
+  wrapper test, чтобы избежать timer-handle timeouts на Windows runners.
+
 ## v4.89.2 - CI: добавлен macOS test coverage
 
 ### Цель
