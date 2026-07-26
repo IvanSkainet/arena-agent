@@ -1,3 +1,46 @@
+## v4.94.0 - MCP client: use EXTERNAL MCP servers through the bridge
+
+### Purpose
+
+The bridge has long been an MCP *server* (exposing its own tools) and the
+marketplace could *register* external servers in `mcp/mcp.json` and probe
+them one-shot (`tools/list`). What was missing was an MCP *client* that keeps
+a server alive and actually CALLS its tools (`tools/call`) — so the agent can
+use external MCP servers (Desktop-Commander, ScreenPilot, the official
+filesystem/fetch/git servers, ...) through the bridge. This closes that gap.
+
+### Added
+
+- **`arena/mcp_client/`** — a persistent stdio MCP client:
+  - `McpStdioClient`: spawns one MCP server, runs the initialize handshake,
+    matches responses by JSON-RPC `id` (server notifications are skipped),
+    and supports `tools/list` + `tools/call`.
+  - `McpClientManager`: lazily starts/caches one process per server name from
+    `mcp/mcp.json`, so repeated calls reuse the connection instead of spawning
+    `npx` every time.
+  - Command allowlist (`npx`/`uvx`/`uv`/`python`/`python3`/`node`, or a full
+    path to one) so a tampered config cannot spawn an arbitrary binary.
+
+- **`mcp.ext_*` bridge tools**:
+  - `mcp.ext_servers` (safe) — list registered external servers + running status.
+  - `mcp.ext_tools` (safe) — connect and list a server's tools.
+  - `mcp.ext_call` (dangerous) — call a tool on an external server (it runs on
+    the bridge host with the bridge user's privileges, so it needs approval).
+  - `mcp.ext_stop` (medium) — stop a running server.
+
+- **Marketplace**: `desktop-commander` (npx, works out of the box) and
+  `screenpilot` added to the registry. `screenpilot` is a `git-venv` server —
+  `marketplace install screenpilot` clones the repo into `mcp/servers/`,
+  creates a venv, installs its requirements, and registers the venv
+  interpreter + entry script in `mcp.json` (idempotent).
+
+### Tests
+
+`tests/test_mcp_client.py` exercises the client end-to-end against an
+in-process mock MCP server (handshake, tools/list, tools/call, process reuse,
+the manager, and the `mcp.ext_*` handlers) plus the command allowlist. README
+namespace table documents the new `mcp` namespace.
+
 ## v4.93.1 - CI hotfix: deterministic wait-for-file test
 
 ### Fixed

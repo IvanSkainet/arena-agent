@@ -478,6 +478,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |
 | `hooks` | `hooks.list` — List configured hooks per event |
+| `mcp` | `mcp.ext_call` — Вызвать тул зарегистрированного внешнего MCP-сервера (Desktop-Commander, ScreenPilot, ...). Серверы — `mcp.ext_servers`, их тулы — `mcp.ext_tools` |
 | `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
 | `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
 | `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |

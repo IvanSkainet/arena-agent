@@ -479,6 +479,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `git` | `git.status` — Show git status for a repository. |
 | `hooks` | `hooks.list` — List configured hooks per event |
 | `image` | `image.preprocess_for_ocr` — Preprocess an image file for OCR |
+| `mcp` | `mcp.ext_call` — Call a tool on a registered external MCP server (Desktop-Commander, ScreenPilot, ...). Discover servers with `mcp.ext_servers` and their tools with `mcp.ext_tools` |
 | `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
 | `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
 | `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |

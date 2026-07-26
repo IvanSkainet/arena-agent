@@ -153,6 +153,18 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_mcp_ext.py",
+    "handlers": [
+      "handle_mcp_ext_tool"
+    ],
+    "tool_names": [
+      "mcp.ext_call",
+      "mcp.ext_servers",
+      "mcp.ext_stop",
+      "mcp.ext_tools"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_memory.py",
     "handlers": [
       "handle_memory_tool"
@@ -383,6 +395,16 @@
     "tool_names": [
       "image.health",
       "image.preprocess_for_ocr"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_registry_mcp_ext.py",
+    "handlers": [],
+    "tool_names": [
+      "mcp.ext_call",
+      "mcp.ext_servers",
+      "mcp.ext_stop",
+      "mcp.ext_tools"
     ]
   },
   {

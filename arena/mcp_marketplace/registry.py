@@ -59,6 +59,25 @@ DEFAULT_REGISTRY = {
         "description": "Local arena-mcp-stream service (20 tools).",
         "tags": ["local", "arena"],
     },
+    # v4.94.0: community MCP servers usable through the bridge's MCP client
+    # (mcp.ext_* tools). desktop-commander runs straight from npx; screenpilot
+    # is a git+venv project (cloned + venv'd on install, see cmd_install).
+    "desktop-commander": {
+        "command": "npx", "args": ["-y", "@wonderwhy-er/desktop-commander@latest"],
+        "description": "Desktop Commander: file system + long-running terminal "
+                       "commands + search/replace file editing on the host.",
+        "tags": ["fs", "terminal", "community"],
+    },
+    "screenpilot": {
+        "type": "git-venv",
+        "repo": "https://github.com/Mtehabsim/ScreenPilot.git",
+        "entry": "main.py",
+        "requirements": "requirements.txt",
+        "description": "ScreenPilot: AI screen control (screenshot, mouse, "
+                       "keyboard, scroll, element detection, action sequences). "
+                       "Install clones the repo and creates a venv.",
+        "tags": ["screen", "automation", "community"],
+    },
 }
 
 def _ensure():

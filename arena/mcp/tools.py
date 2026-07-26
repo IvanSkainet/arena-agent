@@ -30,6 +30,7 @@ from arena.mcp.tool_asr import handle_asr_tool
 from arena.mcp.tool_ocr import handle_ocr_tool
 from arena.mcp.tool_document import handle_document_tool
 from arena.mcp.tool_image import handle_image_tool
+from arena.mcp.tool_mcp_ext import handle_mcp_ext_tool
 from arena.mcp.tool_net import handle_net_tool
 from arena.mcp.tool_mission import handle_mission_tool
 from arena.mcp.tool_scenarios import handle_scenario_tool
@@ -116,6 +117,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_ocr_tool(name, args, ctx=ctx),
                 lambda: handle_document_tool(name, args, ctx=ctx),
                 lambda: handle_image_tool(name, args, ctx=ctx),
+                lambda: handle_mcp_ext_tool(name, args, ctx=ctx),
                 lambda: handle_browser_headed_tool(name, args, ctx=ctx),
                 lambda: handle_mission_tool(name, args, ctx=ctx),
                 # v4.54.0: scenario orchestration. The scenarios
