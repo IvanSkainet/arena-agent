@@ -184,6 +184,7 @@
       "skill.run",
       "subagent.list",
       "subagent.spawn",
+      "sys.notify",
       "sys.status"
     ]
   },
@@ -352,6 +353,7 @@
       "skill.run",
       "subagent.list",
       "subagent.spawn",
+      "sys.notify",
       "sys.status",
       "watch.files"
     ]

@@ -149,7 +149,7 @@ MCP_TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "title": {"type": "string", "default": "Arena Bridge"},
          "message": {"type": "string"},
-         "sound": {"type": "boolean", "default": true}},
+         "sound": {"type": "boolean", "default": True}},
          "required": ["message"], "additionalProperties": False}},
     {"name": "sys.status", "description": "Bridge/services/funnel status",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
