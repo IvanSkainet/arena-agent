@@ -71,6 +71,7 @@ from arena.system.sync_factories import (  # noqa: E402,F401
     make_common_status,
     make_doctor_sync,
     make_play_beep_sync,
+    make_send_notification_sync,
     make_sysinfo_cim_sync,
     make_sysinfo_sync,
 )

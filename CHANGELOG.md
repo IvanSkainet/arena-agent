@@ -1,4 +1,4 @@
-## v4.90.0 - Document input quality gates
+## v4.91.2\n\n### Fixed\n- Fixed missing make_send_notification_sync in wiring imports.\n\n## v4.91.1\n\n### Fixed\n- Fixed NameError and updated MCP snapshot.\n\n## v4.90.0 - Document input quality gates
 
 ### Purpose
 
