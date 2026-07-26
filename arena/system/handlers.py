@@ -24,6 +24,7 @@ class SystemHandlers:
     sysinfo: object
     beep: object
     notify: object
+    mcp_servers: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -128,6 +129,40 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             await loop.run_in_executor(ctx.executor, ctx.play_beep_sync, "success", 800, 300)
         return ctx.cors_json_response(res_v)
 
+    @authed(ctx)
+    async def handle_v1_mcp_servers(request: web.Request) -> web.Response:
+        """GET /v1/mcp/servers — registered external MCP servers + status.
+
+        Powers the Dashboard MCP tab (v4.95.0). Lists every server in
+        mcp/mcp.json with its running state and, when running, its tool
+        names (best-effort)."""
+        from arena.mcp_client import get_manager
+
+        def _gather() -> dict:
+            mgr = get_manager()
+            servers = mgr.servers()
+            out = []
+            for name, cfg in sorted(servers.items()):
+                st = mgr.status(name)
+                entry = {
+                    "name": name,
+                    "command": cfg.get("command", ""),
+                    "args": cfg.get("args", []),
+                    "running": st["running"],
+                    "tools": [],
+                }
+                if st["running"]:
+                    try:
+                        entry["tools"] = [t.get("name", "") for t in mgr.list_tools(name)]
+                    except Exception:
+                        entry["tools"] = []
+                out.append(entry)
+            return {"ok": True, "count": len(out), "servers": out}
+
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, _gather)
+        return ctx.cors_json_response(result)
+
     return SystemHandlers(
         version=handle_v1_version,
         info=handle_v1_info,
@@ -137,4 +172,5 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         sysinfo=handle_v1_sysinfo,
         beep=handle_v1_beep,
         notify=handle_v1_notify,
+        mcp_servers=handle_v1_mcp_servers,
     )

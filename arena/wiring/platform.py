@@ -48,6 +48,7 @@ def build_system_handlers(ctx: SystemWiringContext) -> dict[str, Callable[..., A
         "handle_v1_sysinfo": handlers.sysinfo,
         "handle_v1_beep": handlers.beep,
         "handle_v1_notify": handlers.notify,
+        "handle_v1_mcp_servers": handlers.mcp_servers,
     }
 
 

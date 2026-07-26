@@ -59,6 +59,44 @@ MCP_EXT_MCP_TOOLS = [
             },
             "required": ["server"], "additionalProperties": False},
     },
+    {
+        "name": "mcp.add",
+        "description": (
+            "Register an external MCP server in mcp/mcp.json so the agent can "
+            "use its tools via mcp.ext_call. EITHER pass an explicit 'command' "
+            "(+ 'args'/'env') to add ANY MCP server, e.g. "
+            "{\"name\":\"desktop-commander\",\"command\":\"npx\","
+            "\"args\":[\"-y\",\"@wonderwhy-er/desktop-commander\"]}; OR pass only "
+            "'name' to install from the marketplace registry (git-venv servers "
+            "like 'screenpilot' are cloned + venv'd automatically). Adding a "
+            "server is the trust decision and requires approval; afterwards its "
+            "tools are usable without per-call approval."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": "Server name to register (used as the key in mcp.json)."},
+                "command": {"type": "string",
+                            "description": "Launcher (npx/uvx/uv/python/python3/node or a full path). Omit to install from the registry by name."},
+                "args": {"type": "array", "items": {"type": "string"},
+                         "description": "Command arguments (e.g. [\"-y\",\"<package>\"])."},
+                "env": {"type": "object",
+                        "description": "Extra environment variables for the server."},
+            },
+            "required": ["name"], "additionalProperties": False},
+    },
+    {
+        "name": "mcp.remove",
+        "description": "Remove a registered external MCP server from mcp/mcp.json (and stop it if running).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string",
+                         "description": "Server name to remove from mcp.json."},
+            },
+            "required": ["name"], "additionalProperties": False},
+    },
 ]
 
 __all__ = ["MCP_EXT_MCP_TOOLS"]

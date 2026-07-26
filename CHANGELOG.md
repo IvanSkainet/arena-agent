@@ -1,3 +1,37 @@
+## v4.95.0 - MCP usability: add any server, use tools without per-call approval, Dashboard MCP tab
+
+### Purpose
+
+v4.94.0 added the MCP client but was over-restricted: `mcp.ext_call` was
+`dangerous`, so EVERY external tool call needed manual approval — making an
+agent unable to actually use an installed server. And servers could only be
+added through the curated marketplace. The trust model is now correct: trust
+is decided when a server is ADDED; once added, the agent uses its tools
+freely. Plus a Dashboard tab to monitor MCP servers.
+
+### Changed
+
+- **`mcp.ext_call` reclassified `dangerous` -> `safe`.** Adding a server is
+  the trust decision; per-call approval was unusable for an agent.
+
+### Added
+
+- **`mcp.add` (medium)** — register ANY external MCP server in `mcp/mcp.json`:
+  pass an explicit `command` (+ `args`/`env`) for any server, e.g.
+  `{"name":"desktop-commander","command":"npx","args":["-y","@wonderwhy-er/desktop-commander"]}`,
+  or pass only `name` to install from the marketplace registry (git-venv
+  servers like `screenpilot` are cloned + venv'd automatically).
+- **`mcp.remove` (medium)** — remove a registered server (and stop it).
+- **Dashboard "MCP" tab** — monitors external MCP servers (registered,
+  running state, tool names) via a new `GET /v1/mcp/servers` endpoint, with
+  reload + auto-refresh.
+
+### Tests
+
+Policy reclassification + `mcp.add`/`mcp.remove` covered; Dashboard MCP tab
+passes the asset-manifest and no-hardcoded-theme-colors guards; route
+registry updated.
+
 ## v4.94.0 - MCP client: use EXTERNAL MCP servers through the bridge
 
 ### Purpose

@@ -158,10 +158,12 @@
       "handle_mcp_ext_tool"
     ],
     "tool_names": [
+      "mcp.add",
       "mcp.ext_call",
       "mcp.ext_servers",
       "mcp.ext_stop",
-      "mcp.ext_tools"
+      "mcp.ext_tools",
+      "mcp.remove"
     ]
   },
   {
@@ -401,10 +403,12 @@
     "file": "arena/mcp/tool_registry_mcp_ext.py",
     "handlers": [],
     "tool_names": [
+      "mcp.add",
       "mcp.ext_call",
       "mcp.ext_servers",
       "mcp.ext_stop",
-      "mcp.ext_tools"
+      "mcp.ext_tools",
+      "mcp.remove"
     ]
   },
   {

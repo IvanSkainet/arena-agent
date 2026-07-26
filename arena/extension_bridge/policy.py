@@ -22,8 +22,11 @@ _SAFE_TOOLS = {
     "asr.models", "asr.health", "ocr.health", "image.health",
     # v4.59.0: read-only device/browser inspection.
     "mobile.list_files", "browser.list",
-    # v4.94.0: read-only external-MCP inspection (list servers / their tools).
-    "mcp.ext_servers", "mcp.ext_tools",
+    # v4.94.0/v4.95.0: external-MCP use. Trust is decided when a server is
+    # ADDED (mcp.add is medium); once added, the agent may list and CALL its
+    # tools without per-call approval (that is the whole point of installing
+    # a vetted server).
+    "mcp.ext_servers", "mcp.ext_tools", "mcp.ext_call",
 }
 _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from
@@ -47,17 +50,16 @@ _MEDIUM_TOOLS = {
     "asr.transcribe", "ocr.extract", "ocr.extract_best", "image.preprocess_for_ocr",
     # v4.59.0: state-changing but reversible ops.
     "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
-    # v4.94.0: external-MCP server lifecycle (stopping a server is reversible).
-    "mcp.ext_stop",
+    # v4.94.0/v4.95.0: external-MCP lifecycle / trust decisions. Adding or
+    # removing a server is the trust boundary (the agent then uses its tools
+    # freely); stopping a running server is reversible.
+    "mcp.ext_stop", "mcp.add", "mcp.remove",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
     # v4.75.0: bare "exec" replaced with "exec.exec"
     # (the bare form was removed in v4.75.0).
     "exec.exec", "asr.bootstrap", "ocr.bootstrap", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
-    # v4.94.0: calling an arbitrary tool on an external MCP server can do
-    # anything on the host (terminal, files, mouse/keyboard) -> dangerous.
-    "mcp.ext_call",
     "git.commit", "mission.iterate", "mission.recover", "mission.rerun",
     "mission.run", "mission.schedule_tick", "skill.run", "subagent.spawn",
     # v4.56.0: mobile.* full-shell / IME hijack surfaces.

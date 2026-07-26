@@ -41,6 +41,8 @@ window.ARENA_TABS = [
   {name: "doctor",    icon: "🏥", label: "Doctor",    onShow: () => runDoctor()},
   {name: "audit",     icon: "📜", label: "Audit",     onShow: () => loadAudit()},
   {name: "transports",icon: "🔌", label: "Transports",onShow: () => loadTransports()},
+  // v4.95.0: external MCP servers monitor.
+  {name: "mcp",       icon: "🔗", label: "MCP",       onShow: () => loadMcp()},
   {name: "proposals", icon: "📝", label: "Proposals", onShow: () => loadProposals()},
   {name: "settings",  icon: "⚙️", label: "Settings",  onShow: () => refreshSettings()},
 ];

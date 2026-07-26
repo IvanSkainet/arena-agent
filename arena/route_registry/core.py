@@ -48,6 +48,7 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_get("/v1/missions", h["handle_v1_missions"])
     app.router.add_post("/v1/beep", h["handle_v1_beep"])
     app.router.add_post("/v1/notify", h["handle_v1_notify"])
+    app.router.add_get("/v1/mcp/servers", h["handle_v1_mcp_servers"])
     app.router.add_get("/v1/doctor", h["handle_v1_doctor"])
     app.router.add_get("/v1/reports", h["handle_v1_reports"])
     app.router.add_get("/v1/browser/search", h["handle_v1_browser_search"])

@@ -1,0 +1,47 @@
+<div class="tab" id="tab-mcp">
+<style>
+  /* MCP tab (v4.95.0) — monitor external MCP servers registered in
+     mcp/mcp.json. One card per server: command, running state, tools.
+     Scoped to #tab-mcp. Visual language follows the Transports tab. */
+  #tab-mcp{
+    --mcp-tint-green:#00d67222;
+    --mcp-tint-gray:#88888833;
+  }
+  #tab-mcp .mcp-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px}
+  #tab-mcp .mcp-toolbar label{font-size:12px;color:var(--text2);display:inline-flex;align-items:center;gap:4px;white-space:nowrap}
+  #tab-mcp .mcp-toolbar label input[type=checkbox]{width:auto;margin:0}
+  #tab-mcp .mcp-meta{font-size:11px;color:var(--text3);margin:2px 0 12px 2px}
+  #tab-mcp .mcp-meta .chip{margin-right:6px;padding:1px 6px;border-radius:8px;font-size:10px;font-family:var(--mono)}
+  #tab-mcp .mcp-meta .chip.run{background:var(--mcp-tint-green);color:var(--green)}
+  #tab-mcp .mcp-meta .chip.stop{background:var(--mcp-tint-gray);color:var(--text2)}
+  #tab-mcp .mcp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px;justify-content:start}
+  #tab-mcp .mcp-card{border:1px solid var(--accent);border-radius:8px;padding:14px;background:var(--bg2)}
+  #tab-mcp .mcp-card h3{margin:0 0 8px 0;display:flex;align-items:center;gap:8px;font-size:15px}
+  #tab-mcp .mcp-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px;font-family:var(--mono);margin-left:auto}
+  #tab-mcp .mcp-badge.run{background:var(--mcp-tint-green);color:var(--green)}
+  #tab-mcp .mcp-badge.stop{background:var(--mcp-tint-gray);color:var(--text2)}
+  #tab-mcp .mcp-row{display:flex;gap:10px;align-items:baseline;padding:2px 0;font-size:12px;flex-wrap:wrap}
+  #tab-mcp .mcp-row .mcp-label{font-size:11px;font-weight:600;color:var(--text2);width:78px;flex-shrink:0}
+  #tab-mcp .mcp-row .mcp-val{color:var(--text);flex:1 1 auto;min-width:0;word-break:break-all;font-family:var(--mono);font-size:11px}
+  #tab-mcp .mcp-tools{margin-top:8px;display:flex;flex-wrap:wrap;gap:4px}
+  #tab-mcp .mcp-tools .tool{background:var(--bg3);border:1px solid var(--accent);border-radius:8px;padding:1px 7px;font-size:10px;font-family:var(--mono);color:var(--text2)}
+  #tab-mcp .mcp-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+  #tab-mcp .mcp-actions button{font-size:11px;padding:4px 10px}
+  #tab-mcp .mcp-empty{color:var(--text2);font-size:13px;padding:20px;border:1px dashed var(--accent);border-radius:8px}
+  #tab-mcp .mcp-empty code{background:var(--bg3);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:11px}
+</style>
+<h1>MCP Servers 🔗</h1>
+
+<div class="mcp-toolbar">
+  <button onclick="loadMcp()">Reload</button>
+  <label><input type="checkbox" id="mcpAuto"> auto-refresh</label>
+  <select id="mcpInterval" title="Auto-refresh interval">
+    <option value="5">5s</option>
+    <option value="15" selected>15s</option>
+    <option value="30">30s</option>
+  </select>
+</div>
+<div class="mcp-meta" id="mcpMeta">Loading…</div>
+<div class="mcp-grid" id="mcpGrid"></div>
+
+</div>
