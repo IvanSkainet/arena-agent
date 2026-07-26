@@ -64,6 +64,8 @@ class McpToolContext:
     utc_now: Callable[[], str]
     skills_list_sync_with_cache: Callable[[], dict[str, Any]]
     skills_run_sync: Callable[..., dict[str, Any]]
+    play_beep_sync: Callable[[str, int, int], dict[str, Any]]
+    send_notification_sync: Callable[[str, str], dict[str, Any]]
 
 
 @dataclass(frozen=True)
