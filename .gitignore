@@ -113,3 +113,8 @@ bridge.log.1
 requests.jsonl.1
 reports/arena_kwin_windows_*.js
 .arena_proposals/
+
+# v4.92.0: never commit coverage artifacts or spec-kit scaffolding
+.coverage
+.coverage.*
+.specify/

@@ -1,22 +1,45 @@
-## v4.91.2\n\n### Fixed\n- Fixed missing make_send_notification_sync in wiring imports.\n\n## v4.91.1\n\n### Fixed\n- Fixed NameError and updated MCP snapshot.\n\n## v4.91.4\n\n### Fixed\n- Final version sync fix for CI.\n\n## v4.91.3\n\n### Fixed\n- Fixed unit tests and route registry consistency.\n\n## v4.91.2\n\n### Fixed\n- Fixed missing wiring imports.\n\n## v4.91.1\n\n### Fixed\n- Fixed NameError in tool registry.\n\n## v4.91.10
+## v4.92.0 - Restore bridge startup: fix notification-wiring syntax error, withdraw v4.91.x
 
-### Fixed
-- Added missing attributes to McpToolContext causing 400 errors.
+### Purpose
 
-## v4.91.9
+v4.91.0 added cross-platform visual notifications (`sys.notify`) but the
+wiring commit introduced a fatal `SyntaxError` — duplicate keyword arguments
+(`play_beep_sync` and `send_notification_sync` repeated) in the MCP task
+runtime context construction (`arena/wiring/mcp_task_runtime.py`). A repeated
+keyword argument is a compile-time error, so `arena.runtime_deps` (and thus
+`unified_bridge.py`) could not even be imported: the bridge would not start.
 
-### Fixed
-- Fixed McpToolContext missing play_beep_sync and send_notification_sync.
+That single defect was the root cause of three reported symptoms:
 
-## v4.91.8
+1. **"Notifications broke the bridge"** — the bridge crashed on startup.
+2. **"Installer fails at the end"** — the installer's final
+   "waiting for bridge to start" step timed out because the just-installed
+   bridge could not boot.
+3. **"Auto-update spawns endless bore/ngrok/cloudflared processes"** — the
+   crash-looping bridge was restarted by the watchdog, and each restart's
+   autostart hooks spawned fresh tunnel processes that were never cleaned up
+   (orphaned on the next crash).
 
-### Fixed
-- Reliable auto-update asset availability.
+### Changes
 
-## v4.91.7\n\n### Fixed\n- Final version sync fix for CI compliance across all sources.\n\n## v4.91.6
+* **Fixed the fatal `SyntaxError`** in `arena/wiring/mcp_task_runtime.py`
+  (removed the duplicated `play_beep_sync` / `send_notification_sync`
+  kwargs). The bridge imports and boots cleanly again; verified with
+  `tests/test_app_factory.py` and a live startup smoke test (all services
+  come up: bridge, MCP, SSE, WS, gateway, dashboard, task-runner, watchdog).
+* **Visual notifications retained and working**: `sys.notify` MCP tool and
+  `POST /v1/notify` (Windows toast / `notify-send` / `osascript`), now
+  correctly wired through the system handler context.
+* **Removed a duplicate `send_notification_sync` field** in
+  `arena/wiring/platform.py` (`SystemWiringContext`).
+* **Repo hygiene**: removed accidentally-committed `.coverage` (~1.2 MB
+  binary) and the `.specify/` spec-kit scaffolding; both added to
+  `.gitignore` so they cannot be re-committed.
 
-### Fixed
-- Version synchronization fix for CI.
+### Note
+
+This release supersedes the broken `v4.91.0`-`v4.91.10` series, which is
+withdrawn (releases and tags removed). Upgrade directly to v4.92.0.
 
 ## v4.90.0 - Document input quality gates
 
