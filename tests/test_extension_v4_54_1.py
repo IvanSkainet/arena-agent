@@ -152,7 +152,13 @@ def test_wait_for_file_appears_after_delay(tmp_path):
     p = tmp_path / "note.m4a"
     def _create():
         time.sleep(0.2)
-        p.write_bytes(b"x" * 42)
+        # Write to a temp file then atomically rename so the target never
+        # exists at 0 bytes. write_bytes() creates-then-writes, which let
+        # _wait_for_file observe an empty file and return size 0 -> flaky
+        # ``assert 0 == 42`` on fast runners (seen on macos 3.13 CI).
+        tmp = p.with_name(p.name + ".tmp")
+        tmp.write_bytes(b"x" * 42)
+        tmp.replace(p)
     threading.Thread(target=_create, daemon=True).start()
     r = _wait_for_file(str(p), timeout=5, poll=0.05)
     assert r["ok"] is True

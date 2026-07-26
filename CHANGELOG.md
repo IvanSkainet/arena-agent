@@ -1,3 +1,15 @@
+## v4.93.1 - CI hotfix: deterministic wait-for-file test
+
+### Fixed
+
+- `test_wait_for_file_appears_after_delay` was flaky on the new macOS 3.13 CI
+  cell added in v4.93.0: the test created the file with `write_bytes`
+  (create-then-write), letting `_wait_for_file` observe a transient 0-byte
+  file and fail `assert 0 == 42`. The test now creates the file atomically
+  (write to a temp file, then `Path.replace`), so "appears" means "appears
+  with content". Test-only change; the release artifact is unchanged from
+  v4.93.0.
+
 ## v4.93.0 - Honest notifications, installers that offer (not force) updates, install.sh fixed, full macOS CI matrix
 
 ### Fixed
