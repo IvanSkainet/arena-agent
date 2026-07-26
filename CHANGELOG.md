@@ -1,4 +1,4 @@
-## v4.91.2\n\n### Fixed\n- Fixed missing make_send_notification_sync in wiring imports.\n\n## v4.91.1\n\n### Fixed\n- Fixed NameError and updated MCP snapshot.\n\n## v4.90.0 - Document input quality gates
+## v4.91.2\n\n### Fixed\n- Fixed missing make_send_notification_sync in wiring imports.\n\n## v4.91.1\n\n### Fixed\n- Fixed NameError and updated MCP snapshot.\n\n## v4.91.4\n\n### Fixed\n- Final version sync fix for CI.\n\n## v4.91.3\n\n### Fixed\n- Fixed unit tests and route registry consistency.\n\n## v4.91.2\n\n### Fixed\n- Fixed missing wiring imports.\n\n## v4.91.1\n\n### Fixed\n- Fixed NameError in tool registry.\n\n## v4.90.0 - Document input quality gates
 
 ### Purpose
 
