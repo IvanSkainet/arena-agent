@@ -164,11 +164,21 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             ctools = []
             for spec in _ct.list_tools():
                 schema = spec.get("inputSchema") or {}
+                steps = spec.get("steps")
+                if isinstance(steps, list) and steps:
+                    wraps = "composite: " + ", ".join(
+                        f"{s.get('id')}->{s.get('tool')}" for s in steps)
+                    step_list = [{"id": s.get("id"), "tool": s.get("tool")}
+                                 for s in steps]
+                else:
+                    wraps = (spec.get("call") or {}).get("tool", "")
+                    step_list = []
                 ctools.append({
                     "name": spec.get("name", ""),
                     "description": spec.get("description", ""),
                     "risk": spec.get("risk", "medium"),
-                    "wraps": (spec.get("call") or {}).get("tool", ""),
+                    "wraps": wraps,
+                    "steps": step_list,
                     "params": list((schema.get("properties") or {}).keys()),
                     "required": schema.get("required", []),
                 })

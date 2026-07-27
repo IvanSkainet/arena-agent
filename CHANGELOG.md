@@ -1,3 +1,36 @@
+## v4.98.0 - Composable self-authored tools (the agent writes multi-step capabilities)
+
+### Purpose
+v4.96.0 let the agent author a custom tool wrapping ONE call. Real tasks are
+pipelines, so a custom tool can now be a *composition*: an ordered list of
+steps with data flowing between them. This is the next rung of the
+self-extending environment -- the agent grows richer capabilities, not just
+thin aliases.
+
+### Added
+- `custom.create` accepts a `steps` body (alongside the existing `call`):
+  `[{id, tool, args}, ...]`. A step's `args` may reference the tool's inputs
+  (`{serial}`) and any earlier step's result via a dotted path
+  (`{steps.<id>.<field>}`). The composite returns `{ok, steps, step_ok}`, so one
+  authored call can gather several readings at once (e.g. PC + phone state).
+- Steps run continue-on-error (one offline source does not hide the rest), and
+  each step recurses through `call_tool`, so the risk policy and the full agent
+  stop (HALT) apply *inside* a composite -- HALT blocks mid-pipeline.
+- Derived risk of a composite = the MAX over its steps (a composite that touches
+  a dangerous tool is itself dangerous and needs approval at the outer call;
+  inner steps do not re-prompt, mirroring `scenario.run`).
+- Dashboard MCP card shows a composite's steps.
+
+### Safety
+- Steps may only use built-in tools (no custom/management recursion); the input
+  name `steps` is reserved; step ids are validated. Backward compatible: the
+  single-`call` shape and all prior signatures are unchanged.
+
+### Tests
+Composition suite: dotted substitution + data flow, max-risk derivation,
+continue-on-error, HALT-mid-pipeline through the chokepoint, create/persist of
+a composite, every validation error, dispatch, and single-call backward compat.
+
 ## v4.97.0 - Operator autonomy controls: full agent stop (HALT) + YOLO mode; cockpit layout fix
 
 ### Purpose
