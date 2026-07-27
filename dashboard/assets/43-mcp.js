@@ -42,6 +42,41 @@
     );
   }
 
+  // v4.96.0: agent-authored custom tools (the agent growing its own
+  // environment via custom.create). Shown next to the external servers.
+  function renderCustomCard(c) {
+    var risk = c.risk || "medium";
+    var badge = '<span class="mcp-badge risk-' + esc(risk) + '">' + esc(risk) + "</span>";
+    var params = (c.params && c.params.length)
+      ? c.params.map(function (p) { return '<span class="tool">' + esc(p) + "</span>"; }).join("")
+      : '<span style="color:var(--text3)">(no params)</span>';
+    return (
+      '<div class="mcp-card">' +
+        "<h3>🧩 " + esc(c.name) + badge + "</h3>" +
+        '<div class="mcp-row"><span class="mcp-label">wraps</span><span class="mcp-val">' + esc(c.wraps) + "</span></div>" +
+        '<div class="mcp-row"><span class="mcp-label">params</span><span class="mcp-val"><div class="mcp-tools">' + params + "</div></span></div>" +
+        (c.description
+          ? '<div class="mcp-row"><span class="mcp-label">desc</span><span class="mcp-val">' + esc(c.description) + "</span></div>"
+          : "") +
+      "</div>"
+    );
+  }
+
+  function renderCustom(ctools) {
+    var grid = document.getElementById("mcpCustomGrid");
+    var meta = document.getElementById("mcpCustomMeta");
+    if (!grid) return;
+    if (meta) {
+      meta.textContent = ctools.length
+        ? ctools.length + " agent-authored tool(s) — created at runtime via custom.create"
+        : "No custom tools yet.";
+    }
+    grid.innerHTML = ctools.length
+      ? ctools.map(renderCustomCard).join("")
+      : '<div class="mcp-empty">No agent-authored tools yet. The agent creates one with ' +
+        "<code>custom.create</code> (a named wrapper over a built-in tool) and it shows up here.</div>";
+  }
+
   window.loadMcp = async function () {
     var grid = document.getElementById("mcpGrid");
     var meta = document.getElementById("mcpMeta");
@@ -54,19 +89,18 @@
         return;
       }
       var servers = d.servers || [];
+      var ctools = d.custom_tools || [];
       var running = servers.filter(function (s) { return s.running; }).length;
       meta.innerHTML =
         '<span class="chip run">' + running + " running</span>" +
         '<span class="chip stop">' + (servers.length - running) + " idle</span>" +
         " · " + servers.length + " registered in mcp/mcp.json";
-      if (!servers.length) {
-        grid.innerHTML =
-          '<div class="mcp-empty">No MCP servers registered yet. ' +
+      grid.innerHTML = servers.length
+        ? servers.map(renderCard).join("")
+        : '<div class="mcp-empty">No MCP servers registered yet. ' +
           "Add one with the <code>mcp.add</code> tool (or " +
           "<code>marketplace install desktop-commander</code>), then it shows up here.</div>";
-        return;
-      }
-      grid.innerHTML = servers.map(renderCard).join("");
+      renderCustom(ctools);
     } catch (e) {
       grid.innerHTML = '<div class="mcp-empty">Error: ' + esc(e && e.message || e) + "</div>";
     }

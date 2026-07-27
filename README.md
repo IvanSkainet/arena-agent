@@ -22,6 +22,7 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 ## Contents
 
 - [North star](#north-star)
+- [Mission: the flight computer](#mission-the-flight-computer)
 - [Why Arena Unified Bridge?](#why-arena-unified-bridge)
 - [How it works](#how-it-works)
 - [What it can do](#what-it-can-do)
@@ -62,6 +63,50 @@ loop, not a nuisance.
 > thing work?", never by "did my tests pass?". Do not bolt features onto
 > whatever module is convenient — place them where they belong. Do not use a
 > volume of releases as a proxy for progress.
+
+## Mission: the flight computer
+
+The framing that organizes this project: **Arena Unified Bridge is the onboard
+computer of a spacecraft.** The AI agent is the pilot; the machines it reaches
+— a PC, a phone, a browser, a network — are the ship's sensors, actuators and
+subsystems. The observer is mission control. This is not decoration; it sets the
+engineering bar. A flight computer must be *general* (handle the unknown, not a
+fixed checklist), *reliable* (a green test is not proof of flight-worthiness),
+*self-diagnosing* (know its own health and limits), *fail-safe* (a risk policy
+standing between the pilot and the hull), and *autonomous* (act across many
+steps without a human at each one).
+
+It also places the project on a real, named trajectory in how AI systems are
+built. The discipline has moved through four stages:
+
+1. **Prompt engineering** (2022–2024) — perfect the single instruction.
+2. **Context engineering** (2025, Karpathy) — design what the model *sees*:
+   retrieval, memory, tool definitions. "Context is RAM; the model is the CPU."
+3. **Harness engineering** (2026, Hashimoto / OpenAI) — build the whole
+   *operating environment* around the agent: tools, constraints, feedback loops,
+   lifecycle. "Agents aren't hard; the harness is hard."
+4. **Dynamic / self-evolving environment** (the frontier) — the agent no longer
+   just *uses* a fixed environment; it *extends and authors* it, writing new
+   tools and capabilities for itself at runtime, within guardrails.
+
+Arena is already a harness: one runtime that unifies sensors (screenshot,
+camera, microphone, device sensors, file read), actuators (input, exec, file
+write, desktop control), pluggable subsystems (MCP servers) and a risk policy.
+The mission is to push it down the last step — toward a **self-extending flight
+computer**: an environment the agent grows itself. The first concrete step is
+already in: with `custom.create` the agent authors a new named tool at runtime
+(a schema-validated wrapper over a built-in tool, e.g.
+`custom.create` → `{tool: "fs.read", args: {path: "{path}"}}`); the tool then
+shows up in `tools/list`, is callable, persists in `mcp/custom_tools.json`, is
+revocable via `custom.remove`, and inherits the risk of the tool it wraps.
+Listing them is `custom.list`. Beyond that, installing a vetted external MCP
+server (`mcp.add`) grows the environment further; the direction is the agent
+closing a capability gap found in a real scenario, generally, so it is gone for
+good.
+
+> The project's founding idea — to step out of the sandbox — is written down
+> here. If you are an AI continuing this work, this is the heading: build the
+> ship's computer, not a pile of remote-control tricks.
 
 ---
 

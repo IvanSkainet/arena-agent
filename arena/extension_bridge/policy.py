@@ -27,6 +27,8 @@ _SAFE_TOOLS = {
     # tools without per-call approval (that is the whole point of installing
     # a vetted server).
     "mcp.ext_servers", "mcp.ext_tools", "mcp.ext_call",
+    # v4.96.0: listing agent-authored custom tools is read-only.
+    "custom.list",
 }
 _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from
@@ -54,6 +56,10 @@ _MEDIUM_TOOLS = {
     # removing a server is the trust boundary (the agent then uses its tools
     # freely); stopping a running server is reversible.
     "mcp.ext_stop", "mcp.add", "mcp.remove",
+    # v4.96.0: authoring / revoking a capability is a trust decision (the
+    # call-time risk of a custom tool is DERIVED from the tool it wraps and
+    # resolved separately in classify_tool_risk via custom_tools.risk_of).
+    "custom.create", "custom.remove",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
@@ -84,6 +90,15 @@ def classify_tool_risk(tool: str) -> str:
         return "medium"
     if name in _SAFE_TOOLS:
         return "safe"
+    # v4.96.0: an agent-authored custom tool inherits the risk of the built-in
+    # tool it wraps (same idea as scenarios.runtime.derive_scenario_risk).
+    # Lazy import keeps policy<->custom_tools free of a load-time cycle; the
+    # recursion terminates because a custom tool may only wrap a built-in.
+    if name.startswith("custom."):
+        from arena.mcp.custom_tools import risk_of
+        derived = risk_of(name)
+        if derived:
+            return derived
     return "unknown"
 
 

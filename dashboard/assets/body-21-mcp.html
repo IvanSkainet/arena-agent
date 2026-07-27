@@ -29,6 +29,11 @@
   #tab-mcp .mcp-actions button{font-size:11px;padding:4px 10px}
   #tab-mcp .mcp-empty{color:var(--text2);font-size:13px;padding:20px;border:1px dashed var(--accent);border-radius:8px}
   #tab-mcp .mcp-empty code{background:var(--bg3);padding:1px 5px;border-radius:3px;font-family:var(--mono);font-size:11px}
+  /* v4.96.0: risk badges for agent-authored custom tools (theme vars only). */
+  #tab-mcp .mcp-badge.risk-safe{background:var(--mcp-tint-green);color:var(--green)}
+  #tab-mcp .mcp-badge.risk-medium{background:var(--mcp-tint-gray);color:var(--yellow)}
+  #tab-mcp .mcp-badge.risk-dangerous{background:var(--surface-error);color:var(--red)}
+  #tab-mcp .mcp-section-h{margin-top:22px}
 </style>
 <h1>MCP Servers 🔗</h1>
 
@@ -43,5 +48,9 @@
 </div>
 <div class="mcp-meta" id="mcpMeta">Loading…</div>
 <div class="mcp-grid" id="mcpGrid"></div>
+
+<h2 class="mcp-section-h">Custom tools 🧩</h2>
+<div class="mcp-meta" id="mcpCustomMeta">Loading…</div>
+<div class="mcp-grid" id="mcpCustomGrid"></div>
 
 </div>

@@ -18,7 +18,15 @@ body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex
    it becomes on-screen. contain-intrinsic-size gives the layout a
    default so the scrollbar doesn't jump. */
 .tab{content-visibility:hidden;contain:layout style paint;height:0;overflow:hidden}
-.tab.active{content-visibility:auto;contain-intrinsic-size:auto 800px;height:auto;overflow:visible}
+/* v4.96.0: the ACTIVE tab must fully undo the off-screen optimization above.
+   Before, it kept `contain:layout style paint` (inherited from .tab) while
+   switching to `content-visibility:auto`, so Chromium deferred/skipped the
+   active panel's render and held the 800px intrinsic-size placeholder: the
+   panel loaded intermittently ("через раз") and its content could be clipped
+   or shifted with an empty gutter. `content-visibility:visible; contain:none`
+   makes the active panel a normal, always-rendered block; inactive panels
+   keep the cheap skip. */
+.tab.active{content-visibility:visible;contain:none;contain-intrinsic-size:none;height:auto;overflow:visible}
 h1{font-size:22px;margin-bottom:16px;color:var(--text)}
 h2{font-size:16px;margin:16px 0 8px;color:var(--purple)}
 h3{font-size:14px;margin:12px 0 6px;color:var(--blue)}

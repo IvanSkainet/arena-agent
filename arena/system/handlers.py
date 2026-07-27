@@ -157,7 +157,23 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
                     except Exception:
                         entry["tools"] = []
                 out.append(entry)
-            return {"ok": True, "count": len(out), "servers": out}
+            # v4.96.0: agent-authored custom tools (self-extending
+            # environment) are part of the same MCP surface, so the cockpit
+            # shows them next to the external servers.
+            from arena.mcp import custom_tools as _ct
+            ctools = []
+            for spec in _ct.list_tools():
+                schema = spec.get("inputSchema") or {}
+                ctools.append({
+                    "name": spec.get("name", ""),
+                    "description": spec.get("description", ""),
+                    "risk": spec.get("risk", "medium"),
+                    "wraps": (spec.get("call") or {}).get("tool", ""),
+                    "params": list((schema.get("properties") or {}).keys()),
+                    "required": schema.get("required", []),
+                })
+            return {"ok": True, "count": len(out), "servers": out,
+                    "custom_tools": ctools}
 
         loop = asyncio.get_running_loop()
         result = await loop.run_in_executor(ctx.executor, _gather)

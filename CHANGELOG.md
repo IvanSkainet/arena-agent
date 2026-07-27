@@ -1,3 +1,63 @@
+## v4.96.0 - Self-extending environment: the agent authors its own tools (custom.create)
+
+### Purpose
+
+The industry has moved prompt engineering -> context engineering -> harness
+engineering (build the agent's whole operating environment) -> the frontier of
+a *dynamic / self-evolving environment*, where the agent no longer just uses a
+fixed environment but extends and authors it. Arena is already a harness (one
+runtime unifying sensors, actuators, pluggable MCP subsystems and a risk
+policy). This release takes the first concrete step down the last rung: the
+agent can now author a new tool at runtime — a capability that did not exist a
+moment ago — generally and within the existing safety model. The README now
+carries the organizing mission: the bridge as a flight computer, and where
+agent-environment design is heading.
+
+### Added
+
+- **`custom.create` (medium)** — the agent authors a NEW named tool: a
+  schema-validated wrapper over ONE built-in tool call, with `{param}`
+  substitution from its own input schema into the wrapped call. No arbitrary
+  code: the wrapped call still runs through the normal dispatcher and policy.
+  A custom tool may only wrap a built-in tool (never another custom tool — no
+  composition chains), and its risk is DERIVED from the wrapped tool (a wrapper
+  over a dangerous tool is itself dangerous), the same idea as
+  `derive_scenario_risk`. Persisted in `mcp/custom_tools.json`.
+- **`custom.list` (safe)** / **`custom.remove` (medium)** — list / revoke
+  agent-authored tools.
+- Agent-authored tools appear in `tools/list` (the static management tools are
+  registered in the catalogue; the dynamic authored ones are appended at
+  list time) and are dispatched through the normal tool bus.
+- **Dashboard MCP tab** now also lists agent-authored custom tools (name, the
+  tool they wrap, params, derived risk) under a "Custom tools" section.
+
+### Fixed
+
+- **Dashboard active-tab layout** — the active tab kept
+  `contain:layout style paint` while switching to `content-visibility:auto`,
+  so Chromium intermittently deferred/skipped its render and held the 800px
+  intrinsic-size placeholder: tabs loaded "through one" and content could be
+  clipped/shifted with an empty gutter. The active tab now renders as a normal
+  block (`content-visibility:visible; contain:none`); inactive tabs keep the
+  cheap skip.
+- **`mobile.voice_record` doc** said `asr.transcribe(path=<local>)`; the real
+  argument is `file=<local>`.
+
+### Docs
+
+- README **"Mission: the flight computer"** — the bridge as a spacecraft's
+  onboard computer; the prompt -> context -> harness -> dynamic trajectory;
+  the heading for AI maintainers (build the ship's computer, not a pile of
+  remote-control tricks).
+
+### Tests
+
+20 unit tests for the custom-tool facility (schema/arg validation, `{param}`
+substitution, CRUD + persistence, risk derivation/inheritance through the real
+policy, dispatch via the wrapped tool, management tools); the management
+namespace satisfies the dispatch-consistency, dead-dispatch, handler-signature
+and doc-coverage guards; full suite green.
+
 ## v4.95.0 - MCP usability: add any server, use tools without per-call approval, Dashboard MCP tab
 
 ### Purpose

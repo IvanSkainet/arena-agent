@@ -35,6 +35,7 @@ from arena.mcp.tool_net import handle_net_tool
 from arena.mcp.tool_mission import handle_mission_tool
 from arena.mcp.tool_scenarios import handle_scenario_tool
 from arena.mcp.tool_plan import handle_plan_tool
+from arena.mcp.custom_tools import handle_custom_tool, tool_defs as custom_tool_defs
 
 
 
@@ -97,6 +98,11 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
         """MCP tool dispatcher."""
         try:
             for handler in (
+                # v4.96.0: agent-authored custom tools (self-extending
+                # environment). Resolved first; recursion goes back through
+                # this same call_tool (via the ctx, like scenarios) so the
+                # wrapped built-in call keeps its own policy/risk handling.
+                lambda: handle_custom_tool(name, args, ctx=_types.SimpleNamespace(call_tool=call_tool)),
                 lambda: handle_exec_tool(name, args, ctx=ctx, run_sd=run_sd),
                 lambda: handle_fs_tool(name, args, ctx=ctx),
                 lambda: handle_fs_search_tool(name, args, ctx=ctx),
@@ -147,7 +153,12 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 "serverInfo": {"name": "arena-unified-bridge", "version": ctx.version},
                 "capabilities": {"tools": {"listChanged": False}}}}
         if m == "tools/list":
-            return {"jsonrpc": "2.0", "id": rid, "result": {"tools": MCP_TOOLS}}
+            # Preserve the MCP_TOOLS object identity when there are no
+            # agent-authored tools (the contract test asserts `is MCP_TOOLS`);
+            # append the dynamic authored tools only when some exist.
+            extra = custom_tool_defs()
+            tools = MCP_TOOLS if not extra else MCP_TOOLS + extra
+            return {"jsonrpc": "2.0", "id": rid, "result": {"tools": tools}}
         if m == "tools/call":
             params = msg.get("params") or {}
             return {"jsonrpc": "2.0", "id": rid, "result": call_tool(params.get("name", ""), params.get("arguments") or {})}

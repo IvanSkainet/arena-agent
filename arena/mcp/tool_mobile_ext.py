@@ -296,7 +296,7 @@ MOBILE_EXT_MCP_TOOLS = [
             "signed helper app (com.arena.voicerecorder) on first use, "
             "grants RECORD_AUDIO, records for `duration_ms`, and returns the "
             "captured file's local host path. Transcribe the result with "
-            "asr.transcribe(path=<local>). This is the bridge's 'hearing' "
+            "asr.transcribe(file=<local>). This is the bridge's 'hearing' "
             "sense — capture is fully bridge-controlled (the system Recorder "
             "app is not driven)."
         ),
