@@ -101,10 +101,19 @@ def test_create_wrapping_dangerous_tool_inherits_dangerous(home):
     assert res["tool"]["risk"] == "dangerous"
 
 
-def test_create_rejects_wrapping_custom_tool(home):
-    res = ct.create_tool("chain", "", {"properties": {}},
-                         {"tool": "custom.other", "args": {}})
-    assert not res["ok"] and "built-in" in res["error"]
+def test_create_custom_ref_must_exist(home):
+    # v4.99: wrapping/reusing a custom tool is now ALLOWED (library), but the
+    # referenced tool must already exist (bottom-up). An undefined ref is
+    # rejected -- the old "must be built-in" rule is superseded.
+    undefined = ct.create_tool("chain", "", {"properties": {}},
+                               {"tool": "custom.other", "args": {}})
+    assert not undefined["ok"] and "not defined" in undefined["error"]
+    base = ct.create_tool("base", "", {"properties": {}},
+                          {"tool": "sys.status"})
+    assert base["ok"]
+    reuse = ct.create_tool("chain", "", {"properties": {}},
+                           {"tool": "custom.base", "args": {}})
+    assert reuse["ok"], reuse
 
 
 def test_create_rejects_unknown_wrapped_tool(home):

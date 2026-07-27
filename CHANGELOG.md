@@ -1,3 +1,32 @@
+## v4.99.0 - Custom-tool library: authored tools can reuse authored tools
+
+### Purpose
+v4.98 let a composite call built-ins. Now a step or single call may target
+*another authored tool* (`custom.<name>`), so the agent builds reusable
+abstractions and composes them -- a real library, not just flat macros. This is
+the next rung of the self-extending environment.
+
+### Added
+- A step / `call` tool may be a built-in OR an already-defined custom tool.
+  References are validated bottom-up (the referenced tool must exist), and the
+  reference graph is kept acyclic (a cycle check at create time; creation order
+  makes cycles impossible except via remove+recreate, which the check catches).
+- Derived risk walks the whole reference tree (MAX), so a chain that touches a
+  dangerous tool anywhere is itself dangerous and needs approval at the outer
+  call.
+- A recursion-depth cap (`MAX_CUSTOM_DEPTH`) is a runtime safety net so a
+  pathological reference tree can never run away; each nested call still passes
+  through `call_tool`, so HALT and the risk policy apply at every level.
+
+### Safety / compatibility
+- No arbitrary code; every nested call recurses through the normal dispatcher.
+- The single-call and composition shapes, and all prior signatures, are
+  unchanged.
+
+### Tests
+Library reuse + risk propagation; self-reference / undefined-reference / cycle
+rejection; an actual nested execution; and the recursion-depth guard.
+
 ## v4.98.0 - Composable self-authored tools (the agent writes multi-step capabilities)
 
 ### Purpose

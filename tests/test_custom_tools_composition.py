@@ -210,3 +210,92 @@ def test_tool_def_composite_risk_safe(home):
                           {"id": "b", "tool": "fs.read", "args": {"path": "/x"}}])
     defs = {d["name"]: d for d in ct.tool_defs()}
     assert "risk: safe" in defs["custom.c2"]["description"]
+
+
+# ---------------------------------------------------------------------------
+# v4.99 -- library reuse (custom tool referencing custom tool) + recursion cap
+# ---------------------------------------------------------------------------
+
+class _DispatchCtx:
+    """ctx.call_tool that re-enters handle_custom_tool for custom.* names
+    (mirrors the real dispatcher) and fakes built-ins."""
+    def __init__(self, static_handler):
+        self._static = static_handler
+        self.calls = []
+
+    def call_tool(self, name, args):
+        self.calls.append((name, args))
+        if name.startswith("custom."):
+            return ct.handle_custom_tool(name, args, ctx=self)
+        return self._static(name, args)
+
+
+def test_library_custom_ref_allowed_and_risk_propagates(home):
+    lib = ct.create_tool("lib", "", {"properties": {}},
+                         call={"tool": "sys.status"})  # safe
+    assert lib["ok"], lib
+    comp = ct.create_tool("uses_lib", "", {"properties": {}},
+                          steps=[{"id": "a", "tool": "custom.lib"}])
+    assert comp["ok"], comp
+    assert comp["tool"]["risk"] == "safe"
+    assert ct.risk_of("custom.uses_lib") == "safe"
+    # a chain that touches a medium tool anywhere becomes medium
+    comp2 = ct.create_tool("uses_lib2", "", {"properties": {}},
+                           steps=[{"id": "a", "tool": "custom.lib"},
+                                  {"id": "b", "tool": "fs.create",
+                                   "args": {"path": "/x", "content": "y"}}])
+    assert comp2["ok"] and comp2["tool"]["risk"] == "medium"
+
+
+def test_create_rejects_self_reference(home):
+    res = ct.create_tool("me", "", {"properties": {}},
+                         steps=[{"id": "a", "tool": "custom.me"}])
+    assert not res["ok"] and ("itself" in res["error"] or "not defined" in res["error"])
+
+
+def test_create_rejects_undefined_custom_ref(home):
+    res = ct.create_tool("x", "", {"properties": {}},
+                         steps=[{"id": "a", "tool": "custom.nope"}])
+    assert not res["ok"] and "not defined" in res["error"]
+
+
+def test_create_rejects_cycle_via_remove_recreate(home):
+    a = ct.create_tool("a", "", {"properties": {}}, call={"tool": "sys.status"})
+    b = ct.create_tool("b", "", {"properties": {}},
+                       steps=[{"id": "a", "tool": "custom.a"}])
+    assert a["ok"] and b["ok"]
+    ct.remove_tool("a")
+    cyc = ct.create_tool("a", "", {"properties": {}},
+                         steps=[{"id": "b", "tool": "custom.b"}])  # a->b->a cycle
+    assert not cyc["ok"] and "cycle" in cyc["error"]
+
+
+def test_nested_custom_call_actually_runs(home):
+    ct.create_tool("lib", "", {"properties": {"msg": {"type": "string"}},
+                               "required": ["msg"]},
+                   call={"tool": "exec.echo", "args": {"text": "{msg}"}})
+    ct.create_tool("outer", "", {"properties": {}},
+                   steps=[{"id": "r", "tool": "custom.lib", "args": {"msg": "hello"}}])
+
+    def static(name, args):
+        return _mcp(args.get("text", ""))  # exec.echo
+
+    ctx = _DispatchCtx(static)
+    out = ct.handle_custom_tool("custom.outer", {}, ctx=ctx)
+    parsed = json.loads(out["content"][0]["text"])
+    assert parsed["ok"] is True
+    assert parsed["steps"]["r"] == "hello"
+    assert ("exec.echo", {"text": "hello"}) in ctx.calls  # inner built-in reached
+
+
+def test_recursion_depth_guard(home, monkeypatch):
+    monkeypatch.setattr(ct, "MAX_CUSTOM_DEPTH", 2)
+    ct.create_tool("t1", "", {"properties": {}}, call={"tool": "sys.status"})
+    ct.create_tool("t2", "", {"properties": {}},
+                   steps=[{"id": "a", "tool": "custom.t1"}])
+    ct.create_tool("t3", "", {"properties": {}},
+                   steps=[{"id": "b", "tool": "custom.t2"}])
+    ctx = _DispatchCtx(lambda name, args: _mcp(json.dumps({"ok": True})))
+    out = ct.handle_custom_tool("custom.t3", {}, ctx=ctx)
+    text = out["content"][0]["text"]
+    assert "recursion depth" in text  # depth cap tripped inside the tree
