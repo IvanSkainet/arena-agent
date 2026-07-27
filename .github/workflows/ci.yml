@@ -33,13 +33,12 @@ jobs:
 
       - name: Run actionlint
         uses: rhysd/actionlint@914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
-        with:
-          # actionlint ships its own binary; we just point it at
-          # the workflow directory. The README badge URL we ship
-          # does not exist as a real workflow file, so we skip
-          # the badge reference check (actionlint has a separate
-          # flag for that).
-          ignore: 'workflow-call-usage'
+        # NOTE (v4.96.0): the rhysd/actionlint Docker action only accepts the
+        # `entryPoint` and `args` inputs. A stray `with: ignore:` here produced
+        # the runner warning "Unexpected input(s) 'ignore', valid inputs are
+        # ['entryPoint', 'args']" and was never applied in the first place --
+        # actionlint has always run with its default config (and passes). To
+        # suppress a specific check, pass actionlint's own flag via `args:`.
 
   # ----------------------------------------------------------------
   # Test matrix: 5 Python versions on ubuntu-latest + windows-latest,
