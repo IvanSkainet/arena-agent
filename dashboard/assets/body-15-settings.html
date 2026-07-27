@@ -195,4 +195,28 @@
 <div class="row"><button onclick="apiQuickGet('/v1/doctor')">sys doctor</button></div>
 <div class="row"><button onclick="apiQuickGet('/v1/memory')">mem get all</button></div>
 </div>
+<div class="card" id="yoloCard">
+<h2>YOLO mode &mdash; auto-approve everything <span id="yoloBadge" class="badge ok" style="margin-left:8px">OFF</span></h2>
+<div class="error-box" style="margin:6px 0">
+<div class="error-title" style="color:var(--red)">&#9888; Dangerous &mdash; nobody is responsible</div>
+<div style="font-size:12px;line-height:1.5;color:var(--text2)">
+While YOLO is <strong>ON</strong>, the agent runs <em>every</em> tool &mdash; shell commands,
+file writes, desktop control, network requests &mdash; with <strong>no human
+confirmation</strong>. This is the bridge equivalent of
+<code>--dangerously-skip-permissions</code>. The agent can do anything your
+token allows, unattended. <strong>This setting is NOT persisted</strong>: a bridge
+restart turns YOLO back <strong>OFF</strong> (fail-safe). The full-stop HALT on the
+Control tab still overrides YOLO.
+</div>
+</div>
+<label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;margin:8px 0;color:var(--text2)">
+<input type="checkbox" id="yoloAckCheck" style="width:auto;margin-top:2px">
+<span>I accept full responsibility &mdash; no one is liable for what the agent does while YOLO is on.</span>
+</label>
+<div class="row">
+<button id="yoloEnableBtn" class="danger" onclick="yoloSet(true)">Enable YOLO</button>
+<button id="yoloDisableBtn" class="success" onclick="yoloSet(false)" style="display:none">Disable YOLO</button>
+<span id="yoloStateText" style="font-size:12px;color:var(--text2)"></span>
+</div>
+</div>
 </div>

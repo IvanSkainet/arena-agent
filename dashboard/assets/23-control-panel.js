@@ -5,6 +5,7 @@ async function refreshControlPanel() {
     if (!cs || !cs.ok) return;
     const state = cs.control || "active";
     const reason = cs.reason || "";
+    const halted = !!cs.agent_halted;  // full agent stop (kill-switch)
 
     // Big status
     const icons = {active: "&#9989;", paused: "&#9208;", revoked: "&#128683;"};
@@ -14,6 +15,14 @@ async function refreshControlPanel() {
     document.getElementById("controlBigLabel").textContent = labels[state] || state;
     document.getElementById("controlBigLabel").style.color = state === "active" ? "var(--green)" : state === "paused" ? "var(--yellow)" : "var(--red)";
     document.getElementById("controlBigReason").textContent = reason;
+    // v4.97.0: a full stop overrides the desktop-lease indicator -- HALT is the
+    // bigger red button and must dominate the big status readout.
+    if (halted) {
+      document.getElementById("controlBigStatus").innerHTML = "&#128721;";
+      document.getElementById("controlBigLabel").textContent = "HALTED (full stop)";
+      document.getElementById("controlBigLabel").style.color = "var(--red)";
+      document.getElementById("controlBigReason").textContent = cs.halted_reason || reason;
+    }
 
     // Status table
     const badge = document.getElementById("ctrlStatusBadge");
@@ -30,6 +39,12 @@ async function refreshControlPanel() {
     document.getElementById("ctrlPauseBtn").style.display = state === "active" ? "inline-block" : "none";
     document.getElementById("ctrlResumeBtn").style.display = state !== "active" ? "inline-block" : "none";
     document.getElementById("ctrlRevokeBtn").style.display = state !== "revoked" ? "inline-block" : "none";
+    // v4.97.0: HALT / Resume-stop toggle + the halted status row.
+    document.getElementById("ctrlHaltBtn").style.display = halted ? "none" : "inline-block";
+    document.getElementById("ctrlUnhaltBtn").style.display = halted ? "inline-block" : "none";
+    const haltedBadge = document.getElementById("ctrlHaltedBadge");
+    if (haltedBadge) { haltedBadge.className = "badge " + (halted ? "fail" : "ok"); haltedBadge.textContent = halted ? "HALTED" : "off"; }
+    if (halted) { badge.className = "badge fail"; badge.textContent = "halted"; }
 
     // Overview card
     const ovState = document.getElementById("overviewControlState");
@@ -132,4 +147,25 @@ async function testInputGuard() {
   } catch(e) {
     resEl.textContent = "Error: " + e.message;
   }
+}
+
+// ===== v4.97.0: full agent stop (kill-switch) =====
+async function controlHalt() {
+  if (!confirm("HALT the agent (full stop)? This blocks ALL agent actions " +
+               "(every tool, not just desktop) until you resume. Read-only " +
+               "stays available so you can still inspect state.")) return;
+  const prompted = prompt("Reason for halting (optional):", "User halted from dashboard");
+  if (prompted === null) return;
+  const reason = prompted || "Dashboard halt";
+  const r = await api("/v1/control/halt", {method: "POST", body: JSON.stringify({reason})});
+  if (r && r.ok) { refreshControlPanel(); }
+  else { alert("Halt failed: " + (r ? r.error : "unknown")); }
+}
+
+async function controlUnhalt() {
+  if (!confirm("Resume the agent (lift the full stop)? The agent will be " +
+               "able to act again.")) return;
+  const r = await api("/v1/control/unhalt", {method: "POST"});
+  if (r && r.ok) { refreshControlPanel(); }
+  else { alert("Unhalt failed: " + (r ? r.error : "unknown")); }
 }

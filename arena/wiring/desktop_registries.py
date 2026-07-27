@@ -64,7 +64,7 @@ def build_desktop_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]
         log_warning=env.log.warning,
     )
     control_lease_handlers = env.make_control_lease_handlers(control_lease_handler_ctx)
-    env.export_handler_attrs(registry, control_lease_handlers, {"handle_v1_control_status": "status", "handle_v1_control_pause": "pause", "handle_v1_control_resume": "resume", "handle_v1_control_revoke": "revoke"})
+    env.export_handler_attrs(registry, control_lease_handlers, {"handle_v1_control_status": "status", "handle_v1_control_pause": "pause", "handle_v1_control_resume": "resume", "handle_v1_control_revoke": "revoke", "handle_v1_control_halt": "halt", "handle_v1_control_unhalt": "unhalt", "handle_v1_control_yolo_get": "yolo_get", "handle_v1_control_yolo_set": "yolo_set"})
     registry.update({"_control_lease_handler_ctx": control_lease_handler_ctx, "_control_lease_handlers": control_lease_handlers})
     return registry
 

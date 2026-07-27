@@ -36,6 +36,7 @@ from arena.mcp.tool_mission import handle_mission_tool
 from arena.mcp.tool_scenarios import handle_scenario_tool
 from arena.mcp.tool_plan import handle_plan_tool
 from arena.mcp.custom_tools import handle_custom_tool, tool_defs as custom_tool_defs
+from arena.control import _agent_halt_block_for_tool
 
 
 
@@ -97,6 +98,16 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
     def call_tool(name: str, args: dict) -> dict:
         """MCP tool dispatcher."""
         try:
+            # v4.97.0: full agent stop (kill-switch). Read-only tools still
+            # run; everything mutating is blocked while halted. This is the
+            # authoritative gate for the agent, because every agent action --
+            # MCP tools/call AND /v1/extension/execute -- funnels through here.
+            _halt_block = _agent_halt_block_for_tool(name)
+            if _halt_block is not None:
+                return {"isError": True,
+                        "content": [{"type": "text",
+                                     "text": json.dumps(_halt_block,
+                                                        ensure_ascii=False)}]}
             for handler in (
                 # v4.96.0: agent-authored custom tools (self-extending
                 # environment). Resolved first; recursion goes back through

@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 
+from arena.autonomy import is_yolo as _is_yolo
+
 _SAFE_TOOLS = {
     "browser.fetch", "browser.head", "browser.read", "browser.search",
     "fs.diff", "fs.grep", "fs.list", "fs.read", "fs.search", "fs.tree", "fs.view",
@@ -119,6 +121,9 @@ def extension_policy_snapshot(site: dict | None = None) -> dict:
     site_mode = "safe-auto-run" if trusted else "manual-confirm"
     return {
         "ok": True,
+        # v4.97.0: YOLO flag so the chat extension / sidepanel can auto-run
+        # without a per-call confirmation prompt while YOLO is engaged.
+        "yolo": _is_yolo(),
         "site": {
             "origin": str(site.get("origin", "") or ""),
             "url": str(site.get("url", "") or ""),

@@ -1,3 +1,56 @@
+## v4.97.0 - Operator autonomy controls: full agent stop (HALT) + YOLO mode; cockpit layout fix
+
+### Purpose
+Two orthogonal operator controls over the agent, plus the cockpit layout fix
+the observer had been seeing. The bridge already let the agent act; now the
+human has a real "big red button" to stop it *everywhere*, and an explicit
+"let it run free" switch -- instead of the old desktop-only pause that left
+non-desktop actions running.
+
+### Added
+- **Full agent stop (HALT).** `POST /v1/control/halt` / `/v1/control/unhalt`
+  and a Dashboard HALT / Resume-stop button. While halted, the agent's entire
+  tool surface is blocked at the single `call_tool` chokepoint (covers MCP
+  `tools/call` AND `/v1/extension/execute`): only policy-`safe` (read-only)
+  tools run; everything mutating is refused, fail-closed (`mcp.ext_call` is
+  blocked too -- it is classified safe but mutates external state; unknown
+  tools are blocked as well). The desktop `@controlled` gate now honours HALT,
+  so GUI input stops too. The operator's own direct console (Dashboard
+  Terminal / Mobile / direct HTTP) is intentionally NOT gated: HALT stops the
+  *agent*, not the human reclaiming the machine. Threat model checked: no
+  `safe` tool can POST to the control plane (`browser.fetch` is GET-only), so a
+  halted agent cannot unhalt itself. Default off; a hard stop always overrides
+  YOLO.
+- **YOLO mode** (`GET`/`POST /v1/control/yolo` + a Settings toggle with a red
+  "nobody is responsible" warning). While on, `/v1/extension/execute`
+  auto-approves every tool regardless of risk (the bridge's
+  `--dangerously-skip-permissions`), so an autonomous loop is not blocked on a
+  human click. Enabling requires an explicit acknowledge token; the Dashboard
+  also demands a liability checkbox + confirm. **Not persisted**: a bridge
+  restart returns to the safe default. The agent cannot self-enable YOLO
+  through its tool surface (no such tool; reaching the endpoint needs a
+  dangerous call that, pre-YOLO, requires human approval).
+- Dashboard Control tab shows the HALT state; Settings tab exposes YOLO.
+
+### Fixed
+- **Cockpit right-shift / intermittent tabs.** A stray `</div>` at the end of
+  `body-15-settings.html` closed the shell's `.main` prematurely; because the
+  loader concatenates body files in filename order, the six numerically-last
+  tabs (mobile, live, zerotier, proposals, transports, mcp) landed as direct
+  children of `<body>`, and `body{display:flex}` laid them out as siblings to
+  the right of the now-empty, stretched `.main` -- exactly the tabs reported as
+  shifted / loading "through one". Removed the stray close; added
+  `tests/test_dashboard_tab_containment.py` so a future unbalanced body file
+  fails CI instead of shifting the cockpit.
+- **Mobile info console error** (`mobileInfoRememberOpenState is not defined`):
+  the `<details ontoggle>` now guards the callback with a `typeof` check.
+
+### Tests
+30 tests for the kill-switch decision logic (read-only passes; mutating and
+`mcp.ext_call` blocked; unknown fail-closed; HALT overrides the desktop lease;
+no global-state leak between tests) and 9 for YOLO (ack gate, default-off,
+policy-snapshot flag, `execute_sync` approval bypass).
+
 ## v4.96.0 - Self-extending environment: the agent authors its own tools (custom.create)
 
 ### Purpose

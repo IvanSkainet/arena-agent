@@ -32,11 +32,14 @@
 <button id="ctrlPauseBtn" class="warning" onclick="controlPause()" style="font-size:14px;padding:10px 24px">&#9208; Pause Agent</button>
 <button id="ctrlResumeBtn" class="success" onclick="controlResume()" style="font-size:14px;padding:10px 24px;display:none">&#9654; Resume Agent</button>
 <button id="ctrlRevokeBtn" class="danger" onclick="controlRevoke()" style="font-size:14px;padding:10px 24px">&#128683; Revoke Control</button>
+<button id="ctrlHaltBtn" class="danger" onclick="controlHalt()" style="font-size:14px;padding:10px 24px">&#128721; HALT Agent (full stop)</button>
+<button id="ctrlUnhaltBtn" class="success" onclick="controlUnhalt()" style="font-size:14px;padding:10px 24px;display:none">&#9654; Resume Agent (lift stop)</button>
 </div>
 <p style="font-size:11px;color:var(--text2);margin-top:8px">
 <strong>Pause:</strong> Temporarily blocks all desktop input (click/type/key/mouse/focus). Non-desktop APIs still work.<br>
 <strong>Revoke:</strong> Hard revoke. Blocks all desktop input until explicitly resumed.<br>
-<strong>Resume:</strong> Re-enables desktop control after pause or revoke.
+<strong>Resume:</strong> Re-enables desktop control after pause or revoke.<br>
+<strong>HALT:</strong> Full stop &mdash; blocks <em>all</em> agent actions (every tool, not just desktop); read-only still works. Resume lifts it. This is the big red button.
 </p>
 </div>
 
@@ -45,6 +48,7 @@
 <table>
 <tr><th style="width:180px">Property</th><th>Value</th></tr>
 <tr><td>Control State</td><td><span id="ctrlStatusBadge" class="badge ok">active</span></td></tr>
+<tr><td>Agent Halted (full stop)</td><td><span id="ctrlHaltedBadge" class="badge ok">off</span></td></tr>
 <tr><td>Reason</td><td id="ctrlReason" class="mono">--</td></tr>
 <tr><td>Paused At</td><td id="ctrlPausedAt" class="mono">--</td></tr>
 <tr><td>Revoked At</td><td id="ctrlRevokedAt" class="mono">--</td></tr>

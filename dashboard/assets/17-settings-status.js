@@ -94,3 +94,57 @@ async function saveWebhooks() {
 // operators should open the Transports tab and use the per-transport Start/Stop
 // buttons there. Removed here rather than shimmed because keeping named
 // stubs would silently pretend to work and hide the migration from users.
+
+// ===== v4.97.0: YOLO mode (auto-approve everything) =====
+// The ack token is read from the server (/v1/control/yolo) so it can never
+// drift from arena.autonomy.YOLO_ACK_TOKEN. Enabling also requires the
+// operator to tick the liability checkbox AND confirm.
+let _yoloAck = "I_ACCEPT_FULL_RESPONSIBILITY";
+
+async function yoloRefresh() {
+  try {
+    const st = await api("/v1/control/yolo");
+    if (!st || !st.ok) return;
+    if (st.ack_token) _yoloAck = st.ack_token;
+    const on = !!st.yolo;
+    const badge = document.getElementById("yoloBadge");
+    if (badge) { badge.className = "badge " + (on ? "fail" : "ok"); badge.textContent = on ? "ON" : "OFF"; }
+    const en = document.getElementById("yoloEnableBtn");
+    const di = document.getElementById("yoloDisableBtn");
+    if (en) en.style.display = on ? "none" : "inline-block";
+    if (di) di.style.display = on ? "inline-block" : "none";
+    const ack = document.getElementById("yoloAckCheck");
+    if (ack) ack.checked = false;  // never pre-tick the liability box
+    const txt = document.getElementById("yoloStateText");
+    if (txt) {
+      txt.textContent = on
+        ? ("Enabled" + (st.enabled_at ? " at " + String(st.enabled_at).slice(11, 19) : "") + (st.enabled_by ? " by " + st.enabled_by : ""))
+        : "Disabled (safe default; not persisted across restarts).";
+    }
+  } catch (e) { /* settings tab may render before endpoint is reachable */ }
+}
+
+async function yoloSet(enable) {
+  if (enable) {
+    const ack = document.getElementById("yoloAckCheck");
+    if (!ack || !ack.checked) { alert("Tick the responsibility checkbox first."); return; }
+    if (!confirm("Enable YOLO? The agent will run EVERY tool with NO " +
+                 "confirmation until you disable it or the bridge restarts. " +
+                 "Nobody is responsible for what it does.")) return;
+  }
+  const body = enable
+    ? {enabled: true, ack: _yoloAck, by: "dashboard"}
+    : {enabled: false, by: "dashboard"};
+  const r = await api("/v1/control/yolo", {method: "POST", body: JSON.stringify(body)});
+  if (r && r.ok) { await yoloRefresh(); }
+  else { alert((enable ? "Enable" : "Disable") + " failed: " +
+               ((r && (r.error || r.message)) || "unknown")); }
+}
+
+// Refresh YOLO state every time the Settings tab opens, by piggy-backing on
+// the existing onShow (refreshSettings) without editing its body.
+const _origRefreshSettingsForYolo = refreshSettings;
+refreshSettings = async function () {
+  try { await _origRefreshSettingsForYolo(); } catch (e) {}
+  await yoloRefresh();
+};

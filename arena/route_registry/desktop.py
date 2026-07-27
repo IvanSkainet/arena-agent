@@ -28,3 +28,7 @@ def register_desktop_routes(app: web.Application, h: Mapping[str, Callable]) -> 
     app.router.add_post("/v1/control/pause", h["handle_v1_control_pause"])
     app.router.add_post("/v1/control/resume", h["handle_v1_control_resume"])
     app.router.add_post("/v1/control/revoke", h["handle_v1_control_revoke"])
+    app.router.add_post("/v1/control/halt", h["handle_v1_control_halt"])
+    app.router.add_post("/v1/control/unhalt", h["handle_v1_control_unhalt"])
+    app.router.add_get("/v1/control/yolo", h["handle_v1_control_yolo_get"])
+    app.router.add_post("/v1/control/yolo", h["handle_v1_control_yolo_set"])

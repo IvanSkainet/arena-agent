@@ -8,6 +8,7 @@ from typing import Any
 
 from arena.extension_bridge.instructions import extension_instructions
 from arena.extension_bridge.policy import classify_tool_risk, extension_policy_snapshot
+from arena.autonomy import is_yolo as _yolo_is_enabled
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,13 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
             return preview
         mode = data.get("mode") if isinstance(data.get("mode"), dict) else {}
         approved = bool(mode.get("approve", False))
+        # v4.97.0: YOLO auto-approves every tool (no human in the loop). The
+        # full agent stop is enforced earlier, in the tool dispatcher's
+        # call_tool chokepoint (arena.control), so HALT always wins over YOLO.
+        yolo_auto = False
+        if not approved and _yolo_is_enabled():
+            approved = True
+            yolo_auto = True
         dry_run = bool(mode.get("dry_run", False))
         if preview["policy"].get("requires_approval") and not approved:
             return {"ok": False, "error": "approval required", "status": 403, "preview": preview}
@@ -128,6 +136,7 @@ def make_extension_bridge_runtime(ctx: ExtensionBridgeRuntimeContext) -> Extensi
             "adapter": preview["site"].get("adapter", ""),
             "calls": [{"tool": item["tool"], "ok": item["ok"], "risk": item["risk"]} for item in executed],
             "approved": approved,
+            "yolo_auto": yolo_auto,
             "dry_run": dry_run,
             "ok": all_ok,
         })

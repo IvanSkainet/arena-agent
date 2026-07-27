@@ -118,7 +118,7 @@
      localStorage in 34-mobile-info.js. -->
 <details id="mobileInfoDetails" open
          style="margin-bottom:12px;background:var(--surface-info);border:1px solid var(--border-info);border-radius:6px"
-         ontoggle="mobileInfoRememberOpenState(this)">
+         ontoggle="typeof mobileInfoRememberOpenState==='function' &amp;&amp; mobileInfoRememberOpenState(this)">
   <summary style="cursor:pointer;padding:6px 10px;font-size:13px;font-weight:600;user-select:none">
     Device info <span id="mobileInfoSummary" style="color:var(--text2);font-weight:400;font-size:11px"></span>
   </summary>
