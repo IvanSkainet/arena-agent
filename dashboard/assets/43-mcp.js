@@ -50,14 +50,22 @@
     var params = (c.params && c.params.length)
       ? c.params.map(function (p) { return '<span class="tool">' + esc(p) + "</span>"; }).join("")
       : '<span style="color:var(--text3)">(no params)</span>';
+    var stepsRow = (c.steps && c.steps.length)
+      ? '<div class="mcp-row"><span class="mcp-label">steps</span><span class="mcp-val"><div class="mcp-tools">' +
+        c.steps.map(function (s) { return '<span class="tool">' + esc(s.id) + "&rarr;" + esc(s.tool) + "</span>"; }).join("") +
+        "</div></span></div>"
+      : "";
+    var safeName = esc(c.name).replace(/'/g, "\\'");
     return (
       '<div class="mcp-card">' +
         "<h3>🧩 " + esc(c.name) + badge + "</h3>" +
         '<div class="mcp-row"><span class="mcp-label">wraps</span><span class="mcp-val">' + esc(c.wraps) + "</span></div>" +
+        stepsRow +
         '<div class="mcp-row"><span class="mcp-label">params</span><span class="mcp-val"><div class="mcp-tools">' + params + "</div></span></div>" +
         (c.description
           ? '<div class="mcp-row"><span class="mcp-label">desc</span><span class="mcp-val">' + esc(c.description) + "</span></div>"
           : "") +
+        '<div class="mcp-actions"><button class="danger" onclick="customRemove(\'' + safeName + '\')">Remove</button></div>' +
       "</div>"
     );
   }
@@ -76,6 +84,17 @@
       : '<div class="mcp-empty">No agent-authored tools yet. The agent creates one with ' +
         "<code>custom.create</code> (a named wrapper over a built-in tool) and it shows up here.</div>";
   }
+
+  // v4.99.0: let the operator revoke an agent-authored tool from the cockpit.
+  // Direct token-authed endpoint (the human IS the authority -- no approval
+  // gate, unlike the agent/extension path).
+  window.customRemove = async function (name) {
+    if (!confirm("Remove agent-authored tool " + name + "? This cannot be undone.")) return;
+    var r = await window.api("/v1/mcp/custom/remove",
+      {method: "POST", body: JSON.stringify({name: name})});
+    if (r && r.ok) { window.loadMcp(); }
+    else { alert("Remove failed: " + ((r && (r.error || r.message)) || "unknown")); }
+  };
 
   window.loadMcp = async function () {
     var grid = document.getElementById("mcpGrid");

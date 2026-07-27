@@ -213,6 +213,7 @@ globalThis.setInterval = function(fn, delay) {
     assert out["lastDelayMs"] == 7000, out
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="Node child-process harness for async timer arm/disarm hangs intermittently past the 15s timeout on win32 (same Node child-process limitation as the sibling toolbar timer tests); logic is still exercised on Linux/macOS")
 def test_disabling_auto_refresh_clears_timer():
     harness = _DOM_STUB + r"""
 let _cleared = 0;

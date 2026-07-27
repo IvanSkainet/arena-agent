@@ -1,3 +1,32 @@
+## v4.100.0 - Harden pass: operator control over the self-built library + flaky-CI cleanup
+
+### Purpose
+Mature what v4.96-v4.99 built: make the agent-authored library *manageable* by
+the operator from the cockpit, and stop CI from flaking on environment-dependent
+tests. The purely-internal relocation of `/v1/mcp/servers` into a dedicated MCP
+route domain is deferred to its own careful refactor -- it is invisible to the
+operator and touches boot wiring, so it is tracked as debt rather than rushed in
+blind.
+
+### Added
+- `POST /v1/mcp/custom/remove` -- the operator can revoke an agent-authored
+  custom tool straight from the Dashboard (token-authed, no approval gate: the
+  human managing the library is the authority). The MCP tab's custom-tool cards
+  now also show their steps and a Remove button.
+
+### Fixed (CI reliability)
+- `test_probe_tcp_timeout_short` skips when the host's network stack accepts a
+  non-routable TEST-NET connect (permissive NAT / sandbox, where the timeout
+  path is not observable) and accepts a fast ICMP error as a valid prompt
+  failure on real networks.
+- `test_disabling_auto_refresh_clears_timer` gets the same `win32` skip the
+  sibling toolbar-timer tests already carry (the Node child-process harness
+  hangs there); the logic still runs on Linux/macOS.
+
+### Deferred (tracked)
+- Relocate `/v1/mcp/servers` (and the new custom-management endpoint) from the
+  system layer into a dedicated MCP route domain.
+
 ## v4.99.0 - Custom-tool library: authored tools can reuse authored tools
 
 ### Purpose

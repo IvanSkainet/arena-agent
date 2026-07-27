@@ -25,6 +25,7 @@ class SystemHandlers:
     beep: object
     notify: object
     mcp_servers: object
+    mcp_custom_remove: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -189,6 +190,23 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         result = await loop.run_in_executor(ctx.executor, _gather)
         return ctx.cors_json_response(result)
 
+    @authed(ctx)
+    async def handle_v1_mcp_custom_remove(request: web.Request) -> web.Response:
+        """POST /v1/mcp/custom/remove -- revoke an agent-authored custom tool.
+
+        Operator action (token-authed, no approval gate): the human managing
+        the self-built library from the cockpit IS the authority (v4.99.0)."""
+        from arena.mcp import custom_tools as _ct
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        name = str((body or {}).get("name", "") or "").strip()
+        if not name:
+            return ctx.cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
+        res = _ct.remove_tool(name)
+        return ctx.cors_json_response(res, status=200 if res.get("ok") else 404)
+
     return SystemHandlers(
         version=handle_v1_version,
         info=handle_v1_info,
@@ -199,4 +217,5 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         beep=handle_v1_beep,
         notify=handle_v1_notify,
         mcp_servers=handle_v1_mcp_servers,
+        mcp_custom_remove=handle_v1_mcp_custom_remove,
     )

@@ -132,6 +132,7 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/fs/create'                                   , 'handle_v1_fs_create'                        , 'core', None),
     ('POST'  , '/v1/notify'                                      , 'handle_v1_notify'                           , 'core', None),
     ('GET'   , '/v1/mcp/servers'                                 , 'handle_v1_mcp_servers'                      , 'core', None),
+    ('POST'  , '/v1/mcp/custom/remove'                           , 'handle_v1_mcp_custom_remove'              , 'core', None),
     ('GET'   , '/v1/memory'                                      , 'handle_v1_memory'                           , 'core', None),
     ('POST'  , '/v1/memory'                                      , 'handle_v1_memory_set'                       , 'core', None),
     ('DELETE', '/v1/memory'                                      , 'handle_v1_memory_delete'                    , 'core', None),
