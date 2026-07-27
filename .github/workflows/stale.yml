@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Mark stale issues and PRs
-        uses: actions/stale@v9
+        uses: actions/stale@v10
         with:
           # Operate on both issues and PRs, but with different timing:
           # issues get a longer grace period because they tend to be

@@ -23,10 +23,10 @@ jobs:
     name: bandit (must be 0 HIGH / 0 MEDIUM)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -49,7 +49,7 @@ jobs:
         run: python3 scripts/security_gate.py bandit bandit.json
 
       - name: Upload bandit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: bandit-report
@@ -60,10 +60,10 @@ jobs:
     name: semgrep (9 rule packs, must be 0 findings)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -95,7 +95,7 @@ jobs:
         run: python3 scripts/security_gate.py semgrep semgrep.json
 
       - name: Upload semgrep report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: semgrep-report
@@ -106,10 +106,10 @@ jobs:
     name: pip-audit (0 CVE in runtime deps)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
@@ -130,7 +130,7 @@ jobs:
         run: python3 scripts/security_gate.py pip-audit pip-audit.json
 
       - name: Upload pip-audit report
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: pip-audit-report
