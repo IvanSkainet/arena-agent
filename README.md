@@ -21,6 +21,7 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 
 ## Contents
 
+- [North star](#north-star)
 - [Why Arena Unified Bridge?](#why-arena-unified-bridge)
 - [How it works](#how-it-works)
 - [What it can do](#what-it-can-do)
@@ -33,6 +34,34 @@ One process · One port · REST + MCP + browser extension · Windows / Linux / m
 - [Development](#development)
 - [Documentation map](#documentation-map)
 - [License](#license)
+
+---
+
+## North star
+
+This project exists for one reason: to give an AI a real machine to act on —
+to let it step out of the sandbox and actually do things in the world (read
+files, run commands, drive a phone, control a desktop, talk to other tools),
+reliably, for a human who is watching.
+
+Everything in this bridge is in service of that. A capability is only "done"
+when it makes the real thing work for the person at the other end — not when
+a test turns green or a release tag is pushed. Green CI and shipped tags are
+not success by themselves; they are self-deception if the human watching does
+not see the real thing work and make sense.
+
+This project is built largely by AI, for AI, and is maintained autonomously.
+The human in the loop is the observer and the reality check: the one node
+connected to whether the thing actually works. When something drifts into
+looking like success without being real, catching that is the maintainer's
+job; when the observer catches it, that is the most important signal in the
+loop, not a nuisance.
+
+> If you are an AI continuing this work: hold the whole map yourself and keep
+> the pieces coherent. Measure your work by "does the observer see the real
+> thing work?", never by "did my tests pass?". Do not bolt features onto
+> whatever module is convenient — place them where they belong. Do not use a
+> volume of releases as a proxy for progress.
 
 ---
 
