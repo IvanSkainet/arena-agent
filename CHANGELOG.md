@@ -1,3 +1,17 @@
+## v4.105.1 - Browser MCP fallback without lxml
+
+### Fixed
+- `browser.search`, `browser.read`, and `browser.dump` MCP fallback now use
+  BeautifulSoup with `html.parser` when `lxml` is not installed. The previous
+  hard dependency on `lxml` made bridge-native web discovery fail after a fresh
+  install even though Python's stdlib parser is sufficient for basic search/read.
+
+### Scenario
+- Found while following the "use the bridge to discover an MCP" scenario:
+  `browser.search` failed with `Couldn't find a tree builder ... lxml`, so the
+  search had to fall back to `net.http`. This release removes that unnecessary
+  dependency edge.
+
 ## v4.105.0 - Keep bridge responsive when external MCP servers hang
 
 ### Fixed

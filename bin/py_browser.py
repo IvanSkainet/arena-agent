@@ -15,10 +15,16 @@
 from __future__ import annotations
 import argparse, json, sys, html
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, FeatureNotFound
 
 UA = "Mozilla/5.0 (X11; Linux x86_64) ArenaAgent/0.5 PyBrowser/1.0"
 H  = {"User-Agent": UA, "Accept-Language": "en,ru;q=0.8"}
+
+def _soup(markup: str):
+    try:
+        return BeautifulSoup(markup, "lxml")
+    except FeatureNotFound:
+        return BeautifulSoup(markup, "html.parser")
 
 def _get(url: str, timeout: int = 20) -> requests.Response:
     return requests.get(url, headers=H, timeout=timeout, allow_redirects=True)
@@ -35,14 +41,14 @@ def cmd_head(url: str) -> int:
 def cmd_read(url: str) -> int:
     from readability import Document
     r = _get(url); doc = Document(r.text)
-    soup = BeautifulSoup(doc.summary(), "lxml")
+    soup = _soup(doc.summary())
     print(json.dumps({"url": r.url, "title": doc.short_title(),
                       "text": soup.get_text("\n", strip=True)},
                      ensure_ascii=False, indent=2))
     return 0
 
 def cmd_dump(url: str, save: str|None) -> int:
-    r = _get(url); s = BeautifulSoup(r.text, "lxml")
+    r = _get(url); s = _soup(r.text)
     title = (s.title.string.strip() if s.title and s.title.string else "")
     text = s.get_text("\n", strip=True)
     links = [{"text": a.get_text(strip=True)[:120], "href": a.get("href","")}
@@ -61,7 +67,7 @@ def cmd_search(q: str, n: int) -> int:
     # DuckDuckGo HTML endpoint — без JS, дружелюбен к scraper'ам
     r = requests.post("https://html.duckduckgo.com/html/",
                       data={"q": q}, headers=H, timeout=20)
-    s = BeautifulSoup(r.text, "lxml")
+    s = _soup(r.text)
     res = []
     for a in s.select("a.result__a")[:n]:
         href = a.get("href","")
