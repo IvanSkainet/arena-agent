@@ -116,6 +116,43 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def _safe_join_extract(base: Path, member_name: str) -> Path:
+    target = (base / member_name).resolve()
+    base_resolved = base.resolve()
+    if target != base_resolved and base_resolved not in target.parents:
+        raise RuntimeError(f"archive member escapes destination: {member_name}")
+    return target
+
+
+def _extract_zip_safe(archive: Path, dest: Path) -> None:
+    with zipfile.ZipFile(archive) as z:
+        for info in z.infolist():
+            target = _safe_join_extract(dest, info.filename)
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with z.open(info) as src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+
+
+def _extract_tar_safe(archive: Path, dest: Path) -> None:
+    with tarfile.open(archive) as t:
+        for member in t.getmembers():
+            target = _safe_join_extract(dest, member.name)
+            if member.isdir():
+                target.mkdir(parents=True, exist_ok=True)
+                continue
+            if not member.isfile():
+                continue
+            target.parent.mkdir(parents=True, exist_ok=True)
+            src = t.extractfile(member)
+            if src is None:
+                continue
+            with src, target.open("wb") as out:
+                shutil.copyfileobj(src, out)
+
+
 def _go_asset(version: str | None = None) -> dict[str, Any]:
     req = urllib.request.Request(_GO_INDEX, headers={"User-Agent": "ArenaBridge/runtime.install"})
     with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed official Go release index
@@ -154,11 +191,9 @@ def install_go(version: str | None = None) -> dict[str, Any]:
         shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     if archive.suffix.lower() == ".zip":
-        with zipfile.ZipFile(archive) as z:
-            z.extractall(tmp)
+        _extract_zip_safe(archive, tmp)
     else:
-        with tarfile.open(archive) as t:
-            t.extractall(tmp)
+        _extract_tar_safe(archive, tmp)
     extracted = tmp / "go"
     if not extracted.exists():
         raise RuntimeError("Go archive did not contain top-level go directory")

@@ -1,3 +1,19 @@
+## v4.108.1 - Code Workbench MCP naming and archive hardening
+
+### Fixed
+- Renamed project tools to the repository-standard `namespace.action` format:
+  `code_project.create/list/write/read/remove/run`.
+- Managed runtime archive extraction now copies only validated regular files and
+  directories; no `extractall` call remains.
+
+## v4.108.1 - Harden runtime archive extraction and update MCP contract
+
+### Fixed
+- Managed runtime installer validates archive members before extraction so a
+  malicious archive cannot write outside the runtime tools directory.
+- Code project MCP module now carries explicit tool-name literals and the MCP
+  contract snapshot is refreshed for the new runtime/project tools.
+
 ## v4.108.0 - Code Workbench runtime and project tools
 
 ### Added
@@ -8,7 +24,7 @@
   supports Go portable archives from `go.dev`, selected from the official
   release index and verified by SHA-256 before extraction into
   `<ARENA_AGENT_HOME>/tools`.
-- `code.project.*`: persistent Code Workbench projects under
+- `code_project.*`: persistent Code Workbench projects under
   `<ARENA_AGENT_HOME>/code-projects`:
   `create`, `list`, `write`, `read`, `remove`, and `run`. Project runs reuse
   the existing operator-owned `code.run` posture fence and artifact manifest.

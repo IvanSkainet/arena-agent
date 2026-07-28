@@ -57,8 +57,8 @@ def test_project_run_delegates_to_runner(tmp_path, monkeypatch):
 
 def test_project_mcp_tool_and_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
-    out = _parsed(handle_code_project_tool("code.project.create", {"name": "x", "files": []}, ctx=object()))
+    out = _parsed(handle_code_project_tool("code_project.create", {"name": "x", "files": []}, ctx=object()))
     assert out["ok"] is True
-    assert classify_tool_risk("code.project.list") == "safe"
-    assert classify_tool_risk("code.project.create") == "medium"
-    assert classify_tool_risk("code.project.run") == "dangerous"
+    assert classify_tool_risk("code_project.list") == "safe"
+    assert classify_tool_risk("code_project.create") == "medium"
+    assert classify_tool_risk("code_project.run") == "dangerous"

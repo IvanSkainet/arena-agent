@@ -53,6 +53,20 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_code_project.py",
+    "handlers": [
+      "handle_code_project_tool"
+    ],
+    "tool_names": [
+      "code_project.create",
+      "code_project.list",
+      "code_project.read",
+      "code_project.remove",
+      "code_project.run",
+      "code_project.write"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_desktop.py",
     "handlers": [
       "handle_desktop_tool"
@@ -516,6 +530,17 @@
       "scenario.preview",
       "scenario.run",
       "scenario.save"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_runtime.py",
+    "handlers": [
+      "handle_runtime_tool"
+    ],
+    "tool_names": [
+      "runtime.install",
+      "runtime.list",
+      "runtime.probe"
     ]
   },
   {
