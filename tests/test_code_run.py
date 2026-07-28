@@ -169,7 +169,7 @@ def test_run_code_runtime_allowlist_enforced():
 def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
     seen = {}
 
-    def _fake_build(platform, posture, lang, code_path, scratch_dir):
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None):
         seen["wall"] = posture["resources"]["wall_seconds"]
         return ["fake"], {"refused": False, "sandbox_action": "appcontainer",
                           "enforced": {"network": True}}
@@ -184,6 +184,48 @@ def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
     res = R.run_code_sync("print('x')", "python3", _strict(), timeout=7, platform="win32")
     assert res["ok"] is True
     assert seen["wall"] == 7
+
+
+def test_run_code_workspace_files_entry_args_stdin_and_artifacts(monkeypatch):
+    seen = {}
+
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None):
+        seen["entry"] = code_path.name
+        seen["args"] = runtime_args
+        out = scratch_dir / "out" / "result.txt"
+        out.parent.mkdir()
+        out.write_text((scratch_dir / "data" / "input.txt").read_text(encoding="utf-8") + "|artifact", encoding="utf-8")
+        return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
+
+    class _Proc:
+        returncode = 0
+        stdout = "ran"
+        stderr = ""
+
+    monkeypatch.setattr(R, "build_command", _fake_build)
+    monkeypatch.setattr(R.subprocess, "run", lambda *a, **k: _Proc())
+    res = R.run_code_sync(
+        "", "python3", _off(), platform="linux",
+        files=[
+            {"path": "main.py", "content": "print('x')"},
+            {"path": "data/input.txt", "content": "hello"},
+        ],
+        entry="main.py", argv=["--flag"], stdin="input-stream",
+        artifacts=["out/*.txt"],
+    )
+    assert res["ok"] is True
+    assert seen == {"entry": "main.py", "args": ["--flag"]}
+    assert set(res["workspace_files"]) == {"main.py", "data/input.txt"}
+    assert res["artifacts"][0]["path"] == "out/result.txt"
+    assert res["artifacts"][0]["text"] == "hello|artifact"
+
+
+def test_run_code_workspace_rejects_path_traversal():
+    res = R.run_code_sync("", "python3", _off(), platform="linux",
+                          files=[{"path": "../x.py", "content": "x"}], entry="../x.py")
+    assert res["ok"] is False
+    assert res.get("refused") is True
+    assert "invalid workspace" in res["error"]
 
 
 # ---------------------------------------------------------------------------

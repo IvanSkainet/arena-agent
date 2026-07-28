@@ -34,15 +34,33 @@ def handle_code_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] 
             "text": (f"ERROR: code.run does not accept posture controls "
                      f"{sorted(leak)}; the execution posture is operator-owned "
                      f"and cannot be set by the agent.")}]}
-    code = args.get("code")
+    code = args.get("code", "")
+    files = args.get("files")
     if not isinstance(code, str):
         return {"isError": True, "content": [{
             "type": "text", "text": "ERROR: 'code' must be a string"}]}
+    if files is not None and not isinstance(files, list):
+        return {"isError": True, "content": [{
+            "type": "text", "text": "ERROR: 'files' must be an array"}]}
+    if not code and not files:
+        return {"isError": True, "content": [{
+            "type": "text", "text": "ERROR: provide either 'code' or 'files'"}]}
     lang = str(args.get("lang", "python3"))
     timeout = args.get("timeout")
+    argv = args.get("argv") or []
+    artifacts = args.get("artifacts") or []
+    if not isinstance(argv, list):
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: 'argv' must be an array"}]}
+    if not isinstance(artifacts, list):
+        return {"isError": True, "content": [{"type": "text", "text": "ERROR: 'artifacts' must be an array"}]}
     posture = _posture.load_posture()
-    result = _runner.run_code_sync(code, lang, posture,
-                                   timeout=int(timeout) if timeout else None)
+    result = _runner.run_code_sync(
+        code, lang, posture,
+        timeout=int(timeout) if timeout else None,
+        files=files, entry=args.get("entry"), argv=[str(a) for a in argv],
+        stdin=args.get("stdin") if isinstance(args.get("stdin"), str) else None,
+        artifacts=[str(a) for a in artifacts],
+    )
     return text_content(json.dumps(result, ensure_ascii=False))
 
 
@@ -62,13 +80,23 @@ CODE_TOOLS = [
             "which axes the fence actually confined on this platform."
         ),
         "inputSchema": {"type": "object", "properties": {
-            "code": {"type": "string", "description": "source code to execute"},
+            "code": {"type": "string", "description": "source code to execute (single-file mode; optional when files+entry are provided)"},
+            "files": {"type": "array", "description": "Optional multi-file workspace: [{path, content, encoding?}]. Paths are relative to scratch.",
+                      "items": {"type": "object", "properties": {
+                          "path": {"type": "string"},
+                          "content": {"type": "string"},
+                          "encoding": {"type": "string", "enum": ["utf-8", "base64"], "default": "utf-8"}
+                      }, "required": ["path", "content"], "additionalProperties": False}},
+            "entry": {"type": "string", "description": "Relative workspace file to run as entrypoint (required for multi-file project mode)."},
+            "argv": {"type": "array", "items": {"type": "string"}, "description": "Command-line arguments passed after the entry file."},
+            "stdin": {"type": "string", "description": "Optional stdin text for the process."},
+            "artifacts": {"type": "array", "items": {"type": "string"}, "description": "Glob patterns inside scratch to return after execution, e.g. ['out/*.json']."},
             "lang": {"type": "string",
                      "description": "interpreter name (must be in the posture's "
                                     "runtimes allowlist unless runtime=any)",
                      "default": "python3"},
             "timeout": {"type": "integer",
                         "description": "wall-clock seconds (capped by posture)"},
-        }, "required": ["code"], "additionalProperties": False},
+        }, "required": [], "additionalProperties": False},
     },
 ]

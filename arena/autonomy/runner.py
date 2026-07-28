@@ -11,6 +11,8 @@ applied on EVERY path, including the unfenced one.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import os
 import shutil
 import subprocess
@@ -138,7 +140,8 @@ def _always_enforced() -> dict[str, bool]:
 
 
 def build_command(platform: str, posture: dict[str, Any], lang: str,
-                  code_path: Path, scratch_dir: Path) -> tuple[list[str] | None, dict[str, Any]]:
+                  code_path: Path, scratch_dir: Path,
+                  runtime_args: list[str] | None = None) -> tuple[list[str] | None, dict[str, Any]]:
     """Return (argv, info). argv is None when execution is refused (fail-closed).
 
     ``info`` always carries ``refused``, ``sandbox_action``, ``enforced`` (the
@@ -146,7 +149,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     of what the fence does on this platform.
     """
     res = resolve(platform, posture)
-    base = [lang, str(code_path)]
+    base = [lang, str(code_path), *(runtime_args or [])]
     always = _always_enforced()
     if not res["supported"]:
         return None, {"refused": True, "sandbox_action": res["sandbox_action"],
@@ -181,7 +184,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                 "-ScratchDir", str(scratch_dir),
                 "-RuntimeGrantDir", _runtime_grant_dir(exe),
                 "-TimeoutSec", str(wall),
-                "-Arguments", str(code_path)]
+                "-Arguments", str(code_path), *(runtime_args or [])]
         enforced = {
             **always,
             # No AppContainer capabilities are supplied, so network is denied.
@@ -247,9 +250,74 @@ def _scrub_env() -> dict[str, str]:
     return clean
 
 
+def _safe_rel_path(value: str) -> Path:
+    rel = Path(str(value).replace("\\", "/"))
+    if not str(value).strip() or rel.is_absolute() or any(part in ("..", "") for part in rel.parts):
+        raise ValueError(f"unsafe relative path: {value!r}")
+    if rel.drive or str(rel).startswith(("/", "\\")):
+        raise ValueError(f"unsafe relative path: {value!r}")
+    return rel
+
+
+def _write_workspace_files(scratch: Path, files: list[dict[str, Any]] | None) -> list[str]:
+    written: list[str] = []
+    for item in files or []:
+        if not isinstance(item, dict):
+            raise ValueError("each workspace file must be an object")
+        rel = _safe_rel_path(str(item.get("path") or ""))
+        target = scratch / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        encoding = str(item.get("encoding") or "utf-8").lower()
+        content = item.get("content", "")
+        if encoding == "base64":
+            if not isinstance(content, str):
+                raise ValueError("base64 file content must be a string")
+            target.write_bytes(base64.b64decode(content))
+        else:
+            if not isinstance(content, str):
+                raise ValueError("text file content must be a string")
+            target.write_text(content, encoding="utf-8")
+        written.append(rel.as_posix())
+    return written
+
+
+def _artifact_manifest(scratch: Path, patterns: list[str] | None, *, max_each: int = 64 * 1024,
+                       max_count: int = 20) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[Path] = set()
+    for pat in patterns or []:
+        rel_pat = str(pat or "").replace("\\", "/")
+        if not rel_pat or rel_pat.startswith(("/", "..")) or "/../" in f"/{rel_pat}/":
+            continue
+        for fp in sorted(scratch.glob(rel_pat)):
+            if len(out) >= max_count:
+                return out
+            if not fp.is_file() or fp in seen:
+                continue
+            seen.add(fp)
+            rel = fp.relative_to(scratch).as_posix()
+            data = fp.read_bytes()
+            item: dict[str, Any] = {"path": rel, "bytes": len(data)}
+            sample = data[:max_each]
+            try:
+                text = sample.decode("utf-8")
+                item["text"] = text
+                item["truncated"] = len(data) > max_each
+            except UnicodeDecodeError:
+                item["base64"] = base64.b64encode(sample).decode("ascii")
+                item["truncated"] = len(data) > max_each
+            out.append(item)
+    return out
+
+
 def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                   timeout: int | None = None, platform: str | None = None,
-                  env: dict[str, str] | None = None) -> dict[str, Any]:
+                  env: dict[str, str] | None = None,
+                  files: list[dict[str, Any]] | None = None,
+                  entry: str | None = None,
+                  argv: list[str] | None = None,
+                  stdin: str | None = None,
+                  artifacts: list[str] | None = None) -> dict[str, Any]:
     platform = platform or sys.platform
     allow = posture.get("runtimes") or list(DEFAULT_RUNTIMES)
     if posture.get("runtime") != "any" and lang not in allow:
@@ -266,10 +334,23 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         res["wall_seconds"] = int(timeout)
         effective_posture["resources"] = res
     scratch = Path(tempfile.mkdtemp(prefix="arena-code-"))
-    code_path = scratch / f"code-{uuid.uuid4().hex[:8]}.{_EXT.get(lang, 'txt')}"
-    code_path.write_text(code, encoding="utf-8")
     try:
-        argv, info = build_command(platform, effective_posture, lang, code_path, scratch)
+        try:
+            workspace_files = _write_workspace_files(scratch, files)
+            if entry:
+                code_path = scratch / _safe_rel_path(entry)
+                if not code_path.exists():
+                    return {"ok": False, "refused": True,
+                            "error": f"entry file does not exist in workspace: {entry}"}
+            else:
+                code_path = scratch / f"code-{uuid.uuid4().hex[:8]}.{_EXT.get(lang, 'txt')}"
+                code_path.write_text(code, encoding="utf-8")
+                workspace_files = [*workspace_files, code_path.relative_to(scratch).as_posix()]
+        except (ValueError, OSError, binascii.Error) as e:
+            return {"ok": False, "refused": True, "error": f"invalid workspace: {e}"}
+
+        runtime_args = [str(a) for a in (argv or [])]
+        argv_cmd, info = build_command(platform, effective_posture, lang, code_path, scratch, runtime_args=runtime_args)
         if info.get("refused"):
             return {"ok": False, **info}
         wall = timeout or int(effective_posture.get("resources", DEFAULT_RESOURCES)
@@ -277,7 +358,8 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         max_out = int(effective_posture.get("resources", DEFAULT_RESOURCES)
                       .get("output_bytes", 100 * 1024))
         try:
-            proc = subprocess.run(argv, capture_output=True, text=True,
+            proc = subprocess.run(argv_cmd, capture_output=True, text=True,
+                                  input=stdin if stdin is not None else None,
                                   timeout=wall + (5 if info["sandbox_action"] == "appcontainer" else 0),
                                   env=(env if env is not None else _scrub_env()))
         except subprocess.TimeoutExpired as exc:
@@ -286,13 +368,16 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             return {"ok": False, "timed_out": True, "exit_code": None,
                     "stdout": _trim(out, max_out), "stderr": _trim(err, max_out // 2),
                     "sandbox_action": info["sandbox_action"], "enforced": info["enforced"],
-                    "note": info.get("note", "")}
+                    "note": info.get("note", ""), "workspace_files": workspace_files,
+                    "artifacts": _artifact_manifest(scratch, artifacts)}
         return {
             "ok": proc.returncode == 0, "exit_code": proc.returncode,
             "stdout": _trim(proc.stdout, max_out),
             "stderr": _trim(proc.stderr, max_out // 2),
             "sandbox_action": info["sandbox_action"], "enforced": info["enforced"],
             "note": info.get("note", ""),
+            "workspace_files": workspace_files,
+            "artifacts": _artifact_manifest(scratch, artifacts),
         }
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

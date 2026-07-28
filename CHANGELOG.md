@@ -1,3 +1,20 @@
+## v4.107.0 - Multi-file workspaces for code.run
+
+### Added
+- `code.run` now supports mini-project execution, not just single snippets:
+  - `files`: relative-path workspace files (`utf-8` or `base64`)
+  - `entry`: relative entrypoint file to execute
+  - `argv`: command-line arguments passed to the runtime
+  - `stdin`: text piped to the process
+  - `artifacts`: scratch-local glob patterns returned after execution
+- Results now include `workspace_files` and an `artifacts` manifest. Small text
+  artifacts are returned inline; binary artifacts are base64-sampled and capped.
+
+### Notes
+- This is a capability upgrade, not a posture change: the operator-owned
+  sandbox/network/privilege/filesystem/runtime cubes still decide where and how
+  the project runs.
+
 ## v4.106.1 - Structured BrowserAct failure diagnostics
 
 ### Fixed
