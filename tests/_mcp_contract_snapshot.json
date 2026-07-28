@@ -53,6 +53,16 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_code_artifact.py",
+    "handlers": [
+      "handle_code_artifact_tool"
+    ],
+    "tool_names": [
+      "code_artifact.read",
+      "code_run.info"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_code_project.py",
     "handlers": [
       "handle_code_project_tool"

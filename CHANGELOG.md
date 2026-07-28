@@ -1,3 +1,17 @@
+## v4.109.0 - Persisted Code Workbench run artifacts
+
+### Added
+- `code.run` and `code_project.run` now return a `run_id` and persist declared
+  artifacts under `<ARENA_AGENT_HOME>/code-runs/<run_id>/artifacts`.
+- Artifact manifest entries include `download_url` paths for future REST use.
+- New MCP tools:
+  - `code_run.info` — inspect a persisted run artifact manifest
+  - `code_artifact.read` — read a persisted artifact by `run_id` and path
+
+### Notes
+- Inline small artifact text/base64 remains in the immediate `code.run` result,
+  but full artifact files now survive scratch cleanup.
+
 ## v4.108.5 - Managed runtime paths for host Code Workbench runs
 
 ### Fixed

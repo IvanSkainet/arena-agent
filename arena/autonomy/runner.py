@@ -326,6 +326,16 @@ def _write_workspace_files(scratch: Path, files: list[dict[str, Any]] | None) ->
     return written
 
 
+def _persist_artifacts(run_id: str, scratch: Path, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    try:
+        from arena.workbench.artifacts import persist_run
+        return persist_run(run_id, scratch, items)
+    except Exception:
+        return items
+
+
 def _artifact_manifest(scratch: Path, patterns: list[str] | None, *, max_each: int = 64 * 1024,
                        max_count: int = 20) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
@@ -379,6 +389,7 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         res["wall_seconds"] = int(timeout)
         effective_posture["resources"] = res
     scratch = Path(tempfile.mkdtemp(prefix="arena-code-"))
+    run_id = uuid.uuid4().hex
     try:
         try:
             workspace_files = _write_workspace_files(scratch, files)
@@ -431,7 +442,8 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                     "stdout": _trim(out, max_out), "stderr": _trim(err, max_out // 2),
                     "sandbox_action": info["sandbox_action"], "enforced": info["enforced"],
                     "note": info.get("note", ""), "workspace_files": workspace_files,
-                    "artifacts": _artifact_manifest(scratch, artifacts)}
+                    "run_id": run_id,
+                    "artifacts": _persist_artifacts(run_id, scratch, _artifact_manifest(scratch, artifacts))}
         return {
             "ok": proc.returncode == 0, "exit_code": proc.returncode,
             "stdout": _trim(proc.stdout, max_out),
@@ -439,7 +451,8 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             "sandbox_action": info["sandbox_action"], "enforced": info["enforced"],
             "note": info.get("note", ""),
             "workspace_files": workspace_files,
-            "artifacts": _artifact_manifest(scratch, artifacts),
+            "run_id": run_id,
+            "artifacts": _persist_artifacts(run_id, scratch, _artifact_manifest(scratch, artifacts)),
         }
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
