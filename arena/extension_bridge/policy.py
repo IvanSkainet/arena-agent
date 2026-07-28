@@ -31,6 +31,7 @@ _SAFE_TOOLS = {
     "mcp.ext_servers", "mcp.ext_tools", "mcp.ext_call",
     # v4.96.0: listing agent-authored custom tools is read-only.
     "custom.list",
+    "runtime.probe", "runtime.list", "code.project.list", "code.project.read",
 }
 _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from
@@ -61,13 +62,13 @@ _MEDIUM_TOOLS = {
     # v4.96.0: authoring / revoking a capability is a trust decision (the
     # call-time risk of a custom tool is DERIVED from the tool it wraps and
     # resolved separately in classify_tool_risk via custom_tools.risk_of).
-    "custom.create", "custom.remove",
+    "custom.create", "custom.remove", "runtime.install", "code.project.create", "code.project.write", "code.project.remove",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {
     # v4.75.0: bare "exec" replaced with "exec.exec"
     # (the bare form was removed in v4.75.0).
-    "exec.exec", "code.run", "asr.bootstrap", "ocr.bootstrap", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
+    "exec.exec", "code.run", "code.project.run", "asr.bootstrap", "ocr.bootstrap", "fs.edit", "fs.edit_apply", "fs.edit_rollback", "fs.write",
     "git.commit", "mission.iterate", "mission.recover", "mission.rerun",
     "mission.run", "mission.schedule_tick", "skill.run", "subagent.spawn",
     # v4.56.0: mobile.* full-shell / IME hijack surfaces.

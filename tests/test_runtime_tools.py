@@ -1,0 +1,52 @@
+"""v4.108.0 -- managed runtime probe/install MCP tools."""
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from arena.extension_bridge.policy import classify_tool_risk  # noqa: E402
+from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
+from arena.mcp.tool_runtime import handle_runtime_tool  # noqa: E402
+from arena.workbench import runtimes  # noqa: E402
+
+
+def _parsed(res):
+    return json.loads(res["content"][0]["text"])
+
+
+def test_runtime_tools_registered():
+    names = {t["name"] for t in MCP_TOOLS}
+    assert {"runtime.probe", "runtime.list", "runtime.install"} <= names
+
+
+def test_runtime_policy_classification():
+    assert classify_tool_risk("runtime.probe") == "safe"
+    assert classify_tool_risk("runtime.list") == "safe"
+    assert classify_tool_risk("runtime.install") == "medium"
+
+
+def test_runtime_probe_shape(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(runtimes, "_which", lambda name: "/bin/" + name if name in {"python3", "node"} else None)
+    monkeypatch.setattr(runtimes, "_run_version", lambda exe, args=None: f"{Path(exe).name} 1.2.3")
+    out = runtimes.probe()
+    assert out["ok"] is True
+    assert out["runtimes"]["python3"]["available"] is True
+    assert out["runtimes"]["node"]["version"] == "node 1.2.3"
+    assert "managed_home" in out
+
+
+def test_runtime_install_unsupported():
+    out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "ruby"}, ctx=object()))
+    assert out["ok"] is False
+    assert "supports" in out["error"]
+
+
+def test_runtime_probe_tool(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(runtimes, "probe", lambda: {"ok": True, "runtimes": {"go": {"available": False}}})
+    out = _parsed(handle_runtime_tool("runtime.probe", {}, ctx=object()))
+    assert out == {"ok": True, "runtimes": {"go": {"available": False}}}

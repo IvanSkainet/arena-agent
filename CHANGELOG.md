@@ -1,3 +1,23 @@
+## v4.108.0 - Code Workbench runtime and project tools
+
+### Added
+- `runtime.probe` / `runtime.list`: inspect host and Arena-managed language
+  runtimes with paths, versions, managed status, and diagnostics such as
+  Windows Rust compiler-without-linker state.
+- `runtime.install`: first-class managed runtime installer. This release
+  supports Go portable archives from `go.dev`, selected from the official
+  release index and verified by SHA-256 before extraction into
+  `<ARENA_AGENT_HOME>/tools`.
+- `code.project.*`: persistent Code Workbench projects under
+  `<ARENA_AGENT_HOME>/code-projects`:
+  `create`, `list`, `write`, `read`, `remove`, and `run`. Project runs reuse
+  the existing operator-owned `code.run` posture fence and artifact manifest.
+
+### Notes
+- This is the first real Code Workbench layer above one-shot `code.run`: the
+  bridge can now discover/install a runtime and keep a persistent project that
+  the agent can iterate on.
+
 ## v4.107.2 - Fix Windows test guard for AppContainer JSON argv
 
 ### Fixed

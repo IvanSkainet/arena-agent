@@ -13,6 +13,8 @@ from arena.mcp.tool_registry_mcp_ext import MCP_EXT_MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
 from arena.mcp.tool_code import CODE_TOOLS
+from arena.mcp.tool_runtime import RUNTIME_TOOLS
+from arena.mcp.tool_code_project import PROJECT_TOOLS
 from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
 MCP_TOOLS = [
     # v4.75.0: bare names (ping / echo / exec) removed.
@@ -226,6 +228,8 @@ MCP_TOOLS.extend(DESKTOP_INPUT_MCP_TOOLS)
 MCP_TOOLS.extend(MOBILE_EXT_MCP_TOOLS)
 MCP_TOOLS.extend(BROWSER_HEADED_MCP_TOOLS)
 MCP_TOOLS.extend(CODE_TOOLS)
+MCP_TOOLS.extend(RUNTIME_TOOLS)
+MCP_TOOLS.extend(PROJECT_TOOLS)
 # v4.96.0: static management tools for the self-extending environment
 # (custom.create / custom.list / custom.remove). The agent-AUTHORED tools
 # themselves are dynamic and appended at tools/list time (custom_tool_defs).

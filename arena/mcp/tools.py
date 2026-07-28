@@ -37,6 +37,8 @@ from arena.mcp.tool_scenarios import handle_scenario_tool
 from arena.mcp.tool_plan import handle_plan_tool
 from arena.mcp.custom_tools import handle_custom_tool, tool_defs as custom_tool_defs
 from arena.mcp.tool_code import handle_code_tool
+from arena.mcp.tool_runtime import handle_runtime_tool
+from arena.mcp.tool_code_project import handle_code_project_tool
 from arena.control import _agent_halt_block_for_tool
 
 
@@ -137,6 +139,8 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_image_tool(name, args, ctx=ctx),
                 lambda: handle_mcp_ext_tool(name, args, ctx=ctx),
                 lambda: handle_code_tool(name, args, ctx=ctx),
+                lambda: handle_runtime_tool(name, args, ctx=ctx),
+                lambda: handle_code_project_tool(name, args, ctx=ctx),
                 lambda: handle_browser_headed_tool(name, args, ctx=ctx),
                 lambda: handle_mission_tool(name, args, ctx=ctx),
                 # v4.54.0: scenario orchestration. The scenarios
