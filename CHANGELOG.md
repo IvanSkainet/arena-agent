@@ -1,3 +1,16 @@
+## v4.107.1 - AppContainer argv/stdin for code.run workspaces
+
+### Fixed
+- Windows AppContainer `code.run` now passes workspace `argv` reliably using
+  JSON-encoded arguments instead of PowerShell array binding.
+- Windows AppContainer `code.run` now supports `stdin` by passing an inheritable
+  scratch-local stdin file handle instead of always wiring child stdin to `NUL`.
+
+### Scenario
+- The first live `v4.107.0` workspace proof showed files and artifacts worked,
+  but AppContainer ignored `argv` and `stdin` (`limit` stayed at default and
+  stdin label was absent). This release fixes the actual Windows launcher path.
+
 ## v4.107.0 - Multi-file workspaces for code.run
 
 ### Added

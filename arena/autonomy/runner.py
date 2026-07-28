@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
 import os
 import shutil
 import subprocess
@@ -141,7 +142,8 @@ def _always_enforced() -> dict[str, bool]:
 
 def build_command(platform: str, posture: dict[str, Any], lang: str,
                   code_path: Path, scratch_dir: Path,
-                  runtime_args: list[str] | None = None) -> tuple[list[str] | None, dict[str, Any]]:
+                  runtime_args: list[str] | None = None,
+                  stdin_path: Path | None = None) -> tuple[list[str] | None, dict[str, Any]]:
     """Return (argv, info). argv is None when execution is refused (fail-closed).
 
     ``info`` always carries ``refused``, ``sandbox_action``, ``enforced`` (the
@@ -184,7 +186,9 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                 "-ScratchDir", str(scratch_dir),
                 "-RuntimeGrantDir", _runtime_grant_dir(exe),
                 "-TimeoutSec", str(wall),
-                "-Arguments", str(code_path), *(runtime_args or [])]
+                "-ArgumentsJson", json.dumps([str(code_path), *(runtime_args or [])])]
+        if stdin_path is not None:
+            argv.extend(["-StdinPath", str(stdin_path)])
         enforced = {
             **always,
             # No AppContainer capabilities are supplied, so network is denied.
@@ -350,7 +354,14 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             return {"ok": False, "refused": True, "error": f"invalid workspace: {e}"}
 
         runtime_args = [str(a) for a in (argv or [])]
-        argv_cmd, info = build_command(platform, effective_posture, lang, code_path, scratch, runtime_args=runtime_args)
+        stdin_path = None
+        if stdin is not None:
+            stdin_path = scratch / "stdin.txt"
+            stdin_path.write_text(stdin, encoding="utf-8")
+        argv_cmd, info = build_command(
+            platform, effective_posture, lang, code_path, scratch,
+            runtime_args=runtime_args, stdin_path=stdin_path,
+        )
         if info.get("refused"):
             return {"ok": False, **info}
         wall = timeout or int(effective_posture.get("resources", DEFAULT_RESOURCES)

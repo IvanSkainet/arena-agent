@@ -17,6 +17,8 @@ param (
     # explicit argv and scratch cwd.
     [string]$ApplicationPath,
     [string[]]$Arguments = @(),
+    [string]$ArgumentsJson,
+    [string]$StdinPath,
     [string]$ScratchDir,
     [string]$RuntimeGrantDir,
     [int]$TimeoutSec = 60,
@@ -64,8 +66,25 @@ try {
     Fail-Closed "runtime grant path does not exist: $RuntimeGrantDir" 125
 }
 
+if (-not [string]::IsNullOrWhiteSpace($ArgumentsJson)) {
+    try {
+        $parsedArgs = ConvertFrom-Json -InputObject $ArgumentsJson
+        if ($null -eq $parsedArgs) { $Arguments = @() }
+        elseif ($parsedArgs -is [System.Array]) { $Arguments = @($parsedArgs | ForEach-Object { [string]$_ }) }
+        else { $Arguments = @([string]$parsedArgs) }
+    } catch {
+        Fail-Closed ("invalid -ArgumentsJson: " + $_.Exception.Message) 125
+    }
+}
+
 $stdoutPath = Join-Path $ScratchDir "stdout.txt"
 $stderrPath = Join-Path $ScratchDir "stderr.txt"
+if ([string]::IsNullOrWhiteSpace($StdinPath)) {
+    $StdinPath = "NUL"
+} else {
+    try { $StdinPath = (Resolve-Path -LiteralPath $StdinPath).Path }
+    catch { Fail-Closed "stdin path does not exist: $StdinPath" 125 }
+}
 New-Item -ItemType File -Force -Path $stdoutPath | Out-Null
 New-Item -ItemType File -Force -Path $stderrPath | Out-Null
 
@@ -238,7 +257,7 @@ public class AppContainerRunner {
         return b.ToString();
     }
 
-    public static int Run(string acName, string app, string[] args, string cwd, string stdoutPath, string stderrPath, int timeoutSec) {
+    public static int Run(string acName, string app, string[] args, string cwd, string stdinPath, string stdoutPath, string stderrPath, int timeoutSec) {
         IntPtr sid;
         int hr = DeriveAppContainerSidFromAppContainerName(acName, out sid);
         if (hr != 0) throw new InvalidOperationException("DeriveAppContainerSid failed hr=0x" + hr.ToString("X"));
@@ -267,8 +286,8 @@ public class AppContainerRunner {
         if (hOut == INVALID_HANDLE_VALUE) throw new InvalidOperationException("CreateFile(stdout) failed err=" + Marshal.GetLastWin32Error());
         IntPtr hErr = CreateFile(stderrPath, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, ref sa, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
         if (hErr == INVALID_HANDLE_VALUE) throw new InvalidOperationException("CreateFile(stderr) failed err=" + Marshal.GetLastWin32Error());
-        IntPtr hIn = CreateFile("NUL", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, ref sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
-        if (hIn == INVALID_HANDLE_VALUE) throw new InvalidOperationException("CreateFile(NUL) failed err=" + Marshal.GetLastWin32Error());
+        IntPtr hIn = CreateFile(stdinPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, ref sa, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, IntPtr.Zero);
+        if (hIn == INVALID_HANDLE_VALUE) throw new InvalidOperationException("CreateFile(stdin) failed err=" + Marshal.GetLastWin32Error());
 
         STARTUPINFOEX siex = new STARTUPINFOEX();
         siex.StartupInfo.cb = Marshal.SizeOf(siex);
@@ -354,7 +373,7 @@ try {
 }
 
 try {
-    $exitCode = [AppContainerRunner]::Run($ContainerName, $ApplicationPath, $Arguments, $ScratchDir, $stdoutPath, $stderrPath, $TimeoutSec)
+    $exitCode = [AppContainerRunner]::Run($ContainerName, $ApplicationPath, $Arguments, $ScratchDir, $StdinPath, $stdoutPath, $stderrPath, $TimeoutSec)
 } catch {
     Fail-Closed ("AppContainer launch failed: " + $_.Exception.Message) 125
 }

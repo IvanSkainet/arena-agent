@@ -32,6 +32,7 @@ def test_appcontainer_script_captures_stdout_stderr_with_inheritable_handles():
     s = _script()
     assert "STARTF_USESTDHANDLES" in s
     assert "hStdOutput" in s and "hStdError" in s
+    assert "StdinPath" in s and "CreateFile(stdin)" in s
     assert "CreateFile(stdout)" in s and "CreateFile(stderr)" in s
     assert "[Console]::Out.Write" in s
     assert "[Console]::Error.Write" in s
@@ -44,3 +45,9 @@ def test_appcontainer_script_uses_no_capabilities_and_timeout_kill():
     assert "WaitForSingleObject" in s
     assert "TerminateProcess" in s
     assert "124" in s
+
+
+def test_appcontainer_script_accepts_arguments_json():
+    s = _script()
+    assert "ArgumentsJson" in s
+    assert "ConvertFrom-Json" in s

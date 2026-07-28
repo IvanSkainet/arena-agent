@@ -75,7 +75,7 @@ def test_build_win32_appcontainer_argv(tmp_path, monkeypatch):
     assert "-ApplicationPath" in argv and str(runtime) in argv
     assert "-ScratchDir" in argv and str(tmp_path) in argv
     assert "-RuntimeGrantDir" in argv and str(runtime.parent.resolve()) in argv
-    assert "-Arguments" in argv and str(tmp_path / "c.py") in argv
+    assert "-ArgumentsJson" in argv and str(tmp_path / "c.py") in argv[argv.index("-ArgumentsJson") + 1]
     assert info["refused"] is False and info["sandbox_action"] == "appcontainer"
     assert info["enforced"]["network"] is True
     assert info["enforced"]["privilege"] is True
@@ -100,6 +100,26 @@ def test_build_win32_missing_runtime_refused_fail_closed(tmp_path, monkeypatch):
     argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path)
     assert argv is None and info["refused"] is True
     assert "not found" in info["note"]
+
+
+def test_build_win32_appcontainer_uses_arguments_json_and_stdin(tmp_path, monkeypatch):
+    script = tmp_path / "appcontainer_run.ps1"
+    script.write_text("# runner", encoding="utf-8")
+    runtime = tmp_path / "Python314" / "python.exe"
+    runtime.parent.mkdir()
+    runtime.write_text("exe", encoding="utf-8")
+    stdin = tmp_path / "stdin.txt"
+    stdin.write_text("hello", encoding="utf-8")
+    monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
+    monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
+    monkeypatch.setattr(R, "_resolve_win32_runtime", lambda lang: str(runtime))
+    argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path,
+                                 runtime_args=["250"], stdin_path=stdin)
+    assert info["refused"] is False
+    assert "-ArgumentsJson" in argv
+    j = argv[argv.index("-ArgumentsJson") + 1]
+    assert "c.py" in j and "250" in j
+    assert "-StdinPath" in argv and str(stdin) in argv
 
 
 def test_resolve_win32_python_skips_windowsapps_alias(monkeypatch, tmp_path):
@@ -169,7 +189,7 @@ def test_run_code_runtime_allowlist_enforced():
 def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
     seen = {}
 
-    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None):
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
         seen["wall"] = posture["resources"]["wall_seconds"]
         return ["fake"], {"refused": False, "sandbox_action": "appcontainer",
                           "enforced": {"network": True}}
@@ -189,7 +209,7 @@ def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
 def test_run_code_workspace_files_entry_args_stdin_and_artifacts(monkeypatch):
     seen = {}
 
-    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None):
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
         seen["entry"] = code_path.name
         seen["args"] = runtime_args
         out = scratch_dir / "out" / "result.txt"
