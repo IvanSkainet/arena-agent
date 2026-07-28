@@ -450,6 +450,45 @@ def _install_node_deps(scratch: Path, lang: str, deps: dict[str, Any] | None,
     return {"ok": True, "installed": specs, "path": str(target / "node_modules"), "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
 
 
+
+def _go_env_for_scratch(scratch: Path) -> dict[str, str]:
+    env = _scrub_env()
+    go_root = _managed_go_root()
+    if go_root:
+        env["GOROOT"] = go_root
+    for key, rel in {"GOCACHE": "go-cache", "GOMODCACHE": "go-mod", "GOTMPDIR": "go-tmp"}.items():
+        p = scratch / rel
+        p.mkdir(parents=True, exist_ok=True)
+        env[key] = str(p)
+    return env
+
+
+def _install_go_deps(scratch: Path, lang: str, deps: dict[str, Any] | None,
+                     posture: dict[str, Any], timeout: int) -> dict[str, Any]:
+    enabled = (deps or {}).get("go") if isinstance(deps, dict) else None
+    if not enabled:
+        return {"ok": True, "enabled": False}
+    if lang != "go":
+        return {"ok": False, "error": "deps.go is only supported for lang=go"}
+    if posture.get("network") != "open":
+        return {"ok": False, "error": "deps.go requires operator posture network=open for module download"}
+    if not (scratch / "go.mod").exists():
+        return {"ok": False, "error": "deps.go requires go.mod in the workspace"}
+    go = _resolve_runtime("go")
+    if not go:
+        return {"ok": False, "error": "cannot resolve Go runtime for module download"}
+    try:
+        proc = subprocess.run([go, "mod", "download"], cwd=str(scratch), capture_output=True,
+                              text=True, timeout=max(timeout, 60), env=_go_env_for_scratch(scratch))
+    except subprocess.TimeoutExpired as e:
+        return {"ok": False, "error": f"go mod download timed out after {max(timeout, 60)}s",
+                "stdout": _trim(e.stdout or "", 4000), "stderr": _trim(e.stderr or "", 4000)}
+    if proc.returncode != 0:
+        return {"ok": False, "error": "go mod download failed", "exit_code": proc.returncode,
+                "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+    return {"ok": True, "enabled": True, "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+
+
 def _install_deps(scratch: Path, platform: str, lang: str, deps: dict[str, Any] | None,
                   posture: dict[str, Any], timeout: int) -> dict[str, Any]:
     py = _install_python_deps(scratch, platform, lang, deps, posture, timeout)
@@ -458,7 +497,10 @@ def _install_deps(scratch: Path, platform: str, lang: str, deps: dict[str, Any] 
     npm = _install_node_deps(scratch, lang, deps, posture, timeout)
     if not npm.get("ok"):
         return {"ok": False, "python": py, "npm": npm, "error": npm.get("error")}
-    return {"ok": True, "python": py, "npm": npm}
+    go = _install_go_deps(scratch, lang, deps, posture, timeout)
+    if not go.get("ok"):
+        return {"ok": False, "python": py, "npm": npm, "go": go, "error": go.get("error")}
+    return {"ok": True, "python": py, "npm": npm, "go": go}
 
 
 def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
@@ -533,14 +575,10 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             old_node_path = run_env.get("NODE_PATH", "")
             run_env["NODE_PATH"] = npm_deps["path"] + (os.pathsep + old_node_path if old_node_path else "")
         if lang == "go":
-            run_env = dict(run_env)
-            go_root = _managed_go_root()
-            if go_root:
-                run_env["GOROOT"] = go_root
-            for key, rel in {"GOCACHE": "go-cache", "GOMODCACHE": "go-mod", "GOTMPDIR": "go-tmp"}.items():
-                p = scratch / rel
-                p.mkdir(parents=True, exist_ok=True)
-                run_env[key] = str(p)
+            go_env = _go_env_for_scratch(scratch)
+            merged = dict(run_env)
+            merged.update(go_env)
+            run_env = merged
         try:
             proc = subprocess.run(argv_cmd, capture_output=True, text=True,
                                   input=stdin if stdin is not None else None,

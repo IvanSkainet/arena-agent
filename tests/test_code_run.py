@@ -396,3 +396,46 @@ def test_run_code_npm_deps_install_sets_node_path(monkeypatch):
     assert "--prefix" in seen["npm"]
     assert "node_modules" in seen["run_env"]["NODE_PATH"]
     assert res["deps"]["npm"]["installed"] == ["left-pad@1.3.0"]
+
+
+def test_run_code_go_deps_require_network_open():
+    res = R.run_code_sync("package main\nfunc main(){}\n", "go", {**_off(), "network": "deny", "runtimes": ["go"]},
+                          files=[{"path": "go.mod", "content": "module x\n"}, {"path": "main.go", "content": "package main\nfunc main(){}\n"}],
+                          entry="main.go", deps={"go": True}, platform="linux")
+    assert res["ok"] is False
+    assert res.get("refused") is True
+    assert "network=open" in res["error"]
+
+
+def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
+    seen = {"mod": None, "run_env": None}
+    managed = tmp_path / "tools" / "go1.26.5" / "bin" / ("go.exe" if sys.platform == "win32" else "go")
+    managed.parent.mkdir(parents=True)
+    managed.write_text("exe", encoding="utf-8")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+        return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
+
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        if cmd[:3] == [str(managed), "mod", "download"]:
+            seen["mod"] = (cmd, kw)
+            return _Proc()
+        seen["run_env"] = kw["env"]
+        return _Proc()
+
+    monkeypatch.setattr(R, "build_command", fake_build)
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("", "go", {**_off(), "network": "open", "runtimes": ["go"]},
+                          files=[{"path": "go.mod", "content": "module x\n"}, {"path": "main.go", "content": "package main\nfunc main(){}\n"}],
+                          entry="main.go", deps={"go": True}, platform="linux")
+    assert res["ok"] is True
+    assert seen["mod"] is not None
+    assert seen["mod"][1]["cwd"]
+    assert "GOMODCACHE" in seen["run_env"]
+    assert res["deps"]["go"]["enabled"] is True

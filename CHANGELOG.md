@@ -1,3 +1,13 @@
+## v4.114.0 - Go module dependency mode for Code Workbench
+
+### Added
+- `code.run`, `code_project.run`, and `code_matrix.run` now accept
+  `deps: {"go": true}` for Go module workspaces.
+- Go module downloads run `go mod download` in the scratch workspace with
+  scratch-local `GOMODCACHE`, `GOCACHE`, and `GOTMPDIR`.
+- Go dependency mode requires `network=open` and a `go.mod` file. Under
+  `network=deny`, it refuses before downloading modules.
+
 ## v4.113.0 - Node/npm dependency mode for Code Workbench
 
 ### Added
