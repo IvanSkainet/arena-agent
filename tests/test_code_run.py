@@ -445,3 +445,22 @@ def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
     assert seen["mod"][1]["cwd"]
     assert "GOMODCACHE" in seen["run_env"]
     assert res["deps"]["go"]["enabled"] is True
+
+
+def test_run_code_subprocess_uses_scratch_cwd(monkeypatch):
+    seen = {}
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+        seen["scratch"] = scratch_dir
+        return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+    def fake_run(*a, **kw):
+        seen["cwd"] = kw.get("cwd")
+        return _Proc()
+    monkeypatch.setattr(R, "build_command", fake_build)
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("print('x')", "python3", _off(), platform="linux")
+    assert res["ok"] is True
+    assert seen["cwd"] == str(seen["scratch"])

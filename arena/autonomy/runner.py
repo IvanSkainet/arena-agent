@@ -451,7 +451,7 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             proc = subprocess.run(argv_cmd, capture_output=True, text=True,
                                   input=stdin if stdin is not None else None,
                                   timeout=wall + (5 if info["sandbox_action"] == "appcontainer" else 0),
-                                  env=run_env)
+                                  env=run_env, cwd=str(scratch))
         except subprocess.TimeoutExpired as exc:
             out = (exc.stdout or b"") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
             err = (exc.stderr or b"") if isinstance(exc.stderr, bytes) else (exc.stderr or "")

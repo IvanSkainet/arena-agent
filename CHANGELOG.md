@@ -1,3 +1,11 @@
+## v4.114.3 - Run Code Workbench processes from scratch cwd
+
+### Fixed
+- `code.run` now executes host/off and systemd subprocesses with `cwd` set to
+  the scratch workspace. This lets Go module runs see `go.mod` and makes
+  relative file access consistent with AppContainer, which already used scratch
+  as its current directory.
+
 ## v4.114.2 - Stabilize Go dependency-mode test on CI
 
 ### Fixed
