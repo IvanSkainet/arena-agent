@@ -1,3 +1,13 @@
+## v4.103.1 - Fix: posture cubes card rendered empty / unclickable
+
+### Fixed
+- `GET /v1/autonomy/posture` now returns `ok: true`. The Settings posture
+  card's refresh guarded on `ok`, which was absent, so it returned early and
+  never built the per-axis selects -- the card looked empty and the preset /
+  Apply buttons appeared to do nothing. The client guard now keys on `axes`
+  (what it actually renders), and the endpoint returns `ok` for consistency
+  with the other endpoints. Regression test added.
+
 ## v4.103.0 - Settings UI for the execution posture ("cubes")
 
 ### Added

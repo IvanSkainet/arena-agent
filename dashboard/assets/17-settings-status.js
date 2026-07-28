@@ -221,7 +221,7 @@ function posturePreset(name) {
 async function postureRefresh() {
   try {
     const st = await api("/v1/autonomy/posture");
-    if (!st || !st.ok) return;
+    if (!st || !st.axes) return;  // axes is what we render; don't depend on 'ok'
     _postureMeta = {axes: st.axes, ack_phrases: st.ack_phrases, presets: st.presets};
     const cur = st.posture || {};
     const box = document.getElementById("postureAxes");

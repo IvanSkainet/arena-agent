@@ -171,7 +171,7 @@ def set_posture(p: dict[str, Any], ack: str | None = None) -> dict[str, Any]:
 
 def get_posture() -> dict[str, Any]:
     p = load_posture()
-    return {"posture": p, "risk": risk_level(p),
+    return {"ok": True, "posture": p, "risk": risk_level(p),
             "required_ack": required_ack(p),
             "presets": PRESETS,
             "axes": {"sandbox": SANDBOX_VALUES, "network": NETWORK_VALUES,

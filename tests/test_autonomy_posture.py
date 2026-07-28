@@ -76,6 +76,7 @@ def test_autonomy_dir_is_on_sensitive_blocklist():
 
 def test_get_posture_exposes_axes_and_ack_phrases_for_ui():
     g = P.get_posture()
+    assert g["ok"] is True  # UI guards on this; must be present (v4.103.1 fix)
     assert set(g["axes"]) == set(P.AXES)
     assert g["axes"]["sandbox"] == P.SANDBOX_VALUES
     assert g["ack_phrases"] == P.ACK_PHRASES
