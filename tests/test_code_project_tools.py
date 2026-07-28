@@ -62,3 +62,16 @@ def test_project_mcp_tool_and_policy(tmp_path, monkeypatch):
     assert classify_tool_risk("code_project.list") == "safe"
     assert classify_tool_risk("code_project.create") == "medium"
     assert classify_tool_risk("code_project.run") == "dangerous"
+
+
+def test_project_run_passes_deps(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
+    seen = {}
+    monkeypatch.setattr(projects._posture, "load_posture", lambda: {"runtime": "any"})
+    def fake_run(code, lang, posture, **kwargs):
+        seen.update(kwargs)
+        return {"ok": True}
+    monkeypatch.setattr(projects._runner, "run_code_sync", fake_run)
+    projects.run("demo", lang="python3", entry="main.py", deps={"python": ["requests"]})
+    assert seen["deps"] == {"python": ["requests"]}

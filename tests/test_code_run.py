@@ -315,3 +315,43 @@ def test_code_run_unknown_name_falls_through():
 
 def test_code_run_classified_dangerous():
     assert classify_tool_risk("code.run") == "dangerous"
+
+
+def test_run_code_python_deps_require_network_open():
+    res = R.run_code_sync("print('x')", "python3", _strict(), deps={"python": ["requests"]}, platform="linux")
+    assert res["ok"] is False
+    assert res.get("refused") is True
+    assert "network=open" in res["error"]
+
+
+def test_run_code_python_deps_install_sets_pythonpath(monkeypatch):
+    seen = {"pip": None, "run_env": None}
+
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+        return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
+
+    class _PipProc:
+        returncode = 0
+        stdout = "pip ok"
+        stderr = ""
+
+    class _RunProc:
+        returncode = 0
+        stdout = "run ok"
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        if "pip" in cmd:
+            seen["pip"] = cmd
+            return _PipProc()
+        seen["run_env"] = kw["env"]
+        return _RunProc()
+
+    monkeypatch.setattr(R, "build_command", fake_build)
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("print('x')", "python3", {**_off(), "network": "open"}, deps={"python": ["requests==2.32.3"]}, platform="linux")
+    assert res["ok"] is True
+    assert seen["pip"] is not None
+    assert "--target" in seen["pip"]
+    assert ".deps" in seen["run_env"]["PYTHONPATH"]
+    assert res["deps"]["installed"] == ["requests==2.32.3"]

@@ -192,7 +192,9 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
   and denies user-profile files outside scratch. On Linux the strict path uses
   `systemd-run` when available. If a requested fence cannot be enforced, the
   runner fails closed. `code.run` can execute a multi-file scratch workspace
-  (`files` + `entry`), pass `argv`/`stdin`, and return declared `artifacts`.
+  (`files` + `entry`), pass `argv`/`stdin`, install scratch-local Python
+  dependencies when the operator selects `network=open`, and return declared
+  `artifacts`.
 - **Runtime expansion is real.** In live Windows tests the bridge executed
   Python (AppContainer), JavaScript/Node, PowerShell, C# via `Add-Type`, and
   Java single-file source mode, creating proof artifacts on disk.

@@ -29,7 +29,7 @@ def _run_one(spec: dict[str, Any], active_posture: dict[str, Any]) -> dict[str, 
             str(spec.get("project")), lang=str(spec.get("lang") or "python3"),
             entry=str(spec.get("entry") or ""), argv=[str(a) for a in argv],
             stdin=spec.get("stdin") if isinstance(spec.get("stdin"), str) else None,
-            artifacts=[str(a) for a in artifacts], timeout=timeout,
+            artifacts=[str(a) for a in artifacts], deps=spec.get("deps") if isinstance(spec.get("deps"), dict) else None, timeout=timeout,
         )
     else:
         files = spec.get("files")
@@ -44,6 +44,7 @@ def _run_one(spec: dict[str, Any], active_posture: dict[str, Any]) -> dict[str, 
             argv=[str(a) for a in argv],
             stdin=spec.get("stdin") if isinstance(spec.get("stdin"), str) else None,
             artifacts=[str(a) for a in artifacts],
+            deps=spec.get("deps") if isinstance(spec.get("deps"), dict) else None,
         )
     out["id"] = ident
     return out

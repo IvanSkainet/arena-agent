@@ -97,6 +97,7 @@ def remove(name: str) -> dict[str, Any]:
 
 def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
         stdin: str | None = None, artifacts: list[str] | None = None,
+        deps: dict[str, Any] | None = None,
         timeout: int | None = None, platform: str | None = None) -> dict[str, Any]:
     d = _project_dir(name)
     if not d.exists():
@@ -111,4 +112,4 @@ def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
                 import base64
                 files.append({"path": rel, "content": base64.b64encode(p.read_bytes()).decode("ascii"), "encoding": "base64"})
     return _runner.run_code_sync("", lang, _posture.load_posture(), timeout=timeout, platform=platform,
-                                 files=files, entry=entry, argv=argv or [], stdin=stdin, artifacts=artifacts or [])
+                                 files=files, entry=entry, argv=argv or [], stdin=stdin, artifacts=artifacts or [], deps=deps)

@@ -38,6 +38,7 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
                                      entry=str(args.get("entry") or ""), argv=[str(a) for a in argv],
                                      stdin=args.get("stdin") if isinstance(args.get("stdin"), str) else None,
                                      artifacts=[str(a) for a in artifacts],
+                                     deps=args.get("deps") if isinstance(args.get("deps"), dict) else None,
                                      timeout=int(args.get("timeout")) if args.get("timeout") else None))
     except Exception as e:
         return _res({"ok": False, "error": str(e)})
@@ -50,5 +51,5 @@ PROJECT_TOOLS = [
     {"name": "code_project.write", "description": "Write a file in a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "path": {"type": "string"}, "content": {"type": "string"}, "encoding": {"type": "string", "enum": ["utf-8", "base64"], "default": "utf-8"}}, "required": ["name", "path", "content"], "additionalProperties": False}},
     {"name": "code_project.read", "description": "Read a file from a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "path": {"type": "string"}, "max_bytes": {"type": "integer", "default": 100000}}, "required": ["name", "path"], "additionalProperties": False}},
     {"name": "code_project.remove", "description": "Remove a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"], "additionalProperties": False}},
-    {"name": "code_project.run", "description": "Run a persistent Code Workbench project through the operator-owned code.run posture fence.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "entry": {"type": "string"}, "argv": {"type": "array", "items": {"type": "string"}}, "stdin": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "timeout": {"type": "integer"}}, "required": ["name", "entry"], "additionalProperties": False}},
+    {"name": "code_project.run", "description": "Run a persistent Code Workbench project through the operator-owned code.run posture fence.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "entry": {"type": "string"}, "argv": {"type": "array", "items": {"type": "string"}}, "stdin": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "deps": {"type": "object"}, "timeout": {"type": "integer"}}, "required": ["name", "entry"], "additionalProperties": False}},
 ]

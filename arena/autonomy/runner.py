@@ -15,6 +15,7 @@ import base64
 import binascii
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -365,6 +366,45 @@ def _artifact_manifest(scratch: Path, patterns: list[str] | None, *, max_each: i
     return out
 
 
+_PY_DEP_RE = re.compile(r"^[A-Za-z0-9_.\-\[\]]+([<>=!~]=?[A-Za-z0-9_.\-*+]+)?(,[<>=!~]=?[A-Za-z0-9_.\-*+]+)*$")
+
+
+def _python_exe_for_deps(platform: str, lang: str) -> str | None:
+    return _resolve_win32_runtime(lang) if platform == "win32" else _resolve_runtime(lang)
+
+
+def _install_python_deps(scratch: Path, platform: str, lang: str, deps: dict[str, Any] | None,
+                         posture: dict[str, Any], timeout: int) -> dict[str, Any]:
+    pkgs = (deps or {}).get("python") if isinstance(deps, dict) else None
+    if not pkgs:
+        return {"ok": True, "installed": [], "path": None}
+    if lang not in {"python", "python3"}:
+        return {"ok": False, "error": "deps.python is only supported for lang=python/python3"}
+    if posture.get("network") != "open":
+        return {"ok": False, "error": "deps.python requires operator posture network=open for package download"}
+    if not isinstance(pkgs, list) or len(pkgs) > 20:
+        return {"ok": False, "error": "deps.python must be an array of at most 20 package specs"}
+    specs = [str(p).strip() for p in pkgs]
+    bad = [p for p in specs if not p or not _PY_DEP_RE.match(p)]
+    if bad:
+        return {"ok": False, "error": f"unsupported python dependency spec(s): {bad}"}
+    py = _python_exe_for_deps(platform, lang)
+    if not py:
+        return {"ok": False, "error": f"cannot resolve Python runtime for dependency install: {lang}"}
+    target = scratch / ".deps" / "python"
+    target.mkdir(parents=True, exist_ok=True)
+    cmd = [py, "-m", "pip", "install", "--disable-pip-version-check", "--no-input",
+           "--retries", "1", "--timeout", "30", "--target", str(target), *specs]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 60), env=_scrub_env())
+    except subprocess.TimeoutExpired as e:
+        return {"ok": False, "error": f"pip install timed out after {max(timeout, 60)}s", "stdout": _trim(e.stdout or "", 4000), "stderr": _trim(e.stderr or "", 4000)}
+    if proc.returncode != 0:
+        return {"ok": False, "error": "pip install failed", "exit_code": proc.returncode,
+                "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+    return {"ok": True, "installed": specs, "path": str(target), "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+
+
 def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                   timeout: int | None = None, platform: str | None = None,
                   env: dict[str, str] | None = None,
@@ -372,7 +412,8 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                   entry: str | None = None,
                   argv: list[str] | None = None,
                   stdin: str | None = None,
-                  artifacts: list[str] | None = None) -> dict[str, Any]:
+                  artifacts: list[str] | None = None,
+                  deps: dict[str, Any] | None = None) -> dict[str, Any]:
     platform = platform or sys.platform
     allow = posture.get("runtimes") or list(DEFAULT_RUNTIMES)
     if posture.get("runtime") != "any" and lang not in allow:
@@ -405,6 +446,12 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         except (ValueError, OSError, binascii.Error) as e:
             return {"ok": False, "refused": True, "error": f"invalid workspace: {e}"}
 
+        wall = timeout or int(effective_posture.get("resources", DEFAULT_RESOURCES)
+                              .get("wall_seconds", 60))
+        deps_result = _install_python_deps(scratch, platform, lang, deps, effective_posture, wall)
+        if not deps_result.get("ok"):
+            return {"ok": False, "refused": True, "error": deps_result.get("error"), "deps": deps_result}
+
         runtime_args = [str(a) for a in (argv or [])]
         stdin_path = None
         if stdin is not None:
@@ -416,11 +463,13 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         )
         if info.get("refused"):
             return {"ok": False, **info}
-        wall = timeout or int(effective_posture.get("resources", DEFAULT_RESOURCES)
-                              .get("wall_seconds", 60))
         max_out = int(effective_posture.get("resources", DEFAULT_RESOURCES)
                       .get("output_bytes", 100 * 1024))
         run_env = env if env is not None else _scrub_env()
+        if deps_result.get("path"):
+            run_env = dict(run_env)
+            old_py_path = run_env.get("PYTHONPATH", "")
+            run_env["PYTHONPATH"] = deps_result["path"] + (os.pathsep + old_py_path if old_py_path else "")
         if lang == "go":
             run_env = dict(run_env)
             go_root = _managed_go_root()
@@ -442,7 +491,7 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                     "stdout": _trim(out, max_out), "stderr": _trim(err, max_out // 2),
                     "sandbox_action": info["sandbox_action"], "enforced": info["enforced"],
                     "note": info.get("note", ""), "workspace_files": workspace_files,
-                    "run_id": run_id,
+                    "run_id": run_id, "deps": deps_result,
                     "artifacts": _persist_artifacts(run_id, scratch, _artifact_manifest(scratch, artifacts))}
         return {
             "ok": proc.returncode == 0, "exit_code": proc.returncode,
@@ -452,6 +501,7 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             "note": info.get("note", ""),
             "workspace_files": workspace_files,
             "run_id": run_id,
+            "deps": deps_result,
             "artifacts": _persist_artifacts(run_id, scratch, _artifact_manifest(scratch, artifacts)),
         }
     finally:

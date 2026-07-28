@@ -1,3 +1,17 @@
+## v4.112.0 - Python dependency mode for Code Workbench
+
+### Added
+- `code.run`, `code_project.run`, and `code_matrix.run` now accept
+  `deps: {"python": ["package==version", ...]}` for Python runs.
+- Dependencies install into scratch-local `.deps/python` using
+  `pip --target` and are exposed to the sandboxed process via `PYTHONPATH`.
+- Dependency installation requires operator posture `network=open`; under
+  `network=deny` the run is refused before any install attempt.
+
+### Notes
+- This is intentionally scoped to Python first. Node/npm and Go module
+  dependency modes are later slices.
+
 ## v4.111.1 - Document code_matrix namespace
 
 ### Fixed
