@@ -1,3 +1,17 @@
+## v4.105.2 - Make Browser MCP dependencies explicit and readability optional
+
+### Fixed
+- Added `requests` and `beautifulsoup4` to runtime requirements because
+  `bin/py_browser.py` uses them for MCP `browser.search` / `browser.read`. A
+  fresh CI/runtime install could import-fail before reaching the lxml fallback.
+- `browser.read` now falls back to BeautifulSoup text extraction when
+  `readability-lxml` is absent. This keeps the browser MCP path useful on a
+  fresh install without requiring lxml wheels.
+
+### Notes
+- `v4.105.1` contained the correct lxml fallback but its new test exposed the
+  missing runtime dependencies in the clean CI matrix.
+
 ## v4.105.1 - Browser MCP fallback without lxml
 
 ### Fixed

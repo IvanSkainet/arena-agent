@@ -39,10 +39,16 @@ def cmd_head(url: str) -> int:
     return 0
 
 def cmd_read(url: str) -> int:
-    from readability import Document
-    r = _get(url); doc = Document(r.text)
-    soup = _soup(doc.summary())
-    print(json.dumps({"url": r.url, "title": doc.short_title(),
+    r = _get(url)
+    try:
+        from readability import Document
+        doc = Document(r.text)
+        soup = _soup(doc.summary())
+        title = doc.short_title()
+    except Exception:
+        soup = _soup(r.text)
+        title = (soup.title.string.strip() if soup.title and soup.title.string else "")
+    print(json.dumps({"url": r.url, "title": title,
                       "text": soup.get_text("\n", strip=True)},
                      ensure_ascii=False, indent=2))
     return 0
