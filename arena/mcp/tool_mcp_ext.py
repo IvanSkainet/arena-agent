@@ -34,8 +34,7 @@ def _ext_add(args: dict[str, Any]) -> dict[str, Any]:
         (handles git-venv servers like screenpilot too: clone + venv + pip).
     """
     from arena.mcp_marketplace.commands import _install_git_venv
-    from arena.mcp_marketplace.registry import (
-        _load_config, _load_registry, _save_config)
+    from arena.mcp_marketplace.registry import _load_config, _load_registry, _save_config
 
     name = str(args.get("name", "") or "").strip()
     if not name:
@@ -128,10 +127,15 @@ def _ext_call(args: dict[str, Any]) -> dict[str, Any]:
     arguments = args.get("arguments") or args.get("args") or {}
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "'arguments' must be an object"}
+    timeout = args.get("timeout", 60)
     try:
-        res = get_manager().call_tool(server, tool, arguments)
+        timeout_f = max(1.0, min(float(timeout), 180.0))
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "'timeout' must be a number of seconds"}
+    try:
+        res = get_manager().call_tool(server, tool, arguments, timeout=timeout_f)
     except McpError as e:
-        return {"ok": False, "error": str(e)}
+        return {"ok": False, "error": str(e), "server": server, "tool": tool}
     res["server"] = server
     res["tool"] = tool
     return res

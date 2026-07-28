@@ -1,3 +1,22 @@
+## v4.105.0 - Keep bridge responsive when external MCP servers hang
+
+### Fixed
+- External MCP stdio reads now use a background reader thread and queue, so
+  request timeouts are real. The old implementation called `stdout.readline()`
+  directly; if an external MCP server accepted a request but never responded,
+  the bridge could wait forever. On timeout the external server is stopped.
+- `/mcp` `tools/call` handling now runs in the bridge executor instead of on
+  the aiohttp event loop. A slow or hung external MCP call can no longer freeze
+  unrelated endpoints such as `/v1/version`.
+- `mcp.ext_call` now accepts `timeout` seconds (clamped to 1..180) and returns
+  a structured error with `server` and `tool` on MCP client failures.
+
+### Scenario
+- Found by the Desktop-Commander/ScreenPilot scenario: `mcp.ext_tools` worked,
+  but `mcp.ext_call(desktop-commander, get_config)` hung the live bridge. This
+  release fixes the general bridge chokepoint rather than special-casing that
+  package.
+
 ## v4.104.1 - Fix Windows python3 runtime resolution for AppContainer code.run
 
 ### Fixed

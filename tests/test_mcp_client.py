@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from arena.mcp.tool_mcp_ext import handle_mcp_ext_tool
 from arena.mcp_client import McpClientManager, McpError
 from arena.mcp_client.client import _command_allowed
-
 
 MOCK_SERVER = r'''
 import sys, json
@@ -77,6 +77,7 @@ def test_command_allowlist():
     assert _command_allowed("python3")
     # full paths allowed when the basename is an interpreter
     assert _command_allowed("/x/venv/bin/python")
+    assert _command_allowed("/usr/local/bin/python3.13")
     assert _command_allowed("C:/x/venv/Scripts/python.exe")
     assert _command_allowed("/usr/local/bin/node")
     # arbitrary binaries rejected
@@ -161,3 +162,61 @@ def test_ext_call_missing_args():
 
 def test_unknown_tool_returns_none():
     assert handle_mcp_ext_tool("mcp.nope", {}) is None
+
+
+
+def test_client_request_timeout_stops_silent_server(monkeypatch):
+    """A server that never emits a response must not block forever.
+
+    v4.105.0: request() reads from a background stdout queue, not directly from
+    blocking stdout.readline(), so the timeout is real and the stuck process is
+    stopped.
+    """
+    from queue import Queue
+
+    from arena.mcp_client.client import McpStdioClient
+
+    class _In:
+        def __init__(self):
+            self.writes = []
+        def write(self, text):
+            self.writes.append(text)
+        def flush(self):
+            pass
+
+    class _Proc:
+        stdin = _In()
+        stdout = object()
+        def poll(self):
+            return None
+
+    c = McpStdioClient.__new__(McpStdioClient)
+    c.proc = _Proc()
+    c._id = 0
+    c._lock = threading.Lock()
+    c._stdout_q = Queue()
+    c._reader_thread = None
+    stopped = {}
+    c.stop = lambda: stopped.setdefault("called", True)
+
+    with pytest.raises(McpError, match="timed out"):
+        c.request("tools/call", {}, timeout=0.02)
+    assert stopped["called"] is True
+
+
+def test_ext_call_accepts_timeout_argument(monkeypatch):
+    import arena.mcp.tool_mcp_ext as ext
+
+    seen = {}
+
+    class _Mgr:
+        def call_tool(self, server, tool, arguments, timeout=180):
+            seen.update(server=server, tool=tool, arguments=arguments, timeout=timeout)
+            return {"ok": True, "content": []}
+
+    monkeypatch.setattr(ext, "get_manager", lambda: _Mgr())
+    out = ext._ext_call({
+        "server": "s", "tool": "t", "arguments": {"x": 1}, "timeout": 3,
+    })
+    assert out["ok"] is True
+    assert seen == {"server": "s", "tool": "t", "arguments": {"x": 1}, "timeout": 3.0}

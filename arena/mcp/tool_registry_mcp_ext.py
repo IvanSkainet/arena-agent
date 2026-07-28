@@ -45,6 +45,8 @@ MCP_EXT_MCP_TOOLS = [
                          "description": "Tool name exposed by that server (see mcp.ext_tools)."},
                 "arguments": {"type": "object",
                               "description": "Arguments object for the tool (schema depends on the tool)."},
+                "timeout": {"type": "number", "default": 60,
+                            "description": "Maximum seconds to wait for the external MCP tool (1..180). On timeout the external server is stopped."},
             },
             "required": ["server", "tool"], "additionalProperties": False},
     },

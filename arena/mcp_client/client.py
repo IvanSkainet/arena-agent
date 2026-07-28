@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import re
 import subprocess
 import threading
 import time
@@ -46,7 +48,7 @@ def _command_allowed(command: str) -> bool:
         if base.endswith(ext):
             base = base[: -len(ext)]
             break
-    return base in ALLOWED_COMMANDS
+    return base in ALLOWED_COMMANDS or re.fullmatch(r"python\d+(?:\.\d+)?", base) is not None
 
 _PROTOCOL_VERSION = "2025-03-26"
 _CLIENT_INFO = {"name": "arena-bridge", "version": "1.0"}
@@ -72,6 +74,8 @@ class McpStdioClient:
         self.proc: subprocess.Popen | None = None
         self._id = 0
         self._lock = threading.Lock()
+        self._stdout_q: queue.Queue[str | None] = queue.Queue()
+        self._reader_thread: threading.Thread | None = None
         self.server_info: dict[str, Any] = {}
         self._tools: list[dict[str, Any]] | None = None
 
@@ -91,6 +95,7 @@ class McpStdioClient:
             raise McpError(
                 f"command not found: {self.command} "
                 f"(install it / check npx|uvx|python is on PATH)") from e
+        self._start_reader()
         resp = self.request("initialize", {
             "protocolVersion": _PROTOCOL_VERSION,
             "capabilities": {},
@@ -99,6 +104,26 @@ class McpStdioClient:
         self.server_info = resp.get("result", {})
         self._notify("notifications/initialized")
         return self.server_info
+
+
+    def _start_reader(self) -> None:
+        if self._reader_thread is not None and self._reader_thread.is_alive():
+            return
+        assert self.proc and self.proc.stdout
+
+        def _reader() -> None:
+            assert self.proc and self.proc.stdout
+            try:
+                for line in self.proc.stdout:
+                    self._stdout_q.put(line)
+            except Exception:
+                pass
+            finally:
+                self._stdout_q.put(None)
+
+        self._reader_thread = threading.Thread(
+            target=_reader, name="arena-mcp-stdout-reader", daemon=True)
+        self._reader_thread.start()
 
     def alive(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
@@ -148,9 +173,16 @@ class McpStdioClient:
             except (BrokenPipeError, OSError) as e:
                 raise McpError(f"server pipe broken: {e}") from e
             deadline = time.time() + timeout
-            while time.time() < deadline:
-                line = self.proc.stdout.readline()
-                if line == "":  # EOF: server closed stdout (died)
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    self.stop()
+                    raise McpError(f"MCP '{method}' timed out after {timeout}s; server stopped")
+                try:
+                    line = self._stdout_q.get(timeout=min(remaining, 0.5))
+                except queue.Empty:
+                    continue
+                if line is None:  # EOF: server closed stdout (died)
                     raise McpError("server closed the connection (it likely crashed)")
                 line = line.strip()
                 if not line.startswith("{"):
@@ -162,7 +194,6 @@ class McpStdioClient:
                 if resp.get("id") == rid:
                     return resp
                 # otherwise it is a notification or a stale id -- skip
-            raise McpError(f"MCP '{method}' timed out after {timeout}s")
 
     # -- MCP conveniences --------------------------------------------------
     def list_tools(self, timeout: float = 30, refresh: bool = False) -> list[dict[str, Any]]:
@@ -230,12 +261,12 @@ class McpClientManager:
             self._clients[name] = client
             return client
 
-    def list_tools(self, name: str, refresh: bool = False) -> list[dict[str, Any]]:
-        return self.get_client(name).list_tools(refresh=refresh)
+    def list_tools(self, name: str, refresh: bool = False, timeout: float = 30) -> list[dict[str, Any]]:
+        return self.get_client(name).list_tools(refresh=refresh, timeout=timeout)
 
     def call_tool(self, name: str, tool: str,
-                  arguments: dict[str, Any] | None = None) -> dict[str, Any]:
-        return self.get_client(name).call_tool(tool, arguments)
+                  arguments: dict[str, Any] | None = None, timeout: float = 180) -> dict[str, Any]:
+        return self.get_client(name).call_tool(tool, arguments, timeout=timeout)
 
     def status(self, name: str) -> dict[str, Any]:
         client = self._clients.get(name)

@@ -4,15 +4,14 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any
 
 import aiohttp
 from aiohttp import web
-from arena.app_keys import APP_MCP_SESSIONS
 
+from arena.app_keys import APP_MCP_SESSIONS
 from arena.handler_context import McpHandlerContext
+from arena.handler_helpers import authed
 from arena.mcp.runtime import now_ms, sid
-from arena.handler_helpers import authed, err_json
 
 
 @dataclass(frozen=True)
@@ -36,9 +35,11 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status=400)
 
-        # New session on initialize.
-        session_hdr = request.headers.get("Mcp-Session-Id", "")
-        if msg.get("method") == "initialize":
+        # New session on initialize. Keep initialize/list-style calls cheap,
+        # but never run a blocking tools/call on the aiohttp event loop: an
+        # external MCP server can hang, and the bridge must remain responsive.
+        method = msg.get("method")
+        if method == "initialize":
             session = sid()
             request.app[APP_MCP_SESSIONS][session] = {"created": now_ms()}
             resp = ctx.handle_rpc(msg)
@@ -47,7 +48,19 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
                 "Access-Control-Allow-Origin": "*",
             })
 
-        resp = ctx.handle_rpc(msg)
+        if method == "tools/call":
+            loop = asyncio.get_running_loop()
+            try:
+                resp = await asyncio.wait_for(
+                    loop.run_in_executor(ctx.executor, ctx.handle_rpc, msg),
+                    timeout=210,
+                )
+            except asyncio.TimeoutError:
+                resp = {"jsonrpc": "2.0", "id": msg.get("id"),
+                        "error": {"code": -32000,
+                                  "message": "MCP tools/call timed out in bridge transport"}}
+        else:
+            resp = ctx.handle_rpc(msg)
         if resp is None:
             return web.Response(status=204, headers={"Access-Control-Allow-Origin": "*"})
         return web.json_response(resp, headers={"Access-Control-Allow-Origin": "*"})
@@ -106,8 +119,13 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}}, status=400)
 
-        # Process the RPC message.
-        ctx.handle_rpc(msg)
+        # Process the RPC message. Offload tools/call so the SSE message
+        # endpoint cannot freeze the event loop behind a blocking external MCP.
+        if msg.get("method") == "tools/call":
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(ctx.executor, ctx.handle_rpc, msg)
+        else:
+            ctx.handle_rpc(msg)
         return web.Response(status=202, headers={"Access-Control-Allow-Origin": "*"})
 
     async def handle_ws(request: web.Request) -> web.WebSocketResponse:
@@ -139,7 +157,14 @@ def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:
                                             "result": {"unsubscribed": True}})
                         continue
 
-                    resp = ctx.handle_rpc(data)
+                    if method == "tools/call":
+                        loop = asyncio.get_running_loop()
+                        resp = await asyncio.wait_for(
+                            loop.run_in_executor(ctx.executor, ctx.handle_rpc, data),
+                            timeout=210,
+                        )
+                    else:
+                        resp = ctx.handle_rpc(data)
                     if resp is not None:
                         await ws.send_json(resp)
                 except Exception as e:
