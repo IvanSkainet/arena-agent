@@ -128,13 +128,13 @@ def install_go_deps(scratch: Path, lang: str, deps: dict[str, Any] | None,
     if not go:
         return {"ok": False, "error": "cannot resolve Go runtime for module download"}
     try:
-        proc = subprocess.run([go, "mod", "download"], cwd=str(scratch), capture_output=True,
+        proc = subprocess.run([go, "mod", "tidy"], cwd=str(scratch), capture_output=True,
                               text=True, timeout=max(timeout, 60), env=go_env_for_scratch(scratch, managed_go_root, scrub_env))
     except subprocess.TimeoutExpired as e:
-        return {"ok": False, "error": f"go mod download timed out after {max(timeout, 60)}s",
+        return {"ok": False, "error": f"go mod tidy timed out after {max(timeout, 60)}s",
                 "stdout": trim(e.stdout or "", 4000), "stderr": trim(e.stderr or "", 4000)}
     if proc.returncode != 0:
-        return {"ok": False, "error": "go mod download failed", "exit_code": proc.returncode,
+        return {"ok": False, "error": "go mod tidy failed", "exit_code": proc.returncode,
                 "stdout": trim(proc.stdout, 4000), "stderr": trim(proc.stderr, 4000)}
     return {"ok": True, "enabled": True, "stdout": trim(proc.stdout, 4000), "stderr": trim(proc.stderr, 4000)}
 

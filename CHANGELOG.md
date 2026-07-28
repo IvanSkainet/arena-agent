@@ -1,3 +1,10 @@
+## v4.114.4 - Go deps use go mod tidy
+
+### Fixed
+- Go dependency mode now runs `go mod tidy` instead of `go mod download` so
+  scratch workspaces get the required `go.sum` entries for imported packages
+  before `go run`.
+
 ## v4.114.3 - Run Code Workbench processes from scratch cwd
 
 ### Fixed

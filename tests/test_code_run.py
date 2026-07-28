@@ -426,7 +426,7 @@ def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
         stderr = ""
 
     def fake_run(cmd, **kw):
-        if cmd[:3] == [str(managed), "mod", "download"]:
+        if cmd[:3] == [str(managed), "mod", "tidy"]:
             seen["mod"] = (cmd, kw)
             return _Proc()
         seen["run_env"] = kw["env"]
