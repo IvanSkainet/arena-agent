@@ -40,6 +40,7 @@ from arena.mcp.tool_code import handle_code_tool
 from arena.mcp.tool_runtime import handle_runtime_tool
 from arena.mcp.tool_code_project import handle_code_project_tool
 from arena.mcp.tool_code_artifact import handle_code_artifact_tool
+from arena.mcp.tool_code_matrix import handle_code_matrix_tool
 from arena.control import _agent_halt_block_for_tool
 
 
@@ -143,6 +144,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_runtime_tool(name, args, ctx=ctx),
                 lambda: handle_code_project_tool(name, args, ctx=ctx),
                 lambda: handle_code_artifact_tool(name, args, ctx=ctx),
+                lambda: handle_code_matrix_tool(name, args, ctx=ctx),
                 lambda: handle_browser_headed_tool(name, args, ctx=ctx),
                 lambda: handle_mission_tool(name, args, ctx=ctx),
                 # v4.54.0: scenario orchestration. The scenarios

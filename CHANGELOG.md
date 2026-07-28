@@ -1,3 +1,12 @@
+## v4.111.0 - Code Workbench matrix runs
+
+### Added
+- `code_matrix.run` runs up to 8 Code Workbench jobs sequentially under the
+  current operator-owned posture. Each item may be a one-shot `code.run` style
+  spec or a persistent `code_project.run` spec.
+- Matrix items return their own `ok`, `stdout`, `stderr`, `run_id`, and
+  artifacts, enabling one request to compare multiple runtimes/projects.
+
 ## v4.110.0 - REST downloads for Code Workbench artifacts
 
 ### Added
