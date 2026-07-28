@@ -50,3 +50,13 @@ def test_runtime_probe_tool(monkeypatch, tmp_path):
     monkeypatch.setattr(runtimes, "probe", lambda: {"ok": True, "runtimes": {"go": {"available": False}}})
     out = _parsed(handle_runtime_tool("runtime.probe", {}, ctx=object()))
     assert out == {"ok": True, "runtimes": {"go": {"available": False}}}
+
+
+def test_runner_resolves_managed_go(monkeypatch, tmp_path):
+    from arena.autonomy import runner as R
+    managed = tmp_path / "tools" / "go1.2.3" / "bin" / ("go.exe" if sys.platform == "win32" else "go")
+    managed.parent.mkdir(parents=True)
+    managed.write_text("exe", encoding="utf-8")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(R.shutil, "which", lambda name: None)
+    assert R._resolve_runtime("go") == str(managed)

@@ -45,8 +45,22 @@ def _powershell() -> str | None:
     return shutil.which("powershell.exe") or shutil.which("powershell") or shutil.which("pwsh")
 
 
+def _managed_runtime_path(lang: str) -> str | None:
+    try:
+        from arena.workbench.runtimes import _managed_go_path, load_registry
+        if lang == "go":
+            p = _managed_go_path()
+            if p:
+                return str(p)
+        meta = (load_registry().get("runtimes") or {}).get(lang) or {}
+        p = meta.get("path")
+        return str(p) if p and Path(str(p)).exists() else None
+    except Exception:
+        return None
+
+
 def _resolve_runtime(lang: str) -> str | None:
-    return shutil.which(lang)
+    return shutil.which(lang) or _managed_runtime_path(lang)
 
 
 def _is_windowsapps_alias(path: str | None) -> bool:
@@ -368,11 +382,18 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                               .get("wall_seconds", 60))
         max_out = int(effective_posture.get("resources", DEFAULT_RESOURCES)
                       .get("output_bytes", 100 * 1024))
+        run_env = env if env is not None else _scrub_env()
+        if lang == "go":
+            run_env = dict(run_env)
+            for key, rel in {"GOCACHE": "go-cache", "GOMODCACHE": "go-mod", "GOTMPDIR": "go-tmp"}.items():
+                p = scratch / rel
+                p.mkdir(parents=True, exist_ok=True)
+                run_env[key] = str(p)
         try:
             proc = subprocess.run(argv_cmd, capture_output=True, text=True,
                                   input=stdin if stdin is not None else None,
                                   timeout=wall + (5 if info["sandbox_action"] == "appcontainer" else 0),
-                                  env=(env if env is not None else _scrub_env()))
+                                  env=run_env)
         except subprocess.TimeoutExpired as exc:
             out = (exc.stdout or b"") if isinstance(exc.stdout, bytes) else (exc.stdout or "")
             err = (exc.stderr or b"") if isinstance(exc.stderr, bytes) else (exc.stderr or "")

@@ -1,3 +1,12 @@
+## v4.108.3 - Run managed Go through Code Workbench
+
+### Added
+- `code.run` / `code_project.run` can resolve Arena-managed runtimes from the
+  runtime registry. Managed Go installed by `runtime.install` is now runnable by
+  passing `lang: "go"`.
+- Go runs receive scratch-local `GOCACHE`, `GOMODCACHE`, and `GOTMPDIR` so the
+  AppContainer path does not need write access to the user's profile.
+
 ## v4.108.2 - Code Workbench docs and Semgrep annotations
 
 ### Fixed
