@@ -1,3 +1,10 @@
+## v4.114.2 - Stabilize Go dependency-mode test on CI
+
+### Fixed
+- Go dependency-mode unit test now mocks Go runtime resolution explicitly, so it
+  does not depend on whether the CI runner happens to have a system Go on PATH.
+  Runtime behavior is unchanged from v4.114.0/v4.114.1.
+
 ## v4.114.1 - Split dependency installers out of runner
 
 ### Fixed

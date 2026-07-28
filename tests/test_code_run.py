@@ -433,6 +433,8 @@ def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
         return _Proc()
 
     monkeypatch.setattr(R, "build_command", fake_build)
+    monkeypatch.setattr(R, "_resolve_runtime", lambda name: str(managed) if name == "go" else None)
+    monkeypatch.setattr(D, "_npm_for_deps", lambda resolve_runtime: "npm")
     monkeypatch.setattr(R.subprocess, "run", fake_run)
     monkeypatch.setattr(D.subprocess, "run", fake_run)
     res = R.run_code_sync("", "go", {**_off(), "network": "open", "runtimes": ["go"]},
