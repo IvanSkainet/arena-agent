@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
+import sys
 from pathlib import Path
 
 from arena.handler_context import BrowserBrowseHandlerContext
@@ -21,12 +21,15 @@ async def run_browseract_browse(
 ):
     """Execute a /v1/browser/browse request through the BrowserAct skill."""
     try:
-        ba_skill = Path(ctx.app_dir) / "skills" / "browseract" / "run.sh"
+        ba_skill = Path(ctx.app_dir) / "skills" / "browseract" / "run.py"
         if not ba_skill.exists():
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "BrowserAct skill not installed"}, status=503)
 
-        cmd = [shutil.which("bash") or "bash", str(ba_skill), action, url]
+        # v4.106.0: run the cross-platform Python wrapper directly. The old
+        # path used bash + run.sh, which fails on Windows services without Git
+        # Bash even though BrowserAct itself is installed and usable.
+        cmd = [sys.executable, str(ba_skill), action, url]
         if wait_for:
             cmd.extend(["--wait-for", wait_for])
         if action == "shot":

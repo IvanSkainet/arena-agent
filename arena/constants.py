@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-VERSION = "4.105.2"
+VERSION = "4.106.0"
 AUDIT_CMD_LIMIT = 4000
 
 # Directory containing unified_bridge.py (the install/repo root).

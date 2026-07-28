@@ -9,8 +9,33 @@ from typing import Any
 from arena.handler_context import BrowserBrowseHandlerContext
 
 
+def _reset_cdp_state(cdp_state: dict[str, Any], reason: str) -> None:
+    mgr = cdp_state.get("manager")
+    if mgr:
+        close = getattr(mgr, "close", None) or getattr(mgr, "disconnect", None)
+        if callable(close):
+            try:
+                close()
+            except Exception:
+                pass
+    cdp_state["manager"] = None
+    cdp_state["connected"] = False
+    cdp_state["last_disconnect_reason"] = reason
+
+
+def _valid_active_tab(mgr: Any) -> bool:
+    tab = getattr(mgr, "active_tab", None)
+    if callable(tab):
+        return False
+    return bool(tab is not None and getattr(tab, "connected", False))
+
+
 async def ensure_cdp_browse_manager(ctx: BrowserBrowseHandlerContext):
     cdp_state = ctx.cdp_state
+    mgr0 = cdp_state.get("manager")
+    if cdp_state.get("connected") and (not mgr0 or not _valid_active_tab(mgr0)):
+        _reset_cdp_state(cdp_state, "invalid active tab state before browse")
+
     if not cdp_state["connected"]:
         try:
             cdp = ctx.get_cdp_module()
@@ -29,11 +54,13 @@ async def ensure_cdp_browse_manager(ctx: BrowserBrowseHandlerContext):
                 ctx.record_request(is_error=True, count_request=False)
                 return None, ctx.cors_json_response({"ok": False, "error": "CDP module not available"}, status=503)
         except Exception as e:
+            _reset_cdp_state(cdp_state, f"auto-connect failed: {e}")
             ctx.record_request(is_error=True, count_request=False)
             return None, ctx.cors_json_response({"ok": False, "error": f"CDP auto-connect failed: {e}"}, status=503)
 
     mgr = cdp_state.get("manager")
-    if not mgr or not mgr.active_tab or not mgr.active_tab.connected:
+    if not mgr or not _valid_active_tab(mgr):
+        _reset_cdp_state(cdp_state, "no valid active CDP tab")
         ctx.record_request(is_error=True, count_request=False)
         return None, ctx.cors_json_response({"ok": False, "error": "No active CDP tab"}, status=503)
     return mgr, None

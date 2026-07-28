@@ -170,6 +170,52 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
+---
+
+## Current flight status (v4.106.x)
+
+Arena is now a **self-extending agent environment**, not just a fixed tool
+server. Recent live scenarios proved the bridge can grow new hands at runtime:
+
+- **External MCP servers** can be installed and called through `mcp.add`,
+  `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
+  Desktop-Commander, ScreenPilot, and the official
+  `@modelcontextprotocol/server-sequential-thinking`.
+- **Hung external MCP calls are contained.** `mcp.ext_call` accepts a `timeout`
+  and the MCP stdio client uses a background reader thread; if an external
+  server stops responding, it is stopped and the bridge HTTP event loop remains
+  responsive. This was added after Desktop-Commander froze an older bridge hard
+  enough to require reinstalling the service.
+- **Agent-authored code runs under operator posture.** On Windows, fenced
+  `code.run` engages AppContainer with no capabilities, grants only scratch
+  modify + runtime read/execute, captures stdout/stderr, denies outbound TCP,
+  and denies user-profile files outside scratch. On Linux the strict path uses
+  `systemd-run` when available. If a requested fence cannot be enforced, the
+  runner fails closed.
+- **Runtime expansion is real.** In live Windows tests the bridge executed
+  Python (AppContainer), JavaScript/Node, PowerShell, C# via `Add-Type`, and
+  Java single-file source mode, creating proof artifacts on disk.
+- **Browser stack is layered.** `browser.search` / `browser.read` are pure-Python
+  fallback tools; `/v1/browser/browse` uses CDP by default and BrowserAct when
+  `stealth=true`. BrowserAct is launched through the cross-platform Python
+  wrapper, not a bash-only entrypoint.
+
+Known honest limits:
+
+- Windows AppContainer is not a VM. It protects user files and network by
+  default, but normal world-readable system files may still be visible; memory
+  limits are still enforced by the outer runner rather than AppContainer itself.
+- Node currently enters AppContainer but may fail during startup because it
+  probes `C:\` and receives `EPERM`; Python is the live-proven fenced runtime.
+- CDP/headless browser control is CI-covered on multiple OSes, but Windows
+  service sessions can still fail to launch Edge/Chrome headlessly depending on
+  service elevation and desktop/session isolation. When that happens the bridge
+  should report the failure and keep running, not fake success.
+- Posture is operator-owned. YOLO removes approval prompts, not the sandbox. The
+  agent must never be able to move its own posture cubes.
+
+---
+
 ## Quick start
 
 ### 1. Download a release

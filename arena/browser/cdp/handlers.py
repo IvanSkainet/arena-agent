@@ -29,14 +29,22 @@ def make_cdp_basic_handlers(ctx: CdpBasicHandlerContext) -> CdpBasicHandlers:
         cdp_state = ctx.cdp_state
         mgr = cdp_state.get("manager")
 
+        active_tab_id = None
+        tab_count = 0
+        if mgr:
+            tab_count_attr = getattr(mgr, "tab_count", 0)
+            tab_count = tab_count_attr() if callable(tab_count_attr) else tab_count_attr
+            active_tab_id_attr = getattr(mgr, "active_tab_id", None)
+            active_tab_id = active_tab_id_attr() if callable(active_tab_id_attr) else active_tab_id_attr
+
         status = {
             "ok": True,
-            "connected": cdp_state["connected"],
+            "connected": bool(cdp_state["connected"] and mgr),
             "port": cdp_state["port"],
             "headless": cdp_state["headless"],
             "module_available": cdp is not None,
-            "tab_count": mgr.tab_count if mgr else 0,
-            "active_tab_id": mgr.active_tab_id if mgr else None,
+            "tab_count": tab_count,
+            "active_tab_id": active_tab_id,
             "network_monitoring": cdp_state.get("monitor") is not None and cdp_state["monitor"].active if cdp_state.get("monitor") else False,
             "interception_active": cdp_state.get("interceptor") is not None and cdp_state["interceptor"].active if cdp_state.get("interceptor") else False,
             "cookie_manager_active": cdp_state.get("cookie_mgr") is not None and cdp_state["cookie_mgr"].active if cdp_state.get("cookie_mgr") else False,
@@ -47,7 +55,10 @@ def make_cdp_basic_handlers(ctx: CdpBasicHandlerContext) -> CdpBasicHandlers:
         }
 
         if mgr:
-            status["tabs"] = [tab.to_dict() for tab in mgr.list_tabs()]
+            try:
+                status["tabs"] = [tab.to_dict() for tab in mgr.list_tabs()]
+            except Exception as e:
+                status["tabs_error"] = str(e)
 
         return ctx.cors_json_response(status)
 

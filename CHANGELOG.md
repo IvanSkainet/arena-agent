@@ -1,3 +1,22 @@
+## v4.106.0 - BrowserAct/CDP browse hardening + README refresh
+
+### Fixed
+- `/v1/browser/browse` with `stealth=true` now launches BrowserAct through
+  `skills/browseract/run.py` using the bridge Python instead of requiring
+  `bash skills/browseract/run.sh`. Fresh Windows service installs usually do
+  not have bash on PATH, so BrowserAct failed with WinError 2 despite being
+  installed.
+- CDP browse/status now handles stale or malformed CDP manager state after a
+  failed browser launch. Invalid `active_tab` state resets the CDP connection
+  instead of leaving `connected=true` with a broken manager, and status output
+  avoids non-JSON-serializable method objects.
+
+### Docs
+- README now includes a current flight-status section covering self-extending
+  MCP installs, external MCP timeout containment, Windows AppContainer
+  `code.run`, runtime expansion proofs, BrowserAct/CDP layering, and honest
+  known limits.
+
 ## v4.105.2 - Make Browser MCP dependencies explicit and readability optional
 
 ### Fixed
