@@ -72,3 +72,11 @@ def test_set_rejects_invalid_posture():
 def test_autonomy_dir_is_on_sensitive_blocklist():
     # so the agent's fs API cannot read/edit the operator posture
     assert "autonomy" in SENSITIVE_DIR_PREFIXES
+
+
+def test_get_posture_exposes_axes_and_ack_phrases_for_ui():
+    g = P.get_posture()
+    assert set(g["axes"]) == set(P.AXES)
+    assert g["axes"]["sandbox"] == P.SANDBOX_VALUES
+    assert g["ack_phrases"] == P.ACK_PHRASES
+    assert set(g["presets"]) == set(P.PRESETS)

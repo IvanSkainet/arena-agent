@@ -1,3 +1,26 @@
+## v4.103.0 - Settings UI for the execution posture ("cubes")
+
+### Added
+- A Settings card exposing the posture cubes: per-axis selects
+  (sandbox / network / privilege / filesystem / runtime) populated from the
+  server, preset buttons (strict / balanced / fenced-yolo / naked), a live risk
+  badge, a red "this posture exposes: ..." panel for risky combos, and an ack
+  checkbox + confirm for high/critical postures. Apply merges the chosen axes
+  with the saved runtimes/resources (the UI does not edit those in this slice)
+  and POSTs to `/v1/autonomy/posture`; the server re-validates and enforces the
+  ack phrase.
+- `GET /v1/autonomy/posture` now also returns the allowed axis values and the
+  ack phrases, so the UI does not hard-code them (no drift). The client-side
+  risk preview mirrors the server formula for live feedback only; safety does
+  *not* depend on it (the server re-validates on Apply).
+
+### Notes
+- The agent still cannot read or change the posture (master-only setter +
+  sensitive-file blocklist). The client risk preview is advisory; the server is
+  the authority.
+- The card honestly notes that on Windows fenced code execution is refused until
+  a later slice (only the `off` extreme runs there now).
+
 ## v4.102.0 - Composable execution posture ("cubes") + fail-closed code.run
 
 ### Purpose

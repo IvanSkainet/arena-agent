@@ -173,4 +173,8 @@ def get_posture() -> dict[str, Any]:
     p = load_posture()
     return {"posture": p, "risk": risk_level(p),
             "required_ack": required_ack(p),
-            "presets": list(PRESETS)}
+            "presets": PRESETS,
+            "axes": {"sandbox": SANDBOX_VALUES, "network": NETWORK_VALUES,
+                     "privilege": PRIVILEGE_VALUES, "filesystem": FS_VALUES,
+                     "runtime": RUNTIME_VALUES},
+            "ack_phrases": ACK_PHRASES}

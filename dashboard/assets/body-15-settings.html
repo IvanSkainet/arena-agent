@@ -195,6 +195,36 @@
 <div class="row"><button onclick="apiQuickGet('/v1/doctor')">sys doctor</button></div>
 <div class="row"><button onclick="apiQuickGet('/v1/memory')">mem get all</button></div>
 </div>
+<div class="card" id="postureCard">
+<h2>Execution posture &mdash; the fence for agent-authored code <span id="postureRiskBadge" class="badge ok" style="margin-left:8px">low</span></h2>
+<div style="font-size:12px;line-height:1.5;color:var(--text2);margin:4px 0 10px">
+Composable per-axis controls for <code>code.run</code>. The agent <strong>cannot</strong>
+read or change these (master-token-only; <code>autonomy/</code> is blocklisted).
+YOLO removes the <em>approval</em> step only &mdash; never this fence; HALT overrides
+everything. On Windows, fenced code execution is refused until a later slice
+(only the labeled <em>off</em> extreme runs there now).
+</div>
+<div id="postureAxes"></div>
+<div class="row" style="margin:8px 0">
+<span style="font-size:12px;color:var(--text2)">presets:</span>
+<button onclick="posturePreset('strict')">strict</button>
+<button onclick="posturePreset('balanced')">balanced</button>
+<button onclick="posturePreset('fenced-yolo')">fenced-yolo</button>
+<button onclick="posturePreset('naked')">naked</button>
+</div>
+<div id="postureWarn" class="error-box" style="display:none;margin:6px 0">
+<div class="error-title" style="color:var(--red)">&#9888; <span id="postureWarnTitle"></span></div>
+<div id="postureWarnBody" style="font-size:12px;line-height:1.5;color:var(--text2)"></div>
+</div>
+<label id="postureAckRow" style="display:none;gap:8px;align-items:flex-start;font-size:12px;margin:8px 0;color:var(--text2)">
+<input type="checkbox" id="postureAckCheck" style="width:auto;margin-top:2px">
+<span id="postureAckLabel"></span>
+</label>
+<div class="row">
+<button class="warning" onclick="postureApply()">Apply posture</button>
+<span id="postureStateText" style="font-size:12px;color:var(--text2)"></span>
+</div>
+</div>
 <div class="card" id="yoloCard">
 <h2>YOLO mode &mdash; auto-approve everything <span id="yoloBadge" class="badge ok" style="margin-left:8px">OFF</span></h2>
 <div class="error-box" style="margin:6px 0">
