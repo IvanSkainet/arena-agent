@@ -1,3 +1,9 @@
+## v4.109.1 - Document persisted artifact namespaces
+
+### Fixed
+- README namespace examples now cover `code_run` and `code_artifact`, the new
+  persisted Code Workbench run/artifact tools.
+
 ## v4.109.0 - Persisted Code Workbench run artifacts
 
 ### Added
