@@ -10,6 +10,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from arena.autonomy import deps as D  # noqa: E402
 from arena.autonomy import posture as P  # noqa: E402
 from arena.autonomy import runner as R  # noqa: E402
 from arena.extension_bridge.policy import classify_tool_risk  # noqa: E402
@@ -349,6 +350,7 @@ def test_run_code_python_deps_install_sets_pythonpath(monkeypatch):
 
     monkeypatch.setattr(R, "build_command", fake_build)
     monkeypatch.setattr(R.subprocess, "run", fake_run)
+    monkeypatch.setattr(D.subprocess, "run", fake_run)
     res = R.run_code_sync("print('x')", "python3", {**_off(), "network": "open"}, deps={"python": ["requests==2.32.3"]}, platform="linux")
     assert res["ok"] is True
     assert seen["pip"] is not None
@@ -388,8 +390,9 @@ def test_run_code_npm_deps_install_sets_node_path(monkeypatch):
         return _RunProc()
 
     monkeypatch.setattr(R, "build_command", fake_build)
-    monkeypatch.setattr(R, "_npm_for_deps", lambda: "npm")
+    monkeypatch.setattr(D, "_npm_for_deps", lambda resolve_runtime: "npm")
     monkeypatch.setattr(R.subprocess, "run", fake_run)
+    monkeypatch.setattr(D.subprocess, "run", fake_run)
     res = R.run_code_sync("console.log('x')", "node", {**_off(), "network": "open", "runtimes": ["node"]}, deps={"npm": ["left-pad@1.3.0"]}, platform="linux")
     assert res["ok"] is True
     assert seen["npm"] is not None
@@ -431,6 +434,7 @@ def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
 
     monkeypatch.setattr(R, "build_command", fake_build)
     monkeypatch.setattr(R.subprocess, "run", fake_run)
+    monkeypatch.setattr(D.subprocess, "run", fake_run)
     res = R.run_code_sync("", "go", {**_off(), "network": "open", "runtimes": ["go"]},
                           files=[{"path": "go.mod", "content": "module x\n"}, {"path": "main.go", "content": "package main\nfunc main(){}\n"}],
                           entry="main.go", deps={"go": True}, platform="linux")

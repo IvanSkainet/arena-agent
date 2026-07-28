@@ -1,3 +1,10 @@
+## v4.114.1 - Split dependency installers out of runner
+
+### Fixed
+- Moved Python/npm/Go dependency installation logic from `arena/autonomy/runner.py`
+  into `arena/autonomy/deps.py`, keeping the runner below the architecture
+  mini-monolith threshold while preserving v4.114.0 behavior.
+
 ## v4.114.0 - Go module dependency mode for Code Workbench
 
 ### Added
