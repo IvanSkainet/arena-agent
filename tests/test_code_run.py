@@ -182,6 +182,45 @@ def test_run_code_off_executes_harmless():
     assert res["enforced"]["network"] is False
 
 
+def test_build_go_uses_go_run_invocation(tmp_path):
+    argv, info = R.build_command("linux", _off(), "go", tmp_path / "main.go", tmp_path, runtime_args=["300"])
+    assert argv == ["go", "run", str(tmp_path / "main.go"), "300"]
+    assert info["sandbox_action"] == "off"
+
+
+def test_runtime_grant_dir_for_go_uses_go_root(tmp_path):
+    exe = tmp_path / "go1.26.5" / "bin" / "go.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("exe", encoding="utf-8")
+    assert R._runtime_grant_dir(str(exe)) == str(exe.parent.parent.resolve())
+
+
+def test_run_code_sets_go_scratch_env(monkeypatch, tmp_path):
+    seen = {}
+
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+        return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
+
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    managed = tmp_path / "tools" / "go1.26.5" / "bin" / ("go.exe" if sys.platform == "win32" else "go")
+    managed.parent.mkdir(parents=True)
+    managed.write_text("exe", encoding="utf-8")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(R, "build_command", _fake_build)
+    def fake_run(*a, **kw):
+        seen.update(kw["env"])
+        return _Proc()
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("package main\nfunc main(){}\n", "go", {**_off(), "runtimes": ["go"]}, platform="linux")
+    assert res["ok"] is True
+    assert seen["GOROOT"] == str(managed.parent.parent.resolve())
+    assert "go-cache" in seen["GOCACHE"]
+
+
 def test_run_code_runtime_allowlist_enforced():
     res = R.run_code_sync("x", "ruby", _strict(), platform="linux")
     assert res["ok"] is False and res.get("refused") is True

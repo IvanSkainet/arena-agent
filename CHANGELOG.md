@@ -1,3 +1,17 @@
+## v4.108.4 - Managed Go invocation under code.run
+
+### Fixed
+- `code.run` / `code_project.run` now invoke Go as `go run <entry> ...` instead
+  of `go <entry> ...`.
+- Managed Go runs receive `GOROOT` and the Windows AppContainer grant now covers
+  the Go root rather than only `bin/`, so Go can read its standard library and
+  metadata while keeping caches inside scratch.
+
+### Scenario
+- Live `code_project.run(lang="go")` found that managed Go was installed and
+  resolvable, but failed with `GOROOT is not set`. This release wires the
+  runtime-specific invocation/environment.
+
 ## v4.108.3 - Run managed Go through Code Workbench
 
 ### Added

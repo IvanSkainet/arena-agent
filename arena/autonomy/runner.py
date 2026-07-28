@@ -105,11 +105,32 @@ def _runtime_grant_dir(exe: str) -> str:
     """Return the narrow runtime root the AppContainer may read/execute.
 
     For Python/Node this is normally the install directory containing the exe,
-    DLLs and stdlib/runtime files.  This is intentionally not the user's home;
-    if a runtime is installed inside the profile we grant only that runtime
-    subtree, not the whole profile.
+    DLLs and stdlib/runtime files. For managed Go, grant the Go root (parent of
+    bin/) so the tool can read pkg/src metadata as GOROOT. This is intentionally
+    not the user's home; if a runtime is installed inside the profile we grant
+    only that runtime subtree, not the whole profile.
     """
-    return str(Path(exe).resolve().parent)
+    p = Path(exe).resolve()
+    if p.name.lower() in {"go.exe", "go"} and p.parent.name.lower() == "bin":
+        return str(p.parent.parent)
+    return str(p.parent)
+
+
+def _runtime_invocation(lang: str, code_path: Path, runtime_args: list[str] | None = None) -> list[str]:
+    args = [str(a) for a in (runtime_args or [])]
+    if lang == "go":
+        return [lang, "run", str(code_path), *args]
+    return [lang, str(code_path), *args]
+
+
+def _managed_go_root() -> str | None:
+    p = _managed_runtime_path("go")
+    if not p:
+        return None
+    exe = Path(p).resolve()
+    if exe.parent.name.lower() == "bin":
+        return str(exe.parent.parent)
+    return None
 
 
 def resolve(platform: str, posture: dict[str, Any]) -> dict[str, Any]:
@@ -165,7 +186,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     of what the fence does on this platform.
     """
     res = resolve(platform, posture)
-    base = [lang, str(code_path), *(runtime_args or [])]
+    base = _runtime_invocation(lang, code_path, runtime_args)
     always = _always_enforced()
     if not res["supported"]:
         return None, {"refused": True, "sandbox_action": res["sandbox_action"],
@@ -200,7 +221,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                 "-ScratchDir", str(scratch_dir),
                 "-RuntimeGrantDir", _runtime_grant_dir(exe),
                 "-TimeoutSec", str(wall),
-                "-ArgumentsJson", json.dumps([str(code_path), *(runtime_args or [])])]
+                "-ArgumentsJson", json.dumps(_runtime_invocation(lang, code_path, runtime_args)[1:])]
         if stdin_path is not None:
             argv.extend(["-StdinPath", str(stdin_path)])
         enforced = {
@@ -385,6 +406,9 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         run_env = env if env is not None else _scrub_env()
         if lang == "go":
             run_env = dict(run_env)
+            go_root = _managed_go_root()
+            if go_root:
+                run_env["GOROOT"] = go_root
             for key, rel in {"GOCACHE": "go-cache", "GOMODCACHE": "go-mod", "GOTMPDIR": "go-tmp"}.items():
                 p = scratch / rel
                 p.mkdir(parents=True, exist_ok=True)
