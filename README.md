@@ -597,6 +597,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `document` | `document.structure` — Structure OCR/ASR/text into tasks or physics homework JSON |
 | `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
 | `code` | `code.run` — Execute agent-authored code under the operator's execution posture (composable fence); fail-closed, agent can't set the posture |
+| `code_project` | `code_project.run` — Run a persistent Code Workbench project through the same operator-owned posture fence |
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |
 | `hooks` | `hooks.list` — List configured hooks per event |
@@ -610,6 +611,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `plan` | `plan.create` — Create a structured execution plan for a goal, with suggeste |
 | `react` | `react.run` — Run a bounded reason-act-observe loop using safe observation |
 | `reflect` | `reflect.run` — Reflect on a prior react/planning run and produce concerns,  |
+| `runtime` | `runtime.probe` — Probe host and Arena-managed language runtimes; install managed Go with `runtime.install` |
 | `scenario` | `scenario.run` — Execute a scenario's steps in order, interpolating {{ steps. |
 | `secrets` | `secrets.list` — List available secret keys (values never returned). |
 | `skill` | `skill.list` — List available agent skills |

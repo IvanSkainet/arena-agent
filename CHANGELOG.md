@@ -1,3 +1,12 @@
+## v4.108.2 - Code Workbench docs and Semgrep annotations
+
+### Fixed
+- README namespace examples now cover the new `runtime` and `code_project`
+  namespaces.
+- Runtime installer `urlopen` calls carry explicit Semgrep rationales: the Go
+  release index is fixed, selected archive URLs come from official metadata,
+  and downloads are SHA-256 verified before extraction.
+
 ## v4.108.1 - Code Workbench MCP naming and archive hardening
 
 ### Fixed

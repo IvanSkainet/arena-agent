@@ -103,7 +103,7 @@ def probe() -> dict[str, Any]:
 
 def _download(url: str, dest: Path) -> None:
     req = urllib.request.Request(url, headers={"User-Agent": "ArenaBridge/runtime.install"})
-    with urllib.request.urlopen(req, timeout=120) as r:  # nosec B310 -- fixed public runtime URLs selected from upstream release metadata
+    with urllib.request.urlopen(req, timeout=120) as r:  # nosec B310 -- fixed public runtime URLs selected from upstream release metadata  # nosemgrep: dynamic-urllib-use-detected -- URL comes from the official Go release index selected by runtime.install and is SHA-256 verified before extraction
         with dest.open("wb") as f:
             shutil.copyfileobj(r, f)
 
@@ -155,7 +155,7 @@ def _extract_tar_safe(archive: Path, dest: Path) -> None:
 
 def _go_asset(version: str | None = None) -> dict[str, Any]:
     req = urllib.request.Request(_GO_INDEX, headers={"User-Agent": "ArenaBridge/runtime.install"})
-    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed official Go release index
+    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed official Go release index  # nosemgrep: dynamic-urllib-use-detected -- fixed https://go.dev/dl/?mode=json official release metadata endpoint
         releases = json.loads(r.read().decode("utf-8"))
     want_ver = version if version and version.startswith("go") else (f"go{version}" if version else None)
     sysname = platform.system().lower()
