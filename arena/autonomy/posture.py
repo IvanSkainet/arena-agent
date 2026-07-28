@@ -1,4 +1,4 @@
-"""Operator execution-posture model -- the composable "cubes" (v4.102.0, slice 1).
+"""Operator execution-posture model -- the composable "cubes".
 
 The operator composes per-axis controls that govern how agent-authored code
 (``code.run``) executes. The agent CANNOT read or write the posture: the setter
@@ -6,11 +6,12 @@ endpoint is master-token-only and the ``autonomy/`` directory is on the
 sensitive-file blocklist, so the agent cannot relax its own fence (reward-hacking
 via posture is closed by construction).
 
-Slice-1 enforcement is intentionally coarse but HONEST: on Linux a fenced
+Current enforcement is intentionally coarse but HONEST: on Linux a fenced
 posture engages a *strict, fixed* systemd-run sandbox (private network, dropped
-privileges, scratch-only writes, resource caps); per-axis granularity, the
-Windows AppContainer code path, and microVMs are later slices. ``code.run`` is
-**fail-closed**: if the active posture demands a sandbox the platform cannot
+privileges, scratch-only writes, resource caps); on Windows it engages an
+AppContainer with no capabilities and explicit scratch/runtime grants. Per-axis
+granularity and microVMs are later slices. ``code.run`` is **fail-closed**: if
+the active posture demands a sandbox the platform cannot
 engage, execution is REFUSED rather than silently running unfenced. The
 ``sandbox=off`` posture is the labeled extreme the operator may choose
 explicitly; on Windows it equals the pre-existing exec risk surface.

@@ -1,3 +1,33 @@
+## v4.104.0 - Windows AppContainer fence for code.run
+
+### Added
+- Windows fenced `code.run` now engages the AppContainer runner instead of
+  refusing by default when a fenced posture is active. The runner creates/uses
+  an `ArenaCodeRun` AppContainer profile with **zero capabilities** (no
+  `internetClient`, no private network capability), grants only the per-run
+  scratch directory modify access and the selected runtime root read/execute,
+  captures stdout/stderr through inheritable handles, applies a wall timeout,
+  and returns the child exit code.
+- The Python runner now builds the PowerShell/AppContainer invocation for
+  `sandbox=appcontainer` on Windows and still fails closed if PowerShell, the
+  script, or the requested runtime is missing.
+
+### Safety notes
+- YOLO still removes approval only; it does not disable this fence. The agent
+  still cannot pass posture axes to `code.run`.
+- AppContainer is not claimed as a VM: memory limits are still enforced by the
+  outer runner timeout/output caps only in this slice, and Windows may allow
+  reads of normal world-readable system files. User data is default-deny except
+  for the explicit scratch/runtime grants.
+
+### Tests
+- Added Windows command-construction and fail-closed unit tests.
+- Added static guardrail tests pinning the AppContainer script's ACL grants,
+  stdout/stderr handle capture, no-capability profile, and timeout kill path.
+- Live-validated on the Windows bridge host before release: harmless Python ran
+  inside AppContainer, reading a user-profile file outside scratch failed with
+  `PermissionError`, and outbound TCP failed with WinError `10013`.
+
 ## v4.103.1 - Fix: posture cubes card rendered empty / unclickable
 
 ### Fixed

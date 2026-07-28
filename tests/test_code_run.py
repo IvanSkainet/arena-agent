@@ -59,10 +59,47 @@ def test_build_off_is_unfenced(tmp_path):
     assert info["enforced"]["network"] is False and info["enforced"]["memory"] is False
 
 
-def test_build_win32_fenced_refused_fail_closed(tmp_path):
+def test_build_win32_appcontainer_argv(tmp_path, monkeypatch):
+    script = tmp_path / "appcontainer_run.ps1"
+    script.write_text("# runner", encoding="utf-8")
+    runtime = tmp_path / "Python314" / "python.exe"
+    runtime.parent.mkdir()
+    runtime.write_text("exe", encoding="utf-8")
+    monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
+    monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
+    monkeypatch.setattr(R, "_resolve_runtime", lambda lang: str(runtime))
+    argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path)
+    assert argv is not None
+    assert argv[:4] == ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass"]
+    assert "-File" in argv and str(script) in argv
+    assert "-ApplicationPath" in argv and str(runtime) in argv
+    assert "-ScratchDir" in argv and str(tmp_path) in argv
+    assert "-RuntimeGrantDir" in argv and str(runtime.parent.resolve()) in argv
+    assert "-Arguments" in argv and str(tmp_path / "c.py") in argv
+    assert info["refused"] is False and info["sandbox_action"] == "appcontainer"
+    assert info["enforced"]["network"] is True
+    assert info["enforced"]["privilege"] is True
+    assert info["enforced"]["filesystem_confined"] is True
+    assert info["enforced"]["memory"] is False
+
+
+def test_build_win32_missing_runner_refused_fail_closed(tmp_path, monkeypatch):
+    monkeypatch.setattr(R, "_appcontainer_script", lambda: tmp_path / "missing.ps1")
+    monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
     argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path)
     assert argv is None and info["refused"] is True
-    assert "slice 2" in info["note"]
+    assert "missing" in info["note"]
+
+
+def test_build_win32_missing_runtime_refused_fail_closed(tmp_path, monkeypatch):
+    script = tmp_path / "appcontainer_run.ps1"
+    script.write_text("# runner", encoding="utf-8")
+    monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
+    monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
+    monkeypatch.setattr(R, "_resolve_runtime", lambda lang: None)
+    argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path)
+    assert argv is None and info["refused"] is True
+    assert "not found" in info["note"]
 
 
 def test_build_linux_microvm_refused(tmp_path):
@@ -97,6 +134,26 @@ def test_run_code_runtime_allowlist_enforced():
     res = R.run_code_sync("x", "ruby", _strict(), platform="linux")
     assert res["ok"] is False and res.get("refused") is True
     assert "runtimes" in res["error"]
+
+
+def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
+    seen = {}
+
+    def _fake_build(platform, posture, lang, code_path, scratch_dir):
+        seen["wall"] = posture["resources"]["wall_seconds"]
+        return ["fake"], {"refused": False, "sandbox_action": "appcontainer",
+                          "enforced": {"network": True}}
+
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr(R, "build_command", _fake_build)
+    monkeypatch.setattr(R.subprocess, "run", lambda *a, **k: _Proc())
+    res = R.run_code_sync("print('x')", "python3", _strict(), timeout=7, platform="win32")
+    assert res["ok"] is True
+    assert seen["wall"] == 7
 
 
 # ---------------------------------------------------------------------------

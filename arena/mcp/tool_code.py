@@ -1,6 +1,6 @@
 """``code.run`` -- execute agent-authored code under the operator posture.
 
-v4.102.0, slice 1. The tool is classified DANGEROUS (so it needs approval, or
+The tool is classified DANGEROUS (so it needs approval, or
 YOLO to auto-approve); the *fence* it runs under is the operator's posture,
 which the agent CANNOT influence: any posture/axis key in the arguments is
 rejected, and the active posture is read server-side from the operator store.
