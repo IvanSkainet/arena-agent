@@ -31,6 +31,10 @@ def register_compat_routes(app: web.Application, h: Mapping[str, Callable]) -> N
     app.router.add_get("/sse", h["handle_sse"])
     app.router.add_post("/messages", h["handle_sse_messages"])
     app.router.add_get("/ws", h["handle_ws"])
+    # v4.100.0: MCP monitoring/management routes live with the MCP transports
+    # (relocated out of the system layer into the MCP layer).
+    app.router.add_get("/v1/mcp/servers", h["handle_v1_mcp_servers"])
+    app.router.add_post("/v1/mcp/custom/remove", h["handle_v1_mcp_custom_remove"])
     app.router.add_get("/gateway", h["handle_gateway_index"])
     app.router.add_get("/gateway/tools", h["handle_gateway_tools"])
     app.router.add_post("/run", h["handle_gateway_run"])

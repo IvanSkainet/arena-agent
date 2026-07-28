@@ -41,6 +41,7 @@ def build_core_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
             "cors_json_response": env._cors_json_response,
             "handle_rpc": env.handle_rpc,
             "log_error": env.log.error,
+            "executor": env._EXECUTOR,
         },
         {
             "handle_mcp_post": "mcp_post",
@@ -48,6 +49,8 @@ def build_core_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
             "handle_sse": "sse",
             "handle_sse_messages": "sse_messages",
             "handle_ws": "ws",
+            "handle_v1_mcp_servers": "mcp_servers",
+            "handle_v1_mcp_custom_remove": "mcp_custom_remove",
         },
     )
     registry.update(_mcp_handler_registry)

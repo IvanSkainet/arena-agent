@@ -24,8 +24,6 @@ class SystemHandlers:
     sysinfo: object
     beep: object
     notify: object
-    mcp_servers: object
-    mcp_custom_remove: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -130,82 +128,6 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
             await loop.run_in_executor(ctx.executor, ctx.play_beep_sync, "success", 800, 300)
         return ctx.cors_json_response(res_v)
 
-    @authed(ctx)
-    async def handle_v1_mcp_servers(request: web.Request) -> web.Response:
-        """GET /v1/mcp/servers — registered external MCP servers + status.
-
-        Powers the Dashboard MCP tab (v4.95.0). Lists every server in
-        mcp/mcp.json with its running state and, when running, its tool
-        names (best-effort)."""
-        from arena.mcp_client import get_manager
-
-        def _gather() -> dict:
-            mgr = get_manager()
-            servers = mgr.servers()
-            out = []
-            for name, cfg in sorted(servers.items()):
-                st = mgr.status(name)
-                entry = {
-                    "name": name,
-                    "command": cfg.get("command", ""),
-                    "args": cfg.get("args", []),
-                    "running": st["running"],
-                    "tools": [],
-                }
-                if st["running"]:
-                    try:
-                        entry["tools"] = [t.get("name", "") for t in mgr.list_tools(name)]
-                    except Exception:
-                        entry["tools"] = []
-                out.append(entry)
-            # v4.96.0: agent-authored custom tools (self-extending
-            # environment) are part of the same MCP surface, so the cockpit
-            # shows them next to the external servers.
-            from arena.mcp import custom_tools as _ct
-            ctools = []
-            for spec in _ct.list_tools():
-                schema = spec.get("inputSchema") or {}
-                steps = spec.get("steps")
-                if isinstance(steps, list) and steps:
-                    wraps = "composite: " + ", ".join(
-                        f"{s.get('id')}->{s.get('tool')}" for s in steps)
-                    step_list = [{"id": s.get("id"), "tool": s.get("tool")}
-                                 for s in steps]
-                else:
-                    wraps = (spec.get("call") or {}).get("tool", "")
-                    step_list = []
-                ctools.append({
-                    "name": spec.get("name", ""),
-                    "description": spec.get("description", ""),
-                    "risk": spec.get("risk", "medium"),
-                    "wraps": wraps,
-                    "steps": step_list,
-                    "params": list((schema.get("properties") or {}).keys()),
-                    "required": schema.get("required", []),
-                })
-            return {"ok": True, "count": len(out), "servers": out,
-                    "custom_tools": ctools}
-
-        loop = asyncio.get_running_loop()
-        result = await loop.run_in_executor(ctx.executor, _gather)
-        return ctx.cors_json_response(result)
-
-    @authed(ctx)
-    async def handle_v1_mcp_custom_remove(request: web.Request) -> web.Response:
-        """POST /v1/mcp/custom/remove -- revoke an agent-authored custom tool.
-
-        Operator action (token-authed, no approval gate): the human managing
-        the self-built library from the cockpit IS the authority (v4.99.0)."""
-        from arena.mcp import custom_tools as _ct
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        name = str((body or {}).get("name", "") or "").strip()
-        if not name:
-            return ctx.cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
-        res = _ct.remove_tool(name)
-        return ctx.cors_json_response(res, status=200 if res.get("ok") else 404)
 
     return SystemHandlers(
         version=handle_v1_version,
@@ -216,6 +138,4 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         sysinfo=handle_v1_sysinfo,
         beep=handle_v1_beep,
         notify=handle_v1_notify,
-        mcp_servers=handle_v1_mcp_servers,
-        mcp_custom_remove=handle_v1_mcp_custom_remove,
     )

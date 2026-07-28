@@ -132,5 +132,6 @@ class McpHandlerContext:
     cors_json_response: Callable[..., web.Response]
     handle_rpc: Callable[[dict[str, Any]], dict[str, Any] | None]
     log_error: Callable[..., None]
+    executor: Executor
 
 __all__ = ['BatchHandlerContext', 'TlsHandlerContext', 'SandboxHandlerContext', 'ClusterHandlerContext', 'GrpcHandlerContext', 'ExtensionBridgeHandlerContext', 'EventHandlerContext', 'FileWatchHandlerContext', 'WatchdogHandlerContext', 'McpHandlerContext']

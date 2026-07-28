@@ -36,6 +36,7 @@ def test_mcp_handlers_factory_outputs():
         cors_json_response=ub._cors_json_response,
         handle_rpc=ub.handle_rpc,
         log_error=ub.log.error,
+        executor=getattr(ub, "_EXECUTOR", None),
     )
     handlers = make_mcp_handlers(ctx)
     assert callable(handlers.mcp_post)
@@ -43,6 +44,9 @@ def test_mcp_handlers_factory_outputs():
     assert callable(handlers.sse)
     assert callable(handlers.sse_messages)
     assert callable(handlers.ws)
+    # v4.100.0: MCP monitoring/management relocated into the MCP layer.
+    assert callable(handlers.mcp_servers)
+    assert callable(handlers.mcp_custom_remove)
 
 
 def test_mcp_routes_registered():

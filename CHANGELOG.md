@@ -1,3 +1,21 @@
+## v4.101.0 - Relocate /v1/mcp/* into the MCP layer (coherence)
+
+### Purpose
+Close the coherence debt flagged earlier: the MCP server-monitoring endpoint
+(`/v1/mcp/servers`) and the custom-tool management endpoint
+(`/v1/mcp/custom/remove`) lived in the *system* handler layer (alongside
+version/status/config/doctor) -- the wrong home for MCP concerns. They now live
+in the MCP handler module (`arena/mcp/handlers.py`) and are registered with the
+MCP transports (`/mcp`, `/sse`, `/ws`), so the MCP layer owns its own HTTP
+surface end to end.
+
+### Changed
+- Handler implementations moved from `arena/system/handlers.py` to
+  `arena/mcp/handlers.py`; `McpHandlerContext` gained the `executor` it needs;
+  the routes moved from the `core` route group to the `compat` (MCP) group.
+- No behaviour change: the endpoints respond identically (verified live before
+  and after). A pure layering / coherence refactor.
+
 ## v4.100.0 - Harden pass: operator control over the self-built library + flaky-CI cleanup
 
 ### Purpose
