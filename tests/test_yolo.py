@@ -26,9 +26,9 @@ from arena.extension_bridge.runtime import (  # noqa: E402
 @pytest.fixture(autouse=True)
 def _reset_yolo():
     yield
-    autonomy._yolo_state["enabled"] = False
-    autonomy._yolo_state["enabled_at"] = None
-    autonomy._yolo_state["enabled_by"] = None
+    autonomy.yolo._yolo_state["enabled"] = False
+    autonomy.yolo._yolo_state["enabled_at"] = None
+    autonomy.yolo._yolo_state["enabled_by"] = None
 
 
 # ---------------------------------------------------------------------------

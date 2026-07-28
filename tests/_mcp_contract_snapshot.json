@@ -44,6 +44,15 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_code.py",
+    "handlers": [
+      "handle_code_tool"
+    ],
+    "tool_names": [
+      "code.run"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_desktop.py",
     "handlers": [
       "handle_desktop_tool"

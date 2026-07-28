@@ -1,4 +1,4 @@
-"""Agent autonomy controls (v4.97.0): YOLO mode.
+"""YOLO mode (v4.97.0) -- auto-approve everything (operator switch).
 
 YOLO mode disables per-call approval for the agent (the bridge's equivalent of
 ``--dangerously-skip-permissions`` / Codex's "auto-run everything"): while it is
@@ -15,14 +15,12 @@ hard to flip and fail-safe):
   ``YOLO_ACK_TOKEN`` string in the request body, so it cannot be toggled by a
   stray/automated call. The Dashboard surfaces a red confirmation that supplies
   this token on the operator's explicit click.
-* **Orthogonal to the kill-switch.** The full agent stop (``arena.control``) is
-  checked *before* any approval logic in the tool dispatcher, so HALT always
-  wins over YOLO: a halted agent stays halted even if YOLO is on.
+* **Orthogonal to the kill-switch and the posture fence.** HALT is checked
+  before any approval logic, and the execution posture (``arena.autonomy.posture``)
+  fences ``code.run`` regardless of YOLO. So YOLO removes the *approval* step
+  only; it never removes the fence or overrides HALT.
 * **Not self-enabling by the agent.** There is no MCP tool that flips YOLO, so
-  the agent cannot grant itself freedom through its sanctioned tool surface; the
-  only paths to enable it are the operator's Dashboard or a direct HTTP call,
-  both of which (pre-YOLO) require human approval for the dangerous ``exec``/
-  ``net.http`` an agent would need to reach the endpoint itself.
+  the agent cannot grant itself freedom through its sanctioned tool surface.
 """
 from __future__ import annotations
 

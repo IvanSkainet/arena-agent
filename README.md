@@ -99,7 +99,7 @@ already in: with `custom.create` the agent authors a new named tool at runtime
 `custom.create` → `{tool: "fs.read", args: {path: "{path}"}}`); the tool then
 shows up in `tools/list`, is callable, persists in `mcp/custom_tools.json`, is
 revocable via `custom.remove`, and inherits the risk of the tool it wraps.
-Listing them is `custom.list`. Beyond that, installing a vetted external MCP
+Listing them is `custom.list`. With `code.run` the agent runs code it authors, fenced by the operator's composable execution posture (`/v1/autonomy/posture`: the sandbox/network/privilege/filesystem/runtime "cubes"); the runner is fail-closed (refuses rather than runs unfenced) and the agent cannot loosen its own fence. Beyond that, installing a vetted external MCP
 server (`mcp.add`) grows the environment further; the direction is the agent
 closing a capability gap found in a real scenario, generally, so it is gone for
 good.
@@ -549,6 +549,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `desktop` | `desktop.ocr` — Run OCR on a fresh desktop screenshot and return recognized  |
 | `document` | `document.structure` — Structure OCR/ASR/text into tasks or physics homework JSON |
 | `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
+| `code` | `code.run` — Execute agent-authored code under the operator's execution posture (composable fence); fail-closed, agent can't set the posture |
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |
 | `hooks` | `hooks.list` — List configured hooks per event |

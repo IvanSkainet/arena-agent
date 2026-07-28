@@ -139,6 +139,7 @@ SENSITIVE_DIR_PREFIXES: frozenset[str] = frozenset({
     ".mozilla",       # Firefox profile (logins.json)
     ".config/google-chrome",  # Chrome profile (Login Data)
     ".config/chromium",       # Chromium profile
+    "autonomy",               # v4.102.0: operator execution posture (agent must not read/edit)
 })
 
 

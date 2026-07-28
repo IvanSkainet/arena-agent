@@ -131,6 +131,8 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/fs/view'                                     , 'handle_v1_fs_view'                          , 'core', None),
     ('POST'  , '/v1/fs/create'                                   , 'handle_v1_fs_create'                        , 'core', None),
     ('POST'  , '/v1/notify'                                      , 'handle_v1_notify'                           , 'core', None),
+    ('GET'   , '/v1/autonomy/posture'                            , 'handle_v1_autonomy_posture_get'           , 'core', None),
+    ('POST'  , '/v1/autonomy/posture'                            , 'handle_v1_autonomy_posture_set'           , 'core', None),
     ('GET'   , '/v1/memory'                                      , 'handle_v1_memory'                           , 'core', None),
     ('POST'  , '/v1/memory'                                      , 'handle_v1_memory_set'                       , 'core', None),
     ('DELETE', '/v1/memory'                                      , 'handle_v1_memory_delete'                    , 'core', None),

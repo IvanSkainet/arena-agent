@@ -24,6 +24,8 @@ class SystemHandlers:
     sysinfo: object
     beep: object
     notify: object
+    autonomy_posture_get: object
+    autonomy_posture_set: object
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
@@ -129,6 +131,39 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         return ctx.cors_json_response(res_v)
 
 
+    @authed(ctx)
+    async def handle_v1_autonomy_posture_get(request: web.Request) -> web.Response:
+        """GET /v1/autonomy/posture -- the operator's execution posture (cubes)."""
+        from arena.autonomy import posture as _ap
+        return ctx.cors_json_response(_ap.get_posture())
+
+    @authed(ctx)
+    async def handle_v1_autonomy_posture_set(request: web.Request) -> web.Response:
+        """POST /v1/autonomy/posture -- set the posture (MASTER TOKEN ONLY).
+
+        The agent must never relax its own fence, so agent tokens are rejected
+        here (v4.102.0 invariant). Risky postures require an ack phrase."""
+        try:
+            is_agent = "agent_id" in request
+        except TypeError:
+            is_agent = False
+        if is_agent:
+            return ctx.cors_json_response(
+                {"ok": False,
+                 "error": "posture is operator-only; use the master token"},
+                status=403)
+        from arena.autonomy import posture as _ap
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        body = body or {}
+        p = body.get("posture")
+        if not isinstance(p, dict):
+            p = {k: body[k] for k in _ap.AXES if k in body}
+        res = _ap.set_posture(p, ack=body.get("ack"))
+        return ctx.cors_json_response(res, status=200 if res.get("ok") else 400)
+
     return SystemHandlers(
         version=handle_v1_version,
         info=handle_v1_info,
@@ -138,4 +173,6 @@ def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:
         sysinfo=handle_v1_sysinfo,
         beep=handle_v1_beep,
         notify=handle_v1_notify,
+        autonomy_posture_get=handle_v1_autonomy_posture_get,
+        autonomy_posture_set=handle_v1_autonomy_posture_set,
     )

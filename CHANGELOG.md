@@ -1,3 +1,42 @@
+## v4.102.0 - Composable execution posture ("cubes") + fail-closed code.run
+
+### Purpose
+The operator composes per-axis controls -- the "cubes": sandbox / network /
+privilege / filesystem / runtime -- that govern how agent-authored code runs;
+the agent cannot read or change them. This is the first slice of the
+arbitrary-code-in-YOLO direction, built fail-closed and honest about what each
+platform actually enforces. YOLO removes the *approval* step only; it never
+removes the fence or overrides HALT.
+
+### Added
+- `arena/autonomy/posture.py` -- the posture model: axes, presets
+  (strict / balanced / fenced-yolo / naked), risk level, risk-scaled ack
+  phrases, persisted config.
+- `arena/autonomy/runner.py` -- fail-closed runner. Linux fenced -> a strict
+  fixed systemd-run sandbox (private network, dropped privileges, scratch-only
+  writes, memory cap); Windows fenced -> **refused in this slice** (the
+  AppContainer needs a live-validated file-access grant we will not ship
+  untested); `sandbox=off` -> unfenced (the labeled extreme, equals the
+  pre-existing exec risk). Secrets are scrubbed from env and wall-timeout +
+  output-cap apply on *every* path, including unfenced.
+- `code.run` tool (dangerous; YOLO-gated): runs agent code under the active
+  operator posture and rejects any posture axis in its arguments, so the agent
+  cannot widen its own fence. The result carries an honest `enforced` map.
+- Operator endpoints `GET/POST /v1/autonomy/posture`; the setter is
+  master-token-only (agent tokens rejected). The `autonomy/` directory is on
+  the sensitive-file blocklist.
+- YOLO moved into the `arena/autonomy` package (now also home to posture +
+  runner) and re-exported so existing imports keep working.
+
+### Tests
+Posture model (validation, presets, risk, ack, persistence, blocklist); runner
+`build_command` per platform + fail-closed refusals + off-path execution +
+runtime allowlist; `code.run` override-rejection + dangerous classification.
+
+### Deferred (tracked)
+Per-axis granularity beyond the Linux strict fence; the Windows AppContainer
+code-exec file-access grant; microVM isolation; the Settings "cubes" UI.
+
 ## v4.101.0 - Relocate /v1/mcp/* into the MCP layer (coherence)
 
 ### Purpose
