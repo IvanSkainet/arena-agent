@@ -1,3 +1,10 @@
+## v4.107.2 - Fix Windows test guard for AppContainer JSON argv
+
+### Fixed
+- Windows CI test now parses `ArgumentsJson` instead of searching for an
+  unescaped raw Windows path inside the JSON string. The runtime behavior from
+  v4.107.1 is unchanged; this release makes the cross-platform guard correct.
+
 ## v4.107.1 - AppContainer argv/stdin for code.run workspaces
 
 ### Fixed

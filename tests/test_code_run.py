@@ -1,6 +1,7 @@
 """v4.102.0 -- fail-closed code runner + code.run tool tests."""
 from __future__ import annotations
 
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -75,7 +76,8 @@ def test_build_win32_appcontainer_argv(tmp_path, monkeypatch):
     assert "-ApplicationPath" in argv and str(runtime) in argv
     assert "-ScratchDir" in argv and str(tmp_path) in argv
     assert "-RuntimeGrantDir" in argv and str(runtime.parent.resolve()) in argv
-    assert "-ArgumentsJson" in argv and str(tmp_path / "c.py") in argv[argv.index("-ArgumentsJson") + 1]
+    assert "-ArgumentsJson" in argv
+    assert json.loads(argv[argv.index("-ArgumentsJson") + 1]) == [str(tmp_path / "c.py")]
     assert info["refused"] is False and info["sandbox_action"] == "appcontainer"
     assert info["enforced"]["network"] is True
     assert info["enforced"]["privilege"] is True
@@ -117,8 +119,8 @@ def test_build_win32_appcontainer_uses_arguments_json_and_stdin(tmp_path, monkey
                                  runtime_args=["250"], stdin_path=stdin)
     assert info["refused"] is False
     assert "-ArgumentsJson" in argv
-    j = argv[argv.index("-ArgumentsJson") + 1]
-    assert "c.py" in j and "250" in j
+    j = json.loads(argv[argv.index("-ArgumentsJson") + 1])
+    assert j == [str(tmp_path / "c.py"), "250"]
     assert "-StdinPath" in argv and str(stdin) in argv
 
 
