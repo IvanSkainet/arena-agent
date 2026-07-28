@@ -354,4 +354,45 @@ def test_run_code_python_deps_install_sets_pythonpath(monkeypatch):
     assert seen["pip"] is not None
     assert "--target" in seen["pip"]
     assert ".deps" in seen["run_env"]["PYTHONPATH"]
-    assert res["deps"]["installed"] == ["requests==2.32.3"]
+    assert res["deps"]["python"]["installed"] == ["requests==2.32.3"]
+
+
+def test_run_code_npm_deps_require_network_open():
+    res = R.run_code_sync("console.log('x')", "node", _strict(), deps={"npm": ["left-pad@1.3.0"]}, platform="linux")
+    assert res["ok"] is False
+    assert res.get("refused") is True
+    assert "network=open" in res["error"]
+
+
+def test_run_code_npm_deps_install_sets_node_path(monkeypatch):
+    seen = {"npm": None, "run_env": None}
+
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+        return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
+
+    class _NpmProc:
+        returncode = 0
+        stdout = "npm ok"
+        stderr = ""
+
+    class _RunProc:
+        returncode = 0
+        stdout = "run ok"
+        stderr = ""
+
+    def fake_run(cmd, **kw):
+        if "install" in cmd and "--prefix" in cmd:
+            seen["npm"] = cmd
+            return _NpmProc()
+        seen["run_env"] = kw["env"]
+        return _RunProc()
+
+    monkeypatch.setattr(R, "build_command", fake_build)
+    monkeypatch.setattr(R, "_npm_for_deps", lambda: "npm")
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("console.log('x')", "node", {**_off(), "network": "open", "runtimes": ["node"]}, deps={"npm": ["left-pad@1.3.0"]}, platform="linux")
+    assert res["ok"] is True
+    assert seen["npm"] is not None
+    assert "--prefix" in seen["npm"]
+    assert "node_modules" in seen["run_env"]["NODE_PATH"]
+    assert res["deps"]["npm"]["installed"] == ["left-pad@1.3.0"]

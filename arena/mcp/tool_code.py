@@ -92,7 +92,7 @@ CODE_TOOLS = [
             "argv": {"type": "array", "items": {"type": "string"}, "description": "Command-line arguments passed after the entry file."},
             "stdin": {"type": "string", "description": "Optional stdin text for the process."},
             "artifacts": {"type": "array", "items": {"type": "string"}, "description": "Glob patterns inside scratch to return after execution, e.g. ['out/*.json']."},
-            "deps": {"type": "object", "description": "Optional dependency install. v4.112 supports deps.python=[package specs] and requires posture network=open."},
+            "deps": {"type": "object", "description": "Optional dependency install. supports deps.python=[package specs] and deps.npm=[package specs]; requires posture network=open."},
             "lang": {"type": "string",
                      "description": "interpreter name (must be in the posture's "
                                     "runtimes allowlist unless runtime=any)",

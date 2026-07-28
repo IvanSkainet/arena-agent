@@ -367,10 +367,23 @@ def _artifact_manifest(scratch: Path, patterns: list[str] | None, *, max_each: i
 
 
 _PY_DEP_RE = re.compile(r"^[A-Za-z0-9_.\-\[\]]+([<>=!~]=?[A-Za-z0-9_.\-*+]+)?(,[<>=!~]=?[A-Za-z0-9_.\-*+]+)*$")
+_NPM_DEP_RE = re.compile(r"^(@[A-Za-z0-9_.-]+/)?[A-Za-z0-9_.-]+(@[A-Za-z0-9_.\-+]+)?$")
 
 
 def _python_exe_for_deps(platform: str, lang: str) -> str | None:
     return _resolve_win32_runtime(lang) if platform == "win32" else _resolve_runtime(lang)
+
+
+def _npm_for_deps() -> str | None:
+    found = shutil.which("npm") or shutil.which("npm.cmd")
+    if found:
+        return found
+    node = _resolve_runtime("node")
+    if node:
+        p = Path(node).resolve().parent / ("npm.cmd" if sys.platform == "win32" else "npm")
+        if p.exists():
+            return str(p)
+    return None
 
 
 def _install_python_deps(scratch: Path, platform: str, lang: str, deps: dict[str, Any] | None,
@@ -403,6 +416,49 @@ def _install_python_deps(scratch: Path, platform: str, lang: str, deps: dict[str
         return {"ok": False, "error": "pip install failed", "exit_code": proc.returncode,
                 "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
     return {"ok": True, "installed": specs, "path": str(target), "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+
+
+
+def _install_node_deps(scratch: Path, lang: str, deps: dict[str, Any] | None,
+                       posture: dict[str, Any], timeout: int) -> dict[str, Any]:
+    pkgs = (deps or {}).get("npm") if isinstance(deps, dict) else None
+    if not pkgs:
+        return {"ok": True, "installed": [], "path": None}
+    if lang != "node":
+        return {"ok": False, "error": "deps.npm is only supported for lang=node"}
+    if posture.get("network") != "open":
+        return {"ok": False, "error": "deps.npm requires operator posture network=open for package download"}
+    if not isinstance(pkgs, list) or len(pkgs) > 20:
+        return {"ok": False, "error": "deps.npm must be an array of at most 20 package specs"}
+    specs = [str(p).strip() for p in pkgs]
+    bad = [p for p in specs if not p or not _NPM_DEP_RE.match(p)]
+    if bad:
+        return {"ok": False, "error": f"unsupported npm dependency spec(s): {bad}"}
+    npm = _npm_for_deps()
+    if not npm:
+        return {"ok": False, "error": "cannot resolve npm runtime for dependency install"}
+    target = scratch / ".deps" / "node"
+    target.mkdir(parents=True, exist_ok=True)
+    cmd = [npm, "install", "--prefix", str(target), "--no-save", "--no-audit", "--no-fund", *specs]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=max(timeout, 60), env=_scrub_env())
+    except subprocess.TimeoutExpired as e:
+        return {"ok": False, "error": f"npm install timed out after {max(timeout, 60)}s", "stdout": _trim(e.stdout or "", 4000), "stderr": _trim(e.stderr or "", 4000)}
+    if proc.returncode != 0:
+        return {"ok": False, "error": "npm install failed", "exit_code": proc.returncode,
+                "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+    return {"ok": True, "installed": specs, "path": str(target / "node_modules"), "stdout": _trim(proc.stdout, 4000), "stderr": _trim(proc.stderr, 4000)}
+
+
+def _install_deps(scratch: Path, platform: str, lang: str, deps: dict[str, Any] | None,
+                  posture: dict[str, Any], timeout: int) -> dict[str, Any]:
+    py = _install_python_deps(scratch, platform, lang, deps, posture, timeout)
+    if not py.get("ok"):
+        return {"ok": False, "python": py, "error": py.get("error")}
+    npm = _install_node_deps(scratch, lang, deps, posture, timeout)
+    if not npm.get("ok"):
+        return {"ok": False, "python": py, "npm": npm, "error": npm.get("error")}
+    return {"ok": True, "python": py, "npm": npm}
 
 
 def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
@@ -448,7 +504,7 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
 
         wall = timeout or int(effective_posture.get("resources", DEFAULT_RESOURCES)
                               .get("wall_seconds", 60))
-        deps_result = _install_python_deps(scratch, platform, lang, deps, effective_posture, wall)
+        deps_result = _install_deps(scratch, platform, lang, deps, effective_posture, wall)
         if not deps_result.get("ok"):
             return {"ok": False, "refused": True, "error": deps_result.get("error"), "deps": deps_result}
 
@@ -466,10 +522,16 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         max_out = int(effective_posture.get("resources", DEFAULT_RESOURCES)
                       .get("output_bytes", 100 * 1024))
         run_env = env if env is not None else _scrub_env()
-        if deps_result.get("path"):
+        py_deps = deps_result.get("python") or {}
+        if py_deps.get("path"):
             run_env = dict(run_env)
             old_py_path = run_env.get("PYTHONPATH", "")
-            run_env["PYTHONPATH"] = deps_result["path"] + (os.pathsep + old_py_path if old_py_path else "")
+            run_env["PYTHONPATH"] = py_deps["path"] + (os.pathsep + old_py_path if old_py_path else "")
+        npm_deps = deps_result.get("npm") or {}
+        if npm_deps.get("path"):
+            run_env = dict(run_env)
+            old_node_path = run_env.get("NODE_PATH", "")
+            run_env["NODE_PATH"] = npm_deps["path"] + (os.pathsep + old_node_path if old_node_path else "")
         if lang == "go":
             run_env = dict(run_env)
             go_root = _managed_go_root()

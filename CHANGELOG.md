@@ -1,3 +1,18 @@
+## v4.113.0 - Node/npm dependency mode for Code Workbench
+
+### Added
+- `code.run`, `code_project.run`, and `code_matrix.run` now accept
+  `deps: {"npm": ["package@version", ...]}` for Node runs.
+- NPM dependencies install into scratch-local `.deps/node/node_modules` using
+  `npm install --prefix ... --no-save` and are exposed via `NODE_PATH`.
+- Like Python dependency mode, npm dependency installation requires operator
+  posture `network=open`; under `network=deny` the run is refused before install.
+
+### Notes
+- Windows AppContainer still has known Node startup issues, so live Node
+  dependency proofs should use an explicit operator-selected host/off posture
+  until that runtime compatibility is solved.
+
 ## v4.112.0 - Python dependency mode for Code Workbench
 
 ### Added
