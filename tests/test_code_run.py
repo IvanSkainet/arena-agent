@@ -67,7 +67,7 @@ def test_build_win32_appcontainer_argv(tmp_path, monkeypatch):
     runtime.write_text("exe", encoding="utf-8")
     monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
     monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
-    monkeypatch.setattr(R, "_resolve_runtime", lambda lang: str(runtime))
+    monkeypatch.setattr(R, "_resolve_win32_runtime", lambda lang: str(runtime))
     argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path)
     assert argv is not None
     assert argv[:4] == ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass"]
@@ -96,10 +96,40 @@ def test_build_win32_missing_runtime_refused_fail_closed(tmp_path, monkeypatch):
     script.write_text("# runner", encoding="utf-8")
     monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
     monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
-    monkeypatch.setattr(R, "_resolve_runtime", lambda lang: None)
+    monkeypatch.setattr(R, "_resolve_win32_runtime", lambda lang: None)
     argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path)
     assert argv is None and info["refused"] is True
     assert "not found" in info["note"]
+
+
+def test_resolve_win32_python_skips_windowsapps_alias(monkeypatch, tmp_path):
+    real = tmp_path / "Python314" / "python.exe"
+    real.parent.mkdir()
+    real.write_text("exe", encoding="utf-8")
+    alias = r"C:\Users\Ivan\AppData\Local\Microsoft\WindowsApps\python3.exe"
+
+    monkeypatch.setattr(R.shutil, "which", lambda name: {
+        "py.exe": None,
+        "py": None,
+        "python3": alias,
+        "python": str(real),
+    }.get(name))
+
+    assert R._resolve_win32_runtime("python3") == str(real)
+
+
+def test_resolve_win32_python_uses_py_launcher_real_executable(monkeypatch, tmp_path):
+    real = tmp_path / "Python314" / "python.exe"
+    real.parent.mkdir()
+    real.write_text("exe", encoding="utf-8")
+
+    class _Proc:
+        stdout = str(real) + "\n"
+
+    monkeypatch.setattr(R.shutil, "which", lambda name: "C:/Windows/py.exe" if name == "py.exe" else None)
+    monkeypatch.setattr(R.subprocess, "run", lambda *a, **k: _Proc())
+
+    assert R._resolve_win32_runtime("python3") == str(real)
 
 
 def test_build_linux_microvm_refused(tmp_path):

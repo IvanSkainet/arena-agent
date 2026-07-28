@@ -46,6 +46,44 @@ def _resolve_runtime(lang: str) -> str | None:
     return shutil.which(lang)
 
 
+def _is_windowsapps_alias(path: str | None) -> bool:
+    if not path:
+        return False
+    return "\\microsoft\\windowsapps\\" in str(path).replace("/", "\\").lower()
+
+
+def _resolve_win32_runtime(lang: str) -> str | None:
+    """Resolve a real Windows runtime, avoiding App Execution Alias shims.
+
+    ``python3`` commonly resolves to ``%LOCALAPPDATA%\\Microsoft\\WindowsApps``
+    on Windows. That shim is not a real interpreter and fails inside
+    AppContainer with exit code 9009. Prefer a real Python discovered via the
+    launcher or a non-WindowsApps ``python.exe`` fallback.
+    """
+    if lang in {"python", "python3"}:
+        py = shutil.which("py.exe") or shutil.which("py")
+        if py and not _is_windowsapps_alias(py):
+            try:
+                proc = subprocess.run(
+                    [py, "-3", "-c", "import sys; print(sys.executable)"],
+                    capture_output=True, text=True, timeout=5, env=_scrub_env(),
+                )
+                candidate = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else ""
+                if candidate and Path(candidate).exists() and not _is_windowsapps_alias(candidate):
+                    return candidate
+            except Exception:
+                pass
+        for name in (lang, "python", "python3"):
+            candidate = _resolve_runtime(name)
+            if candidate and not _is_windowsapps_alias(candidate):
+                return candidate
+        return None
+    candidate = _resolve_runtime(lang)
+    if _is_windowsapps_alias(candidate):
+        return None
+    return candidate
+
+
 def _runtime_grant_dir(exe: str) -> str:
     """Return the narrow runtime root the AppContainer may read/execute.
 
@@ -121,7 +159,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                                    "filesystem_confined": False, "memory": False},
                       "note": res["note"]}
     if res["sandbox_action"] == "appcontainer":
-        exe = _resolve_runtime(lang)
+        exe = _resolve_win32_runtime(lang) if platform == "win32" else _resolve_runtime(lang)
         if not exe:
             return None, {"refused": True, "sandbox_action": "appcontainer",
                           "enforced": {**always, "network": False, "privilege": False,

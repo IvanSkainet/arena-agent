@@ -1,3 +1,19 @@
+## v4.104.1 - Fix Windows python3 runtime resolution for AppContainer code.run
+
+### Fixed
+- Windows AppContainer `code.run` now avoids Microsoft Store / WindowsApps
+  Python execution aliases when resolving `python` / `python3`. If `python3`
+  points at an App Execution Alias shim, the runner falls back to the real
+  `python.exe` (or the `py -3` launcher result) before launching the lowbox.
+  This makes the default `lang=python3` path use the same real interpreter that
+  the live AppContainer proof used successfully.
+
+### Notes
+- Python is live-validated through the actual `code.run` MCP path with
+  `sandbox_action=appcontainer`. Node currently enters AppContainer too, but
+  Node's startup probes `C:\\` and gets `EPERM`; that is a runtime-compat
+  follow-up, not an unfenced execution path.
+
 ## v4.104.0 - Windows AppContainer fence for code.run
 
 ### Added
