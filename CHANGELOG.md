@@ -1,3 +1,18 @@
+## v4.106.1 - Structured BrowserAct failure diagnostics
+
+### Fixed
+- `/v1/browser/browse` BrowserAct failures now parse BrowserAct's JSON error
+  payload instead of returning it as one long string. Responses include
+  `error_name`, `error_code`, redacted `error_data`, `likely_cause`, and
+  `next_action`. This makes failures such as `CLI_AUTH_REQUIRED` and
+  `CONNECTION_FAILED` actionable from the bridge/Dashboard.
+
+### Scenario
+- After a valid API key was configured, BrowserAct still failed to open its
+  remote stealth browser because its local CDP proxy did not expose
+  `/json/version`. The bridge now reports that as
+  `browseract_local_cdp_proxy_failed` instead of hiding it in stderr text.
+
 ## v4.106.0 - BrowserAct/CDP browse hardening + README refresh
 
 ### Fixed

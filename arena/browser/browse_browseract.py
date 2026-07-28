@@ -9,6 +9,47 @@ from pathlib import Path
 from arena.handler_context import BrowserBrowseHandlerContext
 
 
+def _browseract_likely_cause(error_name: str | None, error: str, error_data: dict | None) -> tuple[str | None, str | None]:
+    if error_name in {"CLI_AUTH_REQUIRED", "AUTH_REQUIRED"}:
+        return ("browseract_api_key_missing",
+                "Run set_browseract_api_key.bat or `python skills/browseract/run.py auth set <API_KEY>` locally.")
+    if error_name in {"CONNECTION_FAILED", "COMMAND_EXECUTION_FAILED"} and "WebSocket URL" in (error or ""):
+        cdp = (error_data or {}).get("cdp_url")
+        detail = f" BrowserAct reported cdp_url={cdp}." if cdp else ""
+        return ("browseract_local_cdp_proxy_failed",
+                "BrowserAct auth and browser list may be OK, but its local CDP proxy did not expose /json/version." + detail +
+                " Try BrowserAct daemon restart/report-log or run the interactive BrowserAct test from the desktop session.")
+    return (None, None)
+
+
+def _browseract_error_response(ctx: BrowserBrowseHandlerContext, stderr: str, rc: int):
+    raw = (stderr or "").strip()
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        err = str(parsed.get("error") or "")
+        error_name = parsed.get("error_name")
+        error_data = parsed.get("error_data") if isinstance(parsed.get("error_data"), dict) else None
+        likely, next_action = _browseract_likely_cause(error_name, err, error_data)
+        payload = {
+            "ok": False,
+            "backend": "browseract",
+            "error": err,
+            "error_code": parsed.get("error_code"),
+            "error_name": error_name,
+            "error_data": error_data,
+            "likely_cause": likely,
+            "next_action": next_action,
+            "raw_exit_code": rc,
+        }
+        return ctx.cors_json_response(payload, status=500)
+    return ctx.cors_json_response({"ok": False, "backend": "browseract",
+                                   "error": f"BrowserAct failed (rc={rc}): {raw[:2000]}",
+                                   "raw_exit_code": rc}, status=500)
+
+
 async def run_browseract_browse(
     ctx: BrowserBrowseHandlerContext,
     *,
@@ -57,9 +98,9 @@ async def run_browseract_browse(
                     "output": text[:50000],
                 })
 
-        err = stderr.decode("utf-8", errors="replace")[:2000] if stderr else "unknown error"
+        err = stderr.decode("utf-8", errors="replace") if stderr else "unknown error"
         ctx.record_request(is_error=True, count_request=False)
-        return ctx.cors_json_response({"ok": False, "error": f"BrowserAct failed (rc={proc.returncode}): {err}"}, status=500)
+        return _browseract_error_response(ctx, err, proc.returncode)
     except asyncio.TimeoutError:
         ctx.record_request(is_error=True, count_request=False)
         return ctx.cors_json_response({"ok": False, "error": f"BrowserAct timed out ({timeout}s)"}, status=408)
