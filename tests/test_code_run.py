@@ -184,8 +184,19 @@ def test_run_code_off_executes_harmless():
 
 def test_build_go_uses_go_run_invocation(tmp_path):
     argv, info = R.build_command("linux", _off(), "go", tmp_path / "main.go", tmp_path, runtime_args=["300"])
-    assert argv == ["go", "run", str(tmp_path / "main.go"), "300"]
+    assert argv[-3:] == ["run", str(tmp_path / "main.go"), "300"]
     assert info["sandbox_action"] == "off"
+
+
+def test_build_win32_appcontainer_refuses_go(tmp_path, monkeypatch):
+    script = tmp_path / "appcontainer_run.ps1"
+    script.write_text("# runner", encoding="utf-8")
+    monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
+    monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
+    argv, info = R.build_command("win32", {**_strict(), "runtimes": ["go"]}, "go", tmp_path / "main.go", tmp_path)
+    assert argv is None
+    assert info["refused"] is True
+    assert "NUL" in info["note"]
 
 
 def test_runtime_grant_dir_for_go_uses_go_root(tmp_path):

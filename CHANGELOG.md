@@ -1,3 +1,12 @@
+## v4.108.5 - Managed runtime paths for host Code Workbench runs
+
+### Fixed
+- Host/off and systemd `code.run` invocations now use Arena-managed runtime
+  paths, not just PATH lookups. Managed Go can run through `code_project.run`
+  even when `go` is not on the service PATH.
+- Windows AppContainer now refuses managed Go with an explicit diagnostic about
+  the Go toolchain's `NUL` device access instead of attempting a doomed compile.
+
 ## v4.108.4 - Managed Go invocation under code.run
 
 ### Fixed

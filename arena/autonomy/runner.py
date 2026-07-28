@@ -116,11 +116,11 @@ def _runtime_grant_dir(exe: str) -> str:
     return str(p.parent)
 
 
-def _runtime_invocation(lang: str, code_path: Path, runtime_args: list[str] | None = None) -> list[str]:
+def _runtime_invocation(lang: str, command: str, code_path: Path, runtime_args: list[str] | None = None) -> list[str]:
     args = [str(a) for a in (runtime_args or [])]
     if lang == "go":
-        return [lang, "run", str(code_path), *args]
-    return [lang, str(code_path), *args]
+        return [command, "run", str(code_path), *args]
+    return [command, str(code_path), *args]
 
 
 def _managed_go_root() -> str | None:
@@ -186,7 +186,8 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     of what the fence does on this platform.
     """
     res = resolve(platform, posture)
-    base = _runtime_invocation(lang, code_path, runtime_args)
+    runtime_cmd = _managed_runtime_path(lang) or lang
+    base = _runtime_invocation(lang, runtime_cmd, code_path, runtime_args)
     always = _always_enforced()
     if not res["supported"]:
         return None, {"refused": True, "sandbox_action": res["sandbox_action"],
@@ -199,6 +200,11 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                                    "filesystem_confined": False, "memory": False},
                       "note": res["note"]}
     if res["sandbox_action"] == "appcontainer":
+        if platform == "win32" and lang == "go":
+            return None, {"refused": True, "sandbox_action": "appcontainer",
+                          "enforced": {**always, "network": False, "privilege": False,
+                                       "filesystem_confined": False, "memory": False},
+                          "note": "Managed Go is installed, but the Go toolchain opens the Windows NUL device during compilation; Windows AppContainer denies that device. Refusing fenced Go until a broker/device policy exists. Use an operator-selected sandbox=off posture for host Go builds."}
         exe = _resolve_win32_runtime(lang) if platform == "win32" else _resolve_runtime(lang)
         if not exe:
             return None, {"refused": True, "sandbox_action": "appcontainer",
@@ -221,7 +227,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                 "-ScratchDir", str(scratch_dir),
                 "-RuntimeGrantDir", _runtime_grant_dir(exe),
                 "-TimeoutSec", str(wall),
-                "-ArgumentsJson", json.dumps(_runtime_invocation(lang, code_path, runtime_args)[1:])]
+                "-ArgumentsJson", json.dumps(_runtime_invocation(lang, exe, code_path, runtime_args)[1:])]
         if stdin_path is not None:
             argv.extend(["-StdinPath", str(stdin_path)])
         enforced = {
