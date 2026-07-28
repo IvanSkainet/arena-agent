@@ -166,6 +166,8 @@ def build_resource_registry(env, registry: dict[str, Any]) -> None:
         "handle_v1_agents": "agents",
         "handle_v1_subagents": "subagents",
         "handle_v1_subagents_spawn": "subagents_spawn",
+        "handle_v1_code_run_info": "code_run_info",
+        "handle_v1_code_artifact_download": "code_artifact_download",
         "handle_v1_mission_show": "mission_show",
         "handle_v1_mission_status": "mission_status",
         "handle_v1_mission_report": "mission_report",

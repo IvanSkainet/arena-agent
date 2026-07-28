@@ -1,3 +1,11 @@
+## v4.110.0 - REST downloads for Code Workbench artifacts
+
+### Added
+- `GET /v1/code/runs/{run_id}` returns persisted Code Workbench run metadata.
+- `GET /v1/code/runs/{run_id}/artifacts/{path}` downloads a persisted artifact
+  file. This makes the `download_url` field emitted by `code.run` and
+  `code_project.run` real, not just a future placeholder.
+
 ## v4.109.1 - Document persisted artifact namespaces
 
 ### Fixed

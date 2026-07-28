@@ -40,6 +40,8 @@ def register_core_routes(app: web.Application, h: Mapping[str, Callable]) -> Non
     app.router.add_post("/v1/fs/edit/rollback", h["handle_v1_fs_edit_rollback"])
     app.router.add_post("/v1/fs/view", h["handle_v1_fs_view"])
     app.router.add_post("/v1/fs/create", h["handle_v1_fs_create"])
+    app.router.add_get("/v1/code/runs/{run_id}", h["handle_v1_code_run_info"])
+    app.router.add_get("/v1/code/runs/{run_id}/artifacts/{path:.*}", h["handle_v1_code_artifact_download"])
 
     # ---- Dashboard API (auth required) ----
     app.router.add_get("/v1/memory", h["handle_v1_memory"])

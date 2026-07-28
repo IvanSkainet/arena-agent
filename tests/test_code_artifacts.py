@@ -37,3 +37,20 @@ def test_artifact_mcp_tools_registered_and_safe(tmp_path, monkeypatch):
     assert classify_tool_risk("code_artifact.read") == "safe"
     out = _parsed(handle_code_artifact_tool("code_run.info", {"run_id": "missing"}, ctx=object()))
     assert out["ok"] is False
+
+
+
+def test_code_artifact_routes_registered():
+    from arena.route_registry.registry import ROUTES
+    paths = {(m, p) for m, p, *_ in ROUTES}
+    assert ("GET", "/v1/code/runs/{run_id}") in paths
+    assert ("GET", "/v1/code/runs/{run_id}/artifacts/{path:.*}") in paths
+
+
+def test_resource_handlers_include_code_artifact_fields():
+    from dataclasses import fields
+
+    from arena.resources.handlers import ResourceHandlers
+    names = {f.name for f in fields(ResourceHandlers)}
+    assert "code_run_info" in names
+    assert "code_artifact_download" in names

@@ -32,7 +32,6 @@ from typing import Any, Optional
 
 from aiohttp import web
 
-
 # Type alias for a single route declaration.
 Route = tuple[str, str, str, str, Optional[dict[str, Any]]]
 
@@ -130,6 +129,8 @@ ROUTES: list[Route] = [
     ('POST'  , '/v1/fs/edit/rollback'                            , 'handle_v1_fs_edit_rollback'                 , 'core', None),
     ('POST'  , '/v1/fs/view'                                     , 'handle_v1_fs_view'                          , 'core', None),
     ('POST'  , '/v1/fs/create'                                   , 'handle_v1_fs_create'                        , 'core', None),
+    ('GET'   , '/v1/code/runs/{run_id}'                         , 'handle_v1_code_run_info'                   , 'core', None),
+    ('GET'   , '/v1/code/runs/{run_id}/artifacts/{path:.*}'      , 'handle_v1_code_artifact_download'          , 'core', None),
     ('POST'  , '/v1/notify'                                      , 'handle_v1_notify'                           , 'core', None),
     ('GET'   , '/v1/autonomy/posture'                            , 'handle_v1_autonomy_posture_get'           , 'core', None),
     ('POST'  , '/v1/autonomy/posture'                            , 'handle_v1_autonomy_posture_set'           , 'core', None),

@@ -8,7 +8,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import ResourceHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)
@@ -34,7 +34,8 @@ class ResourceHandlers:
     mission_followup: object
     mission_iterate: object
     subagents_spawn: object
-
+    code_run_info: object
+    code_artifact_download: object
 
 
 def _query_bool(value: str) -> bool | None:
@@ -199,5 +200,25 @@ def make_resource_handlers(ctx: ResourceHandlerContext) -> ResourceHandlers:
         ctx.audit({"type": "subagent_spawn", "cmd": cmd, "name": data.get("name", ""), "ok": result.get("ok", False)})
         return ctx.cors_json_response(result)
 
-    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_lineage=lambda request: _mission_get(ctx.mission_lineage_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, mission_followup=handle_v1_mission_followup, mission_iterate=handle_v1_mission_iterate, subagents_spawn=handle_v1_subagents_spawn)
+
+
+    @authed(ctx)
+    async def handle_v1_code_run_info(request: web.Request) -> web.Response:
+        from arena.workbench.artifacts import run_info
+        run_id = request.match_info.get("run_id", "")
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(ctx.executor, run_info, run_id)
+        return ctx.cors_json_response(result, status=200 if result.get("ok") else 404)
+
+    @authed(ctx)
+    async def handle_v1_code_artifact_download(request: web.Request) -> web.Response:
+        from arena.workbench.artifacts import runs_root, safe_rel, safe_run_id
+        run_id = safe_run_id(request.match_info.get("run_id", ""))
+        rel = safe_rel(request.match_info.get("path", ""))
+        fp = runs_root() / run_id / "artifacts" / rel
+        if not fp.is_file():
+            return ctx.cors_json_response({"ok": False, "error": "artifact not found"}, status=404)
+        return web.FileResponse(fp)
+
+    return ResourceHandlers(missions=handle_v1_missions, reports=handle_v1_reports, hooks=_simple(ctx.hooks_list_sync), agents=_simple(ctx.agents_list_sync), subagents=_simple(ctx.subagents_list_sync), mission_show=handle_v1_mission_show, mission_status=lambda request: _mission_get(ctx.mission_status_sync, request), mission_report=lambda request: _mission_get(ctx.mission_report_sync, request), mission_history=lambda request: _mission_get(ctx.mission_history_sync, request), mission_lineage=lambda request: _mission_get(ctx.mission_lineage_sync, request), mission_catalog=handle_v1_mission_catalog, mission_templates=_simple(ctx.mission_templates_sync), mission_compose=handle_v1_mission_compose, mission_propose=handle_v1_mission_propose, mission_create=handle_v1_mission_create, mission_run=handle_v1_mission_run, mission_rerun=handle_v1_mission_rerun, mission_recover=handle_v1_mission_recover, mission_followup=handle_v1_mission_followup, mission_iterate=handle_v1_mission_iterate, subagents_spawn=handle_v1_subagents_spawn, code_run_info=handle_v1_code_run_info, code_artifact_download=handle_v1_code_artifact_download)
 
