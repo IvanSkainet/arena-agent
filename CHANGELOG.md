@@ -1,3 +1,9 @@
+## v4.111.1 - Document code_matrix namespace
+
+### Fixed
+- README namespace examples now include `code_matrix.run`, satisfying the
+  namespace documentation guard for the new matrix runner.
+
 ## v4.111.0 - Code Workbench matrix runs
 
 ### Added
