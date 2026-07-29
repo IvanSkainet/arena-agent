@@ -1,3 +1,14 @@
+## v4.116.0 - Python Code Sessions MVP
+
+### Added
+- `code_session.start`, `code_session.exec`, `code_session.list`,
+  `code_session.stop`, and `code_session.stop_all`.
+- MVP supports Python sessions with a JSON-line worker protocol that preserves
+  globals across calls without parsing an interactive REPL prompt.
+- Sessions currently require an explicit operator-selected `sandbox=off`
+  posture. AppContainer long sessions are a later slice because they need
+  durable lowbox handles/pipes and lifecycle management.
+
 ## v4.115.1 - Project dependency cache run fixes
 
 ### Fixed

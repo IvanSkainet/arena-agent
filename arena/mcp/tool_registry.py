@@ -17,6 +17,7 @@ from arena.mcp.tool_runtime import RUNTIME_TOOLS
 from arena.mcp.tool_code_project import PROJECT_TOOLS
 from arena.mcp.tool_code_artifact import ARTIFACT_TOOLS
 from arena.mcp.tool_code_matrix import MATRIX_TOOLS
+from arena.mcp.tool_code_session import SESSION_TOOLS
 from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
 MCP_TOOLS = [
     # v4.75.0: bare names (ping / echo / exec) removed.
@@ -234,6 +235,7 @@ MCP_TOOLS.extend(RUNTIME_TOOLS)
 MCP_TOOLS.extend(PROJECT_TOOLS)
 MCP_TOOLS.extend(ARTIFACT_TOOLS)
 MCP_TOOLS.extend(MATRIX_TOOLS)
+MCP_TOOLS.extend(SESSION_TOOLS)
 # v4.96.0: static management tools for the self-extending environment
 # (custom.create / custom.list / custom.remove). The agent-AUTHORED tools
 # themselves are dynamic and appended at tools/list time (custom_tool_defs).

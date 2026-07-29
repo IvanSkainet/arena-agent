@@ -87,6 +87,19 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_code_session.py",
+    "handlers": [
+      "handle_code_session_tool"
+    ],
+    "tool_names": [
+      "code_session.exec",
+      "code_session.list",
+      "code_session.start",
+      "code_session.stop",
+      "code_session.stop_all"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_desktop.py",
     "handlers": [
       "handle_desktop_tool"
