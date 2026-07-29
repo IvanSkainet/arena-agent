@@ -51,3 +51,11 @@ def test_appcontainer_script_accepts_arguments_json():
     s = _script()
     assert "ArgumentsJson" in s
     assert "ConvertFrom-Json" in s
+
+
+def test_appcontainer_script_accepts_extra_read_execute_grants():
+    s = _script()
+    assert "ExtraGrantDirsJson" in s
+    assert "$ExtraGrantDirs" in s
+    assert "foreach" in s and "$grantDir in $ExtraGrantDirs" in s
+    assert "Grant-AppContainerPath $grantDir ([System.Security.AccessControl.FileSystemRights]::ReadAndExecute)" in s

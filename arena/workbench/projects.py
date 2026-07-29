@@ -114,6 +114,22 @@ def deps_install(name: str, *, lang: str, deps: dict[str, Any], timeout: int | N
     )
 
 
+def _project_dep_dirs(name: str, lang: str) -> list[Path]:
+    d = _project_dir(name)
+    dirs: list[Path] = []
+    py = d / ".deps" / "python"
+    if py.exists() and lang in {"python", "python3"}:
+        dirs.append(py)
+    node = d / ".deps" / "node" / "node_modules"
+    if node.exists() and lang == "node":
+        dirs.append(node)
+    if lang == "go":
+        for p in (d / ".deps" / "go-mod", d / ".deps" / "go-cache", d / ".deps" / "go-tmp"):
+            if p.exists():
+                dirs.append(p)
+    return dirs
+
+
 def _project_dep_env(name: str, lang: str) -> dict[str, str]:
     d = _project_dir(name)
     env: dict[str, str] = {}
@@ -154,10 +170,17 @@ def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
                 files.append({"path": rel, "content": base64.b64encode(p.read_bytes()).decode("ascii"), "encoding": "base64"})
     posture = _posture.load_posture()
     env = None
+    extra_grant_dirs = None
     if use_project_deps:
-        if posture.get("sandbox") != "off":
-            return {"ok": False, "error": "use_project_deps currently requires operator posture sandbox=off; AppContainer cannot read project dependency cache yet"}
+        sandbox = posture.get("sandbox")
+        if sandbox not in {"off", "appcontainer"}:
+            return {"ok": False, "error": "use_project_deps currently supports sandbox=off or Windows AppContainer project-deps grants"}
         env = {**_runner._scrub_env(), **_project_dep_env(name, lang)}
+        if sandbox == "appcontainer":
+            extra_grant_dirs = _project_dep_dirs(name, lang)
+            if not extra_grant_dirs:
+                return {"ok": False, "error": "use_project_deps requested but no project dependency cache exists for this language"}
     return _runner.run_code_sync("", lang, posture, timeout=timeout, platform=platform,
                                  env=env, files=files, entry=entry, argv=argv or [], stdin=stdin,
-                                 artifacts=artifacts or [], deps=deps)
+                                 artifacts=artifacts or [], deps=deps,
+                                 extra_grant_dirs=extra_grant_dirs)

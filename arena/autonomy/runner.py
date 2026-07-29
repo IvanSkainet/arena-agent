@@ -178,7 +178,8 @@ def _always_enforced() -> dict[str, bool]:
 def build_command(platform: str, posture: dict[str, Any], lang: str,
                   code_path: Path, scratch_dir: Path,
                   runtime_args: list[str] | None = None,
-                  stdin_path: Path | None = None) -> tuple[list[str] | None, dict[str, Any]]:
+                  stdin_path: Path | None = None,
+                  extra_grant_dirs: list[Path] | None = None) -> tuple[list[str] | None, dict[str, Any]]:
     """Return (argv, info). argv is None when execution is refused (fail-closed).
 
     ``info`` always carries ``refused``, ``sandbox_action``, ``enforced`` (the
@@ -221,6 +222,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                                        "filesystem_confined": False, "memory": False},
                           "note": "PowerShell disappeared before command build; "
                                   "refusing to run unfenced."}
+        grant_dirs = [str(Path(p)) for p in (extra_grant_dirs or []) if str(p)]
         argv = [ps, "-NoProfile", "-ExecutionPolicy", "Bypass",
                 "-File", str(_appcontainer_script()),
                 "-ApplicationPath", exe,
@@ -228,6 +230,8 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
                 "-RuntimeGrantDir", _runtime_grant_dir(exe),
                 "-TimeoutSec", str(wall),
                 "-ArgumentsJson", json.dumps(_runtime_invocation(lang, exe, code_path, runtime_args)[1:])]
+        if grant_dirs:
+            argv.extend(["-ExtraGrantDirsJson", json.dumps(grant_dirs)])
         if stdin_path is not None:
             argv.extend(["-StdinPath", str(stdin_path)])
         enforced = {
@@ -252,6 +256,8 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
         if posture.get("filesystem") in ("home-read", "host-rw"):
             notes.append("filesystem request is enforced stricter as scratch-only "
                          "+ runtime read/execute on Windows AppContainer")
+        if extra_grant_dirs:
+            notes.append("project dependency cache granted read/execute to AppContainer")
         return argv, {"refused": False, "sandbox_action": "appcontainer",
                       "enforced": enforced, "note": "; ".join(n for n in notes if n)}
 
@@ -373,7 +379,8 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                   argv: list[str] | None = None,
                   stdin: str | None = None,
                   artifacts: list[str] | None = None,
-                  deps: dict[str, Any] | None = None) -> dict[str, Any]:
+                  deps: dict[str, Any] | None = None,
+                  extra_grant_dirs: list[Path] | None = None) -> dict[str, Any]:
     platform = platform or sys.platform
     allow = posture.get("runtimes") or list(DEFAULT_RUNTIMES)
     if posture.get("runtime") != "any" and lang not in allow:
@@ -425,6 +432,7 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         argv_cmd, info = build_command(
             platform, effective_posture, lang, code_path, scratch,
             runtime_args=runtime_args, stdin_path=stdin_path,
+            extra_grant_dirs=extra_grant_dirs,
         )
         if info.get("refused"):
             return {"ok": False, **info}

@@ -79,6 +79,7 @@ def test_build_win32_appcontainer_argv(tmp_path, monkeypatch):
     assert "-RuntimeGrantDir" in argv and str(runtime.parent.resolve()) in argv
     assert "-ArgumentsJson" in argv
     assert json.loads(argv[argv.index("-ArgumentsJson") + 1]) == [str(tmp_path / "c.py")]
+    assert "-ExtraGrantDirsJson" not in argv
     assert info["refused"] is False and info["sandbox_action"] == "appcontainer"
     assert info["enforced"]["network"] is True
     assert info["enforced"]["privilege"] is True
@@ -123,6 +124,26 @@ def test_build_win32_appcontainer_uses_arguments_json_and_stdin(tmp_path, monkey
     j = json.loads(argv[argv.index("-ArgumentsJson") + 1])
     assert j == [str(tmp_path / "c.py"), "250"]
     assert "-StdinPath" in argv and str(stdin) in argv
+
+
+
+
+def test_build_win32_appcontainer_accepts_extra_grant_dirs(tmp_path, monkeypatch):
+    script = tmp_path / "appcontainer_run.ps1"
+    script.write_text("# runner", encoding="utf-8")
+    runtime = tmp_path / "Python314" / "python.exe"
+    runtime.parent.mkdir()
+    runtime.write_text("exe", encoding="utf-8")
+    dep = tmp_path / "project" / ".deps" / "python"
+    dep.mkdir(parents=True)
+    monkeypatch.setattr(R, "_appcontainer_script", lambda: script)
+    monkeypatch.setattr(R, "_powershell", lambda: "powershell.exe")
+    monkeypatch.setattr(R, "_resolve_win32_runtime", lambda lang: str(runtime))
+    argv, info = R.build_command("win32", _strict(), "python3", tmp_path / "c.py", tmp_path, extra_grant_dirs=[dep])
+    assert info["refused"] is False
+    assert "-ExtraGrantDirsJson" in argv
+    assert json.loads(argv[argv.index("-ExtraGrantDirsJson") + 1]) == [str(dep)]
+    assert "project dependency cache granted read/execute" in info["note"]
 
 
 def test_resolve_win32_python_skips_windowsapps_alias(monkeypatch, tmp_path):
@@ -210,7 +231,7 @@ def test_runtime_grant_dir_for_go_uses_go_root(tmp_path):
 def test_run_code_sets_go_scratch_env(monkeypatch, tmp_path):
     seen = {}
 
-    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
 
     class _Proc:
@@ -242,7 +263,7 @@ def test_run_code_runtime_allowlist_enforced():
 def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
     seen = {}
 
-    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         seen["wall"] = posture["resources"]["wall_seconds"]
         return ["fake"], {"refused": False, "sandbox_action": "appcontainer",
                           "enforced": {"network": True}}
@@ -262,7 +283,7 @@ def test_run_code_timeout_is_propagated_into_platform_command(monkeypatch):
 def test_run_code_workspace_files_entry_args_stdin_and_artifacts(monkeypatch):
     seen = {}
 
-    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         seen["entry"] = code_path.name
         seen["args"] = runtime_args
         out = scratch_dir / "out" / "result.txt"
@@ -328,7 +349,7 @@ def test_run_code_python_deps_require_network_open():
 def test_run_code_python_deps_install_sets_pythonpath(monkeypatch):
     seen = {"pip": None, "run_env": None}
 
-    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
 
     class _PipProc:
@@ -369,7 +390,7 @@ def test_run_code_npm_deps_require_network_open():
 def test_run_code_npm_deps_install_sets_node_path(monkeypatch):
     seen = {"npm": None, "run_env": None}
 
-    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
 
     class _NpmProc:
@@ -417,7 +438,7 @@ def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
     managed.write_text("exe", encoding="utf-8")
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
 
-    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
 
     class _Proc:
@@ -449,7 +470,7 @@ def test_run_code_go_deps_run_go_mod_download(monkeypatch, tmp_path):
 
 def test_run_code_subprocess_uses_scratch_cwd(monkeypatch):
     seen = {}
-    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None):
+    def fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
         seen["scratch"] = scratch_dir
         return ["fake"], {"refused": False, "sandbox_action": "off", "enforced": {"network": False}}
     class _Proc:

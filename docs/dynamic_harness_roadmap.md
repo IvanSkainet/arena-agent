@@ -88,7 +88,7 @@ Successful experiments become persistent tools.
 
 ## Phase 3 — Better Sandboxes
 
-### v4.122.0 — AppContainer Project Deps
+### v4.122.0 — AppContainer Project Deps ✅ completed
 
 Allow `code_project.run(use_project_deps=true)` in AppContainer by granting only project dependency cache read/execute plus scratch write.
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status, v4.119.0 Ship Status / Preflight, v4.120.0 Tool Foundry v1, and v4.121.0 Promote Project/Run to Tool are complete. Continue with v4.122.0 — AppContainer Project Deps; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.122.0 AppContainer Project Deps are complete. Continue with v4.123.0 — Runtime Compatibility Registry; keep using the maps before adding power.

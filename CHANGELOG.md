@@ -1,3 +1,12 @@
+## v4.122.0 - AppContainer Project Deps
+
+### Added
+- `code_project.run(use_project_deps=true)` now works in Windows AppContainer for project dependency caches by granting only the language-specific `.deps` cache directory read/execute, while keeping scratch-only writes and network denial intact.
+- The AppContainer runner accepts extra read/execute grant directories through `-ExtraGrantDirsJson`; this is used for narrow project dependency cache access, not broad project/home access.
+
+### Changed
+- `use_project_deps=true` no longer requires `sandbox=off` for Python project dependency cache runs when the active posture is Windows AppContainer.
+
 ## v4.121.0 - Promote Project/Run to Tool
 
 ### Added

@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.121.x)
+## Current flight status (v4.122.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -180,6 +180,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Ship Status / Preflight is now the top-level map.** `ship.status` aggregates bridge health, operator posture, transports, external MCP/desktop servers, BrowserAct/CDP, mobile/ADB, Code Workbench, known issues, and next actions. `ship.preflight` summarizes fail/warn readiness before real missions.
 - **Tool Foundry v1 connects projects to callable tools.** A Code Workbench project can carry `.arena-tool.json` with input schema, run recipe and tests. `tool_foundry.validate` proves it; `tool_foundry.publish` creates a callable `custom.<name>` wrapper around `code_project.run`.
 - **Experiments can be promoted directly.** `code_project.promote_tool` and `code_run.promote_tool` generate a Foundry manifest from a known-good recipe/tests, validate it, and publish the resulting `custom.<name>` capability without hand-writing `.arena-tool.json`.
+- **Project dependency cache can now stay fenced.** Python `code_project.run(use_project_deps=true)` can run in Windows AppContainer by granting only the project `.deps/python` cache read/execute, while writes remain scratch-only and network stays denied.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official

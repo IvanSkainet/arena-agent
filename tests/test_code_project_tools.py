@@ -99,13 +99,30 @@ def test_project_deps_install_and_run_uses_project_deps(tmp_path, monkeypatch):
     assert "PYTHONPATH" in seen["env"]
 
 
-def test_project_run_use_project_deps_requires_off(tmp_path, monkeypatch):
+def test_project_run_use_project_deps_appcontainer_grants_cache(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
+    dep = tmp_path / "code-projects" / "demo" / ".deps" / "python"
+    dep.mkdir(parents=True)
+    monkeypatch.setattr(projects._posture, "load_posture", lambda: {"sandbox": "appcontainer", "runtime": "any"})
+    seen = {}
+    def fake_run(code, lang, posture, **kwargs):
+        seen.update(kwargs)
+        return {"ok": True}
+    monkeypatch.setattr(projects._runner, "run_code_sync", fake_run)
+    out = projects.run("demo", lang="python3", entry="main.py", use_project_deps=True)
+    assert out["ok"] is True
+    assert seen["extra_grant_dirs"] == [dep]
+    assert "PYTHONPATH" in seen["env"]
+
+
+def test_project_run_use_project_deps_appcontainer_requires_existing_cache(tmp_path, monkeypatch):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
     monkeypatch.setattr(projects._posture, "load_posture", lambda: {"sandbox": "appcontainer", "runtime": "any"})
     out = projects.run("demo", lang="python3", entry="main.py", use_project_deps=True)
     assert out["ok"] is False
-    assert "sandbox=off" in out["error"]
+    assert "no project dependency cache" in out["error"]
 
 
 def test_project_run_skips_dependency_cache_dirs(tmp_path, monkeypatch):

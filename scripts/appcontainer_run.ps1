@@ -21,6 +21,7 @@ param (
     [string]$StdinPath,
     [string]$ScratchDir,
     [string]$RuntimeGrantDir,
+    [string]$ExtraGrantDirsJson,
     [int]$TimeoutSec = 60,
     [string]$ContainerName = "ArenaCodeRun"
 )
@@ -74,6 +75,18 @@ if (-not [string]::IsNullOrWhiteSpace($ArgumentsJson)) {
         else { $Arguments = @([string]$parsedArgs) }
     } catch {
         Fail-Closed ("invalid -ArgumentsJson: " + $_.Exception.Message) 125
+    }
+}
+
+$ExtraGrantDirs = @()
+if (-not [string]::IsNullOrWhiteSpace($ExtraGrantDirsJson)) {
+    try {
+        $parsedGrantDirs = ConvertFrom-Json -InputObject $ExtraGrantDirsJson
+        if ($null -eq $parsedGrantDirs) { $ExtraGrantDirs = @() }
+        elseif ($parsedGrantDirs -is [System.Array]) { $ExtraGrantDirs = @($parsedGrantDirs | ForEach-Object { [string]$_ }) }
+        else { $ExtraGrantDirs = @([string]$parsedGrantDirs) }
+    } catch {
+        Fail-Closed ("invalid -ExtraGrantDirsJson: " + $_.Exception.Message) 125
     }
 }
 
@@ -368,6 +381,11 @@ try {
     # the interpreter/runtime root chosen by arena.autonomy.runner.  If Windows
     # says we cannot grant it, we refuse instead of silently launching unfenced.
     Grant-AppContainerPath $RuntimeGrantDir ([System.Security.AccessControl.FileSystemRights]::ReadAndExecute)
+    foreach ($grantDir in $ExtraGrantDirs) {
+        if (-not [string]::IsNullOrWhiteSpace($grantDir)) {
+            Grant-AppContainerPath $grantDir ([System.Security.AccessControl.FileSystemRights]::ReadAndExecute)
+        }
+    }
 } catch {
     Fail-Closed ("cannot grant AppContainer ACL: " + $_.Exception.Message) 125
 }
