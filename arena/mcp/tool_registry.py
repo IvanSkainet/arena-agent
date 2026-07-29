@@ -20,6 +20,7 @@ from arena.mcp.tool_code_matrix import MATRIX_TOOLS
 from arena.mcp.tool_code_session import SESSION_TOOLS
 from arena.mcp.tool_workbench import WORKBENCH_TOOLS
 from arena.mcp.tool_ship import SHIP_TOOLS
+from arena.mcp.tool_foundry import FOUNDRY_TOOLS
 from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
 MCP_TOOLS = [
     # v4.75.0: bare names (ping / echo / exec) removed.
@@ -240,6 +241,7 @@ MCP_TOOLS.extend(MATRIX_TOOLS)
 MCP_TOOLS.extend(SESSION_TOOLS)
 MCP_TOOLS.extend(WORKBENCH_TOOLS)
 MCP_TOOLS.extend(SHIP_TOOLS)
+MCP_TOOLS.extend(FOUNDRY_TOOLS)
 # v4.96.0: static management tools for the self-extending environment
 # (custom.create / custom.list / custom.remove). The agent-AUTHORED tools
 # themselves are dynamic and appended at tools/list time (custom_tool_defs).

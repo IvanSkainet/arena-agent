@@ -172,12 +172,13 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.119.x)
+## Current flight status (v4.120.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
 
 - **Ship Status / Preflight is now the top-level map.** `ship.status` aggregates bridge health, operator posture, transports, external MCP/desktop servers, BrowserAct/CDP, mobile/ADB, Code Workbench, known issues, and next actions. `ship.preflight` summarizes fail/warn readiness before real missions.
+- **Tool Foundry v1 connects projects to callable tools.** A Code Workbench project can carry `.arena-tool.json` with input schema, run recipe and tests. `tool_foundry.validate` proves it; `tool_foundry.publish` creates a callable `custom.<name>` wrapper around `code_project.run`.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official
@@ -628,6 +629,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
 | `workbench` | `workbench.status` — Show posture, runtimes, projects, sessions, recent artifacts, known limits, and next actions |
 | `ship` | `ship.status` / `ship.preflight` — Whole-ship map and readiness checks across bridge, posture, transports, MCP/desktop, browser, mobile, and Workbench |
+| `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Validate a Workbench project manifest/tests and publish it as a callable custom tool |
 
 All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.
 

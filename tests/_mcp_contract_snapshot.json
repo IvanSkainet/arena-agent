@@ -151,6 +151,17 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_foundry.py",
+    "handlers": [
+      "handle_foundry_tool"
+    ],
+    "tool_names": [
+      "tool_foundry.list",
+      "tool_foundry.publish",
+      "tool_foundry.validate"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_fs.py",
     "handlers": [
       "handle_fs_tool"

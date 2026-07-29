@@ -1,3 +1,9 @@
+## v4.120.0 - Tool Foundry v1
+
+### Added
+- `tool_foundry.list`, `tool_foundry.validate`, and `tool_foundry.publish` turn a Code Workbench project with `.arena-tool.json` into a tested callable `custom.<name>` tool.
+- Foundry manifests declare the future tool input schema, `code_project.run` execution recipe, and proof tests with stdout/artifact expectations. Publishing validates first, then wraps `code_project.run` through the existing custom-tool dispatcher, so HALT, posture, risk classification, artifacts, and audit semantics stay in force.
+
 ## v4.119.0 - Ship Status / Preflight
 
 ### Added

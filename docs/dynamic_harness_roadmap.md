@@ -65,7 +65,7 @@ Should aggregate:
 
 ## Phase 2 — Tool Foundry
 
-### v4.120.0 — Tool Foundry v1
+### v4.120.0 — Tool Foundry v1 ✅ completed
 
 Add:
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status and v4.119.0 Ship Status / Preflight are complete. Continue with v4.120.0 — Tool Foundry v1; keep using the maps before adding power.
+v4.118.0 Workbench Status, v4.119.0 Ship Status / Preflight, and v4.120.0 Tool Foundry v1 are complete. Continue with v4.121.0 — Promote Project/Run to Tool; keep using the maps before adding power.
