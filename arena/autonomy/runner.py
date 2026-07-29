@@ -445,7 +445,8 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             from arena.autonomy.deps import go_env_for_scratch
             go_env = go_env_for_scratch(scratch, _managed_go_root, _scrub_env)
             merged = dict(run_env)
-            merged.update(go_env)
+            for key, value in go_env.items():
+                merged.setdefault(key, value)
             run_env = merged
         try:
             proc = subprocess.run(argv_cmd, capture_output=True, text=True,

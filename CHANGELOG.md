@@ -1,3 +1,13 @@
+## v4.115.0 - Project-level dependency cache
+
+### Added
+- `code_project.deps_install` installs project-level dependencies into
+  `<project>/.deps` for reuse across runs. It supports the existing Python,
+  npm, and Go dependency modes and requires operator posture `network=open`.
+- `code_project.run` accepts `use_project_deps=true` to reuse project-level
+  dependencies. This is currently limited to `sandbox=off` because AppContainer
+  cannot read project dependency caches outside scratch without a future grant.
+
 ## v4.114.4 - Go deps use go mod tidy
 
 ### Fixed

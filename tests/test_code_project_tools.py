@@ -75,3 +75,34 @@ def test_project_run_passes_deps(tmp_path, monkeypatch):
     monkeypatch.setattr(projects._runner, "run_code_sync", fake_run)
     projects.run("demo", lang="python3", entry="main.py", deps={"python": ["requests"]})
     assert seen["deps"] == {"python": ["requests"]}
+
+
+def test_project_deps_install_and_run_uses_project_deps(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
+    monkeypatch.setattr(projects._posture, "load_posture", lambda: {"sandbox": "off", "network": "open", "runtime": "any"})
+    monkeypatch.setattr(projects._runner, "_resolve_runtime", lambda lang: "python")
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+    monkeypatch.setattr(__import__("arena.autonomy.deps", fromlist=["subprocess"]).subprocess, "run", lambda *a, **k: _Proc())
+    out = projects.deps_install("demo", lang="python3", deps={"python": ["humanize==4.14.0"]})
+    assert out["ok"] is True
+    seen = {}
+    def fake_run(code, lang, posture, **kwargs):
+        seen.update(kwargs)
+        return {"ok": True}
+    monkeypatch.setattr(projects._runner, "run_code_sync", fake_run)
+    out = projects.run("demo", lang="python3", entry="main.py", use_project_deps=True)
+    assert out["ok"] is True
+    assert "PYTHONPATH" in seen["env"]
+
+
+def test_project_run_use_project_deps_requires_off(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
+    monkeypatch.setattr(projects._posture, "load_posture", lambda: {"sandbox": "appcontainer", "runtime": "any"})
+    out = projects.run("demo", lang="python3", entry="main.py", use_project_deps=True)
+    assert out["ok"] is False
+    assert "sandbox=off" in out["error"]

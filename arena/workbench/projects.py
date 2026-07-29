@@ -95,9 +95,47 @@ def remove(name: str) -> dict[str, Any]:
     return {"ok": True, "removed": _safe_name(name)}
 
 
+def deps_install(name: str, *, lang: str, deps: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
+    d = _project_dir(name)
+    if not d.exists():
+        return {"ok": False, "error": "project not found"}
+    posture = _posture.load_posture()
+    if posture.get("network") != "open":
+        return {"ok": False, "error": "code_project.deps_install requires operator posture network=open"}
+    from arena.autonomy import deps as _deps
+    return _deps.install_deps(
+        d, "win32" if __import__("sys").platform == "win32" else __import__("sys").platform,
+        lang, deps, posture, timeout or 120,
+        resolve_runtime=_runner._resolve_runtime,
+        resolve_win32_runtime=_runner._resolve_win32_runtime,
+        managed_go_root=_runner._managed_go_root,
+        scrub_env=_runner._scrub_env,
+        trim=_runner._trim,
+    )
+
+
+def _project_dep_env(name: str, lang: str) -> dict[str, str]:
+    d = _project_dir(name)
+    env: dict[str, str] = {}
+    py = d / ".deps" / "python"
+    if py.exists() and lang in {"python", "python3"}:
+        env["PYTHONPATH"] = str(py)
+    node = d / ".deps" / "node" / "node_modules"
+    if node.exists() and lang == "node":
+        env["NODE_PATH"] = str(node)
+    if lang == "go":
+        go_mod = d / ".deps" / "go-mod"
+        go_cache = d / ".deps" / "go-cache"
+        go_tmp = d / ".deps" / "go-tmp"
+        for p in (go_mod, go_cache, go_tmp):
+            p.mkdir(parents=True, exist_ok=True)
+        env.update({"GOMODCACHE": str(go_mod), "GOCACHE": str(go_cache), "GOTMPDIR": str(go_tmp)})
+    return env
+
+
 def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
         stdin: str | None = None, artifacts: list[str] | None = None,
-        deps: dict[str, Any] | None = None,
+        deps: dict[str, Any] | None = None, use_project_deps: bool = False,
         timeout: int | None = None, platform: str | None = None) -> dict[str, Any]:
     d = _project_dir(name)
     if not d.exists():
@@ -111,5 +149,12 @@ def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
             except UnicodeDecodeError:
                 import base64
                 files.append({"path": rel, "content": base64.b64encode(p.read_bytes()).decode("ascii"), "encoding": "base64"})
-    return _runner.run_code_sync("", lang, _posture.load_posture(), timeout=timeout, platform=platform,
-                                 files=files, entry=entry, argv=argv or [], stdin=stdin, artifacts=artifacts or [], deps=deps)
+    posture = _posture.load_posture()
+    env = None
+    if use_project_deps:
+        if posture.get("sandbox") != "off":
+            return {"ok": False, "error": "use_project_deps currently requires operator posture sandbox=off; AppContainer cannot read project dependency cache yet"}
+        env = {**_runner._scrub_env(), **_project_dep_env(name, lang)}
+    return _runner.run_code_sync("", lang, posture, timeout=timeout, platform=platform,
+                                 env=env, files=files, entry=entry, argv=argv or [], stdin=stdin,
+                                 artifacts=artifacts or [], deps=deps)

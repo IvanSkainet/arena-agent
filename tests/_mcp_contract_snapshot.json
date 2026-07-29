@@ -78,6 +78,7 @@
     ],
     "tool_names": [
       "code_project.create",
+      "code_project.deps_install",
       "code_project.list",
       "code_project.read",
       "code_project.remove",
