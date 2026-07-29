@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.123.x)
+## Current flight status (v4.124.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -182,6 +182,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Experiments can be promoted directly.** `code_project.promote_tool` and `code_run.promote_tool` generate a Foundry manifest from a known-good recipe/tests, validate it, and publish the resulting `custom.<name>` capability without hand-writing `.arena-tool.json`.
 - **Project dependency cache can now stay fenced.** Python `code_project.run(use_project_deps=true)` can run in Windows AppContainer by granting only the project `.deps/python` cache read/execute, while writes remain scratch-only and network stays denied.
 - **Runtime compatibility is now machine-readable.** `runtime.compat` reports runtime × sandbox support/blockers (for example Python/AppContainer supported, Node/Go AppContainer blocked, Rust linker incomplete) with reasons and next actions used by Workbench status.
+- **WASM runtime slice is available.** `runtime.install` can install managed Wasmtime with SHA-256 verification, `runtime.compat` maps `wasm`/`wasmtime`, and `code.run` / `code_project.run` accept `lang=wasm` for WASI command modules.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official

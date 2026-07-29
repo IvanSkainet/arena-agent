@@ -27,6 +27,8 @@ def test_runtime_compat_windows_matrix_known_limits():
         "python3": {"available": True},
         "node": {"available": True},
         "go": {"available": True},
+        "wasm": {"available": True},
+        "wasmtime": {"available": True},
         "rustc": {"available": True, "linker_available": False, "diagnosis": "no linker"},
     }}
     out = C.build(probe, platform_name="Windows")
@@ -35,6 +37,7 @@ def test_runtime_compat_windows_matrix_known_limits():
     assert rows[("node", "appcontainer")]["status"] == "blocked"
     assert rows[("go", "appcontainer")]["status"] == "blocked"
     assert rows[("rustc", "appcontainer")]["status"] == "incomplete"
+    assert rows[("wasm", "appcontainer")]["status"] == "supported"
     assert rows[("python_project_deps", "appcontainer")]["status"] == "supported"
     assert "node.appcontainer" in {x["component"] for x in out["known_limits"]}
 

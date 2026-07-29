@@ -102,7 +102,7 @@ Add:
 
 Bridge should know and explain runtime/fence combinations.
 
-### v4.124.0 — WASM Runtime
+### v4.124.0 — WASM Runtime ✅ completed
 
 Add managed Wasmtime runtime and `code.run lang=wasm`.
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.123.0 Runtime Compatibility Registry are complete. Continue with v4.124.0 — WASM Runtime; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.124.0 WASM Runtime are complete. Continue with v4.125.0 — Session Files/Artifacts; keep using the maps before adding power.

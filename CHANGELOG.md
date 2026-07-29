@@ -1,3 +1,10 @@
+## v4.124.0 - WASM Runtime
+
+### Added
+- `runtime.install` now supports managed Wasmtime (`runtime=wasmtime` or `runtime=wasm`) from official Bytecode Alliance GitHub releases, with GitHub asset SHA-256 digest verification and safe archive extraction.
+- `runtime.probe` / `runtime.compat` now expose `wasmtime` and `wasm`; the compatibility registry marks WASI command modules as a supported AppContainer path once Wasmtime is available.
+- `code.run` / `code_project.run` support `lang=wasm`, invoking Wasmtime with the scratch workspace preopened (`wasmtime --dir <scratch> <entry.wasm> ...`).
+
 ## v4.123.0 - Runtime Compatibility Registry
 
 ### Added

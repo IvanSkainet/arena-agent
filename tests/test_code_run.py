@@ -495,3 +495,12 @@ def test_build_win32_off_python_uses_real_python(monkeypatch, tmp_path):
     argv, info = R.build_command("win32", _off(), "python3", tmp_path / "main.py", tmp_path)
     assert argv[0] == str(real)
     assert info["sandbox_action"] == "off"
+
+
+def test_build_wasm_uses_wasmtime_dir_invocation(tmp_path, monkeypatch):
+    wasm = tmp_path / "main.wasm"
+    wasm.write_bytes(b"\0asm")
+    monkeypatch.setattr(R, "_resolve_runtime", lambda lang: "/bin/wasmtime" if lang == "wasm" else None)
+    argv, info = R.build_command("linux", _off(), "wasm", wasm, tmp_path, runtime_args=["a"])
+    assert info["sandbox_action"] == "off"
+    assert argv == ["wasmtime", "--dir", str(tmp_path), str(wasm), "a"]

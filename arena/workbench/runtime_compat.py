@@ -12,7 +12,7 @@ from typing import Any
 from arena.workbench import runtimes
 
 _SANDBOXES = ("appcontainer", "systemd", "off")
-_RUNTIMES = ("python3", "python", "node", "go", "rustc", "cargo", "java")
+_RUNTIMES = ("python3", "python", "node", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
 
 
 def _available(rt: dict[str, Any], name: str) -> bool:
@@ -62,6 +62,10 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
                                    "Go toolchain opens Windows NUL during compilation; AppContainer denies the device.",
                                    suggested_posture={"sandbox": "off"},
                                    next_action="Use explicit host/off posture for Go builds, or wait for broker/device-policy work."))
+            elif name in {"wasm", "wasmtime"}:
+                rows.append(_entry(name, "appcontainer", "supported" if avail else "missing",
+                                   "Wasmtime runs WASI command modules from scratch; live proof required after managed install." if avail else "Wasmtime runtime is not visible; install with runtime.install runtime=wasmtime.",
+                                   next_action="Use lang=wasm with a .wasm entry for WASI command modules." if avail else "Install managed Wasmtime with runtime.install."))
             elif name in {"rustc", "cargo"}:
                 rust = rt.get("rustc") or {}
                 if avail and rust.get("linker_available") is False:

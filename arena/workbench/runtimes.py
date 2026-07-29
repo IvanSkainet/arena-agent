@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 _GO_INDEX = "https://go.dev/dl/?mode=json"
+_WASMTIME_LATEST = "https://api.github.com/repos/bytecodealliance/wasmtime/releases/latest"
 
 
 def home() -> Path:
@@ -72,6 +73,20 @@ def _managed_go_path(version: str | None = None) -> Path | None:
     return None
 
 
+def _managed_wasmtime_path(version: str | None = None) -> Path | None:
+    root = tools_dir()
+    exe_name = "wasmtime.exe" if platform.system().lower() == "windows" else "wasmtime"
+    if version:
+        ver = version if version.startswith("wasmtime-") else f"wasmtime-{version.lstrip('v')}"
+        candidates = list(root.glob(f"{ver}*/{exe_name}")) + list(root.glob(f"{ver}*/bin/{exe_name}"))
+        return candidates[0] if candidates else None
+    for d in sorted(root.glob("wasmtime*"), reverse=True):
+        for p in (d / exe_name, d / "bin" / exe_name):
+            if p.exists():
+                return p
+    return None
+
+
 def probe() -> dict[str, Any]:
     reg = load_registry().get("runtimes", {})
     out: dict[str, Any] = {"ok": True, "managed_home": str(tools_dir()), "runtimes": {}}
@@ -80,6 +95,8 @@ def probe() -> dict[str, Any]:
         "python3": ["python3", "--version"],
         "node": ["node", "--version"],
         "go": ["go", "version"],
+        "wasmtime": ["wasmtime", "--version"],
+        "wasm": ["wasmtime", "--version"],
         "rustc": ["rustc", "--version"],
         "cargo": ["cargo", "--version"],
         "java": ["java", "--version"],
@@ -90,6 +107,11 @@ def probe() -> dict[str, Any]:
     go_managed = _managed_go_path()
     if go_managed:
         out["runtimes"]["go"] = {"available": True, "path": str(go_managed), "version": _run_version(str(go_managed), ["version"]), "managed": True}
+    wasmtime_managed = _managed_wasmtime_path()
+    if wasmtime_managed:
+        wm = {"available": True, "path": str(wasmtime_managed), "version": _run_version(str(wasmtime_managed), ["--version"]), "managed": True}
+        out["runtimes"]["wasmtime"] = dict(wm)
+        out["runtimes"]["wasm"] = dict(wm)
     for name, meta in reg.items():
         out["runtimes"].setdefault(name, {}).update({"registry": meta})
     # Rust diagnosis: compiler alone is not enough on Windows.
@@ -137,7 +159,7 @@ def _extract_zip_safe(archive: Path, dest: Path) -> None:
 
 
 def _extract_tar_safe(archive: Path, dest: Path) -> None:
-    with tarfile.open(archive) as t:
+    with tarfile.open(archive, "r:*") as t:
         for member in t.getmembers():
             target = _safe_join_extract(dest, member.name)
             if member.isdir():
@@ -169,6 +191,68 @@ def _go_asset(version: str | None = None) -> dict[str, Any]:
             if f.get("os") == os_name and f.get("arch") == arch and f.get("kind") == kind:
                 return {**f, "release": rel.get("version")}
     raise RuntimeError(f"no Go archive found for version={version!r} os={os_name} arch={arch}")
+
+
+def _wasmtime_asset(version: str | None = None) -> dict[str, Any]:
+    url = _WASMTIME_LATEST if not version else f"https://api.github.com/repos/bytecodealliance/wasmtime/releases/tags/{version if version.startswith('v') else 'v' + version}"
+    req = urllib.request.Request(url, headers={"User-Agent": "ArenaBridge/runtime.install"})
+    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; asset digest verified before extraction
+        rel = json.loads(r.read().decode("utf-8"))
+    tag = str(rel.get("tag_name") or "").lstrip("v")
+    sysname = platform.system().lower()
+    mach = platform.machine().lower()
+    arch = "x86_64" if mach in {"amd64", "x86_64"} else ("aarch64" if mach in {"arm64", "aarch64"} else mach)
+    os_name = {"windows": "windows", "linux": "linux", "darwin": "macos"}.get(sysname)
+    suffix = ".zip" if sysname == "windows" else ".tar.xz"
+    needle = f"wasmtime-v{tag}-{arch}-{os_name}{suffix}"
+    for asset in rel.get("assets", []):
+        if asset.get("name") == needle:
+            digest = str(asset.get("digest") or "")
+            return {"version": f"v{tag}", "filename": needle, "url": asset.get("browser_download_url"), "digest": digest}
+    raise RuntimeError(f"no Wasmtime archive found for version={version!r} os={os_name} arch={arch}")
+
+
+def install_wasmtime(version: str | None = None) -> dict[str, Any]:
+    asset = _wasmtime_asset(version)
+    ver = asset["version"]
+    root = tools_dir()
+    target = root / f"wasmtime-{ver.lstrip('v')}"
+    exe_name = "wasmtime.exe" if platform.system().lower() == "windows" else "wasmtime"
+    existing = _managed_wasmtime_path(ver)
+    if existing:
+        return {"ok": True, "runtime": "wasmtime", "version": ver, "path": str(existing), "already_installed": True, "probe": _run_version(str(existing), ["--version"])}
+    archive = root / asset["filename"]
+    if not archive.exists():
+        _download(str(asset["url"]), archive)
+    got = _sha256(archive)
+    digest = str(asset.get("digest") or "")
+    expected = digest.split(":", 1)[-1] if digest.startswith("sha256:") else digest
+    if expected and got.lower() != expected.lower():
+        raise RuntimeError(f"sha256 mismatch for {archive.name}: got {got}, expected {expected}")
+    tmp = root / f".wasmtime-{ver.lstrip('v')}.extract"
+    if tmp.exists():
+        shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    if archive.suffix.lower() == ".zip":
+        _extract_zip_safe(archive, tmp)
+    else:
+        _extract_tar_safe(archive, tmp)
+    candidates = list(tmp.rglob(exe_name))
+    if not candidates:
+        raise RuntimeError("Wasmtime archive did not contain wasmtime executable")
+    top = candidates[0].parent
+    if top.name.lower() == "bin":
+        top = top.parent
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    top.rename(target)
+    shutil.rmtree(tmp, ignore_errors=True)
+    exe = _managed_wasmtime_path(ver) or target / exe_name
+    reg = load_registry()
+    reg.setdefault("runtimes", {})["wasmtime"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got}
+    reg.setdefault("runtimes", {})["wasm"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got, "runner": "wasmtime"}
+    save_registry(reg)
+    return {"ok": True, "runtime": "wasmtime", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["--version"])}
 
 
 def install_go(version: str | None = None) -> dict[str, Any]:
@@ -210,4 +294,6 @@ def install_go(version: str | None = None) -> dict[str, Any]:
 def install(runtime: str, version: str | None = None) -> dict[str, Any]:
     if runtime == "go":
         return install_go(version)
-    return {"ok": False, "error": f"runtime.install currently supports: go (got {runtime!r})"}
+    if runtime in {"wasm", "wasmtime"}:
+        return install_wasmtime(version)
+    return {"ok": False, "error": f"runtime.install currently supports: go, wasmtime (got {runtime!r})"}

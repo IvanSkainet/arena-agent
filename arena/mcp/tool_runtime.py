@@ -35,6 +35,6 @@ RUNTIME_TOOLS = [
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "runtime.list", "description": "Alias for runtime.probe.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    {"name": "runtime.install", "description": "Install an Arena-managed runtime with SHA verification. v4.108.0 supports Go portable archives from go.dev.",
-     "inputSchema": {"type": "object", "properties": {"runtime": {"type": "string", "enum": ["go"]}, "version": {"type": "string", "description": "Optional Go version, e.g. 1.26.5 or go1.26.5"}}, "required": ["runtime"], "additionalProperties": False}},
+    {"name": "runtime.install", "description": "Install an Arena-managed runtime with SHA verification. Supports Go portable archives and Wasmtime releases.",
+     "inputSchema": {"type": "object", "properties": {"runtime": {"type": "string", "enum": ["go", "wasm", "wasmtime"]}, "version": {"type": "string", "description": "Optional version, e.g. Go 1.26.5/go1.26.5 or Wasmtime 47.0.2/v47.0.2"}}, "required": ["runtime"], "additionalProperties": False}},
 ]

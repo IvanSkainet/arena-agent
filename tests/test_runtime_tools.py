@@ -60,3 +60,21 @@ def test_runner_resolves_managed_go(monkeypatch, tmp_path):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     monkeypatch.setattr(R.shutil, "which", lambda name: None)
     assert R._resolve_runtime("go") == str(managed)
+
+
+def test_runtime_probe_resolves_managed_wasmtime(monkeypatch, tmp_path):
+    exe = tmp_path / "tools" / "wasmtime-47.0.2" / ("wasmtime.exe" if sys.platform == "win32" else "wasmtime")
+    exe.parent.mkdir(parents=True)
+    exe.write_text("exe", encoding="utf-8")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(runtimes, "_which", lambda name: None)
+    monkeypatch.setattr(runtimes, "_run_version", lambda exe, args=None: "wasmtime 47.0.2")
+    out = runtimes.probe()
+    assert out["runtimes"]["wasmtime"]["available"] is True
+    assert out["runtimes"]["wasm"]["managed"] is True
+
+
+def test_runtime_install_supports_wasmtime(monkeypatch):
+    monkeypatch.setattr(runtimes, "install_wasmtime", lambda version=None: {"ok": True, "runtime": "wasmtime", "version": version or "latest"})
+    out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "wasmtime"}, ctx=object()))
+    assert out == {"ok": True, "runtime": "wasmtime", "version": "latest"}

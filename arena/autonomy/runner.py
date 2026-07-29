@@ -26,7 +26,7 @@ from typing import Any
 from arena.autonomy.posture import DEFAULT_RESOURCES, DEFAULT_RUNTIMES
 
 _BLOCKED_ENV = ("ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL")
-_EXT = {"python3": "py", "python": "py", "node": "js", "sh": "sh", "bash": "sh"}
+_EXT = {"python3": "py", "python": "py", "node": "js", "sh": "sh", "bash": "sh", "wasm": "wasm", "wasmtime": "wasm"}
 
 
 def _have(cmd: str) -> bool:
@@ -47,9 +47,13 @@ def _powershell() -> str | None:
 
 def _managed_runtime_path(lang: str) -> str | None:
     try:
-        from arena.workbench.runtimes import _managed_go_path, load_registry
+        from arena.workbench.runtimes import _managed_go_path, _managed_wasmtime_path, load_registry
         if lang == "go":
             p = _managed_go_path()
+            if p:
+                return str(p)
+        if lang in {"wasm", "wasmtime"}:
+            p = _managed_wasmtime_path()
             if p:
                 return str(p)
         meta = (load_registry().get("runtimes") or {}).get(lang) or {}
@@ -120,6 +124,8 @@ def _runtime_invocation(lang: str, command: str, code_path: Path, runtime_args: 
     args = [str(a) for a in (runtime_args or [])]
     if lang == "go":
         return [command, "run", str(code_path), *args]
+    if lang in {"wasm", "wasmtime"}:
+        return [command, "--dir", str(code_path.parent), str(code_path), *args]
     return [command, str(code_path), *args]
 
 
@@ -187,7 +193,8 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     of what the fence does on this platform.
     """
     res = resolve(platform, posture)
-    runtime_cmd = _managed_runtime_path(lang) or (_resolve_win32_runtime(lang) if platform == "win32" and lang in {"python", "python3"} else lang)
+    default_runtime = "wasmtime" if lang in {"wasm", "wasmtime"} else lang
+    runtime_cmd = _managed_runtime_path(lang) or (_resolve_win32_runtime(lang) if platform == "win32" and lang in {"python", "python3"} else default_runtime)
     base = _runtime_invocation(lang, runtime_cmd, code_path, runtime_args)
     always = _always_enforced()
     if not res["supported"]:
@@ -456,6 +463,9 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             for key, value in go_env.items():
                 merged.setdefault(key, value)
             run_env = merged
+        if lang in {"wasm", "wasmtime"}:
+            run_env = dict(run_env)
+            run_env.setdefault("WASMTIME_HOME", str(scratch / ".wasmtime"))
         try:
             proc = subprocess.run(argv_cmd, capture_output=True, text=True,
                                   input=stdin if stdin is not None else None,

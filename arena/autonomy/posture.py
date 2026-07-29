@@ -29,7 +29,7 @@ NETWORK_VALUES = ("deny", "allowlist", "open")
 PRIVILEGE_VALUES = ("drop", "as-user", "elevated")
 FS_VALUES = ("scratch-only", "home-read", "home-rw", "open")
 RUNTIME_VALUES = ("allowlist", "any")
-DEFAULT_RUNTIMES = ("python3", "python", "node")
+DEFAULT_RUNTIMES = ("python3", "python", "node", "go", "wasm")
 DEFAULT_RESOURCES = {
     "cpu_seconds": 30, "memory_mb": 256,
     "output_bytes": 100 * 1024, "wall_seconds": 60,
