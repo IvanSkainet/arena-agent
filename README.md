@@ -172,11 +172,12 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.106.x)
+## Current flight status (v4.119.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
 
+- **Ship Status / Preflight is now the top-level map.** `ship.status` aggregates bridge health, operator posture, transports, external MCP/desktop servers, BrowserAct/CDP, mobile/ADB, Code Workbench, known issues, and next actions. `ship.preflight` summarizes fail/warn readiness before real missions.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official
@@ -626,6 +627,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `sys` | `sys.status` — Bridge/services/funnel status |
 | `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
 | `workbench` | `workbench.status` — Show posture, runtimes, projects, sessions, recent artifacts, known limits, and next actions |
+| `ship` | `ship.status` / `ship.preflight` — Whole-ship map and readiness checks across bridge, posture, transports, MCP/desktop, browser, mobile, and Workbench |
 
 All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.
 

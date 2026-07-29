@@ -592,6 +592,16 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_ship.py",
+    "handlers": [
+      "handle_ship_tool"
+    ],
+    "tool_names": [
+      "ship.preflight",
+      "ship.status"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_speckit.py",
     "handlers": [
       "handle_speccy"

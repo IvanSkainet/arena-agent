@@ -1,3 +1,9 @@
+## v4.119.0 - Ship Status / Preflight
+
+### Added
+- `ship.status` adds a whole-ship map across bridge version/service state, operator posture, transports, external MCP/desktop servers, BrowserAct/CDP, mobile/ADB, Code Workbench, known issues, and next actions.
+- `ship.preflight` turns that map into fail/warn readiness checks before real scenarios, releases, browser/phone work, or other multi-step missions. Optional subsystems degrade with warnings; unsafe posture blocks readiness.
+
 ## v4.118.0 - Workbench Status map
 
 ### Added

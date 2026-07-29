@@ -31,7 +31,7 @@ Known limits:
 
 ## Phase 1 — Visibility / Map
 
-### v4.118.0 — Workbench Status
+### v4.118.0 — Workbench Status ✅ completed
 
 Add `workbench.status` MCP tool.
 
@@ -47,7 +47,7 @@ Should aggregate:
 
 Purpose: give the pilot/observer a single Workbench panel before adding more power.
 
-### v4.119.0 — Ship Status / Preflight
+### v4.119.0 — Ship Status / Preflight ✅ completed
 
 Add `ship.status` / `ship.preflight`.
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-Start with v4.118.0 — Workbench Status. Do not continue piling capability without a map.
+v4.118.0 Workbench Status and v4.119.0 Ship Status / Preflight are complete. Continue with v4.120.0 — Tool Foundry v1; keep using the maps before adding power.
