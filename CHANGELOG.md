@@ -1,3 +1,8 @@
+## v4.124.3 - Wasmtime explicit config fix
+
+### Fixed
+- `lang=wasm` now passes an explicit scratch-local `--config wasmtime-config.toml`. Live v4.124.2 still showed Wasmtime trying to resolve its default config location from denied profile state inside AppContainer.
+
 ## v4.124.2 - Wasmtime AppContainer home fix
 
 ### Fixed
