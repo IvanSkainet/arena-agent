@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.124.x)
+## Current flight status (v4.125.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -183,6 +183,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Project dependency cache can now stay fenced.** Python `code_project.run(use_project_deps=true)` can run in Windows AppContainer by granting only the project `.deps/python` cache read/execute, while writes remain scratch-only and network stays denied.
 - **Runtime compatibility is now machine-readable.** `runtime.compat` reports runtime × sandbox support/blockers (for example Python/AppContainer supported, Node/Go AppContainer blocked, Rust linker incomplete) with reasons and next actions used by Workbench status.
 - **WASM runtime slice is available.** `runtime.install` can install managed Wasmtime with SHA-256 verification, `runtime.compat` maps `wasm`/`wasmtime`, and `code.run` / `code_project.run` accept `lang=wasm` for WASI command modules.
+- **Code Sessions now have files and artifacts.** Long-running Python sessions can read/write files in their cwd, list files, and persist declared artifacts into the normal Workbench artifact store.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official
@@ -608,7 +609,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `code_project` | `code_project.run` / `code_project.promote_tool` — Run a persistent Code Workbench project or promote its recipe/tests into a callable tool |
 | `code_run` | `code_run.info` / `code_run.promote_tool` — Inspect persisted runs or use a run as provenance for a promoted tool |
 | `code_matrix` | `code_matrix.run` — Run up to 8 Code Workbench jobs sequentially under the current operator posture |
-| `code_session` | `code_session.exec` — Execute code in a long-running Python Code Workbench session that preserves state |
+| `code_session` | `code_session.exec` / `code_session.artifacts` — Execute stateful Python sessions and persist session files/artifacts |
 | `code_artifact` | `code_artifact.read` — Read a persisted Code Workbench artifact by run_id and path |
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |

@@ -94,11 +94,15 @@
       "handle_code_session_tool"
     ],
     "tool_names": [
+      "code_session.artifacts",
       "code_session.exec",
+      "code_session.files",
       "code_session.list",
+      "code_session.read",
       "code_session.start",
       "code_session.stop",
-      "code_session.stop_all"
+      "code_session.stop_all",
+      "code_session.write"
     ]
   },
   {

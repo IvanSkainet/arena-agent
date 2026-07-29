@@ -1,6 +1,7 @@
 """Long-running Code Workbench sessions (v4.116.0 MVP)."""
 from __future__ import annotations
 
+import base64
 import json
 import queue
 import subprocess
@@ -70,6 +71,25 @@ def _sessions_root() -> Path:
     return p
 
 
+
+
+def _safe_rel(path: str) -> Path:
+    rel = Path(str(path).replace("\\", "/"))
+    if not str(path).strip() or rel.is_absolute() or rel.drive or any(part in ("..", "") for part in rel.parts):
+        raise ValueError(f"unsafe session path: {path!r}")
+    return rel
+
+
+def _get_session(session_id: str) -> tuple[Session | None, dict[str, Any] | None]:
+    _cleanup_dead()
+    sess = _SESSIONS.get(str(session_id))
+    if not sess:
+        return None, {"ok": False, "error": "session not found"}
+    if not sess.alive():
+        return None, {"ok": False, "error": "session is not alive"}
+    return sess, None
+
+
 def _reader(sess: Session) -> None:
     try:
         assert sess.proc.stdout is not None
@@ -136,7 +156,7 @@ def start(*, lang: str = "python3", name: str = "", cwd: str | None = None,
             "project": project, "use_project_deps": use_project_deps, "posture": active}
 
 
-def exec_code(session_id: str, code: str, *, timeout: float = 30) -> dict[str, Any]:
+def exec_code(session_id: str, code: str, *, timeout: float = 30, artifacts: list[str] | None = None) -> dict[str, Any]:
     _cleanup_dead()
     sess = _SESSIONS.get(str(session_id))
     if not sess:
@@ -161,7 +181,86 @@ def exec_code(session_id: str, code: str, *, timeout: float = 30) -> dict[str, A
             return {"ok": False, "error": f"bad worker response: {e}", "raw": line[:1000]}
         payload["session_id"] = session_id
         payload["alive"] = sess.alive()
+        if artifacts:
+            art = session_artifacts(session_id, artifacts)
+            payload["run_id"] = art.get("run_id")
+            payload["artifacts"] = art.get("artifacts", [])
+            payload["artifact_error"] = art.get("error") if not art.get("ok") else None
         return payload
+
+
+
+
+def write_file(session_id: str, path: str, content: str, *, encoding: str = "utf-8") -> dict[str, Any]:
+    sess, err = _get_session(session_id)
+    if err:
+        return err
+    assert sess is not None
+    try:
+        rel = _safe_rel(path)
+        target = sess.cwd / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if encoding == "base64":
+            target.write_bytes(base64.b64decode(str(content)))
+        else:
+            target.write_text(str(content), encoding="utf-8")
+        sess.last_used_at = time.time()
+        return {"ok": True, "session_id": session_id, "path": rel.as_posix(), "bytes": target.stat().st_size}
+    except Exception as e:
+        return {"ok": False, "session_id": session_id, "error": str(e)}
+
+
+def read_file(session_id: str, path: str, *, max_bytes: int = 100_000) -> dict[str, Any]:
+    sess, err = _get_session(session_id)
+    if err:
+        return err
+    assert sess is not None
+    try:
+        rel = _safe_rel(path)
+        target = sess.cwd / rel
+        if not target.is_file():
+            return {"ok": False, "session_id": session_id, "error": "file not found"}
+        data = target.read_bytes()[:max_bytes]
+        out: dict[str, Any] = {"ok": True, "session_id": session_id, "path": rel.as_posix(), "bytes": target.stat().st_size, "truncated": target.stat().st_size > max_bytes}
+        try:
+            out["text"] = data.decode("utf-8")
+        except UnicodeDecodeError:
+            out["base64"] = base64.b64encode(data).decode("ascii")
+        sess.last_used_at = time.time()
+        return out
+    except Exception as e:
+        return {"ok": False, "session_id": session_id, "error": str(e)}
+
+
+def list_files(session_id: str, *, max_files: int = 200) -> dict[str, Any]:
+    sess, err = _get_session(session_id)
+    if err:
+        return err
+    assert sess is not None
+    rows = []
+    for p in sorted(sess.cwd.rglob("*")):
+        if len(rows) >= max_files:
+            break
+        if p.is_file():
+            rows.append({"path": p.relative_to(sess.cwd).as_posix(), "bytes": p.stat().st_size})
+    return {"ok": True, "session_id": session_id, "cwd": str(sess.cwd), "count": len(rows), "files": rows, "truncated": len(rows) >= max_files}
+
+
+def session_artifacts(session_id: str, patterns: list[str] | None = None) -> dict[str, Any]:
+    sess, err = _get_session(session_id)
+    if err:
+        return err
+    assert sess is not None
+    try:
+        from arena.autonomy.runner import _artifact_manifest
+        from arena.workbench.artifacts import persist_run
+        run_id = uuid.uuid4().hex
+        manifest = _artifact_manifest(sess.cwd, [str(p) for p in (patterns or [])])
+        persisted = persist_run(run_id, sess.cwd, manifest)
+        sess.last_used_at = time.time()
+        return {"ok": True, "session_id": session_id, "run_id": run_id, "artifact_count": len(persisted), "artifacts": persisted}
+    except Exception as e:
+        return {"ok": False, "session_id": session_id, "error": str(e)}
 
 
 def list_sessions() -> dict[str, Any]:

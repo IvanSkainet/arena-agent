@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.124.0 WASM Runtime are complete. Continue with v4.125.0 — Session Files/Artifacts; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.125.0 Session Files/Artifacts are complete. Continue with v4.126.0 — Session Lifecycle Hardening; keep using the maps before adding power.

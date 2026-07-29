@@ -1,3 +1,9 @@
+## v4.125.0 - Session Files/Artifacts
+
+### Added
+- `code_session.write`, `code_session.read`, `code_session.files`, and `code_session.artifacts` make long-running Code Workbench sessions first-class file/artifact citizens.
+- `code_session.exec` accepts `artifacts` patterns and persists matching files from the session cwd into the existing Code Workbench artifact store with a `run_id`.
+
 ## v4.124.4 - Wasmtime cache disable fix
 
 ### Fixed

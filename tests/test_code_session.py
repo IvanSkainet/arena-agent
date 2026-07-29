@@ -73,3 +73,37 @@ def test_session_can_start_in_project_with_project_deps(monkeypatch, tmp_path):
         assert row["use_project_deps"] is True
     finally:
         sessions.stop(sid)
+
+
+def test_session_files_and_artifacts(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(sessions._posture, "load_posture", lambda: {"sandbox": "off", "runtime": "any"})
+    out = sessions.start(lang="python3", name="files")
+    assert out["ok"] is True, out
+    sid = out["session_id"]
+    try:
+        wr = sessions.write_file(sid, "data/input.txt", "hello")
+        assert wr["ok"] is True
+        rd = sessions.read_file(sid, "data/input.txt")
+        assert rd["text"] == "hello"
+        ex = sessions.exec_code(sid, "import os\nos.makedirs('out', exist_ok=True)\nopen('out/result.txt','w').write('artifact-ok')", artifacts=["out/*.txt"])
+        assert ex["ok"] is True
+        assert ex["artifacts"][0]["path"] == "out/result.txt"
+        assert ex["artifacts"][0]["text"] == "artifact-ok"
+        assert ex["run_id"]
+        files = sessions.list_files(sid)
+        assert {f["path"] for f in files["files"]} >= {"data/input.txt", "out/result.txt"}
+    finally:
+        sessions.stop(sid)
+
+
+def test_session_file_tools_policy_and_mcp(monkeypatch):
+    names = {t["name"] for t in MCP_TOOLS}
+    assert {"code_session.write", "code_session.read", "code_session.files", "code_session.artifacts"} <= names
+    assert classify_tool_risk("code_session.read") == "safe"
+    assert classify_tool_risk("code_session.files") == "safe"
+    assert classify_tool_risk("code_session.artifacts") == "safe"
+    assert classify_tool_risk("code_session.write") == "medium"
+    monkeypatch.setattr(sessions, "read_file", lambda *a, **k: {"ok": True, "text": "x"})
+    out = _parsed(handle_code_session_tool("code_session.read", {"session_id": "s", "path": "x"}, ctx=object()))
+    assert out["text"] == "x"
