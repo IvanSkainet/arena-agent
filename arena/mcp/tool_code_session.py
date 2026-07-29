@@ -19,7 +19,10 @@ def _res(payload: dict[str, Any]) -> dict[str, Any]:
 
 def handle_code_session_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[str, Any] | None:
     if name == "code_session.start":
-        return _res(sessions.start(lang=str(args.get("lang") or "python3"), name=str(args.get("name") or ""), cwd=args.get("cwd") if isinstance(args.get("cwd"), str) else None))
+        return _res(sessions.start(lang=str(args.get("lang") or "python3"), name=str(args.get("name") or ""),
+                                   cwd=args.get("cwd") if isinstance(args.get("cwd"), str) else None,
+                                   project=args.get("project") if isinstance(args.get("project"), str) else None,
+                                   use_project_deps=bool(args.get("use_project_deps", False))))
     if name == "code_session.exec":
         return _res(sessions.exec_code(str(args.get("session_id") or ""), str(args.get("code") or ""), timeout=float(args.get("timeout", 30))))
     if name == "code_session.list":
@@ -32,7 +35,7 @@ def handle_code_session_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
 
 
 SESSION_TOOLS = [
-    {"name": "code_session.start", "description": "Start a long-running Python Code Workbench session. MVP requires operator posture sandbox=off.", "inputSchema": {"type": "object", "properties": {"lang": {"type": "string", "default": "python3"}, "name": {"type": "string"}, "cwd": {"type": "string"}}, "additionalProperties": False}},
+    {"name": "code_session.start", "description": "Start a long-running Python Code Workbench session. MVP requires operator posture sandbox=off.", "inputSchema": {"type": "object", "properties": {"lang": {"type": "string", "default": "python3"}, "name": {"type": "string"}, "cwd": {"type": "string"}, "project": {"type": "string"}, "use_project_deps": {"type": "boolean", "default": False}}, "additionalProperties": False}},
     {"name": "code_session.exec", "description": "Execute Python code in a long-running Code Workbench session, preserving globals between calls.", "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "code": {"type": "string"}, "timeout": {"type": "number", "default": 30}}, "required": ["session_id", "code"], "additionalProperties": False}},
     {"name": "code_session.list", "description": "List live Code Workbench sessions.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "code_session.stop", "description": "Stop one Code Workbench session.", "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}}, "required": ["session_id"], "additionalProperties": False}},

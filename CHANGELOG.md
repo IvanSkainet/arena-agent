@@ -1,3 +1,10 @@
+## v4.117.0 - Code Sessions can start inside projects
+
+### Added
+- `code_session.start` now accepts `project` and `use_project_deps`. Python
+  sessions can start with cwd set to a persistent Code Workbench project and
+  reuse project-level dependency cache through environment variables.
+
 ## v4.116.1 - Document code_session namespace
 
 ### Fixed

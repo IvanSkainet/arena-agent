@@ -53,3 +53,23 @@ def test_session_mcp_list(monkeypatch):
     monkeypatch.setattr(sessions, "list_sessions", lambda: {"ok": True, "count": 0, "sessions": []})
     out = _parsed(handle_code_session_tool("code_session.list", {}, ctx=object()))
     assert out == {"ok": True, "count": 0, "sessions": []}
+
+
+def test_session_can_start_in_project_with_project_deps(monkeypatch, tmp_path):
+    from arena.workbench import projects
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
+    deps = tmp_path / "code-projects" / "demo" / ".deps" / "python"
+    deps.mkdir(parents=True)
+    monkeypatch.setattr(sessions._posture, "load_posture", lambda: {"sandbox": "off", "runtime": "any"})
+    out = sessions.start(lang="python3", name="proj", project="demo", use_project_deps=True)
+    assert out["ok"] is True, out
+    sid = out["session_id"]
+    try:
+        assert out["project"] == "demo"
+        listed = sessions.list_sessions()
+        row = next(r for r in listed["sessions"] if r["session_id"] == sid)
+        assert row["project"] == "demo"
+        assert row["use_project_deps"] is True
+    finally:
+        sessions.stop(sid)

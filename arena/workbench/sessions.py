@@ -51,6 +51,8 @@ class Session:
     started_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
     posture: dict[str, Any] = field(default_factory=dict)
+    project: str | None = None
+    use_project_deps: bool = False
     _q: queue.Queue[str | None] = field(default_factory=queue.Queue)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -92,7 +94,8 @@ def _cleanup_dead() -> None:
                 _SESSIONS.pop(sid, None)
 
 
-def start(*, lang: str = "python3", name: str = "", cwd: str | None = None) -> dict[str, Any]:
+def start(*, lang: str = "python3", name: str = "", cwd: str | None = None,
+          project: str | None = None, use_project_deps: bool = False) -> dict[str, Any]:
     _cleanup_dead()
     active = _posture.load_posture()
     if active.get("sandbox") != "off":
@@ -103,7 +106,16 @@ def start(*, lang: str = "python3", name: str = "", cwd: str | None = None) -> d
     if not exe:
         return {"ok": False, "error": f"cannot resolve Python runtime: {lang}"}
     sid = "sess_" + uuid.uuid4().hex[:16]
-    workdir = Path(cwd).expanduser() if cwd else (_sessions_root() / sid)
+    env = _scrub_env()
+    if project:
+        from arena.workbench import projects as _projects
+        workdir = _projects._project_dir(project)  # project name/path validation lives there
+        if not workdir.exists():
+            return {"ok": False, "error": "project not found"}
+        if use_project_deps:
+            env.update(_projects._project_dep_env(project, lang))
+    else:
+        workdir = Path(cwd).expanduser() if cwd else (_sessions_root() / sid)
     workdir.mkdir(parents=True, exist_ok=True)
     proc = subprocess.Popen(
         [exe, "-u", "-c", _WORKER],
@@ -112,14 +124,16 @@ def start(*, lang: str = "python3", name: str = "", cwd: str | None = None) -> d
         stderr=subprocess.PIPE,
         text=True,
         cwd=str(workdir),
-        env=_scrub_env(),
+        env=env,
         bufsize=1,
     )
-    sess = Session(id=sid, name=name or sid, lang=lang, proc=proc, cwd=workdir, posture=active)
+    sess = Session(id=sid, name=name or sid, lang=lang, proc=proc, cwd=workdir, posture=active,
+                   project=project, use_project_deps=use_project_deps)
     threading.Thread(target=_reader, args=(sess,), daemon=True, name=f"arena-code-session-{sid}").start()
     with _SESSIONS_LOCK:
         _SESSIONS[sid] = sess
-    return {"ok": True, "session_id": sid, "name": sess.name, "lang": lang, "cwd": str(workdir), "posture": active}
+    return {"ok": True, "session_id": sid, "name": sess.name, "lang": lang, "cwd": str(workdir),
+            "project": project, "use_project_deps": use_project_deps, "posture": active}
 
 
 def exec_code(session_id: str, code: str, *, timeout: float = 30) -> dict[str, Any]:
@@ -163,6 +177,8 @@ def list_sessions() -> dict[str, Any]:
             "age_sec": round(now - s.started_at, 3),
             "idle_sec": round(now - s.last_used_at, 3),
             "posture": s.posture,
+            "project": s.project,
+            "use_project_deps": s.use_project_deps,
         } for s in _SESSIONS.values()]
     return {"ok": True, "count": len(rows), "sessions": rows}
 
