@@ -125,7 +125,7 @@ Add idle timeout, max age, stop-on-HALT, persistent logs, dashboard/status visib
 
 Long-lived lowbox process with durable handles and lifecycle cleanup.
 
-## Phase 5 — Dependency Locking
+## Phase 5 — Dependency Locking ✅ completed
 
 ### v4.128.0 — Python Lock/Audit
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.127.0 AppContainer Sessions Prototype are complete. Continue with Phase 5 — Dependency Locking; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.128.0 Dependency Locking are complete. Continue with Phase 6 — Runtime Expansion; keep using the maps before adding power.

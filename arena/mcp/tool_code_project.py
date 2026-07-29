@@ -10,7 +10,7 @@ from arena.workbench import projects
 
 PROJECT_TOOL_NAMES = (
     "code_project.create", "code_project.list", "code_project.write",
-    "code_project.read", "code_project.remove", "code_project.run", "code_project.deps_install", "code_project.promote_tool",
+    "code_project.read", "code_project.remove", "code_project.run", "code_project.deps_install", "code_project.lock", "code_project.lock_verify", "code_project.promote_tool",
 )
 
 
@@ -33,7 +33,14 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
         if name == "code_project.deps_install":
             deps = args.get("deps") if isinstance(args.get("deps"), dict) else {}
             return _res(projects.deps_install(str(args.get("name") or ""), lang=str(args.get("lang") or "python3"),
-                                              deps=deps, timeout=int(args.get("timeout")) if args.get("timeout") else None))
+                                              deps=deps, timeout=int(args.get("timeout")) if args.get("timeout") else None,
+                                              write_lock=bool(args.get("write_lock", True))))
+        if name == "code_project.lock":
+            return _res(projects.lock(str(args.get("name") or ""), lang=str(args.get("lang") or "python3"),
+                                      deps=args.get("deps") if isinstance(args.get("deps"), dict) else None))
+        if name == "code_project.lock_verify":
+            return _res(projects.lock_verify(str(args.get("name") or ""), lang=str(args.get("lang") or ""),
+                                             mode=str(args.get("mode") or "strict")))
         if name == "code_project.promote_tool":
             return _res(_foundry.promote_project(
                 str(args.get("name") or args.get("project") or ""),
@@ -57,7 +64,8 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
                                      artifacts=[str(a) for a in artifacts],
                                      deps=args.get("deps") if isinstance(args.get("deps"), dict) else None,
                                      use_project_deps=bool(args.get("use_project_deps", False)),
-                                     timeout=int(args.get("timeout")) if args.get("timeout") else None))
+                                     timeout=int(args.get("timeout")) if args.get("timeout") else None,
+                                     lock_mode=str(args.get("lock") or args.get("lock_mode") or "ignore")))
     except Exception as e:
         return _res({"ok": False, "error": str(e)})
     return None
@@ -69,7 +77,9 @@ PROJECT_TOOLS = [
     {"name": "code_project.write", "description": "Write a file in a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "path": {"type": "string"}, "content": {"type": "string"}, "encoding": {"type": "string", "enum": ["utf-8", "base64"], "default": "utf-8"}}, "required": ["name", "path", "content"], "additionalProperties": False}},
     {"name": "code_project.read", "description": "Read a file from a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "path": {"type": "string"}, "max_bytes": {"type": "integer", "default": 100000}}, "required": ["name", "path"], "additionalProperties": False}},
     {"name": "code_project.remove", "description": "Remove a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"], "additionalProperties": False}},
-    {"name": "code_project.deps_install", "description": "Install project-level dependencies into .arena-deps for reuse. Requires operator posture network=open.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "deps": {"type": "object"}, "timeout": {"type": "integer"}}, "required": ["name", "deps"], "additionalProperties": False}},
+    {"name": "code_project.deps_install", "description": "Install project-level dependencies into .arena-deps for reuse and write .arena-lock.json by default. Requires operator posture network=open.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "deps": {"type": "object"}, "timeout": {"type": "integer"}, "write_lock": {"type": "boolean", "default": True}}, "required": ["name", "deps"], "additionalProperties": False}},
+    {"name": "code_project.lock", "description": "Capture/refresh a project dependency lockfile (.arena-lock.json) from the current dependency cache.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "deps": {"type": "object"}}, "required": ["name"], "additionalProperties": False}},
+    {"name": "code_project.lock_verify", "description": "Verify the current project dependency cache against .arena-lock.json.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string"}, "mode": {"type": "string", "enum": ["warn", "verify", "strict"], "default": "strict"}}, "required": ["name"], "additionalProperties": False}},
     {"name": "code_project.promote_tool", "description": "Promote a Code Workbench project recipe/tests into a Foundry manifest and optionally publish it as custom.<name>.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "project": {"type": "string"}, "tool_name": {"type": "string"}, "description": {"type": "string"}, "input_schema": {"type": "object"}, "inputSchema": {"type": "object"}, "run": {"type": "object"}, "tests": {"type": "array"}, "manifest_path": {"type": "string", "default": ".arena-tool.json"}, "publish": {"type": "boolean", "default": True}, "overwrite_manifest": {"type": "boolean", "default": False}}, "required": ["tool_name", "description", "run", "tests"], "additionalProperties": False}},
-    {"name": "code_project.run", "description": "Run a persistent Code Workbench project through the operator-owned code.run posture fence.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "entry": {"type": "string"}, "argv": {"type": "array", "items": {"type": "string"}}, "stdin": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "deps": {"type": "object"}, "use_project_deps": {"type": "boolean", "default": False}, "timeout": {"type": "integer"}}, "required": ["name", "entry"], "additionalProperties": False}},
+    {"name": "code_project.run", "description": "Run a persistent Code Workbench project through the operator-owned code.run posture fence.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "entry": {"type": "string"}, "argv": {"type": "array", "items": {"type": "string"}}, "stdin": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "deps": {"type": "object"}, "use_project_deps": {"type": "boolean", "default": False}, "timeout": {"type": "integer"}, "lock": {"type": "string", "enum": ["ignore", "warn", "verify", "strict"], "default": "ignore"}, "lock_mode": {"type": "string", "enum": ["ignore", "warn", "verify", "strict"]}}, "required": ["name", "entry"], "additionalProperties": False}},
 ]

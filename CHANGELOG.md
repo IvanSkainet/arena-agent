@@ -1,3 +1,14 @@
+## v4.128.0 - Dependency Locking
+
+### Added
+- `code_project.deps_install` now writes `.arena-lock.json` by default after successful project dependency installation.
+- `code_project.lock` captures a dependency lock from the current project cache; `code_project.lock_verify` compares the current cache against the lock.
+- `code_project.run` accepts `lock` / `lock_mode` (`ignore`, `warn`, `verify`, `strict`) to gate runs on dependency-lock state.
+- Foundry-published project tools record dependency-lock provenance when a project lock is present.
+
+### Notes
+- Python v1 records resolved package versions from `.deps/python/*.dist-info/METADATA`; npm/go capture lock/checksum hooks are present when package-lock/go.sum exists.
+
 ## v4.127.0 - AppContainer Sessions Prototype
 
 ### Added

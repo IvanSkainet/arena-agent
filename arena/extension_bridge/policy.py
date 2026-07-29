@@ -31,7 +31,7 @@ _SAFE_TOOLS = {
     "mcp.ext_servers", "mcp.ext_tools", "mcp.ext_call",
     # v4.96.0: listing agent-authored custom tools is read-only.
     "custom.list",
-    "runtime.probe", "runtime.list", "runtime.compat", "code_session.read", "code_session.files", "code_session.artifacts", "workbench.status", "ship.status", "ship.preflight", "tool_foundry.list", "tool_foundry.validate", "code_project.list", "code_session.list", "code_project.read", "code_run.info", "code_artifact.read",
+    "runtime.probe", "runtime.list", "runtime.compat", "code_session.read", "code_session.files", "code_session.artifacts", "workbench.status", "ship.status", "ship.preflight", "tool_foundry.list", "tool_foundry.validate", "code_project.list", "code_project.lock_verify", "code_session.list", "code_project.read", "code_run.info", "code_artifact.read",
 }
 _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from
@@ -62,7 +62,7 @@ _MEDIUM_TOOLS = {
     # v4.96.0: authoring / revoking a capability is a trust decision (the
     # call-time risk of a custom tool is DERIVED from the tool it wraps and
     # resolved separately in classify_tool_risk via custom_tools.risk_of).
-    "custom.create", "custom.remove", "code_session.write", "tool_foundry.publish", "code_project.promote_tool", "code_run.promote_tool", "runtime.install", "code_session.stop", "code_session.stop_all", "code_session.sweep", "code_project.create", "code_project.write", "code_project.remove", "code_project.deps_install",
+    "custom.create", "custom.remove", "code_session.write", "tool_foundry.publish", "code_project.promote_tool", "code_run.promote_tool", "runtime.install", "code_session.stop", "code_session.stop_all", "code_session.sweep", "code_project.create", "code_project.write", "code_project.remove", "code_project.deps_install", "code_project.lock",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {

@@ -81,6 +81,8 @@
       "code_project.create",
       "code_project.deps_install",
       "code_project.list",
+      "code_project.lock",
+      "code_project.lock_verify",
       "code_project.promote_tool",
       "code_project.read",
       "code_project.remove",

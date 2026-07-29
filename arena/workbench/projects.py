@@ -1,8 +1,11 @@
 """Persistent Code Workbench project store."""
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +98,116 @@ def remove(name: str) -> dict[str, Any]:
     return {"ok": True, "removed": _safe_name(name)}
 
 
-def deps_install(name: str, *, lang: str, deps: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
+
+def _lock_path(name: str) -> Path:
+    return _project_dir(name) / ".arena-lock.json"
+
+
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _freeze_python(path: Path) -> list[str]:
+    rows = []
+    if not path.exists():
+        return rows
+    for dist in sorted(path.glob("*.dist-info/METADATA")):
+        name = ""
+        version = ""
+        try:
+            for line in dist.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("Name:"):
+                    name = line.split(":", 1)[1].strip()
+                elif line.startswith("Version:"):
+                    version = line.split(":", 1)[1].strip()
+                if name and version:
+                    break
+        except Exception:
+            continue
+        if name and version:
+            rows.append(f"{name}=={version}")
+    return rows
+
+
+def _capture_lock(name: str, *, lang: str, requested: dict[str, Any] | None = None,
+                  install_result: dict[str, Any] | None = None) -> dict[str, Any]:
+    d = _project_dir(name)
+    py = _freeze_python(d / ".deps" / "python") if lang in {"python", "python3"} else []
+    npm_lock = d / ".deps" / "node" / "package-lock.json"
+    go_sum = d / "go.sum"
+    runtime_probe = None
+    try:
+        runtime_probe = _runner._resolve_win32_runtime(lang) if sys.platform == "win32" and lang in {"python", "python3"} else _runner._resolve_runtime(lang)
+    except Exception:
+        runtime_probe = None
+    doc: dict[str, Any] = {
+        "ok": True,
+        "schema": "arena.project.lock.v1",
+        "project": _safe_name(name),
+        "lang": lang,
+        "created_at": int(time.time()),
+        "platform": sys.platform,
+        "runtime": {"path": runtime_probe},
+        "requested": requested or {},
+        "resolved": {
+            "python": py,
+            "npm_package_lock_sha256": hashlib.sha256(npm_lock.read_bytes()).hexdigest() if npm_lock.exists() else None,
+            "go_sum_sha256": hashlib.sha256(go_sum.read_bytes()).hexdigest() if go_sum.exists() else None,
+        },
+        "install_result_summary": install_result or {},
+    }
+    canonical = json.dumps({k: v for k, v in doc.items() if k != "sha256"}, sort_keys=True, ensure_ascii=False)
+    doc["sha256"] = _sha256_text(canonical)
+    return doc
+
+
+def lock(name: str, *, lang: str = "python3", deps: dict[str, Any] | None = None) -> dict[str, Any]:
+    d = _project_dir(name)
+    if not d.exists():
+        return {"ok": False, "error": "project not found"}
+    doc = _capture_lock(name, lang=lang, requested=deps or {})
+    _lock_path(name).write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+    return {"ok": True, "project": _safe_name(name), "path": ".arena-lock.json", "lock": doc}
+
+
+def lock_read(name: str) -> dict[str, Any]:
+    p = _lock_path(name)
+    if not p.exists():
+        return {"ok": False, "error": "lock not found"}
+    try:
+        doc = json.loads(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        return {"ok": False, "error": f"invalid lock: {e}"}
+    return {"ok": True, "project": _safe_name(name), "path": ".arena-lock.json", "lock": doc}
+
+
+def lock_verify(name: str, *, lang: str | None = None, mode: str = "strict") -> dict[str, Any]:
+    got = lock_read(name)
+    if not got.get("ok"):
+        return {"ok": False, "match": False, "error": got.get("error"), "mode": mode}
+    saved = got["lock"]
+    current = _capture_lock(name, lang=lang or saved.get("lang") or "python3", requested=saved.get("requested") or {})
+    mismatches = []
+    for key in ("python", "npm_package_lock_sha256", "go_sum_sha256"):
+        if (saved.get("resolved") or {}).get(key) != (current.get("resolved") or {}).get(key):
+            mismatches.append({"field": f"resolved.{key}", "expected": (saved.get("resolved") or {}).get(key), "actual": (current.get("resolved") or {}).get(key)})
+    ok = not mismatches
+    return {"ok": ok, "match": ok, "project": _safe_name(name), "mode": mode, "mismatches": mismatches, "lock": saved, "current": current}
+
+
+def _lock_gate(name: str, lang: str, lock_mode: str | None) -> dict[str, Any] | None:
+    mode = (lock_mode or "ignore").lower()
+    if mode in {"", "ignore", "none"}:
+        return None
+    result = lock_verify(name, lang=lang, mode=mode)
+    if result.get("match"):
+        return {"ok": True, "lock": result}
+    if mode == "warn":
+        return {"ok": True, "warning": result}
+    return {"ok": False, "error": "project dependency lock mismatch" if result.get("lock") else result.get("error", "project dependency lock missing"), "lock": result}
+
+
+def deps_install(name: str, *, lang: str, deps: dict[str, Any], timeout: int | None = None, write_lock: bool = True) -> dict[str, Any]:
     d = _project_dir(name)
     if not d.exists():
         return {"ok": False, "error": "project not found"}
@@ -103,7 +215,7 @@ def deps_install(name: str, *, lang: str, deps: dict[str, Any], timeout: int | N
     if posture.get("network") != "open":
         return {"ok": False, "error": "code_project.deps_install requires operator posture network=open"}
     from arena.autonomy import deps as _deps
-    return _deps.install_deps(
+    res = _deps.install_deps(
         d, "win32" if __import__("sys").platform == "win32" else __import__("sys").platform,
         lang, deps, posture, timeout or 120,
         resolve_runtime=_runner._resolve_runtime,
@@ -112,6 +224,11 @@ def deps_install(name: str, *, lang: str, deps: dict[str, Any], timeout: int | N
         scrub_env=_runner._scrub_env,
         trim=_runner._trim,
     )
+    if res.get("ok") and write_lock:
+        locked = lock(name, lang=lang, deps=deps)
+        res["lock"] = locked.get("lock")
+        res["lock_path"] = locked.get("path")
+    return res
 
 
 def _project_dep_dirs(name: str, lang: str) -> list[Path]:
@@ -152,7 +269,8 @@ def _project_dep_env(name: str, lang: str) -> dict[str, str]:
 def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
         stdin: str | None = None, artifacts: list[str] | None = None,
         deps: dict[str, Any] | None = None, use_project_deps: bool = False,
-        timeout: int | None = None, platform: str | None = None) -> dict[str, Any]:
+        timeout: int | None = None, platform: str | None = None,
+        lock_mode: str | None = None) -> dict[str, Any]:
     d = _project_dir(name)
     if not d.exists():
         return {"ok": False, "error": "project not found"}
@@ -180,7 +298,13 @@ def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
             extra_grant_dirs = _project_dep_dirs(name, lang)
             if not extra_grant_dirs:
                 return {"ok": False, "error": "use_project_deps requested but no project dependency cache exists for this language"}
-    return _runner.run_code_sync("", lang, posture, timeout=timeout, platform=platform,
-                                 env=env, files=files, entry=entry, argv=argv or [], stdin=stdin,
-                                 artifacts=artifacts or [], deps=deps,
-                                 extra_grant_dirs=extra_grant_dirs)
+    lock_check = _lock_gate(name, lang, lock_mode)
+    if lock_check and not lock_check.get("ok"):
+        return {"ok": False, **lock_check}
+    result = _runner.run_code_sync("", lang, posture, timeout=timeout, platform=platform,
+                                   env=env, files=files, entry=entry, argv=argv or [], stdin=stdin,
+                                   artifacts=artifacts or [], deps=deps,
+                                   extra_grant_dirs=extra_grant_dirs)
+    if lock_check:
+        result["lock"] = lock_check.get("lock") or lock_check.get("warning")
+    return result

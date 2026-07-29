@@ -226,9 +226,16 @@ def _publish_call_args(project: str, doc: dict[str, Any]) -> dict[str, Any]:
         "artifacts": run.get("artifacts", []),
         "use_project_deps": bool(run.get("use_project_deps", False)),
     }
-    for key in ("stdin", "timeout", "deps"):
+    for key in ("stdin", "timeout", "deps", "lock", "lock_mode"):
         if key in run:
             out[key] = run[key]
+    try:
+        from arena.workbench import projects as _projects
+        lr = _projects.lock_read(project)
+        if lr.get("ok"):
+            out["dependency_lock"] = {"path": ".arena-lock.json", "sha256": (lr.get("lock") or {}).get("sha256"), "mode": run.get("lock") or run.get("lock_mode") or "ignore"}
+    except Exception:
+        pass
     return out
 
 
