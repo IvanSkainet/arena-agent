@@ -1,3 +1,8 @@
+## v4.122.1 - AppContainer Project Deps recursive ACL fix
+
+### Fixed
+- AppContainer project dependency grants now apply the read/execute ACL recursively to existing files under the dependency cache. Live v4.122.0 proved the parent cache directory was granted, but Python still hit `PermissionError` when importing an existing `.deps/python/*.py` file.
+
 ## v4.122.0 - AppContainer Project Deps
 
 ### Added

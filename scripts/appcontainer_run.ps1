@@ -373,6 +373,19 @@ function Grant-AppContainerPath([string]$Path, [System.Security.AccessControl.Fi
     $acl = Get-Acl -LiteralPath $resolved
     $acl.SetAccessRule($rule)
     Set-Acl -LiteralPath $resolved -AclObject $acl
+    if (Test-Path -LiteralPath $resolved -PathType Container) {
+        Get-ChildItem -LiteralPath $resolved -Recurse -Force | ForEach-Object {
+            $childPath = $_.FullName
+            $childInherit = [System.Security.AccessControl.InheritanceFlags]::None
+            if ($_.PSIsContainer) {
+                $childInherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+            }
+            $childRule = New-Object System.Security.AccessControl.FileSystemAccessRule($identity, $Rights, $childInherit, $propagation, [System.Security.AccessControl.AccessControlType]::Allow)
+            $childAcl = Get-Acl -LiteralPath $childPath
+            $childAcl.SetAccessRule($childRule)
+            Set-Acl -LiteralPath $childPath -AclObject $childAcl
+        }
+    }
 }
 
 try {

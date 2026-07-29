@@ -59,3 +59,5 @@ def test_appcontainer_script_accepts_extra_read_execute_grants():
     assert "$ExtraGrantDirs" in s
     assert "foreach" in s and "$grantDir in $ExtraGrantDirs" in s
     assert "Grant-AppContainerPath $grantDir ([System.Security.AccessControl.FileSystemRights]::ReadAndExecute)" in s
+    assert "Get-ChildItem -LiteralPath $resolved -Recurse -Force" in s
+    assert "$childAcl.SetAccessRule($childRule)" in s
