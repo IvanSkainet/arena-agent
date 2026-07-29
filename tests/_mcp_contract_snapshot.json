@@ -102,6 +102,7 @@
       "code_session.start",
       "code_session.stop",
       "code_session.stop_all",
+      "code_session.sweep",
       "code_session.write"
     ]
   },

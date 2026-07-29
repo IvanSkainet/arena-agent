@@ -9,7 +9,7 @@ from arena.workbench import sessions
 
 SESSION_TOOL_NAMES = (
     "code_session.start", "code_session.exec", "code_session.list",
-    "code_session.stop", "code_session.stop_all", "code_session.write", "code_session.read",
+    "code_session.stop", "code_session.stop_all", "code_session.sweep", "code_session.write", "code_session.read",
     "code_session.files", "code_session.artifacts",
 )
 
@@ -41,7 +41,13 @@ def handle_code_session_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
     if name == "code_session.list":
         return _res(sessions.list_sessions())
     if name == "code_session.stop":
-        return _res(sessions.stop(str(args.get("session_id") or "")))
+        return _res(sessions.stop(str(args.get("session_id") or ""), kill_after=float(args.get("kill_after", 5))))
+    if name == "code_session.sweep":
+        return _res(sessions.sweep(
+            max_idle_sec=float(args["max_idle_sec"]) if args.get("max_idle_sec") is not None else None,
+            max_age_sec=float(args["max_age_sec"]) if args.get("max_age_sec") is not None else None,
+            dry_run=bool(args.get("dry_run", False)),
+        ))
     if name == "code_session.stop_all":
         return _res(sessions.stop_all())
     return None
@@ -55,6 +61,7 @@ SESSION_TOOLS = [
     {"name": "code_session.files", "description": "List files in a live Code Workbench session cwd.", "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "max_files": {"type": "integer", "default": 200}}, "required": ["session_id"], "additionalProperties": False}},
     {"name": "code_session.artifacts", "description": "Persist artifacts from a live Code Workbench session cwd into the Code Workbench run artifact store.", "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "patterns": {"type": "array", "items": {"type": "string"}}}, "required": ["session_id"], "additionalProperties": False}},
     {"name": "code_session.list", "description": "List live Code Workbench sessions.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
-    {"name": "code_session.stop", "description": "Stop one Code Workbench session.", "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}}, "required": ["session_id"], "additionalProperties": False}},
+    {"name": "code_session.stop", "description": "Stop one Code Workbench session with terminate-then-kill escalation and returncode/stderr tail diagnostics.", "inputSchema": {"type": "object", "properties": {"session_id": {"type": "string"}, "kill_after": {"type": "number", "default": 5}}, "required": ["session_id"], "additionalProperties": False}},
+    {"name": "code_session.sweep", "description": "Dry-run or stop stale Code Workbench sessions by idle/age threshold; dead sessions are removed first.", "inputSchema": {"type": "object", "properties": {"max_idle_sec": {"type": "number"}, "max_age_sec": {"type": "number"}, "dry_run": {"type": "boolean", "default": False}}, "additionalProperties": False}},
     {"name": "code_session.stop_all", "description": "Stop all live Code Workbench sessions.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
 ]

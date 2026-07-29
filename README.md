@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.125.x)
+## Current flight status (v4.126.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -184,6 +184,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Runtime compatibility is now machine-readable.** `runtime.compat` reports runtime × sandbox support/blockers (for example Python/AppContainer supported, Node/Go AppContainer blocked, Rust linker incomplete) with reasons and next actions used by Workbench status.
 - **WASM runtime slice is available.** `runtime.install` can install managed Wasmtime with SHA-256 verification, `runtime.compat` maps `wasm`/`wasmtime`, and `code.run` / `code_project.run` accept `lang=wasm` for WASI command modules.
 - **Code Sessions now have files and artifacts.** Long-running Python sessions can read/write files in their cwd, list files, and persist declared artifacts into the normal Workbench artifact store.
+- **Code Session lifecycle is hardened.** Sessions now expose pid/returncode/max-session status, enforce a configurable live-session cap, and can be swept by idle/age threshold with terminate-then-kill diagnostics.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official

@@ -117,7 +117,7 @@ Add:
 - `code_session.artifact`
 - `code_session.log`
 
-### v4.126.0 — Session Lifecycle Hardening
+### v4.126.0 — Session Lifecycle Hardening ✅ completed
 
 Add idle timeout, max age, stop-on-HALT, persistent logs, dashboard/status visibility.
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.125.0 Session Files/Artifacts are complete. Continue with v4.126.0 — Session Lifecycle Hardening; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.126.0 Session Lifecycle Hardening are complete. Continue with v4.127.0 — AppContainer Sessions Prototype; keep using the maps before adding power.

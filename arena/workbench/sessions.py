@@ -63,6 +63,7 @@ class Session:
 
 _SESSIONS: dict[str, Session] = {}
 _SESSIONS_LOCK = threading.Lock()
+DEFAULT_MAX_SESSIONS = 8
 
 
 def _sessions_root() -> Path:
@@ -107,16 +108,50 @@ def _resolve_python(lang: str) -> str | None:
     return _resolve_runtime(lang)
 
 
-def _cleanup_dead() -> None:
+def _cleanup_dead() -> list[dict[str, Any]]:
+    removed = []
     with _SESSIONS_LOCK:
         for sid, sess in list(_SESSIONS.items()):
             if not sess.alive():
+                removed.append({"session_id": sid, "returncode": sess.proc.poll(), "reason": "dead"})
                 _SESSIONS.pop(sid, None)
+    return removed
+
+
+def _max_sessions() -> int:
+    try:
+        import os
+        return max(1, int(os.environ.get("ARENA_CODE_SESSION_MAX", str(DEFAULT_MAX_SESSIONS))))
+    except Exception:
+        return DEFAULT_MAX_SESSIONS
+
+
+def _session_row(s: Session, now: float | None = None) -> dict[str, Any]:
+    now = now or time.time()
+    return {
+        "session_id": s.id,
+        "name": s.name,
+        "lang": s.lang,
+        "alive": s.alive(),
+        "pid": getattr(s.proc, "pid", None),
+        "returncode": s.proc.poll(),
+        "cwd": str(s.cwd),
+        "age_sec": round(now - s.started_at, 3),
+        "idle_sec": round(now - s.last_used_at, 3),
+        "posture": s.posture,
+        "project": s.project,
+        "use_project_deps": s.use_project_deps,
+    }
 
 
 def start(*, lang: str = "python3", name: str = "", cwd: str | None = None,
           project: str | None = None, use_project_deps: bool = False) -> dict[str, Any]:
     _cleanup_dead()
+    with _SESSIONS_LOCK:
+        live_count = sum(1 for s in _SESSIONS.values() if s.alive())
+    limit = _max_sessions()
+    if live_count >= limit:
+        return {"ok": False, "error": f"code session limit reached ({live_count}/{limit}); stop or sweep sessions first", "count": live_count, "max_sessions": limit}
     active = _posture.load_posture()
     if active.get("sandbox") != "off":
         return {"ok": False, "error": "code_session.start currently requires operator posture sandbox=off (MVP host session). Start a new session after selecting an explicit host/off posture."}
@@ -267,36 +302,67 @@ def list_sessions() -> dict[str, Any]:
     _cleanup_dead()
     now = time.time()
     with _SESSIONS_LOCK:
-        rows = [{
-            "session_id": s.id,
-            "name": s.name,
-            "lang": s.lang,
-            "alive": s.alive(),
-            "cwd": str(s.cwd),
-            "age_sec": round(now - s.started_at, 3),
-            "idle_sec": round(now - s.last_used_at, 3),
-            "posture": s.posture,
-            "project": s.project,
-            "use_project_deps": s.use_project_deps,
-        } for s in _SESSIONS.values()]
-    return {"ok": True, "count": len(rows), "sessions": rows}
+        rows = [_session_row(s, now) for s in _SESSIONS.values()]
+    return {"ok": True, "count": len(rows), "max_sessions": _max_sessions(), "sessions": rows}
 
 
-def stop(session_id: str) -> dict[str, Any]:
+def stop(session_id: str, *, kill_after: float = 5.0) -> dict[str, Any]:
     with _SESSIONS_LOCK:
         sess = _SESSIONS.pop(str(session_id), None)
     if not sess:
         return {"ok": False, "error": "session not found"}
+    killed = False
+    terminated = False
     if sess.alive():
         try:
             sess.proc.terminate()
-            sess.proc.wait(timeout=5)
+            terminated = True
+            sess.proc.wait(timeout=max(0.1, float(kill_after)))
         except Exception:
             try:
                 sess.proc.kill()
+                killed = True
+                sess.proc.wait(timeout=2)
             except Exception:
                 pass
-    return {"ok": True, "stopped": session_id}
+    stderr_tail = ""
+    try:
+        if sess.proc.stderr is not None:
+            stderr_tail = (sess.proc.stderr.read() or "")[-2000:]
+    except Exception:
+        stderr_tail = ""
+    return {"ok": True, "stopped": session_id, "terminated": terminated, "killed": killed,
+            "returncode": sess.proc.poll(), "stderr_tail": stderr_tail}
+
+
+def sweep(*, max_idle_sec: float | None = None, max_age_sec: float | None = None,
+          dry_run: bool = False) -> dict[str, Any]:
+    """Stop stale sessions by idle or age threshold.
+
+    Thresholds are optional; if omitted, no live session is selected. Dead
+    sessions are always removed from the in-memory table first.
+    """
+    removed_dead = _cleanup_dead()
+    now = time.time()
+    selected = []
+    with _SESSIONS_LOCK:
+        for s in list(_SESSIONS.values()):
+            reasons = []
+            if max_idle_sec is not None and now - s.last_used_at >= float(max_idle_sec):
+                reasons.append("idle")
+            if max_age_sec is not None and now - s.started_at >= float(max_age_sec):
+                reasons.append("age")
+            if reasons:
+                row = _session_row(s, now)
+                row["reasons"] = reasons
+                selected.append(row)
+    stopped = []
+    if not dry_run:
+        for row in selected:
+            stopped.append(stop(row["session_id"]))
+    return {"ok": True, "dry_run": dry_run, "dead_removed": removed_dead,
+            "selected_count": len(selected), "selected": selected,
+            "stopped": stopped, "stopped_count": len(stopped)}
 
 
 def stop_all() -> dict[str, Any]:

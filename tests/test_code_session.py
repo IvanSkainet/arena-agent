@@ -107,3 +107,46 @@ def test_session_file_tools_policy_and_mcp(monkeypatch):
     monkeypatch.setattr(sessions, "read_file", lambda *a, **k: {"ok": True, "text": "x"})
     out = _parsed(handle_code_session_tool("code_session.read", {"session_id": "s", "path": "x"}, ctx=object()))
     assert out["text"] == "x"
+
+
+def test_session_sweep_dry_run_and_stop(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(sessions._posture, "load_posture", lambda: {"sandbox": "off", "runtime": "any"})
+    out = sessions.start(lang="python3", name="sweep")
+    assert out["ok"] is True, out
+    sid = out["session_id"]
+    try:
+        # Make it stale without sleeping.
+        sessions._SESSIONS[sid].last_used_at -= 999
+        dry = sessions.sweep(max_idle_sec=10, dry_run=True)
+        assert dry["ok"] is True
+        assert dry["selected_count"] >= 1
+        assert any(x["session_id"] == sid and "idle" in x["reasons"] for x in dry["selected"])
+        assert sessions._SESSIONS[sid].alive()
+        swept = sessions.sweep(max_idle_sec=10)
+        assert swept["stopped_count"] >= 1
+        assert sid not in sessions._SESSIONS
+    finally:
+        sessions.stop(sid)
+
+
+def test_session_limit(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setenv("ARENA_CODE_SESSION_MAX", "1")
+    monkeypatch.setattr(sessions._posture, "load_posture", lambda: {"sandbox": "off", "runtime": "any"})
+    first = sessions.start(lang="python3")
+    assert first["ok"] is True, first
+    try:
+        second = sessions.start(lang="python3")
+        assert second["ok"] is False
+        assert "limit" in second["error"]
+    finally:
+        sessions.stop(first["session_id"])
+
+
+def test_session_sweep_mcp_and_policy(monkeypatch):
+    assert "code_session.sweep" in {t["name"] for t in MCP_TOOLS}
+    assert classify_tool_risk("code_session.sweep") == "medium"
+    monkeypatch.setattr(sessions, "sweep", lambda **kw: {"ok": True, "dry_run": kw.get("dry_run")})
+    out = _parsed(handle_code_session_tool("code_session.sweep", {"max_idle_sec": 1, "dry_run": True}, ctx=object()))
+    assert out == {"ok": True, "dry_run": True}

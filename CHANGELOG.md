@@ -1,3 +1,12 @@
+## v4.126.0 - Session Lifecycle Hardening
+
+### Added
+- `code_session.sweep` can dry-run or stop stale sessions by idle/age thresholds; dead sessions are removed from the in-memory registry first.
+- Code Session listing now reports `pid`, `returncode`, and `max_sessions`. `code_session.start` enforces a configurable live-session cap (`ARENA_CODE_SESSION_MAX`, default 8).
+
+### Changed
+- `code_session.stop` now reports terminate/kill escalation details, process return code, and a stderr tail for lifecycle diagnostics.
+
 ## v4.125.0 - Session Files/Artifacts
 
 ### Added
