@@ -172,13 +172,14 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.120.x)
+## Current flight status (v4.121.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
 
 - **Ship Status / Preflight is now the top-level map.** `ship.status` aggregates bridge health, operator posture, transports, external MCP/desktop servers, BrowserAct/CDP, mobile/ADB, Code Workbench, known issues, and next actions. `ship.preflight` summarizes fail/warn readiness before real missions.
 - **Tool Foundry v1 connects projects to callable tools.** A Code Workbench project can carry `.arena-tool.json` with input schema, run recipe and tests. `tool_foundry.validate` proves it; `tool_foundry.publish` creates a callable `custom.<name>` wrapper around `code_project.run`.
+- **Experiments can be promoted directly.** `code_project.promote_tool` and `code_run.promote_tool` generate a Foundry manifest from a known-good recipe/tests, validate it, and publish the resulting `custom.<name>` capability without hand-writing `.arena-tool.json`.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official
@@ -601,8 +602,8 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `document` | `document.structure` — Structure OCR/ASR/text into tasks or physics homework JSON |
 | `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
 | `code` | `code.run` — Execute agent-authored code under the operator's execution posture (composable fence); fail-closed, agent can't set the posture |
-| `code_project` | `code_project.run` — Run a persistent Code Workbench project through the same operator-owned posture fence |
-| `code_run` | `code_run.info` — Inspect a persisted Code Workbench run and its artifact manifest |
+| `code_project` | `code_project.run` / `code_project.promote_tool` — Run a persistent Code Workbench project or promote its recipe/tests into a callable tool |
+| `code_run` | `code_run.info` / `code_run.promote_tool` — Inspect persisted runs or use a run as provenance for a promoted tool |
 | `code_matrix` | `code_matrix.run` — Run up to 8 Code Workbench jobs sequentially under the current operator posture |
 | `code_session` | `code_session.exec` — Execute code in a long-running Python Code Workbench session that preserves state |
 | `code_artifact` | `code_artifact.read` — Read a persisted Code Workbench artifact by run_id and path |

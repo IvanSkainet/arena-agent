@@ -59,7 +59,8 @@
     ],
     "tool_names": [
       "code_artifact.read",
-      "code_run.info"
+      "code_run.info",
+      "code_run.promote_tool"
     ]
   },
   {
@@ -80,6 +81,7 @@
       "code_project.create",
       "code_project.deps_install",
       "code_project.list",
+      "code_project.promote_tool",
       "code_project.read",
       "code_project.remove",
       "code_project.run",

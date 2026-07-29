@@ -1,3 +1,9 @@
+## v4.121.0 - Promote Project/Run to Tool
+
+### Added
+- `code_project.promote_tool` writes a Foundry manifest from an existing Workbench project recipe/tests, validates it, and optionally publishes `custom.<name>` in one call.
+- `code_run.promote_tool` records a persisted run as provenance, writes the reusable project-backed Foundry manifest, reruns declared tests, and optionally publishes the tool. This turns successful experiments into durable callable capabilities without hand-authoring `.arena-tool.json`.
+
 ## v4.120.0 - Tool Foundry v1
 
 ### Added

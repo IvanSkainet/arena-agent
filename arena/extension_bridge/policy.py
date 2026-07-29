@@ -62,7 +62,7 @@ _MEDIUM_TOOLS = {
     # v4.96.0: authoring / revoking a capability is a trust decision (the
     # call-time risk of a custom tool is DERIVED from the tool it wraps and
     # resolved separately in classify_tool_risk via custom_tools.risk_of).
-    "custom.create", "custom.remove", "tool_foundry.publish", "runtime.install", "code_session.stop", "code_session.stop_all", "code_project.create", "code_project.write", "code_project.remove", "code_project.deps_install",
+    "custom.create", "custom.remove", "tool_foundry.publish", "code_project.promote_tool", "code_run.promote_tool", "runtime.install", "code_session.stop", "code_session.stop_all", "code_project.create", "code_project.write", "code_project.remove", "code_project.deps_install",
 }
 _DANGEROUS_PREFIXES = ("desktop.",)
 _DANGEROUS_TOOLS = {

@@ -77,7 +77,7 @@ Add:
 
 Agent writes code + manifest + tests. Bridge validates, tests, registers as a callable MCP/custom tool.
 
-### v4.121.0 — Promote Project/Run to Tool
+### v4.121.0 — Promote Project/Run to Tool ✅ completed
 
 Add:
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status, v4.119.0 Ship Status / Preflight, and v4.120.0 Tool Foundry v1 are complete. Continue with v4.121.0 — Promote Project/Run to Tool; keep using the maps before adding power.
+v4.118.0 Workbench Status, v4.119.0 Ship Status / Preflight, v4.120.0 Tool Foundry v1, and v4.121.0 Promote Project/Run to Tool are complete. Continue with v4.122.0 — AppContainer Project Deps; keep using the maps before adding power.

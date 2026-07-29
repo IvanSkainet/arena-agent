@@ -5,6 +5,8 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.extension_bridge.policy import classify_tool_risk  # noqa: E402
@@ -13,6 +15,14 @@ from arena.mcp.tool_foundry import handle_foundry_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.mcp.tools import McpToolContext, make_mcp_tool_runtime  # noqa: E402
 from arena.workbench import projects  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _reset_custom_cache():
+    import arena.mcp.custom_tools as C
+    C._reset_cache()
+    yield
+    C._reset_cache()
 
 
 def _parsed(res):

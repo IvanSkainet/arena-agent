@@ -253,3 +253,121 @@ def publish(project: str, manifest_path: str = DEFAULT_MANIFEST, *, run_tests: b
         "validated": checked,
         "published": res,
     }
+
+
+def _manifest_doc(name: str, description: str, input_schema: dict[str, Any], run: dict[str, Any], tests: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    doc: dict[str, Any] = {
+        "name": name,
+        "description": description,
+        "input_schema": input_schema,
+        "run": run,
+        "tests": tests,
+    }
+    for k, v in extra.items():
+        if v is not None:
+            doc[k] = v
+    return doc
+
+
+def _write_manifest(project: str, manifest_path: str, doc: dict[str, Any], *, overwrite_manifest: bool) -> dict[str, Any]:
+    existing = projects.read(project, manifest_path, max_bytes=1)
+    if existing.get("ok") and not overwrite_manifest:
+        return {"ok": False, "error": "manifest already exists; set overwrite_manifest=true", "manifest_path": manifest_path}
+    return projects.write(project, manifest_path, json.dumps(doc, indent=2, ensure_ascii=False))
+
+
+def promote_project(
+    project: str,
+    *,
+    tool_name: str,
+    description: str,
+    input_schema: dict[str, Any],
+    run: dict[str, Any],
+    tests: list[dict[str, Any]],
+    manifest_path: str = DEFAULT_MANIFEST,
+    publish_tool: bool = True,
+    overwrite_manifest: bool = False,
+) -> dict[str, Any]:
+    """Write a Foundry manifest into a project, validate it, and optionally publish.
+
+    This is the v4.121 shortcut from successful project experiment to durable
+    tool: callers no longer need to hand-author ``.arena-tool.json`` first.
+    """
+    doc = _manifest_doc(tool_name, description, input_schema, run, tests, promoted_from={"kind": "project", "project": project})
+    shape_errors = _validate_manifest_shape(doc)
+    if shape_errors:
+        return {"ok": False, "project": project, "manifest_path": manifest_path, "errors": shape_errors}
+    written = _write_manifest(project, manifest_path, doc, overwrite_manifest=overwrite_manifest)
+    if not written.get("ok"):
+        return {"ok": False, "project": project, "manifest_path": manifest_path, "write": written, "error": written.get("error")}
+    if publish_tool:
+        promoted = publish(project, manifest_path, run_tests=True)
+    else:
+        promoted = validate(project, manifest_path, run_tests=True)
+    return {
+        "ok": bool(promoted.get("ok")),
+        "project": project,
+        "manifest_path": manifest_path,
+        "tool": promoted.get("tool") or _tool_name(doc),
+        "manifest_written": written,
+        "published": publish_tool,
+        "result": promoted,
+    }
+
+
+def promote_run(
+    run_id: str,
+    *,
+    project: str,
+    tool_name: str,
+    description: str,
+    input_schema: dict[str, Any],
+    run: dict[str, Any],
+    tests: list[dict[str, Any]],
+    manifest_path: str = DEFAULT_MANIFEST,
+    publish_tool: bool = True,
+    overwrite_manifest: bool = False,
+) -> dict[str, Any]:
+    """Promote a successful persisted run's recipe into a project-backed tool.
+
+    ``code-runs`` metadata stores artifacts, not the full original command line;
+    therefore the caller supplies the reusable project run recipe while the
+    ``run_id`` is recorded as provenance and checked for existence. Validation
+    still reruns declared tests before publication.
+    """
+    from arena.workbench import artifacts
+
+    info = artifacts.run_info(run_id)
+    if not info.get("ok"):
+        return {"ok": False, "run_id": run_id, "error": "source run not found", "run_info": info}
+    doc = _manifest_doc(
+        tool_name, description, input_schema, run, tests,
+        promoted_from={
+            "kind": "run",
+            "run_id": run_id,
+            "project": project,
+            "artifact_count": len(info.get("artifacts") or []),
+            "artifacts": info.get("artifacts") or [],
+        },
+    )
+    shape_errors = _validate_manifest_shape(doc)
+    if shape_errors:
+        return {"ok": False, "run_id": run_id, "project": project, "manifest_path": manifest_path, "errors": shape_errors}
+    written = _write_manifest(project, manifest_path, doc, overwrite_manifest=overwrite_manifest)
+    if not written.get("ok"):
+        return {"ok": False, "run_id": run_id, "project": project, "manifest_path": manifest_path, "write": written, "error": written.get("error")}
+    if publish_tool:
+        promoted = publish(project, manifest_path, run_tests=True)
+    else:
+        promoted = validate(project, manifest_path, run_tests=True)
+    return {
+        "ok": bool(promoted.get("ok")),
+        "run_id": run_id,
+        "project": project,
+        "manifest_path": manifest_path,
+        "tool": promoted.get("tool") or _tool_name(doc),
+        "source_run": info,
+        "manifest_written": written,
+        "published": publish_tool,
+        "result": promoted,
+    }

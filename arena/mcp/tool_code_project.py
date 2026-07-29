@@ -4,12 +4,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from arena.foundry import tools as _foundry
 from arena.mcp.tool_utils import text_content
 from arena.workbench import projects
 
 PROJECT_TOOL_NAMES = (
     "code_project.create", "code_project.list", "code_project.write",
-    "code_project.read", "code_project.remove", "code_project.run", "code_project.deps_install",
+    "code_project.read", "code_project.remove", "code_project.run", "code_project.deps_install", "code_project.promote_tool",
 )
 
 
@@ -33,6 +34,18 @@ def handle_code_project_tool(name: str, args: dict[str, Any], *, ctx=None) -> di
             deps = args.get("deps") if isinstance(args.get("deps"), dict) else {}
             return _res(projects.deps_install(str(args.get("name") or ""), lang=str(args.get("lang") or "python3"),
                                               deps=deps, timeout=int(args.get("timeout")) if args.get("timeout") else None))
+        if name == "code_project.promote_tool":
+            return _res(_foundry.promote_project(
+                str(args.get("name") or args.get("project") or ""),
+                tool_name=str(args.get("tool_name") or args.get("tool") or ""),
+                description=str(args.get("description") or ""),
+                input_schema=args.get("input_schema") if isinstance(args.get("input_schema"), dict) else args.get("inputSchema") if isinstance(args.get("inputSchema"), dict) else {},
+                run=args.get("run") if isinstance(args.get("run"), dict) else {},
+                tests=args.get("tests") if isinstance(args.get("tests"), list) else [],
+                manifest_path=str(args.get("manifest_path") or _foundry.DEFAULT_MANIFEST),
+                publish_tool=bool(args.get("publish", True)),
+                overwrite_manifest=bool(args.get("overwrite_manifest", False)),
+            ))
         if name == "code_project.run":
             argv = args.get("argv") or []
             artifacts = args.get("artifacts") or []
@@ -57,5 +70,6 @@ PROJECT_TOOLS = [
     {"name": "code_project.read", "description": "Read a file from a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "path": {"type": "string"}, "max_bytes": {"type": "integer", "default": 100000}}, "required": ["name", "path"], "additionalProperties": False}},
     {"name": "code_project.remove", "description": "Remove a Code Workbench project.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"], "additionalProperties": False}},
     {"name": "code_project.deps_install", "description": "Install project-level dependencies into .arena-deps for reuse. Requires operator posture network=open.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "deps": {"type": "object"}, "timeout": {"type": "integer"}}, "required": ["name", "deps"], "additionalProperties": False}},
+    {"name": "code_project.promote_tool", "description": "Promote a Code Workbench project recipe/tests into a Foundry manifest and optionally publish it as custom.<name>.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "project": {"type": "string"}, "tool_name": {"type": "string"}, "description": {"type": "string"}, "input_schema": {"type": "object"}, "inputSchema": {"type": "object"}, "run": {"type": "object"}, "tests": {"type": "array"}, "manifest_path": {"type": "string", "default": ".arena-tool.json"}, "publish": {"type": "boolean", "default": True}, "overwrite_manifest": {"type": "boolean", "default": False}}, "required": ["tool_name", "description", "run", "tests"], "additionalProperties": False}},
     {"name": "code_project.run", "description": "Run a persistent Code Workbench project through the operator-owned code.run posture fence.", "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "lang": {"type": "string", "default": "python3"}, "entry": {"type": "string"}, "argv": {"type": "array", "items": {"type": "string"}}, "stdin": {"type": "string"}, "artifacts": {"type": "array", "items": {"type": "string"}}, "deps": {"type": "object"}, "use_project_deps": {"type": "boolean", "default": False}, "timeout": {"type": "integer"}}, "required": ["name", "entry"], "additionalProperties": False}},
 ]
