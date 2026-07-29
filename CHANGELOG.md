@@ -1,3 +1,13 @@
+## v4.115.1 - Project dependency cache run fixes
+
+### Fixed
+- Windows host/off `python3` Code Workbench runs now resolve to a real Python
+  executable instead of the WindowsApps alias when project dependency cache is
+  used.
+- `code_project.run` no longer copies project dependency cache directories
+  (`.deps`, `.arena-deps`, `node_modules`, `__pycache__`) into scratch; cached
+  deps are linked through environment variables instead.
+
 ## v4.115.0 - Project-level dependency cache
 
 ### Added

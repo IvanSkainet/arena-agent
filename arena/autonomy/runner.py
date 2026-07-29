@@ -186,7 +186,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     of what the fence does on this platform.
     """
     res = resolve(platform, posture)
-    runtime_cmd = _managed_runtime_path(lang) or lang
+    runtime_cmd = _managed_runtime_path(lang) or (_resolve_win32_runtime(lang) if platform == "win32" and lang in {"python", "python3"} else lang)
     base = _runtime_invocation(lang, runtime_cmd, code_path, runtime_args)
     always = _always_enforced()
     if not res["supported"]:

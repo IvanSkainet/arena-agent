@@ -464,3 +464,13 @@ def test_run_code_subprocess_uses_scratch_cwd(monkeypatch):
     res = R.run_code_sync("print('x')", "python3", _off(), platform="linux")
     assert res["ok"] is True
     assert seen["cwd"] == str(seen["scratch"])
+
+
+def test_build_win32_off_python_uses_real_python(monkeypatch, tmp_path):
+    real = tmp_path / "Python314" / "python.exe"
+    real.parent.mkdir(parents=True)
+    real.write_text("exe", encoding="utf-8")
+    monkeypatch.setattr(R, "_resolve_win32_runtime", lambda lang: str(real))
+    argv, info = R.build_command("win32", _off(), "python3", tmp_path / "main.py", tmp_path)
+    assert argv[0] == str(real)
+    assert info["sandbox_action"] == "off"

@@ -142,6 +142,9 @@ def run(name: str, *, lang: str, entry: str, argv: list[str] | None = None,
         return {"ok": False, "error": "project not found"}
     files = []
     for p in d.rglob("*"):
+        rel_parts = p.relative_to(d).parts
+        if rel_parts and rel_parts[0] in {".deps", ".arena-deps", "node_modules", "__pycache__"}:
+            continue
         if p.is_file() and p.name != ".arena-project.json":
             rel = p.relative_to(d).as_posix()
             try:

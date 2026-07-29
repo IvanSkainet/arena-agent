@@ -106,3 +106,18 @@ def test_project_run_use_project_deps_requires_off(tmp_path, monkeypatch):
     out = projects.run("demo", lang="python3", entry="main.py", use_project_deps=True)
     assert out["ok"] is False
     assert "sandbox=off" in out["error"]
+
+
+def test_project_run_skips_dependency_cache_dirs(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    projects.create("demo", [{"path": "main.py", "content": "print('hi')"}])
+    (tmp_path / "code-projects" / "demo" / ".deps" / "python").mkdir(parents=True)
+    (tmp_path / "code-projects" / "demo" / ".deps" / "python" / "pkg.py").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(projects._posture, "load_posture", lambda: {"sandbox": "off", "runtime": "any"})
+    seen = {}
+    def fake_run(code, lang, posture, **kwargs):
+        seen["files"] = kwargs["files"]
+        return {"ok": True}
+    monkeypatch.setattr(projects._runner, "run_code_sync", fake_run)
+    projects.run("demo", lang="python3", entry="main.py")
+    assert [f["path"] for f in seen["files"]] == ["main.py"]
