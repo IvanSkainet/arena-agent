@@ -139,7 +139,7 @@ Long-lived lowbox process with durable handles and lifecycle cleanup.
 
 `go.sum`, `go list -m all` integration.
 
-## Phase 6 — Runtime Expansion
+## Phase 6 — Runtime Expansion 🚧 in progress
 
 ### v4.131.0 — More Managed Runtimes
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.128.0 Dependency Locking are complete. Continue with Phase 6 — Runtime Expansion; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.129.0 Managed Deno Runtime are complete. Continue Phase 6 runtime expansion with the next highest-leverage runtime; keep using the maps before adding power.

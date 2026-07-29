@@ -15,6 +15,7 @@ from typing import Any
 
 _GO_INDEX = "https://go.dev/dl/?mode=json"
 _WASMTIME_LATEST = "https://api.github.com/repos/bytecodealliance/wasmtime/releases/latest"
+_DENO_LATEST = "https://api.github.com/repos/denoland/deno/releases/latest"
 
 
 def home() -> Path:
@@ -87,6 +88,20 @@ def _managed_wasmtime_path(version: str | None = None) -> Path | None:
     return None
 
 
+def _managed_deno_path(version: str | None = None) -> Path | None:
+    root = tools_dir()
+    exe_name = "deno.exe" if platform.system().lower() == "windows" else "deno"
+    if version:
+        ver = version if version.startswith("deno-") else f"deno-{version.lstrip('v')}"
+        candidates = list(root.glob(f"{ver}*/{exe_name}"))
+        return candidates[0] if candidates else None
+    for d in sorted(root.glob("deno*"), reverse=True):
+        p = d / exe_name
+        if p.exists():
+            return p
+    return None
+
+
 def probe() -> dict[str, Any]:
     reg = load_registry().get("runtimes", {})
     out: dict[str, Any] = {"ok": True, "managed_home": str(tools_dir()), "runtimes": {}}
@@ -94,6 +109,7 @@ def probe() -> dict[str, Any]:
         "python": ["python", "--version"],
         "python3": ["python3", "--version"],
         "node": ["node", "--version"],
+        "deno": ["deno", "--version"],
         "go": ["go", "version"],
         "wasmtime": ["wasmtime", "--version"],
         "wasm": ["wasmtime", "--version"],
@@ -107,6 +123,9 @@ def probe() -> dict[str, Any]:
     go_managed = _managed_go_path()
     if go_managed:
         out["runtimes"]["go"] = {"available": True, "path": str(go_managed), "version": _run_version(str(go_managed), ["version"]), "managed": True}
+    deno_managed = _managed_deno_path()
+    if deno_managed:
+        out["runtimes"]["deno"] = {"available": True, "path": str(deno_managed), "version": _run_version(str(deno_managed), ["--version"]), "managed": True}
     wasmtime_managed = _managed_wasmtime_path()
     if wasmtime_managed:
         wm = {"available": True, "path": str(wasmtime_managed), "version": _run_version(str(wasmtime_managed), ["--version"]), "managed": True}
@@ -191,6 +210,67 @@ def _go_asset(version: str | None = None) -> dict[str, Any]:
             if f.get("os") == os_name and f.get("arch") == arch and f.get("kind") == kind:
                 return {**f, "release": rel.get("version")}
     raise RuntimeError(f"no Go archive found for version={version!r} os={os_name} arch={arch}")
+
+
+def _deno_asset(version: str | None = None) -> dict[str, Any]:
+    url = _DENO_LATEST if not version else f"https://api.github.com/repos/denoland/deno/releases/tags/{version if version.startswith('v') else 'v' + version}"
+    req = urllib.request.Request(url, headers={"User-Agent": "ArenaBridge/runtime.install"})
+    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; asset digest verified before extraction  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to denoland/deno release API and downloaded asset is SHA-256 verified
+        rel = json.loads(r.read().decode("utf-8"))
+    tag = str(rel.get("tag_name") or "").lstrip("v")
+    sysname = platform.system().lower()
+    mach = platform.machine().lower()
+    arch = "x86_64" if mach in {"amd64", "x86_64"} else ("aarch64" if mach in {"arm64", "aarch64"} else mach)
+    target = {
+        "windows": f"deno-{arch}-pc-windows-msvc.zip",
+        "linux": f"deno-{arch}-unknown-linux-gnu.zip",
+        "darwin": f"deno-{arch}-apple-darwin.zip",
+    }.get(sysname)
+    for asset in rel.get("assets", []):
+        if asset.get("name") == target:
+            digest = str(asset.get("digest") or "")
+            return {"version": f"v{tag}", "filename": target, "url": asset.get("browser_download_url"), "digest": digest}
+    raise RuntimeError(f"no Deno archive found for version={version!r} target={target}")
+
+
+def install_deno(version: str | None = None) -> dict[str, Any]:
+    asset = _deno_asset(version)
+    ver = asset["version"]
+    root = tools_dir()
+    target = root / f"deno-{ver.lstrip('v')}"
+    exe_name = "deno.exe" if platform.system().lower() == "windows" else "deno"
+    exe = target / exe_name
+    if exe.exists():
+        return {"ok": True, "runtime": "deno", "version": ver, "path": str(exe), "already_installed": True, "probe": _run_version(str(exe), ["--version"])}
+    archive = root / str(asset["filename"])
+    if not archive.exists():
+        _download(str(asset["url"]), archive)
+    got = _sha256(archive)
+    digest = str(asset.get("digest") or "")
+    expected = digest.split(":", 1)[-1] if digest.startswith("sha256:") else digest
+    if expected and got.lower() != expected.lower():
+        raise RuntimeError(f"sha256 mismatch for {archive.name}: got {got}, expected {expected}")
+    tmp = root / f".deno-{ver.lstrip('v')}.extract"
+    if tmp.exists():
+        shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    _extract_zip_safe(archive, tmp)
+    candidates = list(tmp.rglob(exe_name))
+    if not candidates:
+        raise RuntimeError("Deno archive did not contain deno executable")
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    target.mkdir(parents=True)
+    shutil.move(str(candidates[0]), str(exe))
+    shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        exe.chmod(exe.stat().st_mode | 0o111)
+    except Exception:
+        pass
+    reg = load_registry()
+    reg.setdefault("runtimes", {})["deno"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got}
+    save_registry(reg)
+    return {"ok": True, "runtime": "deno", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["--version"])}
 
 
 def _wasmtime_asset(version: str | None = None) -> dict[str, Any]:
@@ -294,6 +374,8 @@ def install_go(version: str | None = None) -> dict[str, Any]:
 def install(runtime: str, version: str | None = None) -> dict[str, Any]:
     if runtime == "go":
         return install_go(version)
+    if runtime == "deno":
+        return install_deno(version)
     if runtime in {"wasm", "wasmtime"}:
         return install_wasmtime(version)
-    return {"ok": False, "error": f"runtime.install currently supports: go, wasmtime (got {runtime!r})"}
+    return {"ok": False, "error": f"runtime.install currently supports: go, deno, wasmtime (got {runtime!r})"}

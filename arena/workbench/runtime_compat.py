@@ -12,7 +12,7 @@ from typing import Any
 from arena.workbench import runtimes
 
 _SANDBOXES = ("appcontainer", "systemd", "off")
-_RUNTIMES = ("python3", "python", "node", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
+_RUNTIMES = ("python3", "python", "node", "deno", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
 
 
 def _available(rt: dict[str, Any], name: str) -> bool:
@@ -57,6 +57,10 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
                                    "Node probes C:\\ during startup and Windows AppContainer denies lstat/open.",
                                    suggested_posture={"sandbox": "off"},
                                    next_action="Use explicit host/off posture for Node until a broker/compat shim exists."))
+            elif name == "deno":
+                rows.append(_entry(name, "appcontainer", "supported" if avail else "missing",
+                                   "Deno is permission-gated and runs with scratch read/write, denied net, scratch-local DENO_DIR." if avail else "Deno runtime is not visible; install with runtime.install runtime=deno.",
+                                   next_action="Use lang=deno for TypeScript/JavaScript scripts that fit Deno permissions." if avail else "Install managed Deno with runtime.install."))
             elif name == "go":
                 rows.append(_entry(name, "appcontainer", "blocked",
                                    "Go toolchain opens Windows NUL during compilation; AppContainer denies the device.",

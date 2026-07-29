@@ -1,3 +1,10 @@
+## v4.129.0 - Managed Deno Runtime
+
+### Added
+- `runtime.install` now supports managed Deno (`runtime=deno`) from official `denoland/deno` GitHub releases, with GitHub asset SHA-256 digest verification and safe ZIP extraction.
+- `runtime.probe` / `runtime.compat` now expose `deno`; the compatibility registry marks Deno as an AppContainer-supported runtime when available.
+- `code.run` / `code_project.run` support `lang=deno`, invoking `deno run --no-prompt --allow-read=<scratch> --allow-write=<scratch> --deny-net ...` with scratch-local `DENO_DIR`, `HOME`, and `USERPROFILE`.
+
 ## v4.128.0 - Dependency Locking
 
 ### Added

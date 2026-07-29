@@ -78,3 +78,21 @@ def test_runtime_install_supports_wasmtime(monkeypatch):
     monkeypatch.setattr(runtimes, "install_wasmtime", lambda version=None: {"ok": True, "runtime": "wasmtime", "version": version or "latest"})
     out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "wasmtime"}, ctx=object()))
     assert out == {"ok": True, "runtime": "wasmtime", "version": "latest"}
+
+
+def test_runtime_probe_resolves_managed_deno(monkeypatch, tmp_path):
+    exe = tmp_path / "tools" / "deno-2.9.4" / ("deno.exe" if sys.platform == "win32" else "deno")
+    exe.parent.mkdir(parents=True)
+    exe.write_text("exe", encoding="utf-8")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(runtimes, "_which", lambda name: None)
+    monkeypatch.setattr(runtimes, "_run_version", lambda exe, args=None: "deno 2.9.4")
+    out = runtimes.probe()
+    assert out["runtimes"]["deno"]["available"] is True
+    assert out["runtimes"]["deno"]["managed"] is True
+
+
+def test_runtime_install_supports_deno(monkeypatch):
+    monkeypatch.setattr(runtimes, "install_deno", lambda version=None: {"ok": True, "runtime": "deno", "version": version or "latest"})
+    out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "deno"}, ctx=object()))
+    assert out == {"ok": True, "runtime": "deno", "version": "latest"}

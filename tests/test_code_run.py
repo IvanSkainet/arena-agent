@@ -529,3 +529,35 @@ def test_run_code_wasm_sets_scratch_home(monkeypatch):
     assert seen["WASMTIME_HOME"].endswith(".wasmtime")
     assert seen["HOME"] == seen["scratch"]
     assert seen["USERPROFILE"] == seen["scratch"]
+
+
+def test_build_deno_uses_permission_limited_invocation(tmp_path, monkeypatch):
+    script = tmp_path / "main.ts"
+    script.write_text("console.log('x')", encoding="utf-8")
+    argv, info = R.build_command("linux", _off(), "deno", script, tmp_path, runtime_args=["a"])
+    assert info["sandbox_action"] == "off"
+    assert argv[0] == "deno"
+    assert argv[1:4] == ["run", "--no-prompt", f"--allow-read={tmp_path}"]
+    assert f"--allow-write={tmp_path}" in argv
+    assert "--deny-net" in argv
+    assert argv[-2:] == [str(script), "a"]
+
+
+def test_run_code_deno_sets_scratch_home(monkeypatch):
+    seen = {}
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
+        seen["scratch"] = str(scratch_dir)
+        return ["fake"], {"refused": False, "sandbox_action": "appcontainer", "enforced": {"network": True}}
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+    monkeypatch.setattr(R, "build_command", _fake_build)
+    def fake_run(*a, **kw):
+        seen.update(kw["env"])
+        return _Proc()
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("console.log('x')", "deno", {**_strict(), "runtimes": ["deno"]}, platform="win32")
+    assert res["ok"] is True
+    assert seen["DENO_DIR"].endswith(".deno")
+    assert seen["HOME"] == seen["scratch"]

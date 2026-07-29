@@ -26,7 +26,7 @@ from typing import Any
 from arena.autonomy.posture import DEFAULT_RESOURCES, DEFAULT_RUNTIMES
 
 _BLOCKED_ENV = ("ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL")
-_EXT = {"python3": "py", "python": "py", "node": "js", "sh": "sh", "bash": "sh", "wasm": "wasm", "wasmtime": "wasm"}
+_EXT = {"python3": "py", "python": "py", "node": "js", "deno": "ts", "sh": "sh", "bash": "sh", "wasm": "wasm", "wasmtime": "wasm"}
 
 
 def _have(cmd: str) -> bool:
@@ -47,9 +47,13 @@ def _powershell() -> str | None:
 
 def _managed_runtime_path(lang: str) -> str | None:
     try:
-        from arena.workbench.runtimes import _managed_go_path, _managed_wasmtime_path, load_registry
+        from arena.workbench.runtimes import _managed_deno_path, _managed_go_path, _managed_wasmtime_path, load_registry
         if lang == "go":
             p = _managed_go_path()
+            if p:
+                return str(p)
+        if lang == "deno":
+            p = _managed_deno_path()
             if p:
                 return str(p)
         if lang in {"wasm", "wasmtime"}:
@@ -124,6 +128,8 @@ def _runtime_invocation(lang: str, command: str, code_path: Path, runtime_args: 
     args = [str(a) for a in (runtime_args or [])]
     if lang == "go":
         return [command, "run", str(code_path), *args]
+    if lang == "deno":
+        return [command, "run", "--no-prompt", f"--allow-read={code_path.parent}", f"--allow-write={code_path.parent}", "--deny-net", str(code_path), *args]
     if lang in {"wasm", "wasmtime"}:
         return [command, "-C", "cache=n", "--dir", str(code_path.parent), str(code_path), *args]
     return [command, str(code_path), *args]
@@ -456,6 +462,13 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             run_env = dict(run_env)
             old_node_path = run_env.get("NODE_PATH", "")
             run_env["NODE_PATH"] = npm_deps["path"] + (os.pathsep + old_node_path if old_node_path else "")
+        if lang == "deno":
+            run_env = dict(run_env)
+            deno_dir = scratch / ".deno"
+            deno_dir.mkdir(parents=True, exist_ok=True)
+            run_env["DENO_DIR"] = str(deno_dir)
+            run_env["HOME"] = str(scratch)
+            run_env["USERPROFILE"] = str(scratch)
         if lang == "go":
             from arena.autonomy.deps import go_env_for_scratch
             go_env = go_env_for_scratch(scratch, _managed_go_root, _scrub_env)

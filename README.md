@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.128.x)
+## Current flight status (v4.129.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -187,6 +187,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Code Session lifecycle is hardened.** Sessions now expose pid/returncode/max-session status, enforce a configurable live-session cap, and can be swept by idle/age threshold with terminate-then-kill diagnostics.
 - **AppContainer Sessions prototype exists.** With `sandbox=appcontainer`, Python code sessions can start in a replay-backed fenced mode: each exec goes through AppContainer `code.run`, preserving globals by transcript replay while keeping session files/artifacts available.
 - **Project dependency locking is available.** `code_project.deps_install` writes `.arena-lock.json`; `code_project.lock_verify` checks current caches; `code_project.run(lock="strict")` refuses mismatched dependencies, and Foundry tools can carry lock provenance.
+- **Managed Deno runtime is available.** `runtime.install runtime=deno` installs official Deno with SHA-256 verification, and `lang=deno` runs TypeScript/JavaScript with scratch read/write and denied network by default.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official
