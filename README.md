@@ -625,6 +625,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `sudo` | `sudo.run` — Run a command through 'sudo -n <cmd>' (non-interactive). Req |
 | `sys` | `sys.status` — Bridge/services/funnel status |
 | `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
+| `workbench` | `workbench.status` — Show posture, runtimes, projects, sessions, recent artifacts, known limits, and next actions |
 
 All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.
 

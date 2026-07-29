@@ -1,3 +1,12 @@
+## v4.118.0 - Workbench Status map
+
+### Added
+- `workbench.status` aggregates the Code Workbench map: current posture,
+  runtime probe, persistent projects, live sessions, recent persisted runs and
+  artifacts, known limits, and suggested next actions.
+- The dynamic harness roadmap is now checked in at
+  `docs/dynamic_harness_roadmap.md`.
+
 ## v4.117.0 - Code Sessions can start inside projects
 
 ### Added

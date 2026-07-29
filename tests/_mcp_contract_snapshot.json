@@ -611,5 +611,14 @@
     "tool_names": [
       "watch.files"
     ]
+  },
+  {
+    "file": "arena/mcp/tool_workbench.py",
+    "handlers": [
+      "handle_workbench_tool"
+    ],
+    "tool_names": [
+      "workbench.status"
+    ]
   }
 ]
