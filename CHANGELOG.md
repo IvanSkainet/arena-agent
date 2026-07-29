@@ -1,3 +1,8 @@
+## v4.124.1 - Wasmtime security annotation
+
+### Fixed
+- Annotated the Wasmtime GitHub release API fetch for the security gate: the URL is constrained to the official Bytecode Alliance release endpoint and downloaded assets are verified by GitHub-provided SHA-256 digest before extraction.
+
 ## v4.124.0 - WASM Runtime
 
 ### Added

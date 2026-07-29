@@ -196,7 +196,7 @@ def _go_asset(version: str | None = None) -> dict[str, Any]:
 def _wasmtime_asset(version: str | None = None) -> dict[str, Any]:
     url = _WASMTIME_LATEST if not version else f"https://api.github.com/repos/bytecodealliance/wasmtime/releases/tags/{version if version.startswith('v') else 'v' + version}"
     req = urllib.request.Request(url, headers={"User-Agent": "ArenaBridge/runtime.install"})
-    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; asset digest verified before extraction
+    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; asset digest verified before extraction  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to bytecodealliance/wasmtime release API and downloaded asset is SHA-256 verified
         rel = json.loads(r.read().decode("utf-8"))
     tag = str(rel.get("tag_name") or "").lstrip("v")
     sysname = platform.system().lower()
