@@ -504,3 +504,28 @@ def test_build_wasm_uses_wasmtime_dir_invocation(tmp_path, monkeypatch):
     argv, info = R.build_command("linux", _off(), "wasm", wasm, tmp_path, runtime_args=["a"])
     assert info["sandbox_action"] == "off"
     assert argv == ["wasmtime", "--dir", str(tmp_path), str(wasm), "a"]
+
+
+
+def test_run_code_wasm_sets_scratch_home(monkeypatch):
+    seen = {}
+
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
+        seen["scratch"] = str(scratch_dir)
+        return ["fake"], {"refused": False, "sandbox_action": "appcontainer", "enforced": {"network": True}}
+
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+
+    monkeypatch.setattr(R, "build_command", _fake_build)
+    def fake_run(*a, **kw):
+        seen.update(kw["env"])
+        return _Proc()
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("", "wasm", {**_strict(), "runtimes": ["wasm"]}, platform="win32", files=[{"path": "m.wasm", "content": "AGFzbQEAAAA=", "encoding": "base64"}], entry="m.wasm")
+    assert res["ok"] is True
+    assert seen["WASMTIME_HOME"].endswith(".wasmtime")
+    assert seen["HOME"] == seen["scratch"]
+    assert seen["USERPROFILE"] == seen["scratch"]

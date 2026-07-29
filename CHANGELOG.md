@@ -1,3 +1,8 @@
+## v4.124.2 - Wasmtime AppContainer home fix
+
+### Fixed
+- `lang=wasm` runs now create a scratch-local Wasmtime home and point `WASMTIME_HOME`, `HOME`, and `USERPROFILE` at scratch. Live v4.124.1 proved Wasmtime could launch in AppContainer but failed resolving its default config location from the denied user profile.
+
 ## v4.124.1 - Wasmtime security annotation
 
 ### Fixed

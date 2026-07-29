@@ -464,8 +464,12 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
                 merged.setdefault(key, value)
             run_env = merged
         if lang in {"wasm", "wasmtime"}:
+            wasmtime_home = scratch / ".wasmtime"
+            wasmtime_home.mkdir(parents=True, exist_ok=True)
             run_env = dict(run_env)
-            run_env.setdefault("WASMTIME_HOME", str(scratch / ".wasmtime"))
+            run_env["WASMTIME_HOME"] = str(wasmtime_home)
+            run_env["HOME"] = str(scratch)
+            run_env["USERPROFILE"] = str(scratch)
         try:
             proc = subprocess.run(argv_cmd, capture_output=True, text=True,
                                   input=stdin if stdin is not None else None,
