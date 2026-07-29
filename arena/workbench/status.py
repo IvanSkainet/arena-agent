@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from arena.autonomy import posture as _posture
-from arena.workbench import artifacts, projects, runtimes, sessions
+from arena.workbench import artifacts, projects, runtime_compat, runtimes, sessions
 
 
 def _artifact_store_summary(limit: int = 10) -> dict[str, Any]:
@@ -44,6 +44,7 @@ def status() -> dict[str, Any]:
     project_status = projects.list_projects()
     session_status = sessions.list_sessions()
     artifact_status = _artifact_store_summary()
+    compat_status = runtime_compat.build(runtime_status)
     limits = _known_limits(runtime_status)
     next_actions = []
     if session_status.get("count", 0):
@@ -51,11 +52,12 @@ def status() -> dict[str, Any]:
     if any(limit["component"] == "rust.windows" for limit in limits):
         next_actions.append("Install/verify a Windows Rust linker toolchain before expecting Rust compile proofs.")
     next_actions.append("Run a Workbench smoke: code.run AppContainer Python, code_project.run, code_matrix.run, code_session start/exec/stop.")
-    next_actions.append("Next roadmap step: Tool Foundry v1 after Workbench Status is visible.")
+    next_actions.append("Next roadmap step: continue runtime/sandbox compatibility hardening after Runtime Compatibility Registry.")
     return {
         "ok": True,
         "posture": posture,
         "runtimes": runtime_status,
+        "runtime_compat": compat_status,
         "projects": project_status,
         "sessions": session_status,
         "artifacts": artifact_status,

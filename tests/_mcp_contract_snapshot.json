@@ -584,6 +584,7 @@
       "handle_runtime_tool"
     ],
     "tool_names": [
+      "runtime.compat",
       "runtime.install",
       "runtime.list",
       "runtime.probe"

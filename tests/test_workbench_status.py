@@ -25,12 +25,13 @@ def test_workbench_status_registered_and_safe():
 def test_workbench_status_shape(monkeypatch):
     monkeypatch.setattr(W._posture, "get_posture", lambda: {"ok": True, "risk": "low"})
     monkeypatch.setattr(W.runtimes, "probe", lambda: {"ok": True, "runtimes": {}})
+    monkeypatch.setattr(W.runtime_compat, "build", lambda runtime_status=None: {"ok": True, "known_limits": [], "matrix": []})
     monkeypatch.setattr(W.projects, "list_projects", lambda: {"ok": True, "count": 0, "projects": []})
     monkeypatch.setattr(W.sessions, "list_sessions", lambda: {"ok": True, "count": 0, "sessions": []})
     monkeypatch.setattr(W, "_artifact_store_summary", lambda: {"ok": True, "recent": []})
     out = W.status()
     assert out["ok"] is True
-    assert set(["posture", "runtimes", "projects", "sessions", "artifacts", "known_limits", "next_actions"]) <= set(out)
+    assert set(["posture", "runtimes", "runtime_compat", "projects", "sessions", "artifacts", "known_limits", "next_actions"]) <= set(out)
 
 
 def test_workbench_mcp_tool(monkeypatch):

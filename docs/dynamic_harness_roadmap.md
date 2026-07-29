@@ -92,7 +92,7 @@ Successful experiments become persistent tools.
 
 Allow `code_project.run(use_project_deps=true)` in AppContainer by granting only project dependency cache read/execute plus scratch write.
 
-### v4.123.0 — Runtime Compatibility Registry
+### v4.123.0 — Runtime Compatibility Registry ✅ completed
 
 Add:
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.122.0 AppContainer Project Deps are complete. Continue with v4.123.0 — Runtime Compatibility Registry; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.123.0 Runtime Compatibility Registry are complete. Continue with v4.124.0 — WASM Runtime; keep using the maps before adding power.

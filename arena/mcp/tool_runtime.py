@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
-from arena.workbench import runtimes
+from arena.workbench import runtime_compat, runtimes
 
 
 def _res(payload: dict[str, Any]) -> dict[str, Any]:
@@ -15,6 +15,8 @@ def _res(payload: dict[str, Any]) -> dict[str, Any]:
 def handle_runtime_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[str, Any] | None:
     if name in {"runtime.probe", "runtime.list"}:
         return _res(runtimes.probe())
+    if name == "runtime.compat":
+        return _res(runtime_compat.build())
     if name == "runtime.install":
         runtime = str(args.get("runtime") or "").strip().lower()
         if not runtime:
@@ -27,6 +29,8 @@ def handle_runtime_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[st
 
 
 RUNTIME_TOOLS = [
+    {"name": "runtime.compat", "description": "Machine-readable runtime x sandbox compatibility registry: supported/blocked/incomplete/missing, reasons, suggested posture, and next actions.",
+     "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "runtime.probe", "description": "Probe host and Arena-managed language runtimes (python/node/go/rust/java) with versions and diagnostics.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "runtime.list", "description": "Alias for runtime.probe.",

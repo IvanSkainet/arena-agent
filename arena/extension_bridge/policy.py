@@ -31,7 +31,7 @@ _SAFE_TOOLS = {
     "mcp.ext_servers", "mcp.ext_tools", "mcp.ext_call",
     # v4.96.0: listing agent-authored custom tools is read-only.
     "custom.list",
-    "runtime.probe", "runtime.list", "workbench.status", "ship.status", "ship.preflight", "tool_foundry.list", "tool_foundry.validate", "code_project.list", "code_session.list", "code_project.read", "code_run.info", "code_artifact.read",
+    "runtime.probe", "runtime.list", "runtime.compat", "workbench.status", "ship.status", "ship.preflight", "tool_foundry.list", "tool_foundry.validate", "code_project.list", "code_session.list", "code_project.read", "code_run.info", "code_artifact.read",
 }
 _MEDIUM_TOOLS = {
     # v4.78.0: mem.get / mem.set removed (long deprecation window from

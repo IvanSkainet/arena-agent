@@ -1,3 +1,9 @@
+## v4.123.0 - Runtime Compatibility Registry
+
+### Added
+- `runtime.compat` exposes a machine-readable runtime x sandbox compatibility registry with `supported`, `blocked`, `incomplete`, and `missing` states, reasons, suggested posture, and next actions.
+- `workbench.status` now includes `runtime_compat` and derives runtime known limits from the registry instead of hard-coded prose.
+
 ## v4.122.1 - AppContainer Project Deps recursive ACL fix
 
 ### Fixed

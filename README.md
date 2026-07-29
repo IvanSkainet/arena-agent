@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.122.x)
+## Current flight status (v4.123.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -181,6 +181,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Tool Foundry v1 connects projects to callable tools.** A Code Workbench project can carry `.arena-tool.json` with input schema, run recipe and tests. `tool_foundry.validate` proves it; `tool_foundry.publish` creates a callable `custom.<name>` wrapper around `code_project.run`.
 - **Experiments can be promoted directly.** `code_project.promote_tool` and `code_run.promote_tool` generate a Foundry manifest from a known-good recipe/tests, validate it, and publish the resulting `custom.<name>` capability without hand-writing `.arena-tool.json`.
 - **Project dependency cache can now stay fenced.** Python `code_project.run(use_project_deps=true)` can run in Windows AppContainer by granting only the project `.deps/python` cache read/execute, while writes remain scratch-only and network stays denied.
+- **Runtime compatibility is now machine-readable.** `runtime.compat` reports runtime × sandbox support/blockers (for example Python/AppContainer supported, Node/Go AppContainer blocked, Rust linker incomplete) with reasons and next actions used by Workbench status.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official
@@ -621,7 +622,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `plan` | `plan.create` — Create a structured execution plan for a goal, with suggeste |
 | `react` | `react.run` — Run a bounded reason-act-observe loop using safe observation |
 | `reflect` | `reflect.run` — Reflect on a prior react/planning run and produce concerns,  |
-| `runtime` | `runtime.probe` — Probe host and Arena-managed language runtimes; install managed Go with `runtime.install` |
+| `runtime` | `runtime.probe` / `runtime.compat` — Probe runtimes and show runtime × sandbox compatibility with known blockers and next actions |
 | `scenario` | `scenario.run` — Execute a scenario's steps in order, interpolating {{ steps. |
 | `secrets` | `secrets.list` — List available secret keys (values never returned). |
 | `skill` | `skill.list` — List available agent skills |
