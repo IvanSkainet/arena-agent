@@ -1,3 +1,13 @@
+## v4.127.0 - AppContainer Sessions Prototype
+
+### Added
+- `code_session.start` now supports Windows AppContainer prototype sessions when the active posture is `sandbox=appcontainer`.
+- AppContainer sessions use a replay-backed fenced model: each `code_session.exec` runs through a fresh AppContainer `code.run`, preserving Python globals by replaying prior successful snippets with stdout/stderr suppressed.
+- Files in the session cwd are copied into each fenced run and changed artifacts are synced back into the session cwd, so `code_session.write/read/files/artifacts` work with the prototype.
+
+### Notes
+- This is intentionally labeled a prototype, not the final durable lowbox-pipe session. It preserves state by transcript replay and keeps fail-closed AppContainer execution rather than silently falling back to host/off.
+
 ## v4.126.0 - Session Lifecycle Hardening
 
 ### Added

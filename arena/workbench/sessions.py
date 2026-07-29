@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from arena.autonomy import posture as _posture
+from arena.autonomy import runner as _runner
 from arena.autonomy.runner import _resolve_runtime, _resolve_win32_runtime, _scrub_env
 from arena.workbench.runtimes import home
 
@@ -47,18 +48,20 @@ class Session:
     id: str
     name: str
     lang: str
-    proc: subprocess.Popen
+    proc: subprocess.Popen | None
     cwd: Path
     started_at: float = field(default_factory=time.time)
     last_used_at: float = field(default_factory=time.time)
     posture: dict[str, Any] = field(default_factory=dict)
     project: str | None = None
     use_project_deps: bool = False
+    mode: str = "process"
+    history: list[str] = field(default_factory=list)
     _q: queue.Queue[str | None] = field(default_factory=queue.Queue)
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     def alive(self) -> bool:
-        return self.proc.poll() is None
+        return True if self.proc is None else self.proc.poll() is None
 
 
 _SESSIONS: dict[str, Session] = {}
@@ -113,7 +116,7 @@ def _cleanup_dead() -> list[dict[str, Any]]:
     with _SESSIONS_LOCK:
         for sid, sess in list(_SESSIONS.items()):
             if not sess.alive():
-                removed.append({"session_id": sid, "returncode": sess.proc.poll(), "reason": "dead"})
+                removed.append({"session_id": sid, "returncode": sess.proc.poll() if sess.proc else None, "reason": "dead"})
                 _SESSIONS.pop(sid, None)
     return removed
 
@@ -133,8 +136,9 @@ def _session_row(s: Session, now: float | None = None) -> dict[str, Any]:
         "name": s.name,
         "lang": s.lang,
         "alive": s.alive(),
-        "pid": getattr(s.proc, "pid", None),
-        "returncode": s.proc.poll(),
+        "pid": getattr(s.proc, "pid", None) if s.proc is not None else None,
+        "returncode": s.proc.poll() if s.proc is not None else None,
+        "mode": s.mode,
         "cwd": str(s.cwd),
         "age_sec": round(now - s.started_at, 3),
         "idle_sec": round(now - s.last_used_at, 3),
@@ -142,6 +146,76 @@ def _session_row(s: Session, now: float | None = None) -> dict[str, Any]:
         "project": s.project,
         "use_project_deps": s.use_project_deps,
     }
+
+
+
+
+def _session_workspace_files(sess: Session) -> list[dict[str, Any]]:
+    files: list[dict[str, Any]] = []
+    for p in sess.cwd.rglob("*"):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(sess.cwd).as_posix()
+        try:
+            files.append({"path": rel, "content": p.read_text(encoding="utf-8")})
+        except UnicodeDecodeError:
+            files.append({"path": rel, "content": base64.b64encode(p.read_bytes()).decode("ascii"), "encoding": "base64"})
+    return files
+
+
+def _sync_artifacts_to_session(sess: Session, artifacts: list[dict[str, Any]]) -> None:
+    for item in artifacts:
+        rel_s = str(item.get("path") or "")
+        if not rel_s or rel_s == "__session_exec.py" or rel_s.startswith("__"):
+            continue
+        try:
+            rel = _safe_rel(rel_s)
+        except ValueError:
+            continue
+        target = sess.cwd / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if "text" in item:
+            target.write_text(str(item.get("text") or ""), encoding="utf-8")
+        elif "base64" in item:
+            target.write_bytes(base64.b64decode(str(item.get("base64") or "")))
+
+
+def _appcontainer_exec(sess: Session, code: str, *, timeout: float, artifacts: list[str] | None) -> dict[str, Any]:
+    history_json = json.dumps(sess.history)
+    current_json = json.dumps(code)
+    wrapper = f"""
+import contextlib, io, json, os, traceback
+_ns = {{"__name__": "__arena_session__"}}
+for _code in json.loads({history_json!r}):
+    with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        exec(_code, _ns, _ns)
+_current = json.loads({current_json!r})
+exec(_current, _ns, _ns)
+""".lstrip()
+    files = _session_workspace_files(sess)
+    files.append({"path": "__session_exec.py", "content": wrapper})
+    res = _runner.run_code_sync(
+        "", sess.lang, sess.posture, timeout=int(timeout), platform="win32",
+        files=files, entry="__session_exec.py", artifacts=["**/*"],
+    )
+    if res.get("artifacts"):
+        _sync_artifacts_to_session(sess, res.get("artifacts") or [])
+    if res.get("ok"):
+        sess.history.append(code)
+    sess.last_used_at = time.time()
+    out = {"ok": bool(res.get("ok")), "session_id": sess.id, "alive": True,
+           "stdout": res.get("stdout", ""), "stderr": res.get("stderr", ""),
+           "mode": sess.mode, "sandbox_action": res.get("sandbox_action"),
+           "enforced": res.get("enforced"), "note": res.get("note", "")}
+    if not res.get("ok"):
+        out["error"] = res.get("error") or "appcontainer session exec failed"
+        out["exit_code"] = res.get("exit_code")
+    if artifacts:
+        art = session_artifacts(sess.id, artifacts)
+        out["run_id"] = art.get("run_id")
+        out["artifacts"] = art.get("artifacts", [])
+        out["artifact_error"] = art.get("error") if not art.get("ok") else None
+    return out
 
 
 def start(*, lang: str = "python3", name: str = "", cwd: str | None = None,
@@ -153,10 +227,13 @@ def start(*, lang: str = "python3", name: str = "", cwd: str | None = None,
     if live_count >= limit:
         return {"ok": False, "error": f"code session limit reached ({live_count}/{limit}); stop or sweep sessions first", "count": live_count, "max_sessions": limit}
     active = _posture.load_posture()
-    if active.get("sandbox") != "off":
-        return {"ok": False, "error": "code_session.start currently requires operator posture sandbox=off (MVP host session). Start a new session after selecting an explicit host/off posture."}
+    sandbox = active.get("sandbox")
+    if sandbox not in {"off", "appcontainer"}:
+        return {"ok": False, "error": "code_session.start supports sandbox=off or Windows AppContainer prototype sessions"}
+    if sandbox == "appcontainer" and sys.platform != "win32":
+        return {"ok": False, "error": "AppContainer sessions are Windows-only; refusing to run unfenced"}
     if lang not in {"python", "python3"}:
-        return {"ok": False, "error": "v4.116.0 code sessions support python/python3 only"}
+        return {"ok": False, "error": "code sessions support python/python3 only"}
     exe = _resolve_python(lang)
     if not exe:
         return {"ok": False, "error": f"cannot resolve Python runtime: {lang}"}
@@ -172,6 +249,15 @@ def start(*, lang: str = "python3", name: str = "", cwd: str | None = None,
     else:
         workdir = Path(cwd).expanduser() if cwd else (_sessions_root() / sid)
     workdir.mkdir(parents=True, exist_ok=True)
+    if sandbox == "appcontainer":
+        sess = Session(id=sid, name=name or sid, lang=lang, proc=None, cwd=workdir, posture=active,
+                       project=project, use_project_deps=use_project_deps, mode="appcontainer-replay")
+        with _SESSIONS_LOCK:
+            _SESSIONS[sid] = sess
+        return {"ok": True, "session_id": sid, "name": sess.name, "lang": lang, "cwd": str(workdir),
+                "project": project, "use_project_deps": use_project_deps, "posture": active,
+                "mode": sess.mode, "prototype": True,
+                "note": "AppContainer session prototype: each exec is replayed through a fresh fenced code.run, preserving Python globals by transcript replay."}
     proc = subprocess.Popen(
         [exe, "-u", "-c", _WORKER],
         stdin=subprocess.PIPE,
@@ -198,6 +284,9 @@ def exec_code(session_id: str, code: str, *, timeout: float = 30, artifacts: lis
         return {"ok": False, "error": "session not found"}
     if not sess.alive():
         return {"ok": False, "error": "session is not alive"}
+    if sess.mode == "appcontainer-replay":
+        with sess._lock:
+            return _appcontainer_exec(sess, code, timeout=timeout, artifacts=artifacts)
     with sess._lock:
         assert sess.proc.stdin is not None
         sess.proc.stdin.write(json.dumps({"code": code}) + "\n")
@@ -313,6 +402,9 @@ def stop(session_id: str, *, kill_after: float = 5.0) -> dict[str, Any]:
         return {"ok": False, "error": "session not found"}
     killed = False
     terminated = False
+    if sess.proc is None:
+        return {"ok": True, "stopped": session_id, "terminated": False, "killed": False,
+                "returncode": None, "stderr_tail": "", "mode": sess.mode}
     if sess.alive():
         try:
             sess.proc.terminate()

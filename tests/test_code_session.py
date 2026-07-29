@@ -25,11 +25,12 @@ def test_code_session_tools_registered_and_policy():
     assert classify_tool_risk("code_session.list") == "safe"
 
 
-def test_session_start_requires_sandbox_off(monkeypatch):
+def test_session_start_appcontainer_is_windows_only(monkeypatch):
     monkeypatch.setattr(sessions._posture, "load_posture", lambda: {"sandbox": "appcontainer"})
+    monkeypatch.setattr(sessions.sys, "platform", "linux")
     out = sessions.start(lang="python3")
     assert out["ok"] is False
-    assert "sandbox=off" in out["error"]
+    assert "Windows-only" in out["error"]
 
 
 def test_session_python_stateful_roundtrip(monkeypatch, tmp_path):
@@ -150,3 +151,32 @@ def test_session_sweep_mcp_and_policy(monkeypatch):
     monkeypatch.setattr(sessions, "sweep", lambda **kw: {"ok": True, "dry_run": kw.get("dry_run")})
     out = _parsed(handle_code_session_tool("code_session.sweep", {"max_idle_sec": 1, "dry_run": True}, ctx=object()))
     assert out == {"ok": True, "dry_run": True}
+
+
+
+def test_appcontainer_session_replay_prototype(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(sessions.sys, "platform", "win32")
+    monkeypatch.setattr(sessions._posture, "load_posture", lambda: {"sandbox": "appcontainer", "runtime": "allowlist", "runtimes": ["python3"]})
+    monkeypatch.setattr(sessions, "_resolve_win32_runtime", lambda lang: "python.exe")
+    calls = []
+
+    def fake_run(code, lang, posture, **kwargs):
+        calls.append(kwargs)
+        return {"ok": True, "stdout": "ok\n", "stderr": "", "sandbox_action": "appcontainer", "enforced": {"network": True}, "artifacts": [{"path": "out/x.txt", "text": "artifact"}]}
+
+    monkeypatch.setattr(sessions._runner, "run_code_sync", fake_run)
+    out = sessions.start(lang="python3", name="fenced")
+    assert out["ok"] is True
+    assert out["mode"] == "appcontainer-replay"
+    sid = out["session_id"]
+    try:
+        r1 = sessions.exec_code(sid, "x = 1")
+        r2 = sessions.exec_code(sid, "print(x + 1)", artifacts=["out/*.txt"])
+        assert r1["ok"] is True and r2["ok"] is True
+        assert sessions._SESSIONS[sid].history == ["x = 1", "print(x + 1)"]
+        assert calls[-1]["platform"] == "win32"
+        assert (sessions._SESSIONS[sid].cwd / "out" / "x.txt").read_text() == "artifact"
+        assert r2["artifacts"][0]["path"] == "out/x.txt"
+    finally:
+        sessions.stop(sid)

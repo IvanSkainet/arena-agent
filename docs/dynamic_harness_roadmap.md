@@ -121,7 +121,7 @@ Add:
 
 Add idle timeout, max age, stop-on-HALT, persistent logs, dashboard/status visibility.
 
-### v4.127.0 — AppContainer Sessions Prototype
+### v4.127.0 — AppContainer Sessions Prototype ✅ completed
 
 Long-lived lowbox process with durable handles and lifecycle cleanup.
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.126.0 Session Lifecycle Hardening are complete. Continue with v4.127.0 — AppContainer Sessions Prototype; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.127.0 AppContainer Sessions Prototype are complete. Continue with Phase 5 — Dependency Locking; keep using the maps before adding power.
