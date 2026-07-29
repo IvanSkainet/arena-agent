@@ -125,7 +125,7 @@ def _runtime_invocation(lang: str, command: str, code_path: Path, runtime_args: 
     if lang == "go":
         return [command, "run", str(code_path), *args]
     if lang in {"wasm", "wasmtime"}:
-        return [command, "--config", str(code_path.parent / "wasmtime-config.toml"), "--dir", str(code_path.parent), str(code_path), *args]
+        return [command, "-C", "cache=n", "--dir", str(code_path.parent), str(code_path), *args]
     return [command, str(code_path), *args]
 
 
@@ -431,10 +431,6 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
         if not deps_result.get("ok"):
             return {"ok": False, "refused": True, "error": deps_result.get("error"), "deps": deps_result}
 
-        if lang in {"wasm", "wasmtime"}:
-            (scratch / "wasmtime-config.toml").write_text("", encoding="utf-8")
-            if "wasmtime-config.toml" not in workspace_files:
-                workspace_files.append("wasmtime-config.toml")
         runtime_args = [str(a) for a in (argv or [])]
         stdin_path = None
         if stdin is not None:

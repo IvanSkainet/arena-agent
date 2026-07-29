@@ -1,3 +1,8 @@
+## v4.124.4 - Wasmtime cache disable fix
+
+### Fixed
+- `lang=wasm` now invokes Wasmtime with `-C cache=n` so the CLI does not try to locate a default cache config from denied profile locations inside AppContainer.
+
 ## v4.124.3 - Wasmtime explicit config fix
 
 ### Fixed

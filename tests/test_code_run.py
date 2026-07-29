@@ -503,7 +503,7 @@ def test_build_wasm_uses_wasmtime_dir_invocation(tmp_path, monkeypatch):
     monkeypatch.setattr(R, "_resolve_runtime", lambda lang: "/bin/wasmtime" if lang == "wasm" else None)
     argv, info = R.build_command("linux", _off(), "wasm", wasm, tmp_path, runtime_args=["a"])
     assert info["sandbox_action"] == "off"
-    assert argv == ["wasmtime", "--config", str(tmp_path / "wasmtime-config.toml"), "--dir", str(tmp_path), str(wasm), "a"]
+    assert argv == ["wasmtime", "-C", "cache=n", "--dir", str(tmp_path), str(wasm), "a"]
 
 
 
@@ -527,6 +527,5 @@ def test_run_code_wasm_sets_scratch_home(monkeypatch):
     res = R.run_code_sync("", "wasm", {**_strict(), "runtimes": ["wasm"]}, platform="win32", files=[{"path": "m.wasm", "content": "AGFzbQEAAAA=", "encoding": "base64"}], entry="m.wasm")
     assert res["ok"] is True
     assert seen["WASMTIME_HOME"].endswith(".wasmtime")
-    assert "wasmtime-config.toml" in res["workspace_files"]
     assert seen["HOME"] == seen["scratch"]
     assert seen["USERPROFILE"] == seen["scratch"]
