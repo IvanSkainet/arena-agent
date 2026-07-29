@@ -1,3 +1,9 @@
+## v4.116.1 - Document code_session namespace
+
+### Fixed
+- README namespace examples now include `code_session.exec`, satisfying the
+  namespace documentation guard for the new long-running session tools.
+
 ## v4.116.0 - Python Code Sessions MVP
 
 ### Added

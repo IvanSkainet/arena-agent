@@ -602,6 +602,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `code_project` | `code_project.run` — Run a persistent Code Workbench project through the same operator-owned posture fence |
 | `code_run` | `code_run.info` — Inspect a persisted Code Workbench run and its artifact manifest |
 | `code_matrix` | `code_matrix.run` — Run up to 8 Code Workbench jobs sequentially under the current operator posture |
+| `code_session` | `code_session.exec` — Execute code in a long-running Python Code Workbench session that preserves state |
 | `code_artifact` | `code_artifact.read` — Read a persisted Code Workbench artifact by run_id and path |
 | `fs` | `fs.read` — Read file contents (utf-8) |
 | `git` | `git.status` — Show git status for a repository. |
