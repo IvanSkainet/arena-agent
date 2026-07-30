@@ -36,14 +36,14 @@ def test_build_linux_systemd_strict_argv(tmp_path, monkeypatch):
                                  tmp_path / "c.py", tmp_path)
     assert argv[0] == "systemd-run"
     assert "--property=PrivateNetwork=yes" in argv      # network deny
-    assert "--property=DynamicUser=yes" in argv          # privilege drop
+    assert "--property=DynamicUser=yes" not in argv      # user manager rejects DynamicUser
     assert "--property=ProtectSystem=strict" in argv     # fs confined
     assert any(p.startswith("--property=ReadWritePaths=") for p in argv)
     assert any(p.startswith("--property=MemoryMax=") for p in argv)
     assert argv[-3] == "--" and argv[-2] == "python3"
     assert info["refused"] is False and info["sandbox_action"] == "systemd"
     e = info["enforced"]
-    assert e["network"] and e["privilege"] and e["filesystem_confined"] and e["memory"]
+    assert e["network"] and not e["privilege"] and e["filesystem_confined"] and e["memory"]
 
 
 def test_build_linux_network_open_drops_privatenetwork(tmp_path, monkeypatch):

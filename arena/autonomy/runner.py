@@ -305,7 +305,8 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     if net in ("deny", "allowlist"):  # allowlist enforced as full deny (stricter, safe)
         flags.append("--property=PrivateNetwork=yes")
     if priv == "drop":
-        flags.append("--property=DynamicUser=yes")
+        # systemd --user rejects DynamicUser= as a bad unit setting.
+        pass
     if fs in ("scratch-only", "home-read"):
         flags.append("--property=ProtectSystem=strict")
         flags.append(f"--property=ReadWritePaths={scratch_dir}")
@@ -314,13 +315,15 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     enforced = {
         **always,
         "network": net in ("deny", "allowlist"),
-        "privilege": priv == "drop",
+        "privilege": False,
         "filesystem_confined": fs in ("scratch-only", "home-read"),
         "memory": True,
     }
     notes = []
     if net == "allowlist":
         notes.append("network allowlist enforced as full deny in slice 1")
+    if priv == "drop":
+        notes.append("systemd user service cannot use DynamicUser; running as bridge user")
     argv = ["systemd-run", *flags, "--", *base]
     return argv, {"refused": False, "sandbox_action": "systemd",
                   "enforced": enforced, "note": "; ".join(notes)}

@@ -1,3 +1,8 @@
+## v4.137.2 - Linux systemd user DynamicUser fix
+
+### Fixed
+- Removed `DynamicUser=yes` from the Linux `systemd-run --user` code runner path. User service managers reject it as a bad unit setting; the runner now records this as an enforcement limitation instead of breaking the smoke proof.
+
 ## v4.137.1 - Linux systemd smoke runner fix
 
 ### Fixed
