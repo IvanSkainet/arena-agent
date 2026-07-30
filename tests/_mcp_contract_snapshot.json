@@ -243,6 +243,18 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_mcp_server_foundry.py",
+    "handlers": [
+      "handle_mcp_server_foundry_tool"
+    ],
+    "tool_names": [
+      "mcp_server.create",
+      "mcp_server.install",
+      "mcp_server.list",
+      "mcp_server.test"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_memory.py",
     "handlers": [
       "handle_memory_tool"

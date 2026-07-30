@@ -43,6 +43,7 @@ from arena.mcp.tool_code_artifact import handle_code_artifact_tool
 from arena.mcp.tool_code_matrix import handle_code_matrix_tool
 from arena.mcp.tool_code_session import handle_code_session_tool
 from arena.mcp.tool_workbench import handle_workbench_tool
+from arena.mcp.tool_mcp_server_foundry import handle_mcp_server_foundry_tool
 from arena.mcp.tool_ship import handle_ship_tool
 from arena.mcp.tool_foundry import handle_foundry_tool
 from arena.control import _agent_halt_block_for_tool
@@ -151,6 +152,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_code_matrix_tool(name, args, ctx=ctx),
                 lambda: handle_code_session_tool(name, args, ctx=ctx),
                 lambda: handle_workbench_tool(name, args, ctx=ctx),
+                lambda: handle_mcp_server_foundry_tool(name, args, ctx=ctx),
                 lambda: handle_ship_tool(name, args, ctx=ctx),
                 lambda: handle_foundry_tool(name, args, ctx=ctx),
                 lambda: handle_browser_headed_tool(name, args, ctx=ctx),

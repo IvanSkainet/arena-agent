@@ -151,7 +151,7 @@ Finish Rust on Windows with MSVC/MinGW/w64devkit or another linker path, then pr
 
 ## Phase 7 — MCP Authoring
 
-### v4.133.0 — MCP Server Foundry
+### v4.133.0 — MCP Server Foundry ✅ completed
 
 Add:
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.132.0 Managed Lua Runtime are complete. Phase 6 runtime expansion has covered Go, Wasmtime/WASM, Deno, Zig, and Lua. Continue to the next highest-leverage roadmap slice; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.133.0 MCP Server Foundry are complete. Continue with Phase 8 — Scenario Promotion; keep using the maps before adding power.

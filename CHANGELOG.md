@@ -1,3 +1,9 @@
+## v4.133.0 - MCP Server Foundry
+
+### Added
+- `mcp_server.create`, `mcp_server.test`, `mcp_server.install`, and `mcp_server.list` let agents author full external MCP server projects, test `initialize`/`tools/list`/optional `tools/call`, and install them into `mcp/mcp.json`.
+- If no files are supplied, `mcp_server.create` scaffolds a minimal Python stdio MCP echo server for proof/testing.
+
 ## v4.132.2 - Lua direct SHA fallback
 
 ### Fixed
