@@ -7,8 +7,8 @@ import urllib.request
 from typing import Any
 from urllib.parse import quote, urlencode
 
+from arena import mission_autopilot as _autopilot
 from arena.mcp.tool_utils import text_content
-
 
 
 def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, method: str = "POST") -> dict[str, Any]:
@@ -34,6 +34,28 @@ def _bridge_call(ctx, path: str, payload: dict[str, Any] | None = None, *, metho
 
 
 def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
+    cfg = ctx.app_config() or {}
+    port = int(cfg.get("port", 8765) or 8765)
+    token = str(cfg.get("token", "") or "")
+    if name == "mission.autopilot_start":
+        return text_content(json.dumps(_autopilot.start(
+            goal=str(args.get("goal") or ""),
+            steps=args.get("steps") if isinstance(args.get("steps"), list) else None,
+            constraints=args.get("constraints") if isinstance(args.get("constraints"), list) else None,
+            max_steps=int(args.get("max_steps", 12) or 12),
+            timeout_per_step=int(args.get("timeout_per_step", 60) or 60),
+            create_record=bool(args.get("create_record", True)),
+            scenario_name=str(args.get("scenario") or args.get("scenario_name") or ""),
+            port=port,
+            token=token,
+        ), ensure_ascii=False))
+    if name == "mission.autopilot_status":
+        return text_content(json.dumps(_autopilot.status(str(args.get("run_id") or "")), ensure_ascii=False))
+    if name == "mission.autopilot_report":
+        return text_content(json.dumps(_autopilot.report(str(args.get("run_id") or "")), ensure_ascii=False))
+    if name == "mission.autopilot_list":
+        return text_content(json.dumps(_autopilot.list_runs(int(args.get("limit", 20) or 20)), ensure_ascii=False))
+
     mission_name = quote(str(args.get("mission_id", "") or args.get("name", "")), safe="")
     if name == "mission.templates":
         return text_content(json.dumps(_bridge_call(ctx, "/v1/mission/templates", None, method="GET"), ensure_ascii=False))

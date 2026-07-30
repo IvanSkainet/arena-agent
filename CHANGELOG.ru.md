@@ -1,3 +1,12 @@
+## v4.145.0 - Mission Autopilot
+
+### Добавлено
+- Добавлены MCP-тулы `mission.autopilot_start`, `mission.autopilot_status`, `mission.autopilot_report` и `mission.autopilot_list`.
+- Mission Autopilot выполняет bounded tool chain из цели и явных шагов (или safe default ship checklist), сохраняет progress в `ARENA_AGENT_HOME/autopilot/runs` и может автоматически создать scenario shell плюс `scenario.record` flight record.
+
+### Заметки
+- Это первый маленький автономный flight loop: ещё не LLM-планировщик, но уже durable executor, который превращает длинные ручные цепочки в run со status/report/flight-record artifacts.
+
 ## v4.144.0 - Scenario Flight Records
 
 ### Добавлено

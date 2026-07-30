@@ -310,6 +310,10 @@
       "handle_mission_tool"
     ],
     "tool_names": [
+      "mission.autopilot_list",
+      "mission.autopilot_report",
+      "mission.autopilot_start",
+      "mission.autopilot_status",
       "mission.catalog",
       "mission.compose",
       "mission.create",
@@ -520,6 +524,10 @@
     "file": "arena/mcp/tool_registry_mission.py",
     "handlers": [],
     "tool_names": [
+      "mission.autopilot_list",
+      "mission.autopilot_report",
+      "mission.autopilot_start",
+      "mission.autopilot_status",
       "mission.catalog",
       "mission.compose",
       "mission.create",

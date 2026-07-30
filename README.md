@@ -623,7 +623,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `mcp` | `mcp.ext_call` — Call a tool on a registered external MCP server (Desktop-Commander, ScreenPilot, ...). Discover servers with `mcp.ext_servers` and their tools with `mcp.ext_tools` |
 | `mcp_server` | `mcp_server.create` / `mcp_server.test` / `mcp_server.install` — Author, verify, and install an external MCP stdio server |
 | `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
-| `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
+| `mission` | `mission.autopilot_start` / `mission.autopilot_report` / `mission.run` — Execute bounded mission tool chains with persisted progress and flight records, or run persisted missions |
 | `mobile` | `mobile.preflight` / `mobile.devices` — Preflight Android/ADB readiness and list connected devices |
 | `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |
 | `ocr` | `ocr.extract` — Run OCR on any image file and return text + word boxes |
