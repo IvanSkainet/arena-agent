@@ -36,5 +36,5 @@ RUNTIME_TOOLS = [
     {"name": "runtime.list", "description": "Alias for runtime.probe.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "runtime.install", "description": "Install an Arena-managed runtime with SHA verification. Supports Go portable archives and Wasmtime releases.",
-     "inputSchema": {"type": "object", "properties": {"runtime": {"type": "string", "enum": ["go", "deno", "zig", "wasm", "wasmtime"]}, "version": {"type": "string", "description": "Optional version, e.g. Go 1.26.5/go1.26.5, Deno 2.9.4/v2.9.4, Zig 0.16.0, or Wasmtime 47.0.2/v47.0.2"}, "sha256": {"type": "string", "description": "Optional expected SHA-256 for direct Deno fallback when GitHub API rate limits"}}, "required": ["runtime"], "additionalProperties": False}},
+     "inputSchema": {"type": "object", "properties": {"runtime": {"type": "string", "enum": ["go", "deno", "zig", "lua", "wasm", "wasmtime"]}, "version": {"type": "string", "description": "Optional version, e.g. Go 1.26.5/go1.26.5, Deno 2.9.4/v2.9.4, Zig 0.16.0, Lua 5.4, or Wasmtime 47.0.2/v47.0.2"}, "sha256": {"type": "string", "description": "Optional expected SHA-256 for direct Deno fallback when GitHub API rate limits"}}, "required": ["runtime"], "additionalProperties": False}},
 ]

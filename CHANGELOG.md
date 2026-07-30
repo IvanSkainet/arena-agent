@@ -1,3 +1,10 @@
+## v4.132.0 - Managed Lua Runtime
+
+### Added
+- `runtime.install` now supports managed Lua (`runtime=lua`) using the `dyne/luabinaries` release assets with SHA-256 verification.
+- `runtime.probe` / `runtime.compat` now expose `lua`; the compatibility registry marks Lua/AppContainer as supported when available.
+- `code.run` / `code_project.run` support `lang=lua`.
+
 ## v4.131.1 - Zig AppContainer compatibility note
 
 ### Changed

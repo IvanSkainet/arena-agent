@@ -592,3 +592,11 @@ def test_run_code_zig_sets_cache_env(monkeypatch):
     assert res["ok"] is True
     assert seen["ZIG_LOCAL_CACHE_DIR"].endswith(".zig-cache")
     assert seen["ZIG_GLOBAL_CACHE_DIR"].endswith(".zig-global-cache")
+
+
+def test_build_lua_invocation(tmp_path):
+    src = tmp_path / "main.lua"
+    src.write_text("print('x')", encoding="utf-8")
+    argv, info = R.build_command("linux", _off(), "lua", src, tmp_path, runtime_args=["a"])
+    assert info["sandbox_action"] == "off"
+    assert argv == ["lua", str(src), "a"]

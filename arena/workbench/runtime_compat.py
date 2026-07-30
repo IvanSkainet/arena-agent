@@ -12,7 +12,7 @@ from typing import Any
 from arena.workbench import runtimes
 
 _SANDBOXES = ("appcontainer", "systemd", "off")
-_RUNTIMES = ("python3", "python", "node", "deno", "zig", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
+_RUNTIMES = ("python3", "python", "node", "deno", "zig", "lua", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
 
 
 def _available(rt: dict[str, Any], name: str) -> bool:
@@ -66,6 +66,10 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
                                    "Managed Zig starts inside AppContainer but fails resolving its self executable path (live proof: 'unable to find zig self exe path: Unexpected')." if avail else "Zig runtime is not visible; install with runtime.install runtime=zig.",
                                    suggested_posture={"sandbox": "off"} if avail else None,
                                    next_action="Use explicit host/off posture for Zig until a broker/path fix exists." if avail else "Install managed Zig with runtime.install."))
+            elif name == "lua":
+                rows.append(_entry(name, "appcontainer", "supported" if avail else "missing",
+                                   "Managed Lua is a small interpreter expected to run inside AppContainer with scratch write/runtime read grants." if avail else "Lua runtime is not visible; install with runtime.install runtime=lua.",
+                                   next_action="Use lang=lua for small embedded scripts; promote status after live proof." if avail else "Install managed Lua with runtime.install."))
             elif name == "go":
                 rows.append(_entry(name, "appcontainer", "blocked",
                                    "Go toolchain opens Windows NUL during compilation; AppContainer denies the device.",

@@ -114,3 +114,21 @@ def test_runtime_install_supports_zig(monkeypatch):
     monkeypatch.setattr(runtimes, "install_zig", lambda version=None: {"ok": True, "runtime": "zig", "version": version or "latest"})
     out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "zig"}, ctx=object()))
     assert out == {"ok": True, "runtime": "zig", "version": "latest"}
+
+
+def test_runtime_probe_resolves_managed_lua(monkeypatch, tmp_path):
+    exe = tmp_path / "tools" / "lua-5.4" / ("lua.exe" if sys.platform == "win32" else "lua")
+    exe.parent.mkdir(parents=True)
+    exe.write_text("exe", encoding="utf-8")
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(runtimes, "_which", lambda name: None)
+    monkeypatch.setattr(runtimes, "_run_version", lambda exe, args=None: "Lua 5.4")
+    out = runtimes.probe()
+    assert out["runtimes"]["lua"]["available"] is True
+    assert out["runtimes"]["lua"]["managed"] is True
+
+
+def test_runtime_install_supports_lua(monkeypatch):
+    monkeypatch.setattr(runtimes, "install_lua", lambda version=None: {"ok": True, "runtime": "lua", "version": version or "5.4"})
+    out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "lua"}, ctx=object()))
+    assert out == {"ok": True, "runtime": "lua", "version": "5.4"}

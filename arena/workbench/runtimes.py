@@ -17,6 +17,7 @@ _GO_INDEX = "https://go.dev/dl/?mode=json"
 _WASMTIME_LATEST = "https://api.github.com/repos/bytecodealliance/wasmtime/releases/latest"
 _DENO_LATEST = "https://api.github.com/repos/denoland/deno/releases/latest"
 _ZIG_INDEX = "https://ziglang.org/download/index.json"
+_LUA_LATEST = "https://api.github.com/repos/dyne/luabinaries/releases/latest"
 
 
 def home() -> Path:
@@ -117,6 +118,20 @@ def _managed_zig_path(version: str | None = None) -> Path | None:
     return None
 
 
+def _managed_lua_path(version: str | None = None) -> Path | None:
+    root = tools_dir()
+    exe_name = "lua.exe" if platform.system().lower() == "windows" else "lua"
+    if version:
+        ver = version if version.startswith("lua-") else f"lua-{version}"
+        p = root / ver / exe_name
+        return p if p.exists() else None
+    for d in sorted(root.glob("lua-*"), reverse=True):
+        p = d / exe_name
+        if p.exists():
+            return p
+    return None
+
+
 def probe() -> dict[str, Any]:
     reg = load_registry().get("runtimes", {})
     out: dict[str, Any] = {"ok": True, "managed_home": str(tools_dir()), "runtimes": {}}
@@ -126,6 +141,7 @@ def probe() -> dict[str, Any]:
         "node": ["node", "--version"],
         "deno": ["deno", "--version"],
         "zig": ["zig", "version"],
+        "lua": ["lua", "-v"],
         "go": ["go", "version"],
         "wasmtime": ["wasmtime", "--version"],
         "wasm": ["wasmtime", "--version"],
@@ -145,6 +161,9 @@ def probe() -> dict[str, Any]:
     zig_managed = _managed_zig_path()
     if zig_managed:
         out["runtimes"]["zig"] = {"available": True, "path": str(zig_managed), "version": _run_version(str(zig_managed), ["version"]), "managed": True}
+    lua_managed = _managed_lua_path()
+    if lua_managed:
+        out["runtimes"]["lua"] = {"available": True, "path": str(lua_managed), "version": _run_version(str(lua_managed), ["-v"]), "managed": True}
     wasmtime_managed = _managed_wasmtime_path()
     if wasmtime_managed:
         wm = {"available": True, "path": str(wasmtime_managed), "version": _run_version(str(wasmtime_managed), ["--version"]), "managed": True}
@@ -300,6 +319,75 @@ def install_deno(version: str | None = None, sha256: str | None = None) -> dict[
     reg.setdefault("runtimes", {})["deno"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got}
     save_registry(reg)
     return {"ok": True, "runtime": "deno", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["--version"])}
+
+
+def _lua_version_digits(version: str | None = None) -> str:
+    v = str(version or "5.4").strip().lower().lstrip("v")
+    if v in {"5.1", "51", "lua51"}:
+        return "54".replace("54", "51")
+    if v in {"5.3", "53", "lua53"}:
+        return "53"
+    if v in {"5.5", "55", "lua55"}:
+        return "55"
+    return "54"
+
+
+def _lua_assets(version: str | None = None) -> dict[str, Any]:
+    req = urllib.request.Request(_LUA_LATEST, headers={"User-Agent": "ArenaBridge/runtime.install"})
+    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; assets SHA-256 verified before install  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to dyne/luabinaries release API and downloaded assets are SHA-256 verified
+        rel = json.loads(r.read().decode("utf-8"))
+    digits = _lua_version_digits(version)
+    sysname = platform.system().lower()
+    mach = platform.machine().lower()
+    arch = "arm64" if mach in {"arm64", "aarch64"} else "x64"
+    if sysname == "windows":
+        names = [f"lua{digits}.exe", f"lua{digits}.dll"]
+    elif sysname == "darwin":
+        names = [f"lua{digits}-macos-{arch}"]
+    elif sysname == "linux":
+        names = [f"lua{digits}" if arch == "x64" else f"lua{digits}-linux-arm64"]
+    else:
+        raise RuntimeError(f"unsupported Lua platform: {sysname}")
+    by_name = {a.get("name"): a for a in rel.get("assets", [])}
+    assets = []
+    for name in names:
+        a = by_name.get(name)
+        if not a:
+            raise RuntimeError(f"Lua asset {name!r} not found in release {rel.get('tag_name')}")
+        assets.append({"name": name, "url": a.get("browser_download_url"), "digest": str(a.get("digest") or "")})
+    return {"version": f"5.{digits[-1]}", "tag": rel.get("tag_name"), "assets": assets}
+
+
+def install_lua(version: str | None = None) -> dict[str, Any]:
+    meta = _lua_assets(version)
+    ver = str(meta["version"])
+    root = tools_dir()
+    target = root / f"lua-{ver}"
+    exe_name = "lua.exe" if platform.system().lower() == "windows" else "lua"
+    exe = target / exe_name
+    if exe.exists():
+        return {"ok": True, "runtime": "lua", "version": ver, "path": str(exe), "already_installed": True, "probe": _run_version(str(exe), ["-v"])}
+    target.mkdir(parents=True, exist_ok=True)
+    installed = []
+    for asset in meta["assets"]:
+        dest = target / ("lua.exe" if str(asset["name"]).endswith(".exe") else "lua.dll" if str(asset["name"]).endswith(".dll") else "lua")
+        tmp = tools_dir() / str(asset["name"])
+        if not tmp.exists():
+            _download(str(asset["url"]), tmp)
+        got = _sha256(tmp)
+        expected = str(asset.get("digest") or "").split(":", 1)[-1]
+        if expected and got.lower() != expected.lower():
+            raise RuntimeError(f"sha256 mismatch for {asset['name']}: got {got}, expected {expected}")
+        shutil.copy2(tmp, dest)
+        try:
+            dest.chmod(dest.stat().st_mode | 0o111)
+        except Exception:
+            pass
+        installed.append({"name": asset["name"], "sha256": got, "path": str(dest)})
+    reg = load_registry()
+    reg.setdefault("runtimes", {})["lua"] = {"version": ver, "path": str(exe), "managed": True, "source": "dyne/luabinaries", "assets": installed}
+    save_registry(reg)
+    return {"ok": True, "runtime": "lua", "version": ver, "path": str(exe), "assets": installed, "probe": _run_version(str(exe), ["-v"])}
 
 
 def _zig_asset(version: str | None = None) -> dict[str, Any]:
@@ -477,6 +565,8 @@ def install(runtime: str, version: str | None = None, sha256: str | None = None)
         return install_deno(version, sha256=sha256)
     if runtime == "zig":
         return install_zig(version)
+    if runtime == "lua":
+        return install_lua(version)
     if runtime in {"wasm", "wasmtime"}:
         return install_wasmtime(version)
-    return {"ok": False, "error": f"runtime.install currently supports: go, deno, zig, wasmtime (got {runtime!r})"}
+    return {"ok": False, "error": f"runtime.install currently supports: go, deno, zig, lua, wasmtime (got {runtime!r})"}
