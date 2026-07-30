@@ -1,3 +1,9 @@
+## v4.140.0 - Flight Visibility Integration
+
+### Added
+- `post_update_smoke.status()` now reports a compact `state` (`unknown`, `pending`, `nominal`, `degraded`, `failed`) in addition to pending/last records.
+- `ship.status`, `ship.preflight`, and `ship.smoke` now include service autostart health and post-update smoke state so broken autostart or failed post-update smoke becomes visible in the ship map.
+
 ## v4.139.0 - Post-update Smoke and Autostart Doctor
 
 ### Added

@@ -147,6 +147,17 @@ def _desktop_status(mcp: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+
+def _service_autostart_status() -> dict[str, Any]:
+    from arena.service import autostart_doctor
+    return autostart_doctor.status()
+
+
+def _post_update_smoke_status() -> dict[str, Any]:
+    from arena.ship import post_update_smoke
+    return post_update_smoke.status()
+
+
 def _known_issues(parts: dict[str, Any]) -> list[dict[str, str]]:
     issues: list[dict[str, str]] = []
     wb_limits = (((parts.get("workbench") or {}).get("known_limits")) or [])
@@ -174,6 +185,15 @@ def _known_issues(parts: dict[str, Any]) -> list[dict[str, str]]:
     browseract = (((parts.get("browser") or {}).get("browseract")) or {})
     if browseract and not browseract.get("installed"):
         issues.append({"component": "browseract", "status": "degraded", "reason": "BrowserAct CLI is not visible to the bridge process."})
+    autostart = parts.get("autostart") or {}
+    if isinstance(autostart, dict) and autostart.get("ok") and autostart.get("healthy") is False:
+        issues.append({"component": "service.autostart", "status": "degraded", "reason": f"Autostart is not healthy: trigger={autostart.get('trigger') or 'unknown'}"})
+    post_smoke = parts.get("post_update_smoke") or {}
+    last = post_smoke.get("last") if isinstance(post_smoke, dict) else None
+    if isinstance(last, dict) and last.get("attempted") and not last.get("ok"):
+        issues.append({"component": "post_update_smoke", "status": "degraded", "reason": "Last post-update smoke failed or was degraded."})
+    if isinstance(post_smoke, dict) and post_smoke.get("pending"):
+        issues.append({"component": "post_update_smoke", "status": "pending", "reason": "Post-update smoke is pending on startup."})
     return issues
 
 
@@ -187,6 +207,10 @@ def _next_actions(parts: dict[str, Any], issues: list[dict[str, str]]) -> list[s
         actions.append("For phone work: connect/authorize POCO via USB or wireless ADB; do not cross lock/PIN boundaries automatically.")
     if any(i["component"] == "browseract" for i in issues):
         actions.append("Keep BrowserAct listed as blocked/degraded until its local CDP proxy exposes /json/version in a real desktop session.")
+    if any(i["component"] == "service.autostart" for i in issues):
+        actions.append("Run service.autostart_repair or rerun the installer to restore bridge autostart.")
+    if any(i["component"] == "post_update_smoke" for i in issues):
+        actions.append("Inspect /v1/admin/update/status and ship.smoke_history, then rerun ship.smoke after repairs.")
     if not actions:
         actions.append("Ship map is coherent enough for the next roadmap item: Tool Foundry v1.")
     actions.append("Use ship.preflight before multi-step scenarios, releases, or hardware/browser/phone work.")
@@ -203,6 +227,8 @@ def status() -> dict[str, Any]:
     browser = _safe("browser", _browser_status)
     mobile = _safe("mobile", _mobile_status)
     desktop = _safe("desktop", lambda: _desktop_status(mcp if isinstance(mcp, dict) else {}))
+    autostart = _safe("autostart", _service_autostart_status)
+    post_update_smoke = _safe("post_update_smoke", _post_update_smoke_status)
     parts = {
         "bridge": bridge,
         "posture": posture,
@@ -212,6 +238,8 @@ def status() -> dict[str, Any]:
         "browser": browser,
         "mobile": mobile,
         "workbench": workbench,
+        "autostart": autostart,
+        "post_update_smoke": post_update_smoke,
     }
     issues = _known_issues(parts)
     risk = str((posture or {}).get("risk") or "unknown")
@@ -240,6 +268,9 @@ def preflight() -> dict[str, Any]:
     browser = snap.get("browser") or {}
     mobile = snap.get("mobile") or {}
     mcp = snap.get("mcp") or {}
+    autostart = snap.get("autostart") or {}
+    post_update_smoke = snap.get("post_update_smoke") or {}
+    last_post_smoke = post_update_smoke.get("last") if isinstance(post_update_smoke, dict) else None
 
     checks = [
         _check("bridge.version", bool(snap.get("version")), detail=str(snap.get("version"))),
@@ -247,6 +278,8 @@ def preflight() -> dict[str, Any]:
         _check("transport.active", bool(transports.get("active")), severity="warn", detail=str(transports.get("active") or "none")),
         _check("workbench.status", bool(workbench.get("ok")), detail=f"projects={(workbench.get('projects') or {}).get('count')} sessions={(workbench.get('sessions') or {}).get('count')}"),
         _check("mcp.registry", bool(mcp.get("ok")), severity="warn", detail=f"servers={mcp.get('count') if isinstance(mcp, dict) else 'unknown'}"),
+        _check("service.autostart", autostart.get("healthy") is not False, severity="warn", detail=f"trigger={autostart.get('trigger')} healthy={autostart.get('healthy')}" if isinstance(autostart, dict) else "unknown"),
+        _check("post_update_smoke.last", not (isinstance(last_post_smoke, dict) and last_post_smoke.get("attempted") and not last_post_smoke.get("ok")), severity="warn", detail=(last_post_smoke or {}).get("smoke", {}).get("mode") if isinstance(last_post_smoke, dict) else None),
         _check("browser.cdp_or_browseract_visible", bool(((browser.get("cdp") or {}).get("browser_binary")) or ((browser.get("browseract") or {}).get("installed"))), severity="warn"),
         _check("mobile.adb_device_visible", bool(((mobile.get("devices") or {}).get("devices") or [])), severity="warn"),
     ]

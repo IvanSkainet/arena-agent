@@ -43,7 +43,13 @@ def status() -> dict[str, Any]:
             last = json.loads(last_path().read_text(encoding="utf-8"))
         except Exception as e:
             last = {"ok": False, "error": str(e)}
-    return {"ok": True, "pending": pending is not None, "pending_record": pending, "last": last}
+    if pending is not None:
+        state = "pending"
+    elif isinstance(last, dict) and last.get("attempted"):
+        state = "nominal" if last.get("ok") and (last.get("smoke") or {}).get("mode") == "nominal" else ("degraded" if last.get("ok") else "failed")
+    else:
+        state = "unknown"
+    return {"ok": True, "state": state, "pending": pending is not None, "pending_record": pending, "last": last}
 
 
 def run_if_pending() -> dict[str, Any]:

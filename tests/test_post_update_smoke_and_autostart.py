@@ -61,3 +61,13 @@ def test_autostart_status_mcp(monkeypatch):
     monkeypatch.setattr(A, "status", lambda: {"ok": True, "healthy": True})
     out = _parsed(handle_service_tool("service.autostart_status", {}, ctx=object()))
     assert out == {"ok": True, "healthy": True}
+
+
+def test_post_update_smoke_status_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    assert P.status()["state"] == "unknown"
+    P.mark_pending({"tag": "vY"})
+    assert P.status()["state"] == "pending"
+    P.last_path().write_text(json.dumps({"ok": False, "attempted": True, "smoke": {"mode": "blocked"}}), encoding="utf-8")
+    P.pending_path().unlink()
+    assert P.status()["state"] == "failed"

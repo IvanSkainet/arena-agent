@@ -12,6 +12,8 @@ from arena.autonomy import runner as _runner
 from arena.constants import VERSION
 from arena.mcp_client import get_manager
 from arena.mobile import preflight as mobile_preflight
+from arena.service import autostart_doctor
+from arena.ship import post_update_smoke
 from arena.workbench import artifacts, runtime_compat, runtimes
 from arena.workbench.runtimes import home
 
@@ -70,6 +72,8 @@ def run() -> dict[str, Any]:
     mobile = _safe("mobile.preflight", mobile_preflight.preflight)
     code = _safe("code.run", _code_smoke)
     mcp = _safe("mcp.registry", _mcp_registry)
+    autostart = _safe("service.autostart_status", autostart_doctor.status)
+    post_smoke = _safe("post_update_smoke.status", post_update_smoke.status)
     ship_status = _safe("ship.status", lambda: __import__("arena.ship.status", fromlist=["status"]).status())
     ship_preflight = _safe("ship.preflight", lambda: __import__("arena.ship.status", fromlist=["preflight"]).preflight())
     linux_flight = None
@@ -84,6 +88,8 @@ def run() -> dict[str, Any]:
         _check("runtime.compat", bool(isinstance(runtime_matrix, dict) and runtime_matrix.get("ok")), severity="warn"),
         _check("mobile.preflight", bool(isinstance(mobile, dict) and mobile.get("ok")), severity="warn", detail=(mobile or {}).get("mode") if isinstance(mobile, dict) else None),
         _check("mcp.registry", bool(isinstance(mcp, dict) and mcp.get("ok")), severity="warn", detail=(mcp or {}).get("count") if isinstance(mcp, dict) else None),
+        _check("service.autostart", not (isinstance(autostart, dict) and autostart.get("healthy") is False), severity="warn", detail=f"trigger={autostart.get('trigger')}" if isinstance(autostart, dict) else None),
+        _check("post_update_smoke.status", bool(isinstance(post_smoke, dict) and post_smoke.get("ok")), severity="warn"),
         _check("ship.status", bool(isinstance(ship_status, dict) and ship_status.get("ok")), severity="warn"),
         _check("ship.preflight", bool(isinstance(ship_preflight, dict) and ship_preflight.get("ok")), severity="warn", detail=(ship_preflight or {}).get("mode") if isinstance(ship_preflight, dict) else None),
     ]
@@ -110,6 +116,8 @@ def run() -> dict[str, Any]:
             "runtime_compat": runtime_matrix,
             "mobile_preflight": mobile,
             "mcp_registry": mcp,
+            "autostart": autostart,
+            "post_update_smoke": post_smoke,
             "ship_status": ship_status,
             "ship_preflight": ship_preflight,
             "linux_flight": linux_flight,

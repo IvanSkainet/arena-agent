@@ -34,12 +34,14 @@ def test_ship_status_shape(monkeypatch):
     monkeypatch.setattr(S, "_browser_status", lambda: {"ok": True, "browseract": {"installed": True}, "cdp": {"browser_binary": "/bin/chrome"}})
     monkeypatch.setattr(S, "_mobile_status", lambda: {"ok": True, "devices": {"devices": [{"serial": "dev", "state": "device"}]}})
     monkeypatch.setattr(S, "_desktop_status", lambda mcp: {"ok": True, "screenpilot_registered": False})
+    monkeypatch.setattr(S, "_service_autostart_status", lambda: {"ok": True, "healthy": True})
+    monkeypatch.setattr(S, "_post_update_smoke_status", lambda: {"ok": True, "pending": False, "last": None})
     monkeypatch.setattr(S, "_safe", lambda name, fn: fn())
     monkeypatch.setattr(S, "_safe", lambda name, fn: {"ok": True, "known_limits": []} if name == "workbench" else fn())
     out = S.status()
     assert out["ok"] is True
     assert out["risk"] == "low"
-    assert set(["bridge", "posture", "transports", "mcp", "desktop", "browser", "mobile", "workbench", "known_issues", "next_actions"]) <= set(out)
+    assert set(["bridge", "posture", "transports", "mcp", "desktop", "browser", "mobile", "workbench", "autostart", "post_update_smoke", "known_issues", "next_actions"]) <= set(out)
 
 
 def test_ship_preflight_warns_but_ready(monkeypatch):
@@ -51,6 +53,8 @@ def test_ship_preflight_warns_but_ready(monkeypatch):
         "mcp": {"ok": True, "count": 0},
         "browser": {"cdp": {"browser_binary": None}, "browseract": {"installed": False}},
         "mobile": {"devices": {"devices": []}},
+        "autostart": {"ok": True, "healthy": False, "trigger": "boot"},
+        "post_update_smoke": {"ok": True, "last": {"attempted": True, "ok": False, "smoke": {"mode": "blocked"}}},
         "known_issues": [],
         "next_actions": [],
     })

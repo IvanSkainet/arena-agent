@@ -191,7 +191,7 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.139.0 Post-update Smoke and Autostart Doctor are complete. Continue with the next highest-leverage real-machine hardening slice; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.140.0 Flight Visibility Integration are complete. Continue with the next highest-leverage real-machine hardening slice; keep using the maps before adding power.
 
 ## Beyond original roadmap — Flight Records
 
@@ -202,3 +202,7 @@ Add `ship.smoke` and `ship.smoke_history` so the bridge can prove the real machi
 ### v4.139.0 — Post-update Smoke and Autostart Doctor ✅ completed
 
 Update lifecycle now marks/runs post-update smoke and service autostart can be diagnosed/repaired cross-platform.
+
+### v4.140.0 — Flight Visibility Integration ✅ completed
+
+Ship maps and smoke now surface autostart health and post-update smoke state.

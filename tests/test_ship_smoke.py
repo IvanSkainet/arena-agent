@@ -32,6 +32,8 @@ def test_ship_smoke_shape(monkeypatch, tmp_path):
     monkeypatch.setattr(S.runtimes, "probe", lambda: {"ok": True, "runtimes": {}})
     monkeypatch.setattr(S.runtime_compat, "build", lambda rt: {"ok": True, "matrix": []})
     monkeypatch.setattr(S.mobile_preflight, "preflight", lambda: {"ok": True, "ready": True, "mode": "nominal"})
+    monkeypatch.setattr(S.autostart_doctor, "status", lambda: {"ok": True, "healthy": True})
+    monkeypatch.setattr(S.post_update_smoke, "status", lambda: {"ok": True, "pending": False, "last": None})
     monkeypatch.setattr(S, "_mcp_registry", lambda: {"ok": True, "count": 0, "servers": []})
     monkeypatch.setattr(S.platform, "system", lambda: "Windows")
     out = S.run()
