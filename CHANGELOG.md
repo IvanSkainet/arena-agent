@@ -1,3 +1,10 @@
+## v4.131.0 - Managed Zig Runtime
+
+### Added
+- `runtime.install` now supports managed Zig (`runtime=zig`) from the official Zig download index, with SHA-256 verification and safe archive extraction.
+- `runtime.probe` / `runtime.compat` now expose `zig`; the compatibility registry records Zig AppContainer status as `unknown` until live compile/run proof promotes it.
+- `code.run` / `code_project.run` support `lang=zig`, invoking `zig run` with scratch-local cache directories.
+
 ## v4.130.1 - Correct Deno AppContainer write status
 
 ### Changed

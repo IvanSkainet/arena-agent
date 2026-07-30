@@ -27,6 +27,7 @@ def test_runtime_compat_windows_matrix_known_limits():
         "python3": {"available": True},
         "node": {"available": True},
         "deno": {"available": True},
+        "zig": {"available": True},
         "go": {"available": True},
         "wasm": {"available": True},
         "wasmtime": {"available": True},
@@ -37,6 +38,7 @@ def test_runtime_compat_windows_matrix_known_limits():
     assert rows[("python3", "appcontainer")]["status"] == "supported"
     assert rows[("node", "appcontainer")]["status"] == "blocked"
     assert rows[("deno", "appcontainer")]["status"] == "degraded"
+    assert rows[("zig", "appcontainer")]["status"] == "unknown"
     assert rows[("go", "appcontainer")]["status"] == "blocked"
     assert rows[("rustc", "appcontainer")]["status"] == "incomplete"
     assert rows[("wasm", "appcontainer")]["status"] == "supported"

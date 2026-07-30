@@ -561,3 +561,34 @@ def test_run_code_deno_sets_scratch_home(monkeypatch):
     assert res["ok"] is True
     assert seen["DENO_DIR"].endswith(".deno")
     assert seen["HOME"] == seen["scratch"]
+
+
+def test_build_zig_uses_scratch_cache_dirs(tmp_path):
+    src = tmp_path / "main.zig"
+    src.write_text("pub fn main() void {}", encoding="utf-8")
+    argv, info = R.build_command("linux", _off(), "zig", src, tmp_path, runtime_args=["a"])
+    assert info["sandbox_action"] == "off"
+    assert argv[:3] == ["zig", "run", str(src)]
+    assert "--cache-dir" in argv and str(tmp_path / ".zig-cache") in argv
+    assert "--global-cache-dir" in argv and str(tmp_path / ".zig-global-cache") in argv
+    assert argv[-2:] == ["--", "a"]
+
+
+def test_run_code_zig_sets_cache_env(monkeypatch):
+    seen = {}
+    def _fake_build(platform, posture, lang, code_path, scratch_dir, runtime_args=None, stdin_path=None, extra_grant_dirs=None):
+        seen["scratch"] = str(scratch_dir)
+        return ["fake"], {"refused": False, "sandbox_action": "appcontainer", "enforced": {"network": True}}
+    class _Proc:
+        returncode = 0
+        stdout = "ok"
+        stderr = ""
+    monkeypatch.setattr(R, "build_command", _fake_build)
+    def fake_run(*a, **kw):
+        seen.update(kw["env"])
+        return _Proc()
+    monkeypatch.setattr(R.subprocess, "run", fake_run)
+    res = R.run_code_sync("pub fn main() void {}", "zig", {**_strict(), "runtimes": ["zig"]}, platform="win32")
+    assert res["ok"] is True
+    assert seen["ZIG_LOCAL_CACHE_DIR"].endswith(".zig-cache")
+    assert seen["ZIG_GLOBAL_CACHE_DIR"].endswith(".zig-global-cache")

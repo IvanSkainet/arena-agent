@@ -12,7 +12,7 @@ from typing import Any
 from arena.workbench import runtimes
 
 _SANDBOXES = ("appcontainer", "systemd", "off")
-_RUNTIMES = ("python3", "python", "node", "deno", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
+_RUNTIMES = ("python3", "python", "node", "deno", "zig", "go", "wasm", "wasmtime", "rustc", "cargo", "java")
 
 
 def _available(rt: dict[str, Any], name: str) -> bool:
@@ -61,6 +61,10 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
                 rows.append(_entry(name, "appcontainer", "degraded" if avail else "missing",
                                    "Deno stdout execution is live-proven with denied net and scratch-local DENO_DIR; Deno filesystem writes still hit AppContainer/OS error 5 and remain a hardening item." if avail else "Deno runtime is not visible; install with runtime.install runtime=deno.",
                                    next_action="Use lang=deno for stdout-oriented TypeScript/JavaScript scripts; prefer stdout artifacts until file-write semantics are hardened." if avail else "Install managed Deno with runtime.install."))
+            elif name == "zig":
+                rows.append(_entry(name, "appcontainer", "unknown" if avail else "missing",
+                                   "Zig runner is available with scratch-local cache dirs, but Windows AppContainer compile/run compatibility still needs live proof." if avail else "Zig runtime is not visible; install with runtime.install runtime=zig.",
+                                   next_action="Try lang=zig for small programs; expect compatibility to be promoted after live proof." if avail else "Install managed Zig with runtime.install."))
             elif name == "go":
                 rows.append(_entry(name, "appcontainer", "blocked",
                                    "Go toolchain opens Windows NUL during compilation; AppContainer denies the device.",

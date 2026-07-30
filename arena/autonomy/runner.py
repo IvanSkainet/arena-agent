@@ -26,7 +26,7 @@ from typing import Any
 from arena.autonomy.posture import DEFAULT_RESOURCES, DEFAULT_RUNTIMES
 
 _BLOCKED_ENV = ("ARENA_TOKEN", "TOKEN", "SECRET", "PASSWORD", "KEY", "CREDENTIAL")
-_EXT = {"python3": "py", "python": "py", "node": "js", "deno": "ts", "sh": "sh", "bash": "sh", "wasm": "wasm", "wasmtime": "wasm"}
+_EXT = {"python3": "py", "python": "py", "node": "js", "deno": "ts", "zig": "zig", "sh": "sh", "bash": "sh", "wasm": "wasm", "wasmtime": "wasm"}
 
 
 def _have(cmd: str) -> bool:
@@ -47,13 +47,23 @@ def _powershell() -> str | None:
 
 def _managed_runtime_path(lang: str) -> str | None:
     try:
-        from arena.workbench.runtimes import _managed_deno_path, _managed_go_path, _managed_wasmtime_path, load_registry
+        from arena.workbench.runtimes import (
+            _managed_deno_path,
+            _managed_go_path,
+            _managed_wasmtime_path,
+            _managed_zig_path,
+            load_registry,
+        )
         if lang == "go":
             p = _managed_go_path()
             if p:
                 return str(p)
         if lang == "deno":
             p = _managed_deno_path()
+            if p:
+                return str(p)
+        if lang == "zig":
+            p = _managed_zig_path()
             if p:
                 return str(p)
         if lang in {"wasm", "wasmtime"}:
@@ -130,6 +140,8 @@ def _runtime_invocation(lang: str, command: str, code_path: Path, runtime_args: 
         return [command, "run", str(code_path), *args]
     if lang == "deno":
         return [command, "run", "--no-prompt", "--allow-read", "--allow-write", "--deny-net", str(code_path), *args]
+    if lang == "zig":
+        return [command, "run", str(code_path), "--cache-dir", str(code_path.parent / ".zig-cache"), "--global-cache-dir", str(code_path.parent / ".zig-global-cache"), "--", *args]
     if lang in {"wasm", "wasmtime"}:
         return [command, "-C", "cache=n", "--dir", str(code_path.parent), str(code_path), *args]
     return [command, str(code_path), *args]
@@ -462,6 +474,10 @@ def run_code_sync(code: str, lang: str, posture: dict[str, Any], *,
             run_env = dict(run_env)
             old_node_path = run_env.get("NODE_PATH", "")
             run_env["NODE_PATH"] = npm_deps["path"] + (os.pathsep + old_node_path if old_node_path else "")
+        if lang == "zig":
+            run_env = dict(run_env)
+            run_env["ZIG_LOCAL_CACHE_DIR"] = str(scratch / ".zig-cache")
+            run_env["ZIG_GLOBAL_CACHE_DIR"] = str(scratch / ".zig-global-cache")
         if lang == "deno":
             run_env = dict(run_env)
             deno_dir = scratch / ".deno"

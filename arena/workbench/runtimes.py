@@ -16,6 +16,7 @@ from typing import Any
 _GO_INDEX = "https://go.dev/dl/?mode=json"
 _WASMTIME_LATEST = "https://api.github.com/repos/bytecodealliance/wasmtime/releases/latest"
 _DENO_LATEST = "https://api.github.com/repos/denoland/deno/releases/latest"
+_ZIG_INDEX = "https://ziglang.org/download/index.json"
 
 
 def home() -> Path:
@@ -102,6 +103,20 @@ def _managed_deno_path(version: str | None = None) -> Path | None:
     return None
 
 
+def _managed_zig_path(version: str | None = None) -> Path | None:
+    root = tools_dir()
+    exe_name = "zig.exe" if platform.system().lower() == "windows" else "zig"
+    if version:
+        ver = version if version.startswith("zig-") else f"zig-{version.lstrip('v')}"
+        candidates = list(root.glob(f"{ver}*/{exe_name}"))
+        return candidates[0] if candidates else None
+    for d in sorted(root.glob("zig*"), reverse=True):
+        p = d / exe_name
+        if p.exists():
+            return p
+    return None
+
+
 def probe() -> dict[str, Any]:
     reg = load_registry().get("runtimes", {})
     out: dict[str, Any] = {"ok": True, "managed_home": str(tools_dir()), "runtimes": {}}
@@ -110,6 +125,7 @@ def probe() -> dict[str, Any]:
         "python3": ["python3", "--version"],
         "node": ["node", "--version"],
         "deno": ["deno", "--version"],
+        "zig": ["zig", "version"],
         "go": ["go", "version"],
         "wasmtime": ["wasmtime", "--version"],
         "wasm": ["wasmtime", "--version"],
@@ -126,6 +142,9 @@ def probe() -> dict[str, Any]:
     deno_managed = _managed_deno_path()
     if deno_managed:
         out["runtimes"]["deno"] = {"available": True, "path": str(deno_managed), "version": _run_version(str(deno_managed), ["--version"]), "managed": True}
+    zig_managed = _managed_zig_path()
+    if zig_managed:
+        out["runtimes"]["zig"] = {"available": True, "path": str(zig_managed), "version": _run_version(str(zig_managed), ["version"]), "managed": True}
     wasmtime_managed = _managed_wasmtime_path()
     if wasmtime_managed:
         wm = {"available": True, "path": str(wasmtime_managed), "version": _run_version(str(wasmtime_managed), ["--version"]), "managed": True}
@@ -283,6 +302,76 @@ def install_deno(version: str | None = None, sha256: str | None = None) -> dict[
     return {"ok": True, "runtime": "deno", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["--version"])}
 
 
+def _zig_asset(version: str | None = None) -> dict[str, Any]:
+    req = urllib.request.Request(_ZIG_INDEX, headers={"User-Agent": "ArenaBridge/runtime.install"})
+    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed official Zig download index; asset SHA-256 verified before extraction  # nosemgrep: dynamic-urllib-use-detected -- URL is fixed to ziglang.org/download/index.json and selected archive is SHA-256 verified
+        data = json.loads(r.read().decode("utf-8"))
+    ver = str(version or data.get("master", {}).get("version") or "").lstrip("v")
+    if not version:
+        stable = [k for k in data.keys() if k not in {"master"}]
+        # The index keys are versions; sort by numeric-ish parts descending.
+        import re as _re
+        def key(v: str):
+            return tuple(int(x) for x in _re.findall(r"\d+", v)[:3])
+        ver = sorted(stable, key=key, reverse=True)[0]
+    rel = data.get(ver) or data.get("v" + ver)
+    if not isinstance(rel, dict):
+        raise RuntimeError(f"no Zig release found for version={version!r}")
+    sysname = platform.system().lower()
+    mach = platform.machine().lower()
+    arch = "x86_64" if mach in {"amd64", "x86_64"} else ("aarch64" if mach in {"arm64", "aarch64"} else mach)
+    target_key = {"windows": f"{arch}-windows", "linux": f"{arch}-linux", "darwin": f"{arch}-macos"}.get(sysname)
+    asset = rel.get(target_key)
+    if not isinstance(asset, dict):
+        raise RuntimeError(f"no Zig archive found for version={ver!r} target={target_key}")
+    url = asset.get("tarball") or asset.get("url")
+    filename = str(url).rsplit("/", 1)[-1]
+    return {"version": ver, "filename": filename, "url": url, "digest": "sha256:" + str(asset.get("shasum") or "")}
+
+
+def install_zig(version: str | None = None) -> dict[str, Any]:
+    asset = _zig_asset(version)
+    ver = str(asset["version"])
+    root = tools_dir()
+    target = root / f"zig-{ver}"
+    exe_name = "zig.exe" if platform.system().lower() == "windows" else "zig"
+    existing = _managed_zig_path(ver)
+    if existing:
+        return {"ok": True, "runtime": "zig", "version": ver, "path": str(existing), "already_installed": True, "probe": _run_version(str(existing), ["version"])}
+    archive = root / str(asset["filename"])
+    if not archive.exists():
+        _download(str(asset["url"]), archive)
+    got = _sha256(archive)
+    expected = str(asset.get("digest") or "").split(":", 1)[-1]
+    if expected and got.lower() != expected.lower():
+        raise RuntimeError(f"sha256 mismatch for {archive.name}: got {got}, expected {expected}")
+    tmp = root / f".zig-{ver}.extract"
+    if tmp.exists():
+        shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    if archive.suffix.lower() == ".zip":
+        _extract_zip_safe(archive, tmp)
+    else:
+        _extract_tar_safe(archive, tmp)
+    candidates = list(tmp.rglob(exe_name))
+    if not candidates:
+        raise RuntimeError("Zig archive did not contain zig executable")
+    top = candidates[0].parent
+    if target.exists():
+        shutil.rmtree(target, ignore_errors=True)
+    top.rename(target)
+    shutil.rmtree(tmp, ignore_errors=True)
+    exe = _managed_zig_path(ver) or target / exe_name
+    try:
+        exe.chmod(exe.stat().st_mode | 0o111)
+    except Exception:
+        pass
+    reg = load_registry()
+    reg.setdefault("runtimes", {})["zig"] = {"version": ver, "path": str(exe), "managed": True, "source": asset["url"], "sha256": got}
+    save_registry(reg)
+    return {"ok": True, "runtime": "zig", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["version"])}
+
+
 def _wasmtime_asset(version: str | None = None) -> dict[str, Any]:
     url = _WASMTIME_LATEST if not version else f"https://api.github.com/repos/bytecodealliance/wasmtime/releases/tags/{version if version.startswith('v') else 'v' + version}"
     req = urllib.request.Request(url, headers={"User-Agent": "ArenaBridge/runtime.install"})
@@ -386,6 +475,8 @@ def install(runtime: str, version: str | None = None, sha256: str | None = None)
         return install_go(version)
     if runtime == "deno":
         return install_deno(version, sha256=sha256)
+    if runtime == "zig":
+        return install_zig(version)
     if runtime in {"wasm", "wasmtime"}:
         return install_wasmtime(version)
-    return {"ok": False, "error": f"runtime.install currently supports: go, deno, wasmtime (got {runtime!r})"}
+    return {"ok": False, "error": f"runtime.install currently supports: go, deno, zig, wasmtime (got {runtime!r})"}
