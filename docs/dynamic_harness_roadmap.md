@@ -174,7 +174,7 @@ Successful behavior becomes reusable scenario.
 
 ## Phase 9 — Real machine coverage
 
-### v4.135.0 — Android/POCO Preflight
+### v4.135.0 — Android/POCO Preflight ✅ completed
 
 Add `mobile.preflight`, `mobile.reconnect`, `mobile.observe`.
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.134.0 Scenario Promotion are complete. Continue with Phase 9 — Real machine coverage; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.135.0 Android/POCO Preflight are complete. Continue with CachyOS/Linux Flight Check or deepen Android observe/reconnect based on available hardware; keep using the maps before adding power.

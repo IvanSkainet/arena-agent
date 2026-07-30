@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.134.x)
+## Current flight status (v4.135.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -623,7 +623,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `mcp_server` | `mcp_server.create` / `mcp_server.test` / `mcp_server.install` — Author, verify, and install an external MCP stdio server |
 | `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
 | `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
-| `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |
+| `mobile` | `mobile.preflight` / `mobile.devices` — Preflight Android/ADB readiness and list connected devices |
 | `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |
 | `ocr` | `ocr.extract` — Run OCR on any image file and return text + word boxes |
 | `plan` | `plan.create` — Create a structured execution plan for a goal, with suggeste |

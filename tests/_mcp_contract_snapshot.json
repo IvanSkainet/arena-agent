@@ -366,8 +366,11 @@
     "tool_names": [
       "mobile.launch_app",
       "mobile.list_files",
+      "mobile.observe",
+      "mobile.preflight",
       "mobile.pull_file",
       "mobile.push_file",
+      "mobile.reconnect",
       "mobile.voice_record"
     ]
   },

@@ -1,3 +1,10 @@
+## v4.135.0 - Android/POCO Preflight
+
+### Added
+- `mobile.preflight` provides a read-only Android/ADB readiness map: adb install/version, visible devices, authorization state, selected device info, transport snapshot, checks, next actions, and an explicit lock/PIN boundary note.
+- `mobile.observe` performs read-only device observation by combining preflight with optional compact UI dump.
+- `mobile.reconnect` reconnects a provided or known wireless ADB TCP transport without touching the phone UI or crossing lock boundaries.
+
 ## v4.134.0 - Scenario Promotion
 
 ### Added

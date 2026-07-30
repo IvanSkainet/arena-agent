@@ -17,8 +17,8 @@ requiring a new dispatcher slot.
 from __future__ import annotations
 
 import base64
-import os
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -26,9 +26,10 @@ from pathlib import Path
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
-from arena.mobile.adb import find_adb as _find_adb, install_hint as _adb_install_hint
 from arena.mobile import audio_capture as _audio
-
+from arena.mobile import preflight as _preflight
+from arena.mobile.adb import find_adb as _find_adb
+from arena.mobile.adb import install_hint as _adb_install_hint
 
 _MAX_PULL_BYTES = 100 * 1024 * 1024  # 100 MiB safety cap on pulled files
 _DEFAULT_ADB_TIMEOUT = 60
@@ -204,6 +205,21 @@ def _voice_record(serial: str, args: dict[str, Any]) -> dict[str, Any]:
 def handle_mobile_ext_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:
     """Dispatch v4.59.0+ mobile.* additions. Returns None if not ours so
     the main mobile dispatcher can try its _ROUTES table."""
+    if name == "mobile.preflight":
+        return text_content(json.dumps(_preflight.preflight(str(args.get("serial") or "") or None), ensure_ascii=False))
+    if name == "mobile.reconnect":
+        return text_content(json.dumps(_preflight.reconnect(
+            serial=str(args.get("serial") or "") or None,
+            host=str(args.get("host") or "") or None,
+            port=int(args.get("port")) if args.get("port") else None,
+            alias=str(args.get("alias") or "") or None,
+        ), ensure_ascii=False))
+    if name == "mobile.observe":
+        return text_content(json.dumps(_preflight.observe(
+            str(args.get("serial") or "") or None,
+            include_ui=bool(args.get("include_ui", True)),
+            max_nodes=int(args.get("max_nodes", 80)),
+        ), ensure_ascii=False))
     serial_required = {"mobile.launch_app", "mobile.pull_file", "mobile.push_file",
                        "mobile.list_files", "mobile.voice_record"}
     if name not in serial_required:
@@ -226,6 +242,22 @@ def handle_mobile_ext_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str,
 
 
 MOBILE_EXT_MCP_TOOLS = [
+
+    {
+        "name": "mobile.preflight",
+        "description": "Read-only Android/ADB preflight: adb path/version, visible devices, authorization state, selected device info, transport status, checks and next actions.",
+        "inputSchema": {"type": "object", "properties": {"serial": {"type": "string"}}, "additionalProperties": False},
+    },
+    {
+        "name": "mobile.reconnect",
+        "description": "Reconnect a known/provided wireless ADB transport (host/port or alias). Does not unlock or operate the phone UI.",
+        "inputSchema": {"type": "object", "properties": {"serial": {"type": "string"}, "host": {"type": "string"}, "port": {"type": "integer"}, "alias": {"type": "string"}}, "additionalProperties": False},
+    },
+    {
+        "name": "mobile.observe",
+        "description": "Read-only device observation: runs mobile.preflight and optionally a compact UI dump; does not send input or unlock.",
+        "inputSchema": {"type": "object", "properties": {"serial": {"type": "string"}, "include_ui": {"type": "boolean", "default": True}, "max_nodes": {"type": "integer", "default": 80}}, "additionalProperties": False},
+    },
     {
         "name": "mobile.launch_app",
         "description": (

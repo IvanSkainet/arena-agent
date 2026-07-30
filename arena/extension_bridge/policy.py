@@ -17,7 +17,7 @@ _SAFE_TOOLS = {
     # v4.54.0: scenario read-only surfaces.
     "scenario.get", "scenario.history", "scenario.list", "scenario.preview",
     # v4.56.0: mobile.* read-only surfaces.
-    "mobile.devices", "mobile.info", "mobile.transport_status", "mobile.screenshot", "mobile.ui", "mobile.sensors", "mobile.packages", "mobile.ime_status", "mobile.helpers_status", "mobile.camera_photos", "mobile.record_list",
+    "mobile.preflight", "mobile.observe", "mobile.devices", "mobile.info", "mobile.transport_status", "mobile.screenshot", "mobile.ui", "mobile.sensors", "mobile.packages", "mobile.ime_status", "mobile.helpers_status", "mobile.camera_photos", "mobile.record_list",
     # v4.57.0: net/secrets read-only surface.
     "secrets.list",
     # v4.58.0: asr model discovery.
@@ -54,7 +54,7 @@ _MEDIUM_TOOLS = {
     # v4.58.0: local speech-to-text via whisper.cpp.
     "asr.transcribe", "ocr.extract", "ocr.extract_best", "image.preprocess_for_ocr",
     # v4.59.0: state-changing but reversible ops.
-    "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
+    "mobile.reconnect", "mobile.launch_app", "mobile.pull_file", "browser.launch", "browser.close",
     # v4.94.0/v4.95.0: external-MCP lifecycle / trust decisions. Adding or
     # removing a server is the trust boundary (the agent then uses its tools
     # freely); stopping a running server is reversible.
