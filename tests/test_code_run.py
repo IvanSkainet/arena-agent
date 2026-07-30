@@ -35,6 +35,7 @@ def test_build_linux_systemd_strict_argv(tmp_path, monkeypatch):
     argv, info = R.build_command("linux", _strict(), "python3",
                                  tmp_path / "c.py", tmp_path)
     assert argv[0] == "systemd-run"
+    assert "--same-dir" in argv
     assert "--property=PrivateNetwork=yes" in argv      # network deny
     assert "--property=DynamicUser=yes" not in argv      # user manager rejects DynamicUser
     assert "--property=ProtectSystem=strict" in argv     # fs confined

@@ -1,3 +1,8 @@
+## v4.137.3 - Linux systemd smoke working directory fix
+
+### Fixed
+- Added `--same-dir` to the Linux `systemd-run --user --pipe` code runner invocation. CachyOS live smoke proved the fixed code ran successfully but artifacts were written outside the scratch cwd unless the transient service inherited the caller directory.
+
 ## v4.137.2 - Linux systemd user DynamicUser fix
 
 ### Fixed
