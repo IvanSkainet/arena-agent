@@ -1,3 +1,8 @@
+## v4.146.1 - MuMu wrapper test portability
+
+### Fixed
+- Made the MuMu wrapper regression test path expectation platform-neutral so Windows CI accepts the native `Path("/tmp/...")` representation.
+
 ## v4.146.0 - MuMu Tools and Capability Gap Tracker
 
 ### Added

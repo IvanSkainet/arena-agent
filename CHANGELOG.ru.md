@@ -1,3 +1,8 @@
+## v4.146.1 - MuMu wrapper test portability
+
+### Исправлено
+- Регресс-тест MuMu wrapper теперь сравнивает path platform-neutral образом, чтобы Windows CI принимал нативное представление `Path("/tmp/...")`.
+
 ## v4.146.0 - MuMu Tools and Capability Gap Tracker
 
 ### Добавлено

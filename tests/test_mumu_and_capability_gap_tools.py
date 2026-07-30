@@ -50,7 +50,7 @@ def test_mumu_info_uses_cli_and_vmindex(monkeypatch):
     payload = _text(handle_mumu_tool("mumu.info", {"vmindex": 2, "timeout": 9}, ctx=object()))
     assert payload["ok"] is True
     assert payload["json"]["android_version"] == "12.0"
-    assert calls[0][0] == ["/tmp/mumu-cli.exe", "info", "--vmindex", "2"]
+    assert calls[0][0] == [str(Path("/tmp/mumu-cli.exe")), "info", "--vmindex", "2"]
     assert calls[0][1] == 9
 
 
