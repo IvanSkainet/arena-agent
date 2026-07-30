@@ -1,3 +1,9 @@
+## v4.141.1 - Desktop App Relative Control live-geometry fix
+
+### Fixed
+- `desktop_app.click_window_relative` now focuses/restores the resolved window and then re-reads its geometry before converting relative coordinates to absolute screen coordinates. Live Windows validation with Cheat Engine showed minimized/restored windows can first appear at parking coordinates like `(-21333, -21333)`; using that stale geometry would click off-screen.
+- `desktop_app.screenshot_window` also focuses/restores and re-resolves geometry before cropping so window screenshots do not capture minimized parking rectangles.
+
 ## v4.141.0 - Desktop App Relative Control
 
 ### Added

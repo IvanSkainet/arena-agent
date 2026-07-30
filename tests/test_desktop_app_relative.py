@@ -80,14 +80,41 @@ def test_click_window_relative_converts_to_absolute_and_focuses(monkeypatch):
     assert payload["relative"] == {"x": 36, "y": 70}
     assert payload["absolute"] == {"x": 56, "y": 90}
     assert calls[1] == ("POST", "/v1/desktop/focus", {"id": "w-ce", "verify": True, "timeout_ms": 1500})
-    assert calls[2] == ("POST", "/v1/desktop/click", {"x": 56, "y": 90, "button": "left", "double": False, "activate": True, "require_active_title": "Cheat"})
+    assert calls[3] == ("POST", "/v1/desktop/click", {"x": 56, "y": 90, "button": "left", "double": False, "activate": True, "require_active_title": "Cheat"})
+
+
+def test_click_window_relative_uses_post_focus_geometry(monkeypatch):
+    import arena.mcp.tool_desktop_app as app
+
+    stale = {
+        **WINDOWS_PAYLOAD,
+        "windows": [{**WINDOWS_PAYLOAD["windows"][0], "geometry": {"x": -21333, "y": -21333, "width": 158, "height": 26}, "minimized": True}],
+    }
+    restored = WINDOWS_PAYLOAD
+    calls = []
+
+    def fake_get(ctx, path, params=None):
+        calls.append(("GET", path, params))
+        return stale if len([c for c in calls if c[0] == "GET" and c[1] == "/v1/desktop/windows"]) == 1 else restored
+
+    def fake_call(ctx, path, payload):
+        calls.append(("POST", path, payload))
+        return {"ok": True, "path": path}
+
+    monkeypatch.setattr(app, "_bridge_get", fake_get)
+    monkeypatch.setattr(app, "_bridge_call", fake_call)
+    payload = _text(handle_desktop_app_tool("desktop_app.click_window_relative", {"title": "Cheat Engine", "x": 36, "y": 70}, ctx=object()))
+    assert payload["ok"] is True
+    assert payload["geometry"] == {"x": 20, "y": 20, "width": 1000, "height": 700}
+    assert payload["absolute"] == {"x": 56, "y": 90}
+    assert calls[-1] == ("POST", "/v1/desktop/click", {"x": 56, "y": 90, "button": "left", "double": False, "activate": True})
 
 
 def test_click_window_relative_refuses_outside_by_default(monkeypatch):
     import arena.mcp.tool_desktop_app as app
 
     monkeypatch.setattr(app, "_bridge_get", lambda ctx, path, params=None: WINDOWS_PAYLOAD)
-    payload = _text(handle_desktop_app_tool("desktop_app.click_window_relative", {"title": "Cheat Engine", "x": 5000, "y": 70}, ctx=object()))
+    payload = _text(handle_desktop_app_tool("desktop_app.click_window_relative", {"title": "Cheat Engine", "x": 5000, "y": 70, "focus": False}, ctx=object()))
     assert payload["ok"] is False
     assert payload["error"] == "relative_point_outside_window"
 
@@ -103,11 +130,16 @@ def test_screenshot_window_uses_window_crop(monkeypatch):
             return WINDOWS_PAYLOAD
         return {"ok": True, "format": "base64", "encoding": "png", "data": "abc"}
 
+    def fake_call(ctx, path, payload):
+        calls.append((path, payload))
+        return {"ok": True, "path": path}
+
     monkeypatch.setattr(app, "_bridge_get", fake_get)
+    monkeypatch.setattr(app, "_bridge_call", fake_call)
     payload = _text(handle_desktop_app_tool("desktop_app.screenshot_window", {"title": "Cheat Engine", "max_width": 500}, ctx=object()))
     assert payload["ok"] is True
     assert payload["target"]["title"] == "Cheat Engine"
-    assert calls[1] == (
+    assert calls[3] == (
         "/v1/desktop/screenshot",
         {"format": "base64", "region_x": 20, "region_y": 20, "region_width": 1000, "region_height": 700, "quality": 80, "max_width": 500},
     )

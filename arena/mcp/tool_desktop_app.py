@@ -108,27 +108,47 @@ def _focus(ctx, args: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def _refocus_and_reresolve(ctx, args: dict[str, Any], target: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Focus target, then re-read its geometry.
+
+    Windows reports minimized windows at parking coordinates like
+    (-32000, -32000), and some apps expose a tiny owner window before
+    restore.  Window-relative clicks must be computed from the post-focus
+    geometry, not from the stale pre-focus listing.
+    """
+    focus_args = {"id": target.get("id") or target.get("internal_id"), "verify": args.get("verify_focus", True), "timeout_ms": args.get("timeout_ms", 1500)}
+    focus_res = _bridge_call(ctx, "/v1/desktop/focus", focus_args)
+    refreshed = None
+    if focus_res.get("ok"):
+        refreshed_resolved = _resolve(ctx, {**args, "id": target.get("id") or target.get("internal_id")})
+        refreshed = refreshed_resolved.get("target") or target
+    return focus_res, refreshed
+
+
 def _click_window_relative(ctx, args: dict[str, Any]) -> dict[str, Any]:
-    target, meta = _target_or_error(ctx, args)
+    resolved = _resolve(ctx, args)
+    target = resolved.get("target")
     if not target:
-        return meta
+        return {"ok": False, "error": "window_not_found", "candidates": resolved.get("candidates", []), "filters": _filters(args)}
     if args.get("x") is None or args.get("y") is None:
         return {"ok": False, "error": "missing 'x' and/or 'y' relative coordinates"}
-    geom = meta["geometry"]
+    focus_res = None
+    if args.get("focus", True):
+        focus_res, refreshed = _refocus_and_reresolve(ctx, args, target)
+        if not focus_res.get("ok") and args.get("require_focus", True):
+            focus_res["target"] = target
+            focus_res["geometry"] = _geom(target)
+            return focus_res
+        if refreshed:
+            target = refreshed
+    geom = _geom(target)
+    if not geom:
+        return {"ok": False, "error": "window_geometry_unavailable_after_focus" if focus_res else "window_geometry_unavailable", "target": target, "candidates": resolved.get("candidates", []), "focus": focus_res}
     rel_x = int(args["x"])
     rel_y = int(args["y"])
     allow_outside = bool(args.get("allow_outside", False))
     if not allow_outside and not (0 <= rel_x < geom["width"] and 0 <= rel_y < geom["height"]):
         return {"ok": False, "error": "relative_point_outside_window", "x": rel_x, "y": rel_y, "geometry": geom, "target": target}
-    if args.get("focus", True):
-        focus_args = {"id": target.get("id") or target.get("internal_id"), "verify": args.get("verify_focus", True), "timeout_ms": args.get("timeout_ms", 1500)}
-        focus_res = _bridge_call(ctx, "/v1/desktop/focus", focus_args)
-        if not focus_res.get("ok") and args.get("require_focus", True):
-            focus_res["target"] = target
-            focus_res["geometry"] = geom
-            return focus_res
-    else:
-        focus_res = None
     abs_x = geom["x"] + rel_x
     abs_y = geom["y"] + rel_y
     click_args: dict[str, Any] = {
@@ -154,10 +174,21 @@ def _click_window_relative(ctx, args: dict[str, Any]) -> dict[str, Any]:
 
 
 def _screenshot_window(ctx, args: dict[str, Any]) -> dict[str, Any]:
-    target, meta = _target_or_error(ctx, args)
+    resolved = _resolve(ctx, args)
+    target = resolved.get("target")
     if not target:
-        return meta
-    geom = meta["geometry"]
+        return {"ok": False, "error": "window_not_found", "candidates": resolved.get("candidates", []), "filters": _filters(args)}
+    focus_res = None
+    if args.get("focus", True):
+        focus_res, refreshed = _refocus_and_reresolve(ctx, args, target)
+        if not focus_res.get("ok") and args.get("require_focus", True):
+            focus_res["target"] = target
+            return focus_res
+        if refreshed:
+            target = refreshed
+    geom = _geom(target)
+    if not geom:
+        return {"ok": False, "error": "window_geometry_unavailable_after_focus" if focus_res else "window_geometry_unavailable", "target": target, "candidates": resolved.get("candidates", []), "focus": focus_res}
     if str(args.get("format", "base64") or "base64").lower() != "base64":
         return {"ok": False, "error": "desktop_app.screenshot_window returns JSON, so only format='base64' is supported; use /v1/desktop/screenshot directly for binary formats", "target": target, "geometry": geom}
     params: dict[str, Any] = {
@@ -174,6 +205,8 @@ def _screenshot_window(ctx, args: dict[str, Any]) -> dict[str, Any]:
         params["max_width"] = args.get("max_width")
     shot = _bridge_get(ctx, "/v1/desktop/screenshot", params)
     shot.update({"target": target, "geometry": geom})
+    if focus_res is not None:
+        shot["focus"] = focus_res
     return shot
 
 
