@@ -298,7 +298,7 @@ def build_command(platform: str, posture: dict[str, Any], lang: str,
     priv = posture.get("privilege", "drop")
     fs = posture.get("filesystem", "scratch-only")
     resources = posture.get("resources", DEFAULT_RESOURCES)
-    flags = ["--scope", "--user", "--quiet", "--pipe",
+    flags = ["--user", "--quiet", "--pipe",
              "--property=TimeoutStopSec=5",
              f"--property=MemoryMax={int(resources.get('memory_mb', 256))}M",
              "--property=CPUQuota=100%"]

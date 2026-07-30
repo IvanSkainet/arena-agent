@@ -1,3 +1,8 @@
+## v4.137.1 - Linux systemd smoke runner fix
+
+### Fixed
+- Removed `--scope` from the Linux `systemd-run --pipe` code runner invocation. CachyOS live smoke proved that `--pipe` is incompatible with `--scope` on current systemd, blocking the fenced code proof.
+
 ## v4.137.0 - Real Machine Smoke Matrix
 
 ### Added
