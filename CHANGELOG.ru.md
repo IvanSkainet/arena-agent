@@ -1,3 +1,8 @@
+## v4.142.1 - Windows client-rect fallback for owner windows
+
+### Исправлено
+- Windows visual geometry теперь при нулевой площади `GetWindowRect`/DWM bounds откатывается к `GetClientRect` + `ClientToScreen`. Это покрывает окна, у которых есть реальная client area, но User32 отдаёт outer rectangle с нулевой высотой.
+
 ## v4.142.0 - Windows App Window Deep Resolve
 
 ### Добавлено

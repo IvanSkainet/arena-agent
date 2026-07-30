@@ -53,6 +53,10 @@ if _IS_WINDOWS:
     user32.GetClassNameW.restype = ctypes.c_int
     user32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
     user32.GetWindowRect.restype = wt.BOOL
+    user32.GetClientRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
+    user32.GetClientRect.restype = wt.BOOL
+    user32.ClientToScreen.argtypes = [wt.HWND, ctypes.POINTER(wt.POINT)]
+    user32.ClientToScreen.restype = wt.BOOL
     dwmapi.DwmGetWindowAttribute.argtypes = [wt.HWND, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
     dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
     user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]

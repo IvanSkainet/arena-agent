@@ -1,3 +1,8 @@
+## v4.142.1 - Windows client-rect fallback for owner windows
+
+### Fixed
+- Windows visual geometry now falls back from zero-area `GetWindowRect`/DWM bounds to `GetClientRect` + `ClientToScreen`. This covers windows that own a real client area but report a zero-height outer rectangle to User32.
+
 ## v4.142.0 - Windows App Window Deep Resolve
 
 ### Added

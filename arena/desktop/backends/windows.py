@@ -171,6 +171,20 @@ def _geometry_area(geom: dict[str, int] | None) -> int:
     return max(0, int(geom.get("width") or 0)) * max(0, int(geom.get("height") or 0))
 
 
+def _client_rect_geometry(hwnd: int) -> dict[str, int] | None:
+    rect = wt.RECT()
+    if not user32.GetClientRect(wt.HWND(hwnd), ctypes.byref(rect)):
+        return None
+    width = int(rect.right - rect.left)
+    height = int(rect.bottom - rect.top)
+    if width <= 0 or height <= 0:
+        return None
+    pt = wt.POINT(0, 0)
+    if not user32.ClientToScreen(wt.HWND(hwnd), ctypes.byref(pt)):
+        return None
+    return {"x": int(pt.x), "y": int(pt.y), "width": width, "height": height}
+
+
 def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
     rect = wt.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
@@ -184,6 +198,10 @@ def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
                 return dwm_geom, "dwm_extended_frame_bounds"
         except Exception:
             pass
+    if _geometry_area(geom) <= 0:
+        client = _client_rect_geometry(hwnd)
+        if client:
+            return client, "client_rect"
     return geom, "get_window_rect"
 
 
