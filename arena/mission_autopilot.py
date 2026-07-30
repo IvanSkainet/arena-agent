@@ -58,7 +58,7 @@ def _mcp_call(port: int, token: str, tool: str, arguments: dict[str, Any], timeo
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=max(1, int(timeout))) as resp:  # nosec B310 -- loopback only
+    with urllib.request.urlopen(req, timeout=max(1, int(timeout))) as resp:  # nosec B310 -- loopback-only MCP dispatch to the same local bridge; nosemgrep: dynamic-urllib-use-detected -- URL is fixed to 127.0.0.1 with only the already-bound local port variable
         outer = json.loads(resp.read().decode("utf-8", "replace"))
     content = (outer.get("result") or {}).get("content") or []
     text = content[0].get("text", "") if content and isinstance(content[0], dict) else ""

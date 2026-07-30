@@ -1,3 +1,8 @@
+## v4.145.1 - Mission Autopilot security annotation
+
+### Fixed
+- Added an explicit Semgrep rationale for Mission Autopilot's loopback-only MCP dispatch (`127.0.0.1:<bridge-port>/mcp`). The dispatch is intentionally local to the same bridge process and does not accept external URLs.
+
 ## v4.145.0 - Mission Autopilot
 
 ### Added
