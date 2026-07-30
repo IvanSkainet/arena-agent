@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.135.x)
+## Current flight status (v4.136.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -638,7 +638,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `sys` | `sys.status` — Bridge/services/funnel status |
 | `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
 | `workbench` | `workbench.status` — Show posture, runtimes, projects, sessions, recent artifacts, known limits, and next actions |
-| `ship` | `ship.status` / `ship.preflight` — Whole-ship map and readiness checks across bridge, posture, transports, MCP/desktop, browser, mobile, and Workbench |
+| `ship` | `ship.status` / `ship.preflight` / `ship.linux_flight_check` — Whole-ship map, readiness checks, and Linux/CachyOS flight check |
 | `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Validate a Workbench project manifest/tests and publish it as a callable custom tool |
 
 All calls go through `POST /v1/mcp/call` with JSON body `{"name": "<tool>", "arguments": {...}}`.

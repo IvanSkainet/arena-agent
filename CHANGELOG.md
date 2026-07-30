@@ -1,3 +1,8 @@
+## v4.136.0 - CachyOS/Linux Flight Check
+
+### Added
+- `ship.linux_flight_check` provides a read-only Linux/CachyOS flight check covering host/platform, systemd user service, `systemd-run`, KDE/Wayland hints, Tailscale/Funnel, ADB/mobile preflight, browser/runtime availability, runtime compatibility, checks, and next actions.
+
 ## v4.135.0 - Android/POCO Preflight
 
 ### Added

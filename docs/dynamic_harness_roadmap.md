@@ -178,7 +178,7 @@ Successful behavior becomes reusable scenario.
 
 Add `mobile.preflight`, `mobile.reconnect`, `mobile.observe`.
 
-### v4.136.0 — CachyOS/Linux Flight Check
+### v4.136.0 — CachyOS/Linux Flight Check ✅ completed
 
 Install/test bridge on CachyOS:
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.135.0 Android/POCO Preflight are complete. Continue with CachyOS/Linux Flight Check or deepen Android observe/reconnect based on available hardware; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.136.0 CachyOS/Linux Flight Check are complete. Continue beyond the original roadmap with the next highest-leverage real-machine hardening slice; keep using the maps before adding power.
