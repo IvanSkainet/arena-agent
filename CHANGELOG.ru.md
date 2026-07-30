@@ -1,3 +1,12 @@
+## v4.146.0 - MuMu Tools and Capability Gap Tracker
+
+### Добавлено
+- Добавлены MCP-обёртки для MuMu Player: `mumu.version`, `mumu.info`, `mumu.launch`, `mumu.shutdown`, `mumu.shell`, `mumu.adb`, `mumu.devices` и `mumu.screenshot`. Они используют родной `mumu-cli.exe` без хрупкого shell quoting и делают emulator-сценарии переиспользуемыми.
+- Добавлены persistent capability gap tools: `capability_gap.record`, `capability_gap.list` и `capability_gap.resolve`. Провалы реальных сценариев теперь можно сохранять как first-class backlog с evidence, severity, suggested tool, ссылкой на scenario и resolution.
+
+### Заметки
+- Релиз превращает два урока из live-сценариев в часть bridge: MuMu достаточно полезен для стабильных tools, а недостающие возможности надо фиксировать как harness gaps, а не терять в чате.
+
 ## v4.145.1 - Mission Autopilot security annotation
 
 ### Исправлено

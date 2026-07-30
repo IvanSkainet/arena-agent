@@ -1,3 +1,12 @@
+## v4.146.0 - MuMu Tools and Capability Gap Tracker
+
+### Added
+- Added MuMu Player MCP wrappers: `mumu.version`, `mumu.info`, `mumu.launch`, `mumu.shutdown`, `mumu.shell`, `mumu.adb`, `mumu.devices`, and `mumu.screenshot`. These wrap MuMu's own `mumu-cli.exe` without brittle shell quoting and make emulator scenarios reusable.
+- Added persistent capability gap tools: `capability_gap.record`, `capability_gap.list`, and `capability_gap.resolve`. Real scenario failures can now become first-class backlog items with evidence, severity, suggested tool, scenario link, and resolution.
+
+### Notes
+- This folds two recurring live-scenario lessons into the bridge: MuMu is useful enough to deserve stable tools, and missing capabilities should be recorded as harness gaps instead of being lost in chat logs.
+
 ## v4.145.1 - Mission Autopilot security annotation
 
 ### Fixed

@@ -44,6 +44,17 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_capability_gap.py",
+    "handlers": [
+      "handle_capability_gap_tool"
+    ],
+    "tool_names": [
+      "capability_gap.list",
+      "capability_gap.record",
+      "capability_gap.resolve"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_code.py",
     "handlers": [
       "handle_code_tool"
@@ -390,6 +401,22 @@
       "mobile.push_file",
       "mobile.reconnect",
       "mobile.voice_record"
+    ]
+  },
+  {
+    "file": "arena/mcp/tool_mumu.py",
+    "handlers": [
+      "handle_mumu_tool"
+    ],
+    "tool_names": [
+      "mumu.adb",
+      "mumu.devices",
+      "mumu.info",
+      "mumu.launch",
+      "mumu.screenshot",
+      "mumu.shell",
+      "mumu.shutdown",
+      "mumu.version"
     ]
   },
   {

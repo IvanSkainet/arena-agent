@@ -15,6 +15,7 @@ from arena.mcp.tool_agentic import handle_agentic_tool
 from arena.mcp.tool_asr import handle_asr_tool
 from arena.mcp.tool_browser import handle_browser_tool
 from arena.mcp.tool_browser_headed import handle_browser_headed_tool
+from arena.mcp.tool_capability_gap import handle_capability_gap_tool
 from arena.mcp.tool_code import handle_code_tool
 from arena.mcp.tool_code_artifact import handle_code_artifact_tool
 from arena.mcp.tool_code_matrix import handle_code_matrix_tool
@@ -39,6 +40,7 @@ from arena.mcp.tool_misc import handle_misc_tool
 from arena.mcp.tool_mission import handle_mission_tool
 from arena.mcp.tool_mobile import handle_mobile_tool
 from arena.mcp.tool_mobile_ext import handle_mobile_ext_tool
+from arena.mcp.tool_mumu import handle_mumu_tool
 from arena.mcp.tool_net import handle_net_tool
 from arena.mcp.tool_ocr import handle_ocr_tool
 from arena.mcp.tool_plan import handle_plan_tool
@@ -142,6 +144,8 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_desktop_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_ext_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_tool(name, args, ctx=ctx),
+                lambda: handle_mumu_tool(name, args, ctx=ctx),
+                lambda: handle_capability_gap_tool(name, args, ctx=ctx),
                 lambda: handle_net_tool(name, args, ctx=ctx, run_sd=run_sd),
                 lambda: handle_asr_tool(name, args, ctx=ctx),
                 lambda: handle_ocr_tool(name, args, ctx=ctx),

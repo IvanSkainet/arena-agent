@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
 from arena.mcp.tool_browser_headed import BROWSER_HEADED_MCP_TOOLS
+from arena.mcp.tool_capability_gap import CAPABILITY_GAP_TOOLS
 from arena.mcp.tool_code import CODE_TOOLS
 from arena.mcp.tool_code_artifact import ARTIFACT_TOOLS
 from arena.mcp.tool_code_matrix import MATRIX_TOOLS
@@ -13,6 +14,7 @@ from arena.mcp.tool_desktop_input import DESKTOP_INPUT_MCP_TOOLS
 from arena.mcp.tool_foundry import FOUNDRY_TOOLS
 from arena.mcp.tool_mcp_server_foundry import MCP_SERVER_FOUNDRY_TOOLS
 from arena.mcp.tool_mobile_ext import MOBILE_EXT_MCP_TOOLS
+from arena.mcp.tool_mumu import MUMU_TOOLS
 from arena.mcp.tool_registry_asr import ASR_MCP_TOOLS
 from arena.mcp.tool_registry_document import DOCUMENT_MCP_TOOLS
 from arena.mcp.tool_registry_image import IMAGE_MCP_TOOLS
@@ -238,6 +240,8 @@ MCP_TOOLS.extend(MCP_EXT_MCP_TOOLS)
 MCP_TOOLS.extend(DESKTOP_INPUT_MCP_TOOLS)
 MCP_TOOLS.extend(DESKTOP_APP_MCP_TOOLS)
 MCP_TOOLS.extend(MOBILE_EXT_MCP_TOOLS)
+MCP_TOOLS.extend(MUMU_TOOLS)
+MCP_TOOLS.extend(CAPABILITY_GAP_TOOLS)
 MCP_TOOLS.extend(BROWSER_HEADED_MCP_TOOLS)
 MCP_TOOLS.extend(CODE_TOOLS)
 MCP_TOOLS.extend(RUNTIME_TOOLS)
