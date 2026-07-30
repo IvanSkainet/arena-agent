@@ -1,3 +1,12 @@
+## v4.144.0 - Scenario Flight Records
+
+### Добавлено
+- Добавлены MCP-тулы `scenario.record`, `scenario.records` и `scenario.flight_report`. Они сохраняют durable JSON + Markdown flight records в artifacts сценария: boundary, observer-visible outcome, artifacts, commands/tool calls, что сработало, что не сработало, и следующие шаги.
+- Scenario flight records нужны для real-machine proof, где зелёный CI/успешный tool call сам по себе не доказательство: record может честно сказать «write succeeded, visible outcome not confirmed» или «emulator and real phone both observed», не притворяясь полным успехом.
+
+### Заметки
+- Релиз вырос напрямую из TABS+Cheat Engine и MuMu+POCO/ADB: человечески наблюдаемый результат теперь сохраняется как first-class artifact, а не теряется в чате.
+
 ## v4.143.0 - Window Candidate Visual Ranking
 
 ### Исправлено

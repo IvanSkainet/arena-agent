@@ -606,12 +606,15 @@
     "handlers": [],
     "tool_names": [
       "scenario.delete",
+      "scenario.flight_report",
       "scenario.get",
       "scenario.history",
       "scenario.list",
       "scenario.preview",
       "scenario.promote_from_history",
       "scenario.promote_from_run",
+      "scenario.record",
+      "scenario.records",
       "scenario.run",
       "scenario.save"
     ]
@@ -635,12 +638,15 @@
     ],
     "tool_names": [
       "scenario.delete",
+      "scenario.flight_report",
       "scenario.get",
       "scenario.history",
       "scenario.list",
       "scenario.preview",
       "scenario.promote_from_history",
       "scenario.promote_from_run",
+      "scenario.record",
+      "scenario.records",
       "scenario.run",
       "scenario.save"
     ]

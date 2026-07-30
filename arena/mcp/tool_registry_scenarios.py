@@ -50,6 +50,46 @@ SCENARIO_MCP_TOOLS = [
             "required": ["name"], "additionalProperties": False},
     },
     {
+        "name": "scenario.record",
+        "description": "Create a durable scenario flight record (JSON + Markdown) capturing observer-visible outcome, artifacts, commands, and honest next steps.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "title": {"type": "string"},
+                "status": {"type": "string", "default": "observed"},
+                "outcome": {"type": "string"},
+                "risk": {"type": "string"},
+                "tags": {"type": "array", "items": {}},
+                "boundary": {},
+                "summary": {},
+                "observations": {},
+                "artifacts": {},
+                "commands": {},
+                "worked": {},
+                "not_worked": {},
+                "next_steps": {},
+                "data": {"type": "object"},
+            },
+            "required": ["name"], "additionalProperties": False},
+    },
+    {
+        "name": "scenario.records",
+        "description": "List saved flight records for a scenario.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"], "additionalProperties": False},
+    },
+    {
+        "name": "scenario.flight_report",
+        "description": "Read the latest (or a specific) scenario flight record as JSON plus rendered Markdown.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}, "record_id": {"type": "string"}, "latest": {"type": "boolean", "default": True}},
+            "required": ["name"], "additionalProperties": False},
+    },
+    {
         "name": "scenario.preview",
         "description": (
             "Preview a scenario: derived risk classification, step count, "

@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -12,8 +9,8 @@ from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp.tool_registry import MCP_TOOLS
 from arena.scenarios import (
     InvalidScenario,
-    ScenarioNotFound,
     ScenarioMissionStore,
+    ScenarioNotFound,
     build_scenarios_runtime,
     derive_scenario_risk,
 )
@@ -41,6 +38,7 @@ def test_scenario_tools_registered():
         "scenario.list", "scenario.get", "scenario.save", "scenario.delete",
         "scenario.preview", "scenario.run", "scenario.history",
         "scenario.promote_from_run", "scenario.promote_from_history",
+        "scenario.record", "scenario.records", "scenario.flight_report",
     }
 
 
@@ -288,7 +286,7 @@ def test_runtime_continue_on_error(tmp_storage):
         calls.append(t)
         return {"ok": False, "error": "nope"} if t == "fs.read" else {"ok": True}
     rt = build_scenarios_runtime(dispatch, storage=tmp_storage)
-    run = rt.run("t", approved=True)
+    rt.run("t", approved=True)
     # Second step still fires because continue_on_error set on first.
     assert calls == ["fs.read", "sys.status"]
 

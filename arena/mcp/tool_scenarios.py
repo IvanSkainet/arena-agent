@@ -26,6 +26,7 @@ from arena.scenarios import (
     ScenarioNotFound,
     build_scenarios_runtime,
 )
+from arena.scenarios import flight_records as _flight_records
 from arena.scenarios import promotion as _promotion
 
 _MAX_RECURSION_DEPTH = 4
@@ -167,6 +168,49 @@ def handle_scenario_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, A
                 storage=storage,
             )
             return _text_ok(out)
+
+        if name == "scenario.record":
+            scenario_name = str(args.get("name", "") or "").strip()
+            if not scenario_name:
+                return _text_err("`name` is required", status=400)
+            out = _flight_records.create_record(
+                scenario_name,
+                title=str(args.get("title") or ""),
+                status=str(args.get("status") or "observed"),
+                outcome=str(args.get("outcome") or ""),
+                boundary=args.get("boundary"),
+                summary=args.get("summary"),
+                observations=args.get("observations"),
+                artifacts=args.get("artifacts"),
+                commands=args.get("commands"),
+                worked=args.get("worked"),
+                not_worked=args.get("not_worked"),
+                next_steps=args.get("next_steps"),
+                data=args.get("data"),
+                risk=str(args.get("risk") or ""),
+                tags=args.get("tags"),
+                storage=storage,
+            )
+            compact = {k: v for k, v in out.items() if k != "record"}
+            compact["record"] = out["record"]
+            return _text_ok(compact)
+
+        if name == "scenario.records":
+            scenario_name = str(args.get("name", "") or "").strip()
+            if not scenario_name:
+                return _text_err("`name` is required", status=400)
+            return _text_ok(_flight_records.list_records(scenario_name, storage=storage))
+
+        if name == "scenario.flight_report":
+            scenario_name = str(args.get("name", "") or "").strip()
+            if not scenario_name:
+                return _text_err("`name` is required", status=400)
+            return _text_ok(_flight_records.get_report(
+                scenario_name,
+                record_id=str(args.get("record_id") or ""),
+                latest=bool(args.get("latest", True)),
+                storage=storage,
+            ))
 
         if name == "scenario.preview":
             scenario_name = str(args.get("name", "") or "").strip()
