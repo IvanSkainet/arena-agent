@@ -10,11 +10,15 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.desktop.focus import focus_window  # noqa: E402
-from arena.desktop.window_catalog import annotate_windows_with_displays, list_desktop_windows, window_candidates  # noqa: E402
+from arena.desktop.window_catalog import (  # noqa: E402
+    annotate_windows_with_displays,
+    list_desktop_windows,
+    window_candidates,
+)
 from arena.desktop.window_handlers import make_desktop_window_handlers  # noqa: E402
 from arena.handler_context import DesktopHandlerContext  # noqa: E402
-import unified_bridge as ub  # noqa: E402
 
 
 async def _kwin_list():
@@ -159,3 +163,34 @@ def test_window_handlers_support_filters_and_focus_dry_run(monkeypatch):
     assert focus_data2["ok"] is True
     assert focus_data2["text_target"]["query"] == "Arena"
     assert focus_data2["target"]["title"] == "Arena – LibreWolf"
+
+
+def test_window_candidates_prefer_usable_visual_geometry_over_zero_area_owner():
+    windows = [
+        {
+            "id": "owner",
+            "title": "Cheat Engine",
+            "class": "Window",
+            "active": True,
+            "visible": True,
+            "geometry": {"x": 20, "y": 20, "width": 985, "height": 0},
+        },
+        {
+            "id": "form",
+            "title": "Cheat Engine",
+            "class": "TCustomForm",
+            "active": False,
+            "visible": True,
+            "geometry": {"x": 40, "y": 30, "width": 1480, "height": 1040},
+        },
+    ]
+    candidates = window_candidates(windows, title="Cheat Engine")
+    assert candidates[0]["id"] == "form"
+
+
+def test_window_candidates_prefer_larger_usable_geometry_for_same_title():
+    windows = [
+        {"id": "small", "title": "App", "class": "Window", "geometry": {"x": 0, "y": 0, "width": 100, "height": 100}},
+        {"id": "large", "title": "App", "class": "Window", "geometry": {"x": 0, "y": 0, "width": 900, "height": 700}},
+    ]
+    assert window_candidates(windows, title="App")[0]["id"] == "large"

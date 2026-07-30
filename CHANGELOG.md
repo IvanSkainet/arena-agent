@@ -1,3 +1,9 @@
+## v4.143.0 - Window Candidate Visual Ranking
+
+### Fixed
+- Window target resolution now ranks usable visual geometry above active/minimized zero-area owner windows. Live Cheat Engine validation exposed multiple same-title windows (`TCustomForm` real form and `Window` owner); broad title queries now prefer the real visible form instead of the misleading owner HWND.
+- Candidate sorting also uses visual area as a tie-breaker for same-title windows, making `desktop.focus`, `desktop_app.find`, and `desktop_app.*` more reliable for real GUI apps.
+
 ## v4.142.1 - Windows client-rect fallback for owner windows
 
 ### Fixed

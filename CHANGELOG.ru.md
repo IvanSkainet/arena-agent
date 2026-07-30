@@ -1,3 +1,9 @@
+## v4.143.0 - Window Candidate Visual Ranking
+
+### Исправлено
+- Разрешение desktop-окон теперь ранжирует пригодную visual geometry выше active/minimized owner-окон с нулевой площадью. Живая проверка с Cheat Engine показала несколько окон с одинаковым title (`TCustomForm` как реальная форма и `Window` как owner); широкие title-запросы теперь предпочитают реальную видимую форму, а не misleading owner HWND.
+- Сортировка кандидатов также использует площадь visual rectangle как tie-breaker для окон с одинаковым title, что делает `desktop.focus`, `desktop_app.find` и `desktop_app.*` надёжнее для реальных GUI-приложений.
+
 ## v4.142.1 - Windows client-rect fallback for owner windows
 
 ### Исправлено

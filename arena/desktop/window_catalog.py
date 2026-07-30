@@ -61,6 +61,13 @@ def _window_matches(window: dict[str, Any], *, title: str = "", class_contains: 
 
 
 
+def _geometry_area(window: dict[str, Any]) -> int:
+    geometry = coerce_geometry(window.get("geometry"))
+    if not geometry:
+        return 0
+    return max(0, int(geometry.get("width") or 0)) * max(0, int(geometry.get("height") or 0))
+
+
 def window_candidates(windows: list[dict[str, Any]], **filters: Any) -> list[dict[str, Any]]:
     title_q = normalize_text(filters.get("title", ""))
     class_q = normalize_text(filters.get("class_contains", ""))
@@ -68,7 +75,18 @@ def window_candidates(windows: list[dict[str, Any]], **filters: Any) -> list[dic
     for window in windows:
         if not _window_matches(window, **filters):
             continue
+        area = _geometry_area(window)
+        has_usable_geometry = area > 0
         score = 0.02 if window.get("active") else 0.0
+        if has_usable_geometry:
+            score += 0.12
+            if area >= 40_000:
+                score += 0.03
+        elif window.get("minimized") or window.get("visible"):
+            # Windows custom-toolkit apps can expose titled owner HWNDs with
+            # parking/zero-area geometry next to the real form. Do not let
+            # active/minimized bookkeeping outrank a usable visual rectangle.
+            score -= 0.08
         window_title = normalize_text(window.get("title", ""))
         window_class = normalize_text(window.get("resource_class", window.get("class", "")))
         if title_q:
@@ -79,9 +97,9 @@ def window_candidates(windows: list[dict[str, Any]], **filters: Any) -> list[dic
             score += 0.2
         if filters.get("display"):
             score += 0.1
-        scored.append((score, window))
-    scored.sort(key=lambda item: (item[0], bool(item[1].get("active")), len(str(item[1].get("title", "")))), reverse=True)
-    return [window for _, window in scored]
+        scored.append((score, area, window))
+    scored.sort(key=lambda item: (item[0], item[1], bool(item[2].get("active")), len(str(item[2].get("title", "")))), reverse=True)
+    return [window for _, _, window in scored]
 
 
 
@@ -112,6 +130,7 @@ async def list_desktop_windows(*, desktop_exec, detect_env, kwin_windows_via_scr
     if env.get("has_win32_windows"):  # pragma: no cover
         try:
             import asyncio as _asyncio
+
             from arena.desktop.backends import windows as _win
             loop = _asyncio.get_event_loop()
             wins = await loop.run_in_executor(None, lambda: _win.list_windows(visible_only=True))
