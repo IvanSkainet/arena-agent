@@ -165,15 +165,13 @@ def _rect_to_geometry(rect: wt.RECT) -> dict[str, int]:
     }
 
 
-def _best_window_geometry(hwnd: int) -> dict[str, int]:
-    """Return the most useful top-level window geometry.
+def _geometry_area(geom: dict[str, int] | None) -> int:
+    if not geom:
+        return 0
+    return max(0, int(geom.get("width") or 0)) * max(0, int(geom.get("height") or 0))
 
-    ``GetWindowRect`` can be misleading for some Windows/custom-toolkit
-    windows after restore (live Cheat Engine validation showed a visible
-    owner window at x=20,y=20,width=985,height=0). DWM extended frame
-    bounds are the better visual rectangle when available, so prefer them
-    whenever they produce a positive area.
-    """
+
+def _window_rect_geometry(hwnd: int) -> tuple[dict[str, int], str]:
     rect = wt.RECT()
     user32.GetWindowRect(hwnd, ctypes.byref(rect))
     geom = _rect_to_geometry(rect)
@@ -182,11 +180,65 @@ def _best_window_geometry(hwnd: int) -> dict[str, int]:
             dwm_rect = wt.RECT()
             hr = dwmapi.DwmGetWindowAttribute(wt.HWND(hwnd), DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(dwm_rect), ctypes.sizeof(dwm_rect))
             dwm_geom = _rect_to_geometry(dwm_rect)
-            if hr == 0 and dwm_geom["width"] > 0 and dwm_geom["height"] > 0:
-                return dwm_geom
+            if hr == 0 and _geometry_area(dwm_geom) > 0:
+                return dwm_geom, "dwm_extended_frame_bounds"
         except Exception:
             pass
-    return geom
+    return geom, "get_window_rect"
+
+
+def _select_best_visual_child(candidates: list[dict[str, Any]]) -> dict[str, Any] | None:
+    usable = [c for c in candidates if c.get("visible") and _geometry_area(c.get("geometry")) > 0]
+    if not usable:
+        return None
+    usable.sort(key=lambda c: (_geometry_area(c.get("geometry")), bool(c.get("title"))), reverse=True)
+    return usable[0]
+
+
+def _child_window_candidates(hwnd: int, owner_pid: int | None = None) -> list[dict[str, Any]]:
+    children: list[dict[str, Any]] = []
+
+    def _proc(child: int, _lparam: int) -> bool:
+        try:
+            visible = bool(user32.IsWindowVisible(child))
+            pid = wt.DWORD(0)
+            user32.GetWindowThreadProcessId(child, ctypes.byref(pid))
+            if owner_pid is not None and int(pid.value) != int(owner_pid):
+                return True
+            title_len = user32.GetWindowTextLengthW(child)
+            title_buf = ctypes.create_unicode_buffer(title_len + 2)
+            user32.GetWindowTextW(child, title_buf, title_len + 2)
+            cls_buf = ctypes.create_unicode_buffer(256)
+            user32.GetClassNameW(child, cls_buf, 256)
+            geom, source = _window_rect_geometry(child)
+            children.append({
+                "id": str(child),
+                "title": title_buf.value or "",
+                "class": cls_buf.value or "",
+                "pid": int(pid.value),
+                "geometry": geom,
+                "visible": visible,
+                "minimized": bool(user32.IsIconic(child)),
+                "geometry_source": source,
+            })
+        except Exception:
+            pass
+        return True
+
+    cb = _api.EnumWindowsProc(_proc)
+    user32.EnumChildWindows(wt.HWND(hwnd), cb, 0)
+    return children
+
+
+def _best_window_geometry(hwnd: int, owner_pid: int | None = None) -> tuple[dict[str, int], dict[str, Any] | None, str]:
+    """Return visual geometry, using child windows when owner geometry is bogus."""
+    geom, source = _window_rect_geometry(hwnd)
+    if _geometry_area(geom) > 0:
+        return geom, None, source
+    child = _select_best_visual_child(_child_window_candidates(hwnd, owner_pid=owner_pid))
+    if child:
+        return child["geometry"], child, f"child_window:{child.get('geometry_source', 'unknown')}"
+    return geom, None, source
 
 
 # ---------------------------------------------------------------------------
@@ -225,10 +277,10 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
             cls = cls_buf.value or ""
             if visible_only and not title and cls in {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}:
                 return True
-            geometry = _best_window_geometry(hwnd)
             pid = wt.DWORD(0)
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
-            results.append({
+            geometry, visual_child, geometry_source = _best_window_geometry(hwnd, owner_pid=int(pid.value))
+            item = {
                 "id": str(hwnd),
                 "title": title,
                 "class": cls,
@@ -237,7 +289,14 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
                 "visible": visible,
                 "minimized": bool(user32.IsIconic(hwnd)),
                 "active": hwnd == fg,
-            })
+                "geometry_source": geometry_source,
+            }
+            if visual_child:
+                item["visual_child"] = visual_child
+                item["visual_id"] = visual_child.get("id")
+                item["visual_class"] = visual_child.get("class")
+                item["visual_title"] = visual_child.get("title")
+            results.append(item)
         except Exception:
             pass
         return True

@@ -128,6 +128,21 @@ def test_vk_map_is_lowercase_and_covers_common_keys():
         assert k == k.lower(), f"non-lowercase key {k!r}"
 
 
+def test_select_best_visual_child_prefers_largest_visible_positive_geometry():
+    candidates = [
+        {"id": "zero", "visible": True, "geometry": {"x": 0, "y": 0, "width": 1000, "height": 0}},
+        {"id": "hidden", "visible": False, "geometry": {"x": 0, "y": 0, "width": 2000, "height": 1000}},
+        {"id": "small", "visible": True, "geometry": {"x": 10, "y": 10, "width": 100, "height": 100}},
+        {"id": "large", "visible": True, "title": "Main", "geometry": {"x": 20, "y": 20, "width": 1000, "height": 700}},
+    ]
+    assert win_backend._select_best_visual_child(candidates)["id"] == "large"
+
+
+def test_geometry_area_rejects_zero_height():
+    assert win_backend._geometry_area({"x": 20, "y": 20, "width": 985, "height": 0}) == 0
+    assert win_backend._geometry_area({"x": 20, "y": 20, "width": 985, "height": 700}) == 689500
+
+
 # ---------------------------------------------------------------------------
 # Windows-only live tests
 # ---------------------------------------------------------------------------

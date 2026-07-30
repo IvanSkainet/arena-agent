@@ -1,3 +1,11 @@
+## v4.142.0 - Windows App Window Deep Resolve
+
+### Added
+- Windows desktop window enumeration now falls back to visible child-window discovery when a top-level app/owner HWND has unusable geometry. Returned windows can include `visual_child`, `visual_id`, `visual_class`, `visual_title`, and `geometry_source` so agents can see whether coordinates came from the owner window, DWM bounds, or a child visual rectangle.
+
+### Fixed
+- Custom-toolkit apps such as Cheat Engine can expose a titled top-level owner window with zero-height geometry. `desktop_app.*` now has a backend path to recover the real visible child rectangle instead of failing on the owner HWND alone.
+
 ## v4.141.2 - Windows visual window bounds for desktop apps
 
 ### Fixed

@@ -1,3 +1,11 @@
+## v4.142.0 - Windows App Window Deep Resolve
+
+### Добавлено
+- Windows-перечисление desktop-окон теперь при плохой геометрии top-level app/owner HWND переходит к поиску видимых child-окон. В ответе могут появляться `visual_child`, `visual_id`, `visual_class`, `visual_title` и `geometry_source`, чтобы агент видел, откуда взяты координаты: owner window, DWM bounds или child visual rectangle.
+
+### Исправлено
+- Custom-toolkit приложения вроде Cheat Engine могут иметь titled top-level owner window с нулевой высотой. У `desktop_app.*` теперь есть backend-путь для восстановления реального видимого child rectangle вместо отказа только из-за owner HWND.
+
 ## v4.141.2 - Windows visual window bounds for desktop apps
 
 ### Исправлено
