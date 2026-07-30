@@ -593,6 +593,8 @@
       "scenario.history",
       "scenario.list",
       "scenario.preview",
+      "scenario.promote_from_history",
+      "scenario.promote_from_run",
       "scenario.run",
       "scenario.save"
     ]
@@ -620,6 +622,8 @@
       "scenario.history",
       "scenario.list",
       "scenario.preview",
+      "scenario.promote_from_history",
+      "scenario.promote_from_run",
       "scenario.run",
       "scenario.save"
     ]

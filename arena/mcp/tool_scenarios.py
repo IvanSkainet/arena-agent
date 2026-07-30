@@ -26,7 +26,7 @@ from arena.scenarios import (
     ScenarioNotFound,
     build_scenarios_runtime,
 )
-
+from arena.scenarios import promotion as _promotion
 
 _MAX_RECURSION_DEPTH = 4
 _recursion_depth = threading.local()
@@ -85,7 +85,8 @@ def handle_scenario_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, A
 
     call_tool = getattr(ctx, "call_tool", None)
     if not callable(call_tool):
-        call_tool = lambda _t, _a: {"ok": False, "error": "no call_tool on ctx"}
+        def call_tool(_t, _a):
+            return {"ok": False, "error": "no call_tool on ctx"}
 
     runtime = _build_runtime(call_tool)
     storage: ScenarioMissionStore = runtime.storage
@@ -135,6 +136,37 @@ def handle_scenario_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, A
                 "name": scenario_name,
                 "runs": storage.load_history(scenario_name),
             })
+
+        if name == "scenario.promote_from_run":
+            scenario_name = str(args.get("name", "") or "").strip()
+            run = args.get("run")
+            if not scenario_name:
+                return _text_err("`name` is required", status=400)
+            if not isinstance(run, dict):
+                return _text_err("`run` object is required", status=400)
+            out = _promotion.promote_from_run(
+                run, name=scenario_name, overwrite=bool(args.get("overwrite", True)),
+                title=str(args.get("title") or "") or None,
+                description=str(args.get("description") or "") or None,
+                storage=storage,
+            )
+            return _text_ok(out)
+
+        if name == "scenario.promote_from_history":
+            source = str(args.get("source") or args.get("scenario") or "").strip()
+            scenario_name = str(args.get("name", "") or "").strip()
+            if not source:
+                return _text_err("`source` (or `scenario`) is required", status=400)
+            if not scenario_name:
+                return _text_err("`name` is required", status=400)
+            out = _promotion.promote_from_history(
+                source, name=scenario_name, index=int(args.get("index", -1)),
+                overwrite=bool(args.get("overwrite", True)),
+                title=str(args.get("title") or "") or None,
+                description=str(args.get("description") or "") or None,
+                storage=storage,
+            )
+            return _text_ok(out)
 
         if name == "scenario.preview":
             scenario_name = str(args.get("name", "") or "").strip()

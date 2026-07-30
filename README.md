@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.133.x)
+## Current flight status (v4.134.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -630,7 +630,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `react` | `react.run` — Run a bounded reason-act-observe loop using safe observation |
 | `reflect` | `reflect.run` — Reflect on a prior react/planning run and produce concerns,  |
 | `runtime` | `runtime.probe` / `runtime.compat` — Probe runtimes and show runtime × sandbox compatibility with known blockers and next actions |
-| `scenario` | `scenario.run` — Execute a scenario's steps in order, interpolating {{ steps. |
+| `scenario` | `scenario.run` / `scenario.promote_from_history` — Execute scenarios or promote successful runs/history into reusable scenarios |
 | `secrets` | `secrets.list` — List available secret keys (values never returned). |
 | `skill` | `skill.list` — List available agent skills |
 | `subagent` | `subagent.spawn` — Spawn isolated subagent for delegated work; returns summary |

@@ -1,3 +1,9 @@
+## v4.134.0 - Scenario Promotion
+
+### Added
+- `scenario.promote_from_run` promotes a scenario run object into a reusable saved scenario by preserving recorded tool steps and arguments.
+- `scenario.promote_from_history` promotes a prior run from a saved scenario's run history into a new reusable scenario.
+
 ## v4.133.0 - MCP Server Foundry
 
 ### Added

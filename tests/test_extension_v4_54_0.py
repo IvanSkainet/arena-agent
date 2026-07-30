@@ -40,6 +40,7 @@ def test_scenario_tools_registered():
     assert names == {
         "scenario.list", "scenario.get", "scenario.save", "scenario.delete",
         "scenario.preview", "scenario.run", "scenario.history",
+        "scenario.promote_from_run", "scenario.promote_from_history",
     }
 
 

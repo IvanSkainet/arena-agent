@@ -6,7 +6,6 @@ scenario orchestration backbone.
 """
 from __future__ import annotations
 
-
 SCENARIO_MCP_TOOLS = [
     {
         "name": "scenario.list",
@@ -80,6 +79,17 @@ SCENARIO_MCP_TOOLS = [
                 "dry_run": {"type": "boolean", "default": False},
             },
             "required": ["name"], "additionalProperties": False},
+    },
+
+    {
+        "name": "scenario.promote_from_run",
+        "description": "Promote a scenario run object into a reusable saved scenario using its recorded tool steps and arguments.",
+        "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}, "run": {"type": "object"}, "title": {"type": "string"}, "description": {"type": "string"}, "overwrite": {"type": "boolean", "default": True}}, "required": ["name", "run"], "additionalProperties": False},
+    },
+    {
+        "name": "scenario.promote_from_history",
+        "description": "Promote a previous run from a saved scenario's history into a new reusable scenario.",
+        "inputSchema": {"type": "object", "properties": {"source": {"type": "string"}, "scenario": {"type": "string"}, "name": {"type": "string"}, "index": {"type": "integer", "default": -1}, "title": {"type": "string"}, "description": {"type": "string"}, "overwrite": {"type": "boolean", "default": True}}, "required": ["name"], "additionalProperties": False},
     },
     {
         "name": "scenario.history",

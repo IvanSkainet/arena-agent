@@ -163,7 +163,7 @@ Agent writes a full MCP server, bridge tests tools/list and tools/call, then ins
 
 ## Phase 8 — Scenario Promotion
 
-### v4.134.0 — Scenario Promotion
+### v4.134.0 — Scenario Promotion ✅ completed
 
 Add:
 
@@ -191,4 +191,4 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.133.0 MCP Server Foundry are complete. Continue with Phase 8 — Scenario Promotion; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.134.0 Scenario Promotion are complete. Continue with Phase 9 — Real machine coverage; keep using the maps before adding power.

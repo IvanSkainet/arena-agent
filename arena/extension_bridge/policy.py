@@ -46,7 +46,7 @@ _MEDIUM_TOOLS = {
     # extension policy layer resolves scenario.run separately;
     # the fallback here is `unknown` which the sidepanel UI
     # already surfaces as "requires approval".
-    "scenario.save", "scenario.delete",
+    "scenario.save", "scenario.delete", "scenario.promote_from_run", "scenario.promote_from_history",
     # v4.56.0: mobile.* input/camera actions (state-changing but locally reversible).
     "mobile.tap", "mobile.swipe", "mobile.type", "mobile.key", "mobile.key_combo", "mobile.scroll", "mobile.gesture", "mobile.tap_by", "mobile.paste", "mobile.camera_launch", "mobile.camera_shutter", "mobile.camera_capture", "mobile.camera_pull", "mobile.camera_record_start", "mobile.camera_record_stop", "mobile.record_start", "mobile.record_stop", "mobile.record_pull", "mobile.voice_record",
     # v4.57.0: typed HTTP client + secret metadata reads.
