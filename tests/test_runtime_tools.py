@@ -93,6 +93,6 @@ def test_runtime_probe_resolves_managed_deno(monkeypatch, tmp_path):
 
 
 def test_runtime_install_supports_deno(monkeypatch):
-    monkeypatch.setattr(runtimes, "install_deno", lambda version=None: {"ok": True, "runtime": "deno", "version": version or "latest"})
+    monkeypatch.setattr(runtimes, "install_deno", lambda version=None, sha256=None: {"ok": True, "runtime": "deno", "version": version or "latest", "sha256": sha256})
     out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "deno"}, ctx=object()))
-    assert out == {"ok": True, "runtime": "deno", "version": "latest"}
+    assert out == {"ok": True, "runtime": "deno", "version": "latest", "sha256": None}

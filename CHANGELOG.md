@@ -1,3 +1,8 @@
+## v4.129.1 - Deno install direct SHA fallback
+
+### Fixed
+- `runtime.install runtime=deno` can now accept `version` + `sha256` and construct the official GitHub release asset URL directly when the GitHub Releases API is rate-limited, while still verifying the downloaded ZIP against the supplied SHA-256 before extraction.
+
 ## v4.129.0 - Managed Deno Runtime
 
 ### Added

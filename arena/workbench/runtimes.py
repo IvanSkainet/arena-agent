@@ -212,11 +212,21 @@ def _go_asset(version: str | None = None) -> dict[str, Any]:
     raise RuntimeError(f"no Go archive found for version={version!r} os={os_name} arch={arch}")
 
 
-def _deno_asset(version: str | None = None) -> dict[str, Any]:
+def _deno_asset(version: str | None = None, sha256: str | None = None) -> dict[str, Any]:
     url = _DENO_LATEST if not version else f"https://api.github.com/repos/denoland/deno/releases/tags/{version if version.startswith('v') else 'v' + version}"
     req = urllib.request.Request(url, headers={"User-Agent": "ArenaBridge/runtime.install"})
-    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; asset digest verified before extraction  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to denoland/deno release API and downloaded asset is SHA-256 verified
-        rel = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; asset digest verified before extraction  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to denoland/deno release API and downloaded asset is SHA-256 verified
+            rel = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        if not (version and sha256):
+            raise
+        tag = version.lstrip("v")
+        sysname = platform.system().lower()
+        mach = platform.machine().lower()
+        arch = "x86_64" if mach in {"amd64", "x86_64"} else ("aarch64" if mach in {"arm64", "aarch64"} else mach)
+        target = {"windows": f"deno-{arch}-pc-windows-msvc.zip", "linux": f"deno-{arch}-unknown-linux-gnu.zip", "darwin": f"deno-{arch}-apple-darwin.zip"}.get(sysname)
+        return {"version": f"v{tag}", "filename": target, "url": f"https://github.com/denoland/deno/releases/download/v{tag}/{target}", "digest": f"sha256:{sha256}"}
     tag = str(rel.get("tag_name") or "").lstrip("v")
     sysname = platform.system().lower()
     mach = platform.machine().lower()
@@ -233,8 +243,8 @@ def _deno_asset(version: str | None = None) -> dict[str, Any]:
     raise RuntimeError(f"no Deno archive found for version={version!r} target={target}")
 
 
-def install_deno(version: str | None = None) -> dict[str, Any]:
-    asset = _deno_asset(version)
+def install_deno(version: str | None = None, sha256: str | None = None) -> dict[str, Any]:
+    asset = _deno_asset(version, sha256=sha256)
     ver = asset["version"]
     root = tools_dir()
     target = root / f"deno-{ver.lstrip('v')}"
@@ -371,11 +381,11 @@ def install_go(version: str | None = None) -> dict[str, Any]:
     return {"ok": True, "runtime": "go", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["version"])}
 
 
-def install(runtime: str, version: str | None = None) -> dict[str, Any]:
+def install(runtime: str, version: str | None = None, sha256: str | None = None) -> dict[str, Any]:
     if runtime == "go":
         return install_go(version)
     if runtime == "deno":
-        return install_deno(version)
+        return install_deno(version, sha256=sha256)
     if runtime in {"wasm", "wasmtime"}:
         return install_wasmtime(version)
     return {"ok": False, "error": f"runtime.install currently supports: go, deno, wasmtime (got {runtime!r})"}
