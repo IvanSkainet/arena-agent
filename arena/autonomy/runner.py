@@ -129,7 +129,7 @@ def _runtime_invocation(lang: str, command: str, code_path: Path, runtime_args: 
     if lang == "go":
         return [command, "run", str(code_path), *args]
     if lang == "deno":
-        return [command, "run", "--no-prompt", f"--allow-read={code_path.parent}", f"--allow-write={code_path.parent}", "--deny-net", str(code_path), *args]
+        return [command, "run", "--no-prompt", "--allow-read", "--allow-write", "--deny-net", str(code_path), *args]
     if lang in {"wasm", "wasmtime"}:
         return [command, "-C", "cache=n", "--dir", str(code_path.parent), str(code_path), *args]
     return [command, str(code_path), *args]

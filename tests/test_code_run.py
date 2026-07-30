@@ -537,8 +537,8 @@ def test_build_deno_uses_permission_limited_invocation(tmp_path, monkeypatch):
     argv, info = R.build_command("linux", _off(), "deno", script, tmp_path, runtime_args=["a"])
     assert info["sandbox_action"] == "off"
     assert argv[0] == "deno"
-    assert argv[1:4] == ["run", "--no-prompt", f"--allow-read={tmp_path}"]
-    assert f"--allow-write={tmp_path}" in argv
+    assert argv[1:4] == ["run", "--no-prompt", "--allow-read"]
+    assert "--allow-write" in argv
     assert "--deny-net" in argv
     assert argv[-2:] == [str(script), "a"]
 

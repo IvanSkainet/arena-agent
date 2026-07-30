@@ -1,3 +1,9 @@
+## v4.130.0 - Deno AppContainer file-write hardening
+
+### Changed
+- `lang=deno` now uses unscoped Deno read/write permissions (`--allow-read --allow-write`) while still forcing `--deny-net` and running inside AppContainer. Deno permissions are no longer used as the filesystem boundary; AppContainer remains the OS fence with scratch-only grants.
+- Runtime compatibility now describes Deno/AppContainer as scratch-capable under the AppContainer fence rather than stdout-only.
+
 ## v4.129.2 - Deno AppContainer compatibility note
 
 ### Changed
