@@ -191,4 +191,10 @@ Install/test bridge on CachyOS:
 
 ## Immediate next action
 
-v4.118.0 Workbench Status through v4.136.0 CachyOS/Linux Flight Check are complete. Continue beyond the original roadmap with the next highest-leverage real-machine hardening slice; keep using the maps before adding power.
+v4.118.0 Workbench Status through v4.137.0 Real Machine Smoke Matrix are complete. Continue with post-update smoke automation or the next highest-leverage real-machine hardening slice; keep using the maps before adding power.
+
+## Beyond original roadmap — Flight Records
+
+### v4.137.0 — Real Machine Smoke Matrix ✅ completed
+
+Add `ship.smoke` and `ship.smoke_history` so the bridge can prove the real machine still works after updates and before missions.

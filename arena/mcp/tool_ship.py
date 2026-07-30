@@ -9,8 +9,9 @@ from arena.mcp.tool_utils import text_content
 
 _ship_status = importlib.import_module("arena.ship.status")
 _linux_flight = importlib.import_module("arena.ship.linux_flight")
+_smoke = importlib.import_module("arena.ship.smoke")
 
-SHIP_TOOL_NAMES = ("ship.status", "ship.preflight", "ship.linux_flight_check")
+SHIP_TOOL_NAMES = ("ship.status", "ship.preflight", "ship.linux_flight_check", "ship.smoke", "ship.smoke_history")
 
 
 def _res(payload: dict[str, Any]) -> dict[str, Any]:
@@ -24,6 +25,10 @@ def handle_ship_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[str, 
         return _res(_ship_status.preflight())
     if name == "ship.linux_flight_check":
         return _res(_linux_flight.status())
+    if name == "ship.smoke":
+        return _res(_smoke.run())
+    if name == "ship.smoke_history":
+        return _res(_smoke.history(int(args.get("limit", 20))))
     return None
 
 
@@ -31,4 +36,6 @@ SHIP_TOOLS = [
     {"name": "ship.status", "description": "Whole-ship map: bridge, posture, transports, MCP/desktop, browser/CDP/BrowserAct, mobile/ADB, Workbench, known issues, next actions.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "ship.preflight", "description": "Read-only preflight summary before real scenarios/releases: fail/warn checks plus suggested repairs.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "ship.linux_flight_check", "description": "Read-only Linux/CachyOS flight check: systemd user service, systemd-run, KDE/Wayland hints, Tailscale/Funnel, ADB/mobile, browser, runtimes and next actions.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "ship.smoke", "description": "Run a bounded real-machine smoke matrix: bridge/posture, fixed fenced code proof, artifact readback, runtime compatibility, mobile preflight, MCP registry and ship maps. Saves a flight record.", "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
+    {"name": "ship.smoke_history", "description": "List recent ship.smoke flight records.", "inputSchema": {"type": "object", "properties": {"limit": {"type": "integer", "default": 20}}, "additionalProperties": False}},
 ]

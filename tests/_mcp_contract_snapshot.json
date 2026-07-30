@@ -639,6 +639,8 @@
     "tool_names": [
       "ship.linux_flight_check",
       "ship.preflight",
+      "ship.smoke",
+      "ship.smoke_history",
       "ship.status"
     ]
   },

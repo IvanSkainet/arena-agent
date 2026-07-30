@@ -1,3 +1,9 @@
+## v4.137.0 - Real Machine Smoke Matrix
+
+### Added
+- `ship.smoke` runs a bounded real-machine smoke matrix: bridge/posture, fixed fenced `code.run` proof, artifact readback, runtime compatibility, mobile preflight, MCP registry, ship status/preflight, and Linux flight check when applicable.
+- `ship.smoke_history` lists saved flight records from `ARENA_AGENT_HOME/flight-records`.
+
 ## v4.136.0 - CachyOS/Linux Flight Check
 
 ### Added
