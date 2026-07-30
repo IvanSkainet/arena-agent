@@ -187,7 +187,7 @@ server. Recent live scenarios proved the bridge can grow new hands at runtime:
 - **Code Session lifecycle is hardened.** Sessions now expose pid/returncode/max-session status, enforce a configurable live-session cap, and can be swept by idle/age threshold with terminate-then-kill diagnostics.
 - **AppContainer Sessions prototype exists.** With `sandbox=appcontainer`, Python code sessions can start in a replay-backed fenced mode: each exec goes through AppContainer `code.run`, preserving globals by transcript replay while keeping session files/artifacts available.
 - **Project dependency locking is available.** `code_project.deps_install` writes `.arena-lock.json`; `code_project.lock_verify` checks current caches; `code_project.run(lock="strict")` refuses mismatched dependencies, and Foundry tools can carry lock provenance.
-- **Managed Deno runtime is available.** `runtime.install runtime=deno` installs official Deno with SHA-256 verification, and `lang=deno` runs TypeScript/JavaScript with scratch read/write and denied network by default.
+- **Managed Deno runtime is available.** `runtime.install runtime=deno` installs official Deno with SHA-256 verification, and `lang=deno` runs TypeScript/JavaScript with denied network and scratch-local runtime state; stdout execution is live-proven, while Deno AppContainer file-write behavior remains a known hardening item.
 - **External MCP servers** can be installed and called through `mcp.add`,
   `mcp.ext_tools`, and `mcp.ext_call`. Live-proven servers include
   Desktop-Commander, ScreenPilot, and the official

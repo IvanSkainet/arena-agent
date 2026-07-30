@@ -1,3 +1,8 @@
+## v4.129.2 - Deno AppContainer compatibility note
+
+### Changed
+- Runtime compatibility and README now describe the honest Deno/AppContainer status from live proof: Deno stdout execution works in the low AppContainer posture, but Deno filesystem writes can still hit a runtime/lowbox `os error 5` edge case and need a later hardening slice.
+
 ## v4.129.1 - Deno install direct SHA fallback
 
 ### Fixed
