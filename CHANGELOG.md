@@ -1,3 +1,8 @@
+## v4.132.1 - Lua Windows DLL layout fix
+
+### Fixed
+- Managed Lua on Windows now preserves the versioned DLL filename (`lua54.dll`) next to the normalized `lua.exe`; live v4.132.0 installed the interpreter but renamed the DLL to `lua.dll`, causing the version probe to fail.
+
 ## v4.132.0 - Managed Lua Runtime
 
 ### Added

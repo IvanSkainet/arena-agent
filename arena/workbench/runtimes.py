@@ -365,12 +365,15 @@ def install_lua(version: str | None = None) -> dict[str, Any]:
     target = root / f"lua-{ver}"
     exe_name = "lua.exe" if platform.system().lower() == "windows" else "lua"
     exe = target / exe_name
-    if exe.exists():
+    digits = _lua_version_digits(version)
+    dll = target / f"lua{digits}.dll"
+    if exe.exists() and (platform.system().lower() != "windows" or dll.exists()):
         return {"ok": True, "runtime": "lua", "version": ver, "path": str(exe), "already_installed": True, "probe": _run_version(str(exe), ["-v"])}
     target.mkdir(parents=True, exist_ok=True)
     installed = []
     for asset in meta["assets"]:
-        dest = target / ("lua.exe" if str(asset["name"]).endswith(".exe") else "lua.dll" if str(asset["name"]).endswith(".dll") else "lua")
+        aname = str(asset["name"])
+        dest = target / ("lua.exe" if aname.endswith(".exe") else aname if aname.endswith(".dll") else "lua")
         tmp = tools_dir() / str(asset["name"])
         if not tmp.exists():
             _download(str(asset["url"]), tmp)
