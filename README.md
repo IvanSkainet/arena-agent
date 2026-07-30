@@ -607,6 +607,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `asr` | `asr.transcribe` — Transcribe an audio file locally with whisper.cpp. Auto-conv |
 | `browser` | `browser.search` — DuckDuckGo search via pure-Python (no chromium) |
 | `desktop` | `desktop.ocr` — Run OCR on a fresh desktop screenshot and return recognized  |
+| `desktop_app` | `desktop_app.click_window_relative` / `desktop_app.screenshot_window` — Resolve a real window, then click or screenshot relative to that window for less brittle GUI scenarios |
 | `document` | `document.structure` — Structure OCR/ASR/text into tasks or physics homework JSON |
 | `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
 | `code` | `code.run` — Execute agent-authored code under the operator's execution posture (composable fence); fail-closed, agent can't set the posture |

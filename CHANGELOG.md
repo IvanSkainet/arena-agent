@@ -1,3 +1,12 @@
+## v4.141.0 - Desktop App Relative Control
+
+### Added
+- Added `desktop_app.find`, `desktop_app.focus`, `desktop_app.click_window_relative`, `desktop_app.screenshot_window`, `desktop_app.type_window`, and `desktop_app.key_window` MCP tools. They resolve a real desktop window first, then perform focus/input/screenshot operations relative to that window so scenarios are less brittle than whole-screen absolute coordinates.
+- `GET /v1/desktop/screenshot` now accepts explicit `region_x`, `region_y`, `region_width`, and `region_height` crop parameters, enabling window-cropped screenshots used by `desktop_app.screenshot_window`.
+
+### Notes
+- This release is aimed at real multi-app scenarios such as the live TABS + Cheat Engine attach proof: click the process-select button relative to the Cheat Engine window, not relative to whatever the global desktop happened to look like.
+
 ## v4.140.0 - Flight Visibility Integration
 
 ### Added

@@ -3,52 +3,53 @@ from __future__ import annotations
 
 import json
 import types as _types
-from pathlib import Path
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from arena.mcp.tool_registry import MCP_TOOLS
-from arena.mcp.tool_utils import make_run_local, make_run_sd, text_content
+from arena.control import _agent_halt_block_for_tool
+from arena.mcp.custom_tools import handle_custom_tool
+from arena.mcp.custom_tools import tool_defs as custom_tool_defs
+from arena.mcp.tool_agentic import handle_agentic_tool
+from arena.mcp.tool_asr import handle_asr_tool
 from arena.mcp.tool_browser import handle_browser_tool
+from arena.mcp.tool_browser_headed import handle_browser_headed_tool
+from arena.mcp.tool_code import handle_code_tool
+from arena.mcp.tool_code_artifact import handle_code_artifact_tool
+from arena.mcp.tool_code_matrix import handle_code_matrix_tool
+from arena.mcp.tool_code_project import handle_code_project_tool
+from arena.mcp.tool_code_session import handle_code_session_tool
+from arena.mcp.tool_desktop import handle_desktop_tool
+from arena.mcp.tool_desktop_app import handle_desktop_app_tool
+from arena.mcp.tool_desktop_input import handle_desktop_input_tool
+from arena.mcp.tool_document import handle_document_tool
 from arena.mcp.tool_exec import handle_exec_tool
+from arena.mcp.tool_foundry import handle_foundry_tool
 from arena.mcp.tool_fs import handle_fs_tool
 from arena.mcp.tool_fs_search import handle_fs_search_tool
 from arena.mcp.tool_fs_tree_diff import handle_fs_tree_diff_tool
-from arena.mcp.tool_memory_export_import import handle_memory_export_import_tool
 from arena.mcp.tool_git import handle_git_tool
-from arena.mcp.tool_memory import handle_memory_tool
-from arena.mcp.tool_misc import handle_misc_tool
-from arena.mcp.tool_watch import handle_watch_tool
-from arena.mcp.tool_agentic import handle_agentic_tool
-from arena.mcp.tool_browser_headed import handle_browser_headed_tool
-from arena.mcp.tool_desktop import handle_desktop_tool
-from arena.mcp.tool_desktop_input import handle_desktop_input_tool
-from arena.mcp.tool_mobile_ext import handle_mobile_ext_tool
-from arena.mcp.tool_mobile import handle_mobile_tool
-from arena.mcp.tool_asr import handle_asr_tool
-from arena.mcp.tool_ocr import handle_ocr_tool
-from arena.mcp.tool_document import handle_document_tool
 from arena.mcp.tool_image import handle_image_tool
 from arena.mcp.tool_mcp_ext import handle_mcp_ext_tool
-from arena.mcp.tool_net import handle_net_tool
-from arena.mcp.tool_mission import handle_mission_tool
-from arena.mcp.tool_scenarios import handle_scenario_tool
-from arena.mcp.tool_plan import handle_plan_tool
-from arena.mcp.custom_tools import handle_custom_tool, tool_defs as custom_tool_defs
-from arena.mcp.tool_code import handle_code_tool
-from arena.mcp.tool_runtime import handle_runtime_tool
-from arena.mcp.tool_code_project import handle_code_project_tool
-from arena.mcp.tool_code_artifact import handle_code_artifact_tool
-from arena.mcp.tool_code_matrix import handle_code_matrix_tool
-from arena.mcp.tool_code_session import handle_code_session_tool
-from arena.mcp.tool_workbench import handle_workbench_tool
 from arena.mcp.tool_mcp_server_foundry import handle_mcp_server_foundry_tool
-from arena.mcp.tool_ship import handle_ship_tool
+from arena.mcp.tool_memory import handle_memory_tool
+from arena.mcp.tool_memory_export_import import handle_memory_export_import_tool
+from arena.mcp.tool_misc import handle_misc_tool
+from arena.mcp.tool_mission import handle_mission_tool
+from arena.mcp.tool_mobile import handle_mobile_tool
+from arena.mcp.tool_mobile_ext import handle_mobile_ext_tool
+from arena.mcp.tool_net import handle_net_tool
+from arena.mcp.tool_ocr import handle_ocr_tool
+from arena.mcp.tool_plan import handle_plan_tool
+from arena.mcp.tool_registry import MCP_TOOLS
+from arena.mcp.tool_runtime import handle_runtime_tool
+from arena.mcp.tool_scenarios import handle_scenario_tool
 from arena.mcp.tool_service import handle_service_tool
-from arena.mcp.tool_foundry import handle_foundry_tool
-from arena.control import _agent_halt_block_for_tool
-
+from arena.mcp.tool_ship import handle_ship_tool
+from arena.mcp.tool_utils import make_run_local, make_run_sd, text_content
+from arena.mcp.tool_watch import handle_watch_tool
+from arena.mcp.tool_workbench import handle_workbench_tool
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 lambda: handle_watch_tool(name, args, ctx=ctx),
                 lambda: handle_agentic_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_input_tool(name, args, ctx=ctx),
+                lambda: handle_desktop_app_tool(name, args, ctx=ctx),
                 lambda: handle_desktop_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_ext_tool(name, args, ctx=ctx),
                 lambda: handle_mobile_tool(name, args, ctx=ctx),

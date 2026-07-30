@@ -8,7 +8,7 @@ from aiohttp import web
 
 from arena.desktop.displays import get_displays, match_display
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
@@ -31,6 +31,11 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
 
         display_name = qs.get("display", [""])[0].strip()
         crop_region = None
+        region_keys = {"region_x", "region_y", "region_width", "region_height"}
+        region_requested = any((qs.get(key, [None])[0] not in (None, "")) for key in region_keys)
+        if display_name and region_requested:
+            ctx.record_request(is_error=True, count_request=False)
+            return ctx.cors_json_response({"ok": False, "error": "use either 'display' or explicit region_* crop parameters, not both"}, status=400)
         if display_name:
             displays = await get_displays(desktop_exec=ctx.desktop_exec)
             display = match_display(displays.get("displays", []), display_name)
@@ -38,6 +43,16 @@ def make_desktop_screenshot_handler(ctx: DesktopHandlerContext):
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": f"unknown display: {display_name}", "available_displays": displays.get("displays", [])}, status=404)
             crop_region = display.get("geometry")
+        elif region_requested:
+            crop_region = {
+                "x": _qs_int("region_x"),
+                "y": _qs_int("region_y"),
+                "width": _qs_int("region_width"),
+                "height": _qs_int("region_height"),
+            }
+            if None in crop_region.values() or int(crop_region.get("width") or 0) <= 0 or int(crop_region.get("height") or 0) <= 0:
+                ctx.record_request(is_error=True, count_request=False)
+                return ctx.cors_json_response({"ok": False, "error": "explicit screenshot crop requires integer region_x, region_y, region_width > 0, and region_height > 0"}, status=400)
         shot = await ctx.capture_screenshot(
             fmt=fmt,
             scale=_qs_float("scale"),

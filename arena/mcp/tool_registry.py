@@ -1,29 +1,32 @@
 """MCP tool metadata registry."""
 from __future__ import annotations
-from arena.mcp.tool_registry_mission import MISSION_MCP_TOOLS
-from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
-from arena.mcp.tool_desktop_input import DESKTOP_INPUT_MCP_TOOLS
-from arena.mcp.tool_mobile_ext import MOBILE_EXT_MCP_TOOLS
+
+from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
 from arena.mcp.tool_browser_headed import BROWSER_HEADED_MCP_TOOLS
+from arena.mcp.tool_code import CODE_TOOLS
+from arena.mcp.tool_code_artifact import ARTIFACT_TOOLS
+from arena.mcp.tool_code_matrix import MATRIX_TOOLS
+from arena.mcp.tool_code_project import PROJECT_TOOLS
+from arena.mcp.tool_code_session import SESSION_TOOLS
+from arena.mcp.tool_desktop_app import DESKTOP_APP_MCP_TOOLS
+from arena.mcp.tool_desktop_input import DESKTOP_INPUT_MCP_TOOLS
+from arena.mcp.tool_foundry import FOUNDRY_TOOLS
+from arena.mcp.tool_mcp_server_foundry import MCP_SERVER_FOUNDRY_TOOLS
+from arena.mcp.tool_mobile_ext import MOBILE_EXT_MCP_TOOLS
 from arena.mcp.tool_registry_asr import ASR_MCP_TOOLS
-from arena.mcp.tool_registry_ocr import OCR_MCP_TOOLS
 from arena.mcp.tool_registry_document import DOCUMENT_MCP_TOOLS
 from arena.mcp.tool_registry_image import IMAGE_MCP_TOOLS
 from arena.mcp.tool_registry_mcp_ext import MCP_EXT_MCP_TOOLS
+from arena.mcp.tool_registry_mission import MISSION_MCP_TOOLS
+from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
+from arena.mcp.tool_registry_ocr import OCR_MCP_TOOLS
 from arena.mcp.tool_registry_scenarios import SCENARIO_MCP_TOOLS
-from arena.mcp.tool_code import CODE_TOOLS
 from arena.mcp.tool_runtime import RUNTIME_TOOLS
-from arena.mcp.tool_code_project import PROJECT_TOOLS
-from arena.mcp.tool_code_artifact import ARTIFACT_TOOLS
-from arena.mcp.tool_code_matrix import MATRIX_TOOLS
-from arena.mcp.tool_code_session import SESSION_TOOLS
-from arena.mcp.tool_workbench import WORKBENCH_TOOLS
-from arena.mcp.tool_mcp_server_foundry import MCP_SERVER_FOUNDRY_TOOLS
-from arena.mcp.tool_ship import SHIP_TOOLS
 from arena.mcp.tool_service import SERVICE_TOOLS
-from arena.mcp.tool_foundry import FOUNDRY_TOOLS
-from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
+from arena.mcp.tool_ship import SHIP_TOOLS
+from arena.mcp.tool_workbench import WORKBENCH_TOOLS
+
 MCP_TOOLS = [
     # v4.75.0: bare names (ping / echo / exec) removed.
     # The v4.69.0 deprecation window has expired. Use
@@ -233,6 +236,7 @@ MCP_TOOLS.extend(DOCUMENT_MCP_TOOLS)
 MCP_TOOLS.extend(IMAGE_MCP_TOOLS)
 MCP_TOOLS.extend(MCP_EXT_MCP_TOOLS)
 MCP_TOOLS.extend(DESKTOP_INPUT_MCP_TOOLS)
+MCP_TOOLS.extend(DESKTOP_APP_MCP_TOOLS)
 MCP_TOOLS.extend(MOBILE_EXT_MCP_TOOLS)
 MCP_TOOLS.extend(BROWSER_HEADED_MCP_TOOLS)
 MCP_TOOLS.extend(CODE_TOOLS)

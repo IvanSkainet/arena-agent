@@ -126,6 +126,20 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_desktop_app.py",
+    "handlers": [
+      "handle_desktop_app_tool"
+    ],
+    "tool_names": [
+      "desktop_app.click_window_relative",
+      "desktop_app.find",
+      "desktop_app.focus",
+      "desktop_app.key_window",
+      "desktop_app.screenshot_window",
+      "desktop_app.type_window"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_desktop_input.py",
     "handlers": [
       "handle_desktop_input_tool"

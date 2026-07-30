@@ -1,3 +1,12 @@
+## v4.141.0 - Desktop App Relative Control
+
+### Добавлено
+- Добавлены MCP-тулы `desktop_app.find`, `desktop_app.focus`, `desktop_app.click_window_relative`, `desktop_app.screenshot_window`, `desktop_app.type_window` и `desktop_app.key_window`. Они сначала находят реальное окно приложения, а потом выполняют фокус/input/screenshot относительно этого окна, чтобы сценарии меньше зависели от абсолютных координат всего экрана.
+- `GET /v1/desktop/screenshot` теперь принимает crop-параметры `region_x`, `region_y`, `region_width`, `region_height`; это даёт оконные скриншоты для `desktop_app.screenshot_window`.
+
+### Заметки
+- Релиз сделан под реальные multi-app сценарии вроде TABS + Cheat Engine: нажимать кнопку выбора процесса относительно окна Cheat Engine, а не относительно случайной текущей раскладки всего рабочего стола.
+
 ## v4.103.1 - Фикс: карточка кубиков постурy рендерилась пустой / некликабельной
 
 ### Исправлено
