@@ -30,6 +30,7 @@ if _IS_WINDOWS:
     user32 = ctypes.windll.user32
     gdi32 = ctypes.windll.gdi32
     kernel32 = ctypes.windll.kernel32
+    dwmapi = ctypes.windll.dwmapi
 
     user32.GetForegroundWindow.restype = wt.HWND
     user32.SetForegroundWindow.argtypes = [wt.HWND]
@@ -52,6 +53,8 @@ if _IS_WINDOWS:
     user32.GetClassNameW.restype = ctypes.c_int
     user32.GetWindowRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
     user32.GetWindowRect.restype = wt.BOOL
+    dwmapi.DwmGetWindowAttribute.argtypes = [wt.HWND, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
+    dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
     user32.GetWindowThreadProcessId.argtypes = [wt.HWND, ctypes.POINTER(wt.DWORD)]
     user32.GetWindowThreadProcessId.restype = wt.DWORD
     user32.SetWindowPos.argtypes = [wt.HWND, wt.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, wt.UINT]
@@ -95,6 +98,7 @@ else:
     user32 = None  # type: ignore[assignment]
     gdi32 = None  # type: ignore[assignment]
     kernel32 = None  # type: ignore[assignment]
+    dwmapi = None  # type: ignore[assignment]
     EnumWindowsProc = None  # type: ignore[assignment]
 
 

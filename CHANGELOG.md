@@ -1,3 +1,8 @@
+## v4.141.2 - Windows visual window bounds for desktop apps
+
+### Fixed
+- Windows desktop window listing now prefers DWM extended frame bounds when available. Live Cheat Engine validation showed `GetWindowRect` can report a restored custom-toolkit owner window with zero height; DWM bounds are closer to the real visible rectangle needed by `desktop_app.*` tools.
+
 ## v4.141.1 - Desktop App Relative Control live-geometry fix
 
 ### Fixed

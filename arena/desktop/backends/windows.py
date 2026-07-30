@@ -54,6 +54,7 @@ _IS_WINDOWS = sys.platform == "win32"
 user32 = _api.user32
 gdi32 = _api.gdi32
 kernel32 = _api.kernel32
+dwmapi = _api.dwmapi
 VK_MAP = _api.VK_MAP
 
 SW_RESTORE = _api.SW_RESTORE
@@ -152,6 +153,42 @@ def capture_screenshot(
         user32.ReleaseDC(hwnd_desktop, hdc_screen)
 
 
+DWMWA_EXTENDED_FRAME_BOUNDS = 9
+
+
+def _rect_to_geometry(rect: wt.RECT) -> dict[str, int]:
+    return {
+        "x": int(rect.left),
+        "y": int(rect.top),
+        "width": int(rect.right - rect.left),
+        "height": int(rect.bottom - rect.top),
+    }
+
+
+def _best_window_geometry(hwnd: int) -> dict[str, int]:
+    """Return the most useful top-level window geometry.
+
+    ``GetWindowRect`` can be misleading for some Windows/custom-toolkit
+    windows after restore (live Cheat Engine validation showed a visible
+    owner window at x=20,y=20,width=985,height=0). DWM extended frame
+    bounds are the better visual rectangle when available, so prefer them
+    whenever they produce a positive area.
+    """
+    rect = wt.RECT()
+    user32.GetWindowRect(hwnd, ctypes.byref(rect))
+    geom = _rect_to_geometry(rect)
+    if dwmapi is not None:
+        try:
+            dwm_rect = wt.RECT()
+            hr = dwmapi.DwmGetWindowAttribute(wt.HWND(hwnd), DWMWA_EXTENDED_FRAME_BOUNDS, ctypes.byref(dwm_rect), ctypes.sizeof(dwm_rect))
+            dwm_geom = _rect_to_geometry(dwm_rect)
+            if hr == 0 and dwm_geom["width"] > 0 and dwm_geom["height"] > 0:
+                return dwm_geom
+        except Exception:
+            pass
+    return geom
+
+
 # ---------------------------------------------------------------------------
 # Window listing
 # ---------------------------------------------------------------------------
@@ -188,8 +225,7 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
             cls = cls_buf.value or ""
             if visible_only and not title and cls in {"Progman", "WorkerW", "Shell_TrayWnd", "IME"}:
                 return True
-            rect = wt.RECT()
-            user32.GetWindowRect(hwnd, ctypes.byref(rect))
+            geometry = _best_window_geometry(hwnd)
             pid = wt.DWORD(0)
             user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
             results.append({
@@ -197,12 +233,7 @@ def list_windows(*, visible_only: bool = True) -> list[dict[str, Any]]:
                 "title": title,
                 "class": cls,
                 "pid": int(pid.value),
-                "geometry": {
-                    "x": int(rect.left),
-                    "y": int(rect.top),
-                    "width": int(rect.right - rect.left),
-                    "height": int(rect.bottom - rect.top),
-                },
+                "geometry": geometry,
                 "visible": visible,
                 "minimized": bool(user32.IsIconic(hwnd)),
                 "active": hwnd == fg,
