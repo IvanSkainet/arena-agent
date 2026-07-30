@@ -58,9 +58,9 @@ def build(runtime_status: dict[str, Any] | None = None, *, platform_name: str | 
                                    suggested_posture={"sandbox": "off"},
                                    next_action="Use explicit host/off posture for Node until a broker/compat shim exists."))
             elif name == "deno":
-                rows.append(_entry(name, "appcontainer", "supported" if avail else "missing",
-                                   "Deno runs with denied net, scratch-local DENO_DIR, and Deno read/write permissions; AppContainer remains the OS fence." if avail else "Deno runtime is not visible; install with runtime.install runtime=deno.",
-                                   next_action="Use lang=deno for TypeScript/JavaScript scripts that fit Deno permissions; network remains denied by both Deno and AppContainer." if avail else "Install managed Deno with runtime.install."))
+                rows.append(_entry(name, "appcontainer", "degraded" if avail else "missing",
+                                   "Deno stdout execution is live-proven with denied net and scratch-local DENO_DIR; Deno filesystem writes still hit AppContainer/OS error 5 and remain a hardening item." if avail else "Deno runtime is not visible; install with runtime.install runtime=deno.",
+                                   next_action="Use lang=deno for stdout-oriented TypeScript/JavaScript scripts; prefer stdout artifacts until file-write semantics are hardened." if avail else "Install managed Deno with runtime.install."))
             elif name == "go":
                 rows.append(_entry(name, "appcontainer", "blocked",
                                    "Go toolchain opens Windows NUL during compilation; AppContainer denies the device.",

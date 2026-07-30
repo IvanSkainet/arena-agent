@@ -36,7 +36,7 @@ def test_runtime_compat_windows_matrix_known_limits():
     rows = {(r["runtime"], r["sandbox"]): r for r in out["matrix"]}
     assert rows[("python3", "appcontainer")]["status"] == "supported"
     assert rows[("node", "appcontainer")]["status"] == "blocked"
-    assert rows[("deno", "appcontainer")]["status"] == "supported"
+    assert rows[("deno", "appcontainer")]["status"] == "degraded"
     assert rows[("go", "appcontainer")]["status"] == "blocked"
     assert rows[("rustc", "appcontainer")]["status"] == "incomplete"
     assert rows[("wasm", "appcontainer")]["status"] == "supported"

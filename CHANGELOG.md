@@ -1,3 +1,8 @@
+## v4.130.1 - Correct Deno AppContainer write status
+
+### Changed
+- Corrected the Deno/AppContainer compatibility status after live proof: unscoped Deno `--allow-write` still hits Windows/AppContainer `os error 5` on file writes. Deno remains useful for stdout-oriented scripts under AppContainer, while file-write semantics stay a hardening item.
+
 ## v4.130.0 - Deno AppContainer file-write hardening
 
 ### Changed
