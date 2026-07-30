@@ -65,6 +65,11 @@ def make_update_handlers(ctx):
             payload["github_token_source"] = github_token_source()
         except Exception:
             payload["github_token_source"] = "unknown"
+        try:
+            from arena.ship import post_update_smoke as _post_smoke
+            payload["post_update_smoke"] = _post_smoke.status()
+        except Exception as e:
+            payload["post_update_smoke"] = {"ok": False, "error": str(e)}
         return ctx.cors_json_response(payload)
 
     @authed(ctx)
@@ -187,6 +192,17 @@ def make_update_handlers(ctx):
         # apply_update returned ok=False). Present event => bridge is
         # about to exit and the mover should take over.
         if isinstance(res, dict) and res.get("ok") and restart:
+            try:
+                from arena.ship import post_update_smoke as _post_smoke
+                res["post_update_smoke"] = _post_smoke.mark_pending({
+                    "tag": tag,
+                    "applied_version": res.get("applied_version"),
+                    "downloaded_sha256": res.get("downloaded_sha256"),
+                    "asset_name": asset_name,
+                    "reason": "admin.update.apply",
+                })
+            except Exception as e:
+                res["post_update_smoke"] = {"ok": False, "error": str(e)}
             ctx.audit({
                 "type": "admin.update.apply.restart_scheduled",
                 "tag": tag,

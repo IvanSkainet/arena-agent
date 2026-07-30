@@ -632,6 +632,16 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_service.py",
+    "handlers": [
+      "handle_service_tool"
+    ],
+    "tool_names": [
+      "service.autostart_repair",
+      "service.autostart_status"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_ship.py",
     "handlers": [
       "handle_ship_tool"

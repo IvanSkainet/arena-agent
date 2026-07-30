@@ -87,6 +87,19 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
                 ctx.log_debug("[Desktop] Could not start ydotoold (non-fatal): %s", e)
         ctx.log_info("[UnifiedBridge v%s] Background task runner + watchdog + log cleanup started", ctx.version)
 
+        async def _post_update_smoke_bg():
+            try:
+                from arena.ship import post_update_smoke as _post_smoke
+                outcome = await asyncio.get_running_loop().run_in_executor(ctx.executor, _post_smoke.run_if_pending)
+                if outcome.get("attempted"):
+                    if outcome.get("ok"):
+                        ctx.log_info("[PostUpdateSmoke] OK -- %s", (outcome.get("smoke") or {}).get("report_path", ""))
+                    else:
+                        (ctx.log_warning or ctx.log_info)("[PostUpdateSmoke] FAILED -- %s", outcome.get("error") or (outcome.get("smoke") or {}).get("mode"))
+            except Exception as e:
+                (ctx.log_warning or ctx.log_info)("[PostUpdateSmoke] hook error: %s", e)
+        asyncio.ensure_future(_post_update_smoke_bg())
+
         # v4.22.1 + v4.38.0: fire autostart hooks in the background
         # for every wired transport. Each hook is a no-op when its
         # marker + env are both unset, so a fresh install pays zero

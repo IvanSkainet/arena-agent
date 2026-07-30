@@ -1,3 +1,10 @@
+## v4.139.0 - Post-update Smoke and Autostart Doctor
+
+### Added
+- Auto-update now writes a pending post-update smoke marker before restart; bridge startup consumes the marker, runs `ship.smoke`, records the result, and exposes it from `/v1/admin/update/status`.
+- `service.autostart_status` diagnoses cross-platform bridge autostart setup (Windows Scheduled Task, Linux systemd --user, macOS launchd placeholder).
+- `service.autostart_repair` repairs supported autostart setups: Windows per-user ONLOGON Scheduled Task and Linux `systemctl --user enable --now arena-bridge.service`.
+
 ## v4.138.0 - Windows Autostart Reliability
 
 ### Fixed

@@ -172,7 +172,7 @@ See [CHANGELOG.md](CHANGELOG.md) for the full release history.
 
 ---
 
-## Current flight status (v4.138.x)
+## Current flight status (v4.139.x)
 
 Arena is now a **self-extending agent environment**, not just a fixed tool
 server. Recent live scenarios proved the bridge can grow new hands at runtime:
@@ -632,6 +632,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `runtime` | `runtime.probe` / `runtime.compat` — Probe runtimes and show runtime × sandbox compatibility with known blockers and next actions |
 | `scenario` | `scenario.run` / `scenario.promote_from_history` — Execute scenarios or promote successful runs/history into reusable scenarios |
 | `secrets` | `secrets.list` — List available secret keys (values never returned). |
+| `service` | `service.autostart_status` / `service.autostart_repair` — Diagnose or repair bridge autostart setup |
 | `skill` | `skill.list` — List available agent skills |
 | `subagent` | `subagent.spawn` — Spawn isolated subagent for delegated work; returns summary |
 | `sudo` | `sudo.run` — Run a command through 'sudo -n <cmd>' (non-interactive). Req |
