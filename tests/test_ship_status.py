@@ -69,3 +69,34 @@ def test_ship_mcp_tools(monkeypatch):
     monkeypatch.setattr(S, "preflight", lambda: {"ok": True, "ready": True})
     assert _parsed(handle_ship_tool("ship.status", {}, ctx=object()))["ship"] == 1
     assert _parsed(handle_ship_tool("ship.preflight", {}, ctx=object()))["ready"] is True
+
+
+def test_ship_preflight_allows_operator_armed_posture(monkeypatch):
+    monkeypatch.setattr(S, "status", lambda: {
+        "version": "test",
+        "posture": {"risk": "critical"},
+        "transports": {"active": {"provider": "tailscale"}},
+        "workbench": {"ok": True, "projects": {"count": 0}, "sessions": {"count": 0}},
+        "mcp": {"ok": True, "count": 0},
+        "browser": {"cdp": {"browser_binary": "/bin/chrome"}, "browseract": {"installed": True}},
+        "mobile": {"devices": {"devices": [{"serial": "dev"}]}},
+        "autostart": {"ok": True, "healthy": True, "trigger": "logon"},
+        "post_update_smoke": {"ok": True, "last": None},
+        "known_issues": [],
+        "next_actions": [],
+    })
+    out = S.preflight()
+    assert out["ok"] is True
+    assert out["ready"] is True
+    assert out["mode"] == "armed"
+    assert out["armed"] is True
+    assert not [c for c in out["failed"] if c["name"].startswith("posture")]
+
+
+def test_ship_status_marks_high_posture_as_armed_not_blocker(monkeypatch):
+    parts = {"posture": {"risk": "high"}, "transports": {"active": {"provider": "tailscale"}}, "mobile": {"devices": {"devices": [{"serial": "dev"}]}}, "browser": {"browseract": {"installed": True}}, "autostart": {"ok": True, "healthy": True}, "post_update_smoke": {"pending": False}}
+    issues = S._known_issues(parts)
+    assert {i["component"]: i["status"] for i in issues}.get("posture") == "armed"
+    actions = S._next_actions(parts, issues)
+    assert any("armed" in a.lower() for a in actions)
+    assert not any("Restore low-risk" in a for a in actions)

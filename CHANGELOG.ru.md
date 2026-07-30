@@ -1,3 +1,13 @@
+## v4.147.0 - Armed Posture Semantics
+
+### Исправлено
+- `ship.preflight` теперь трактует operator-selected `high`/`critical` posture как **armed**, а не blocked. High-power posture разрешает работу, остаётся явно видимой/auditable и всё ещё требует границ миссии и доступного HALT.
+- `ship.status` теперь пишет high/critical posture как issue `posture` со status `armed`, а не предлагает оператору вернуть low-risk defaults. Unknown/invalid posture остаётся blocker.
+- Mission Autopilot больше не падает только потому, что оператор осознанно включил high/critical posture; он фиксирует armed state и продолжает bounded steps.
+
+### Заметки
+- Это соответствует правильной политике: высокий risk значит, что оператор намеренно дал больше мощности; это должно снижать friction, а не отключать корабль. HALT остаётся абсолютным.
+
 ## v4.146.1 - MuMu wrapper test portability
 
 ### Исправлено

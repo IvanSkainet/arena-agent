@@ -170,8 +170,11 @@ def _known_issues(parts: dict[str, Any]) -> list[dict[str, str]]:
             })
 
     posture = parts.get("posture") or {}
-    if posture.get("risk") not in ("low", "medium"):
-        issues.append({"component": "posture", "status": "critical", "reason": "Operator posture is not low/medium; restore fenced low-risk defaults before autonomous work."})
+    risk = str(posture.get("risk") or "unknown")
+    if risk in ("high", "critical"):
+        issues.append({"component": "posture", "status": "armed", "reason": f"Operator-authorized high-power posture is active: risk={risk}. This is allowed but must remain visible and auditable."})
+    elif risk not in ("low", "medium"):
+        issues.append({"component": "posture", "status": "unknown", "reason": f"Operator posture risk is unknown or invalid: risk={risk}."})
 
     transports = parts.get("transports") or {}
     if not transports.get("active"):
@@ -199,8 +202,10 @@ def _known_issues(parts: dict[str, Any]) -> list[dict[str, str]]:
 
 def _next_actions(parts: dict[str, Any], issues: list[dict[str, str]]) -> list[str]:
     actions: list[str] = []
-    if any(i["component"] == "posture" for i in issues):
-        actions.append("Restore low-risk AppContainer/scratch-only/network-deny posture before continuing autonomous work.")
+    if any(i["component"] == "posture" and i.get("status") == "armed" for i in issues):
+        actions.append("High-power operator posture is armed; continue only with explicit mission boundaries, audit, and HALT available.")
+    if any(i["component"] == "posture" and i.get("status") != "armed" for i in issues):
+        actions.append("Restore a known operator posture before continuing autonomous work.")
     if any(i["component"] == "transport" for i in issues):
         actions.append("Verify Tailscale Funnel or another transport so the observer and agent keep a stable route to the bridge.")
     if any(i["component"] == "mobile.adb" for i in issues):
@@ -272,9 +277,13 @@ def preflight() -> dict[str, Any]:
     post_update_smoke = snap.get("post_update_smoke") or {}
     last_post_smoke = post_update_smoke.get("last") if isinstance(post_update_smoke, dict) else None
 
+    risk = str(posture.get("risk") or "unknown")
+    posture_known = risk in ("low", "medium", "high", "critical")
+    posture_armed = risk in ("high", "critical")
     checks = [
         _check("bridge.version", bool(snap.get("version")), detail=str(snap.get("version"))),
-        _check("posture.low_or_medium", posture.get("risk") in ("low", "medium"), detail=f"risk={posture.get('risk')}") ,
+        _check("posture.known", posture_known, detail=f"risk={risk}"),
+        _check("posture.armed", True, severity="warn", detail=f"risk={risk}; high/critical is operator-authorized and allowed" if posture_armed else f"risk={risk}"),
         _check("transport.active", bool(transports.get("active")), severity="warn", detail=str(transports.get("active") or "none")),
         _check("workbench.status", bool(workbench.get("ok")), detail=f"projects={(workbench.get('projects') or {}).get('count')} sessions={(workbench.get('sessions') or {}).get('count')}"),
         _check("mcp.registry", bool(mcp.get("ok")), severity="warn", detail=f"servers={mcp.get('count') if isinstance(mcp, dict) else 'unknown'}"),
@@ -285,10 +294,12 @@ def preflight() -> dict[str, Any]:
     ]
     failed = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
     warnings = [c for c in checks if not c["ok"] and c["severity"] == "warn"]
+    mode = "blocked" if failed else ("armed" if posture_armed else ("degraded" if warnings else "nominal"))
     return {
         "ok": not failed,
         "ready": not failed,
-        "mode": "degraded" if warnings and not failed else ("blocked" if failed else "nominal"),
+        "mode": mode,
+        "armed": posture_armed,
         "checks": checks,
         "failed": failed,
         "warnings": warnings,
