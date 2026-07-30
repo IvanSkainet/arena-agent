@@ -1,3 +1,8 @@
+## v4.131.1 - Zig AppContainer compatibility note
+
+### Changed
+- Runtime compatibility now records live Zig/AppContainer proof honestly: managed Zig is installed and visible, but AppContainer `zig run` currently fails resolving Zig's self executable path. Use explicit host/off for Zig until a broker/path fix exists.
+
 ## v4.131.0 - Managed Zig Runtime
 
 ### Added
