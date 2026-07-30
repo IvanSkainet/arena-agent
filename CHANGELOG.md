@@ -1,3 +1,8 @@
+## v4.132.2 - Lua direct SHA fallback
+
+### Fixed
+- `runtime.install runtime=lua` can now accept direct SHA-256 values when the GitHub Releases API is rate-limited; on Windows it requires both `sha256` for `lua54.exe` and `dll_sha256` for `lua54.dll`, and still verifies both assets before install.
+
 ## v4.132.1 - Lua Windows DLL layout fix
 
 ### Fixed

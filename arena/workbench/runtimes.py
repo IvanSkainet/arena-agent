@@ -332,10 +332,22 @@ def _lua_version_digits(version: str | None = None) -> str:
     return "54"
 
 
-def _lua_assets(version: str | None = None) -> dict[str, Any]:
+def _lua_assets(version: str | None = None, sha256: str | None = None, dll_sha256: str | None = None) -> dict[str, Any]:
     req = urllib.request.Request(_LUA_LATEST, headers={"User-Agent": "ArenaBridge/runtime.install"})
-    with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; assets SHA-256 verified before install  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to dyne/luabinaries release API and downloaded assets are SHA-256 verified
-        rel = json.loads(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:  # nosec B310 -- fixed GitHub API repo; assets SHA-256 verified before install  # nosemgrep: dynamic-urllib-use-detected -- URL is restricted to dyne/luabinaries release API and downloaded assets are SHA-256 verified
+            rel = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        if not (version and sha256):
+            raise
+        digits = _lua_version_digits(version)
+        base = "https://github.com/dyne/luabinaries/releases/latest/download"
+        assets = [{"name": f"lua{digits}.exe" if platform.system().lower() == "windows" else f"lua{digits}", "url": f"{base}/lua{digits}.exe" if platform.system().lower() == "windows" else f"{base}/lua{digits}", "digest": f"sha256:{sha256}"}]
+        if platform.system().lower() == "windows":
+            if not dll_sha256:
+                raise RuntimeError("dll_sha256 required for Lua Windows direct fallback")
+            assets.append({"name": f"lua{digits}.dll", "url": f"{base}/lua{digits}.dll", "digest": f"sha256:{dll_sha256}"})
+        return {"version": f"5.{digits[-1]}", "tag": "direct", "assets": assets}
     digits = _lua_version_digits(version)
     sysname = platform.system().lower()
     mach = platform.machine().lower()
@@ -358,8 +370,8 @@ def _lua_assets(version: str | None = None) -> dict[str, Any]:
     return {"version": f"5.{digits[-1]}", "tag": rel.get("tag_name"), "assets": assets}
 
 
-def install_lua(version: str | None = None) -> dict[str, Any]:
-    meta = _lua_assets(version)
+def install_lua(version: str | None = None, sha256: str | None = None, dll_sha256: str | None = None) -> dict[str, Any]:
+    meta = _lua_assets(version, sha256=sha256, dll_sha256=dll_sha256)
     ver = str(meta["version"])
     root = tools_dir()
     target = root / f"lua-{ver}"
@@ -561,7 +573,7 @@ def install_go(version: str | None = None) -> dict[str, Any]:
     return {"ok": True, "runtime": "go", "version": ver, "path": str(exe), "sha256": got, "probe": _run_version(str(exe), ["version"])}
 
 
-def install(runtime: str, version: str | None = None, sha256: str | None = None) -> dict[str, Any]:
+def install(runtime: str, version: str | None = None, sha256: str | None = None, dll_sha256: str | None = None) -> dict[str, Any]:
     if runtime == "go":
         return install_go(version)
     if runtime == "deno":
@@ -569,7 +581,7 @@ def install(runtime: str, version: str | None = None, sha256: str | None = None)
     if runtime == "zig":
         return install_zig(version)
     if runtime == "lua":
-        return install_lua(version)
+        return install_lua(version, sha256=sha256, dll_sha256=dll_sha256)
     if runtime in {"wasm", "wasmtime"}:
         return install_wasmtime(version)
     return {"ok": False, "error": f"runtime.install currently supports: go, deno, zig, lua, wasmtime (got {runtime!r})"}

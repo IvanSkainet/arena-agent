@@ -22,7 +22,7 @@ def handle_runtime_tool(name: str, args: dict[str, Any], *, ctx=None) -> dict[st
         if not runtime:
             return _res({"ok": False, "error": "missing runtime"})
         try:
-            return _res(runtimes.install(runtime, str(args.get("version") or "") or None, sha256=str(args.get("sha256") or "") or None))
+            return _res(runtimes.install(runtime, str(args.get("version") or "") or None, sha256=str(args.get("sha256") or "") or None, dll_sha256=str(args.get("dll_sha256") or "") or None))
         except Exception as e:
             return _res({"ok": False, "runtime": runtime, "error": str(e)})
     return None
@@ -36,5 +36,5 @@ RUNTIME_TOOLS = [
     {"name": "runtime.list", "description": "Alias for runtime.probe.",
      "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False}},
     {"name": "runtime.install", "description": "Install an Arena-managed runtime with SHA verification. Supports Go portable archives and Wasmtime releases.",
-     "inputSchema": {"type": "object", "properties": {"runtime": {"type": "string", "enum": ["go", "deno", "zig", "lua", "wasm", "wasmtime"]}, "version": {"type": "string", "description": "Optional version, e.g. Go 1.26.5/go1.26.5, Deno 2.9.4/v2.9.4, Zig 0.16.0, Lua 5.4, or Wasmtime 47.0.2/v47.0.2"}, "sha256": {"type": "string", "description": "Optional expected SHA-256 for direct Deno fallback when GitHub API rate limits"}}, "required": ["runtime"], "additionalProperties": False}},
+     "inputSchema": {"type": "object", "properties": {"runtime": {"type": "string", "enum": ["go", "deno", "zig", "lua", "wasm", "wasmtime"]}, "version": {"type": "string", "description": "Optional version, e.g. Go 1.26.5/go1.26.5, Deno 2.9.4/v2.9.4, Zig 0.16.0, Lua 5.4, or Wasmtime 47.0.2/v47.0.2"}, "sha256": {"type": "string", "description": "Optional expected SHA-256 for direct Deno/Lua fallback when GitHub API rate limits"}, "dll_sha256": {"type": "string", "description": "Optional Lua Windows DLL SHA-256 for direct fallback"}}, "required": ["runtime"], "additionalProperties": False}},
 ]

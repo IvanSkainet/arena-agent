@@ -129,6 +129,6 @@ def test_runtime_probe_resolves_managed_lua(monkeypatch, tmp_path):
 
 
 def test_runtime_install_supports_lua(monkeypatch):
-    monkeypatch.setattr(runtimes, "install_lua", lambda version=None: {"ok": True, "runtime": "lua", "version": version or "5.4"})
+    monkeypatch.setattr(runtimes, "install_lua", lambda version=None, sha256=None, dll_sha256=None: {"ok": True, "runtime": "lua", "version": version or "5.4"})
     out = _parsed(handle_runtime_tool("runtime.install", {"runtime": "lua"}, ctx=object()))
     assert out == {"ok": True, "runtime": "lua", "version": "5.4"}
