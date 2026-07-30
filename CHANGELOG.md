@@ -1,3 +1,12 @@
+## v4.138.0 - Windows Autostart Reliability
+
+### Fixed
+- Windows Scheduled Task fallback now uses a per-user `ONLOGON` trigger instead of unreliable `ONSTART /RU %USERNAME%`. Field report: after reboot the bridge task existed but did not start until manually launched from Task Scheduler.
+- If creating the task with `/RL HIGHEST` fails, the installer retries without elevated run level rather than silently leaving autostart broken.
+
+### Notes
+- This keeps platform policy cross-platform: Linux uses `systemd --user`, macOS uses launchd, Windows uses NSSM when present or a per-user logon Scheduled Task fallback. Existing Windows installs should rerun `install.bat` once to rewrite the task.
+
 ## v4.137.3 - Linux systemd smoke working directory fix
 
 ### Fixed

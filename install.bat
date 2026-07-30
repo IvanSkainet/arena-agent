@@ -694,11 +694,21 @@ if not errorlevel 1 goto :use_nssm
 
 :use_schtasks
 set "SERVICE_METHOD=schtasks"
-echo       NSSM not found, using Scheduled Task with hidden window...
+echo       NSSM not found, using per-user Scheduled Task with hidden window...
 schtasks /delete /tn "ArenaUnifiedBridge" /f >nul 2>&1
-schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"!BRIDGE_DIR!\start_hidden.vbs\"" /sc onstart /ru "%USERNAME%" /rl highest /f >nul 2>&1
+REM v4.138.0: ONSTART + /RU %%USERNAME%% is unreliable after reboot for per-user
+REM installs because Windows may not have a user logon token/password available.
+REM Use ONLOGON for the current interactive user; omit /RU so schtasks binds
+REM to the installing user without storing a password. This is cross-platform
+REM at the installer policy level: Linux uses systemd --user, macOS launchd,
+REM Windows uses a per-user logon task unless NSSM service manager is present.
+schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"!BRIDGE_DIR!\start_hidden.vbs\"" /sc onlogon /rl highest /f >nul 2>&1
+if errorlevel 1 (
+    echo       [WARN] Scheduled Task creation with highest privileges failed; retrying without /RL HIGHEST...
+    schtasks /create /tn "ArenaUnifiedBridge" /tr "wscript.exe \"!BRIDGE_DIR!\start_hidden.vbs\"" /sc onlogon /f >nul 2>&1
+)
 schtasks /run /tn "ArenaUnifiedBridge" >nul 2>&1
-echo       [OK] Scheduled task installed and started.
+echo       [OK] Per-user logon Scheduled Task installed and started.
 goto :service_installed
 
 :use_nssm
