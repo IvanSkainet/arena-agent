@@ -22,6 +22,18 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_audit.py",
+    "handlers": [
+      "handle_audit_tool"
+    ],
+    "tool_names": [
+      "audit.classify",
+      "audit.digest",
+      "audit.export",
+      "audit.jsonl"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_browser.py",
     "handlers": [
       "handle_browser_tool"
