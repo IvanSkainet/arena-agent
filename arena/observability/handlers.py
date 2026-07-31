@@ -307,7 +307,8 @@ def make_observability_handlers(ctx: ObservabilityHandlerContext) -> Observabili
             raise
         except Exception as e:  # noqa: BLE001
             try:
-                await _emit({"type": "error", "error": repr(e)})
+                # Sanitize: only expose exception class name, not full traceback (CodeQL py/stack-trace-exposure)
+                await _emit({"type": "error", "error": f"{type(e).__name__}: stream interrupted"})
             except Exception:
                 pass
         finally:

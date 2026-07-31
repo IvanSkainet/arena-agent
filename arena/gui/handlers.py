@@ -167,9 +167,10 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
                 if html_path.exists():
                     html = html_path.read_text(encoding="utf-8")
                     # Embed ONLY the URL token — never fall back to cfg["token"].
-                    html = html.replace("{{TOKEN}}", url_token)
-                    html = html.replace("{{VERSION}}", ctx.version)
-                    html = html.replace("{{HOST}}", socket.gethostname())
+                    import html as _html_mod
+                    html = html.replace("{{TOKEN}}", _html_mod.escape(url_token))
+                    html = html.replace("{{VERSION}}", _html_mod.escape(ctx.version))
+                    html = html.replace("{{HOST}}", _html_mod.escape(socket.gethostname()))
                     # v3.85.2: force-refresh the HTML on every request so
                     # the version bumper in the asset URLs (?v={{VERSION}})
                     # actually reaches the browser after a bridge upgrade.

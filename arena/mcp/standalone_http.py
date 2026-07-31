@@ -18,7 +18,10 @@ class H(BaseHTTPRequestHandler):
         return False
 
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", self.headers.get("Origin", "*"))
+        origin = self.headers.get("Origin", "*")
+        # Sanitize Origin to prevent HTTP response splitting (CodeQL py/http-response-splitting)
+        origin = origin.split("\r")[0].split("\n")[0].strip() if origin else "*"
+        self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Last-Event-ID, Authorization")
         self.send_header("Access-Control-Expose-Headers", "Mcp-Session-Id")
