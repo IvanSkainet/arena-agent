@@ -112,7 +112,7 @@ def test_from_goal_desktop(monkeypatch, tmp_path):
     assert out["ok"] is True
     assert out["planner"] == "keyword"
     assert any(s["tool"] == "desktop.windows" for s in out["planned_steps"])
-    assert any(s["tool"] == "desktop.screenshot" for s in out["planned_steps"])
+    assert any(s["tool"] == "desktop.displays" for s in out["planned_steps"])
 
 
 def test_from_goal_mobile(monkeypatch, tmp_path):

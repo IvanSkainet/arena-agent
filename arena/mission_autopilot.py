@@ -66,7 +66,7 @@ _GOAL_PATTERNS: list[tuple[list[str], list[dict[str, Any]]]] = [
         ["desktop", "window", "screen", "screenshot", "display"],
         [
             {"id": "desktop_windows", "tool": "desktop.windows", "arguments": {"include_displays": True}},
-            {"id": "desktop_screenshot", "tool": "desktop.screenshot", "arguments": {}},
+            {"id": "desktop_displays", "tool": "desktop.displays", "arguments": {}},
         ],
     ),
     (
