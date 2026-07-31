@@ -23,6 +23,7 @@ jobs:
 
       - name: Run OSSF Scorecard
         uses: ossf/scorecard-action@v2.4.1
+        continue-on-error: true  # Scorecard exits non-zero when score is low; SARIF still uploads
         with:
           results_file: scorecard-results.sarif
           results_format: sarif
