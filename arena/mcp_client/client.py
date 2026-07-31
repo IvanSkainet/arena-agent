@@ -22,6 +22,7 @@ turn the client into an arbitrary command runner.
 """
 from __future__ import annotations
 
+import atexit
 import json
 import os
 import queue
@@ -69,7 +70,9 @@ class McpStdioClient:
                 f"(allowed: {', '.join(ALLOWED_COMMANDS)} or a full path to one)")
         self.command = command
         self.args = list(args or [])
-        self.env = {**os.environ, **(env or {})}
+        # v4.148.0: tag spawned children so orphaned MCP servers from a
+        # previous (crashed/restarted) bridge can be identified and reaped.
+        self.env = {**os.environ, **(env or {}), "ARENA_MCP_CHILD": "1"}
         self.cwd = cwd
         self.proc: subprocess.Popen | None = None
         self._id = 0
@@ -232,6 +235,118 @@ class McpClientManager:
         self._clients: dict[str, McpStdioClient] = {}
         self._lock = threading.Lock()
 
+    # -- v4.148.0: orphan tracking / reaping ---------------------------------
+    # stdio MCP servers are children of the bridge process. When the bridge is
+    # restarted (notably by the auto-updater) without a clean shutdown, those
+    # children survive as orphans and accumulate across versions. We record a
+    # pidfile per spawned server and reap any whose spawning bridge is dead.
+    def _run_dir(self) -> Path:
+        d = self.config_path.parent / "run"
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return d
+
+    @staticmethod
+    def _safe_name(name: str) -> str:
+        return re.sub(r"[^A-Za-z0-9_.-]", "_", name)
+
+    def _pidfile(self, name: str) -> Path:
+        return self._run_dir() / f"{self._safe_name(name)}.json"
+
+    def _record_pidfile(self, name: str, client: McpStdioClient) -> None:
+        try:
+            pid = client.proc.pid if client.proc else None
+            if not pid:
+                return
+            rec = {
+                "name": name,
+                "pid": int(pid),
+                "bridge_pid": int(os.getpid()),
+                "started": time.time(),
+                "command": client.command,
+            }
+            self._pidfile(name).write_text(json.dumps(rec), encoding="utf-8")
+        except Exception:
+            pass  # tracking is best-effort; never block a tool call
+
+    def _clear_pidfile(self, name: str) -> None:
+        try:
+            self._pidfile(name).unlink()
+        except Exception:
+            pass
+
+    def reap_orphans(self) -> dict[str, Any]:
+        """Terminate stdio MCP servers spawned by a now-dead bridge.
+
+        Safe to call at startup and before spawning. For each pidfile we only
+        act when the recorded ``bridge_pid`` is no longer alive (the owner is
+        gone) and the child's creation time is consistent with the recorded
+        spawn (guards against PID reuse). Servers owned by another live bridge
+        instance, or by this process, are left untouched.
+        """
+        import psutil  # type: ignore
+
+        reaped: list[int] = []
+        skipped: list[int] = []
+        me = os.getpid()
+        for pf in self._run_dir().glob("*.json"):
+            try:
+                rec = json.loads(pf.read_text(encoding="utf-8"))
+            except Exception:
+                try:
+                    pf.unlink()
+                except Exception:
+                    pass
+                continue
+            child_pid = rec.get("pid")
+            bridge_pid = rec.get("bridge_pid")
+            started = rec.get("started") or 0
+            name = rec.get("name") or pf.stem
+            if not isinstance(child_pid, int):
+                try:
+                    pf.unlink()
+                except Exception:
+                    pass
+                continue
+            try:
+                proc = psutil.Process(child_pid)
+            except psutil.NoSuchProcess:
+                self._clear_pidfile(name)  # child already gone -> stale marker
+                continue
+            except Exception:
+                skipped.append(child_pid)
+                continue
+            # Leave servers owned by a still-running bridge (ours or another).
+            if bridge_pid == me:
+                continue
+            try:
+                if psutil.pid_exists(int(bridge_pid)):
+                    continue  # another live bridge owns this server
+            except Exception:
+                pass
+            # PID-reuse guard: only reap if the live proc was created around
+            # the recorded spawn time (within a generous window).
+            try:
+                if abs(proc.create_time() - float(started)) > 86400:
+                    skipped.append(child_pid)
+                    self._clear_pidfile(name)
+                    continue
+            except Exception:
+                pass
+            try:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except Exception:
+                    proc.kill()
+                reaped.append(child_pid)
+            except Exception:
+                skipped.append(child_pid)
+            self._clear_pidfile(name)
+        return {"ok": True, "reaped": reaped, "skipped": skipped}
+
     def _load_config(self) -> dict[str, Any]:
         if self.config_path.exists():
             try:
@@ -245,6 +360,12 @@ class McpClientManager:
         return self._load_config().get("mcpServers", {})
 
     def get_client(self, name: str) -> McpStdioClient:
+        # v4.148.0: clean up orphans left by a previous bridge run before we
+        # (possibly) spawn a fresh server for the same name. Best-effort.
+        try:
+            self.reap_orphans()
+        except Exception:
+            pass
         with self._lock:
             client = self._clients.get(name)
             if client is not None and client.alive():
@@ -259,6 +380,7 @@ class McpClientManager:
                 srv.get("env", {}), srv.get("cwd"))
             client.start()
             self._clients[name] = client
+            self._record_pidfile(name, client)
             return client
 
     def list_tools(self, name: str, refresh: bool = False, timeout: float = 30) -> list[dict[str, Any]]:
@@ -278,6 +400,7 @@ class McpClientManager:
             client = self._clients.pop(name, None)
         if client:
             client.stop()
+        self._clear_pidfile(name)
 
     def stop_all(self) -> None:
         with self._lock:
@@ -285,6 +408,13 @@ class McpClientManager:
             self._clients.clear()
         for c in clients:
             c.stop()
+        # v4.148.0: clear our own pidfiles on a clean shutdown so the next
+        # bridge start does not mistake freshly-reaped servers for orphans.
+        for pf in self._run_dir().glob("*.json"):
+            try:
+                pf.unlink()
+            except Exception:
+                pass
 
 
 # Process-wide manager (the bridge is a single long-running process).
@@ -297,4 +427,19 @@ def get_manager() -> McpClientManager:
     with _MANAGER_LOCK:
         if _MANAGER is None:
             _MANAGER = McpClientManager()
+            # v4.148.0: tear down spawned MCP servers on a normal interpreter
+            # exit so they do not leak across bridge restarts. Forced kills
+            # (auto-update SIGKILL) are still caught by startup reaping.
+            try:
+                atexit.register(_atexit_stop_all)
+            except Exception:
+                pass
         return _MANAGER
+
+
+def _atexit_stop_all() -> None:
+    try:
+        if _MANAGER is not None:
+            _MANAGER.stop_all()
+    except Exception:
+        pass

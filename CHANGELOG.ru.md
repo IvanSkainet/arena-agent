@@ -1,3 +1,19 @@
+## v4.148.0 - Armed-aware Smoke + reap осиротевших MCP-серверов
+
+### Исправлено
+- Проверки posture в `ship.smoke` теперь согласованы с armed-posture политикой v4.147.0. Старая проверка `posture.not_critical` (severity `fail`) считала operator-selected `critical` posture хард-фейлом, из-за чего post-update smoke висел в `blocked` на критичном, но здоровом корабле — прямое противоречие фиксу armed posture. Заменена на `posture.known` (fail: `low`/`medium`/`high`/`critical` — все известные) и `posture.armed` (warn, всегда ok: high/critical — operator-authorized и разрешено). `mode` у smoke теперь armed-aware (`blocked` → `armed` → `degraded` → `nominal`), зеркально к `ship.preflight`. Unknown/invalid posture по-прежнему блокирует; HALT по-прежнему стопит всё.
+
+### Добавлено
+- **Reap осиротевших stdio MCP-серверов** (`arena/mcp_client/client.py`). stdio MCP-сервера (напр. ScreenPilot) — дети процесса моста; когда мост перезапускается авто-апдейтером без чистого шатдауна, эти дети выживают как сироты и копятся между версиями (живое наблюдение: ~10 осиротевших helper-процессов `ScreenPilot` за рестарты v4.145–v4.147). Теперь клиент:
+  - метит каждый спавн env-маркером `ARENA_MCP_CHILD` и пишет pidfile (`ARENA_AGENT_HOME/mcp/run/<name>.json`) с pid ребёнка, pid моста-родителя и временем спавна;
+  - добавляет `McpClientManager.reap_orphans()`, который терминирует только сервера, чей мост-родитель уже мёртв (с защитой от переиспользования PID через create-time процесса), не трогает сервера другого живого моста и удаляет stale pidfile'ы;
+  - делает reap лениво перед спавном нового сервера для имени и жадно на старте моста (`arena/cli.py` `serve`), так что форсированные рестарты больше не текут helper'ами;
+  - регистрирует `atexit`-хук, останавливающий все спавннутые сервера при нормальном выходе интерпретатора.
+
+### Тесты
+- `tests/test_ship_smoke.py`: добавлен регресс armed-smoke (critical → `ok`/`mode=armed`, без `failed`) и блокер unknown-risk (unknown → `blocked`).
+- `tests/test_mcp_client.py`: добавлено покрытие reap (убивает сервер от мёртвого моста; не трогает сервер живого владельца; чистит stale-маркер для уже мёртвого ребёнка).
+
 ## v4.147.0 - Armed Posture Semantics
 
 ### Исправлено

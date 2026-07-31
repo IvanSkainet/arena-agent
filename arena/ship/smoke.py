@@ -67,6 +67,15 @@ def run() -> dict[str, Any]:
     started = time.time()
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(started))
     posture_view = _posture.get_posture()
+    _risk = str(posture_view.get("risk") or "unknown")
+    # v4.148.0: align smoke posture semantics with ship.preflight.
+    # low/medium => nominal, high/critical => armed (operator-authorized,
+    # allowed, visible), unknown/invalid => blocked. The old
+    # ``posture.not_critical`` check treated ``critical`` as a hard failure,
+    # which contradicted the v4.147.0 armed-posture policy and left the
+    # post-update smoke permanently ``blocked`` on a critical-but-healthy ship.
+    _posture_known = _risk in ("low", "medium", "high", "critical")
+    _posture_armed = _risk in ("high", "critical")
     runtime_probe = _safe("runtime.probe", runtimes.probe)
     runtime_matrix = _safe("runtime.compat", lambda: runtime_compat.build(runtime_probe if isinstance(runtime_probe, dict) else None))
     mobile = _safe("mobile.preflight", mobile_preflight.preflight)
@@ -82,7 +91,8 @@ def run() -> dict[str, Any]:
 
     checks = [
         _check("bridge.version", True, detail=VERSION),
-        _check("posture.not_critical", posture_view.get("risk") != "critical", detail=posture_view.get("risk")),
+        _check("posture.known", _posture_known, detail=f"risk={_risk}"),
+        _check("posture.armed", True, severity="warn", detail=f"risk={_risk}; high/critical is operator-authorized and allowed" if _posture_armed else f"risk={_risk}"),
         _check("code.fixed_fenced_run", bool(isinstance(code, dict) and code.get("ok")), detail=(code or {}).get("run", {}).get("sandbox_action") if isinstance(code, dict) else None),
         _check("code.artifact_read", bool(isinstance(code, dict) and (code.get("artifact_read") or {}).get("ok")), detail=(code.get("artifact_read") or {}).get("path") if isinstance(code, dict) else None),
         _check("runtime.compat", bool(isinstance(runtime_matrix, dict) and runtime_matrix.get("ok")), severity="warn"),
@@ -98,7 +108,7 @@ def run() -> dict[str, Any]:
 
     failed = [c for c in checks if not c["ok"] and c["severity"] == "fail"]
     warnings = [c for c in checks if not c["ok"] and c["severity"] == "warn"]
-    mode = "blocked" if failed else ("degraded" if warnings else "nominal")
+    mode = "blocked" if failed else ("armed" if _posture_armed else ("degraded" if warnings else "nominal"))
     report = {
         "ok": not failed,
         "mode": mode,

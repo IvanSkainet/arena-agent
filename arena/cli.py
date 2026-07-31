@@ -37,6 +37,14 @@ def serve(args: argparse.Namespace, ctx: CliContext) -> None:
 
     ctx.ensure_session_env()
 
+    # v4.148.0: reap stdio MCP servers orphaned by a previous (crashed /
+    # auto-updated) bridge before we start serving. Best-effort.
+    try:
+        from arena.mcp_client import get_manager as _get_mcp_manager
+        _get_mcp_manager().reap_orphans()
+    except Exception as e:  # noqa: BLE001
+        ctx.log_info("[mcp] startup orphan-reap skipped: %s", e)
+
     file_cfg = ctx.load_config_file()
     if file_cfg.get("port"):
         args.port = int(file_cfg["port"])

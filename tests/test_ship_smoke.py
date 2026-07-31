@@ -49,3 +49,43 @@ def test_ship_smoke_mcp_tool(monkeypatch):
     monkeypatch.setattr(S, "history", lambda limit=20: {"ok": True, "count": limit})
     assert _parsed(handle_ship_tool("ship.smoke", {}, ctx=object()))["mode"] == "nominal"
     assert _parsed(handle_ship_tool("ship.smoke_history", {"limit": 3}, ctx=object()))["count"] == 3
+
+
+def _stub_smoke_deps(monkeypatch):
+    monkeypatch.setattr(S, "_code_smoke", lambda: {"ok": True, "run": {"sandbox_action": "test"}, "artifact_read": {"ok": True, "path": "out/x.json"}})
+    monkeypatch.setattr(S.runtimes, "probe", lambda: {"ok": True, "runtimes": {}})
+    monkeypatch.setattr(S.runtime_compat, "build", lambda rt: {"ok": True, "matrix": []})
+    monkeypatch.setattr(S.mobile_preflight, "preflight", lambda: {"ok": True, "ready": True, "mode": "nominal"})
+    monkeypatch.setattr(S.autostart_doctor, "status", lambda: {"ok": True, "healthy": True})
+    monkeypatch.setattr(S.post_update_smoke, "status", lambda: {"ok": True, "pending": False, "last": None})
+    monkeypatch.setattr(S, "_mcp_registry", lambda: {"ok": True, "count": 0, "servers": []})
+    monkeypatch.setattr(S.platform, "system", lambda: "Windows")
+
+
+def test_ship_smoke_armed_critical_is_not_blocked(monkeypatch, tmp_path):
+    """v4.148.0: a critical (operator-authorized) posture must read as armed,
+    not as a hard failure that blocks the smoke (regression for the old
+    posture.not_critical check)."""
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(S._posture, "get_posture", lambda: {"ok": True, "risk": "critical"})
+    monkeypatch.setattr(S._posture, "load_posture", lambda: {"risk": "critical", "runtime": "any"})
+    _stub_smoke_deps(monkeypatch)
+    out = S.run()
+    assert out["ok"] is True
+    assert out["mode"] == "armed"
+    assert not out["failed"]
+    names = [c["name"] for c in out["checks"]]
+    assert "posture.known" in names and "posture.armed" in names
+    assert "posture.not_critical" not in names
+
+
+def test_ship_smoke_unknown_risk_is_blocked(monkeypatch, tmp_path):
+    """An unknown/invalid posture still blocks the smoke (only nominal/armed pass)."""
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    monkeypatch.setattr(S._posture, "get_posture", lambda: {"ok": True, "risk": "unknown"})
+    monkeypatch.setattr(S._posture, "load_posture", lambda: {"risk": "unknown", "runtime": "any"})
+    _stub_smoke_deps(monkeypatch)
+    out = S.run()
+    assert out["ok"] is False
+    assert out["mode"] == "blocked"
+    assert any(c["name"] == "posture.known" and not c["ok"] for c in out["failed"])

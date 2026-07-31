@@ -1,3 +1,19 @@
+## v4.148.0 - Armed-aware Smoke + MCP Orphan Reaping
+
+### Fixed
+- `ship.smoke` posture checks are now aligned with the v4.147.0 armed-posture policy. The old `posture.not_critical` check (severity `fail`) treated an operator-selected `critical` posture as a hard failure, which left the post-update smoke permanently `blocked` on a critical-but-healthy ship — directly contradicting the armed-posture fix. It is replaced by `posture.known` (fail: `low`/`medium`/`high`/`critical` are all known) and `posture.armed` (warn, always ok: high/critical is operator-authorized and allowed). Smoke `mode` is now armed-aware (`blocked` → `armed` → `degraded` → `nominal`), mirroring `ship.preflight`. Unknown/invalid posture still blocks; HALT still stops everything.
+
+### Added
+- **MCP stdio server orphan reaping** (`arena/mcp_client/client.py`). stdio MCP servers (e.g. ScreenPilot) are children of the bridge process; when the bridge is restarted by the auto-updater without a clean shutdown, those children survived as orphans and accumulated across versions (live observation: ~10 orphaned `ScreenPilot` helper processes across the v4.145–v4.147 restarts). The client now:
+  - tags each spawned child with an `ARENA_MCP_CHILD` env marker and records a pidfile (`ARENA_AGENT_HOME/mcp/run/<name>.json`) with the child pid, the spawning bridge pid, and the spawn time;
+  - exposes `McpClientManager.reap_orphans()`, which terminates only servers whose spawning bridge is no longer alive (with a PID-reuse guard via process create-time), leaves servers owned by another live bridge untouched, and removes stale pidfiles;
+  - reaps lazily before spawning a new server for a name, and eagerly on bridge startup (`arena/cli.py` `serve`), so forced restarts no longer leak helpers;
+  - registers an `atexit` hook to stop all spawned servers on a normal interpreter exit.
+
+### Tests
+- `tests/test_ship_smoke.py`: added armed-smoke regression (critical → `ok`/`mode=armed`, no `failed`) and unknown-risk blocker (unknown → `blocked`).
+- `tests/test_mcp_client.py`: added orphan-reap coverage (reaps a server left by a dead bridge; leaves a server owned by a live bridge; clears a stale marker for an already-dead child).
+
 ## v4.147.0 - Armed Posture Semantics
 
 ### Fixed

@@ -9,8 +9,11 @@ bridge tools.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -220,3 +223,58 @@ def test_ext_call_accepts_timeout_argument(monkeypatch):
     })
     assert out["ok"] is True
     assert seen == {"server": "s", "tool": "t", "arguments": {"x": 1}, "timeout": 3.0}
+
+
+# --- v4.148.0: orphan reaping ---------------------------------------------
+def _manager_at(tmp_path):
+    cfg = tmp_path / "mcp.json"
+    cfg.write_text("{}", encoding="utf-8")
+    return McpClientManager(config_path=cfg)
+
+
+def test_reap_orphans_kills_server_left_by_dead_bridge(tmp_path):
+    """An MCP server whose spawning bridge has died must be reaped."""
+    mgr = _manager_at(tmp_path)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        rec = {"name": "screenpilot", "pid": child.pid,
+               "bridge_pid": 9999999, "started": time.time(),
+               "command": sys.executable}
+        mgr._pidfile("screenpilot").write_text(json.dumps(rec), encoding="utf-8")
+        res = mgr.reap_orphans()
+        assert child.pid in res["reaped"]
+        assert child.poll() is not None  # terminated
+        assert not mgr._pidfile("screenpilot").exists()
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+def test_reap_orphans_leaves_server_owned_by_live_bridge(tmp_path):
+    """A server owned by a still-running bridge (here: this process) is left alone."""
+    mgr = _manager_at(tmp_path)
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    try:
+        rec = {"name": "screenpilot", "pid": child.pid,
+               "bridge_pid": os.getpid(), "started": time.time(),
+               "command": sys.executable}
+        mgr._pidfile("screenpilot").write_text(json.dumps(rec), encoding="utf-8")
+        res = mgr.reap_orphans()
+        assert child.pid not in res["reaped"]
+        assert child.poll() is None  # still alive
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait()
+
+
+def test_reap_orphans_clears_stale_marker_for_dead_child(tmp_path):
+    """A pidfile whose child is already gone is just removed (no error)."""
+    mgr = _manager_at(tmp_path)
+    rec = {"name": "ghost", "pid": 9999999, "bridge_pid": 9999998,
+           "started": time.time(), "command": sys.executable}
+    mgr._pidfile("ghost").write_text(json.dumps(rec), encoding="utf-8")
+    res = mgr.reap_orphans()
+    assert res["ok"] is True
+    assert not mgr._pidfile("ghost").exists()
