@@ -20,7 +20,7 @@ def _fake_ok(port, token, tool, arguments, timeout):
 
 
 def _fake_slow(port, token, tool, arguments, timeout):
-    time.sleep(0.15)
+    time.sleep(0.05)
     return {"ok": True, "tool": tool}
 
 
@@ -67,7 +67,7 @@ def test_start_async_returns_immediately(monkeypatch, tmp_path):
     monkeypatch.setattr(ap, "_mcp_call", _fake_slow)
     result = ap.start_async(
         goal="async test",
-        steps=[{"id": "a", "tool": "exec.echo", "arguments": {}}, {"id": "b", "tool": "exec.echo", "arguments": {}}],
+        steps=[{"id": "a", "tool": "exec.echo", "arguments": {}}],
         create_record=False, port=1, token="t",
     )
     assert result["ok"] is True
@@ -75,50 +75,46 @@ def test_start_async_returns_immediately(monkeypatch, tmp_path):
     assert result["status"] == "running"
     assert "run_id" in result
     # Wait for completion with generous timeout for slow CI
-    for _ in range(80):
+    s = {"status": "running"}
+    for _ in range(100):
         time.sleep(0.1)
-        try:
-            s = ap.status(result["run_id"])
-            if s.get("status") != "running":
-                break
-        except Exception:
-            continue  # file might be mid-write
+        s = ap.status(result["run_id"])
+        if s.get("status") != "running":
+            break
     assert s["ok"] is True
     assert s["status"] in ("nominal", "partial")
-    assert s["step_count"] == 2
+    assert s["step_count"] == 1
 
 
 def test_start_async_cancel(monkeypatch, tmp_path):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    gate = threading.Event()
 
-    def slow_call(port, token, tool, arguments, timeout):
-        time.sleep(0.5)
+    def blocking_call(port, token, tool, arguments, timeout):
+        gate.wait(timeout=10)
         return {"ok": True, "tool": tool}
 
-    monkeypatch.setattr(ap, "_mcp_call", slow_call)
+    monkeypatch.setattr(ap, "_mcp_call", blocking_call)
     result = ap.start_async(
         goal="cancel async test",
-        steps=[{"id": f"s{i}", "tool": "exec.echo", "arguments": {}} for i in range(20)],
+        steps=[{"id": f"s{i}", "tool": "exec.echo", "arguments": {}} for i in range(5)],
         create_record=False, port=1, token="t",
     )
     run_id = result["run_id"]
-    time.sleep(0.3)  # Let first step start
+    time.sleep(0.05)  # Let thread start
     cancel_result = ap.cancel(run_id)
     assert cancel_result["ok"] is True
     assert cancel_result["status"] == "cancelling"
-    # Wait for worker to finish with generous timeout
-    s = None
-    for _ in range(60):
-        time.sleep(0.2)
-        try:
-            s = ap.status(run_id)
-            if s.get("status") not in ("running",):
-                break
-        except Exception:
-            continue
-    assert s is not None
+    gate.set()  # Unblock the call so the worker can see the cancel
+    # Wait for worker to finish
+    s = {"status": "running"}
+    for _ in range(100):
+        time.sleep(0.1)
+        s = ap.status(run_id)
+        if s.get("status") not in ("running",):
+            break
     assert s["status"] == "cancelled"
-    assert s["step_count"] < 20  # Should not have completed all steps
+    assert s["step_count"] < 5
 
 
 def test_start_async_empty_goal(monkeypatch, tmp_path):

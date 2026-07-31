@@ -31,6 +31,7 @@ from typing import Any
 # Background run registry: run_id → threading.Event (set = cancel requested)
 _background_cancel: dict[str, threading.Event] = {}
 _background_lock = threading.Lock()
+_file_lock = threading.Lock()  # guards concurrent read/write of run JSON files
 
 
 def _now() -> str:
@@ -174,25 +175,18 @@ def _mcp_call(port: int, token: str, tool: str, arguments: dict[str, Any], timeo
 
 
 def _save(run: dict[str, Any]) -> None:
-    """Atomically persist a run file (write-to-temp + rename)."""
-    target = _run_path(run["run_id"])
-    tmp = target.with_suffix(".tmp")
-    tmp.write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp.replace(target)
+    """Persist a run file, guarded by a lock to prevent concurrent-write races."""
+    with _file_lock:
+        _run_path(run["run_id"]).write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _load(run_id: str) -> dict[str, Any]:
-    """Load a run file with retry for concurrent-write races."""
-    import time as _time
-    p = _run_path(run_id)
-    if not p.exists():
-        raise FileNotFoundError(run_id)
-    for attempt in range(3):
-        text = p.read_text(encoding="utf-8").strip()
-        if text:
-            return json.loads(text)
-        _time.sleep(0.05)  # brief retry for write-in-progress
-    return json.loads(p.read_text(encoding="utf-8"))
+    """Load a run file, guarded by a lock to prevent reading mid-write."""
+    with _file_lock:
+        p = _run_path(run_id)
+        if not p.exists():
+            raise FileNotFoundError(run_id)
+        return json.loads(p.read_text(encoding="utf-8"))
 
 
 def list_runs(limit: int = 20) -> dict[str, Any]:
