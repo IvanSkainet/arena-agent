@@ -13,6 +13,7 @@ from arena.mcp.tool_code_session import SESSION_TOOLS
 from arena.mcp.tool_desktop_app import DESKTOP_APP_MCP_TOOLS
 from arena.mcp.tool_desktop_input import DESKTOP_INPUT_MCP_TOOLS
 from arena.mcp.tool_foundry import FOUNDRY_TOOLS
+from arena.mcp.tool_input_helper import INPUT_HELPER_TOOLS
 from arena.mcp.tool_mcp_server_foundry import MCP_SERVER_FOUNDRY_TOOLS
 from arena.mcp.tool_mobile_ext import MOBILE_EXT_MCP_TOOLS
 from arena.mcp.tool_mumu import MUMU_TOOLS
@@ -260,3 +261,4 @@ MCP_TOOLS.extend(FOUNDRY_TOOLS)
 # themselves are dynamic and appended at tools/list time (custom_tool_defs).
 MCP_TOOLS.extend(CUSTOM_TOOL_MGMT_DEFS)
 MCP_TOOLS.extend(AUDIT_TOOLS)
+MCP_TOOLS.extend(INPUT_HELPER_TOOLS)
