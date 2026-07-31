@@ -11,16 +11,26 @@ v4.149.0 additions:
 - ``artifacts`` — collect artifacts/results from a run's steps.
 - ``from_goal`` — goal-to-plan: map a natural-language goal to tool steps
   based on ship capabilities, then run them.
+
+v4.150.0 additions:
+- ``start_async`` — launch an autopilot run in a background thread;
+  returns immediately with the run_id.
+- ``cancel`` now also interrupts a background-running thread.
 """
 from __future__ import annotations
 
 import datetime as dt
 import json
 import re
+import threading
 import urllib.request
 import uuid
 from pathlib import Path
 from typing import Any
+
+# Background run registry: run_id → threading.Event (set = cancel requested)
+_background_cancel: dict[str, threading.Event] = {}
+_background_lock = threading.Lock()
 
 
 def _now() -> str:
@@ -206,10 +216,23 @@ def report(run_id: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 def cancel(run_id: str) -> dict[str, Any]:
-    """Mark a running autopilot run as cancelled."""
+    """Mark a running autopilot run as cancelled.
+
+    If the run is executing in a background thread (start_async), signals
+    the thread to stop after the current step completes.
+    """
     run = _load(run_id)
     if run.get("status") not in ("running", "paused"):
         return {"ok": False, "error": f"run is already {run.get('status')}, cannot cancel", "run_id": run_id}
+
+    # Signal background thread if present
+    with _background_lock:
+        evt = _background_cancel.get(run_id)
+        if evt is not None:
+            evt.set()
+            # Let the worker finalize state
+            return {"ok": True, "run_id": run_id, "status": "cancelling", "hint": "background run will stop after current step"}
+
     run["status"] = "cancelled"
     run["outcome"] = "cancelled by operator"
     run["finished_at"] = _now()
@@ -320,6 +343,13 @@ def from_goal(
     return result
 
 
+def _is_cancelled(run_id: str) -> bool:
+    """Check if a background cancel has been requested for this run."""
+    with _background_lock:
+        evt = _background_cancel.get(run_id)
+    return evt is not None and evt.is_set()
+
+
 def start(
     *,
     goal: str,
@@ -349,6 +379,16 @@ def start(
     }
     _save(run)
     for spec in step_specs:
+        # v4.150.0: check for cancel between steps
+        if _is_cancelled(run_id):
+            run["status"] = "cancelled"
+            run["outcome"] = "cancelled by operator"
+            run["finished_at"] = _now()
+            _save(run)
+            with _background_lock:
+                _background_cancel.pop(run_id, None)
+            return {"ok": True, "run_id": run_id, "status": "cancelled", "outcome": "cancelled by operator", "scenario": scenario, "step_count": len(run["steps"]), "path": str(_run_path(run_id))}
+
         sid = str(spec.get("id") or f"step{len(run['steps'])+1}")
         tool = str(spec.get("tool") or "").strip()
         args = spec.get("arguments") or {}
@@ -365,10 +405,14 @@ def start(
         if not step_rec.get("ok") and not bool(spec.get("continue_on_error", True)):
             break
     failed = [s for s in run["steps"] if not s.get("ok")]
-    run["status"] = "partial" if failed else "nominal"
-    run["outcome"] = "completed with failures" if failed else "completed"
+    if run["status"] != "cancelled":
+        run["status"] = "partial" if failed else "nominal"
+        run["outcome"] = "completed with failures" if failed else "completed"
     run["finished_at"] = _now()
     _save(run)
+    # Clean up cancel event if present
+    with _background_lock:
+        _background_cancel.pop(run_id, None)
 
     # Persist a scenario shell + flight record so the result lands in the normal scenario surface.
     if create_record:
@@ -397,4 +441,138 @@ def start(
     return {"ok": True, "run_id": run_id, "status": run["status"], "outcome": run["outcome"], "scenario": scenario, "step_count": len(run["steps"]), "path": str(_run_path(run_id))}
 
 
-__all__ = ["artifacts", "cancel", "from_goal", "list_runs", "report", "start", "status", "step"]
+# ---------------------------------------------------------------------------
+# v4.150.0: start_async — background autopilot execution
+# ---------------------------------------------------------------------------
+
+def start_async(
+    *,
+    goal: str,
+    steps: list[dict[str, Any]] | None = None,
+    constraints: list[str] | None = None,
+    max_steps: int = 12,
+    timeout_per_step: int = 60,
+    create_record: bool = True,
+    scenario_name: str = "",
+    port: int = 8765,
+    token: str = "",
+) -> dict[str, Any]:
+    """Launch an autopilot run in a background thread.
+
+    Returns immediately with the run_id.  Use ``status(run_id)`` to poll
+    progress.  Use ``cancel(run_id)`` to interrupt.
+    """
+    if not goal:
+        return {"ok": False, "error": "goal is required"}
+
+    # Pre-generate run_id so we can return it immediately
+    run_id = f"{dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:8]}"
+    scenario = scenario_name or f"autopilot-{_slug(goal)}"
+    step_specs = list(steps or _default_steps())[: max(1, min(int(max_steps or 12), 60))]
+
+    # Create initial persisted state
+    run: dict[str, Any] = {
+        "ok": True,
+        "run_id": run_id,
+        "goal": goal,
+        "constraints": constraints or [],
+        "scenario": scenario,
+        "status": "running",
+        "async": True,
+        "created_at": _now(),
+        "steps": [],
+    }
+    _save(run)
+
+    # Register cancel event
+    cancel_evt = threading.Event()
+    with _background_lock:
+        _background_cancel[run_id] = cancel_evt
+
+    def _worker() -> None:
+        try:
+            # Re-load to get the fresh state
+            r = _load(run_id)
+            for spec in step_specs:
+                if cancel_evt.is_set():
+                    r["status"] = "cancelled"
+                    r["outcome"] = "cancelled by operator"
+                    r["finished_at"] = _now()
+                    _save(r)
+                    return
+
+                sid = str(spec.get("id") or f"step{len(r['steps'])+1}")
+                tool = str(spec.get("tool") or "").strip()
+                args = spec.get("arguments") or {}
+                if not tool:
+                    step_rec = {"id": sid, "ok": False, "error": "missing tool"}
+                else:
+                    try:
+                        result = _mcp_call(port, token, tool, args, int(spec.get("timeout", timeout_per_step) or timeout_per_step))
+                        step_rec = {"id": sid, "tool": tool, "arguments": args, "ok": (not result.get("_raw_is_error") and result.get("ok", True) is not False), "result": result}
+                    except Exception as exc:
+                        step_rec = {"id": sid, "tool": tool, "arguments": args, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
+                r["steps"].append(step_rec)
+                _save(r)
+                if not step_rec.get("ok") and not bool(spec.get("continue_on_error", True)):
+                    break
+
+            failed = [s for s in r["steps"] if not s.get("ok")]
+            if r["status"] != "cancelled":
+                r["status"] = "partial" if failed else "nominal"
+                r["outcome"] = "completed with failures" if failed else "completed"
+            r["finished_at"] = _now()
+            _save(r)
+
+            if create_record:
+                scenario_doc = {
+                    "name": scenario,
+                    "title": f"Autopilot: {goal[:80]}",
+                    "description": "Autopilot-generated scenario shell and flight record.",
+                    "steps": [{"id": "summary", "tool": "exec.echo", "arguments": {"text": goal}}],
+                }
+                try:
+                    _mcp_call(port, token, "scenario.save", {"name": scenario, "source": json.dumps(scenario_doc, ensure_ascii=False), "overwrite": True}, timeout_per_step)
+                    _mcp_call(port, token, "scenario.record", {
+                        "name": scenario,
+                        "title": f"Autopilot flight record: {goal[:80]}",
+                        "status": r["status"],
+                        "outcome": r["outcome"],
+                        "boundary": constraints or [],
+                        "summary": f"Autopilot executed {len(r['steps'])} steps for goal: {goal}",
+                        "observations": [{"title": s.get("id"), "tool": s.get("tool"), "ok": s.get("ok")} for s in r["steps"]],
+                        "not_worked": failed,
+                        "data": {"run_id": run_id, "json_path": str(_run_path(run_id))},
+                    }, timeout_per_step)
+                except Exception as exc:
+                    r["record_error"] = f"{type(exc).__name__}: {exc}"
+                    _save(r)
+        except Exception as exc:
+            try:
+                r2 = _load(run_id)
+                r2["status"] = "error"
+                r2["outcome"] = f"background worker error: {type(exc).__name__}: {exc}"
+                r2["finished_at"] = _now()
+                _save(r2)
+            except Exception:
+                pass
+        finally:
+            with _background_lock:
+                _background_cancel.pop(run_id, None)
+
+    t = threading.Thread(target=_worker, name=f"autopilot-{run_id}", daemon=True)
+    t.start()
+
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "status": "running",
+        "async": True,
+        "scenario": scenario,
+        "planned_step_count": len(step_specs),
+        "path": str(_run_path(run_id)),
+        "hint": "Use mission.autopilot_status to poll progress, mission.autopilot_cancel to interrupt.",
+    }
+
+
+__all__ = ["artifacts", "cancel", "from_goal", "list_runs", "report", "start", "start_async", "status", "step"]
