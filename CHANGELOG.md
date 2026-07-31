@@ -1,3 +1,18 @@
+## v4.150.0 - Mission Control, Async Autopilot, Gap Pipeline
+
+### Added
+- **`mission.control_status`**: unified Mission Control dashboard — aggregates ship mode, latest autopilot runs, open capability gaps, scenario flight records, desktop window count, and mobile device state in one read-only snapshot. Replaces verbose multi-call status checks.
+- **`mission.autopilot_start_async`**: launch autopilot runs in a background thread. Returns immediately with `run_id`; poll with `autopilot_status`, interrupt with `autopilot_cancel`. Background runs persist progress step-by-step and respond to cancel signals between steps.
+- **`capability_gap.promote`**: convert a capability gap into an autopilot task. Marks the gap as `promoted` and optionally launches an autopilot run to address it via `from_goal`.
+- **`capability_gap.report`**: structured report of all gaps grouped by status and severity.
+
+### Changed
+- `mission.autopilot_cancel` now signals background-running threads (via `threading.Event`) to stop after the current step, rather than just marking a file. Returns `cancelling` status for async runs.
+- `start()` checks for cancel signals between steps, enabling mid-run abort for both sync and async execution.
+
+### Tests
+- New tests for Mission Control, async autopilot, gap promote/report, and background cancel.
+
 ## v4.149.0 - Mission Autopilot Planner
 
 ### Added

@@ -80,6 +80,21 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
             port=port,
             token=token,
         ), ensure_ascii=False))
+    if name == "mission.autopilot_start_async":
+        return text_content(json.dumps(_autopilot.start_async(
+            goal=str(args.get("goal") or ""),
+            steps=args.get("steps") if isinstance(args.get("steps"), list) else None,
+            constraints=args.get("constraints") if isinstance(args.get("constraints"), list) else None,
+            max_steps=int(args.get("max_steps", 12) or 12),
+            timeout_per_step=int(args.get("timeout_per_step", 60) or 60),
+            create_record=bool(args.get("create_record", True)),
+            scenario_name=str(args.get("scenario") or args.get("scenario_name") or ""),
+            port=port,
+            token=token,
+        ), ensure_ascii=False))
+    if name == "mission.control_status":
+        from arena import mission_control as _mc
+        return text_content(json.dumps(_mc.control_status(port=port, token=token), ensure_ascii=False))
 
     mission_name = quote(str(args.get("mission_id", "") or args.get("name", "")), safe="")
     if name == "mission.templates":
