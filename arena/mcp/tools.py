@@ -12,6 +12,7 @@ from arena.control import _agent_halt_block_for_tool
 from arena.mcp.custom_tools import handle_custom_tool
 from arena.mcp.custom_tools import tool_defs as custom_tool_defs
 from arena.mcp.tool_agentic import handle_agentic_tool
+from arena.mcp.tool_audit import handle_audit_tool
 from arena.mcp.tool_asr import handle_asr_tool
 from arena.mcp.tool_browser import handle_browser_tool
 from arena.mcp.tool_browser_headed import handle_browser_headed_tool
@@ -172,6 +173,7 @@ def make_mcp_tool_runtime(ctx: McpToolContext) -> McpToolRuntime:
                 # closure we're building here. types.SimpleNamespace
                 # keeps the frozen-dataclass ctx immutable.
                 lambda: handle_scenario_tool(name, args, ctx=_types.SimpleNamespace(call_tool=call_tool)),
+                lambda: handle_audit_tool(name, args, ctx=ctx),
                 lambda: handle_misc_tool(name, args, ctx=ctx, run_local=run_local),
             ):
                 result = handler()

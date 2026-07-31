@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from arena.mcp.custom_tools import MGMT_DEFS as CUSTOM_TOOL_MGMT_DEFS
+from arena.mcp.tool_audit import AUDIT_TOOLS
 from arena.mcp.tool_browser_headed import BROWSER_HEADED_MCP_TOOLS
 from arena.mcp.tool_capability_gap import CAPABILITY_GAP_TOOLS
 from arena.mcp.tool_code import CODE_TOOLS
@@ -258,3 +259,4 @@ MCP_TOOLS.extend(FOUNDRY_TOOLS)
 # (custom.create / custom.list / custom.remove). The agent-AUTHORED tools
 # themselves are dynamic and appended at tools/list time (custom_tool_defs).
 MCP_TOOLS.extend(CUSTOM_TOOL_MGMT_DEFS)
+MCP_TOOLS.extend(AUDIT_TOOLS)

@@ -1,3 +1,19 @@
+## v4.151.0 - Enhanced Audit Trail
+
+### Added
+- **`audit.classify`**: classify any tool name by action category (`read`/`write`/`execute`/`network`/`external`/`destructive`/`other`), risk level (`low`/`medium`/`high`/`critical`), and external flag. Motivated by the Anthropic Mythos 5 PyPI incident and OpenAI ExploitGym breach (July 2026).
+- **`audit.digest`**: summarise recent audit events from the last N minutes — counts grouped by risk level, category, external flag, and a list of recent high-risk actions.
+- **`audit.export`**: export recent audit events with enrichment (classification, risk, external flag) as JSON or Markdown table.
+- **`arena/observability/audit_enhanced.py`**: new module with action classification engine, risk scoring, external action detection, event enrichment, digest, and export functions.
+
+### Classification engine
+- **Categories**: `read`, `write`, `execute`, `network`, `external`, `destructive`, `other` — based on tool name prefix matching against 50+ patterns.
+- **Risk levels**: `critical` (halt, update apply), `high` (exec, git push, service ops), `medium` (file writes, code runs, browser, mobile, desktop input), `low` (read-only tools).
+- **External flag**: any action reaching outside the local machine (network, browser, mobile, mumu, tunnels, git push) is tagged `external: true`.
+
+### Tests
+- Tests for classification, risk scoring, external detection, enrichment, digest, export (JSON + Markdown), and MCP registry presence.
+
 ## v4.150.0 - Mission Control, Async Autopilot, Gap Pipeline
 
 ### Added
