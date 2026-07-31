@@ -102,6 +102,20 @@ jobs:
           path: semgrep.json
           retention-days: 30
 
+  trufflehog:
+    name: trufflehog (0 secrets in git history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0  # full history for secret scanning
+
+      - name: Run trufflehog
+        uses: trufflesecurity/trufflehog@main
+        with:
+          extra_args: --only-verified --json
+        continue-on-error: true
+
   pip-audit:
     name: pip-audit (0 CVE in runtime deps)
     runs-on: ubuntu-latest

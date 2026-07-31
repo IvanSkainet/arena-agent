@@ -1,3 +1,13 @@
+## v4.152.1 - Security Hardening (CodeQL)
+
+### Fixed
+- **HTTP response splitting** (`standalone_http.py`): sanitize Origin header against CR/LF injection before echoing into Access-Control-Allow-Origin.
+- **Reflective XSS** (`gui/handlers.py`): HTML-escape template variables (token, version, hostname) before embedding in dashboard HTML.
+- **Stack trace exposure** (`observability/handlers.py`): replace `repr(e)` with sanitized class-name-only message in audit stream error responses.
+
+### Security
+- Resolved all 59 CodeQL alerts: 3 real fixes + 56 dismissed with documented rationale (intentional design, false positives, test code).
+
 ## v4.152.0 - Interactive Input Helper
 
 ### Added
