@@ -626,6 +626,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `mission` | `mission.autopilot_start` / `mission.autopilot_report` / `mission.run` — Execute bounded mission tool chains with persisted progress and flight records, or run persisted missions |
 | `mobile` | `mobile.preflight` / `mobile.devices` — Preflight Android/ADB readiness and list connected devices |
 | `mumu` | `mumu.launch` / `mumu.shell` / `mumu.adb` / `mumu.screenshot` — Control local MuMu Player Android VMs through MuMu's own CLI |
+| `input_helper` | `input_helper.click` / `input_helper.key` / `input_helper.launch` / `input_helper.send_chat_command` — Route real hardware input through the Interactive Input Helper running in the user's desktop session (solves Session 0 limitation for Java Swing, LWJGL, and all GUI automation) |
 | `capability_gap` | `capability_gap.record` / `capability_gap.list` / `capability_gap.resolve` — Track missing bridge capabilities found during real scenarios |
 | `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |
 | `ocr` | `ocr.extract` — Run OCR on any image file and return text + word boxes |
