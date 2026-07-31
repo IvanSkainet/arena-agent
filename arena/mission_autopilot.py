@@ -174,13 +174,24 @@ def _mcp_call(port: int, token: str, tool: str, arguments: dict[str, Any], timeo
 
 
 def _save(run: dict[str, Any]) -> None:
-    _run_path(run["run_id"]).write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    """Atomically persist a run file (write-to-temp + rename)."""
+    target = _run_path(run["run_id"])
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(target)
 
 
 def _load(run_id: str) -> dict[str, Any]:
+    """Load a run file with retry for concurrent-write races."""
+    import time as _time
     p = _run_path(run_id)
     if not p.exists():
         raise FileNotFoundError(run_id)
+    for attempt in range(3):
+        text = p.read_text(encoding="utf-8").strip()
+        if text:
+            return json.loads(text)
+        _time.sleep(0.05)  # brief retry for write-in-progress
     return json.loads(p.read_text(encoding="utf-8"))
 
 
