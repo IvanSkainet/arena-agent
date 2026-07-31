@@ -1,3 +1,17 @@
+## v4.149.0 - Mission Autopilot Planner
+
+### Added
+- **`mission.autopilot_from_goal`**: goal-to-plan keyword planner — maps a natural-language goal to tool steps and executes them as an autopilot run. Supports desktop, mobile, mumu, code, fs, browser, ship, scenario, and capability-gap domains; falls back to the default ship checklist when no keywords match.
+- **`mission.autopilot_step`**: execute one tool step inside an existing autopilot run (append or follow-up). Works on completed/partial runs for post-hoc investigation.
+- **`mission.autopilot_cancel`**: cancel a running or paused autopilot run. Sets status to `cancelled` with a timestamp.
+- **`mission.autopilot_artifacts`**: collect all artifacts (results, paths, screenshots, URLs) from a run's steps into a structured list.
+
+### Fixed
+- Autopilot planner uses `desktop.displays` instead of non-existent MCP tool `desktop.screenshot`.
+
+### Tests
+- 16 new tests in `tests/test_mission_autopilot_v4149.py` covering cancel, step, artifacts, from_goal (keyword planner), registry presence, and backward compatibility.
+
 ## v4.148.0 - Armed-aware Smoke + MCP Orphan Reaping
 
 ### Fixed
