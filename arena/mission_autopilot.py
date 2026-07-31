@@ -4,6 +4,13 @@ This is intentionally small and deterministic.  It does not pretend to be a
 planner/LLM; it turns a goal plus explicit or default steps into a persisted
 run, executes those steps through the bridge MCP surface, stores progress as
 JSON, and optionally emits a scenario flight record.
+
+v4.149.0 additions:
+- ``cancel`` — mark a running run as cancelled.
+- ``step`` — execute one step in an existing run (append or re-run).
+- ``artifacts`` — collect artifacts/results from a run's steps.
+- ``from_goal`` — goal-to-plan: map a natural-language goal to tool steps
+  based on ship capabilities, then run them.
 """
 from __future__ import annotations
 
@@ -48,6 +55,92 @@ def _default_steps() -> list[dict[str, Any]]:
         {"id": "mobile", "tool": "mobile.preflight", "arguments": {}},
         {"id": "scenarios", "tool": "scenario.list", "arguments": {}},
     ]
+
+
+# ---------------------------------------------------------------------------
+# Goal-to-plan: map natural-language goal keywords to tool steps.
+# ---------------------------------------------------------------------------
+
+_GOAL_PATTERNS: list[tuple[list[str], list[dict[str, Any]]]] = [
+    (
+        ["desktop", "window", "screen", "screenshot", "display"],
+        [
+            {"id": "desktop_windows", "tool": "desktop.windows", "arguments": {"include_displays": True}},
+            {"id": "desktop_screenshot", "tool": "desktop.screenshot", "arguments": {}},
+        ],
+    ),
+    (
+        ["browser", "web", "search", "url"],
+        [
+            {"id": "browser_search", "tool": "browser.search", "arguments": {"query": "status"}},
+        ],
+    ),
+    (
+        ["mobile", "phone", "adb", "poco"],
+        [
+            {"id": "mobile_preflight", "tool": "mobile.preflight", "arguments": {}},
+            {"id": "mobile_observe", "tool": "mobile.observe", "arguments": {}},
+        ],
+    ),
+    (
+        ["mumu", "emulator", "android"],
+        [
+            {"id": "mumu_info", "tool": "mumu.info", "arguments": {}},
+            {"id": "mumu_screenshot", "tool": "mumu.screenshot", "arguments": {}},
+        ],
+    ),
+    (
+        ["code", "run", "script", "python", "exec"],
+        [
+            {"id": "code_run", "tool": "code.run", "arguments": {"language": "python", "code": "print('autopilot code step')"}},
+        ],
+    ),
+    (
+        ["file", "fs", "read", "write", "directory"],
+        [
+            {"id": "fs_list", "tool": "fs.list", "arguments": {"path": "."}},
+        ],
+    ),
+    (
+        ["scenario", "mission", "flight"],
+        [
+            {"id": "scenario_list", "tool": "scenario.list", "arguments": {}},
+        ],
+    ),
+    (
+        ["capability", "gap"],
+        [
+            {"id": "gap_list", "tool": "capability_gap.list", "arguments": {}},
+        ],
+    ),
+    (
+        ["ship", "preflight", "status", "health", "check"],
+        [
+            {"id": "ship_preflight", "tool": "ship.preflight", "arguments": {}},
+            {"id": "ship_status", "tool": "ship.status", "arguments": {}},
+        ],
+    ),
+]
+
+
+def _plan_from_goal(goal: str) -> list[dict[str, Any]]:
+    """Derive tool steps from a goal string by keyword matching.
+
+    Returns matching steps, or a safe default checklist if no keywords match.
+    """
+    goal_lower = goal.lower()
+    steps: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for keywords, pattern_steps in _GOAL_PATTERNS:
+        if any(kw in goal_lower for kw in keywords):
+            for s in pattern_steps:
+                if s["id"] not in seen_ids:
+                    steps.append(s)
+                    seen_ids.add(s["id"])
+    if not steps:
+        # Fallback: full ship check
+        steps = _default_steps()
+    return steps
 
 
 def _mcp_call(port: int, token: str, tool: str, arguments: dict[str, Any], timeout: int) -> dict[str, Any]:
@@ -108,6 +201,125 @@ def report(run_id: str) -> dict[str, Any]:
     return {"ok": True, "run": run, "markdown": md, "json_path": str(_run_path(run_id)), "markdown_path": str(md_path)}
 
 
+# ---------------------------------------------------------------------------
+# v4.149.0: cancel
+# ---------------------------------------------------------------------------
+
+def cancel(run_id: str) -> dict[str, Any]:
+    """Mark a running autopilot run as cancelled."""
+    run = _load(run_id)
+    if run.get("status") not in ("running", "paused"):
+        return {"ok": False, "error": f"run is already {run.get('status')}, cannot cancel", "run_id": run_id}
+    run["status"] = "cancelled"
+    run["outcome"] = "cancelled by operator"
+    run["finished_at"] = _now()
+    _save(run)
+    return {"ok": True, "run_id": run_id, "status": "cancelled"}
+
+
+# ---------------------------------------------------------------------------
+# v4.149.0: step — execute one step in an existing run
+# ---------------------------------------------------------------------------
+
+def step(
+    *,
+    run_id: str,
+    tool: str,
+    arguments: dict[str, Any] | None = None,
+    step_id: str = "",
+    timeout: int = 60,
+    port: int = 8765,
+    token: str = "",
+) -> dict[str, Any]:
+    """Execute one step inside an existing autopilot run and persist it.
+
+    The run does not need to be in 'running' state — this also works for
+    completed/partial runs, effectively appending a follow-up step.
+    """
+    run = _load(run_id)
+    sid = step_id or f"step{len(run.get('steps', [])) + 1}"
+    if not tool:
+        return {"ok": False, "error": "tool is required", "run_id": run_id}
+    try:
+        result = _mcp_call(port, token, tool, arguments or {}, timeout)
+        step_rec = {"id": sid, "tool": tool, "arguments": arguments or {}, "ok": (not result.get("_raw_is_error") and result.get("ok", True) is not False), "result": result, "executed_at": _now()}
+    except Exception as exc:
+        step_rec = {"id": sid, "tool": tool, "arguments": arguments or {}, "ok": False, "error": f"{type(exc).__name__}: {exc}", "executed_at": _now()}
+    run.setdefault("steps", []).append(step_rec)
+    # Re-evaluate overall status
+    failed = [s for s in run["steps"] if not s.get("ok")]
+    run["status"] = "partial" if failed else "nominal"
+    run["outcome"] = "in progress" if run.get("status") == "running" else ("completed with failures" if failed else "completed")
+    run["updated_at"] = _now()
+    _save(run)
+    return {"ok": True, "run_id": run_id, "step": step_rec, "step_count": len(run["steps"]), "status": run["status"]}
+
+
+# ---------------------------------------------------------------------------
+# v4.149.0: artifacts — collect artifacts from run steps
+# ---------------------------------------------------------------------------
+
+def artifacts(run_id: str) -> dict[str, Any]:
+    """Collect all artifacts (results, paths, screenshots) from a run."""
+    run = _load(run_id)
+    arts: list[dict[str, Any]] = []
+    for s in run.get("steps") or []:
+        entry: dict[str, Any] = {"step_id": s.get("id"), "tool": s.get("tool"), "ok": s.get("ok")}
+        result = s.get("result") or {}
+        # Collect notable keys from result
+        for key in ("path", "screenshot", "file", "json_path", "markdown_path", "url", "artifacts", "text"):
+            if key in result:
+                entry[key] = result[key]
+        if s.get("error"):
+            entry["error"] = s["error"]
+        arts.append(entry)
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "artifact_count": len(arts),
+        "artifacts": arts,
+        "json_path": str(_run_path(run_id)),
+    }
+
+
+# ---------------------------------------------------------------------------
+# v4.149.0: from_goal — plan steps from goal, then execute
+# ---------------------------------------------------------------------------
+
+def from_goal(
+    *,
+    goal: str,
+    constraints: list[str] | None = None,
+    max_steps: int = 12,
+    timeout_per_step: int = 60,
+    create_record: bool = True,
+    scenario_name: str = "",
+    port: int = 8765,
+    token: str = "",
+) -> dict[str, Any]:
+    """Plan steps from a natural-language goal, then execute them.
+
+    This is the planner entry-point: goal → keyword matching → tool steps → start.
+    """
+    if not goal:
+        return {"ok": False, "error": "goal is required"}
+    planned_steps = _plan_from_goal(goal)[:max(1, min(int(max_steps or 12), 60))]
+    result = start(
+        goal=goal,
+        steps=planned_steps,
+        constraints=constraints,
+        max_steps=max_steps,
+        timeout_per_step=timeout_per_step,
+        create_record=create_record,
+        scenario_name=scenario_name,
+        port=port,
+        token=token,
+    )
+    result["planned_steps"] = [{"id": s["id"], "tool": s["tool"]} for s in planned_steps]
+    result["planner"] = "keyword"
+    return result
+
+
 def start(
     *,
     goal: str,
@@ -141,16 +353,16 @@ def start(
         tool = str(spec.get("tool") or "").strip()
         args = spec.get("arguments") or {}
         if not tool:
-            step = {"id": sid, "ok": False, "error": "missing tool"}
+            step_rec = {"id": sid, "ok": False, "error": "missing tool"}
         else:
             try:
                 result = _mcp_call(port, token, tool, args, int(spec.get("timeout", timeout_per_step) or timeout_per_step))
-                step = {"id": sid, "tool": tool, "arguments": args, "ok": (not result.get("_raw_is_error") and result.get("ok", True) is not False), "result": result}
+                step_rec = {"id": sid, "tool": tool, "arguments": args, "ok": (not result.get("_raw_is_error") and result.get("ok", True) is not False), "result": result}
             except Exception as exc:
-                step = {"id": sid, "tool": tool, "arguments": args, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
-        run["steps"].append(step)
+                step_rec = {"id": sid, "tool": tool, "arguments": args, "ok": False, "error": f"{type(exc).__name__}: {exc}"}
+        run["steps"].append(step_rec)
         _save(run)
-        if not step.get("ok") and not bool(spec.get("continue_on_error", True)):
+        if not step_rec.get("ok") and not bool(spec.get("continue_on_error", True)):
             break
     failed = [s for s in run["steps"] if not s.get("ok")]
     run["status"] = "partial" if failed else "nominal"
@@ -185,4 +397,4 @@ def start(
     return {"ok": True, "run_id": run_id, "status": run["status"], "outcome": run["outcome"], "scenario": scenario, "step_count": len(run["steps"]), "path": str(_run_path(run_id))}
 
 
-__all__ = ["list_runs", "report", "start", "status"]
+__all__ = ["artifacts", "cancel", "from_goal", "list_runs", "report", "start", "status", "step"]

@@ -55,6 +55,31 @@ def handle_mission_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, An
         return text_content(json.dumps(_autopilot.report(str(args.get("run_id") or "")), ensure_ascii=False))
     if name == "mission.autopilot_list":
         return text_content(json.dumps(_autopilot.list_runs(int(args.get("limit", 20) or 20)), ensure_ascii=False))
+    if name == "mission.autopilot_cancel":
+        return text_content(json.dumps(_autopilot.cancel(str(args.get("run_id") or "")), ensure_ascii=False))
+    if name == "mission.autopilot_step":
+        return text_content(json.dumps(_autopilot.step(
+            run_id=str(args.get("run_id") or ""),
+            tool=str(args.get("tool") or ""),
+            arguments=args.get("arguments") if isinstance(args.get("arguments"), dict) else None,
+            step_id=str(args.get("step_id") or ""),
+            timeout=int(args.get("timeout", 60) or 60),
+            port=port,
+            token=token,
+        ), ensure_ascii=False))
+    if name == "mission.autopilot_artifacts":
+        return text_content(json.dumps(_autopilot.artifacts(str(args.get("run_id") or "")), ensure_ascii=False))
+    if name == "mission.autopilot_from_goal":
+        return text_content(json.dumps(_autopilot.from_goal(
+            goal=str(args.get("goal") or ""),
+            constraints=args.get("constraints") if isinstance(args.get("constraints"), list) else None,
+            max_steps=int(args.get("max_steps", 12) or 12),
+            timeout_per_step=int(args.get("timeout_per_step", 60) or 60),
+            create_record=bool(args.get("create_record", True)),
+            scenario_name=str(args.get("scenario") or args.get("scenario_name") or ""),
+            port=port,
+            token=token,
+        ), ensure_ascii=False))
 
     mission_name = quote(str(args.get("mission_id", "") or args.get("name", "")), safe="")
     if name == "mission.templates":
