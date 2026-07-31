@@ -1,3 +1,25 @@
+## v4.152.0 - Interactive Input Helper
+
+### Added
+- **Interactive Input Helper** (`arena/input_helper/helper_server.py`): standalone Python micro-server that runs in the user's interactive desktop session and accepts input commands from the bridge via localhost HTTP. Solves the Session 0 limitation where the bridge cannot send hardware input (SendInput/SetCursorPos) to GUI windows.
+- **`input_helper.health`**: check if the helper is running.
+- **`input_helper.click`**: real hardware mouse click via SendInput — works for Java Swing, LWJGL, any GUI application.
+- **`input_helper.move`**: move mouse cursor to absolute screen coordinates.
+- **`input_helper.type`**: type unicode text via SendInput UNICODE into the focused window.
+- **`input_helper.key`**: press a named key with optional modifiers (e.g. `enter`, `escape`, `f3`, `a` with `['ctrl']`).
+- **`input_helper.launch`**: launch an application in the user's interactive session (solves Legacy Launcher / Java GUI launch gap).
+- **`input_helper.send_chat_command`**: Minecraft-specific: focus window → press `/` → type command → press Enter, all via real SendInput. No more `<` suffix or WM_CHAR workarounds.
+- **`arena/input_helper/client.py`**: bridge-side client library with health check, auto-discovery, and all input operations.
+
+### Architecture
+- Helper listens on `127.0.0.1:19222` (loopback-only, never exposed to network)
+- Optional bearer token authentication
+- Bridge detects helper via health probe and routes input through it
+- Resolves capability gaps: Java Swing clicks, LWJGL mouse camera control, interactive-session app launching
+
+### Motivation
+Discovered during Minecraft gameplay session: bridge in Windows Session 0 cannot send hardware input to interactive-session GUI windows. Java Swing (Legacy Launcher) ignores synthetic WM messages, LWJGL (Minecraft) needs SendInput for mouse/camera control.
+
 ## v4.151.0 - Enhanced Audit Trail
 
 ### Added
