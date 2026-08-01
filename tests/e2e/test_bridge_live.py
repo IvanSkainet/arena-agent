@@ -145,10 +145,16 @@ def bridge(tmp_path_factory):
     try:
         # aiohttp lets in-flight handlers finish; the SSE keepalive loop can
         # hold shutdown for up to its sleep cycle, so give SIGTERM real time
-        # before escalating.
+        # before escalating. On Windows terminate() is TerminateProcess —
+        # no graceful-shutdown signal exists and the return code is the
+        # forced exit status (observed 1), so only POSIX asserts signal
+        # semantics; on Windows the contract is just "the process died".
         proc.wait(timeout=30)
-        assert proc.returncode in (0, -15, 15), \
-            f"graceful shutdown expected, got rc={proc.returncode}"
+        if os.name != "nt":
+            assert proc.returncode in (0, -15, 15), \
+                f"graceful shutdown expected, got rc={proc.returncode}"
+        else:
+            assert proc.returncode is not None
     except subprocess.TimeoutExpired:
         proc.kill()
         proc.wait(timeout=5)
