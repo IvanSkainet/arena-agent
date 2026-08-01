@@ -1,0 +1,33 @@
+# Optional local guard-rails (P2 from docs/github_apps_actions_survey.md).
+# install once:  pip install pre-commit && pre-commit install
+#
+# CI remains the source of truth: nothing here REPLACES the blocking
+# gates (lint/quality ratchets, import contracts, packaging+e2e). This
+# only keeps obvious debt/credentials from ever reaching a commit.
+# Fixer hooks that rewrite files (trailing-whitespace, end-of-file) are
+# deliberately NOT enabled: the legacy tree still carries W291/W293
+# debt tracked by the lint ratchet, and silent mass-rewrites are worse
+# than visible debt (green-checkmark fallacy — see AGENTS.md).
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: detect-private-key
+      - id: check-added-large-files
+        args: ["--maxkb=2048"]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+
+  # Ruff from the ACTIVE environment, not a floating pre-commit mirror:
+  # violation counts are version-sensitive and CI pins ruff==0.16.1
+  # (see requirements-lint.lock), so the local hook must use the same
+  # interpreter the lock installed.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (uses repo-pinned environment)
+        entry: python -m ruff check
+        language: system
+        types: [python]
+        require_serial: true

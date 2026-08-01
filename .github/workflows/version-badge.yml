@@ -12,11 +12,14 @@ on:
       - master
   workflow_dispatch: {}
 
-permissions:
-  contents: write
+# Scorecard Token-Permissions: top-level must grant NOTHING; the single
+# job that pushes the badge commit declares its write scope itself.
+permissions: {}
 
 jobs:
   refresh:
+    permissions:
+      contents: write  # bot badge commit + push to master
     runs-on: ubuntu-latest
     steps:
       - name: Harden Runner (audit mode, egress visibility)

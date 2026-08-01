@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hmac
+import os
 import socket
 from dataclasses import dataclass
 from pathlib import Path
@@ -56,9 +57,12 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
         rel = request.match_info.get("path", "")
         asset_root = (Path(ctx.bridge_dir) / "dashboard" / "assets").resolve()
         asset_path = (asset_root / rel).resolve()
-        try:
-            asset_path.relative_to(asset_root)
-        except ValueError:
+        # Containment guard (path-traversal / CodeQL py/path-injection):
+        # resolve() collapses ".." AND symlinks, then the resolved path
+        # must sit INSIDE asset_root. The os.sep suffix also rejects
+        # prefix-sharing siblings (e.g. "assets-evil/"). Replaces the old
+        # relative_to-in-try form so static analysis can see the check.
+        if not str(asset_path).startswith(str(asset_root) + os.sep):
             return web.Response(status=404, text="not found")
         if not asset_path.is_file():
             return web.Response(status=404, text="not found")

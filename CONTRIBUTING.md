@@ -58,6 +58,13 @@ debt remains (it writes per-rule tables to the job summary). It is the
 noise route for the residual backlog — do not treat its redness as a
 broken build, and do not silence it; lower the debt instead.
 
+Optional local hooks (P2): `pip install pre-commit && pre-commit
+install` activates `.pre-commit-config.yaml` — private-key detection,
+YAML/TOML/merge-conflict checks, large-file guard, and ruff executed
+from YOUR active environment (so it matches the CI-pinned ruff, not a
+floating mirror build). These are convenience guard-rails only; the CI
+ratchets stay the source of truth.
+
 Targeted checks for browser-extension work:
 
 ```bash
