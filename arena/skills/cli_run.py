@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.skills.cli_common import *  # noqa: F401,F403
 
+
 def run_skill(args) -> int:
     _fire_hook("pre_skill", getattr(args, "name", ""), {"args": getattr(args, "skill_args", [])})
     d = find_skill_dir(args.name)

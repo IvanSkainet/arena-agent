@@ -4,6 +4,7 @@ from __future__ import annotations
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
+
 class CDPTabConnectionMixin:
     async def connect(self) -> None:
         """Establish a CDP WebSocket connection to this tab.

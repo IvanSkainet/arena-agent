@@ -12,7 +12,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -21,8 +20,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_sections_derives_from_registry():
     """``arena.inventory.report.SECTIONS`` MUST be built from REGISTRY
     (no hand-maintained duplicate list)."""
-    from arena.inventory.report import SECTIONS
     from arena.inventory.registry import REGISTRY
+    from arena.inventory.report import SECTIONS
     reg_names = [s.name for s in REGISTRY]
     sec_names = [name for name, _ in SECTIONS]
     assert reg_names == sec_names, (

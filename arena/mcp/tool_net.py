@@ -30,10 +30,10 @@ require explicit approval, rather than hiding sudo inside a general
 from __future__ import annotations
 
 import base64
-import subprocess
 import json
 import os
 import platform
+import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,7 +42,6 @@ from typing import Any
 
 from arena.mcp.tool_utils import text_content
 from arena.security_ssrf import _validate_url
-
 
 _MAX_RESPONSE_BYTES = 2 * 1024 * 1024  # 2 MiB cap on returned body
 _DEFAULT_TIMEOUT = 20.0

@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from arena import constants
-
 from tests._version_matrix import (
     BRIDGE_VERSIONS,
     EXT_VERSIONS,
@@ -21,7 +20,6 @@ from tests._version_matrix import (
     constants_snippets,
     pyproject_snippets,
 )
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

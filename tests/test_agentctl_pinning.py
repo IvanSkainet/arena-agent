@@ -20,7 +20,6 @@ from pathlib import Path
 
 import pytest
 
-
 from arena.agentctl_cli import pinning
 from arena.agentctl_cli.pinning import (
     TLSPinMismatchError,

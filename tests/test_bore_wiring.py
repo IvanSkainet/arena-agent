@@ -182,8 +182,8 @@ def test_wiring_platform_registers_bore_tunnel_handler():
 # sync_factories: make_bore_status_sync exists and has the right shape
 # ---------------------------------------------------------------------------
 def test_make_bore_status_sync_returns_callable(tmp_path, monkeypatch):
-    from arena.admin.sync_factories import make_bore_status_sync
     from arena.admin import bore as bore_mod
+    from arena.admin.sync_factories import make_bore_status_sync
 
     # Reset the module-level BORE_STATE explicitly -- earlier tests
     # in the suite may have left a fake Popen sitting in ``proc``,

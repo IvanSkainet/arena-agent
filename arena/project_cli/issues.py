@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.project_cli.common import *  # noqa: F401,F403
 
+
 def issue_new(args):
     p=project_path(args.name); d=p/'issues/open'; d.mkdir(parents=True, exist_ok=True); iid=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+uuid.uuid4().hex[:6]
     obj={'id':iid,'title':args.title,'body':args.body or '','state':'open','created_at':now()}
@@ -26,7 +27,7 @@ def issue_close(args):
     print(args.id)
 
 def attach_report(args):
-    p=project_path(args.name); src=Path(args.file).expanduser();
+    p=project_path(args.name); src=Path(args.file).expanduser()
     if not src.exists(): raise SystemExit('file not found')
     dst=p/'reports'/src.name; dst.parent.mkdir(parents=True,exist_ok=True); shutil.copy2(src,dst); print(str(dst))
 

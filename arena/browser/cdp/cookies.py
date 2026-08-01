@@ -9,8 +9,8 @@ from arena.browser.cdp.cookie_crud import (
     make_cdp_cookies_get_handler,
     make_cdp_cookies_set_handler,
 )
-from arena.browser.cdp.cookie_profiles import make_cdp_cookies_profiles_handler
 from arena.browser.cdp.cookie_manager import ensure_cookie_manager
+from arena.browser.cdp.cookie_profiles import make_cdp_cookies_profiles_handler
 from arena.handler_context import CdpCookiesHandlerContext
 
 

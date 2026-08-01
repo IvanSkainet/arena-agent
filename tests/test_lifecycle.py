@@ -9,7 +9,13 @@ from aiohttp import web
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.app_keys import APP_CFG, APP_FILE_WATCH_LOOP, APP_LOG_CLEANUP, APP_MISSION_SCHEDULE_LOOP, APP_TASK_RUNNER  # noqa: E402
+from arena.app_keys import (  # noqa: E402
+    APP_CFG,
+    APP_FILE_WATCH_LOOP,
+    APP_LOG_CLEANUP,
+    APP_MISSION_SCHEDULE_LOOP,
+    APP_TASK_RUNNER,
+)
 from arena.lifecycle import LifecycleContext, make_lifecycle  # noqa: E402
 
 

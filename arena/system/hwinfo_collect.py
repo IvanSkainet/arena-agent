@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.system.hwinfo_cim import *  # noqa: F401,F403
 
+
 def collect_full():
     info = {
         "os": {
@@ -21,7 +22,7 @@ def collect_full():
         "network": {},
         "processes": {}
     }
-    
+
     if info["os"]["name"] == "Windows":
         try:
             build = int(info["os"]["version"].split('.')[-1])
@@ -51,7 +52,7 @@ def collect_full():
 
         # 2. CPU Full Details
         info["cpu"] = get_cim_all_list("Win32_Processor")
-        
+
         # 3. GPU Full Details
         gpus = get_cim_all_list("Win32_VideoController")
         for g in gpus:
@@ -65,7 +66,7 @@ def collect_full():
             res = subprocess.run("powershell -NoProfile -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory | ConvertTo-Json -Compress\"", capture_output=True, text=True, shell=True)
             if res.stdout.strip():
                 ram_os = json.loads(res.stdout)
-                
+
             if "TotalVisibleMemorySize" in ram_os:
                 total = int(ram_os["TotalVisibleMemorySize"])
                 free = int(ram_os.get("FreePhysicalMemory", 0))
@@ -123,12 +124,12 @@ def collect_full():
     else:
         info["cpu"]["logical_processors"] = os.cpu_count()
         info["ram"]["total_gb"] = "N/A (Linux/macOS fallback)"
-        
+
     return info
 
 def collect_standard():
     info = collect_full()
-    
+
     os_data = info.get("os", {})
     board = info.get("motherboard", {})
     cpu_raw = info.get("cpu") or {}
@@ -138,7 +139,7 @@ def collect_standard():
     ram = info.get("ram", {})
     disks = info.get("storage", {})
     network = info.get("network", {}).get("adapters", [])
-    
+
     return {
         "os": {
             "name_pretty": os_data.get("name_pretty"),

@@ -1,8 +1,9 @@
 """Interactive chat REPL loop."""
 from __future__ import annotations
 
-from arena.chat_cli.common import *  # noqa: F401,F403
 from arena.chat_cli.commands import *  # noqa: F401,F403
+from arena.chat_cli.common import *  # noqa: F401,F403
+
 
 def repl(session_path: Path, mode: str) -> int:
     proj = current_project() or "-"
@@ -112,7 +113,8 @@ def repl(session_path: Path, mode: str) -> int:
                 secs = int(arg.strip()) if arg.strip() else 120
             except ValueError:
                 secs = 120
-            import json as _json, time as _time
+            import json as _json
+            import time as _time
             start_size = session_path.stat().st_size
             deadline = _time.monotonic() + secs
             found = None

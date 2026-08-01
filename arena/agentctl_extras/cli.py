@@ -8,7 +8,6 @@ from arena.agentctl_extras.integrations import cmd_beep, cmd_mcp_install
 from arena.agentctl_extras.maintenance import cmd_doctor_fix, cmd_update
 from arena.agentctl_extras.status import cmd_ctx, run_status
 
-
 CMDS = {
     "status": run_status,
     "ctx": cmd_ctx,

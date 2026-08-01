@@ -164,6 +164,7 @@ class _FakeReq:
 
 def _make_runtime(tmp_users=None):
     from pathlib import Path
+
     from arena.auth.runtime import AuthRuntimeContext, make_auth_runtime
     from arena.auth.users import UserStore
     users_file = tmp_users or Path("/tmp/arena-test-users-nonexistent.json")

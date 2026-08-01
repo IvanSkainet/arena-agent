@@ -5,9 +5,13 @@ import json
 from datetime import datetime, timezone
 from typing import Any
 
-from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profile, normalize_memory_profile_filter, validate_memory_profile
 from arena.mcp.tool_utils import text_content
-
+from arena.memory.profiles import (
+    DEFAULT_MEMORY_PROFILE,
+    normalize_memory_profile,
+    normalize_memory_profile_filter,
+    validate_memory_profile,
+)
 
 # v4.78.0: bare 'mem.set' / 'mem.get' names removed
 # (the v4.71.0 deprecation window has expired). The

@@ -8,8 +8,13 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MemoryHandlerContext
-from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profile, normalize_memory_profile_filter, validate_memory_profile
 from arena.handler_helpers import authed, err_json
+from arena.memory.profiles import (
+    DEFAULT_MEMORY_PROFILE,
+    normalize_memory_profile,
+    normalize_memory_profile_filter,
+    validate_memory_profile,
+)
 
 
 @dataclass(frozen=True)

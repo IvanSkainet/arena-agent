@@ -7,8 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from arena.autonomy import posture as _posture
-from arena.autonomy import runner as _runner
+from arena.autonomy import posture as _posture, runner as _runner
 from arena.constants import VERSION
 from arena.mcp_client import get_manager
 from arena.mobile import preflight as mobile_preflight

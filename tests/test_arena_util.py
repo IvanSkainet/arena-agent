@@ -41,7 +41,6 @@ from unittest import mock
 
 import pytest
 
-
 try:
     from arena import util
 except Exception:  # pragma: no cover

@@ -26,10 +26,8 @@ from pathlib import Path
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
-from arena.mobile import audio_capture as _audio
-from arena.mobile import preflight as _preflight
-from arena.mobile.adb import find_adb as _find_adb
-from arena.mobile.adb import install_hint as _adb_install_hint
+from arena.mobile import audio_capture as _audio, preflight as _preflight
+from arena.mobile.adb import find_adb as _find_adb, install_hint as _adb_install_hint
 
 _MAX_PULL_BYTES = 100 * 1024 * 1024  # 100 MiB safety cap on pulled files
 _DEFAULT_ADB_TIMEOUT = 60

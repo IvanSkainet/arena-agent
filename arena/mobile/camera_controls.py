@@ -19,7 +19,6 @@ from typing import Any
 from arena.mobile import camera as _cam
 from arena.mobile.input import tap as _tap
 
-
 # Per-serial cache of the last successfully detected shutter position.
 # When the camera preview covers the whole screen with a GL surface
 # (common on HyperOS during video recording) `uiautomator dump`

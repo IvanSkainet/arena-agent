@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
+
 def list_tabs(port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:
     """List all browser tabs via the HTTP debug endpoint."""
     url = f"http://127.0.0.1:{port}/json/list"

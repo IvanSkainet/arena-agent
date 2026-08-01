@@ -21,22 +21,22 @@ def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
             format: "png" | "base64" (default: "base64")
             save_path: string (optional, save to file on host)
         """
-    
+
         qs = parse_qs(request.query_string)
         tab_id = qs.get("tab_id", [None])[0]
         fmt = qs.get("format", ["base64"])[0]
         save_path = qs.get("save_path", [None])[0]
-    
+
         tab, err = await ctx.cdp_active_tab(tab_id)
         if err: return err
-    
+
         try:
             # v2.3.0: Hard timeout — 18s CDP, 20s asyncio
             img_bytes = await asyncio.wait_for(tab.screenshot(path=save_path, timeout=18), timeout=20)
             if img_bytes is None:
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": "Screenshot returned no data"}, status=500)
-        
+
             if fmt == "base64":
                 import base64 as _b64
                 b64_data = _b64.b64encode(img_bytes).decode("ascii")
@@ -73,27 +73,27 @@ def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
         Query params:
             tab_id: string (optional)
         """
-    
+
         qs = parse_qs(request.query_string)
         tab_id = qs.get("tab_id", [None])[0]
-    
+
         tab, err = await ctx.cdp_active_tab(tab_id)
         if err: return err
-    
+
         try:
             # v2.3.0: Hard timeout — 18s CDP, 20s asyncio
             html = await asyncio.wait_for(tab.dump_dom(timeout=18), timeout=20)
             if html is None:
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": "Failed to dump DOM"}, status=500)
-        
+
             # Truncate if too large
             max_len = ctx.default_max_output
             truncated = False
             if len(html) > max_len:
                 html = html[:max_len] + f"\n...[truncated {len(html) - max_len} chars]"
                 truncated = True
-        
+
             return ctx.cors_json_response({
                 "ok": True,
                 "html": html,

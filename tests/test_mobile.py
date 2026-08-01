@@ -11,12 +11,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.mobile import adb as _adb
-from arena.mobile import devices as _devices
-from arena.mobile import input as _input
-from arena.mobile import packages as _packages
-from arena.mobile import screenshot as _screenshot
-from arena.mobile import shell as _shell
+from arena.mobile import (
+    adb as _adb,
+    devices as _devices,
+    input as _input,
+    packages as _packages,
+    screenshot as _screenshot,
+    shell as _shell,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -474,6 +476,7 @@ def test_ui_interactive_predicate():
     """The interactive filter should catch clickable/scrollable AND
     label-only nodes that carry text or content-desc."""
     import xml.etree.ElementTree as ET
+
     from arena.mobile.ui import _is_interactive
 
     def _node(**attrs):
@@ -493,8 +496,7 @@ def test_ui_interactive_predicate():
 def test_dump_ui_parses_synthetic_xml(monkeypatch):
     """Feed a minimal known-good XML through dump_ui and assert on the
     parsed shape without an actual device."""
-    from arena.mobile import ui as _ui
-    from arena.mobile import adb as _adb2
+    from arena.mobile import adb as _adb2, ui as _ui
 
     class _Result:
         def __init__(self):
@@ -712,8 +714,9 @@ def test_screenshot_encode_webp_and_jpeg_produce_bytes():
     except Exception:
         import pytest
         pytest.skip("Pillow not installed on this host")
-    from arena.mobile.screenshot import _encode
     import io as _io
+
+    from arena.mobile.screenshot import _encode
     img = Image.new("RGB", (32, 32), color=(200, 30, 30))
     jpg_buf = _io.BytesIO()
     _encode(img, jpg_buf, fmt="jpeg", quality=80)

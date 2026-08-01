@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import argparse
 
-from arena.mcp.standalone_common import ThreadingHTTPServer, VERSION
+from arena.mcp.standalone_common import VERSION, ThreadingHTTPServer
 from arena.mcp.standalone_http import H
 
 

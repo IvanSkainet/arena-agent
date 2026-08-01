@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.web_utils import CORS_HEADERS, _cors_json_response, cors_json_response  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.web_utils import CORS_HEADERS, _cors_json_response, cors_json_response  # noqa: E402
 
 
 def test_cors_json_response_headers():

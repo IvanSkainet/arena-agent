@@ -300,6 +300,7 @@ def test_zerotier_central_routes_in_registry():
 
 def test_zerotier_central_routes_wired_into_app():
     import asyncio
+
     import unified_bridge as ub
     app = ub.make_app({
         "token": "test", "profile": "owner-shell", "root": Path("/tmp"),

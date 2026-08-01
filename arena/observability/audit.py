@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.constants import AUDIT_CMD_LIMIT
+
 # v4.45.0: redaction primitives now live in a shared module so
 # every emit-site (audit log, request log, exception formatters,
 # future structured-logging sink) uses the exact same rules.

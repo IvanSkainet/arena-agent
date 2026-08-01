@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.system.sysinfo import collect_sysinfo, sysinfo_cim_cpu_counts  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.system.sysinfo import collect_sysinfo, sysinfo_cim_cpu_counts  # noqa: E402
 
 
 def test_collect_sysinfo_basic_shape(tmp_path):

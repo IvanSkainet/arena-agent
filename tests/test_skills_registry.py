@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.skills.registry import parse_skill_folder, scan_skills  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.skills.registry import parse_skill_folder, scan_skills  # noqa: E402
 
 
 def test_scan_skills_category_and_third_party(tmp_path):

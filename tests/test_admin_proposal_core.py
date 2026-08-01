@@ -27,20 +27,23 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.admin.proposal import (   # noqa: E402
+from arena.admin.proposal import (  # noqa: E402
     BRANCH_PREFIX,
+    STATE_APPLYING,
+    STATE_FAILED,
+    STATE_PASSED,
+    STATE_QUEUED,
+    STATE_REJECTED,
+    STATE_TESTING,
     Proposal,
     ProposalStore,
-    STATE_QUEUED, STATE_APPLYING, STATE_TESTING,
-    STATE_PASSED, STATE_FAILED, STATE_REJECTED,
     apply_diff,
+    cleanup_worktree,
     commit_proposal,
     create_worktree,
-    cleanup_worktree,
     validate_diff,
     validate_metadata,
 )
-
 
 # ---------------------------------------------------------------------------
 # Pre-flight filters
@@ -458,6 +461,7 @@ def test_pick_pytest_python_falls_back_when_no_candidate_has_pytest(monkeypatch)
     and produce a clear ModuleNotFoundError in the tests_tail.
     Silent success would hide the real problem."""
     import sys as _sys
+
     from arena.admin import handlers_proposal as mod
 
     class _R:

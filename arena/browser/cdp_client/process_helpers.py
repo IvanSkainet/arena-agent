@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
+
 def _ts() -> str:
     """Return a timestamp string for logging."""
     return time.strftime("%H:%M:%S", time.localtime())
@@ -18,8 +19,8 @@ def _drain_stderr(proc, log_path):
 
 def _kill_port_processes(port: int) -> list:
     """Kill any process listening on the given TCP port. Returns list of killed PIDs."""
-    import signal as _signal
     import re
+    import signal as _signal
     killed = []
     # Try with ss first
     try:

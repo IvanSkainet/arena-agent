@@ -8,7 +8,6 @@ from arena.resources.mission_lineage import build_followup_lineage
 from arena.resources.mission_recovery import _followup_context, _followup_goal, recover_mission_bundle
 
 
-
 def _source_constraints(mission: dict[str, Any], constraints: list[str] | None) -> list[str]:
     return list(constraints if constraints is not None else mission.get("constraints") or [])
 

@@ -13,10 +13,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.files.handlers import make_file_handlers  # noqa: E402
 from arena.files.fs_view_create import make_fs_view_create_handlers  # noqa: E402
-from arena.handler_context import FileHandlerContext  # noqa: E402
+from arena.files.handlers import make_file_handlers  # noqa: E402
 from arena.files.safe_edit import apply_preview, create_preview, rollback_change  # noqa: E402
+from arena.handler_context import FileHandlerContext  # noqa: E402
 
 
 def _ctx(tmp_path: Path) -> FileHandlerContext:
@@ -58,7 +58,8 @@ def test_files_modules_free_of_manual_auth_prelude():
     """Confirm the inline ``r = ctx.require_auth(request); if r: return r``
     prelude has been removed from both file modules."""
     import inspect
-    from arena.files import handlers as _fh, fs_view_create as _fvc
+
+    from arena.files import fs_view_create as _fvc, handlers as _fh
     for mod in (_fh, _fvc):
         src = inspect.getsource(mod)
         assert "r = ctx.require_auth(request)" not in src, (

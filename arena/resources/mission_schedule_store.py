@@ -7,7 +7,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 _ACTIONS = {"run", "rerun_failed", "iterate"}
 
 

@@ -214,8 +214,9 @@ def test_apk_save_upload_rejects_tiny_file(tmp_path, monkeypatch):
 def test_apk_save_upload_writes_file_and_chains_to_prepare(tmp_path, monkeypatch):
     """Happy path: writes bytes to staging + returns sha + consent."""
     import hashlib
-    import zipfile
     import io as _io
+    import zipfile
+
     from arena.mobile import apk_install as _apk
     monkeypatch.setattr(_apk, "STAGING_ROOT", tmp_path)
     # Build a minimum ZIP-shaped payload.

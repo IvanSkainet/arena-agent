@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.files.sandbox import validate_edit_target, _EDIT_BLOCKED_BASENAMES  # noqa: E402
+from arena.files.sandbox import _EDIT_BLOCKED_BASENAMES, validate_edit_target  # noqa: E402
 from arena.mcp.tool_fs import handle_fs_tool  # noqa: E402
 
 
@@ -227,7 +227,8 @@ def test_rest_fs_edit_route_registered():
 
 def test_file_handlers_have_fs_edit_fields():
     """FileHandlers dataclass has safe-edit fields."""
-    from arena.files.handlers import FileHandlers
     import dataclasses
+
+    from arena.files.handlers import FileHandlers
     fields = {f.name for f in dataclasses.fields(FileHandlers)}
     assert {"fs_edit", "fs_edit_apply", "fs_edit_rollback"}.issubset(fields), f"missing fields: {fields}"

@@ -6,7 +6,10 @@ module became a package, plus the posture model and the fail-closed runner.
 """
 from arena.autonomy import posture, runner
 from arena.autonomy.yolo import (
-    YOLO_ACK_TOKEN, is_yolo, set_yolo, yolo_status,
+    YOLO_ACK_TOKEN,
+    is_yolo,
+    set_yolo,
+    yolo_status,
 )
 
 __all__ = [

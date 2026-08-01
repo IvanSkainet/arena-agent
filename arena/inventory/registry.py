@@ -35,7 +35,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
-
 LineFn = Callable[[dict], list[str]]
 
 
@@ -518,36 +517,62 @@ def _fmt_env(d: dict) -> list[str]:
 
 def build_registry() -> list[Section]:
     """Lazy import so this module has no import cycle with report.py."""
-    from arena.inventory.probe_identity import get_identity, get_os
-    from arena.inventory.probe_hardware import get_cpu, get_memory, get_gpu, get_motherboard
-    from arena.inventory.probe_devices import (
-        get_disks, get_storage_devices, get_pci_devices,
-        get_usb_devices, get_thermal, get_network, get_displays,
-    )
-    from arena.inventory.probe_sensors import (
-        get_battery, get_fans, get_audio, get_disk_smart, get_thermal_detail,
-    )
-    from arena.inventory.probe_agent_facts import (
-        get_top_processes, get_listening_ports, get_systemd_failed,
-        get_boot_time, get_kernel_modules, get_containers,
-        get_systemd_timers, get_network_io, get_updates_available,
-        get_logged_users, get_cpu_vulnerabilities,
-    )
     from arena.inventory.probe_agent_ctx import (
-        get_python_venvs, get_git_repos, get_env_secret_names,
         get_crontab_entries,
+        get_env_secret_names,
+        get_git_repos,
+        get_python_venvs,
         # v4.34.0: newly-modified files under user roots -- huge
         # context signal for agents deciding where the user is
         # working right now.
         get_recent_activity,
     )
+    from arena.inventory.probe_agent_facts import (
+        get_boot_time,
+        get_containers,
+        get_cpu_vulnerabilities,
+        get_kernel_modules,
+        get_listening_ports,
+        get_logged_users,
+        get_network_io,
+        get_systemd_failed,
+        get_systemd_timers,
+        get_top_processes,
+        get_updates_available,
+    )
     from arena.inventory.probe_agent_sys import (
-        get_dns_resolvers, get_dmesg_errors, get_journal_errors,
-        get_virtualization, get_time_sync, get_firewall_status,
+        get_dmesg_errors,
+        get_dns_resolvers,
+        get_firewall_status,
+        get_journal_errors,
+        get_time_sync,
+        get_virtualization,
+    )
+    from arena.inventory.probe_devices import (
+        get_disks,
+        get_displays,
+        get_network,
+        get_pci_devices,
+        get_storage_devices,
+        get_thermal,
+        get_usb_devices,
+    )
+    from arena.inventory.probe_hardware import get_cpu, get_gpu, get_memory, get_motherboard
+    from arena.inventory.probe_identity import get_identity, get_os
+    from arena.inventory.probe_sensors import (
+        get_audio,
+        get_battery,
+        get_disk_smart,
+        get_fans,
+        get_thermal_detail,
     )
     from arena.inventory.probe_software import (
-        get_runtimes, get_package_managers, get_browsers,
-        get_env, get_services, get_python_env,
+        get_browsers,
+        get_env,
+        get_package_managers,
+        get_python_env,
+        get_runtimes,
+        get_services,
     )
 
     S = Section

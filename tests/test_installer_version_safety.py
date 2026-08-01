@@ -8,10 +8,11 @@ Tests (no network, no actual install):
 4. install.sh uses `git merge --ff-only` for updates (non-destructive)
 5. install.bat includes the soft version-check (queries GitHub API, no auto-update)
 """
-from pathlib import Path
+import shutil
 import subprocess
 import sys
-import shutil
+from pathlib import Path
+
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]

@@ -10,13 +10,13 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.agentic.handlers import make_agentic_handlers  # noqa: E402
 from arena.agentic.runtime import AgenticRuntimeContext, make_agentic_runtime  # noqa: E402
 from arena.handler_context import AgenticHandlerContext  # noqa: E402
 from arena.mcp.tool_agentic import handle_agentic_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.planner.logic import build_plan  # noqa: E402
-import unified_bridge as ub  # noqa: E402
 
 
 def _runtime():

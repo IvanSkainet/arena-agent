@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.tasks.queue import clean_tasks, list_tasks, submit_task  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.tasks.queue import clean_tasks, list_tasks, submit_task  # noqa: E402
 
 
 def test_submit_and_list_tasks(tmp_path):

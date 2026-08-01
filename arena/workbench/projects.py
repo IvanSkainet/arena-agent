@@ -9,8 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from arena.autonomy import posture as _posture
-from arena.autonomy import runner as _runner
+from arena.autonomy import posture as _posture, runner as _runner
 from arena.workbench.runtimes import home
 
 

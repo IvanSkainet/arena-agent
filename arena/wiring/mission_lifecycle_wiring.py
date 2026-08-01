@@ -5,7 +5,6 @@ from arena.resources.mission_schedule_runtime import tick_mission_schedules_runt
 from arena.resources.mission_schedule_worker import MissionScheduleWorkerContext, make_mission_schedule_worker_runtime
 
 
-
 def build_mission_lifecycle_registry(env, registry: dict) -> None:
     rr = env._resource_runtime
 

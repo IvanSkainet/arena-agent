@@ -12,15 +12,17 @@ from pathlib import Path
 import pytest
 
 from arena import constants
-from arena.mcp.tool_registry import MCP_TOOLS
-from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
 from arena.extension_bridge.policy import (
-    _SAFE_TOOLS, _MEDIUM_TOOLS, _DANGEROUS_TOOLS, _DANGEROUS_PREFIXES,
+    _DANGEROUS_PREFIXES,
+    _DANGEROUS_TOOLS,
+    _MEDIUM_TOOLS,
+    _SAFE_TOOLS,
     classify_tool_risk,
 )
-from arena.mcp.tool_mobile import handle_mobile_tool, _ROUTES
+from arena.mcp.tool_mobile import _ROUTES, handle_mobile_tool
+from arena.mcp.tool_registry import MCP_TOOLS
+from arena.mcp.tool_registry_mobile import MOBILE_MCP_TOOLS
 from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

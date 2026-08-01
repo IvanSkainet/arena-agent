@@ -5,9 +5,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from arena.resources.mission_catalog import catalog_missions, extract_failed_steps, load_mission_json, mission_dir, summarize_mission_dir
+from arena.resources.mission_catalog import (
+    catalog_missions,
+    extract_failed_steps,
+    load_mission_json,
+    mission_dir,
+    summarize_mission_dir,
+)
 from arena.resources.mission_lineage import get_mission_lineage
-
 
 
 def get_mission_status(missions_dir: Path, name: str) -> dict[str, Any]:

@@ -1,10 +1,11 @@
 """system helper wiring for unified_bridge."""
 from __future__ import annotations
-from arena.system.notification import send_notification
 
 import os
 from pathlib import Path
 from typing import Any, MutableMapping
+
+from arena.system.notification import send_notification
 
 
 def build_system_helpers(g: MutableMapping[str, Any]) -> dict[str, Any]:

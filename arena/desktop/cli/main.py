@@ -5,6 +5,7 @@ from arena.desktop.cli.common import *  # noqa: F401,F403
 from arena.desktop.cli.input import click, key, move, type_text
 from arena.desktop.cli.screens import info, ocr, shot, windows
 
+
 def main():
     ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='cmd',required=True)
     sub.add_parser('info').set_defaults(func=info)

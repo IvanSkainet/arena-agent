@@ -7,7 +7,6 @@ from typing import Any
 from arena.resources.mission_catalog import mission_dir, summarize_mission_dir
 
 
-
 def _summaries(missions_dir: Path) -> list[dict[str, Any]]:
     if not missions_dir.exists():
         return []

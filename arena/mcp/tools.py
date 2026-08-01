@@ -9,12 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from arena.control import _agent_halt_block_for_tool
-from arena.mcp.custom_tools import handle_custom_tool
-from arena.mcp.custom_tools import tool_defs as custom_tool_defs
+from arena.mcp.custom_tools import handle_custom_tool, tool_defs as custom_tool_defs
 from arena.mcp.tool_agentic import handle_agentic_tool
-from arena.mcp.tool_audit import handle_audit_tool
-from arena.mcp.tool_input_helper import handle_input_helper_tool
 from arena.mcp.tool_asr import handle_asr_tool
+from arena.mcp.tool_audit import handle_audit_tool
 from arena.mcp.tool_browser import handle_browser_tool
 from arena.mcp.tool_browser_headed import handle_browser_headed_tool
 from arena.mcp.tool_capability_gap import handle_capability_gap_tool
@@ -34,6 +32,7 @@ from arena.mcp.tool_fs_search import handle_fs_search_tool
 from arena.mcp.tool_fs_tree_diff import handle_fs_tree_diff_tool
 from arena.mcp.tool_git import handle_git_tool
 from arena.mcp.tool_image import handle_image_tool
+from arena.mcp.tool_input_helper import handle_input_helper_tool
 from arena.mcp.tool_mcp_ext import handle_mcp_ext_tool
 from arena.mcp.tool_mcp_server_foundry import handle_mcp_server_foundry_tool
 from arena.mcp.tool_memory import handle_memory_tool

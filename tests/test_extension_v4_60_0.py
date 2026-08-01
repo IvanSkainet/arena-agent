@@ -10,7 +10,6 @@ import pytest
 from arena import constants
 from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -90,7 +89,7 @@ def test_agent_session_module_exists():
 
 
 def test_session_write_read_roundtrip(tmp_path, monkeypatch):
-    from arena.agent_session import write_checkpoint, read_checkpoint
+    from arena.agent_session import read_checkpoint, write_checkpoint
     monkeypatch.setenv("ARENA_AGENT_SESSION_FILE", str(tmp_path / "sess.json"))
     write_checkpoint({
         "goal": "reproduce phone-voice-to-chat",
@@ -111,7 +110,7 @@ def test_session_read_missing_returns_none(tmp_path, monkeypatch):
 
 
 def test_session_append_note(tmp_path, monkeypatch):
-    from arena.agent_session import write_checkpoint, append_note, read_checkpoint
+    from arena.agent_session import append_note, read_checkpoint, write_checkpoint
     monkeypatch.setenv("ARENA_AGENT_SESSION_FILE", str(tmp_path / "s.json"))
     write_checkpoint({"goal": "x", "notes": []})
     append_note("first observation")

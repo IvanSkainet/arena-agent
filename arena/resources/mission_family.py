@@ -8,7 +8,6 @@ from arena.resources.mission_catalog import summarize_mission_dir
 from arena.resources.mission_lineage import get_mission_lineage
 
 
-
 def get_mission_family(missions_dir: Path, name: str) -> dict[str, Any]:
     lineage = get_mission_lineage(missions_dir, name)
     if not lineage.get("ok"):

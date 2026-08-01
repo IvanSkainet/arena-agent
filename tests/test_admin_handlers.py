@@ -7,7 +7,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
 from arena.admin.handlers import make_admin_handlers  # noqa: E402
-from arena.admin.runtime import CLOUDFLARED_STATE, cloudflared_funnel_action, tailscale_funnel_action, token_regenerate  # noqa: E402
+from arena.admin.runtime import (  # noqa: E402
+    CLOUDFLARED_STATE,
+    cloudflared_funnel_action,
+    tailscale_funnel_action,
+    token_regenerate,
+)
 from arena.handler_context import AdminHandlerContext  # noqa: E402
 
 
@@ -91,6 +96,7 @@ def test_tailscale_funnel_action_stop_uses_new_syntax():
     ever targeted port 443. Checks the actual argv, not source text (so
     documentation comments explaining the old syntax do not trigger it)."""
     import inspect
+
     from arena.admin import tailscale as _ts
     src = inspect.getsource(_ts.tailscale_funnel_action)
 
@@ -145,6 +151,7 @@ def test_admin_handlers_module_free_of_manual_prelude():
     new handler copy-pasted from an older module) fails this test loudly.
     """
     import inspect
+
     from arena.admin import handlers as _adm, handlers_update as _adm_upd
 
     for mod in (_adm, _adm_upd):

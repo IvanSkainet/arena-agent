@@ -247,7 +247,7 @@ def cloudflared_funnel_action(
         return {"ok": False, "error": "action must be start|stop|status"}
 
     cf, source = _resolve_cloudflared_with_source(root_agent)
-    
+
     if action == "start":
         if not cf:
             return {"ok": False, "error": "cloudflared binary not found", "update_hint": _get_update_hint(source, None)}
@@ -264,7 +264,7 @@ def cloudflared_funnel_action(
     running = proc is not None and proc.poll() is None
     installed = cf is not None
     version = _get_cloudflared_version(cf) if cf else None
-    
+
     result = {
         "ok": True,
         "action": "status",
@@ -275,8 +275,8 @@ def cloudflared_funnel_action(
         "url": CLOUDFLARED_STATE["url"],
         "log": CLOUDFLARED_STATE["log"] if running else [],
     }
-    
+
     if installed:
         result["update_hint"] = _get_update_hint(source, version)
-    
+
     return result

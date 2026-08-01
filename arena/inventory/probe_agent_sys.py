@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from arena.inventory.probe_common import *  # noqa: F401,F403
 
-
 # ------------------------------------------------------------------ dns_resolvers
 
 def get_dns_resolvers() -> dict:

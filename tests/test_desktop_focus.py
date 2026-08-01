@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.desktop.focus import focus_window  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.desktop.focus import focus_window  # noqa: E402
 
 
 async def _exec_ok(cmd: str, timeout: float = 10):

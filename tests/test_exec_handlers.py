@@ -80,6 +80,7 @@ def test_exec_handlers_module_free_of_manual_auth_prelude():
     """v3.94.0: Confirm the inline `ctx.require_auth(request); if r: return r`
     prelude has been removed from arena.exec.handlers."""
     import inspect
+
     from arena.exec import handlers as _exh
     src = inspect.getsource(_exh)
     assert "r = ctx.require_auth(request)" not in src, (

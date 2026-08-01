@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.skills.cli_common import *  # noqa: F401,F403
 
+
 def list_skills(_args) -> int:
     if not SK.exists():
         print("(no skills installed)")

@@ -9,7 +9,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.bootstrap import ensure_session_env, get_bridge_port, load_config_file, resolve_token, setup_logging  # noqa: E402
+from arena.bootstrap import (  # noqa: E402
+    ensure_session_env,
+    get_bridge_port,
+    load_config_file,
+    resolve_token,
+    setup_logging,
+)
 
 
 def test_unified_bootstrap_wrappers_bound_to_bootstrap_module():

@@ -38,7 +38,6 @@ Layout:
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import platform
 import shutil
@@ -48,12 +47,10 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-import zipfile
 from pathlib import Path
 from typing import Any
 
 from arena.constants import VERSION as _CURRENT_VERSION
-
 
 # GitHub org/repo that hosts the release. Overridable via env for
 # testing / forks.
@@ -150,11 +147,11 @@ def is_newer(candidate: str, baseline: str) -> bool:
 # ---------------------------------------------------------------------------
 
 from arena.admin.update_github import (
+    fetch_asset_size as _fetch_asset_size,
+    fetch_changelog_section as _fetch_changelog_section,
     github_token as _github_token,
     http_get_json as _http_get_json,
     pick_asset as _pick_asset,
-    fetch_asset_size as _fetch_asset_size,
-    fetch_changelog_section as _fetch_changelog_section,
     resolve_latest_via_redirect as _resolve_latest_via_redirect,
 )
 
@@ -422,6 +419,7 @@ def _swap_unix(payload_root: Path, install_root: Path) -> dict[str, Any]:
 # v4.60.4: _write_windows_installer moved to auto_update_windows.py
 # to keep this file under the 600-line runtime cap.
 from arena.admin.auto_update_windows import _write_windows_installer
+
 __all_helpers = [_write_windows_installer]  # keep import visible to linters
 
 

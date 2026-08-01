@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
-from arena.browser.cdp_client.tabs_http import get_new_tab_url, close_tab, list_tabs
+from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, list_tabs
+
 
 class CDPBrowserInputMixin:
     async def click(self, selector: str, timeout: Optional[float] = None) -> bool:

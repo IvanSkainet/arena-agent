@@ -22,23 +22,24 @@ the fixture, not by the test.
 
 Live-failed: v4.61.0 CI run id 30034756453 / 30035666162.
 """
-import os
-import sys
+import gc
 import json
+import os
+import shutil
 import sqlite3
+import sys
 import tempfile
 import zipfile
-import shutil
-import gc
 from pathlib import Path
+
 import pytest
 
 # Add repository root to system path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.memory import append as memory_append
 from bin.memory_recall import recall_facts, score as recall_score
 from scripts.hwinfo_lite import collect_all as hwinfo_collect
+from scripts.memory import append as memory_append
 
 
 @pytest.fixture
@@ -179,10 +180,9 @@ def test_hwinfo_lite_execution():
 
 def test_skill_install_zip_unpack_with_junk_and_nesting(temp_arena_home):
     """Test the enhanced ZIP plugin extraction logic: verify it handles junk files, __MACOSX, and correct un-nesting."""
-    from unified_bridge import _skill_install_sync
-
     # Temporarily override SKILLS_DIR in unified_bridge to point inside our temp directory
     import unified_bridge
+    from unified_bridge import _skill_install_sync
     old_skills_dir = unified_bridge.SKILLS_DIR
     unified_bridge.SKILLS_DIR = temp_arena_home / "skills"
 

@@ -9,7 +9,6 @@ from aiohttp import web
 from arena.handler_context import HandlerContext
 from arena.handler_helpers import authed, err_json
 
-
 # v4.50.2: cache the last successful /v1/hardware and /v1/inventory
 # response for 60 s so a Windows dashboard-reload that pulls both
 # endpoints in parallel doesn't re-run inventory.py twice at the price

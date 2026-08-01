@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.skills.install import normalize_third_party_skill_name, uninstall_skill  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.skills.install import normalize_third_party_skill_name, uninstall_skill  # noqa: E402
 
 
 def test_normalize_third_party_skill_names():

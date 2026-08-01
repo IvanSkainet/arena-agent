@@ -5,9 +5,9 @@ from dataclasses import dataclass
 
 from aiohttp import web
 
+from arena.autonomy import set_yolo as _set_yolo, yolo_status as _yolo_status
 from arena.handler_context import ControlLeaseHandlerContext
 from arena.handler_helpers import authed, err_json
-from arena.autonomy import set_yolo as _set_yolo, yolo_status as _yolo_status
 
 
 @dataclass(frozen=True)

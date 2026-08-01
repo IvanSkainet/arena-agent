@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from arena.inventory.probe_common import *  # noqa: F401,F403
 
-
 # ------------------------------------------------------------------ top_processes
 
 def get_top_processes(limit: int = 10) -> dict:
@@ -162,8 +161,9 @@ def get_boot_time() -> dict:
     three OSes."""
     info: dict[str, Any] = {"available": False}
     try:
-        import psutil  # type: ignore
         from datetime import datetime, timezone
+
+        import psutil  # type: ignore
         bt = psutil.boot_time()
         now = datetime.now(timezone.utc).timestamp()
         info["available"] = True

@@ -3,16 +3,18 @@ from __future__ import annotations
 
 import sys
 
+from arena.agentctl_cli import (
+    agentctl_breaker as breaker,
+    agentctl_bridge as bridge,
+    agentctl_browser as browser,
+    agentctl_browseract as bact,
+    agentctl_memory as memory,
+    agentctl_misc as misc,
+    agentctl_skills as skills,
+    agentctl_system as system,
+    agentctl_tasks as tasks,
+)
 from arena.agentctl_cli.agentctl_common import VERSION
-from arena.agentctl_cli import agentctl_breaker as breaker
-from arena.agentctl_cli import agentctl_bridge as bridge
-from arena.agentctl_cli import agentctl_browser as browser
-from arena.agentctl_cli import agentctl_browseract as bact
-from arena.agentctl_cli import agentctl_memory as memory
-from arena.agentctl_cli import agentctl_misc as misc
-from arena.agentctl_cli import agentctl_skills as skills
-from arena.agentctl_cli import agentctl_system as system
-from arena.agentctl_cli import agentctl_tasks as tasks
 
 
 def commands(args):

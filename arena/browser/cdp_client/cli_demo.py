@@ -1,12 +1,13 @@
 """CDP browser CLI component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
 from arena.browser.cdp_client.browser import CDPBrowser
+from arena.browser.cdp_client.common import *  # noqa: F401,F403
 from arena.browser.cdp_client.process import launch_browser
 from arena.browser.cdp_client.sync_browser import SyncCDPBrowser
 from arena.browser.cdp_client.tab_manager import CDPTabManager
 from arena.browser.cdp_client.tabs_http import list_tabs
+
 
 async def _multitab_demo():
     """Interactive multi-tab management demo using CDPTabManager."""
@@ -43,10 +44,10 @@ async def _multitab_demo():
         # Take screenshot of active tab
         active = mgr.active_tab
         if active:
-            print(f"\n[Active Tab] Taking screenshot...")
+            print("\n[Active Tab] Taking screenshot...")
             try:
                 await active.screenshot("multitab_active.png")
-                print(f"  [OK] Screenshot saved: multitab_active.png")
+                print("  [OK] Screenshot saved: multitab_active.png")
             except Exception as e:
                 print(f"  [!] Screenshot failed: {e}")
 
@@ -66,7 +67,7 @@ async def _multitab_demo():
             # Navigate the newly active tab
             try:
                 await second_tab.navigate("https://example.org")
-                print(f"  [OK] Navigated to example.org")
+                print("  [OK] Navigated to example.org")
                 title = await second_tab.get_title()
                 print(f"  [Title] {title}")
             except Exception as e:

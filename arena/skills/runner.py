@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable
 
+
 def run_skill(name: str, args: list[str], *, skills_dir: Path, root_agent: Path, bin_dir: Path, subprocess_kwargs_fn, env_extra: dict | None = None) -> dict:
     """Execute a skill via agentctl or directly.
 
@@ -80,7 +81,7 @@ def run_skill(name: str, args: list[str], *, skills_dir: Path, root_agent: Path,
                 cmd = ["node", str(runner_sh)] + list(args)
             elif runner_sh.suffix == ".py":
                 cmd = ["python3", str(runner_sh)] + list(args)
-            elif runner_sh.name == skill_dir.name and not "." in runner_sh.name:
+            elif runner_sh.name == skill_dir.name and "." not in runner_sh.name:
                 with open(runner_sh, 'rb') as f:
                     shebang = f.read(50)
                     if b"python" in shebang:

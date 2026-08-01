@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 
-
 def mission_dir(missions_dir: Path, name: str) -> Path:
     if ".." in name or "/" in name or "\\" in name or name.startswith("."):
         raise ValueError("invalid mission name")

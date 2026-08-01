@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import pytest
+
 from tests._version_matrix import any_bridge_in, any_pyproject_in
 
 REPO_ROOT = Path(__file__).resolve().parent.parent

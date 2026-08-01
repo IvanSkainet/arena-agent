@@ -26,7 +26,6 @@ import pytest
 
 from arena.admin import autostart
 
-
 ENV_TS = "ARENA_TAILSCALE_AUTOSTART"
 ENV_CF = "ARENA_CLOUDFLARED_AUTOSTART"
 ENV_NG = "ARENA_NGROK_AUTOSTART"

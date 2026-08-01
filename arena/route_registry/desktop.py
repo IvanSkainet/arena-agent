@@ -6,7 +6,6 @@ from collections.abc import Callable, Mapping
 from aiohttp import web
 
 
-
 def register_desktop_routes(app: web.Application, h: Mapping[str, Callable]) -> None:
     app.router.add_get("/v1/desktop/screenshot", h["handle_v1_desktop_screenshot"])
     app.router.add_get("/v1/desktop/displays", h["handle_v1_desktop_displays"])

@@ -5,6 +5,7 @@ from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profi
 from arena.memory.recall_paths import *  # noqa: F401,F403
 from arena.memory.recall_score import score
 
+
 def recall_facts(q_tokens: list[str], top: int, profile: str | None = DEFAULT_MEMORY_PROFILE) -> list[dict]:
     """Возврат top фактов из facts.db с ненулевым score."""
     p = get_mem_dir() / "facts.db"
@@ -29,7 +30,7 @@ def recall_facts(q_tokens: list[str], top: int, profile: str | None = DEFAULT_ME
                     tags_list = json.loads(r['tags']) if r['tags'] else []
                 except Exception:
                     tags_list = []
-                
+
                 fact_obj = {
                     "ts": r['timestamp'],
                     "type": "fact",

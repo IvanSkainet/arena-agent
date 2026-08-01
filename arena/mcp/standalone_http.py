@@ -88,7 +88,7 @@ class H(BaseHTTPRequestHandler):
 
         if self.path.startswith("/messages"):
             # SSE peer endpoint
-            from urllib.parse import urlparse, parse_qs
+            from urllib.parse import parse_qs, urlparse
             q = parse_qs(urlparse(self.path).query)
             session = (q.get("session_id") or [""])[0]
             resp = handle_rpc(msg)

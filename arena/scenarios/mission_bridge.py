@@ -31,7 +31,6 @@ from arena.scenarios.storage import (
     validate_name,
 )
 
-
 SCENARIO_TEMPLATE_ID = "scenario"
 
 

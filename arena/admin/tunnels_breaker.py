@@ -38,7 +38,6 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-
 # Defaults; overridable at runtime via env for operators who want
 # a tighter or looser policy without a bridge restart.
 _DEFAULT_THRESHOLD = 3

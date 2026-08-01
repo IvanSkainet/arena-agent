@@ -1,8 +1,9 @@
 """CLI dispatcher for bin/memory_recall.py."""
 from __future__ import annotations
 
-from arena.memory.recall_sources import *  # noqa: F401,F403
 from arena.memory.recall_score import tokenize
+from arena.memory.recall_sources import *  # noqa: F401,F403
+
 
 def cmd_recall(args) -> int:
     q = tokenize(args.query)

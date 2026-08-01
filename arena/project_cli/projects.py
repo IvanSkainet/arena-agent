@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.project_cli.common import *  # noqa: F401,F403
 
+
 def new_project(args):
     name=safe(args.name); p=PROJECTS/name; p.mkdir(parents=True, exist_ok=True)
     for d in ['data','src','reports','notes','tmp','issues/open','issues/closed','merge-requests/open','merge-requests/closed']:(p/d).mkdir(parents=True, exist_ok=True)
@@ -45,7 +46,7 @@ def status(args):
     print(json.dumps(out, ensure_ascii=False, indent=2))
 
 def commit(args):
-    p=project_path(args.name); 
+    p=project_path(args.name)
     if not (p/'.git').exists(): git_init(argparse.Namespace(name=p.name,message='Initial commit'))
     ensure_git_identity(p); run('git add -A',p,check=True); c=run(f'git commit -m {json.dumps(args.message)}',p)
     if c.returncode!=0 and 'nothing to commit' not in (c.stdout+c.stderr).lower(): sys.stdout.write(c.stdout); sys.stderr.write(c.stderr); raise SystemExit(c.returncode)
@@ -56,7 +57,7 @@ def log(args): print(run(f'git log --oneline --decorate -n {args.limit}', projec
 def branch(args):
     p=project_path(args.name)
     if args.create:
-        print(run(f'git checkout -b {shq(args.create)}',p).stdout+run(f'git branch --show-current',p).stdout)
+        print(run(f'git checkout -b {shq(args.create)}',p).stdout+run('git branch --show-current',p).stdout)
     elif args.checkout:
         print(run(f'git checkout {shq(args.checkout)}',p,check=True).stdout)
     else: print(run('git branch -vv',p).stdout)

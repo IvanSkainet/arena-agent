@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.observability.webhooks import load_webhooks, normalize_webhooks_config, save_webhooks  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.observability.webhooks import load_webhooks, normalize_webhooks_config, save_webhooks  # noqa: E402
 
 
 def test_normalize_webhooks_config():

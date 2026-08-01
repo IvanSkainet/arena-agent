@@ -4,7 +4,6 @@ from __future__ import annotations
 from aiohttp import web
 
 from arena.handler_helpers import authed, err_json
-
 from arena.mobile import recording as _rec
 
 

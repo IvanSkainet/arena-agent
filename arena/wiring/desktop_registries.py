@@ -7,7 +7,6 @@ from typing import Any, Callable
 from arena.wiring.env import RuntimeEnv
 
 
-
 def build_desktop_registries(g: MutableMapping[str, Any]) -> dict[str, Callable]:
     """Build desktop automation and control lease registries."""
     env = RuntimeEnv(g)

@@ -13,7 +13,6 @@ from arena.service.restart_common import (
 )
 from arena.util import _subprocess_kwargs
 
-
 SYSTEMD_RUN_TEMPLATE = r"""
 sleep 2
 systemctl --user restart arena-bridge.service >/dev/null 2>&1 || true

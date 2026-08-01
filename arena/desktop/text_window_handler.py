@@ -8,7 +8,6 @@ from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import authed, err_json
 
 
-
 def make_desktop_text_window_handler(ctx: DesktopHandlerContext):
     @authed(ctx)
     async def handle_v1_desktop_resolve_text_target(request: web.Request) -> web.Response:

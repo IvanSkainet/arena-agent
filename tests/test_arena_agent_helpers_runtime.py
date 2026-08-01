@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Same POSIX-only check as test_arena_agent_helpers_files:
 # NTFS ignores chmod, so the stat.S_IMODE == 0o600 assertion
 # only makes sense on POSIX.

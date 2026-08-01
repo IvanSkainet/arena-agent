@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.memory.cli_paths import *  # noqa: F401,F403
 
+
 def _expand_tags(tokens: list[str]) -> list[str]:
     tags: list[str] = []
     for token in tokens:

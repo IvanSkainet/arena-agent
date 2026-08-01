@@ -10,13 +10,17 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.desktop.display_handler import make_desktop_display_handler  # noqa: E402
-from arena.desktop.displays import get_displays, match_display, parse_kscreen_doctor_outputs, parse_xrandr_outputs  # noqa: E402
+from arena.desktop.displays import (  # noqa: E402
+    get_displays,
+    match_display,
+    parse_kscreen_doctor_outputs,
+    parse_xrandr_outputs,
+)
 from arena.handler_context import DesktopHandlerContext  # noqa: E402
 from arena.mcp.tool_desktop import handle_desktop_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
-import unified_bridge as ub  # noqa: E402
-
 
 KSCREEN_SAMPLE = """
 \x1b[01;32mOutput: \x1b[0;0m1 DP-1 uuid-1

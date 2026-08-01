@@ -42,7 +42,6 @@ import re
 import subprocess
 import sys
 
-
 # Whitelist for CIM/WMI class names: letters, digits, underscore.
 # Real class names are ``Win32_<Something>`` or ``CIM_<Something>``;
 # nothing else is legitimate. Matches the full class-name segment.

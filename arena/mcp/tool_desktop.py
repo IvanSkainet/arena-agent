@@ -9,7 +9,6 @@ from typing import Any
 from arena.mcp.tool_utils import text_content
 
 
-
 def _bridge_call(ctx, path: str, payload: dict[str, Any]) -> dict[str, Any]:
     cfg = ctx.app_config() or {}
     port = int(cfg.get("port", 8765) or 8765)

@@ -7,11 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
+from arena.gui.templates import DASHBOARD_V2_HTML, GUI_LOGIN_HTML
 from arena.handler_context import GuiHandlerContext
 
-from arena.gui.templates import DASHBOARD_V2_HTML, GUI_LOGIN_HTML
+
 @dataclass(frozen=True)
 class GuiHandlers:
     gui: object

@@ -8,8 +8,8 @@ fs.diff — compare two text files and return unified diff. Uses Python's
 """
 from __future__ import annotations
 
-import os
 import difflib
+import os
 from pathlib import Path
 from typing import Any
 

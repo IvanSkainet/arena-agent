@@ -23,7 +23,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Skip the POSIX permission-bit assertions on Windows: NTFS
 # uses ACLs, and stat.S_IMODE on a freshly-created file is
 # 0o666 regardless of the chmod call. The other 6 tests still

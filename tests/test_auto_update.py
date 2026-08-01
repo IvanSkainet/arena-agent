@@ -76,6 +76,7 @@ def test_check_updates_surfaces_http_error_gracefully(monkeypatch):
     non-2xx) we fall through to the redirect helper. If BOTH fail
     we surface both failures."""
     import urllib.error
+
     from arena.admin import auto_update as au
 
     monkeypatch.setenv("GITHUB_TOKEN", "fake-token-for-tests")

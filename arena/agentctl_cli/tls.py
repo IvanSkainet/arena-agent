@@ -69,7 +69,6 @@ import os
 import ssl
 import sys
 
-
 # Truthy shapes for the opt-out env var. Deliberately narrow
 # (only the four commonly-typed values) so a mistyped
 # ``ARENA_INSECURE_TLS=please`` is a no-op rather than a silent

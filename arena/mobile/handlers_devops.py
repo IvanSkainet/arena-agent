@@ -10,9 +10,7 @@ from __future__ import annotations
 from aiohttp import web
 
 from arena.handler_helpers import authed, err_json
-
-from arena.mobile import apk_install as _apk_install
-from arena.mobile import wireless as _wireless
+from arena.mobile import apk_install as _apk_install, wireless as _wireless
 
 
 def make_devops_handlers(ctx, *, run, read_json, cors):

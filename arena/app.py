@@ -5,8 +5,8 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from aiohttp import web
-from arena.app_keys import APP_CFG, APP_MCP_SESSIONS
 
+from arena.app_keys import APP_CFG, APP_MCP_SESSIONS
 from arena.routes import register_routes
 
 

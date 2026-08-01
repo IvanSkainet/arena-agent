@@ -19,9 +19,9 @@ from pathlib import Path
 import pytest
 
 from arena.admin.cloudflared_autostart import (
-    AutostartOutcome,
     ENV_VAR,
     MARKER_FILENAME,
+    AutostartOutcome,
     is_env_enabled,
     mark_autostart,
     marker_path,

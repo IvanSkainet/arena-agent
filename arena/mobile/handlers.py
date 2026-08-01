@@ -20,16 +20,19 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_helpers import authed, err_json
-from arena.mobile import batch as _batch
-from arena.mobile import devices as _devices
-from arena.mobile import gestures as _gestures
-from arena.mobile import helpers as _helpers
-from arena.mobile import input as _input
-from arena.mobile import packages as _packages
-from arena.mobile import screenshot as _screenshot
-from arena.mobile import sensors as _sensors
-from arena.mobile import shell as _shell
-from arena.mobile import ui as _ui
+from arena.mobile import (
+    batch as _batch,
+    devices as _devices,
+    gestures as _gestures,
+    helpers as _helpers,
+    input as _input,
+    packages as _packages,
+    screenshot as _screenshot,
+    sensors as _sensors,
+    shell as _shell,
+    ui as _ui,
+)
+
 # apk_install and wireless are used indirectly via handlers_devops.
 
 

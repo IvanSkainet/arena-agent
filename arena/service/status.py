@@ -112,12 +112,13 @@ def _tailscale_status() -> dict[str, Any]:
 def _cloudflared_status_short() -> dict:
     """Compact cloudflared status for /v1/sys/svc — never raise."""
     try:
+        from pathlib import Path as _Path
+
         from arena.admin.cloudflared import (
             CLOUDFLARED_STATE,
             _get_cloudflared_version,
             _resolve_cloudflared_with_source,
         )
-        from pathlib import Path as _Path
         root = _Path(os.environ.get("ARENA_AGENT_HOME") or _Path.home() / "arena-bridge")
         cf_path, source = _resolve_cloudflared_with_source(root)
         installed = cf_path is not None

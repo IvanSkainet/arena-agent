@@ -10,10 +10,10 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.desktop.text_window_handler import make_desktop_text_window_handler  # noqa: E402
 from arena.desktop.text_window_target import resolve_text_window_target  # noqa: E402
 from arena.handler_context import DesktopHandlerContext  # noqa: E402
-import unified_bridge as ub  # noqa: E402
 
 
 async def _ocr_echo(**kwargs):

@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
 from arena.files.sandbox import (
     validate_download_target,
     validate_edit_target,

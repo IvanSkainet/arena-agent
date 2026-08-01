@@ -29,7 +29,6 @@ from typing import Any
 
 import pytest
 
-
 try:
     from arena.skills.cache import SkillsCache
 except Exception:  # pragma: no cover

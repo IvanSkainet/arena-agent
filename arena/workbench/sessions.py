@@ -13,8 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from arena.autonomy import posture as _posture
-from arena.autonomy import runner as _runner
+from arena.autonomy import posture as _posture, runner as _runner
 from arena.autonomy.runner import _resolve_runtime, _resolve_win32_runtime, _scrub_env
 from arena.workbench.runtimes import home
 

@@ -18,8 +18,10 @@ from pathlib import Path
 
 import pytest
 
-from arena.admin import handlers_update as _hu_mod
-from arena.admin import auto_update  # noqa: F401 — needed for circular import order
+from arena.admin import (
+    auto_update,  # noqa: F401 — needed for circular import order
+    handlers_update as _hu_mod,
+)
 from arena.admin.auto_update_windows import _write_windows_installer
 
 

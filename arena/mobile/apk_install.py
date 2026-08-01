@@ -31,6 +31,7 @@ from typing import Any
 
 from arena.mobile.adb import AdbNotFoundError, find_adb, run
 
+
 # The bridge's writable staging area for uploaded APKs. Anything the
 # client points at MUST already resolve under this root — no arbitrary
 # host paths get pushed to the phone.
@@ -46,8 +47,8 @@ from arena.mobile.adb import AdbNotFoundError, find_adb, run
 # ``$ARENA_APK_STAGING`` env var overrides for operators who
 # want the staging area on a larger volume.
 def _default_staging_root() -> Path:
-    from pathlib import Path as _P
     import os as _os
+    from pathlib import Path as _P
     override = _os.environ.get("ARENA_APK_STAGING", "").strip()
     if override:
         return _P(override).expanduser()
@@ -334,6 +335,7 @@ def _extract_package_name(apk_bytes: bytes) -> str | None:
     `raw_value_idx` pointing at "com.example" in the string pool.
     """
     import zipfile
+
     # v4.42.2: read AndroidManifest.xml through
     # ``read_zip_member_safe`` which caps the declared member
     # size. A hostile APK with a 2 GiB manifest would otherwise

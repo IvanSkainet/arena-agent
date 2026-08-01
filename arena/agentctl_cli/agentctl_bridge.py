@@ -47,7 +47,6 @@ from arena.agentctl_cli.agentctl_common import (
     bridge_get,
 )
 
-
 _HELP = """Usage: agentctl bridge <verb> [args]
 
 Verbs:

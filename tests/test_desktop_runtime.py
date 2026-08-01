@@ -24,6 +24,7 @@ def test_detect_desktop_env_shape():
 
 def test_get_active_window_prefers_kwin_window_list(monkeypatch):
     import asyncio
+
     import arena.desktop.active_window as aw
 
     async def _kwin_list():
@@ -47,6 +48,7 @@ def test_get_active_window_prefers_kwin_window_list(monkeypatch):
 
 def test_get_active_window_uses_kwin_window_list_minimal_shape(monkeypatch):
     import asyncio
+
     import arena.desktop.active_window as aw
 
     async def _kwin_list():
@@ -68,6 +70,7 @@ def test_get_active_window_uses_kwin_window_list_minimal_shape(monkeypatch):
 
 def test_get_active_window_falls_back_to_xdotool_when_kwin_list_fails(monkeypatch):
     import asyncio
+
     import arena.desktop.active_window as aw
 
     async def _kwin_list():
@@ -98,6 +101,7 @@ def test_get_active_window_falls_back_to_xdotool_when_kwin_list_fails(monkeypatc
 
 def test_kwin_windows_via_script_probes_kwin_without_desktop_env(monkeypatch):
     import asyncio
+
     import arena.desktop.kwin as kw
 
     monkeypatch.setattr(kw.shutil, "which", lambda name: "/usr/bin/" + name if name in {"qdbus6", "journalctl"} else None)

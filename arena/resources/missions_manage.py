@@ -11,8 +11,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Callable
 
-from arena.resources.mission_state import infer_rerun_step
 from arena.missions_cli.templates import TEMPLATES_DATA
+from arena.resources.mission_state import infer_rerun_step
 
 _TEMPLATE_HINTS = {
     "browser-real-user": ("browser", "site", "page", "form", "web"),

@@ -5,8 +5,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
-from arena.bootstrap_config import get_bridge_port as _get_bridge_port_impl
-from arena.bootstrap_config import load_config_file as _load_config_file_impl
+from arena.bootstrap_config import get_bridge_port as _get_bridge_port_impl, load_config_file as _load_config_file_impl
 from arena.bootstrap_daemon import daemonize as _daemonize_impl
 from arena.bootstrap_env import ensure_session_env as _ensure_session_env_impl
 from arena.bootstrap_logging import setup_logging as _setup_logging_impl

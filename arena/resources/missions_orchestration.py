@@ -6,7 +6,6 @@ from typing import Any, Callable
 from arena.resources.mission_recovery import recover_mission_bundle
 
 
-
 def propose_mission_bundle(
     *,
     goal: str,

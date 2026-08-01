@@ -10,6 +10,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+
 def get_root_dir() -> Path:
     return Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
 

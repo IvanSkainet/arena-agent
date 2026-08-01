@@ -31,8 +31,9 @@ def make_update_handlers(ctx):
         """GET /v1/admin/update/status -- cached view of current version
         plus repository + install-root diagnostics. Does NOT hit
         GitHub -- use /v1/admin/update/check for that."""
-        from arena.constants import VERSION
         import platform
+
+        from arena.constants import VERSION
         sysname = platform.system().lower()
         # v3.86.3: show "GNU/Linux" instead of just "Linux" for
         # Linux hosts; keep the machine-readable `platform` field as
@@ -235,7 +236,8 @@ def make_update_handlers(ctx):
         other admin surface. The token itself is never logged --
         audit records only the resolution source."""
         from arena.admin.update_github import (
-            save_github_token, github_token_source,
+            github_token_source,
+            save_github_token,
         )
         try:
             body = await request.json()
@@ -255,7 +257,8 @@ def make_update_handlers(ctx):
         """POST /v1/admin/update/token-clear -- remove the
         UI-configured token file. Does NOT touch env vars."""
         from arena.admin.update_github import (
-            clear_github_token, github_token_source,
+            clear_github_token,
+            github_token_source,
         )
         res = await _run(ctx, clear_github_token)
         ctx.audit({

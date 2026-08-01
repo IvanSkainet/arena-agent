@@ -1,7 +1,6 @@
 """MCP registry for net.*, secrets.*, sudo.* tools (v4.57.0)."""
 from __future__ import annotations
 
-
 NET_MCP_TOOLS = [
     {
         "name": "net.http",

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.inventory.probe_common import *  # noqa: F401,F403
 
+
 def _classify_pci(text: str) -> str:
     low = text.lower()
     if any(x in low for x in ("vga", "3d controller", "display")):

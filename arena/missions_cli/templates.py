@@ -32,7 +32,7 @@ def find_mission(mid):
 def commands_for(template):
     if template=='cli-agent-core': return [f'{AGENT} sys status',f'{AGENT} mcp stream-call ping',f'{AGENT} task list',f'{AGENT} web http https://example.com',f'{AGENT} browser shot https://example.com',f'{AGENT} report index',f'{AGENT} client doctor',f'{AGENT} audit stats']
     if template=='mcp-integration': return [f'{AGENT} mcp list',f'{AGENT} mcp stream-health',f'{AGENT} mcp stream-init',f'{AGENT} mcp stream-tools',f'{AGENT} mcp stream-call ping']
-    if template=='recovery-drill': return [f'{AGENT} recovery-print | head -120',f'{AGENT} client doctor',f'curl -sS http://127.0.0.1:8765/health',f'{AGENT} sys status',f'{AGENT} audit stats | tail -10']
+    if template=='recovery-drill': return [f'{AGENT} recovery-print | head -120',f'{AGENT} client doctor','curl -sS http://127.0.0.1:8765/health',f'{AGENT} sys status',f'{AGENT} audit stats | tail -10']
     if template=='browser-real-user': return [f'{AGENT} browser shot https://example.com',f'{AGENT} browser dump https://example.com',f'{AGENT} browser read https://example.com']
     if template=='tabs-game': return [f'{AGENT} desktop info',f'{AGENT} desktop shot',f'{AGENT} web http https://totally-accurate-battle-simulator.fandom.com/wiki/Units || true']
     return [f'{AGENT} sys status']

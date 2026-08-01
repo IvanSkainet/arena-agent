@@ -7,8 +7,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
-from arena.exec.runner import ACTIVE_PROCESSES, active_processes_snapshot, run_shell_command  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.exec.runner import ACTIVE_PROCESSES, active_processes_snapshot, run_shell_command  # noqa: E402
 
 
 def test_active_processes_reexported():

@@ -54,7 +54,6 @@ sys.path.insert(0, str(SCRIPTS))
 
 import spec_kit_to_scenarios as adapter  # noqa: E402  -- after sys.path tweak
 
-
 # ---------------------------------------------------------------------------
 # Strategy builders
 # ---------------------------------------------------------------------------

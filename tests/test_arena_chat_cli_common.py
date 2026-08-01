@@ -24,7 +24,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Skip the entire file on Windows because arena.chat_cli.common
 # imports fcntl at top level, and fcntl is a POSIX-only module.
 # The chat REPL itself is documented as a Linux/macOS path, so

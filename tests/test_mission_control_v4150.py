@@ -3,15 +3,17 @@ from __future__ import annotations
 
 import json
 import sys
-import time
 import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena import mission_autopilot as ap  # noqa: E402
-from arena import capability_gaps as gaps  # noqa: E402
-from arena import mission_control as mc  # noqa: E402
+from arena import (
+    capability_gaps as gaps,  # noqa: E402
+    mission_autopilot as ap,  # noqa: E402
+    mission_control as mc,  # noqa: E402
+)
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 
 

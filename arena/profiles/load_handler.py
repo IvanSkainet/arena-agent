@@ -7,8 +7,8 @@ from pathlib import Path
 
 from aiohttp import web
 
-from arena.profiles.common import auth_and_record, sanitize_profile_name
 from arena.handler_context import ProfileHandlerContext
+from arena.profiles.common import auth_and_record, sanitize_profile_name
 
 
 async def _restore_cookies(ctx: ProfileHandlerContext, cookies: list) -> int:

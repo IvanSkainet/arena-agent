@@ -33,7 +33,7 @@ def test_manifest_builder_returns_expected_shape():
 
 
 def test_manifest_covers_every_js_on_disk():
-    from arena.gui.asset_manifest import build_manifest, EXCLUDED_ASSET_NAMES
+    from arena.gui.asset_manifest import EXCLUDED_ASSET_NAMES, build_manifest
     m = build_manifest(ROOT)
     listed = {p.rsplit("/", 1)[-1] for p in m["scripts"]}
     on_disk = {p.name for p in ASSETS.iterdir()
@@ -126,7 +126,7 @@ def test_manifest_signature_stable_across_calls():
 
 
 def test_excluded_assets_not_in_manifest():
-    from arena.gui.asset_manifest import build_manifest, EXCLUDED_ASSET_NAMES
+    from arena.gui.asset_manifest import EXCLUDED_ASSET_NAMES, build_manifest
     m = build_manifest(ROOT)
     all_listed = {p.rsplit("/", 1)[-1] for p in m["scripts"] + m["bodies"]}
     leaked = all_listed & EXCLUDED_ASSET_NAMES

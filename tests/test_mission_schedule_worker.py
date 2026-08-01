@@ -19,8 +19,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.resources.mission_schedule_worker import MissionScheduleWorkerContext, make_mission_schedule_worker_runtime  # noqa: E402
-
+from arena.resources.mission_schedule_worker import (  # noqa: E402
+    MissionScheduleWorkerContext,
+    make_mission_schedule_worker_runtime,
+)
 
 
 def test_mission_schedule_worker_state_sync_defaults():

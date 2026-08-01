@@ -7,6 +7,7 @@ from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, list_tabs
 from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
+
 class CDPTabManagerTabLifecycleMixin:
     async def new_tab(self, url: str = "about:blank", activate: bool = True) -> CDPTab:
         """Create a new browser tab and return a CDPTab for it.

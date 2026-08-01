@@ -8,6 +8,7 @@ import sys
 
 from arena.mcp_marketplace.registry import MCP_DIR, _load_config, _load_registry, _save_config
 
+
 def cmd_registry(_args):
     reg = _load_registry()
     items = []

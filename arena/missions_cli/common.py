@@ -20,7 +20,11 @@ AGENT = ROOT / "bin/agentctl"
 def _fire_mission_hook(event, target, args=None, exit_code=0):
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
     try:
-        import subprocess as _sp, json as _j, os as _os, pathlib as _pl, sys as _sys
+        import json as _j
+        import os as _os
+        import pathlib as _pl
+        import subprocess as _sp
+        import sys as _sys
         root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
         runner = root / "bin" / "hooks_runner.py"
         if not runner.exists():
@@ -35,7 +39,9 @@ def _fire_mission_hook(event, target, args=None, exit_code=0):
 
 def _start_recording(mission_id):
     """Опциональная запись экрана через ffmpeg+sd-exec. ENV: ARENA_REC=1."""
-    import os as _os, subprocess as _sp, pathlib as _pl
+    import os as _os
+    import pathlib as _pl
+    import subprocess as _sp
     if _os.environ.get("ARENA_REC") != "1":
         return None
     root = _pl.Path(_os.environ.get("ARENA_AGENT_HOME", str(_pl.Path.home() / "arena-bridge")))
@@ -58,7 +64,8 @@ def _start_recording(mission_id):
 def _stop_recording(rec):
     if not rec:
         return
-    import os as _os, signal as _sig
+    import os as _os
+    import signal as _sig
     try:
         _os.killpg(_os.getpgid(rec["pid"]), _sig.SIGTERM)
     except Exception:

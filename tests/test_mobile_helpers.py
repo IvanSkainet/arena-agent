@@ -5,11 +5,13 @@ Kept separate from tests/test_mobile.py so both files stay under the
 """
 from __future__ import annotations
 
-from arena.mobile import adb as _adb  # noqa: F401
-from arena.mobile import devices as _dev
-from arena.mobile import helpers as _h
-from arena.mobile import input as _input  # noqa: F401
-from arena.mobile import screenshot as _s
+from arena.mobile import (
+    adb as _adb,  # noqa: F401
+    devices as _dev,
+    helpers as _h,
+    input as _input,  # noqa: F401
+    screenshot as _s,
+)
 
 
 # ---------------------------------------------------------------------------

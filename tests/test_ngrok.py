@@ -28,16 +28,15 @@ import pytest
 
 from arena.admin import ngrok as ngrok_mod
 from arena.admin.ngrok import (
-    NGROK_STATE,
     _URL_WAIT_DEFAULT_SECONDS,
     _URL_WAIT_MAX_SECONDS,
     _URL_WAIT_MIN_SECONDS,
+    NGROK_STATE,
     _poll_ngrok_url_from_api,
     _resolve_ngrok_with_source,
     _url_wait_seconds,
     ngrok_action,
 )
-
 
 ENV_WAIT = "ARENA_NGROK_URL_WAIT_SECONDS"
 ENV_TOKEN = "ARENA_NGROK_AUTHTOKEN"

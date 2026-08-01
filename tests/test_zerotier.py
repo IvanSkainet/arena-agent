@@ -185,6 +185,7 @@ def test_cli_source_classifies_direct_binary():
 def test_subprocess_kwargs_hides_console_on_windows_only():
     """Windows spawns must set CREATE_NO_WINDOW; other OSes must not."""
     import platform as _p
+
     from arena.admin.zerotier import _SUBPROCESS_KWARGS
     if _p.system().lower() == "windows":
         assert "creationflags" in _SUBPROCESS_KWARGS

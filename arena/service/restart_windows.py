@@ -7,7 +7,6 @@ import subprocess as sp
 from arena.service.restart_common import RestartContext, render_template, temp_script_path, write_script
 from arena.util import _subprocess_kwargs
 
-
 NSSM_KICK_TEMPLATE = r"""@echo off
 timeout /t 8 /nobreak >nul
 curl -s -o nul -w "%{http_code}" http://127.0.0.1:__PORT__/health > "%TEMP%\arena_kick_hc.txt" 2>nul

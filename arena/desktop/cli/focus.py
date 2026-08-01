@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.desktop.cli.common import *  # noqa: F401,F403
 
+
 def _detect_wm():
     """Detect if a window manager is currently running."""
     # Check EWMH compatibility hint — set by any EWMH-compliant WM
@@ -26,16 +27,16 @@ def _ensure_wm():
     global _wm_started
     if _wm_started:
         return True
-    
+
     wm = _detect_wm()
     if wm:
         _wm_started = True
         return True
-    
+
     display = os.environ.get('DISPLAY', '')
     if not display:
         return False  # No display at all — can't start WM
-    
+
     # Try openbox first (lightweight, most common in containers)
     for wm_cmd, wm_name in [
         ('openbox', 'openbox'),
@@ -55,7 +56,7 @@ def _ensure_wm():
             if verify:
                 _wm_started = True
                 return True
-    
+
     return False
 
 def _focus_window_at(x, y):
@@ -67,12 +68,12 @@ def _focus_window_at(x, y):
     """
     if not have('xdotool'):
         return False
-    
+
     # Method 1: Click-to-focus (most reliable on any WM)
     # Move mouse to position and click (left button) to activate window
     run(f'xdotool mousemove --sync {x} {y}', timeout=3)
     time.sleep(0.05)
-    run(f'xdotool click 1', timeout=3)
+    run('xdotool click 1', timeout=3)
     time.sleep(0.1)
     return True
 

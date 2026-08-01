@@ -6,8 +6,13 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from arena.memory.profiles import DEFAULT_MEMORY_PROFILE, normalize_memory_profile, normalize_memory_profile_filter, validate_memory_profile
 from arena.mcp.tool_utils import text_content
+from arena.memory.profiles import (
+    DEFAULT_MEMORY_PROFILE,
+    normalize_memory_profile,
+    normalize_memory_profile_filter,
+    validate_memory_profile,
+)
 
 
 def handle_memory_export_import_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | None:

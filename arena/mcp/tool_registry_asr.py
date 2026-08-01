@@ -1,7 +1,6 @@
 """MCP registry for asr.* speech-to-text tools (v4.58.0)."""
 from __future__ import annotations
 
-
 ASR_MCP_TOOLS = [
     {
         "name": "asr.transcribe",

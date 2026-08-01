@@ -99,10 +99,10 @@ def test_desktop_modules_use_controlled_decorator():
     the shared @controlled decorator."""
     from arena.desktop import (
         input_handlers as _ih,
-        window_handlers as _wh,
         ocr_handler as _oh,
         text_action_handler as _ta,
         window_action_handler as _wa,
+        window_handlers as _wh,
     )
     for mod in (_ih, _wh, _oh, _ta, _wa):
         src = inspect.getsource(mod)
@@ -120,10 +120,10 @@ def test_desktop_modules_free_of_manual_control_prelude():
     prelude is gone from every desktop control-lease handler module."""
     from arena.desktop import (
         input_handlers as _ih,
-        window_handlers as _wh,
         ocr_handler as _oh,
         text_action_handler as _ta,
         window_action_handler as _wa,
+        window_handlers as _wh,
     )
     for mod in (_ih, _wh, _oh, _ta, _wa):
         src = inspect.getsource(mod)

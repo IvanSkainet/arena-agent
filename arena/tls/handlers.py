@@ -59,9 +59,9 @@ def generate_self_signed_cert(*, log_info: Any = None, log_warning: Any = None) 
     # Fallback: use Python cryptography if available.
     try:
         from cryptography import x509
-        from cryptography.x509.oid import NameOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.x509.oid import NameOID
 
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         subject = issuer = x509.Name([

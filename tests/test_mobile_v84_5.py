@@ -171,8 +171,7 @@ class _FakeCP:
 
 
 def test_enable_tcp_registers_alias_after_successful_probe(monkeypatch):
-    from arena.mobile import transport as tr
-    from arena.mobile import adb_fallback as fb
+    from arena.mobile import adb_fallback as fb, transport as tr
 
     call_log = []
 
@@ -215,8 +214,7 @@ def test_enable_tcp_reports_stage_when_ip_probe_fails(monkeypatch):
 
 
 def test_enable_tcp_skips_probe_when_host_is_provided(monkeypatch):
-    from arena.mobile import transport as tr
-    from arena.mobile import adb_fallback as fb
+    from arena.mobile import adb_fallback as fb, transport as tr
 
     def _fake_run(argv, *, serial=None, timeout=None, **_):
         if argv[0] == "connect":
@@ -232,8 +230,7 @@ def test_enable_tcp_skips_probe_when_host_is_provided(monkeypatch):
 
 
 def test_disable_tcp_drops_alias_and_disconnects(monkeypatch):
-    from arena.mobile import transport as tr
-    from arena.mobile import adb_fallback as fb
+    from arena.mobile import adb_fallback as fb, transport as tr
 
     fb.register("2200ad3b")
     fb.add_alias("2200ad3b", "192.168.50.181:5555")
@@ -255,8 +252,7 @@ def test_disable_tcp_drops_alias_and_disconnects(monkeypatch):
 
 
 def test_describe_reports_active_transport_and_multi_flag():
-    from arena.mobile import transport as tr
-    from arena.mobile import adb_fallback as fb
+    from arena.mobile import adb_fallback as fb, transport as tr
     fb.register("2200ad3b")
     fb.add_alias("2200ad3b", "192.168.50.181:5555")
     d = tr.describe("2200ad3b")
@@ -282,8 +278,7 @@ def test_parse_hostport_rejects_junk():
 def test_adb_run_routes_through_registry_and_records_outcome(monkeypatch):
     """When a serial has an alias, adb.run swaps the serial arg over to
     the alias once the primary trips the breaker."""
-    from arena.mobile import adb as adb_mod
-    from arena.mobile import adb_fallback as fb
+    from arena.mobile import adb as adb_mod, adb_fallback as fb
 
     fb.register("2200ad3b")
     fb.add_alias("2200ad3b", "192.168.50.181:5555")
@@ -313,8 +308,7 @@ def test_adb_run_routes_through_registry_and_records_outcome(monkeypatch):
 
 
 def test_adb_run_without_serial_never_touches_registry(monkeypatch):
-    from arena.mobile import adb as adb_mod
-    from arena.mobile import adb_fallback as fb
+    from arena.mobile import adb as adb_mod, adb_fallback as fb
 
     monkeypatch.setattr(adb_mod, "find_adb", lambda: "/fake/adb")
     monkeypatch.setattr(adb_mod.subprocess, "run",

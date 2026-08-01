@@ -11,7 +11,6 @@ from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import controlled, err_json
 
 
-
 def make_desktop_window_action_handler(ctx: DesktopHandlerContext):
     @controlled(ctx)
     async def handle_v1_desktop_window_action(request: web.Request) -> web.Response:

@@ -68,9 +68,10 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         # v4.38.0: same shape as cloudflared, but native (no
         # ngrok_autostart module). We call the shared unified
         # autostart module + the ngrok_action directly.
+        import time as _time
+
         from arena.admin import autostart as _autostart
         from arena.admin.cloudflared_autostart import AutostartOutcome
-        import time as _time
         root_agent = g.get("ROOT_AGENT")
         subprocess_kwargs_fn = g.get("_subprocess_kwargs")
         if root_agent is None or subprocess_kwargs_fn is None:
@@ -104,9 +105,10 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         # v4.47.0: same shape as ngrok. bore has no separate
         # autostart module -- we call the shared unified
         # autostart layer + bore_action directly.
+        import time as _time
+
         from arena.admin import autostart as _autostart
         from arena.admin.cloudflared_autostart import AutostartOutcome
-        import time as _time
         root_agent = g.get("ROOT_AGENT")
         subprocess_kwargs_fn = g.get("_subprocess_kwargs")
         if root_agent is None or subprocess_kwargs_fn is None:
@@ -140,9 +142,10 @@ def build_app_lifecycle(g: MutableMapping[str, Any]) -> dict[str, Any]:
         # v4.38.0: same shape as cloudflared / ngrok. tailscale
         # doesn't use subprocess_kwargs but takes the same
         # (action, port) signature via arena.admin.runtime.
+        import time as _time
+
         from arena.admin import autostart as _autostart
         from arena.admin.cloudflared_autostart import AutostartOutcome
-        import time as _time
         root_agent = g.get("ROOT_AGENT")
         if root_agent is None:
             return None

@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-
 _REPO = Path(__file__).resolve().parents[1]
 _BODY = _REPO / "dashboard" / "assets" / "body-20-transports.html"
 _JS = _REPO / "dashboard" / "assets" / "20-transports.js"

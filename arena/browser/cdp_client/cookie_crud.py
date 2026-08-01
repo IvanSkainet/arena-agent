@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
+
 class CDPCookieCrudMixin:
     def _ensure_active(self) -> None:
         """Raise RuntimeError if cookie manager is not started."""

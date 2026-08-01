@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.chat_cli.common import *  # noqa: F401,F403
 
+
 def cmd_web(arg: str) -> tuple[int, str]:
     arg = arg.strip()
     if not arg:

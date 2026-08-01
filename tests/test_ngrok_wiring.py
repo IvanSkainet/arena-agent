@@ -149,8 +149,9 @@ def test_admin_handlers_dataclass_has_ngrok_tunnel_field():
     """The dataclass field is what the wiring dispatcher reads
     when it builds the outbound handler map. Missing field -> the
     route registry can't resolve /v1/ngrok/tunnel/{action}."""
-    from arena.admin.handlers import AdminHandlers
     from dataclasses import fields
+
+    from arena.admin.handlers import AdminHandlers
     names = {f.name for f in fields(AdminHandlers)}
     assert "ngrok_tunnel" in names, (
         "AdminHandlers must gain a ngrok_tunnel field so the "

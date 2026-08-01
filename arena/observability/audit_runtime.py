@@ -7,7 +7,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from arena.observability.audit import audit_lock, read_tail as audit_read_tail, sanitize_audit_event as audit_sanitize_event, write_audit_event
+from arena.observability.audit import (
+    audit_lock,
+    read_tail as audit_read_tail,
+    sanitize_audit_event as audit_sanitize_event,
+    write_audit_event,
+)
 from arena.observability.webhooks import fire_webhooks, load_webhooks, save_webhooks
 
 

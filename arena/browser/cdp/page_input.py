@@ -89,23 +89,23 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
             text: string (required)
             tab_id: string (optional)
         """
-    
+
         try:
             body = await request.json()
         except Exception:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
         selector = body.get("selector")
         text = body.get("text")
         if not selector or text is None:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'selector' or 'text' parameter"}, status=400)
-    
+
         tab_id = body.get("tab_id")
         tab, err = await ctx.cdp_active_tab(tab_id)
         if err: return err
-    
+
         try:
             # v2.3.0: Hard timeout — 14s CDP, 15s asyncio
             typed = await asyncio.wait_for(tab.type_text(selector, text, timeout=14), timeout=15)

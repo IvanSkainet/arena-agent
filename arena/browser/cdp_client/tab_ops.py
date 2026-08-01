@@ -3,8 +3,9 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 from arena.browser.cdp_client.process import launch_browser
-from arena.browser.cdp_client.tabs_http import get_websocket_url, list_tabs, get_new_tab_url, close_tab
+from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, get_websocket_url, list_tabs
 from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
+
 
 class CDPTabOpsMixin:
     async def navigate(self, url: str, wait: bool = True,

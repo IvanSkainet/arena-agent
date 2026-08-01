@@ -23,7 +23,6 @@ from __future__ import annotations
 
 from arena.inventory.probe_common import *  # noqa: F401,F403
 
-
 # ------------------------------------------------------------------ python_venvs
 
 def get_python_venvs(scan_root: str | None = None, limit: int = 15) -> dict:

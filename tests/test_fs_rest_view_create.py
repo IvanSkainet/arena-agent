@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
 from arena.app_keys import APP_CFG  # noqa: E402
-from arena.files.fs_view_create import make_fs_view_create_handlers, FsViewCreateHandlers  # noqa: E402
-from arena.files.sandbox import validate_view_target, validate_create_target  # noqa: E402
+from arena.files.fs_view_create import FsViewCreateHandlers, make_fs_view_create_handlers  # noqa: E402
+from arena.files.sandbox import validate_create_target, validate_view_target  # noqa: E402
 from arena.handler_context import FileHandlerContext  # noqa: E402
 
 try:
@@ -302,8 +302,8 @@ def test_rest_fs_view_create_routes_registered():
     """POST /v1/fs/view and POST /v1/fs/create routes are registered in the app."""
     app = ub.make_app({"token": "t", "profile": "owner-shell", "root": "/tmp", "active_exec": 0, "max_concurrent": 3, "audit": "audit"})
     paths = {(r.method, r.resource.get_info().get("path") or r.resource.get_info().get("formatter")) for r in app.router.routes()}
-    assert ("POST", "/v1/fs/view") in paths, f"POST /v1/fs/view not in routes"
-    assert ("POST", "/v1/fs/create") in paths, f"POST /v1/fs/create not in routes"
+    assert ("POST", "/v1/fs/view") in paths, "POST /v1/fs/view not in routes"
+    assert ("POST", "/v1/fs/create") in paths, "POST /v1/fs/create not in routes"
 
 
 def test_fs_view_create_handlers_have_fields():

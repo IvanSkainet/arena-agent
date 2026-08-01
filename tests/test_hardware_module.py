@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.inventory.hardware import hardware_from_inventory_result, normalize_inventory_hardware  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.inventory.hardware import hardware_from_inventory_result, normalize_inventory_hardware  # noqa: E402
 
 
 def test_normalize_inventory_hardware_merges_nvidia_and_devices():

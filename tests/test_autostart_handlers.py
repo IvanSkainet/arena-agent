@@ -22,7 +22,6 @@ import pytest
 
 from arena.admin import autostart
 
-
 ENV_NG = "ARENA_NGROK_AUTOSTART"
 
 
@@ -30,8 +29,9 @@ ENV_NG = "ARENA_NGROK_AUTOSTART"
 # Dataclass + route registry
 # ---------------------------------------------------------------------------
 def test_admin_handlers_has_autostart_fields():
-    from arena.admin.handlers import AdminHandlers
     from dataclasses import fields
+
+    from arena.admin.handlers import AdminHandlers
     names = {f.name for f in fields(AdminHandlers)}
     assert "autostart_get" in names
     assert "autostart_set" in names
@@ -71,8 +71,9 @@ def _make_ctx(tmp_path):
     invocation. ``cors_json_response`` is intentionally SYNC
     (returns a plain web.Response) -- matches the shape the
     real production wiring uses."""
-    from arena.handler_context import AdminHandlerContext
     from aiohttp import web
+
+    from arena.handler_context import AdminHandlerContext
 
     def _cors(payload, **kw):
         return web.json_response(payload, status=kw.get("status", 200))
@@ -93,6 +94,7 @@ def _make_request(method: str, path: str, body: dict | None = None,
                   match_info: dict | None = None):
     """Fake aiohttp Request just enough for our handlers."""
     from aiohttp import web
+
     from arena.app_keys import APP_CFG
 
     app = web.Application()

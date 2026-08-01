@@ -70,7 +70,8 @@ def _seed_breaker(keys_with_state):
     """Populate the shared breaker with the given (key, state)
     tuples so tests can then verify a reset clears them."""
     from arena.admin.tunnels_breaker import (
-        get_default_breaker, reset_default_breaker,
+        get_default_breaker,
+        reset_default_breaker,
     )
     reset_default_breaker()
     b = get_default_breaker()

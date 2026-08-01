@@ -9,6 +9,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+
 def get_mem_dir() -> Path:
     root = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
     return root / "memory"

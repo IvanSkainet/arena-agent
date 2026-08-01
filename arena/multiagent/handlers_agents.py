@@ -17,8 +17,8 @@ import functools
 from typing import Any
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
 from arena.multiagent import agents as _agents
 
 

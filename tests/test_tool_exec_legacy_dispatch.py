@@ -34,7 +34,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO = Path(__file__).resolve().parent.parent
 TOOL_EXEC = REPO / "arena" / "mcp" / "tool_exec.py"
 

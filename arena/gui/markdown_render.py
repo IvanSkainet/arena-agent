@@ -30,7 +30,6 @@ from __future__ import annotations
 import html
 import re
 
-
 _LINK_SAFE = re.compile(r"^(https?://|mailto:|/|#|\.)", re.IGNORECASE)
 
 

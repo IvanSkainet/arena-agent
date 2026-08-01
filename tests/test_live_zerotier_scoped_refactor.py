@@ -17,7 +17,6 @@ from pathlib import Path
 
 import pytest
 
-
 _REPO = Path(__file__).resolve().parents[1]
 _ASSETS = _REPO / "dashboard" / "assets"
 

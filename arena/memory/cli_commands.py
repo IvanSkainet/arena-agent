@@ -5,6 +5,7 @@ from arena.memory.cli_parser import _split_remember_rest
 from arena.memory.cli_paths import *  # noqa: F401,F403
 from arena.memory.cli_store import append
 
+
 def remember(args: argparse.Namespace) -> int:
     value_tokens, tags = _split_remember_rest(args.rest)
     if not value_tokens:
@@ -21,7 +22,7 @@ def recall(args: argparse.Namespace) -> int:
         return 0
     q = (args.query or "").lower()
     rows: list[dict] = []
-    
+
     profile = getattr(args, "profile", "default")
     try:
         with sqlite3.connect(db_path) as conn:
@@ -38,7 +39,7 @@ def recall(args: argparse.Namespace) -> int:
                     tags_list = json.loads(r['tags']) if r['tags'] else []
                 except Exception:
                     tags_list = []
-                
+
                 obj = {
                     "ts": r['timestamp'],
                     "profile": r['profile'] if 'profile' in r.keys() else 'default',
@@ -46,7 +47,7 @@ def recall(args: argparse.Namespace) -> int:
                     "value": value,
                     "tags": tags_list
                 }
-                
+
                 hay = (
                     str(key) + " " +
                     str(value) + " " +

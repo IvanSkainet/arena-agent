@@ -28,7 +28,7 @@ import os
 import subprocess
 import sys
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
 # ---------------------------------------------------------------------------

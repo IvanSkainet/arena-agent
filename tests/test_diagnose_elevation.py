@@ -19,7 +19,6 @@ sys.path.insert(0, str(REPO / "arena" / "browser"))
 
 import diagnose_elevation  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # diagnose_browser_stderr: pure-text heuristics
 # ---------------------------------------------------------------------------

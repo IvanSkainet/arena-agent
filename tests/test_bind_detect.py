@@ -9,7 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.bind_detect import resolve_bind
 
-
 # --- explicit bind is always preserved -------------------------------
 
 def test_explicit_ipv4_returned_verbatim():

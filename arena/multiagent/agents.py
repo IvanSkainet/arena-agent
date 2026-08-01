@@ -40,7 +40,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # Ring-buffer size for the per-agent audit log. 500 * ~200 bytes ≈
 # 100 KB per agent, comfortably below any concern for hundreds of
 # agents.

@@ -4,6 +4,7 @@ from __future__ import annotations
 from arena.mcp.ws_frames import *  # noqa: F401,F403
 from arena.mcp.ws_push import _subscribe, _unsubscribe_all
 
+
 def _client_loop(sock: socket.socket, addr):
     try:
         if not _http_handshake(sock):

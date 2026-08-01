@@ -184,7 +184,7 @@ def test_check_auth_accepts_query_token(monkeypatch):
                 "arena.app_cfg": {"token": "secret-123"}
             }
     # `check_auth` reads request.app[APP_CFG]; import APP_CFG constant.
-    from arena.auth.runtime import APP_CFG, make_auth_runtime, AuthRuntimeContext
+    from arena.auth.runtime import APP_CFG, AuthRuntimeContext, make_auth_runtime
     # Build a minimal user_store stub.
     stub_store = SimpleNamespace(
         load_users=lambda: {},

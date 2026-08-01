@@ -31,18 +31,17 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from arena.mobile.h264_parser import (
-    AnnexBSplitter,
     NAL_AUD,
     NAL_PPS,
     NAL_SEI,
     NAL_SLICE_IDR,
     NAL_SPS,
-    SPSInfo,
     VCL_TYPES,
+    AnnexBSplitter,
+    SPSInfo,
     nal_type,
     parse_sps,
 )
-
 
 # ---------------------------------------------------------------------------
 # Box building primitives

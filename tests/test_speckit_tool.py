@@ -24,7 +24,6 @@ sys.path.insert(0, str(REPO / "arena" / "mcp"))
 
 import tool_speckit as ts  # noqa: E402
 
-
 HAS_SPECIFY = shutil.which("specify") is not None
 skip_no_cli = pytest.mark.skipif(
     not HAS_SPECIFY,

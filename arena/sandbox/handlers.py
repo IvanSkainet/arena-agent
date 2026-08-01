@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import SandboxHandlerContext
-from arena.sandbox.runtime import SANDBOX_CONFIG
 from arena.handler_helpers import authed, err_json
+from arena.sandbox.runtime import SANDBOX_CONFIG
 
 
 @dataclass(frozen=True)

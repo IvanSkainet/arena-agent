@@ -7,10 +7,9 @@ from __future__ import annotations
 
 import json
 import os
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Any
-
 
 _DEFAULT_PORT = 19222
 

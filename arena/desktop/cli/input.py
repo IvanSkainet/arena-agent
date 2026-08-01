@@ -4,6 +4,7 @@ from __future__ import annotations
 from arena.desktop.cli.common import *  # noqa: F401,F403
 from arena.desktop.cli.focus import _ensure_wm, _focus_active_window, _focus_window_at
 
+
 def ensure_ydotool():
     if not have('ydotool'): return False
     if run('pgrep -x ydotoold').returncode!=0 and have('ydotoold'):
@@ -24,7 +25,7 @@ def click(args):
     # On X11, also focus the window at click position before clicking
     if have('xdotool'):
         # Get window at position and focus it
-        p = run(f'xdotool selectwindow 2>/dev/null', timeout=2)
+        p = run('xdotool selectwindow 2>/dev/null', timeout=2)
         # Alternative: use mousemove + click which naturally focuses
         run(f'xdotool mousemove --sync {args.x} {args.y}', timeout=3)
         time.sleep(0.05)
@@ -40,10 +41,10 @@ def key(args):
     """Send a key event. Auto-starts WM and focuses target window first."""
     # Ensure WM is running for focus management
     _ensure_wm()
-    
+
     # Try to focus the active window before sending keys
     _focus_active_window()
-    
+
     if have('wtype'): p=run(f'wtype -k {shq(args.key)}',timeout=5)
     elif have('xdotool'): p=run(f'xdotool key {shq(args.key)}',timeout=5)
     elif ensure_ydotool(): p=run(f'ydotool key {shq(args.key)}:1 {shq(args.key)}:0',timeout=5)
@@ -55,7 +56,7 @@ def type_text(args):
     # Ensure WM is running for focus management
     _ensure_wm()
     _focus_active_window()
-    
+
     if have('wl-copy') and ensure_ydotool():
         subprocess.run(['wl-copy'],input=text,text=True); time.sleep(.1); p=run('ydotool key 29:1 47:1 47:0 29:0',timeout=5)
     elif have('wtype'): p=subprocess.run(['wtype',text],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)

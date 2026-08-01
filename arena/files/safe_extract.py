@@ -48,7 +48,6 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-
 # 4 GiB total uncompressed cap. Empirically the arena release
 # zip is ~3 MB, skill zips are typically <1 MB. A legitimate
 # archive that trips this cap probably isn't one we want to

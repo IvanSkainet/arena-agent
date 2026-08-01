@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.security_commands import blocked_reason
 
-
 # --- allow list: real workflows agents need daily -----------------------
 
 ALLOW = [

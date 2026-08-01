@@ -33,8 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
 from arena.exec.runner import run_shell_command_stream
 from arena.handler_context import ExecHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body

@@ -42,7 +42,6 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-
 # How many back-to-back offline-shaped errors mark a transport unhealthy.
 _MAX_CONSECUTIVE_FAILS = 3
 
@@ -70,6 +69,7 @@ _OFFLINE_MARKERS = (
 # accidentally match an unrelated "activity not found" or "package not
 # found" message from am/pm.
 import re as _re
+
 _OFFLINE_DEVICE_NOT_FOUND = _re.compile(r"\bdevice\b[^\n]{0,64}\bnot found\b",
                                         _re.IGNORECASE)
 

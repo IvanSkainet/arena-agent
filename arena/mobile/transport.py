@@ -29,7 +29,6 @@ from typing import Any
 from arena.mobile import adb_fallback as _fb
 from arena.mobile.adb import AdbNotFoundError, find_adb, run
 
-
 DEFAULT_TCP_PORT = 5555
 
 # Matches an IPv4-only host:port so we can reject junk before it lands

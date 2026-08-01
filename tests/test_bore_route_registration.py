@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 _REPO = Path(__file__).resolve().parents[1]
 _CORE = _REPO / "arena" / "route_registry" / "core.py"
 _REGISTRY = _REPO / "arena" / "route_registry" / "registry.py"

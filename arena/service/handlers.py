@@ -6,8 +6,8 @@ import os
 from dataclasses import dataclass
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
 from arena.handler_context import ServiceHandlerContext
 from arena.handler_helpers import authed, err_json
 

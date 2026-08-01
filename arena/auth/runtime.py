@@ -8,8 +8,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
 from arena.auth.users import UserStore
 
 

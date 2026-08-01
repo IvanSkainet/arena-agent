@@ -5,9 +5,9 @@ from collections.abc import MutableMapping
 from pathlib import Path
 from typing import Any
 
-from arena.wiring.env import RuntimeEnv
-
 from aiohttp import web
+
+from arena.wiring.env import RuntimeEnv
 
 
 def build_runtime_wrappers(g: MutableMapping[str, Any]) -> dict[str, Any]:

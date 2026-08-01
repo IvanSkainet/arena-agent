@@ -4,8 +4,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.desktop.input import (  # noqa: E402
+    build_click_command,
+    build_key_command,
+    build_mouse_command,
+    build_type_command,
+)
 
 
 def test_click_builder_ydotool():

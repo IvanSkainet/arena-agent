@@ -12,7 +12,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from aiohttp import web
-from arena.app_keys import APP_CFG, APP_TASK_RUNNER, APP_LOG_CLEANUP, APP_FILE_WATCH_LOOP, APP_MISSION_SCHEDULE_LOOP
+
+from arena.app_keys import APP_CFG, APP_FILE_WATCH_LOOP, APP_LOG_CLEANUP, APP_MISSION_SCHEDULE_LOOP, APP_TASK_RUNNER
 
 
 @dataclass(frozen=True)

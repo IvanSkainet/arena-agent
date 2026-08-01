@@ -22,7 +22,8 @@ def now_iso() -> str:
 def _fire_hook(event: str, target: str, args=None, exit_code: int = 0) -> None:
     """Запустить хуки события через hooks_runner. Тихо игнорирует если его нет."""
     try:
-        import subprocess as _sp, json as _j
+        import json as _j
+        import subprocess as _sp
         runner = ROOT / "bin" / "hooks_runner.py"
         if not runner.exists():
             runner = ROOT / "scripts" / "hooks_runner.py"

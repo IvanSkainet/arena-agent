@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
+
 def find_browser_exe() -> str:
     """Find a Chromium-based browser executable on the system."""
     chrome_candidates = [

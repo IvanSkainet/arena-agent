@@ -26,7 +26,6 @@ from typing import Any
 
 from arena.admin import autostart as _unified
 
-
 # Re-exported so callers that reach for the constants keep
 # finding them at the historical location.
 MARKER_FILENAME = ".cloudflared_autostart"

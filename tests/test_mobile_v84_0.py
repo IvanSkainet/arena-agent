@@ -238,8 +238,9 @@ def test_axml_parser_returns_none_on_malformed_manifest(tmp_path):
     fallback in `_extract_package_name` requires a full-string match,
     so binary garbage returns None — that's fine as long as we don't
     raise."""
-    from arena.mobile.apk_install import _extract_package_name
     import io as _io
+
+    from arena.mobile.apk_install import _extract_package_name
     buf = _io.BytesIO()
     with zipfile.ZipFile(buf, "w") as z:
         z.writestr("AndroidManifest.xml", b"\x00\x00garbage-not-axml\x00")

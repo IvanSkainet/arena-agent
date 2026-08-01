@@ -4,6 +4,7 @@ from __future__ import annotations
 from arena.mcp.standalone_common import *  # noqa: F401,F403
 from arena.mcp.standalone_tools import TOOLS, call_tool
 
+
 def handle_rpc(msg: dict) -> dict | None:
     m = msg.get("method", ""); rid = msg.get("id")
     if m == "initialize":

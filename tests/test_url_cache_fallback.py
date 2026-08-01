@@ -37,7 +37,6 @@ import pytest
 
 from arena.agentctl_cli import url_cache as _url_cache
 
-
 # Must match the value _run_cli exports as ARENA_BRIDGE_TOKEN --
 # the on-disk cache signature is only valid when signed by that
 # same secret.

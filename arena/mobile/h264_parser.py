@@ -29,7 +29,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterator
 
-
 # Annex-B start codes are `00 00 00 01` (long) or `00 00 01` (short).
 _LONG_START = b"\x00\x00\x00\x01"
 _SHORT_START = b"\x00\x00\x01"

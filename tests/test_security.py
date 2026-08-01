@@ -16,7 +16,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import unified_bridge as ub  # noqa: E402
 from arena.app_keys import APP_CFG  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # blocked_reason — /v1/exec command blocklist
 # ---------------------------------------------------------------------------

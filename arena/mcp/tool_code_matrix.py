@@ -4,8 +4,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from arena.autonomy import posture as _posture
-from arena.autonomy import runner as _runner
+from arena.autonomy import posture as _posture, runner as _runner
 from arena.mcp.tool_utils import text_content
 from arena.workbench import projects as _projects
 

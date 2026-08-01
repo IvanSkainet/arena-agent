@@ -18,15 +18,14 @@ _REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO / "scripts"))
 
 from inspect_update_log import (  # noqa: E402  -- import after sys.path tweak
+    _LINE_RE,
+    PHASE_ORDER,
     LogEntry,
     LogReport,
-    PHASE_ORDER,
-    _LINE_RE,
     _parse_log,
     _resolve_log_paths,
     main,
 )
-
 
 # A canonical, complete log: bridge exited, files copied, bridge relaunched.
 GOOD_LOG = (

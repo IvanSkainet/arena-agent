@@ -29,7 +29,6 @@ import os
 from collections.abc import Callable
 from typing import Any
 
-
 # Overlay interface name patterns that indicate the operator has
 # already chosen to expose the machine on a private overlay.
 _TAILSCALE_IF_PREFIXES = ("tailscale", "utun")     # tailscale0 on linux, utun* on macOS

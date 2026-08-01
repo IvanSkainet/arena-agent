@@ -48,7 +48,6 @@ import os
 import time
 from pathlib import Path
 
-
 # Transports that actually have a start/stop verb. ZeroTier
 # absent by design (see module docstring).
 # v4.47.0: bore added as the fifth transport with the same

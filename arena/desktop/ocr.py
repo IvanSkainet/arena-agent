@@ -10,7 +10,6 @@ from typing import Any
 from arena.desktop.text_matching import build_ocr_text, find_text_matches, line_groups
 
 
-
 def parse_tesseract_tsv(tsv: str, *, min_confidence: int = 40, max_words: int = 500) -> list[dict[str, Any]]:
     lines = [line for line in (tsv or "").splitlines() if line.strip()]
     if len(lines) <= 1:

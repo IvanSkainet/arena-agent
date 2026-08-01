@@ -4,8 +4,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.memory.store import delete_fact, init_memory_db, load_facts, recall, recall_digest, search_facts_paged, write_fact  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.memory.store import (  # noqa: E402
+    delete_fact,
+    init_memory_db,
+    load_facts,
+    recall,
+    recall_digest,
+    search_facts_paged,
+    write_fact,
+)
 
 
 def test_memory_store_roundtrip(tmp_path):

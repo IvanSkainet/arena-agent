@@ -39,7 +39,6 @@ from __future__ import annotations
 import re
 from typing import Any
 
-
 # Key-name substrings that indicate a value should be redacted
 # outright, regardless of pattern. Kept as a frozenset for
 # constant-time membership testing.

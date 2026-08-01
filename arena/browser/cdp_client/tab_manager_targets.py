@@ -7,6 +7,7 @@ from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, list_tabs
 from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
+
 class CDPTabManagerTargetMixin:
     async def _handle_target_created(self, params: Dict) -> None:
         """Handle Target.targetCreated event."""

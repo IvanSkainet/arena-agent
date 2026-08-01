@@ -9,8 +9,8 @@ from typing import Any
 
 from aiohttp import web
 
-from arena.profiles.common import auth_and_record, sanitize_profile_name
 from arena.handler_context import ProfileHandlerContext
+from arena.profiles.common import auth_and_record, sanitize_profile_name
 
 
 async def _save_cookies(ctx: ProfileHandlerContext, profile_data: dict[str, Any]) -> None:

@@ -35,7 +35,6 @@ import re
 from pathlib import Path
 from typing import Iterable
 
-
 # Files that live in dashboard/assets/ but are NOT boot-loaded via
 # the manifest. Keep the set small and explain each entry.
 EXCLUDED_ASSET_NAMES: frozenset[str] = frozenset({

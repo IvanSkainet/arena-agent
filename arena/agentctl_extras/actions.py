@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.agentctl_extras.common import *  # noqa: F401,F403
 
+
 def play_notification_sound():
     try:
         import platform
@@ -34,12 +35,12 @@ def cmd_do(args: list[str]) -> int:
     if cp.returncode != 0:
         print(f"Error submitting task: {cp.stderr}", file=sys.stderr)
         return cp.returncode
-    
+
     # FIXED (v4.3): Extract base filename as task_id to avoid path separator / vs \ conflicts on Windows!
     task_path = cp.stdout.strip()
     task_id = os.path.basename(task_path).replace(".json", "")
     print(f"submitted: {task_id}")
-    
+
     # Wait for result
     for _ in range(600):
         time.sleep(1)
@@ -68,11 +69,11 @@ def cmd_tail(args: list[str]) -> int:
             p = Path.home() / "arena-bridge" / "audit.jsonl"
     else:
         p = ROOT / "logs" / f"{kind}.jsonl"
-    
+
     if not p.exists():
         print(f"log file not found: {p}", file=sys.stderr)
         return 1
-    
+
     # Simple cross-platform tail
     try:
         lines = p.read_text(encoding="utf-8", errors="ignore").splitlines()
@@ -115,7 +116,7 @@ def cmd_remember(args: list[str]) -> int:
         idx = args.index("--tags")
         if idx + 1 < len(args):
             tags = args[idx+1].split(",")
-    
+
     facts_file = ROOT / "memory" / "facts.jsonl"
     facts_file.parent.mkdir(parents=True, exist_ok=True)
     fact = {

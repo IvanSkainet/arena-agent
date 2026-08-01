@@ -10,14 +10,17 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.handler_context import ResourceHandlerContext  # noqa: E402
 from arena.mcp.tool_mission import handle_mission_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.resources.handlers import make_resource_handlers  # noqa: E402
-from arena.resources.missions_manage import compose_mission_draft, create_mission_from_draft, list_mission_templates  # noqa: E402
+from arena.resources.missions_manage import (  # noqa: E402
+    compose_mission_draft,
+    create_mission_from_draft,
+    list_mission_templates,
+)
 from arena.resources.missions_orchestration import propose_mission_bundle, recover_mission_bundle  # noqa: E402
-import unified_bridge as ub  # noqa: E402
-
 
 
 def test_mission_template_listing_and_compose_create(tmp_path):
@@ -230,8 +233,19 @@ def test_mission_status_report_history_catalog_and_recover_helpers(tmp_path):
     from arena.resources.mission_family import get_mission_family
     from arena.resources.mission_lineage import get_mission_lineage
     from arena.resources.mission_loops import followup_mission_bundle, iterate_mission_bundle
-    from arena.resources.mission_schedule_runtime import delete_mission_schedule_runtime, list_mission_schedules_runtime, save_mission_schedule_runtime, tick_mission_schedules_runtime
-    from arena.resources.mission_state import catalog_missions, get_mission_history, get_mission_report, get_mission_status, infer_rerun_step
+    from arena.resources.mission_schedule_runtime import (
+        delete_mission_schedule_runtime,
+        list_mission_schedules_runtime,
+        save_mission_schedule_runtime,
+        tick_mission_schedules_runtime,
+    )
+    from arena.resources.mission_state import (
+        catalog_missions,
+        get_mission_history,
+        get_mission_report,
+        get_mission_status,
+        infer_rerun_step,
+    )
     from arena.resources.missions_manage import rerun_mission
 
     status = get_mission_status(missions_dir, "demo")

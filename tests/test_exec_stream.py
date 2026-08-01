@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
 
-
 _TMPDIR = Path(tempfile.gettempdir())
 _PY = sys.executable  # portable python launcher
 
@@ -56,7 +55,7 @@ def test_exec_stream_route_wired_into_app():
 
 def test_exec_handlers_factory_exposes_stream():
     """Regression guard: the stream handler is exported on ExecHandlers."""
-    from arena.exec.handlers import make_exec_handlers, ExecHandlers  # noqa: F401
+    from arena.exec.handlers import ExecHandlers, make_exec_handlers  # noqa: F401
     from arena.handler_context import ExecHandlerContext
     ctx = ExecHandlerContext(
         require_auth=ub.require_auth,

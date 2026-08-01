@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from aiohttp import web
-from arena.app_keys import APP_CFG
 
+from arena.app_keys import APP_CFG
 from arena.files.sandbox import validate_create_target, validate_view_target
 from arena.handler_context import FileHandlerContext
 from arena.handler_helpers import authed, err_json, parse_json_body
@@ -125,7 +125,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         )
         if err:
             return _err(ctx, err, status)
-        
+
         encoding = str(data.get("encoding", "")).strip().lower()
         if encoding == "base64":
             import base64

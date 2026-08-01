@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
 
+
 class InterceptRule:
     """A single interception rule for CDPNetworkInterceptor.
 

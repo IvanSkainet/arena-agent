@@ -2,9 +2,9 @@
 from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
-
 from arena.browser.cdp_client.process import launch_browser
 from arena.browser.cdp_client.tabs_http import get_websocket_url
+
 
 class SyncCDPBrowser:
     """Synchronous CDP browser using raw socket WebSocket.
@@ -44,9 +44,9 @@ class SyncCDPBrowser:
         self.close()
 
     def _perform_handshake(self, ws_url: str):
-        import urllib.parse as up
         import socket as _socket
         import struct as _struct
+        import urllib.parse as up
 
         parsed = up.urlparse(ws_url)
         host = parsed.hostname
@@ -79,8 +79,8 @@ class SyncCDPBrowser:
 
     @staticmethod
     def _send_frame(sock, data: str) -> None:
-        import struct as _struct
         import os as _os
+        import struct as _struct
 
         payload = data.encode("utf-8")
         length = len(payload)

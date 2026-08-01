@@ -24,36 +24,36 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
         Body JSON (optional):
             patterns: list of Fetch pattern dicts (default: intercept all)
         """
-    
+
         if not ctx.cdp_state["connected"]:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
+
         cdp = ctx.get_cdp_module()
         if not cdp:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
-    
+
         try:
             tab, _ = await ctx.cdp_active_tab()
             if not tab or not tab._browser:
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": "No active tab"}, status=400)
-        
+
             if ctx.cdp_state.get("interceptor") and ctx.cdp_state["interceptor"].active:
                 return ctx.cors_json_response({"ok": True, "message": "Interception already active"})
-        
+
             patterns = None
             try:
                 body = await request.json()
                 patterns = body.get("patterns")
             except Exception:
                 pass
-        
+
             interceptor = cdp.CDPNetworkInterceptor(tab._browser)
             await interceptor.start(patterns=patterns)
             ctx.cdp_state["interceptor"] = interceptor
-        
+
             return ctx.cors_json_response({
                 "ok": True,
                 "message": "Network interception started",
@@ -66,11 +66,11 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
     @authed(ctx)
     async def handle_v1_cdp_intercept_stop(request):
         """POST /v1/browser/cdp/intercept/stop — Stop network interception."""
-    
+
         interceptor = ctx.cdp_state.get("interceptor")
         if not interceptor or not interceptor.active:
             return ctx.cors_json_response({"ok": True, "message": "Interception not active"})
-    
+
         await interceptor.stop()
         return ctx.cors_json_response({"ok": True, "message": "Interception stopped"})
 
@@ -94,14 +94,14 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
         DELETE Body JSON:
             name: string (required)
         """
-    
+
         cdp = ctx.get_cdp_module()
         if not cdp:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "cdp_browser module not found"}, status=500)
-    
+
         interceptor = ctx.cdp_state.get("interceptor")
-    
+
         if request.method == "GET":
             if not interceptor:
                 return ctx.cors_json_response({"ok": True, "rules": [], "count": 0})
@@ -111,40 +111,40 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
                 "rules": [rule.to_dict() for rule in rules],
                 "count": len(rules),
             })
-    
+
         try:
             body = await request.json()
         except Exception:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
         if request.method == "DELETE":
             name = body.get("name")
             if not name:
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": "missing 'name'"}, status=400)
-        
+
             if not interceptor:
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": "No active interceptor"}, status=400)
-        
+
             removed = interceptor.remove_rule(name)
             return ctx.cors_json_response({
                 "ok": removed,
                 "name": name,
             })
-    
+
         # POST — add rule
         if not interceptor or not interceptor.active:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Interception not active. Start first."}, status=400)
-    
+
         name = body.get("name", "")
         action = body.get("action")
         if not action:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'action'"}, status=400)
-    
+
         try:
             rule = cdp.InterceptRule(
                 name=name,
@@ -159,7 +159,7 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
                 remove_request_headers=body.get("remove_request_headers"),
             )
             interceptor.add_rule(rule)
-        
+
             return ctx.cors_json_response({
                 "ok": True,
                 "rule": rule.to_dict(),

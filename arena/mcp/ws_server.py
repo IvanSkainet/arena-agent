@@ -1,8 +1,8 @@
 """Standalone pure-stdlib MCP WebSocket server CLI."""
 from __future__ import annotations
 
-from arena.mcp.ws_frames import *  # noqa: F401,F403
 from arena.mcp.ws_client import _client_loop
+from arena.mcp.ws_frames import *  # noqa: F401,F403
 from arena.mcp.ws_push import _notify_watcher
 
 

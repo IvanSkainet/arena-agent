@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.browser.fetch import browser_fetch, browser_head, browser_read  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.browser.fetch import browser_fetch, browser_head, browser_read  # noqa: E402
 
 
 def _block_local(url: str):

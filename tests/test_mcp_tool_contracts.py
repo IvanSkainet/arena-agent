@@ -32,7 +32,6 @@ from typing import Iterable
 
 import pytest
 
-
 REPO = Path(__file__).resolve().parent.parent
 TOOL_DIR = REPO / "arena" / "mcp"
 SNAPSHOT = REPO / "tests" / "_mcp_contract_snapshot.json"

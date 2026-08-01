@@ -8,7 +8,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.desktop.window_action_plans import plan_window_action_geometry  # noqa: E402
 
-
 WINDOW = {
     "geometry": {"x": 100, "y": 120, "width": 800, "height": 600},
     "display": {"name": "DP-1", "id": "DP-1"},

@@ -7,7 +7,16 @@ from pathlib import Path
 from typing import Any
 
 from arena.memory.profiles import DEFAULT_MEMORY_PROFILE
-from arena.memory.store import delete_fact, init_memory_db, list_profiles, load_facts, recall, recall_digest, search_facts_paged, write_fact
+from arena.memory.store import (
+    delete_fact,
+    init_memory_db,
+    list_profiles,
+    load_facts,
+    recall,
+    recall_digest,
+    search_facts_paged,
+    write_fact,
+)
 
 
 @dataclass(frozen=True)

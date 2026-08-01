@@ -6,8 +6,8 @@ from pathlib import Path
 
 from aiohttp import web
 
-from arena.profiles.common import auth_and_record
 from arena.handler_context import ProfileHandlerContext
+from arena.profiles.common import auth_and_record
 
 
 def _profile_summary(path: Path) -> dict:

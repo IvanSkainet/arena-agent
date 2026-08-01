@@ -8,21 +8,29 @@ from unittest import mock
 import pytest
 
 from arena import constants
-from arena.mcp.tool_registry import MCP_TOOLS
+from arena.extension_bridge.policy import classify_tool_risk
+from arena.mcp.tool_browser_headed import (
+    BROWSER_HEADED_MCP_TOOLS,
+    _close,
+    _find_chrome,
+    _launch,
+    _list,
+    handle_browser_headed_tool,
+)
 from arena.mcp.tool_desktop_input import (
-    DESKTOP_INPUT_MCP_TOOLS, handle_desktop_input_tool,
+    DESKTOP_INPUT_MCP_TOOLS,
+    handle_desktop_input_tool,
 )
 from arena.mcp.tool_mobile_ext import (
-    MOBILE_EXT_MCP_TOOLS, handle_mobile_ext_tool, _launch_app,
-    _pull_file, _push_file, _list_files,
+    MOBILE_EXT_MCP_TOOLS,
+    _launch_app,
+    _list_files,
+    _pull_file,
+    _push_file,
+    handle_mobile_ext_tool,
 )
-from arena.mcp.tool_browser_headed import (
-    BROWSER_HEADED_MCP_TOOLS, handle_browser_headed_tool,
-    _launch, _close, _list, _find_chrome,
-)
-from arena.extension_bridge.policy import classify_tool_risk
+from arena.mcp.tool_registry import MCP_TOOLS
 from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

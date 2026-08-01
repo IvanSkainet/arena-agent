@@ -6,9 +6,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from arena.autonomy import is_yolo as _yolo_is_enabled
 from arena.extension_bridge.instructions import extension_instructions
 from arena.extension_bridge.policy import classify_tool_risk, extension_policy_snapshot
-from arena.autonomy import is_yolo as _yolo_is_enabled
 
 
 @dataclass(frozen=True)

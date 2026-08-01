@@ -10,13 +10,13 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.desktop.kwin_window_action import kwin_window_action_via_script  # noqa: E402
 from arena.desktop.window_action import perform_window_action  # noqa: E402
 from arena.desktop.window_action_handler import make_desktop_window_action_handler  # noqa: E402
 from arena.handler_context import DesktopHandlerContext  # noqa: E402
 from arena.mcp.tool_desktop import handle_desktop_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
-import unified_bridge as ub  # noqa: E402
 
 
 async def _active_window():

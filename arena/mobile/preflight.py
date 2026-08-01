@@ -3,9 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from arena.mobile import transport as _transport
-from arena.mobile import ui as _ui
-from arena.mobile import wireless as _wireless
+from arena.mobile import transport as _transport, ui as _ui, wireless as _wireless
 from arena.mobile.adb import adb_version, find_adb
 from arena.mobile.devices import device_info, list_devices
 

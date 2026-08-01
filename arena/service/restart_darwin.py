@@ -9,7 +9,6 @@ from arena.service.restart_common import (
     write_script,
 )
 
-
 SH_TEMPLATE = r"""#!/usr/bin/env bash
 sleep 2
 if launchctl print "gui/$UID/com.arena.bridge" >/dev/null 2>&1; then

@@ -37,7 +37,6 @@ from typing import Any
 
 from arena.mcp.tool_utils import text_content
 
-
 _DEFAULT_TIMEOUT = 120.0
 _MIN_TIMEOUT = 10.0
 _MAX_TIMEOUT = 900.0

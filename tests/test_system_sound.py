@@ -19,8 +19,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.system.sound import generate_wav_bytes, play_beep  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.system.sound import generate_wav_bytes, play_beep  # noqa: E402
 
 
 def test_generate_wav_bytes_header():

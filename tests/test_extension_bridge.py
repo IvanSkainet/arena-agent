@@ -16,7 +16,6 @@ from arena.extension_bridge.runtime import ExtensionBridgeRuntimeContext, make_e
 from arena.handler_context import ExtensionBridgeHandlerContext  # noqa: E402
 
 
-
 def _runtime():
     seen = []
 

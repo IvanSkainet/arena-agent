@@ -22,7 +22,6 @@ from arena.admin.tunnels import (
     tunnels_status,
 )
 
-
 # --- v4.1.0 priority: ZeroTier ahead of cloudflared ------------------
 
 def test_default_priority_puts_zerotier_ahead_of_cloudflared():

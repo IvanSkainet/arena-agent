@@ -4,10 +4,10 @@ from __future__ import annotations
 import json
 import os
 import sys
-from arena.system.notification import send_notification
 from typing import Any
 
 from arena.mcp.tool_utils import text_content
+from arena.system.notification import send_notification
 
 
 def handle_misc_tool(name: str, args: dict[str, Any], *, ctx, run_local) -> dict[str, Any] | None:

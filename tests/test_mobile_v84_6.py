@@ -68,7 +68,7 @@ def test_annexb_splitter_buffers_across_chunks():
 
 
 def test_nal_type_helper_returns_low_five_bits():
-    from arena.mobile.h264_parser import nal_type, NAL_SPS, NAL_PPS, NAL_SLICE_IDR
+    from arena.mobile.h264_parser import NAL_PPS, NAL_SLICE_IDR, NAL_SPS, nal_type
     assert nal_type(b"\x67abc") == NAL_SPS
     assert nal_type(b"\x68abc") == NAL_PPS
     assert nal_type(b"\x65abc") == NAL_SLICE_IDR
@@ -188,8 +188,8 @@ def test_build_ftyp_declares_iso5_brand_and_avc1_compat():
 
 
 def test_build_moov_wraps_expected_child_boxes():
-    from arena.mobile.mp4_muxer import build_moov
     from arena.mobile.h264_parser import parse_sps
+    from arena.mobile.mp4_muxer import build_moov
     sps = _build_sps(width=720, height=1600,
                      profile_idc=66, level_idc=40)
     sps_info = parse_sps(sps)

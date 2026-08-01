@@ -17,7 +17,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_BAT = REPO_ROOT / "install.bat"
 

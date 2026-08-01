@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import io
 
-from arena.mobile import adb as _adb  # noqa: F401
-from arena.mobile import input as _input
-from arena.mobile import screenshot as _screenshot
-from arena.mobile import sensors as _sensors
+from arena.mobile import (
+    adb as _adb,  # noqa: F401
+    input as _input,
+    screenshot as _screenshot,
+    sensors as _sensors,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -319,6 +321,7 @@ def test_mobile_handlers_dataclass_has_v83_3_fields():
 # ---------------------------------------------------------------------------
 def test_screenshot_raw_header_parses_both_12_and_16_byte_variants():
     import struct
+
     from arena.mobile.screenshot import _parse_raw_header
     # 16-byte header (modern Android 10+): width, height, format,
     # colorspace. 3200x1440 landscape POCO frame + RGBA.
@@ -367,9 +370,12 @@ def test_screenshot_capture_returns_capture_and_encode_ms(monkeypatch):
     except Exception:
         import pytest
         pytest.skip("Pillow not installed")
-    from arena.mobile import screenshot as _s
-    import io as _io, struct as _st
+    import io as _io
+    import struct as _st
+
     from PIL import Image as _PI
+
+    from arena.mobile import screenshot as _s
     # Build a synthetic PNG for the -p fallback path.
     buf = _io.BytesIO()
     _PI.new("RGB", (100, 200), color=(30, 60, 90)).save(buf, format="PNG")

@@ -3,9 +3,10 @@ from __future__ import annotations
 
 from arena.agentctl_extras.common import *  # noqa: F401,F403
 
+
 def run_status(args=[]):
-    import urllib.request
     import subprocess
+    import urllib.request
     print("### bridge health local")
     try:
         r = urllib.request.urlopen("http://127.0.0.1:8765/health", timeout=2)  # nosec B310 -- loopback bridge URL for local status check  # nosemgrep: insecure-urlopen, dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
@@ -52,9 +53,9 @@ def run_status(args=[]):
 
     print()
     print("### platform info")
-    os_ver = (f"Windows 11" if platform.system() == "Windows" and int(platform.version().split('.')[-1]) >= 22000 else f"Windows 10" if platform.system() == "Windows" else platform.system())
+    os_ver = ("Windows 11" if platform.system() == "Windows" and int(platform.version().split('.')[-1]) >= 22000 else "Windows 10" if platform.system() == "Windows" else platform.system())
     print(f"system={os_ver}  build={platform.version().split('.')[-1]}  node={platform.node()}  release={platform.release()}")
-    
+
     print()
     print("### hardware info (HWiNFO / AIDA64 style)")
     try:
@@ -132,7 +133,7 @@ def run_status(args=[]):
             print(f"  - {desc}: {state}")
         # Also check if bridge is reachable even without scheduled task
         if _check_port(8765) == "LISTEN":
-            print(f"  - bridge health: OK (port 8765 open, all services multiplexed)")
+            print("  - bridge health: OK (port 8765 open, all services multiplexed)")
     else:
         if _check_port(8765) == "LISTEN":
             print("  - unified bridge: running (port 8765)")

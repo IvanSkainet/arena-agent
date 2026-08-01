@@ -33,7 +33,7 @@ def test_exec_script_route_wired_into_app():
 def test_exec_handlers_factory_exposes_script():
     """Regression guard: the script handler is exported on ExecHandlers
     so wiring can pick it up via export_handler_attrs."""
-    from arena.exec.handlers import make_exec_handlers, ExecHandlers
+    from arena.exec.handlers import ExecHandlers, make_exec_handlers
     from arena.handler_context import ExecHandlerContext
     ctx = ExecHandlerContext(
         require_auth=ub.require_auth,
@@ -68,6 +68,7 @@ def test_interpreter_table_covers_common_shells():
 
 def test_resolve_interpreter_defaults_by_platform():
     import os
+
     from arena.exec.handlers import _resolve_interpreter
     resolved = _resolve_interpreter("")
     assert resolved is not None

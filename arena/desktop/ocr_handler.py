@@ -8,7 +8,7 @@ from aiohttp import web
 from arena.desktop.displays import get_displays, match_display
 from arena.desktop.input import build_click_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled, authed, err_json
+from arena.handler_helpers import authed, controlled, err_json
 
 
 class DesktopOcrHandlers(tuple):

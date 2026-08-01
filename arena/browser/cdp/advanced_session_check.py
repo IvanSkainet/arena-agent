@@ -17,7 +17,7 @@ def make_cdp_session_check_handler(ctx: CdpAdvancedHandlerContext):
             domain: string (required)
             auth_cookie_names: string (comma-separated, optional)
         """
-    
+
         if not ctx.cdp_state["connected"]:
             return ctx.cors_json_response({
                 "ok": False,
@@ -27,22 +27,22 @@ def make_cdp_session_check_handler(ctx: CdpAdvancedHandlerContext):
                 "status_endpoint": "/v1/browser/cdp/status",
                 "connect_endpoint": "/v1/browser/cdp/connect",
             })
-    
+
         qs = parse_qs(request.query_string)
         domain = qs.get("domain", [None])[0]
         if not domain:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'domain' parameter"}, status=400)
-    
+
         auth_names_str = qs.get("auth_cookie_names", [None])[0]
         auth_cookie_names = auth_names_str.split(",") if auth_names_str else None
-    
+
         try:
             cookie_mgr = await ctx.ensure_cookie_manager()
             if not cookie_mgr:
                 ctx.record_request(is_error=True, count_request=False)
                 return ctx.cors_json_response({"ok": False, "error": "Failed to start cookie manager"}, status=500)
-        
+
             result = await cookie_mgr.check_session(domain, auth_cookie_names)
             return ctx.cors_json_response({"ok": True, **result})
         except Exception as e:

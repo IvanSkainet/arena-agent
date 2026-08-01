@@ -8,7 +8,6 @@ from arena.handler_context import DesktopHandlerContext
 from arena.handler_helpers import controlled, err_json, parse_json_body
 
 
-
 def make_desktop_text_action_handler(ctx: DesktopHandlerContext):
     @controlled(ctx)
     async def handle_v1_desktop_text_action(request: web.Request) -> web.Response:

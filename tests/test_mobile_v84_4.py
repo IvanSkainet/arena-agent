@@ -135,8 +135,7 @@ def test_shutter_cache_recall_after_ttl(monkeypatch):
 
 
 def test_shutter_tap_falls_back_to_cache_when_live_detect_fails(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     cc._SHUTTER_CACHE.clear()
     cc._remember_shutter("dev", 719, 2785)
 
@@ -159,8 +158,7 @@ def test_shutter_tap_falls_back_to_cache_when_live_detect_fails(monkeypatch):
 
 
 def test_shutter_tap_returns_live_error_when_no_cache(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     cc._SHUTTER_CACHE.clear()
 
     def _fake_live_shutter(serial):
@@ -176,8 +174,7 @@ def test_shutter_tap_returns_live_error_when_no_cache(monkeypatch):
 # switch_mode: fuzzy label matching across text vs content-desc.
 # ---------------------------------------------------------------------------
 def test_switch_mode_taps_matching_mode_select_item(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     nodes = [
         {"resource-id": "com.android.camera:id/mode_select_item",
          "text": "Видео", "content-desc": "", "center": [450, 2504]},
@@ -211,8 +208,7 @@ def test_switch_mode_rejects_unknown_mode():
 # list_controls warms the shutter cache.
 # ---------------------------------------------------------------------------
 def test_list_controls_warms_shutter_cache(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     cc._SHUTTER_CACHE.clear()
     clickable = [
         {"resource-id": "com.android.camera:id/shutter_button",
@@ -232,8 +228,7 @@ def test_list_controls_warms_shutter_cache(monkeypatch):
 # switch_lens content-desc round-trip.
 # ---------------------------------------------------------------------------
 def test_switch_lens_reports_already_when_on_target(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     nodes = [
         {"resource-id": "com.android.camera:id/v9_camera_picker",
          "content-desc": "Переключение камеры,Задний",
@@ -247,8 +242,7 @@ def test_switch_lens_reports_already_when_on_target(monkeypatch):
 
 
 def test_switch_lens_taps_when_target_differs(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     nodes = [
         {"resource-id": "com.android.camera:id/v9_camera_picker",
          "content-desc": "Переключение камеры,Задний",
@@ -273,8 +267,7 @@ def test_switch_lens_taps_when_target_differs(monkeypatch):
 # zoom finds the chip closest to the requested level.
 # ---------------------------------------------------------------------------
 def test_set_zoom_picks_closest_zoom_chip(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     # Include a red-herring node whose desc has "3" but no zoom in
     # rid/desc -- must be ignored.
     nodes = [
@@ -365,8 +358,7 @@ def test_newest_video_ignores_jpeg_stills(monkeypatch):
     """record_stop must lock onto the freshest .mp4/.mov, not a
     MotionPhoto still that happens to have a newer mtime -- otherwise
     the caller sees a JPEG as `video_path` in the response."""
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
 
     listing = {
         "ok": True, "count": 3,
@@ -393,8 +385,7 @@ def test_newest_video_ignores_jpeg_stills(monkeypatch):
 
 
 def test_newest_video_returns_none_when_no_video_present(monkeypatch):
-    from arena.mobile import camera as cam
-    from arena.mobile import camera_controls as cc
+    from arena.mobile import camera as cam, camera_controls as cc
     listing = {"ok": True, "count": 1,
                "photos": [{"path": "/sdcard/DCIM/Camera/IMG_x.jpg",
                            "name": "IMG_x.jpg", "size_bytes": 1_000,

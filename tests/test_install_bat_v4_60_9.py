@@ -14,7 +14,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 INSTALL_BAT = REPO_ROOT / "install.bat"
 
@@ -46,7 +45,7 @@ def test_install_bat_uses_delayed_expansion_for_derived_paths():
             if f"%{var}%" in line:
                 offenders.append((lineno, var, line[:200]))
     assert not offenders, (
-        f"install.bat still uses %VAR% for path variables that may contain '(':\n"
+        "install.bat still uses %VAR% for path variables that may contain '(':\n"
         + "\n".join(f"  L{ln}: %{v}% -> {ctx!r}" for ln, v, ctx in offenders)
     )
 

@@ -111,11 +111,13 @@ def _build_stream_only_app(audit_path: Path):
     module-level executors so we can run several tests in a row
     without the 'cannot schedule new futures after shutdown' bite.
     """
-    from aiohttp import web
     from concurrent.futures import ThreadPoolExecutor
+
+    from aiohttp import web
+
     from arena.contexts.observability import ObservabilityHandlerContext
-    from arena.web_utils import cors_json_response
     from arena.observability.handlers import make_observability_handlers
+    from arena.web_utils import cors_json_response
 
     def _read_tail(path, n):
         try:

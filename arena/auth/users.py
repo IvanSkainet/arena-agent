@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from aiohttp import web
+
 from arena.app_keys import APP_CFG
 
 ROLE_LEVEL = {"admin": 3, "user": 2, "readonly": 1}

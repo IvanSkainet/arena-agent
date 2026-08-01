@@ -10,7 +10,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 
-
 # ---- Registry ----
 
 def test_input_helper_tools_in_registry():

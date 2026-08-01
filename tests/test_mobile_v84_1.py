@@ -93,9 +93,10 @@ def test_camera_pull_downscales_and_encodes(monkeypatch):
         from PIL import Image
     except Exception:
         pytest.skip("Pillow not installed")
-    from arena.mobile import camera as _c
     import base64
     import io as _io
+
+    from arena.mobile import camera as _c
     monkeypatch.setattr(_c, "find_adb", lambda: "/usr/bin/adb")
     src = Image.new("RGB", (2000, 3000), color=(50, 100, 150))
     buf = _io.BytesIO()
@@ -190,8 +191,7 @@ def test_gesture_shade_uses_statusbar_cmd(monkeypatch):
 def test_gesture_shade_swipe_fallback_when_statusbar_refuses(monkeypatch):
     """If the SystemUI service rejects `cmd statusbar`, perform() must
     still deliver the gesture via the swipe recipe path (v3.83.4 behaviour)."""
-    from arena.mobile import gestures as _g
-    from arena.mobile import input as _input
+    from arena.mobile import gestures as _g, input as _input
     monkeypatch.setattr(_g, "find_adb", lambda: "/usr/bin/adb")
 
     class _FAIL:

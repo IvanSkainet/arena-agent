@@ -30,7 +30,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Locate the repo root from this test file's location.
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
@@ -152,8 +151,8 @@ def test_does_not_flag_verb_overlap_as_shadow() -> None:
     original = reg.MCP_TOOLS
     reg.MCP_TOOLS = fake
     try:
-        import io
         import contextlib
+        import io
         buf = io.StringIO()
         with contextlib.redirect_stderr(buf):
             guard._run(REPO)

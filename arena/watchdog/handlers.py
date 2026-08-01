@@ -7,8 +7,8 @@ from typing import Any
 from aiohttp import web
 
 from arena.handler_context import WatchdogHandlerContext
-from arena.watchdog.runtime import WATCHDOG_STATE
 from arena.handler_helpers import authed, err_json
+from arena.watchdog.runtime import WATCHDOG_STATE
 
 
 @dataclass(frozen=True)

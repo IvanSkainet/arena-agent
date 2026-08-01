@@ -9,7 +9,6 @@ from arena.resources.mission_lineage import build_followup_lineage
 from arena.resources.mission_state import get_mission_history, get_mission_report, get_mission_status
 
 
-
 def _recovery_reflection_goal(mission: dict[str, Any]) -> str:
     return f"Recover mission {mission.get('title') or mission.get('name') or mission.get('id') or 'mission'}"
 

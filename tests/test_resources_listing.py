@@ -5,8 +5,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.resources.listing import list_agents, list_hooks, list_missions, list_reports, list_subagents, show_mission  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.resources.listing import (  # noqa: E402
+    list_agents,
+    list_hooks,
+    list_missions,
+    list_reports,
+    list_subagents,
+    show_mission,
+)
 
 
 def test_list_missions_and_show(tmp_path):

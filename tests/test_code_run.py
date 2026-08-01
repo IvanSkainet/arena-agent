@@ -10,9 +10,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.autonomy import deps as D  # noqa: E402
-from arena.autonomy import posture as P  # noqa: E402
-from arena.autonomy import runner as R  # noqa: E402
+from arena.autonomy import (
+    deps as D,  # noqa: E402
+    posture as P,  # noqa: E402
+    runner as R,  # noqa: E402
+)
 from arena.extension_bridge.policy import classify_tool_risk  # noqa: E402
 from arena.mcp.tool_code import handle_code_tool  # noqa: E402
 

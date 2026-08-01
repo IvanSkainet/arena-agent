@@ -5,7 +5,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.observability.log_cleanup import LogCleanupContext, make_log_cleanup_runtime, rotate_file_if_oversized  # noqa: E402
+from arena.observability.log_cleanup import (  # noqa: E402
+    LogCleanupContext,
+    make_log_cleanup_runtime,
+    rotate_file_if_oversized,
+)
 
 
 def test_log_cleanup_factory_outputs(tmp_path):

@@ -128,8 +128,9 @@ async def capture_desktop_screenshot(
 
     if fmt in ("jpeg", "jpg", "webp") or scale or max_width or None not in (region_x, region_y, region_width, region_height):
         try:
-            from PIL import Image as _PILImage
             import io as _io
+
+            from PIL import Image as _PILImage
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
             if None not in (region_x, region_y, region_width, region_height):
@@ -213,8 +214,9 @@ def _finalize_screenshot(
     )
     if needs_transform:
         try:
-            from PIL import Image as _PILImage
             import io as _io
+
+            from PIL import Image as _PILImage
 
             im = _PILImage.open(_io.BytesIO(img_bytes))
             if not already_cropped and None not in (region_x, region_y, region_width, region_height):

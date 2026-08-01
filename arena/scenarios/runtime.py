@@ -39,13 +39,12 @@ from pathlib import Path
 from typing import Any, Callable
 
 from arena.extension_bridge.policy import classify_tool_risk
+from arena.scenarios.mission_bridge import ScenarioMissionStore
 from arena.scenarios.storage import (
     InvalidScenario,
     ScenarioNotFound,
     parse_scenario_source,
 )
-from arena.scenarios.mission_bridge import ScenarioMissionStore
-
 
 RISK_ORDER = {"safe": 0, "medium": 1, "dangerous": 2, "unknown": 1}
 _TEMPLATE_RE = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")

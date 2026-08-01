@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.observability.audit_enhanced import (  # noqa: E402
     classify_action,
     digest,
@@ -15,8 +16,6 @@ from arena.observability.audit_enhanced import (  # noqa: E402
     is_external,
     score_risk,
 )
-from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
-
 
 # ---- classify_action ----
 

@@ -19,7 +19,6 @@ from arena.admin.cloudflared import (
     _url_wait_seconds,
 )
 
-
 ENV_VAR = "ARENA_CLOUDFLARED_URL_WAIT_SECONDS"
 
 

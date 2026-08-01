@@ -25,13 +25,13 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     
         Auto-connects any disconnected tabs that have ws_url before listing.
         """
-    
+
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             return ctx.cors_json_response({"ok": True, "tabs": [], "tab_count": 0})
-    
+
         mgr = ctx.cdp_state["manager"]
         tabs = mgr.list_tabs()
-    
+
         # Auto-connect disconnected tabs that have ws_url (lazy connect)
         for tab in tabs:
             if not tab.connected and tab.ws_url:
@@ -40,7 +40,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
                     ctx.log_debug("[CDP-Tabs] Auto-connected tab %s", tab.target_id)
                 except Exception as e:
                     ctx.log_debug("[CDP-Tabs] Auto-connect failed for %s: %s", tab.target_id, e)
-    
+
         return ctx.cors_json_response({
             "ok": True,
             "tabs": [tab.to_dict() for tab in tabs],
@@ -57,11 +57,11 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
             url: string (default: "about:blank")
             activate: bool (default: true)
         """
-    
+
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
+
         url = "about:blank"
         activate = True
         try:
@@ -70,9 +70,9 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
             activate = body.get("activate", True)
         except Exception:
             pass
-    
+
         mgr = ctx.cdp_state["manager"]
-    
+
         tab = await mgr.new_tab(url, activate=activate)
         return ctx.cors_json_response({
             "ok": True,
@@ -88,24 +88,24 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
         Body JSON:
             tab_id: string (required)
         """
-    
+
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
+
         try:
             body = await request.json()
         except Exception:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
         tab_id = body.get("tab_id")
         if not tab_id:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
-    
+
         mgr = ctx.cdp_state["manager"]
-    
+
         success = await mgr.close_tab(tab_id)
         return ctx.cors_json_response({
             "ok": success,
@@ -121,24 +121,24 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
         Body JSON:
             tab_id: string (required)
         """
-    
+
         if not ctx.cdp_state["connected"] or not ctx.cdp_state["manager"]:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "CDP not connected"}, status=400)
-    
+
         try:
             body = await request.json()
         except Exception:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "Invalid JSON body"}, status=400)
-    
+
         tab_id = body.get("tab_id")
         if not tab_id:
             ctx.record_request(is_error=True, count_request=False)
             return ctx.cors_json_response({"ok": False, "error": "missing 'tab_id'"}, status=400)
-    
+
         mgr = ctx.cdp_state["manager"]
-    
+
         success = mgr.activate(tab_id)
         return ctx.cors_json_response({
             "ok": success,

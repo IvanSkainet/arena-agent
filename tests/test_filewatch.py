@@ -10,13 +10,13 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.app_keys import APP_CFG  # noqa: E402
 from arena.filewatch.handlers import make_file_watch_handlers  # noqa: E402
 from arena.filewatch.runtime import FileWatchRuntimeContext, make_file_watch_runtime  # noqa: E402
 from arena.handler_context import FileWatchHandlerContext  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
 from arena.mcp.tool_watch import handle_watch_tool  # noqa: E402
-import unified_bridge as ub  # noqa: E402
 
 
 class _Events(list):

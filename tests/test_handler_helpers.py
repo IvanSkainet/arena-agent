@@ -13,7 +13,11 @@ from unittest.mock import MagicMock
 from aiohttp import web
 
 from arena.handler_helpers import (
-    authed, public, err_json, ok_json, parse_json_body,
+    authed,
+    err_json,
+    ok_json,
+    parse_json_body,
+    public,
 )
 
 

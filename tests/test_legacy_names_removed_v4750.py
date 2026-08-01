@@ -21,7 +21,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"
 

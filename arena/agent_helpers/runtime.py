@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.agent_helpers.files import *  # noqa: F401,F403
 
+
 def run_local(cmd: str | list[str], timeout: int = 60,
               cwd: Path | str | None = None) -> tuple[int, str]:
     if isinstance(cmd, str):

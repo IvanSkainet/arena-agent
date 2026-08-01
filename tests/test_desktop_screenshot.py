@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.desktop.screenshot import capture_desktop_screenshot  # noqa: E402
 
 
 def test_unified_bridge_reexports_screenshot_helper():

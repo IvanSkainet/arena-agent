@@ -23,8 +23,8 @@ SKILLS = SUPERPOWERS / "skills"
 
 def test_superpowers_directory_exists():
     assert SUPERPOWERS.is_dir(), (
-        f"skills/superpowers/ missing — required by install.sh, "
-        f"stress-test-v3.sh, /v1/skills, and every IDE plugin manifest."
+        "skills/superpowers/ missing — required by install.sh, "
+        "stress-test-v3.sh, /v1/skills, and every IDE plugin manifest."
     )
 
 

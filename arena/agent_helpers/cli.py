@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.agent_helpers.runtime import *  # noqa: F401,F403
 
+
 def cli_self_check(_args) -> int:
     issues = []
     # 1. ROOT exists

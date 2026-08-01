@@ -20,11 +20,7 @@ from __future__ import annotations
 import time
 from typing import Any, Callable
 
-from arena.mobile import gestures as _gestures
-from arena.mobile import helpers as _helpers
-from arena.mobile import input as _input
-from arena.mobile import shell as _shell
-from arena.mobile import ui as _ui
+from arena.mobile import gestures as _gestures, helpers as _helpers, input as _input, shell as _shell, ui as _ui
 
 # Step-type registry: type -> (fn, arg extractors). We deliberately do
 # NOT expose /apk/install, /helpers/install, /pair, /connect, /disconnect

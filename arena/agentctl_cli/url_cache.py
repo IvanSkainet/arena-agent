@@ -128,7 +128,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-
 # Bumped in v4.40.0 -- v4.39.0 wrote unsigned version-1 snapshots
 # with no allowlist. Those are silently discarded on first load
 # by this release, and the next successful bootstrap rewrites the

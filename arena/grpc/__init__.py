@@ -1,5 +1,6 @@
 """gRPC-style secondary interface domain package."""
 
+from arena.grpc.handlers import GrpcHandlers, make_grpc_handlers
 from arena.grpc.runtime import (
     GRPC_CONFIG,
     GRPC_METHOD_MAP,
@@ -8,7 +9,6 @@ from arena.grpc.runtime import (
     start_grpc_server,
     stop_grpc_server,
 )
-from arena.grpc.handlers import GrpcHandlers, make_grpc_handlers
 
 __all__ = [
     "GRPC_CONFIG",

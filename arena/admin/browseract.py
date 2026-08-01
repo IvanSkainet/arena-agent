@@ -25,7 +25,6 @@ import subprocess
 import sys
 from typing import Any
 
-
 DEFAULT_TIMEOUT = 10
 UPSTREAM_PACKAGE = "browser-act-cli"
 

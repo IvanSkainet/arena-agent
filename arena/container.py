@@ -12,7 +12,6 @@ from arena.wiring.core import (  # noqa: F401
     build_handler_registry,
     export_handler_attrs,
 )
-from arena.wiring.public import PublicWiringContext, build_public_handlers  # noqa: F401
 from arena.wiring.platform import (  # noqa: F401
     AdminWiringContext,
     ServiceWiringContext,
@@ -21,3 +20,4 @@ from arena.wiring.platform import (  # noqa: F401
     build_service_handlers,
     build_system_handlers,
 )
+from arena.wiring.public import PublicWiringContext, build_public_handlers  # noqa: F401

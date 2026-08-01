@@ -42,7 +42,6 @@ import pytest
 
 from arena.agentctl_cli import url_cache
 
-
 # The secret used across the whole suite. Any string works --
 # what matters is that save() and load() use the same one.
 TEST_SECRET = "test-token-abc123"

@@ -15,7 +15,6 @@ from arena.handler_context import MissionLifecycleHandlerContext  # noqa: E402
 from arena.resources.mission_lifecycle_handlers import make_mission_lifecycle_handlers  # noqa: E402
 
 
-
 def test_mission_lifecycle_handlers_support_family_and_schedules():
     ctx = MissionLifecycleHandlerContext(
         require_auth=lambda request: None,

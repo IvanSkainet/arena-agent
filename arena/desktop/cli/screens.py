@@ -4,6 +4,7 @@ from __future__ import annotations
 from arena.desktop.cli.common import *  # noqa: F401,F403
 from arena.desktop.cli.focus import _detect_wm
 
+
 def info(_):
     out={'ok':True,'os':sys.platform,'display':{k:os.environ.get(k) for k in ['XDG_SESSION_TYPE','XDG_CURRENT_DESKTOP','WAYLAND_DISPLAY','DISPLAY','XDG_RUNTIME_DIR']},'tools':{c:have(c) for c in ['grim','spectacle','tesseract','ydotool','ydotoold','wtype','xdotool','qdbus6','wl-copy','wl-paste','magick','openbox','fluxbox','i3','mutter']}}
     # Check if a window manager is running
@@ -12,7 +13,7 @@ def info(_):
     if have('qdbus6'):
         p=run('qdbus6 org.kde.KWin /KWin org.kde.KWin.activeOutputName'); out['active_output']=p.stdout.strip()
     if have('xrandr'):
-        m=re.search(r'(\d+)x(\d+)', run("xrandr | grep '*' | head -1").stdout); 
+        m=re.search(r'(\d+)x(\d+)', run("xrandr | grep '*' | head -1").stdout)
         if m: out['screen']={'width':int(m.group(1)),'height':int(m.group(2))}
     if 'screen' not in out: out['screen']={'width':2560,'height':1440}
     j(out)

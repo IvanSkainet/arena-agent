@@ -86,6 +86,12 @@ ignore = [
     "E722",  # bare except — to be cleaned up incrementally
 ]
 
+[tool.ruff.lint.isort]
+# The codebase aliases imports heavily (monkeypatch-by-name convention).
+# isort's default splits each aliased member into its own statement; keep
+# them combined, matching the hand-written style and saving ~10 lines/file.
+combine-as-imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]

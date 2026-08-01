@@ -177,7 +177,7 @@ def _handle_fs_create(path: Path, args: dict[str, Any]) -> dict[str, Any]:
         return {"isError": True, "content": [{"type": "text", "text": "ERROR: missing or empty 'content' argument"}]}
     if path.exists():
         return {"isError": True, "content": [{"type": "text", "text": f"ERROR: file already exists: {path} (use fs.edit to modify existing files)"}]}
-    
+
     encoding = str(args.get("encoding", "")).strip().lower()
     if encoding == "base64":
         import base64

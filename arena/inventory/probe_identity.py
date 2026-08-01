@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from arena.inventory.probe_common import *  # noqa: F401,F403
 
+
 def get_identity() -> dict:
     return {
         "user": getpass.getuser(),

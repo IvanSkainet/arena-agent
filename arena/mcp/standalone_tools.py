@@ -1,7 +1,6 @@
 """Standalone MCP tool dispatcher."""
 from __future__ import annotations
 
-
 from arena.mcp.standalone_common import *  # noqa: F401,F403
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
 
@@ -54,7 +53,8 @@ def call_tool(name: str, args: dict) -> dict:
                                        "read", args["url"]], timeout=30)
             return text_content(out or err)
         if name == "browser.shot":
-            import tempfile, platform
+            import platform
+            import tempfile
             shots = os.path.join(HOME, "arena-bridge", "reports", "shots")
             os.makedirs(shots, exist_ok=True)
             png = os.path.join(shots, f"mcp-{int(time.time())}.png")

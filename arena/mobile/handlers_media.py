@@ -15,8 +15,7 @@ from __future__ import annotations
 from aiohttp import web
 
 from arena.handler_helpers import authed
-from arena.mobile import camera as _camera
-from arena.mobile import camera_controls as _cc
+from arena.mobile import camera as _camera, camera_controls as _cc
 
 
 def _serial(request: web.Request) -> str:

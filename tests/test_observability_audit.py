@@ -5,8 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.observability.audit import audit_stats, read_tail, sanitize_audit_event, write_audit_event  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.observability.audit import audit_stats, read_tail, sanitize_audit_event, write_audit_event  # noqa: E402
 
 
 def test_sanitize_audit_event_redacts_and_hashes_cmd():

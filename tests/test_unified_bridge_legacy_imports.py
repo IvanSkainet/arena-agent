@@ -25,7 +25,6 @@ from pathlib import Path
 
 import pytest
 
-
 # Symbols that ``unified_bridge`` re-exports today. Update this
 # list when you intentionally add a new public re-export. The
 # test fails if any of these names disappear.

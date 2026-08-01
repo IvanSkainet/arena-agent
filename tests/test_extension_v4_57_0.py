@@ -2,27 +2,26 @@
 from __future__ import annotations
 
 import json
-import platform
 import os
+import platform
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
 from arena import constants
-from arena.mcp.tool_registry import MCP_TOOLS
-from arena.mcp.tool_registry_net import NET_MCP_TOOLS
+from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp.tool_net import (
     _clamp_timeout,
-    _load_secrets,
     _handle_net_http,
     _handle_secrets_get,
     _handle_secrets_list,
+    _load_secrets,
     handle_net_tool,
 )
-from arena.extension_bridge.policy import classify_tool_risk
+from arena.mcp.tool_registry import MCP_TOOLS
+from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in
-
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 

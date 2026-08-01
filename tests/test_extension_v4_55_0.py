@@ -7,14 +7,14 @@ from pathlib import Path
 import pytest
 
 from arena.scenarios import (
+    SCENARIO_TEMPLATE_ID,
     InvalidScenario,
     ScenarioMissionStore,
     ScenarioNotFound,
     build_scenarios_runtime,
     resolve_missions_dir,
-    SCENARIO_TEMPLATE_ID,
 )
-from arena.scenarios.mission_bridge import _mission_id, _find_by_name
+from arena.scenarios.mission_bridge import _find_by_name, _mission_id
 
 
 @pytest.fixture

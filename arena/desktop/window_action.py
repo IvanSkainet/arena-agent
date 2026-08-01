@@ -78,16 +78,16 @@ async def perform_window_action(
                     curr_y = rect.top
                     curr_w = rect.right - rect.left
                     curr_h = rect.bottom - rect.top
-                    
+
                     nx = int(curr_x if x is None else x)
                     ny = int(curr_y if y is None else y)
                     nw = int(curr_w if width is None else width)
                     nh = int(curr_h if height is None else height)
-                    
+
                     # SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_SHOWWINDOW = 0x0040
                     flags = 0x0004 | 0x0010 | 0x0040
                     ok = bool(user32.SetWindowPos(hwnd, 0, nx, ny, nw, nh, flags))
-                
+
                 if ok or effective_action == "close":
                     backend = "windows_user32"
                     backend_detail = {"ok": True, "exit_code": 0, "stdout": "", "stderr": ""}

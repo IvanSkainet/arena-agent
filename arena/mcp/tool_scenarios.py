@@ -25,9 +25,9 @@ from arena.scenarios import (
     ScenarioMissionStore,
     ScenarioNotFound,
     build_scenarios_runtime,
+    flight_records as _flight_records,
+    promotion as _promotion,
 )
-from arena.scenarios import flight_records as _flight_records
-from arena.scenarios import promotion as _promotion
 
 _MAX_RECURSION_DEPTH = 4
 _recursion_depth = threading.local()

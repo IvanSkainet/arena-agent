@@ -4,8 +4,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.resources.subagents import spawn_subagent  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.resources.subagents import spawn_subagent  # noqa: E402
 
 
 def test_spawn_subagent_missing_script(tmp_path):

@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import pytest
 
-
 try:
     from arena.wiring.env import RuntimeEnv
 except Exception:  # pragma: no cover

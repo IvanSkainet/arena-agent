@@ -7,8 +7,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from arena.capabilities import build_capabilities  # noqa: E402
 import unified_bridge as ub  # noqa: E402
+from arena.capabilities import build_capabilities  # noqa: E402
 
 
 def test_build_capabilities_basic_shape():

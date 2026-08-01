@@ -10,13 +10,12 @@ from aiohttp.test_utils import make_mocked_request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+import unified_bridge as ub  # noqa: E402
 from arena.desktop.ocr import build_ocr_text, find_text_matches, ocr_desktop, parse_tesseract_tsv  # noqa: E402
 from arena.desktop.ocr_handler import make_desktop_ocr_handlers  # noqa: E402
 from arena.handler_context import DesktopHandlerContext  # noqa: E402
 from arena.mcp.tool_desktop import handle_desktop_tool  # noqa: E402
 from arena.mcp.tool_registry import MCP_TOOLS  # noqa: E402
-import unified_bridge as ub  # noqa: E402
-
 
 SAMPLE_TSV = """level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext
 5\t1\t1\t1\t1\t1\t10\t20\t50\t20\t90\tHello

@@ -4,15 +4,14 @@ Tests the HTML parsing logic of browser_search without making real network
 requests, by monkeypatching urllib.request.urlopen to return canned HTML
 that mimics lite.duckduckgo.com/lite/ response format.
 """
-import sys
 import io
+import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.browser.fetch import browser_search  # noqa: E402
-
 
 # Sample HTML mimicking lite.duckduckgo.com/lite/ response structure
 # Based on real DDG lite HTML: <a href="..." class='result-link'>title</a>

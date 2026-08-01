@@ -25,7 +25,6 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-
 _USER_AGENT_PREFIX = "arena-agent-auto-update"
 _HTTP_TIMEOUT = 15
 

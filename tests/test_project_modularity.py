@@ -180,6 +180,7 @@ def test_modularized_cli_wrappers_import_cleanly(tmp_path):
 def test_dashboard_javascript_assets_have_valid_syntax():
     import shutil
     import subprocess
+
     import pytest
 
     node = shutil.which("node")
