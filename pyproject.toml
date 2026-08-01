@@ -95,6 +95,11 @@ combine-as-imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# Per-test hard timeout (sec): catches asyncio hangs/deadlocks instead of
+# stalling CI for the global job timeout. pytest-randomly (in the CI lock)
+# additionally shuffles test order, exposing hidden order dependencies;
+# it prints its seed at startup so failures stay reproducible.
+timeout = 300
 # v4.61.0: --cov with a coverage gate. The threshold is intentionally
 # permissive (70%) so the new gate doesn't break the existing suite on
 # day one. Tighten per-module as the suite grows. Coverage reports go
@@ -184,3 +189,33 @@ strict = true
 disallow_untyped_defs = true
 disallow_any_generics = true
 warn_unused_ignores = true
+
+# ---------------------------------------------------------------------------
+# vulture: dead-code detection (informational report in CI for now; the
+# finding list is small enough to become a ratchet later, like lint).
+# ---------------------------------------------------------------------------
+[tool.vulture]
+paths = ["arena"]
+min_confidence = 80
+
+# ---------------------------------------------------------------------------
+# import-linter: architecture contracts. BLOCKING in CI — both contracts were
+# verified to hold before being declared. Additions must be verified against
+# the real import graph first (run lint-imports locally), never declared
+# aspirationally: a contract that does not hold is noise, a contract that
+# holds is a wall.
+# ---------------------------------------------------------------------------
+[tool.importlinter]
+root_package = "arena"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Browser and desktop automation stay independent"
+type = "independence"
+modules = ["arena.browser", "arena.desktop"]
+
+[[tool.importlinter.contracts]]
+name = "Production code never imports the test suite"
+type = "forbidden"
+source_modules = ["arena"]
+forbidden_modules = ["tests"]

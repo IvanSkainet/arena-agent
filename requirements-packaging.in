@@ -1,0 +1,6 @@
+# Hash-locked tooling for the packaging E2E CI job.
+# Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
+#   --output-file=requirements-packaging.lock requirements-packaging.in
+build==1.5.0
+twine==7.0.0
+check-wheel-contents==0.6.3

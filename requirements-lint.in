@@ -1,0 +1,5 @@
+# Hash-locked tool for the CI lint job ONLY (Scorecard PinnedDependenciesID:
+# every pip install in workflows must resolve with hashes).
+# Regenerate: uv pip compile --universal --generate-hashes --strip-extras \
+#   --output-file=requirements-lint.lock requirements-lint.in
+ruff==0.16.1

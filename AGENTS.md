@@ -77,6 +77,58 @@ env-variable reference. [CONTRIBUTING.md](CONTRIBUTING.md) has the
 "Security-sensitive areas" section pointing at every file that carries
 one of these invariants.
 
+## Verification doctrine (v4.153.3+)
+
+**GREEN ≠ WORKS.** A passing suite proves only that the tests passed;
+a green CI check is a sensor reading, not flight status. Success means
+an observer sees the real thing work.
+
+- **Verify by execution, not by reading.** Before claiming "done", run
+  the real artifact end-to-end: build the wheel, install it into a
+  CLEAN environment, import it, run the thing. A claim without an
+  execution transcript is a hypothesis.
+- **Fix the root cause, never the symptom.** Silencing a check
+  (allowlist entries, `|| true`, weakened gates, dismissed alerts)
+  requires a written justification in the commit message of why the
+  finding is genuinely a false positive.
+- **Beware fail-open.** Pipelines (`cmd | tail`, `|| true`) and missing
+  artifacts have repeatedly hidden real failures here. Scripts must
+  fail CLOSED: missing lock entry, missing file, unexpected exit code =
+  abort, loudly.
+- **A gate that is always green is suspicious.** Ratchets and contracts
+  exist to be occasionally red. Negative-test the gate itself when you
+  build one.
+- Scanners check *pattern classes*, not *product invariants*. The worst
+  historical bugs of this repo (broken `pip install` during a green CI,
+  dropped Python-3.10 marker deps) were caught only by end-to-end
+  execution on the real environment matrix — that is why the blocking
+  `Packaging E2E` CI job and the pre-flight install ritual exist.
+
+## Ratchets and reproducibility (v4.153.3+)
+
+- **Lint ratchet**: `python scripts/lint_ratchet.py` blocks growth of
+  per-rule ruff counts vs `scripts/lint_baseline.json`; after cleanups,
+  regenerate the floor with `--write-baseline` in the same commit.
+- **import-linter contracts** (pyproject) are BLOCKING. Never declare a
+  contract that does not already hold — verify with `lint-imports`
+  locally first.
+- **Never bulk-apply ruff `F401`/`F841` auto-fixes**: imports here
+  double as re-exports and monkeypatch-by-name targets. Analyze the
+  importers of a name before deleting it.
+- **Hash-locked CI installs only**: `requirements-ci.lock` (tests +
+  tools), `requirements-lint.lock` (ruff), `requirements-packaging.lock`
+  (build/twine/check-wheel-contents). Regenerate with the
+  `uv pip compile --universal ...` command documented in each `.in`
+  header, then ALWAYS verify: `python scripts/check_ci_lock.py` (uv
+  0.12.1 has dropped marker-guarded pins on cold caches) followed by a
+  real `pip install --require-hashes -r requirements-ci.lock` in a
+  fresh venv on the OLDEST supported Python (3.10). No unpinned
+  `pip install` in workflows (Scorecard gate).
+- **No system-Python installs** on any machine that runs the bridge —
+  isolated venvs only. Bridge connectivity: record ALL transports
+  (Tailscale Funnel / cloudflared / bore) and fail over; Tailscale is
+  fast but flaky, re-probe periodically.
+
 ## Where things live
 
 Core:
