@@ -2,11 +2,6 @@
 # v4.64.0: Refresh docs/version.json on every release tag and on every push
 # to master (so the dynamic-json badge in README.md always has current data
 # sourced from a URL we control, not from shields.io's GitHub API proxy).
-#
-# This is a self-defending build surface: if the workflow file itself is
-# broken, actionlint catches it; if the script is broken, the commit
-# fails and the workflow doesn't update; if the JSON is malformed, the
-# badge shows "invalid" which is debuggable from the README itself.
 name: refresh version badge
 
 on:
@@ -27,12 +22,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
-          # v4.64.0 follow-up: on tag pushes `actions/checkout` checks
-          # out the tagged commit in detached HEAD, and `git push`
-          # then refuses to update master. Force a master checkout so
-          # the workflow file is the same on tag and branch pushes.
           ref: master
           fetch-depth: 1
+          persist-credentials: true  # needed for git push later
 
       - name: Resolve current release
         id: resolve
@@ -40,8 +32,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # On tag pushes, use the tag we just pushed. On master pushes,
-          # resolve the latest release via the GitHub API.
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             tag="${GITHUB_REF_NAME}"
           else
@@ -49,32 +39,35 @@ jobs:
               "https://api.github.com/repos/${GITHUB_REPOSITORY}/releases/latest" \
               | python3 -c "import json,sys; print(json.load(sys.stdin)['tag_name'])")
           fi
-          # Strip the leading 'v' for the bare semver field.
           bare="${tag#v}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
           echo "bare=${bare}" >> "${GITHUB_OUTPUT}"
           echo "Resolved tag: ${tag}"
 
       - name: Write docs/version.json
+        env:
+          # Pass step outputs through env vars to avoid template injection
+          VERSION_TAG: ${{ steps.resolve.outputs.tag }}
+          VERSION_BARE: ${{ steps.resolve.outputs.bare }}
         run: |
           set -euo pipefail
           mkdir -p docs
-          # JSON is consumed by shields.io dynamic-json badge, so the
-          # schema is intentionally tiny: tag_name, semver, updated_at.
-          cat > docs/version.json <<EOF
-          {
-            "tag_name": "${{ steps.resolve.outputs.tag }}",
-            "semver": "${{ steps.resolve.outputs.bare }}",
-            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 -c "
+          import json, os, datetime
+          doc = {
+              'tag_name': os.environ['VERSION_TAG'],
+              'semver': os.environ['VERSION_BARE'],
+              'updated_at': datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
           }
-          EOF
-          cat docs/version.json
+          with open('docs/version.json', 'w') as f:
+              json.dump(doc, f, indent=2)
+              f.write('\n')
+          print(json.dumps(doc, indent=2))
+          "
 
       - name: Commit if changed
-        # v4.64.0 follow-up: use `git status --porcelain` instead of
-        # `git diff --quiet` so untracked new files are detected as
-        # changes. Also: ensure we're on a real branch (the checkout
-        # step is configured to force-checkout master above).
+        env:
+          VERSION_TAG: ${{ steps.resolve.outputs.tag }}
         run: |
           set -euo pipefail
           if [[ -z "$(git status --porcelain docs/version.json)" ]]; then
@@ -84,5 +77,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/version.json
-          git commit -m "chore(badge): refresh version.json to ${{ steps.resolve.outputs.tag }}"
+          git commit -m "chore(badge): refresh version.json to ${VERSION_TAG}"
           git push
