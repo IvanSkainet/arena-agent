@@ -176,28 +176,9 @@ def _build_minimal_axml(package: str) -> bytes:
     while pool_size % 4:
         string_data += b"\x00"
         pool_size += 1
-    pool_chunk = (
-        struct.pack("<HHI", 0x0001, pool_header_size, pool_size)
-        + struct.pack("<I", len(strings))    # string count
-        + struct.pack("<I", 0)               # style count
-        + struct.pack("<I", 0)               # flags (0 = UTF-16)
-        + struct.pack("<I", strings_start)
-        + struct.pack("<I", 0)               # styles start
-        + offsets_bytes
-        + string_data
-    )
 
     # START_ELEMENT chunk for <manifest package="...">.
     # 8 chunk header + 8 line/comment + 20 element metadata + 20 attribute.
-    element_header_size = 16  # chunk_type/hdr_size/size + line + comment
-    element_size = 8 + 8 + 20 + 20
-    element_chunk = (
-        struct.pack("<HHI", 0x0102, element_header_size, element_size)
-        + struct.pack("<I", 1)              # line number
-        + struct.pack("<I", 0xFFFFFFFF)     # comment (-1)
-        + struct.pack("<I", 0xFFFFFFFF)     # ns_idx
-        + struct.pack("<I", 0)              # name_idx = "package"? No — name_idx points to <manifest>
-    )
     # Whoops — "manifest" isn't in the pool yet. Rebuild strings with
     # "manifest" so name_idx=0 works.
     pass  # (real implementation follows in the actual test builder)

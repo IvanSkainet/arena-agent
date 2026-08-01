@@ -82,7 +82,6 @@ print(__TOKEN__ + ' ' + JSON.stringify({ok:true, backend:'kwin_journal', count:w
             f'{shlex.quote(qdbus)} org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript {shlex.quote(js_path)} {shlex.quote(plugin)}',
             timeout=3,
         )
-        load_id = (load.get("stdout") or "").strip()
         if not load.get("ok"):
             return {"ok": False, "backend": "kwin_journal", "error": "loadScript failed", "detail": load}
         # Plasma may legally return "0" here while still loading the script.

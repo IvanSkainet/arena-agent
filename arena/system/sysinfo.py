@@ -98,7 +98,7 @@ def collect_sysinfo(
 ) -> dict[str, Any]:
     """Collect compact cross-platform sysinfo for /v1/sysinfo."""
     disk = shutil.disk_usage(str(root))
-    if sys_platform := (platform.system().lower() == "windows"):
+    if platform.system().lower() == "windows":
         mem_total, mem_avail = _windows_memory()
     else:
         mem_total, mem_avail = _linux_memory()

@@ -155,9 +155,9 @@ def test_probe_skips_oversized_files(_fake_home):
 
 
 def test_probe_sorts_newest_first(_fake_home):
-    (a := _fake_home / "old.txt").write_text("old")
+    (_fake_home / "old.txt").write_text("old")
     time.sleep(0.05)
-    (b := _fake_home / "new.txt").write_text("new")
+    (_fake_home / "new.txt").write_text("new")
     r = get_recent_activity(window_minutes=60, limit=100)
     # Find the two file entries by name and prove the ordering.
     positions = {Path(f["path"]).name: i for i, f in enumerate(r["files"])}

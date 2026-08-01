@@ -417,7 +417,6 @@ def capture_and_pull(serial: str, *,
 
     deadline = time.monotonic() + wait_for_file_ms / 1000.0
     fresh_path = None
-    fresh_size = 0
     while time.monotonic() < deadline:
         current = latest_photo(serial)
         if current.get("ok"):
@@ -425,7 +424,6 @@ def capture_and_pull(serial: str, *,
             mtime = current.get("mtime_epoch", 0.0)
             if path != baseline_path or mtime > baseline_mtime + 0.1:
                 fresh_path = path
-                fresh_size = current.get("size_bytes") or 0
                 break
         time.sleep(0.25)
 

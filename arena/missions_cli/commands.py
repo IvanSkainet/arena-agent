@@ -73,7 +73,7 @@ def report_cmd(a):
     out.write_text('\n'.join(lines)); print(str(out))
 
 def stress_cmd(a):
-    tmp=MISSIONS/'stress-current'; tmp.mkdir(parents=True,exist_ok=True); mid=newest='stress-current'
+    tmp=MISSIONS/'stress-current'; tmp.mkdir(parents=True,exist_ok=True); mid='stress-current'
     obj={'id':mid,'template':'cli-agent-core','title':'Core stress','state':'planned','created_at':now(),'runs':[]}; (tmp/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)); (tmp/'logs').mkdir(exist_ok=True); run_cmd_mission(argparse.Namespace(id=mid,step=None,timeout=180))
 
 def roadmap_cmd(a):

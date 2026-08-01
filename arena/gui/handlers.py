@@ -62,14 +62,6 @@ def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:
             return web.Response(status=404, text="not found")
         if not asset_path.is_file():
             return web.Response(status=404, text="not found")
-        suffix = asset_path.suffix.lower()
-        content_type = {
-            ".js": "application/javascript",
-            ".css": "text/css",
-            ".html": "text/html",
-            ".svg": "image/svg+xml",
-            ".png": "image/png",
-        }.get(suffix, "application/octet-stream")
         # v4.48.8: assets are served via URLs cache-busted with
         # ?v={{VERSION}} (see dashboard/index.html). Every version
         # bump forces a fresh URL, so browsers may safely cache the

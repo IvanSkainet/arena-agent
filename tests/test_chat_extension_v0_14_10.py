@@ -74,7 +74,7 @@ def test_mount_success_emits_diag_event():
 def test_semantic_owner_eviction_emits_diag_event():
     """v0.14.14: semantic-owner eviction (evict-then-remount on new
     host) also emits an event so operator can see the sequence."""
-    src = _read("content.js")
+    _read("content.js")
     # v0.14.14: evict_semantic_owner removed with the semantic-dedup path;
     # every host now gets its own toolbar so eviction is no longer needed.
 

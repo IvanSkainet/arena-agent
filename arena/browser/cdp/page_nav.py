@@ -42,7 +42,6 @@ def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
         # Track navigation time so watcher skips probes during page loads
         ctx.cdp_state["last_navigation_time"] = time.time()
 
-        original_tab_id = tab.target_id
         try:
             # v2.4.0: Hard timeout — 28s CDP, 30s asyncio (increased from 20s for heavy sites)
             result = await asyncio.wait_for(tab.navigate(url, wait=wait, timeout=28), timeout=30)

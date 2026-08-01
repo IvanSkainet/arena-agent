@@ -196,7 +196,6 @@ def test_end_to_end_voice_transcription(tmp_path: Path) -> None:
         'Args: `{"text": "{{ steps.T5.result.text }}"}`.\n'
     )
     out = tmp_path / "scenario.json"
-    rc = adapter.main.__wrapped__ if hasattr(adapter.main, "__wrapped__") else None
     # Call the parser+builder directly (no argv mutation) for purity.
     steps = adapter.parse_tasks(_write(tmp_path, body))
     scenario = adapter.build_scenario(

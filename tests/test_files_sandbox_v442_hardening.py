@@ -108,14 +108,14 @@ def test_prefix_scan_clears_ordinary_files(sandbox, relpath):
 def test_download_refuses_token_txt(sandbox):
     """The critical fix: pre-v4.42.0 an authed caller could pull
     the master bearer via /v1/download?path=token.txt. Now refused."""
-    home, root = sandbox["home"], sandbox["root"]
+    home = sandbox["home"]
     _, err, status = validate_download_target("token.txt", root=home, home=home)
     assert status == 403
     assert "download" in err.lower() and "token.txt" in err
 
 
 def test_download_refuses_ssh_private_key(sandbox):
-    home, root = sandbox["home"], sandbox["root"]
+    home = sandbox["home"]
     _, err, status = validate_download_target(
         ".ssh/id_ed25519", root=home, home=home)
     assert status == 403
@@ -177,7 +177,7 @@ def test_download_allows_ordinary_workspace_file(sandbox):
 def test_upload_refuses_token_txt(sandbox):
     """Symmetric fix: pre-v4.42.0 an authed caller could
     upload a replacement token.txt. Now refused."""
-    home, root, bp = sandbox["home"], sandbox["root"], sandbox["bridge_py"]
+    home, bp = sandbox["home"], sandbox["bridge_py"]
     _, err, status = validate_upload_target(
         "token.txt", root=home, home=home, bridge_py=bp)
     assert status == 403
@@ -186,14 +186,14 @@ def test_upload_refuses_token_txt(sandbox):
 
 def test_upload_refuses_authorized_keys(sandbox):
     """Uploading an authorized_keys is a straight backdoor. Reject."""
-    home, root, bp = sandbox["home"], sandbox["root"], sandbox["bridge_py"]
+    home, bp = sandbox["home"], sandbox["bridge_py"]
     _, err, status = validate_upload_target(
         ".ssh/authorized_keys", root=home, home=home, bridge_py=bp)
     assert status == 403
 
 
 def test_upload_refuses_env_file(sandbox):
-    home, root, bp = sandbox["home"], sandbox["root"], sandbox["bridge_py"]
+    home, bp = sandbox["home"], sandbox["bridge_py"]
     _, err, status = validate_upload_target(
         ".env", root=home, home=home, bridge_py=bp)
     assert status == 403

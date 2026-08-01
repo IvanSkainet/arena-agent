@@ -78,7 +78,6 @@ def _write_windows_installer(payload_root: Path, install_root: Path,
     for idx, name in enumerate(_REPLACE_TARGETS):
         s = f"{src}\\{name}"
         d = f"{dst}\\{name}"
-        skip = f"skip_{idx}"
         as_file = f"as_file_{idx}"
         nxt = f"next_{idx}"
         lines.extend([

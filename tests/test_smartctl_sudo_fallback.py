@@ -77,7 +77,7 @@ def test_non_linux_never_tries_sudo(monkeypatch):
     fake, calls = _stub_run([perm_err])
     monkeypatch.setattr(ps, "_run", fake)
     monkeypatch.setattr(ps.platform, "system", lambda: "Windows")
-    result = ps._smartctl_run(["-H", "/dev/sda"])
+    ps._smartctl_run(["-H", "/dev/sda"])
     assert len(calls) == 1
     assert calls[0][0] == "smartctl"  # no "sudo"
 

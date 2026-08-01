@@ -176,7 +176,7 @@ def test_content_js_within_new_900_limit():
 def test_prior_regression_guards_still_hold():
     adapters = _read("adapters.js")
     content = _read("content.js")
-    css = _read("shadow_toolbar.css")
+    _read("shadow_toolbar.css")
 
     import re
     m = re.search(r"_USER_AUTHOR_ATTRS\s*=\s*\[(.+?)\]", adapters, flags=re.DOTALL)

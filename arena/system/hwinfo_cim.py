@@ -153,7 +153,6 @@ def get_uptime():
             "| ConvertTo-Json"
         )
         if res.stdout.strip():
-            data = json.loads(res.stdout)
             # PowerShell might return a date string like "/Date(1682390192000)/" or just a formatted string
             # Better to get milliseconds directly
             res2 = _run_powershell(

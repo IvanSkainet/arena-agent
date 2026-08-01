@@ -332,7 +332,7 @@ def test_all_urls_dead_exits_1(tmp_path):
         {"provider": "d2", "url": dead2.url(), "kind": "http"},
     ], bootstrap_url=dead1.url())
 
-    d1, d2 = dead1.url(), dead2.url()
+    d1 = dead1.url()
     dead1.stop()
     dead2.stop()
 

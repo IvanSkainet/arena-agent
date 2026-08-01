@@ -134,7 +134,7 @@ def test_virtualization_returns_type():
 
 
 def test_dmesg_off_linux():
-    m = _mod()
+    _mod()
     # dmesg lives in probe_agent_sys after the v3.88.5 split.
     from arena.inventory import probe_agent_sys as sys_mod
     with patch.object(sys_mod, "platform") as pm:

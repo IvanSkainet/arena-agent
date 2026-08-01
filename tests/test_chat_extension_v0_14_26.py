@@ -85,7 +85,6 @@ def test_diagnostic_snapshot_now_filters_carousels():
         flags=re.DOTALL,
     )
     assert m, "diagnostic snapshot must exist"
-    body = m.group(0)
     # We must .filter() after querySelectorAll now.
     m2 = re.search(
         r"Array\.from\(document\.querySelectorAll\([^)]+\)\)\.filter\(IS_REAL_CAROUSEL\)",

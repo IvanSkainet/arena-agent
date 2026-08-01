@@ -76,7 +76,6 @@ class H(BaseHTTPRequestHandler):
 
         if self.path.startswith("/mcp"):
             # Streamable HTTP — основной endpoint
-            session_hdr = self.headers.get("Mcp-Session-Id", "")
             if msg.get("method") == "initialize":
                 session = sid()
                 with SLOCK: SESSIONS[session] = {"created": now_ms(), "queue": []}

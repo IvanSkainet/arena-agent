@@ -115,7 +115,7 @@ def run_speccy(args: list[str], cwd: str | None = None, timeout: int = 60) -> di
                                         # never crash on decode errors.
             timeout=timeout,
         )
-    except subprocess.TimeoutExpired as e:
+    except subprocess.TimeoutExpired:
         return _isError(
             f"`{_CLI_NAME} {' '.join(args)}` timed out after {timeout}s."
         )
