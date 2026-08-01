@@ -1,3 +1,19 @@
+## v4.152.2 - CI Security Hardening
+
+### Added
+- **Zizmor** workflow: GitHub Actions workflow security scanner (38 rules), used by FastAPI/CPython/Rust/Sigstore. Catches template injection, credential leaks, unpinned actions, poisonable caches.
+- **Gitleaks** job in security scan: commit-level secret scanning.
+- **Dependency Review** workflow: blocks PRs introducing new high-severity CVEs.
+
+### Fixed
+- **artipacked** (22 findings): added `persist-credentials: false` to all `actions/checkout` steps across ci.yml, security-scan.yml, dependency-review.yml.
+- **template-injection** (3 findings): version-badge.yml now passes step outputs through env vars; JSON generated via Python instead of shell heredoc with `${{ }}` interpolation.
+- **unpinned-uses**: pinned `actions/stale` by SHA.
+- **deprecation**: updated `codeql-action@v3` → `v4`, `checkout@v4` → `v6` in scorecard.yml.
+
+### CI Security Stack (10 scanners)
+Bandit, Semgrep (9 rule packs), pip-audit, CodeQL, Trufflehog, Gitleaks, OSSF Scorecard, Zizmor, Dependency Review, actionlint. All green, 0 open alerts.
+
 ## v4.152.1 - Security Hardening (CodeQL)
 
 ### Fixed
