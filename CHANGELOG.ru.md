@@ -2,6 +2,7 @@
 
 ### Безопасность и CI
 - **Hash-locked окружение CI**: добавлены `requirements-ci.in` и сгенерированный `requirements-ci.lock`; каждая внешняя зависимость тестов закреплена по версии и SHA-256, CI устанавливает их через `pip --require-hashes`.
+- **Кросс-версионный lock**: lock собран как *универсальное* разрешение (`uv pip compile --universal`); первоначальная host-only генерация молча отбрасывала marker-зависимости (`async-timeout`, `exceptiongroup`, `tomli` для Python <3.11), из-за чего `--require-hashes` падал на ячейках матрицы с Python 3.10.
 - **Безопасная локальная установка проекта в CI**: editable-установка выполняется с `--no-deps --no-build-isolation`; после установки lock-файла она не разрешает и не загружает новые зависимости. Это устраняет Scorecard Pinned-Dependencies без подавления alert.
 - **Устанавливаемый исходный пакет**: явно настроено setuptools-discovery для `arena*` и compatibility-модуля `unified_bridge`; editable install и wheel теперь собираются из репозитория.
 - **Совместимость Serena**: CI/dev constraints сохраняют `pathspec==0.12.1`, общую для Serena 1.6.1 и совместимой версии mypy.

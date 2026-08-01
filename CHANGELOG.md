@@ -2,6 +2,7 @@
 
 ### Security and CI
 - **Hash-locked CI environment**: added `requirements-ci.in` and generated `requirements-ci.lock`; every third-party test dependency is version- and SHA-256-pinned and CI installs it with `pip --require-hashes`.
+- **Cross-version lock**: the lock is a *universal* resolution (`uv pip compile --universal`); the initial host-only lock silently dropped marker-gated deps (`async-timeout`, `exceptiongroup`, `tomli` for Python <3.11) and broke `--require-hashes` installs on the Python 3.10 matrix cells.
 - **Safe local project installation in CI**: editable install is now `--no-deps --no-build-isolation`, so after the lock is installed it resolves no new network dependencies. This addresses Scorecard Pinned-Dependencies findings without suppressing them.
 - **Installable source distribution**: explicitly configured setuptools package discovery for `arena*` and the compatibility module `unified_bridge`; editable installs and wheels now build from the repository.
 - **Serena compatibility**: CI/dev constraints preserve `pathspec==0.12.1`, shared by Serena 1.6.1 and a compatible mypy release.
