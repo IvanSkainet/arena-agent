@@ -113,7 +113,10 @@ class BridgeClient:
 def bridge(tmp_path_factory):
     """One live server process per module (pytest-randomly safe)."""
     port = _free_port()
-    token = secrets.token_urlsafe(24)
+    # Prefix matters: token_urlsafe may emit a LEADING '-' (its alphabet
+    # includes -_), and argparse then eats the value as an unknown option
+    # ("argument --token: expected one argument") -> flaky rc=2 startups.
+    token = "e2e-" + secrets.token_urlsafe(24)
     argv = _server_argv() + [
         "serve", "--bind", "127.0.0.1", "--port", str(port),
         "--token", token, "--root", str(REPO_ROOT),
