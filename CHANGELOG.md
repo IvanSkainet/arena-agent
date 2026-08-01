@@ -1,3 +1,27 @@
+## v4.152.3 - Enterprise-Grade Security Stack
+
+### Added
+- **OSV-Scanner**: Google's vulnerability scanner querying OSV.dev (30+ ecosystem-specific sources including GHSA, PyPA, RustSec). Covers transitive deps that pip-audit may miss.
+- **Syft SBOM**: generates CycloneDX Software Bill of Materials for supply-chain transparency. SBOM artifact uploaded on every push.
+- **Grype**: scans the generated SBOM with composite risk scoring (CVSS + EPSS + CISA KEV).
+
+### CI Security Stack (13 checks)
+| Check | Purpose |
+|-------|---------|
+| actionlint | Workflow YAML syntax |
+| Ruff | Python lint + format |
+| Bandit | Python SAST |
+| Semgrep | 9 rule packs (OWASP, CWE, secrets, XSS, injection) |
+| pip-audit | Python dependency CVEs |
+| CodeQL | Semantic taint analysis |
+| Trufflehog | Verified secrets in git history |
+| Gitleaks | Commit-level secrets |
+| OSSF Scorecard | Supply-chain security score |
+| Zizmor | GitHub Actions workflow security (38 rules) |
+| Dependency Review | PR-level CVE gate |
+| OSV-Scanner | Google OSV vulnerability database |
+| Syft + Grype | SBOM generation + vulnerability scan |
+
 ## v4.152.2 - CI Security Hardening
 
 ### Added
