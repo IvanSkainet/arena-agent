@@ -3,17 +3,17 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import socket
 import struct
-import sys
-import threading
-import time
-from pathlib import Path
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import threading  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
-from arena.mcp.standalone_common import VERSION
-from arena.mcp.standalone_rpc import handle_rpc
-from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
+from arena.mcp.standalone_common import VERSION  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from arena.mcp.standalone_rpc import handle_rpc  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from arena.mcp.tool_registry import MCP_TOOLS as TOOLS  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
 GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 

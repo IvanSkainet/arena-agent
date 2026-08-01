@@ -33,7 +33,7 @@ def test_exec_script_route_wired_into_app():
 def test_exec_handlers_factory_exposes_script():
     """Regression guard: the script handler is exported on ExecHandlers
     so wiring can pick it up via export_handler_attrs."""
-    from arena.exec.handlers import ExecHandlers, make_exec_handlers
+    from arena.exec.handlers import make_exec_handlers
     from arena.handler_context import ExecHandlerContext
     ctx = ExecHandlerContext(
         require_auth=ub.require_auth,

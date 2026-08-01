@@ -6,11 +6,9 @@ from __future__ import annotations
 import json
 import os
 import stat
-import threading
 
 import pytest
 
-from arena.observability import request_log
 from arena.observability.request_log import (
     _mask_peer,
     _peer_privacy_mode,

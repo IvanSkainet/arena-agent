@@ -6,7 +6,6 @@ shared decorator and don't carry the old inline auth prelude.
 """
 from __future__ import annotations
 
-import asyncio
 import sys
 from pathlib import Path
 

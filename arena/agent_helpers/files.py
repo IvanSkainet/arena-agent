@@ -1,14 +1,14 @@
 """Agent-side helper utilities."""
 from __future__ import annotations
 
-import argparse
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import importlib.util
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
 import shutil
 import subprocess
-import sys
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

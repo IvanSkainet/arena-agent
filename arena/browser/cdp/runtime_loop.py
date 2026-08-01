@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 
-from arena.browser.cdp.state import CDP_LOOP_CHECK_INTERVAL, _cdp_loop_healthy_ts
+from arena.browser.cdp.state import CDP_LOOP_CHECK_INTERVAL
 
 log = logging.getLogger("arena-bridge")
 

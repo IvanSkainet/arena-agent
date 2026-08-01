@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -14,7 +13,7 @@ from arena.scenarios import (
     build_scenarios_runtime,
     resolve_missions_dir,
 )
-from arena.scenarios.mission_bridge import _find_by_name, _mission_id
+from arena.scenarios.mission_bridge import _mission_id
 
 
 @pytest.fixture

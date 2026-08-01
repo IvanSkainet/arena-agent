@@ -1,10 +1,9 @@
 """v4.60.6 - admin.run cross-platform + sudo.run PermissionError fix."""
 from pathlib import Path
-from unittest import mock
 
 from arena import constants
 from arena.extension_bridge.policy import classify_tool_risk
-from arena.mcp.tool_net import _handle_admin_run, _handle_sudo_run, handle_net_tool
+from arena.mcp.tool_net import _handle_admin_run
 from arena.mcp.tool_registry import MCP_TOOLS
 from arena.mcp.tool_registry_net import NET_MCP_TOOLS
 from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in

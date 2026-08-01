@@ -9,11 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from arena import constants
 from arena.extension_bridge.policy import (
-    _DANGEROUS_PREFIXES,
     _DANGEROUS_TOOLS,
     _MEDIUM_TOOLS,
     _SAFE_TOOLS,

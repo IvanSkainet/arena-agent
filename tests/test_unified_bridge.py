@@ -25,7 +25,6 @@ Live-failed: v4.61.0 CI run id 30034756453 / 30035666162.
 import gc
 import json
 import os
-import shutil
 import sqlite3
 import sys
 import tempfile
@@ -37,7 +36,7 @@ import pytest
 # Add repository root to system path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from bin.memory_recall import recall_facts, score as recall_score
+from bin.memory_recall import recall_facts
 from scripts.hwinfo_lite import collect_all as hwinfo_collect
 from scripts.memory import append as memory_append
 

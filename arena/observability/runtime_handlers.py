@@ -3,8 +3,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from aiohttp import web
-
 from arena.handler_context import RuntimeObservabilityHandlerContext
 from arena.observability.live_metrics_handler import make_live_metrics_handlers
 from arena.observability.logs_handler import make_logs_handler

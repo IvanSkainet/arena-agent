@@ -17,11 +17,8 @@ monkeypatching ``urllib.request.urlopen``.
 from __future__ import annotations
 
 import importlib.util
-import io
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-
-import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CHECK_SCRIPT = REPO_ROOT / "scripts" / "check_latest_release.py"

@@ -7,7 +7,6 @@ the breaker is open, snapshot in the response payload).
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -16,7 +15,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from arena.admin.tunnels_breaker import (  # noqa: E402
-    BreakerRecord,
     TunnelsBreaker,
     get_default_breaker,
     reset_default_breaker,

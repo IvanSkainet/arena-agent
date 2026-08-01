@@ -9,7 +9,6 @@ snapshots Ivan sent for Gemini / Kimi / Qwen / DeepSeek / z.ai.
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 from tests._version_matrix import (

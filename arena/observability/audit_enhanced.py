@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import collections
 import json
-import re
 from pathlib import Path
 from typing import Any
 

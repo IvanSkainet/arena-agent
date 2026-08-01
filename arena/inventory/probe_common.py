@@ -1,18 +1,18 @@
 """Shared helpers for cross-platform inventory probes."""
 from __future__ import annotations
 
-import argparse
-import getpass
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import getpass  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import json
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import platform
 import re
 import shutil
-import socket
+import socket  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
-import sys
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from typing import Any, Optional
 
 RUNTIMES = [

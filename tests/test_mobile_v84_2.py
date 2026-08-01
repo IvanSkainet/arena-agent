@@ -1,7 +1,6 @@
 """Tests for v3.84.2: screen recording + apk upload."""
 from __future__ import annotations
 
-import time
 from unittest.mock import MagicMock
 
 import pytest

@@ -10,17 +10,13 @@ Two suites:
 from __future__ import annotations
 
 import hashlib
-import os
 import socket
 import ssl
 import threading
-import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 
 import pytest
 
-from arena.agentctl_cli import pinning
 from arena.agentctl_cli.pinning import (
     TLSPinMismatchError,
     _parse_pin_env,

@@ -6,7 +6,7 @@ from aiohttp import web
 from arena.desktop.text_window_target import resolve_text_window_target
 from arena.desktop.window_catalog import list_desktop_windows, resolve_window_target, window_candidates
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, controlled, err_json
+from arena.handler_helpers import authed, controlled
 
 
 def _truthy(value: str | None) -> bool:

@@ -1,5 +1,4 @@
 """Tests for git.* MCP tools: git.status, git.diff, git.log, git.commit."""
-import os
 import subprocess
 import sys
 from pathlib import Path

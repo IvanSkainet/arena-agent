@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
-from arena.browser.cdp_client.intercept_rule import InterceptRule
 
 
 class CDPNetworkInterceptRuntimeMixin:

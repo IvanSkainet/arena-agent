@@ -41,7 +41,6 @@ def stub_adb(monkeypatch):
     """Force ``find_adb()`` to return a truthy path and stub
     ``run()`` so ``dump_ui`` runs its parser branch instead of
     early-returning "adb not installed"."""
-    from arena.mobile import adb
     monkeypatch.setattr(ui, "find_adb", lambda: "/usr/bin/adb")
 
     captured_xml = {"value": ""}

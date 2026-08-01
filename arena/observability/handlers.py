@@ -19,7 +19,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import ObservabilityHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 from arena.web_utils import CORS_HEADERS
 
 

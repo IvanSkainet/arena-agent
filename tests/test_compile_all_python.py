@@ -20,7 +20,6 @@ collection phase).
 from __future__ import annotations
 
 import py_compile
-import sys
 from pathlib import Path
 
 import pytest

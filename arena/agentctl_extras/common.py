@@ -1,14 +1,14 @@
 """agentctl extras CLI implementation."""
 from __future__ import annotations
 
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
-import platform
+import platform  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import shutil
-import socket
-import subprocess
+import socket  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import subprocess  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import sys
-import time
+import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-bridge")))

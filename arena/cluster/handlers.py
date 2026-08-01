@@ -7,7 +7,7 @@ from aiohttp import web
 
 from arena.cluster.runtime import CLUSTER_CONFIG, CLUSTER_STATE
 from arena.handler_context import ClusterHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

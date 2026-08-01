@@ -28,8 +28,6 @@ dispatch branches are still present in the source.
 from __future__ import annotations
 
 import ast
-import re
-import sys
 from pathlib import Path
 
 import pytest

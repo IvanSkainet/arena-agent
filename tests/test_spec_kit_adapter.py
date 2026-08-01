@@ -11,8 +11,6 @@ import json
 import sys
 from pathlib import Path
 
-import pytest
-
 # The adapter lives under `scripts/` (alongside make_release_zip.py,
 # pack_release.py, check_latest_release.py). pytest does not put
 # `scripts/` on sys.path by default, so we add it explicitly.

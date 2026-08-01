@@ -13,7 +13,7 @@ from aiohttp import web
 
 from arena.constants import APP_DIR
 from arena.handler_context import TlsHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 TLS_CONFIG: dict[str, Any] = {
     "enabled": False,

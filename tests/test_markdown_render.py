@@ -1,8 +1,6 @@
 """Tests for the minimal Markdown -> HTML renderer (v3.86.4)."""
 from __future__ import annotations
 
-import pytest
-
 
 def test_headings():
     from arena.gui.markdown_render import render

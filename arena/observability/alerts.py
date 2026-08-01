@@ -7,7 +7,7 @@ from typing import Any
 from aiohttp import web
 
 from arena.handler_context import AlertsHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 ALERTS_CONFIG: dict[str, dict[str, Any]] = {
     "bridge_down": {"enabled": True, "threshold_seconds": 30, "description": "Bridge unresponsive for >30s"},

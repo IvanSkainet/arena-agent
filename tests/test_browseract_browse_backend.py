@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
 
 import arena.browser.browse_browseract as mod
 

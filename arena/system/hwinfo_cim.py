@@ -34,13 +34,13 @@ v4.43.0 tightens the surface without changing the behaviour:
 """
 from __future__ import annotations
 
-import datetime
+import datetime  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import json
-import os
-import platform
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import platform  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import re
 import subprocess
-import sys
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
 # Whitelist for CIM/WMI class names: letters, digits, underscore.
 # Real class names are ``Win32_<Something>`` or ``CIM_<Something>``;

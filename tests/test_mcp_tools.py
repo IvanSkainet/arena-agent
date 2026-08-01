@@ -5,7 +5,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402
-from arena.mcp.tools import MCP_TOOLS, make_mcp_tool_runtime  # noqa: E402
+from arena.mcp.tools import MCP_TOOLS  # noqa: E402
 
 
 def test_unified_mcp_tool_runtime_bound_to_module():

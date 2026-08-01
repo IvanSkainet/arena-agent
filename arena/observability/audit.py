@@ -49,7 +49,7 @@ from arena.constants import AUDIT_CMD_LIMIT
 # backward-compat aliases so anything that imported them from
 # arena.observability.audit keeps working.
 from arena.observability.redact import (
-    SENSITIVE_KEY_SUBSTRINGS as _SENSITIVE_KEY_SUBSTRINGS,
+    SENSITIVE_KEY_SUBSTRINGS as _SENSITIVE_KEY_SUBSTRINGS,  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
     is_sensitive_key as _is_sensitive_key,
     redact_string as _redact_value_patterns,
     redact_value as _scrub,

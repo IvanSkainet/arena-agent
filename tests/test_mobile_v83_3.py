@@ -371,7 +371,6 @@ def test_screenshot_capture_returns_capture_and_encode_ms(monkeypatch):
         import pytest
         pytest.skip("Pillow not installed")
     import io as _io
-    import struct as _st
 
     from PIL import Image as _PI
 

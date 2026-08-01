@@ -40,13 +40,12 @@ Returns (failure):
 """
 from __future__ import annotations
 
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
 import shutil
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 # Resolve the path to the `specify` CLI. The convention is to look it
 # up via shutil.which; if absent, we return an `isError` envelope

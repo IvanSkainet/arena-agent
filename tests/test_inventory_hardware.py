@@ -1,5 +1,4 @@
 """Regression tests for inventory/hardware consolidation."""
-import json
 import sys
 from pathlib import Path
 

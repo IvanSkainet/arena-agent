@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from arena.handler_context import CdpPageHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_cdp_eval_handler(ctx: CdpPageHandlerContext):

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from arena.app_keys import APP_CFG
 from arena.wiring.env import RuntimeEnv

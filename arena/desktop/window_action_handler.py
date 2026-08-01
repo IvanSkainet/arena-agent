@@ -8,7 +8,7 @@ from arena.desktop.window_action import perform_window_action
 from arena.desktop.window_action_plans import plan_window_action_geometry
 from arena.desktop.window_catalog import resolve_window_target
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled, err_json
+from arena.handler_helpers import controlled
 
 
 def make_desktop_window_action_handler(ctx: DesktopHandlerContext):

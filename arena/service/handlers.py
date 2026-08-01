@@ -9,7 +9,7 @@ from aiohttp import web
 
 from arena.app_keys import APP_CFG
 from arena.handler_context import ServiceHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed, err_json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
 
 @dataclass(frozen=True)

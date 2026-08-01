@@ -9,7 +9,7 @@ from aiohttp import web
 
 from arena.gateway.runtime import GW_WHITELIST, gw_allowed, gw_run_sync
 from arena.handler_context import GatewayHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

@@ -5,7 +5,7 @@ from urllib.parse import parse_qs
 
 from arena.browser.cdp.test_ws_probe import run_cdp_test_ws_probe
 from arena.handler_context import CdpDiagnosticHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_cdp_test_ws_handler(ctx: CdpDiagnosticHandlerContext):

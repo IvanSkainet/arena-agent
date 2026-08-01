@@ -1,5 +1,4 @@
 """Audit helper tests."""
-import json
 import sys
 from pathlib import Path
 

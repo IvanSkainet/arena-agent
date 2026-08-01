@@ -1,24 +1,24 @@
 """Shared imports/constants for modular CDP browser helpers."""
 from __future__ import annotations
 
-import asyncio
-import base64
-import itertools
-import json
+import asyncio  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import base64  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import itertools  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import logging
-import os
-import platform
-import shutil
-import socket
-import struct
-import subprocess
-import sys
-import tempfile
-import time
-import traceback
-import urllib.request
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import platform  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import shutil  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import socket  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import struct  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import subprocess  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import tempfile  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import traceback  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import urllib.request  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from typing import Any, Callable, Dict, List, Optional  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
 try:
     import aiohttp

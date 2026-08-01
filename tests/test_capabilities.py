@@ -1,5 +1,4 @@
 """Capability map builder tests."""
-import os
 import sys
 from pathlib import Path
 

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-import os
 import platform
 from pathlib import Path
 from unittest import mock
@@ -16,7 +15,6 @@ from arena.mcp.tool_net import (
     _handle_net_http,
     _handle_secrets_get,
     _handle_secrets_list,
-    _load_secrets,
     handle_net_tool,
 )
 from arena.mcp.tool_registry import MCP_TOOLS

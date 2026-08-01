@@ -10,7 +10,7 @@ from arena.browser.cdp.session_diagnostics import (
     terminate_browser_proc,
 )
 from arena.handler_context import CdpSessionHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 async def parse_connect_body(request) -> tuple[int, bool]:

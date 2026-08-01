@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import json
 
-from arena.agentctl_cli.agentctl_common import ROOT, bridge_get, bridge_post, run_bin
+from arena.agentctl_cli.agentctl_common import (  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+    ROOT,
+    bridge_get,
+    bridge_post,
+    run_bin,
+)
 
 
 def audit_stats(args):

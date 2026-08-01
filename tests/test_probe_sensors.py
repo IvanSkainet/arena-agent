@@ -16,8 +16,6 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
-
 
 def _import_module():
     # Reimport fresh in each test to avoid state leaking through the

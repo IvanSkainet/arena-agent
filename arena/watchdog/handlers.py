@@ -2,12 +2,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 from aiohttp import web
 
 from arena.handler_context import WatchdogHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 from arena.watchdog.runtime import WATCHDOG_STATE
 
 

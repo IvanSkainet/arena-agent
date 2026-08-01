@@ -5,7 +5,7 @@ from aiohttp import web
 
 from arena.desktop.text_action import run_text_action
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled, err_json, parse_json_body
+from arena.handler_helpers import controlled, parse_json_body
 
 
 def make_desktop_text_action_handler(ctx: DesktopHandlerContext):

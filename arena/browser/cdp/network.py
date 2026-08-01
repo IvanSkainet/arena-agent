@@ -4,10 +4,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import parse_qs
 
-from aiohttp import web
-
 from arena.handler_context import CdpNetworkHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import hashlib
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
 import sys
 import time

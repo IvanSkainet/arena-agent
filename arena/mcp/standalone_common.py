@@ -1,16 +1,16 @@
 """Standalone MCP Streamable HTTP server components."""
 from __future__ import annotations
 
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
 import secrets
-import shutil
+import shutil  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
-import sys
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from typing import Any  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
 VERSION = "0.3.0"
 HOME = os.path.expanduser("~")

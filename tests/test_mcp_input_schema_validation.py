@@ -31,7 +31,6 @@ specific entry that broke the contract.
 """
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -212,7 +211,6 @@ def test_tool_description_is_nonempty_string(entry):
 
 @pytest.mark.parametrize("entry", list(_iter_tools()), ids=lambda e: e.get("name", "?"))
 def test_tool_input_schema_is_valid_json_schema_draft_7(entry):
-    import warnings
     name = entry.get("name", "?")
     schema = entry.get("inputSchema")
     if schema is None:
@@ -245,7 +243,6 @@ def test_tool_input_schema_rejects_extra_properties(entry):
     in the CI log, but a follow-up commit (or v4.64.0) is
     the right place to flip the bit everywhere.
     """
-    import warnings
     name = entry.get("name", "?")
     schema = entry.get("inputSchema")
     if not isinstance(schema, dict):

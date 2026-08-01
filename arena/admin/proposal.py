@@ -46,14 +46,13 @@ against concurrent access (append is atomic on POSIX). The
 from __future__ import annotations
 
 import json
-import os
+import os  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import re
 import subprocess
 import time
-import uuid
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Constants & pre-flight filter

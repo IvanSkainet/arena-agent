@@ -8,7 +8,7 @@ import zipfile
 from pathlib import Path
 from typing import Any
 
-from arena.mobile import adb as _adb, apk_install as _apk, wireless as _wl
+from arena.mobile import apk_install as _apk, wireless as _wl
 
 
 # ---------------------------------------------------------------------------

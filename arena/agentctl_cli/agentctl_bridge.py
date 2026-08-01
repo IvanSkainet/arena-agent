@@ -44,7 +44,7 @@ from typing import Any
 from arena.agentctl_cli.agentctl_common import (
     BRIDGE_TOKEN,
     BRIDGE_URL,
-    bridge_get,
+    bridge_get,  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 )
 
 _HELP = """Usage: agentctl bridge <verb> [args]

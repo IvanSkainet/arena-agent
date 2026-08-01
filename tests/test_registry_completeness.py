@@ -6,11 +6,8 @@ No other list needs editing. These tests verify that guarantee.
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
-
-import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 

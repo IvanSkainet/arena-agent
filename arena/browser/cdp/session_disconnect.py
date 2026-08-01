@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 
 from arena.handler_context import CdpSessionHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 async def stop_active_cdp_components(ctx: CdpSessionHandlerContext) -> None:

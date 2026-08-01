@@ -22,8 +22,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 from arena.admin.tunnels import (
     DEFAULT_PRIORITY,
     _ngrok_snapshot,

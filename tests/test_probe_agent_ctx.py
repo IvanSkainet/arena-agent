@@ -1,9 +1,7 @@
 """Unit tests for arena/inventory/probe_agent_ctx.py."""
 from __future__ import annotations
 
-import os
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 

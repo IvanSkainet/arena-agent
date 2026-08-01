@@ -26,7 +26,6 @@ import os
 import platform
 import shutil
 import subprocess
-import sys
 import urllib.error
 import urllib.request
 from collections.abc import Callable

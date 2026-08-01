@@ -18,8 +18,6 @@ import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
-import pytest
-
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / "bin" / "agentctl"
 

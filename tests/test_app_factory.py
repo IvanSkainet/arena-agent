@@ -3,8 +3,6 @@ import asyncio
 import sys
 from pathlib import Path
 
-from aiohttp import web
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import unified_bridge as ub  # noqa: E402

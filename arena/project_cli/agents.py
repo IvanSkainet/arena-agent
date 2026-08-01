@@ -8,7 +8,6 @@ def agents_md_command(args):
     """CLI: project_git.py agents [init|show] — управление AGENTS.md в текущем проекте."""
     import os as _os
     import pathlib as _pl
-    import shutil as _sh
     state = _pl.Path.home() / "arena-bridge" / "current_project"
     cur = None
     if state.exists(): cur = state.read_text().strip()

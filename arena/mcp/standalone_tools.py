@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from arena.mcp.standalone_common import *  # noqa: F401,F403
-from arena.mcp.tool_registry import MCP_TOOLS as TOOLS
+from arena.mcp.tool_registry import MCP_TOOLS as TOOLS  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
 # v4.75.0: bare-name warnings removed. The v4.69.0
 # deprecation window has expired; the bare names

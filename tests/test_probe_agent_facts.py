@@ -9,8 +9,6 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import pytest
-
 
 def _mod():
     if "arena.inventory.probe_agent_facts" in sys.modules:

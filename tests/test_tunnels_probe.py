@@ -4,9 +4,7 @@ from __future__ import annotations
 import socket
 import sys
 import threading
-import time
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -19,7 +17,6 @@ from arena.admin.tunnels import (
     _probe_tcp,
     _zerotier_snapshot,
     tunnels_probe,
-    tunnels_status,
 )
 
 # --- v4.1.0 priority: ZeroTier ahead of cloudflared ------------------

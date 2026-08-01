@@ -9,8 +9,6 @@ tunable replacement and its clamping guards.
 """
 from __future__ import annotations
 
-import pytest
-
 from arena.admin.cloudflared import (
     _URL_WAIT_DEFAULT_SECONDS,
     _URL_WAIT_MAX_SECONDS,

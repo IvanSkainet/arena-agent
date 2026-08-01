@@ -13,15 +13,12 @@ installed in CI.
 from __future__ import annotations
 
 import json
-import os
-from pathlib import Path
 
 import pytest
 
 from arena.admin.cloudflared_autostart import (
     ENV_VAR,
     MARKER_FILENAME,
-    AutostartOutcome,
     is_env_enabled,
     mark_autostart,
     marker_path,

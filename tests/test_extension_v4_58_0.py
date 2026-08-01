@@ -13,7 +13,6 @@ from arena.extension_bridge.policy import classify_tool_risk
 from arena.mcp.tool_asr import (
     _clamp_timeout,
     _find_model,
-    _find_whisper_binary,
     _handle_asr_bootstrap,
     _handle_asr_health,
     _handle_asr_models,

@@ -1,7 +1,6 @@
 """Tests for v4.149.0 Mission Autopilot Planner additions."""
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 

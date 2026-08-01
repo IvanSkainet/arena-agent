@@ -1,14 +1,14 @@
 """Project git helper CLI implementation."""
 from __future__ import annotations
 
-import argparse
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
-import shutil
+import shutil  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
 import sys
-import uuid
+import uuid  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

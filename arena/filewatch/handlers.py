@@ -8,7 +8,7 @@ from aiohttp import web
 
 from arena.files.sandbox import resolve_home_path
 from arena.handler_context import FileWatchHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

@@ -20,8 +20,6 @@ a re-export that external code still imports.
 from __future__ import annotations
 
 import importlib
-import sys
-from pathlib import Path
 
 import pytest
 

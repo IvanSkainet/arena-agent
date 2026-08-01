@@ -18,8 +18,6 @@ import asyncio
 import json
 from pathlib import Path
 
-import pytest
-
 from arena.admin import autostart
 
 ENV_NG = "ARENA_NGROK_AUTOSTART"

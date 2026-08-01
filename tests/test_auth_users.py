@@ -1,5 +1,4 @@
 """User store tests."""
-import json
 import sys
 from pathlib import Path
 

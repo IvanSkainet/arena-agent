@@ -8,7 +8,7 @@ from aiohttp import web
 from arena.browser.browse_browseract import run_browseract_browse
 from arena.browser.browse_cdp import run_cdp_browse
 from arena.handler_context import BrowserBrowseHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

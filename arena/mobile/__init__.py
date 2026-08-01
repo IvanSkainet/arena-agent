@@ -2,7 +2,7 @@
 
 See docs/MOBILE_SUPPORT_ROADMAP.md for the design rationale.
 """
-from arena.mobile import adb_fallback as _adb_fallback  # re-export namespace
+from arena.mobile import adb_fallback as _adb_fallback  # re-export namespace  # noqa: F401  # kept: binds submodule attr on package (AGENTS.md)
 from arena.mobile.adb import (
     AdbNotFoundError,
     adb_version,

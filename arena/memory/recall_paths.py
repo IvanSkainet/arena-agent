@@ -1,13 +1,13 @@
 """Memory recall CLI implementation."""
 from __future__ import annotations
 
-import argparse
-import json
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
-import re
-import sqlite3
-import sys
-from collections import Counter
+import re  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import sqlite3  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from collections import Counter  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 

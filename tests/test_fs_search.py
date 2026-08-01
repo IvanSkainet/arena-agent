@@ -1,5 +1,4 @@
 """Tests for fs.search and fs.grep MCP tools."""
-import os
 import sys
 from pathlib import Path
 

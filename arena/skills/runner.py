@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Callable
 
 
 def run_skill(name: str, args: list[str], *, skills_dir: Path, root_agent: Path, bin_dir: Path, subprocess_kwargs_fn, env_extra: dict | None = None) -> dict:

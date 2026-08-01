@@ -5,7 +5,7 @@ import asyncio
 import time
 
 from arena.handler_context import CdpPageHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):

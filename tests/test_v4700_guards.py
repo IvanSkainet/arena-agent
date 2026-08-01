@@ -31,8 +31,6 @@ import importlib
 import sys
 from pathlib import Path
 
-import pytest
-
 # Locate the repo root from this test file's location.
 REPO = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO / "scripts"

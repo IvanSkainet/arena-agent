@@ -9,7 +9,6 @@ from arena.mcp.tool_utils import text_content
 from arena.observability.audit_enhanced import (
     classify_action,
     digest,
-    enrich_event,
     export_audit,
     is_external,
     score_risk,

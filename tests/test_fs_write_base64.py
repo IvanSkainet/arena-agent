@@ -1,7 +1,5 @@
 import base64
 
-import pytest
-
 from arena.mcp import tool_fs
 
 

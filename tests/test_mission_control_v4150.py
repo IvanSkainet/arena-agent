@@ -1,7 +1,6 @@
 """Tests for v4.150.0: Mission Control, Async Autopilot, Gap Pipeline."""
 from __future__ import annotations
 
-import json
 import sys
 import threading
 import time

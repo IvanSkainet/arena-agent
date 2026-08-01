@@ -5,7 +5,7 @@ import asyncio
 
 from arena.browser.cdp.advanced_common import get_active_browser
 from arena.handler_context import CdpAdvancedHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_cdp_stealth_shot_handler(ctx: CdpAdvancedHandlerContext):

@@ -8,7 +8,7 @@ from urllib.parse import parse_qs
 from aiohttp import web
 
 from arena.handler_context import MemoryHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 from arena.memory.profiles import (
     DEFAULT_MEMORY_PROFILE,
     normalize_memory_profile,

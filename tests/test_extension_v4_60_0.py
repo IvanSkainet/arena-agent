@@ -1,11 +1,8 @@
 """v4.60.0 — Windows/dashboard fixes: hooks emoji + ZT transports + session state."""
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
-
-import pytest
 
 from arena import constants
 from tests._version_matrix import BRIDGE_VERSIONS, any_pyproject_in

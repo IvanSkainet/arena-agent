@@ -74,7 +74,6 @@ from __future__ import annotations
 import hashlib
 import os
 import ssl
-from typing import Iterable
 
 
 class TLSPinMismatchError(Exception):

@@ -8,8 +8,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 
 def _close_loop(loop: asyncio.AbstractEventLoop) -> None:
     """Cancel test-created mirror tasks before closing their private loop."""
@@ -172,7 +170,6 @@ def test_check_auth_accepts_query_token(monkeypatch):
     runtime now accepts a `?token=` query param as a third option.
     Test at the module level (not a real WS) since aiohttp app/request
     plumbing is complex to set up in-process."""
-    import hmac
     from types import SimpleNamespace
     # Build a fake request that only carries the query param.
     class _FakeReq:

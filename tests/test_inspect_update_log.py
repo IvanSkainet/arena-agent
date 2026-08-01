@@ -10,8 +10,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 # scripts/ is not on sys.path by default in this repo (the install
 # flow puts it there, but pytest collects from tests/ directly).
 _REPO = Path(__file__).resolve().parent.parent
@@ -20,8 +18,6 @@ sys.path.insert(0, str(_REPO / "scripts"))
 from inspect_update_log import (  # noqa: E402  -- import after sys.path tweak
     _LINE_RE,
     PHASE_ORDER,
-    LogEntry,
-    LogReport,
     _parse_log,
     _resolve_log_paths,
     main,

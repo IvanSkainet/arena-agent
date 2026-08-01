@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import sys
 
 from aiohttp import web
 
 from arena.desktop.input import build_click_command, build_key_command, build_mouse_command, build_type_command
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import controlled, err_json
+from arena.handler_helpers import controlled
 
 
 def make_desktop_input_handlers(ctx: DesktopHandlerContext):

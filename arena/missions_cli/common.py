@@ -1,14 +1,14 @@
 """Mission manager CLI implementation."""
 from __future__ import annotations
 
-import argparse
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
 import re
 import subprocess
-import textwrap
-import uuid
+import textwrap  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import uuid  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

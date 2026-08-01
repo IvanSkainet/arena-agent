@@ -5,8 +5,6 @@ the skills tempfile).
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from arena.skills.install import install_skill

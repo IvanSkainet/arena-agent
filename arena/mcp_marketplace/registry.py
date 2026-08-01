@@ -1,11 +1,8 @@
 """MCP marketplace implementation."""
 from __future__ import annotations
 
-import argparse
 import json
 import os
-import subprocess
-import sys
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

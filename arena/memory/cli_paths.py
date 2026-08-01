@@ -1,12 +1,12 @@
 """Standalone memory CLI helpers."""
 from __future__ import annotations
 
-import argparse
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
-import json
+import json  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import os
-import sqlite3
-import sys
+import sqlite3  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 

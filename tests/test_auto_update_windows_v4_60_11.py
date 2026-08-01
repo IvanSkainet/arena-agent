@@ -12,8 +12,6 @@ only ``if EXPR goto :label`` sequences for its control flow.
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 # Import auto_update FIRST so _REPLACE_TARGETS is defined by the time

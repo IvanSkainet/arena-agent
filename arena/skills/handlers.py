@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from aiohttp import web
 
 from arena.handler_context import SkillHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

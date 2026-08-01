@@ -496,7 +496,7 @@ def test_ui_interactive_predicate():
 def test_dump_ui_parses_synthetic_xml(monkeypatch):
     """Feed a minimal known-good XML through dump_ui and assert on the
     parsed shape without an actual device."""
-    from arena.mobile import adb as _adb2, ui as _ui
+    from arena.mobile import ui as _ui
 
     class _Result:
         def __init__(self):

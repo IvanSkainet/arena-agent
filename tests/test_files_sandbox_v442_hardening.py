@@ -14,8 +14,6 @@ Covers three new pieces of behaviour:
 """
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from arena.files.sandbox import (

@@ -2,13 +2,12 @@
 from __future__ import annotations
 
 import asyncio
-import base64 as _b64
 from urllib.parse import parse_qs
 
 from aiohttp import web
 
 from arena.handler_context import CdpPageHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):

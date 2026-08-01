@@ -1,16 +1,16 @@
 """Modular chat REPL implementation."""
 from __future__ import annotations
 
-import argparse
+import argparse  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import datetime as dt
 import fcntl
 import json
 import os
 import re
-import shlex
+import shlex  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import subprocess
 import sys
-import time
+import time  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path
 
 os.umask(0o077)

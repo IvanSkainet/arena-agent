@@ -1,7 +1,6 @@
 """agentctl extras MCP/beep integration commands."""
 from __future__ import annotations
 
-from arena.agentctl_extras.actions import play_notification_sound
 from arena.agentctl_extras.common import *  # noqa: F401,F403
 
 

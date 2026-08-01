@@ -22,14 +22,12 @@ Endpoints:
 from __future__ import annotations
 
 import ctypes
-import ctypes.wintypes as wt
 import json
 import os
 import subprocess
 import sys
 import time
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any
 
 # ---------------------------------------------------------------------------
 # Windows input constants

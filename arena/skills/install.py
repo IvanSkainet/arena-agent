@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import tempfile
-import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any

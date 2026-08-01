@@ -8,7 +8,7 @@ from aiohttp import web
 from arena.app_keys import APP_CFG
 from arena.grpc.runtime import GRPC_CONFIG
 from arena.handler_context import GrpcHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 @dataclass(frozen=True)

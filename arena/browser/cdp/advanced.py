@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from arena.browser.cdp.advanced_common import get_active_browser
+from arena.browser.cdp.advanced_common import get_active_browser  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from arena.browser.cdp.advanced_health import make_cdp_health_handler
 from arena.browser.cdp.advanced_session_check import make_cdp_session_check_handler
 from arena.browser.cdp.advanced_stealth_extract import make_cdp_stealth_extract_handler

@@ -1,12 +1,9 @@
 """CDP browser CLI component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.browser import CDPBrowser
 from arena.browser.cdp_client.cli_demo import _multitab_demo
 from arena.browser.cdp_client.common import *  # noqa: F401,F403
-from arena.browser.cdp_client.process import launch_browser
 from arena.browser.cdp_client.sync_browser import SyncCDPBrowser
-from arena.browser.cdp_client.tab_manager import CDPTabManager
 from arena.browser.cdp_client.tabs_http import list_tabs
 
 

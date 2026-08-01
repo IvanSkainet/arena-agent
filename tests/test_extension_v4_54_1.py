@@ -7,7 +7,6 @@ import socket
 import sys
 import threading
 import time
-from pathlib import Path
 
 import pytest
 
@@ -18,7 +17,6 @@ from arena.scenarios import (
     resolve_missions_dir,
 )
 from arena.scenarios.runtime import (
-    _do_wait_for,
     _normalise_retry,
     _normalise_wait_for,
     _wait_for_file,

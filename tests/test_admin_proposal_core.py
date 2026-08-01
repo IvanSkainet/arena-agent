@@ -18,7 +18,6 @@ surface:
 """
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from pathlib import Path
@@ -30,10 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from arena.admin.proposal import (  # noqa: E402
     BRANCH_PREFIX,
     STATE_APPLYING,
-    STATE_FAILED,
     STATE_PASSED,
     STATE_QUEUED,
-    STATE_REJECTED,
     STATE_TESTING,
     Proposal,
     ProposalStore,

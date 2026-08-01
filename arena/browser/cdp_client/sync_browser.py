@@ -45,7 +45,6 @@ class SyncCDPBrowser:
 
     def _perform_handshake(self, ws_url: str):
         import socket as _socket
-        import struct as _struct
         import urllib.parse as up
 
         parsed = up.urlparse(ws_url)

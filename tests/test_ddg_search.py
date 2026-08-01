@@ -4,10 +4,9 @@ Tests the HTML parsing logic of browser_search without making real network
 requests, by monkeypatching urllib.request.urlopen to return canned HTML
 that mimics lite.duckduckgo.com/lite/ response format.
 """
-import io
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

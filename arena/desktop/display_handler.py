@@ -5,7 +5,7 @@ from aiohttp import web
 
 from arena.desktop.displays import get_displays
 from arena.handler_context import DesktopHandlerContext
-from arena.handler_helpers import authed, err_json
+from arena.handler_helpers import authed
 
 
 def make_desktop_display_handler(ctx: DesktopHandlerContext):

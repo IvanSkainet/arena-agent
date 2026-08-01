@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from arena.desktop.cli.common import *  # noqa: F401,F403
-from arena.desktop.cli.focus import _ensure_wm, _focus_active_window, _focus_window_at
+from arena.desktop.cli.focus import _ensure_wm, _focus_active_window
 
 
 def ensure_ydotool():
