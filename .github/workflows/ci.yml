@@ -170,6 +170,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Download coverage.xml from the ubuntu-latest 3.12 cell
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
@@ -204,6 +205,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Run version sync guard
         run: |
@@ -229,6 +231,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Run CHANGELOG freshness guard
         run: |
@@ -265,6 +268,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
         run: |
@@ -291,6 +295,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install ruff
         run: pip install ruff
@@ -334,6 +339,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Run legacy bare-name guard
         run: |
@@ -361,6 +367,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
         run: |
@@ -393,6 +400,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
         run: |
@@ -421,6 +429,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
         run: |
@@ -450,6 +459,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Run handler signature check
         run: |
@@ -474,6 +484,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
         run: |
@@ -507,6 +518,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install runtime deps so MCP_TOOLS can be imported
         run: |
@@ -529,6 +541,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install pytest
         run: pip install pytest

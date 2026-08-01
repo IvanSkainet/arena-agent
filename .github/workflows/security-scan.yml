@@ -31,6 +31,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install bandit
         run: pip install "bandit>=1.7"
@@ -70,6 +71,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install semgrep
         run: pip install "semgrep>=1.170"
@@ -199,6 +201,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install Socket Firewall
         uses: SocketDev/action@2d3f25590c6ed6ba11a9a14c064d962a3a04698f  # v1.3.1
@@ -248,6 +251,7 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install pip-audit
         run: pip install "pip-audit>=2.7"
