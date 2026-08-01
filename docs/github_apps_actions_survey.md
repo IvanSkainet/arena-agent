@@ -90,7 +90,7 @@ e2e-installed — естественное продолжение «продви
 | 2 | pre-commit hooks (ruff/ratchets локально) | P2 | локальный | опционально, конфиг в репо |
 | 3 | Mutation testing sampled (cosmic-ray, nightly) | P2→Tier-3 | отдельный nightly workflow | позже |
 | 4 | Playwright dashboard E2E | P2→Tier-3 | blocking e2e job | позже |
-| 5 | Codecov | P3 | PR comment | по желанию |
+| 5 | Codecov | P3 | PR comment | **ДОБАВЛЕН** 2026-08-02: codecov-action v7.0.0 SHA-pinned, OIDC (без секретов), 15 legs upload, statuses informational-only в codecov.yml |
 | 6 | Renovate | P3 | PR queue | после автоматизации regen-lock |
 | 7 | SonarCloud/Codacy/Qodana/CodeScene | — | — | не добавлять (дубль ruff/pyrefly) |
 | 8 | Второй AI-review contour | — | — | не добавлять (FPS: DeepSource/Sourcery) |

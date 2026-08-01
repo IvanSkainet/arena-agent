@@ -61,6 +61,12 @@ jobs:
   test:
     name: Tests (Python ${{ matrix.python-version }} on ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # Job-scoped (Scorecard narrowed-top-level doctrine): checkout needs
+    # contents:read; id-token:write enables Codecov OIDC upload with no
+    # long-lived secret token stored anywhere.
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -178,6 +184,24 @@ jobs:
           name: coverage-xml-${{ matrix.os }}-${{ matrix.python-version }}
           path: coverage.xml
           retention-days: 14
+
+      # P3 (user decision 2026-08-02): external coverage trends via
+      # Codecov. All 15 matrix legs upload; Codecov merges the flags.
+      # HARD gate on coverage stays HERE (per-platform --cov-fail-under
+      # in the Run tests step); Codecov statuses are configured
+      # informational-only in codecov.yml, so a Codecov outage or a dip
+      # report can never turn our pipeline red — its signal route is the
+      # PR comment/dashboard, not our checkmark. fail_ci_if_error:false
+      # keeps an external SaaS off our red. OIDC: no stored token.
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: ./coverage.xml
+          flags: ${{ runner.os }}-py${{ matrix.python-version }}
+          use_oidc: true
+          fail_ci_if_error: false
+          verbose: false
 
   # ----------------------------------------------------------------
   # v4.65.0: coverage diff guard. Runs after the test matrix so

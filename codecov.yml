@@ -1,0 +1,26 @@
+# Codecov configuration (P3, added 2026-08-02).
+#
+# Doctrine mapping (AGENTS.md): Codecov is an EXTERNAL observer — its
+# statuses must never gate this repo. The hard coverage gate lives in
+# the CI test job itself (per-platform --cov-fail-under), so a Codecov
+# dip report or outage cannot block a merge; it only comments/dashboards.
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        informational: true   # posted, never blocking
+    patch:
+      default:
+        target: auto
+        informational: true   # posted, never blocking
+
+comment:
+  layout: "diff, flags, files"
+  behavior: default
+  require_changes: false
+
+flag_management:
+  # One leg is ~4 min; don't let a slow Windows leg delay the report.
+  default_rules:
+    carryforward: false
