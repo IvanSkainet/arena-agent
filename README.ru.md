@@ -11,7 +11,7 @@
 **🌐 [English](README.md) · Русский**
 
 [![CI](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/IvanSkainet/arena-agent/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=release)](https://github.com/IvanSkainet/arena-agent/releases)
+[![Version](https://img.shields.io/github/v/release/IvanSkainet/arena-agent?color=blue&label=release)](https://github.com/IvanSkainet/arena-agent/releases/latest)
 [![Python](https://img.shields.io/badge/python-3.10%2B-green.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE)
 
@@ -21,18 +21,96 @@
 
 ## Содержание
 
+- [Путеводная звезда](#путеводная-звезда)
+- [Миссия: бортовой компьютер](#миссия-бортовой-компьютер)
 - [Зачем Arena Unified Bridge?](#зачем-arena-unified-bridge)
 - [Как это работает](#как-это-работает)
 - [Что он умеет](#что-он-умеет)
 - [Быстрый старт](#быстрый-старт)
 - [Browser extension: Arena Chat Bridge](#browser-extension-arena-chat-bridge)
 - [Провайдеры удалённого доступа](#провайдеры-удалённого-доступа)
-- [Optional components](#optional-components)
-- [Security model](#security-model)
-- [API overview](#api-overview)
-- [Development](#development)
+- [Опциональные компоненты](#опциональные-компоненты)
+- [Модель безопасности](#модель-безопасности)
+- [Обзор API](#обзор-api)
+- [Разработка](#разработка)
 - [Карта документации](#карта-документации)
-- [License](#license)
+- [Лицензия](#лицензия)
+
+---
+
+## Путеводная звезда
+
+Этот проект существует ради одной цели: дать AI настоящую машину, на которой можно
+действовать — позволить ему выйти из песочницы и реально делать вещи в мире (читать
+файлы, выполнять команды, управлять телефоном, десктопом, общаться с другими
+инструментами), надёжно, для человека, который наблюдает.
+
+Всё в этом bridge подчинено именно этому. Возможность считается «готовой» только
+тогда, когда она заставляет настоящую штуку работать для человека на том конце —
+а не когда тест позеленел или выкатился release tag. Зелёный CI и отправленные теги
+не являются успехом сами по себе; они — самообман, если человек, наблюдающий за
+системой, не видит, что реальная штука работает и имеет смысл.
+
+Этот проект в значительной мере построен AI, для AI, и поддерживается автономно.
+Человек в цикле — это наблюдатель и проверка реальностью: единственный узел,
+подключённый к вопросу «а оно вообще работает?». Когда что-то начинает выглядеть
+как успех, не будучи им, отлавливать это — работа мейнтейнера; когда это ловит
+наблюдатель, это самый важный сигнал в цикле, а не помеха.
+
+> Если ты — AI, продолжающий эту работу: держи всю карту в голове сам и следи
+> за согласованностью частей. Измеряй работу по «видит ли наблюдатель, что
+> настоящая штука работает?», никогда по «прошли ли тесты?». Не прикручивай
+> фичи к первому попавшемуся модулю — размещай их там, где им место. Не
+> используй объём выпущенных релизов как прокси для прогресса.
+
+## Миссия: бортовой компьютер
+
+Основной фрейм проекта: **Arena Unified Bridge — это бортовой компьютер
+космического корабля.** AI-агент — пилот; машины, к которым он подключается —
+PC, телефон, браузер, сеть — это сенсоры, актуаторы и подсистемы корабля.
+Наблюдатель — центр управления полётами. Это не украшение; это задаёт
+инженерную планку. Бортовой компьютер должен быть *универсальным* (справляться
+с неизвестным, а не работать по фиксированному чеклисту), *надёжным* (зелёный
+тест — не доказательство лётной годности), *самодиагностируемым* (знать своё
+здоровье и пределы), *отказобезопасным* (risk policy, стоящий между пилотом и
+корпусом), и *автономным* (действовать на многих шагах без человека на каждом).
+
+Это также помещает проект на реальную, названную траекторию в том, как строятся
+AI-системы. Дисциплина прошла через четыре этапа:
+
+1. **Prompt engineering** (2022–2024) — совершенствование одной инструкции.
+2. **Context engineering** (2025, Karpathy) — проектирование того, что модель
+   *видит*: retrieval, память, tool definitions. «Контекст — это RAM; модель —
+   это CPU.»
+3. **Harness engineering** (2026, Hashimoto / OpenAI) — построение всей
+   *операционной среды* вокруг агента: инструменты, ограничения, петли обратной
+   связи, жизненный цикл. «Агенты не сложные; сложна обвязка.»
+4. **Dynamic / self-evolving environment** (фронтир) — агент больше не просто
+   *использует* фиксированную среду; он *расширяет и пишет* её, создавая новые
+   инструменты и возможности для себя в рантайме, в рамках guardrails.
+
+Arena уже является harness: один рантайм, объединяющий сенсоры (скриншот,
+камера, микрофон, датчики устройства, чтение файлов), актуаторы (ввод,
+выполнение, запись файлов, управление десктопом), подключаемые подсистемы
+(MCP-серверы) и risk policy. Миссия — довести до последнего шага — к
+**самоорасширяющемуся бортовому компьютеру**: среде, которую агент наращивает
+сам. Первый конкретный шаг уже сделан: с помощью `custom.create` агент создаёт
+новый именованный инструмент в рантайме (schema-validated обёртка над встроенным
+инструментом, напр. `custom.create` → `{tool: "fs.read", args: {path: "{path}"}}`);
+инструмент затем появляется в `tools/list`, вызывается, сохраняется в
+`mcp/custom_tools.json`, отзывается через `custom.remove` и наследует risk
+обёрнутого инструмента. Список — через `custom.list`. С помощью `code.run`
+агент выполняет написанный им код, огороженный оператором через composable
+execution posture (`/v1/autonomy/posture`: sandbox/network/privilege/filesystem/runtime
+«кубики»); runner fail-closed (отказывает, а не запускает без ограждения), и
+агент не может ослабить собственное ограждение. Далее, установка проверенного
+внешнего MCP-сервера (`mcp.add`) расширяет среду ещё; направление — агент
+закрывает capability gap, найденный в реальном сценарии, обобщённо, чтобы он
+исчез навсегда.
+
+> Основополагающая идея проекта — выйти из песочницы — записана здесь. Если ты —
+> AI, продолжающий эту работу, вот курс: строй бортовой компьютер корабля, а не
+> кучу трюков для remote control.
 
 ---
 
@@ -82,17 +160,110 @@ REST, один под управление браузером, один под w
 | **Веб** | Fetch / read / search текста страниц для агента |
 | **Memory** | Постоянные факты плюс fuzzy recall |
 | **Задачи** | Очередь фоновых задач для долгих операций |
-| **Браузер** | Управление через Chrome DevTools Protocol, плюс stealth-сценарии через [BrowserAct](#optional-components) |
+| **Браузер** | Управление через Chrome DevTools Protocol, плюс stealth-сценарии через [BrowserAct](#опциональные-компоненты) |
 | **Desktop** | Скриншоты и input automation там, где поддерживается платформой |
 | **Dashboard** | Встроенный web UI на `/gui` с отдельной вкладкой **🔌 Transports** для управления каждым провайдером (per-transport start/stop, autostart-on-boot toggle, live log tail) |
 | **Extension** | Соединяет обычные AI-чаты с bridge через Command Center с lifecycle |
 | **Remote access** | Единый [`/v1/tunnels/*` фасад](#провайдеры-удалённого-доступа): Tailscale, Cloudflare Quick Tunnel и ZeroTier как один пул с автоматическим failover |
-| **Skills** | Автоматическое обнаружение skill-пакетов (Arena core + upstream [`superpowers`][obra] + [`browseract`](#optional-components)) через `/v1/skills` |
+| **Skills** | Автоматическое обнаружение skill-пакетов (Arena core + upstream [`superpowers`][obra] + [`browseract`](#опциональные-компоненты)) через `/v1/skills` |
 | **Безопасность** | Bearer auth + rate-limit + TLS strict verify by default + optional cert pinning + HMAC-signed URL cache + emit-site log redaction + sandbox blocklist для `.ssh/`/`.aws/`/`.gnupg/`/credentials — см. [`SECURITY.md`](SECURITY.md) |
 
 Полная история изменений — в [CHANGELOG.ru.md](CHANGELOG.ru.md) и [CHANGELOG.md](CHANGELOG.md).
 
 [obra]: https://github.com/obra/superpowers
+
+---
+
+---
+
+## Текущий статус полёта (v4.140.x)
+
+Arena теперь — **самоорасширяющаяся среда агента**, а не просто фиксированный
+tool-сервер. Недавние живые сценарии доказали, что bridge может наращивать новые
+руки в рантайме:
+
+- **Ship Status / Preflight теперь карта верхнего уровня.** `ship.status`
+  агрегирует здоровье bridge, posture оператора, транспорты, внешние MCP/desktop-
+  серверы, BrowserAct/CDP, мобильные устройства/ADB, Code Workbench, известные
+  проблемы и следующие шаги. `ship.preflight` выдаёт fail/warn-сводку готовности
+  перед реальными миссиями.
+- **Tool Foundry v1 связывает проекты с вызываемыми инструментами.** Проект
+  Code Workbench может нести `.arena-tool.json` со схемой входных данных, рецептом
+  запуска и тестами. `tool_foundry.validate` проверяет; `tool_foundry.publish`
+  создаёт вызываемую `custom.<name>` обёртку вокруг `code_project.run`.
+- **Эксперименты можно промоутить напрямую.** `code_project.promote_tool` и
+  `code_run.promote_tool` генерируют Foundry-манифест из проверенного рецепта/
+  тестов, валидируют и публикуют получившийся `custom.<name>` без ручного написания
+  `.arena-tool.json`.
+- **Зависимости проектов могут оставаться огороженными.** Python
+  `code_project.run(use_project_deps=true)` может работать в Windows AppContainer,
+  предоставляя только project `.deps/python` cache read/execute, в то время как
+  записи идут только в scratch, а сеть запрещена.
+- **Runtime-совместимость теперь machine-readable.** `runtime.compat` сообщает
+  поддержку runtime × sandbox / блокеры (например Python/AppContainer
+  поддерживается, Node/Go AppContainer заблокированы, Rust linker incomplete) с
+  причинами и next actions, используемыми Workbench status.
+- **WASM runtime slice доступен.** `runtime.install` может установить управляемый
+  Wasmtime с SHA-256 верификацией, `runtime.compat` отображает `wasm`/`wasmtime`,
+  а `code.run` / `code_project.run` принимают `lang=wasm` для WASI command modules.
+- **Code Sessions теперь с файлами и артефактами.** Долгоживущие Python-сессии
+  могут читать/писать файлы в своём cwd, показывать список файлов и сохранять
+  объявленные артефакты в обычное хранилище артефактов Workbench.
+- **Жизненный цикл Code Session закалён.** Сессии теперь показывают pid/returncode/
+  max-session status, соблюдают настраиваемый лимит живых сессий и могут быть
+  зачищены по idle/age threshold с terminate-then-kill диагностикой.
+- **Прототип AppContainer Sessions существует.** С `sandbox=appcontainer`
+  Python code sessions могут стартовать в replay-backed fenced mode: каждый exec
+  проходит через AppContainer `code.run`, сохраняя globals через transcript replay,
+  при этом файлы/артефакты сессии остаются доступными.
+- **Блокировка зависимостей проектов доступна.** `code_project.deps_install`
+  пишет `.arena-lock.json`; `code_project.lock_verify` проверяет текущие кеши;
+  `code_project.run(lock="strict")` отказывает при несовпадении зависимостей, и
+  Foundry-инструменты могут нести lock provenance.
+- **Управляемый Deno runtime доступен.** `runtime.install runtime=deno` ставит
+  официальный Deno с SHA-256 верификацией, а `lang=deno` запускает TypeScript/
+  JavaScript с запрещённой сетью и scratch-local runtime state для stdout-
+  ориентированных скриптов; Deno file writes в AppContainer остаются known
+  hardening item.
+- **Внешние MCP-серверы** можно устанавливать и вызывать через `mcp.add`,
+  `mcp.ext_tools` и `mcp.ext_call`. Проверенные в бою серверы включают
+  Desktop-Commander, ScreenPilot и официальный
+  `@modelcontextprotocol/server-sequential-thinking`.
+- **Зависшие вызовы внешних MCP содержатся.** `mcp.ext_call` принимает `timeout`,
+  а MCP stdio client использует фоновый reader thread; если внешний сервер
+  перестаёт отвечать, он останавливается, а HTTP event loop bridge остаётся
+  отзывчивым. Это добавлено после того, как Desktop-Commander заморозил старый
+  bridge настолько, что пришлось переустанавливать сервис.
+- **Код, написанный агентом, выполняется под posture оператора.** На Windows
+  fenced `code.run` запускает AppContainer без capabilities, предоставляет только
+  scratch modify + runtime read/execute, захватывает stdout/stderr, запрещает
+  исходящий TCP и файлы user-profile за пределами scratch. На Linux strict-путь
+  использует `systemd-run` при наличии. Если запрошенное ограждение нельзя
+  обеспечить, runner отказывает (fail-closed). `code.run` может выполнять
+  multi-file scratch workspace (`files` + `entry`), передавать `argv`/`stdin`,
+  устанавливать scratch-local Python, Node/npm или Go module dependencies при
+  `network=open` оператора и возвращать объявленные `artifacts`.
+- **Runtime expansion реален.** В живых тестах на Windows bridge выполнял
+  Python (AppContainer), JavaScript/Node, PowerShell, C# через `Add-Type` и
+  Java single-file source mode, создавая proof artifacts на диске.
+- **Браузерный стек многослойный.** `browser.search` / `browser.read` — pure-Python
+  fallback tools; `/v1/browser/browse` использует CDP по умолчанию и BrowserAct при
+  `stealth=true`. BrowserAct запускается через кросс-платформенную Python-обёртку,
+  а не bash-only entrypoint.
+
+Известные честные ограничения:
+
+- Windows AppContainer — не VM. Он защищает пользовательские файлы и сеть по
+  умолчанию, но обычные world-readable системные файлы могут быть видимы; лимиты
+  памяти по-прежнему обеспечиваются внешним runner, а не самим AppContainer.
+- Node входит в AppContainer, но может упасть при старте, потому что пробует
+  `C:\` и получает `EPERM`; Python — проверенный в бою fenced runtime.
+- CDP/headless браузерное управление покрыто CI на нескольких ОС, но Windows
+  service sessions всё ещё могут не запустить Edge/Chrome headlessly в зависимости
+  от elevation сервиса и desktop/session isolation. Когда это случается, bridge
+  должен сообщить об ошибке и продолжить работу, а не фейкать успех.
+- Posture принадлежит оператору. YOLO убирает prompts подтверждения, а не sandbox.
+  Агент никогда не должен иметь возможности двигать свои posture-кубики.
 
 ---
 
@@ -218,14 +389,14 @@ curl -sH "Authorization: Bearer $(cat ~/arena-bridge/token.txt)" \
 добавляются в конец с их default-позиции).
 
 Каждый провайдер работает из коробки на Windows, macOS и GNU/Linux — без
-sudo-обёрток и платформозависимых хаков по умолчанию. ngrok читает
-`ARENA_NGROK_AUTHTOKEN` (free tier требует authtoken). bore (v4.47.0) —
-zero-account fallback: `cargo install bore-cli` или release-бинарник с
-GitHub — без регистрации и cookie-дашборда; TCP-only relay через `bore.pub`
-(override через `ARENA_BORE_SERVER` для self-hosted). ZeroTier обнаруживается через локальный
+sudo-обёрток и платформозависимых хаков. ZeroTier обнаруживается через локальный
 HTTP API на `127.0.0.1:9993` с fallback на `zerotier-cli` из PATH, Program Files,
 `/Library/Application Support/`, `/usr/sbin/` и т.д. Install/update-подсказки
 Cloudflared подстроены под платформу (`winget`/`scoop`/`brew`/`pacman`/`apt`).
+ngrok читает `ARENA_NGROK_AUTHTOKEN` (free tier требует authtoken). bore
+(v4.47.0) — zero-account fallback: `cargo install bore-cli` или release-бинарник
+с GitHub — без регистрации и cookie-дашборда; TCP-only relay через `bore.pub`
+(override через `ARENA_BORE_SERVER` для self-hosted).
 
 Отдельная вкладка **🔌 Transports** в dashboard даёт тот же фасад с
 per-transport start/stop кнопками, autostart-on-boot toggles (с `env-override`
@@ -236,7 +407,7 @@ install/permission hints) переехал в отдельную вкладку 
 
 ---
 
-## Optional components
+## Опциональные компоненты
 
 Bridge работает локально на одном Python и `aiohttp`. Некоторым функциям нужны
 дополнительные tools — и ни один из них не ставится молча, installer всегда
@@ -260,12 +431,12 @@ Installer детектит что уже установлено, предлаг�
 
 ---
 
-## Security model
+## Модель безопасности
 
-Arena Unified Bridge может выполнять мощные действия на host, поэтому security
-model сделана явной. Sweep v4.40.0 → v4.46.0 закрыл **31 finding** и включил
-continuous-security pipeline (полная threat model, env-var reference и audit
-history — в [`SECURITY.md`](SECURITY.md)).
+Arena Unified Bridge может выполнять мощные действия на host, поэтому модель
+безопасности сделана явной. Sweep v4.40.0 → v4.46.0 закрыл **31 finding** и
+включил continuous-security pipeline (полная threat model, env-var reference и
+audit history — в [`SECURITY.md`](SECURITY.md)).
 
 **Аутентификация.**
 
@@ -284,11 +455,11 @@ history — в [`SECURITY.md`](SECURITY.md)).
   checked. `ARENA_INSECURE_TLS=1` отключает с one-time stderr warning.
 - **Optional certificate pinning** (v4.45.0): установите
   `ARENA_BRIDGE_PIN_SHA256=<sha256-hex>` чтобы затянуть trust anchor от
-  "любой из ~150 системных CA" до "именно этот bridge cert (или его public
-  key)". И cert-hash, и SPKI-hash проверяются на каждый handshake; pin
+  «любой из ~150 системных CA» до «именно этот bridge cert (или его public
+  key)». И cert-hash, и SPKI-hash проверяются на каждый handshake; pin
   mismatch tear down connection **до того**, как bearer token отправлен.
 
-**Filesystem access.**
+**Доступ к файловой системе.**
 
 - Каждый `/v1/fs/*` verb (view / edit / create / upload / **download**) идёт
   через тот же sandbox validator. Sensitive-файлы блокируются и по basename
@@ -302,12 +473,12 @@ history — в [`SECURITY.md`](SECURITY.md)).
   symlink members и zip-bomb ratios в pre-scan pass — **ни один байт не
   пишется до полной валидации**.
 
-**Data at rest.**
+**Данные в покое.**
 
 - `token.txt` — `chmod 0o600`.
 - `~/.arena/last_urls.json` (persistent fallback URL cache) HMAC-подписан
   ключом от bearer token, так что cache-poisoning атаки не могут
-  redirect клиента на URL атакующего. Также `chmod 0o600`; parent
+  перенаправить клиента на URL атакующего. Также `chmod 0o600`; parent
   `~/.arena/` — `chmod 0o700`.
 - `audit.jsonl` + `requests.jsonl` — `chmod 0o600` (v4.44.0), rotated
   файлы получают re-chmod после rename.
@@ -319,7 +490,7 @@ history — в [`SECURITY.md`](SECURITY.md)).
   tokens, AWS AKIA keys, GitHub `ghp_`, OpenAI `sk-`, Slack `xox[baprs]-`,
   Google `AIza`, JWT, DB URIs с inline creds, PEM `PRIVATE KEY` blocks.
   Matches становятся `<redacted:kind>`, так что operator всё ещё видит
-  какой класс secret'а leaked без самого secret'а.
+  какой класс secret'а утёк без самого secret'а.
 - Peer-IP логирование настраивается: `ARENA_LOG_PEER=full` (default),
   `mask` (SHA-256 hash с per-install salt, unlinkable across installs),
   или `off` (поле полностью omitted).
@@ -335,7 +506,7 @@ history — в [`SECURITY.md`](SECURITY.md)).
 - Symlink escape через `~/malicious-link` — `resolve()`-based path
   validation.
 
-**Continuous защита.**
+**Непрерывная защита.**
 
 - Каждый push, каждый PR и daily cron триггерят CI security scan
   (`bandit` + `semgrep` по 9 rule packs + `pip-audit`). Любой HIGH/MEDIUM
@@ -348,7 +519,7 @@ history — в [`SECURITY.md`](SECURITY.md)).
 
 ---
 
-## API overview
+## Обзор API
 
 Ядро:
 
@@ -399,7 +570,7 @@ Extension bridge:
 
 ---
 
-## Development
+## Разработка
 
 ```bash
 git clone https://github.com/IvanSkainet/arena-agent.git arena-bridge
@@ -445,10 +616,10 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 | Документ | Что внутри |
 | --- | --- |
 | [SECURITY.md](SECURITY.md) | **Threat model, env-var reference (14 knobs), recommended production preset, CI security-scan pipeline, audit history v4.40.0 → v4.46.0. Прочтите перед тем, как выставлять bridge в сеть.** |
-| [CHANGELOG.ru.md](CHANGELOG.ru.md) · [en](CHANGELOG.md) | История изменений |
+| [CHANGELOG.md](CHANGELOG.md) · [ru](CHANGELOG.ru.md) | История изменений |
 | [RELEASE.md](RELEASE.md) | Packaging / publishing checklist |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Dev setup, тесты, workflow, `make security-scan` gate |
-| [AGENTS.md](AGENTS.md) | Жёсткие правила для AI-мейнтейнеров + security-annotation rules |
+| [AGENTS.md](AGENTS.md) | Жёсткие правила для AI-мейнтейнеров — где что лежит, что не добавлять, security-annotation rules |
 | [chat_extension/README.md](chat_extension/README.md) | Browser extension details |
 | [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) | Интеграции — Tailscale / cloudflared / ZeroTier / MCP + cert pinning |
 | [docs/SUPERPOWERS.md](docs/SUPERPOWERS.md) | Superpowers vendored copy: layout + update flow |
@@ -470,34 +641,53 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 
 | Namespace | Пример вызова |
 | --- | --- |
-| `admin` | `admin.run` — Cross-platform admin escalation. Linux/macOS proxies to sudo |
-| `asr` | `asr.transcribe` — Transcribe an audio file locally with whisper.cpp. Auto-conv |
-| `browser` | `browser.search` — DuckDuckGo search via pure-Python (no chromium) |
-| `desktop` | `desktop.ocr` — Run OCR on a fresh desktop screenshot and return recognized  |
-| `exec` | `exec.exec` — Namespaced alias for ``exec``. Run shell command outside bri |
-| `fs` | `fs.read` — Read file contents (utf-8) |
-| `git` | `git.status` — Show git status for a repository. |
-| `hooks` | `hooks.list` — List configured hooks per event |
+| `admin` | `admin.run` — Кросс-платформенная admin escalation. Linux/macOS проксирует в sudo |
+| `asr` | `asr.transcribe` — Транскрибировать аудиофайл локально через whisper.cpp. Автоконвертация |
+| `browser` | `browser.search` — DuckDuckGo поиск через pure-Python (без chromium) |
+| `desktop` | `desktop.ocr` — OCR по свежему скриншоту рабочего стола и возврат распознанного текста |
+| `desktop_app` | `desktop_app.click_window_relative` / `desktop_app.screenshot_window` — Найти реальное окно, затем кликнуть или сделать скриншот относительно него для менее хрупких GUI-сценариев |
+| `document` | `document.structure` — Структурировать OCR/ASR/текст в задачи или JSON домашнего задания по физике |
+| `exec` | `exec.exec` — Namespaced-алиас для `exec`. Выполнить shell-команду за пределами bridge |
+| `code` | `code.run` — Выполнить код, написанный агентом, под execution posture оператора (composable fence); fail-closed, агент не может задать posture |
+| `code_project` | `code_project.run` / `code_project.lock_verify` / `code_project.promote_tool` — Запуск persistent-проектов, проверка dependency locks или промоушн рецептов/тестов в инструменты |
+| `code_run` | `code_run.info` / `code_run.promote_tool` — Просмотр сохранённых запусков или использование запуска как provenance для promoted tool |
+| `code_matrix` | `code_matrix.run` — Запуск до 8 Code Workbench задач последовательно под текущим posture оператора |
+| `code_session` | `code_session.exec` / `code_session.artifacts` — Выполнение stateful Python-сессий и сохранение файлов/артефактов сессии |
+| `code_artifact` | `code_artifact.read` — Чтение сохранённого артефакта Code Workbench по run_id и пути |
+| `fs` | `fs.read` — Чтение содержимого файла (utf-8) |
+| `git` | `git.status` — Показать git status для репозитория |
+| `hooks` | `hooks.list` — Список настроенных hooks по событиям |
+| `image` | `image.preprocess_for_ocr` — Предобработка изображения для OCR |
 | `mcp` | `mcp.ext_call` — Вызвать тул зарегистрированного внешнего MCP-сервера (Desktop-Commander, ScreenPilot, ...). Серверы — `mcp.ext_servers`, их тулы — `mcp.ext_tools` |
-| `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
-| `mission` | `mission.run` — Run a persisted mission by mission_id using the built-in mis |
-| `mobile` | `mobile.devices` — List connected Android devices (adb devices, with product/mo |
-| `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |
-| `plan` | `plan.create` — Create a structured execution plan for a goal, with suggeste |
-| `react` | `react.run` — Run a bounded reason-act-observe loop using safe observation |
-| `reflect` | `reflect.run` — Reflect on a prior react/planning run and produce concerns,  |
-| `scenario` | `scenario.run` — Execute a scenario's steps in order, interpolating {{ steps. |
-| `secrets` | `secrets.list` — List available secret keys (values never returned). |
-| `skill` | `skill.list` — List available agent skills |
-| `subagent` | `subagent.spawn` — Spawn isolated subagent for delegated work; returns summary |
-| `sudo` | `sudo.run` — Run a command through 'sudo -n <cmd>' (non-interactive). Req |
-| `sys` | `sys.status` — Bridge/services/funnel status |
-| `watch` | `watch.files` — List, add, or remove file watchers that emit realtime file c |
+| `mcp_server` | `mcp_server.create` / `mcp_server.test` / `mcp_server.install` — Создание, проверка и установка внешнего MCP stdio-сервера |
+| `memory` | `memory.recall` — Поиск релевантных фактов/снэпшотов/сессий по запросу (TF score) |
+| `mission` | `mission.autopilot_start` / `mission.autopilot_report` / `mission.run` — Выполнение ограниченных mission tool chains с persistent progress и flight records, или запуск сохранённых миссий |
+| `mobile` | `mobile.preflight` / `mobile.devices` — Preflight Android/ADB готовности и список подключённых устройств |
+| `mumu` | `mumu.launch` / `mumu.shell` / `mumu.adb` / `mumu.screenshot` — Управление локальными MuMu Player Android VM через CLI MuMu |
+| `input_helper` | `input_helper.click` / `input_helper.key` / `input_helper.launch` / `input_helper.send_chat_command` — Маршрутизация реального hardware input через Interactive Input Helper в десктоп-сессии пользователя (решает ограничение Session 0 для Java Swing, LWJGL и всей GUI-автоматизации) |
+| `capability_gap` | `capability_gap.record` / `capability_gap.list` / `capability_gap.resolve` — Учёт отсутствующих возможностей bridge, обнаруженных в реальных сценариях |
+| `net` | `net.http` — Типизированный HTTP-клиент. Только http/https на публичные hostnames |
+| `ocr` | `ocr.extract` — OCR по любому файлу-изображению, возврат текста + word boxes |
+| `plan` | `plan.create` — Создание структурированного плана выполнения для цели |
+| `react` | `react.run` — Ограниченный reason-act-observe loop с safe observation tools |
+| `reflect` | `reflect.run` — Рефлексия по предыдущему react/planning-запуску, выдача concerns |
+| `runtime` | `runtime.probe` / `runtime.compat` — Проверка runtime'ов и отображение runtime × sandbox совместимости с known blockers и next actions |
+| `scenario` | `scenario.run` / `scenario.promote_from_history` — Выполнение сценариев или промоушн успешных запусков/истории в переиспользуемые сценарии |
+| `secrets` | `secrets.list` — Список доступных secret keys (значения никогда не возвращаются) |
+| `service` | `service.autostart_status` / `service.autostart_repair` — Диагностика или починка autostart-настройки bridge |
+| `skill` | `skill.list` — Список доступных агентных skill'ов |
+| `subagent` | `subagent.spawn` — Запуск изолированного sub-агента для делегированной работы; возвращает summary |
+| `sudo` | `sudo.run` — Запуск команды через 'sudo -n <cmd>' (non-interactive) |
+| `sys` | `sys.status` — Статус bridge/services/funnel |
+| `watch` | `watch.files` — Список, добавление или удаление file watchers, эмитирующих realtime file change events |
+| `workbench` | `workbench.status` — Posture, runtime'ы, проекты, сессии, недавние артефакты, known limits и next actions |
+| `ship` | `ship.status` / `ship.preflight` / `ship.smoke` — Карты всего корабля, проверки готовности, Linux flight check и real-machine smoke proof |
+| `tool_foundry` | `tool_foundry.validate` / `tool_foundry.publish` — Валидация Workbench project manifest/tests и публикация как callable custom tool |
 
 Все вызовы идут через `POST /v1/mcp/call` с JSON-телом `{"name": "<tool>", "arguments": {...}}`.
 
 ---
 
-## License
+## Лицензия
 
 MIT — см. [LICENSE](LICENSE).
