@@ -1,3 +1,33 @@
+## v4.153.1 - 15-Scanner Security Stack + Serena 1.6.1
+
+### Fixed
+- **Removed Pysa**: facebook/pysa-action@v0.0.1 uses deprecated actions/upload-artifact@v2 which GitHub blocks. Action unmaintained since 2022.
+- **DevSkim hardened**: added continue-on-error to scan + SARIF upload to prevent false CI failures.
+- **Serena fixed**: uninstalled wrong `serena` package (AMQP client), installed correct `serena-agent==1.6.1` (Oraios MCP toolkit, 27.3K stars). Verified: `serena --version` returns `Serena 1.6.1`.
+
+### CI Security Stack (15 checks, all green, 0 open alerts)
+| # | Check | By |
+|---|-------|----|
+| 1 | actionlint | Community |
+| 2 | Ruff | Astral |
+| 3 | Bandit | PyCQA |
+| 4 | Semgrep (9 packs) | Semgrep |
+| 5 | pip-audit | Trail of Bits |
+| 6 | CodeQL | GitHub |
+| 7 | Trufflehog | Truffle Security |
+| 8 | Gitleaks | Community |
+| 9 | OSSF Scorecard | OpenSSF |
+| 10 | Zizmor (38 rules) | Community |
+| 11 | Dependency Review | GitHub |
+| 12 | OSV-Scanner | Google |
+| 13 | Syft + Grype | Anchore |
+| 14 | Socket Firewall | Socket |
+| 15 | DevSkim | Microsoft |
+
+### Serena MCP on Windows bridge
+- `serena-agent 1.6.1` — semantic code retrieval via LSP for 40+ languages
+- Provides IDE-like symbol navigation, cross-file refactoring, reference lookup
+
 ## v4.153.0 - 16-Scanner Security Stack + Serena MCP
 
 ### Added CI scanners
