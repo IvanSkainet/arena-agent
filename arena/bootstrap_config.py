@@ -24,7 +24,7 @@ def load_config_file(
     for path in search_paths:
         if path.exists():
             try:
-                import yaml
+                import yaml  # pyrefly: ignore[missing-source-for-stubs] -- optional dep, guarded by except ImportError; stubs resolve without source on minimal CI envs
                 with open(path, encoding="utf-8") as f:
                     cfg = yaml.safe_load(f) or {}
                 if log_info:
