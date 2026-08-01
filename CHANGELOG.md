@@ -1,3 +1,32 @@
+## v4.153.0 - 16-Scanner Security Stack + Serena MCP
+
+### Added CI scanners
+- **DevSkim** (Microsoft): security linter for Python, C, JS — detects hardcoded secrets, insecure crypto, dangerous functions. Results in GitHub Security tab via SARIF.
+- **Pysa** (Meta): Python Static Analyzer — taint tracking from data sources (HTTP input, env vars) to dangerous sinks (exec, SQL, file ops). Detects real data-flow vulnerabilities that pattern-based SAST misses.
+
+### Serena MCP installed on Windows bridge
+- `serena-agent 1.6.2.dev0` installed — semantic code retrieval, symbol-level editing, cross-file refactoring via Language Server Protocol (LSP). 40+ languages. Provides IDE-like understanding of the codebase to the agent.
+
+### CI Security Stack (16 checks)
+| # | Check | Source | Purpose |
+|---|-------|--------|---------|
+| 1 | actionlint | Our CI | Workflow syntax |
+| 2 | Ruff | Our CI | Python lint |
+| 3 | Bandit | Our CI | Python SAST |
+| 4 | Semgrep | Our CI | 9 rule packs (OWASP, CWE) |
+| 5 | pip-audit | Our CI | Python dep CVEs |
+| 6 | CodeQL | GitHub | Semantic taint analysis |
+| 7 | Trufflehog | Our CI | Secrets in git history |
+| 8 | Gitleaks | Our CI | Commit-level secrets |
+| 9 | OSSF Scorecard | OpenSSF | Supply-chain score |
+| 10 | Zizmor | Our CI | Workflow security (38 rules) |
+| 11 | Dependency Review | Our CI | PR CVE gate |
+| 12 | OSV-Scanner | Google | OSV vulnerability database |
+| 13 | Syft + Grype | Anchore | SBOM + vulnerability scan |
+| 14 | Socket Firewall | Socket | Supply-chain malware detection |
+| 15 | DevSkim | Microsoft | Security linter |
+| 16 | Pysa | Meta | Python taint analysis |
+
 ## v4.152.4 - 14-Scanner Security Stack + Socket Firewall
 
 ### Added
