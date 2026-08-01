@@ -19,7 +19,7 @@ classifiers = [
 
 # Core runtime dependency. Everything else is optional and degrades gracefully.
 dependencies = [
-    "aiohttp>=3.9",
+    "aiohttp>=3.14.1",
 ]
 
 [project.optional-dependencies]
