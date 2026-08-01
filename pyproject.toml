@@ -124,6 +124,13 @@ addopts = [
 [tool.coverage.run]
 source = ["arena"]
 branch = true
+# Codecov (P3, 2026-08-02): without relative_files the XML carries
+# <source>=<abs path to the arena package dir> + bare filenames
+# ("agent_session.py"), which external coverage services cannot map
+# back onto the repo tree ("error processing coverage reports:
+# files paths"). With it, filenames are repo-relative
+# ("arena/agent_session.py") and Codecov processes the upload.
+relative_files = true
 omit = [
     "arena/__main__.py",
     "arena/conftest.py",
