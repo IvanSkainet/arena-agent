@@ -44,6 +44,10 @@ dev = [
     "hypothesis>=6.0",
     "ruff>=0.4",
     "mypy>=1.10",
+    # Serena 1.6.1 shares the local Python environment and pins this.
+    # Mypy accepts 0.12.1, so preserve the integration instead of letting
+    # a contributor install silently replace Serena's dependency.
+    "pathspec==0.12.1",
 ]
 
 [project.urls]
