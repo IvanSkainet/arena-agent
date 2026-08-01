@@ -141,7 +141,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
@@ -160,7 +159,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      security-events: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
@@ -186,6 +184,32 @@ jobs:
           name: sbom-cyclonedx
           path: sbom.cyclonedx.json
           retention-days: 30
+
+  socket-firewall:
+    name: Socket Firewall (supply-chain malware detection)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1  # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install Socket Firewall
+        uses: SocketDev/action@2d3f25590c6ed6ba11a9a14c064d962a3a04698f  # v1.3.1
+        with:
+          mode: firewall-free
+
+      - name: Safe pip install
+        run: |
+          python3 scripts/extract_runtime_reqs.py > runtime-reqs.txt
+          sfw pip install -r runtime-reqs.txt
+        continue-on-error: true
 
   pip-audit:
     name: pip-audit (0 CVE in runtime deps)
