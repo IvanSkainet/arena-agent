@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode7 = __toESM(require("vscode"));
+var vscode8 = __toESM(require("vscode"));
 
 // src/bridge-client.ts
 var https = __toESM(require("https"));
@@ -647,6 +647,160 @@ var DashboardPanel = class {
   }
 };
 
+// src/commands/run-tool-interactive.ts
+var vscode7 = __toESM(require("vscode"));
+async function runToolInteractive(client2, toolName) {
+  if (!client2.isConnected()) {
+    vscode7.window.showWarningMessage("Not connected to Arena Bridge");
+    return;
+  }
+  if (!toolName) {
+    const tools = await client2.listTools();
+    const items = tools.map((t) => ({
+      label: t.name,
+      description: t.description.slice(0, 80),
+      detail: t.inputSchema.required?.length ? `Required: ${t.inputSchema.required.join(", ")}` : "No required params",
+      tool: t
+    }));
+    const picked = await vscode7.window.showQuickPick(items, {
+      placeHolder: "Select MCP tool to run",
+      matchOnDescription: true
+    });
+    if (!picked) {
+      return;
+    }
+    toolName = picked.label;
+  }
+  let toolDef;
+  try {
+    const tools = await client2.listTools();
+    toolDef = tools.find((t) => t.name === toolName);
+  } catch {
+  }
+  let defaultArgs = "{}";
+  if (toolDef?.inputSchema?.properties) {
+    const props = toolDef.inputSchema.properties;
+    const example = {};
+    for (const [key, schema] of Object.entries(props)) {
+      const s = schema;
+      if (s.default !== void 0) {
+        example[key] = s.default;
+      } else if (s.type === "string") {
+        example[key] = "";
+      } else if (s.type === "integer" || s.type === "number") {
+        example[key] = 0;
+      } else if (s.type === "boolean") {
+        example[key] = false;
+      }
+    }
+    const required = new Set(toolDef.inputSchema.required ?? []);
+    const filtered = {};
+    for (const [k, v] of Object.entries(example)) {
+      if (required.has(k) || v !== "" && v !== 0 && v !== false) {
+        filtered[k] = v;
+      }
+    }
+    if (Object.keys(filtered).length > 0) {
+      defaultArgs = JSON.stringify(filtered, null, 2);
+    }
+  }
+  const argsStr = await vscode7.window.showInputBox({
+    prompt: `Arguments for ${toolName} (JSON)`,
+    value: defaultArgs,
+    placeHolder: '{"key": "value"}',
+    validateInput: (value) => {
+      if (!value.trim()) {
+        return null;
+      }
+      try {
+        JSON.parse(value);
+        return null;
+      } catch {
+        return "Invalid JSON";
+      }
+    }
+  });
+  if (argsStr === void 0) {
+    return;
+  }
+  const args = argsStr.trim() ? JSON.parse(argsStr) : {};
+  await vscode7.window.withProgress(
+    {
+      location: vscode7.ProgressLocation.Notification,
+      title: `Running ${toolName}...`,
+      cancellable: false
+    },
+    async () => {
+      try {
+        const result = await client2.callTool(toolName, args);
+        const content = JSON.stringify(result, null, 2);
+        const doc = await vscode7.workspace.openTextDocument({
+          content: `// Result of ${toolName}
+// Args: ${JSON.stringify(args)}
+${content}`,
+          language: "jsonc"
+        });
+        await vscode7.window.showTextDocument(doc, { preview: true });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode7.window.showErrorMessage(`${toolName} failed: ${msg}`);
+      }
+    }
+  );
+}
+async function startAutopilotFromGoal(client2) {
+  if (!client2.isConnected()) {
+    vscode7.window.showWarningMessage("Not connected to Arena Bridge");
+    return;
+  }
+  const goal = await vscode7.window.showInputBox({
+    prompt: "Enter autopilot goal (natural language)",
+    placeHolder: "check ship status and desktop windows"
+  });
+  if (!goal) {
+    return;
+  }
+  const mode = await vscode7.window.showQuickPick(
+    [
+      { label: "Synchronous", description: "Wait for completion", value: "sync" },
+      { label: "Async (background)", description: "Returns immediately", value: "async" }
+    ],
+    { placeHolder: "Execution mode" }
+  );
+  if (!mode) {
+    return;
+  }
+  await vscode7.window.withProgress(
+    {
+      location: vscode7.ProgressLocation.Notification,
+      title: `Autopilot: ${goal}`,
+      cancellable: false
+    },
+    async () => {
+      try {
+        const toolName = mode.value === "async" ? "mission.autopilot_start_async" : "mission.autopilot_from_goal";
+        const result = await client2.callTool(toolName, { goal });
+        const content = JSON.stringify(result, null, 2);
+        const doc = await vscode7.workspace.openTextDocument({
+          content: `// Autopilot: ${goal}
+${content}`,
+          language: "jsonc"
+        });
+        await vscode7.window.showTextDocument(doc, { preview: true });
+        const r = result;
+        if (r.ok) {
+          vscode7.window.showInformationMessage(
+            `Autopilot ${r.status}: ${r.outcome ?? "started"}`
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode7.window.showErrorMessage(`Autopilot failed: ${msg}`);
+      }
+    }
+  );
+}
+
 // src/extension.ts
 var client = null;
 var statusBar;
@@ -656,26 +810,30 @@ var autopilotProvider;
 var gapsProvider;
 var toolsProvider;
 var refreshTimer = null;
-async function connectToBridge() {
-  const config = vscode7.workspace.getConfiguration("arena");
+async function connectToBridge(context) {
+  const config = vscode8.workspace.getConfiguration("arena");
   let bridgeUrl = config.get("bridgeUrl", "");
   if (!bridgeUrl) {
-    bridgeUrl = await vscode7.window.showInputBox({
+    bridgeUrl = await vscode8.window.showInputBox({
       prompt: "Enter Arena Bridge URL",
       placeHolder: "https://your-bridge-host:port"
     }) ?? "";
     if (!bridgeUrl) {
       return;
     }
-    await config.update("bridgeUrl", bridgeUrl, vscode7.ConfigurationTarget.Global);
+    await config.update("bridgeUrl", bridgeUrl, vscode8.ConfigurationTarget.Global);
   }
-  const token = await vscode7.window.showInputBox({
-    prompt: "Enter Bridge Token",
-    password: true,
-    placeHolder: "Bearer token"
-  }) ?? "";
+  let token = await context.secrets.get("arena.bridgeToken");
   if (!token) {
-    return;
+    token = await vscode8.window.showInputBox({
+      prompt: "Enter Bridge Token (will be stored securely)",
+      password: true,
+      placeHolder: "Bearer token"
+    }) ?? "";
+    if (!token) {
+      return;
+    }
+    await context.secrets.store("arena.bridgeToken", token);
   }
   statusBar.updateConnecting();
   client = new BridgeClient(bridgeUrl, token);
@@ -687,7 +845,7 @@ async function connectToBridge() {
   try {
     const ver = await client.connect();
     statusBar.updateConnected(ver.version);
-    vscode7.window.showInformationMessage(
+    vscode8.window.showInformationMessage(
       `Connected to Arena Bridge v${ver.version} (${ver.platform})`
     );
     await refreshAll();
@@ -695,7 +853,10 @@ async function connectToBridge() {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     statusBar.updateError("Connection failed");
-    vscode7.window.showErrorMessage(`Failed to connect to Arena Bridge: ${msg}`);
+    vscode8.window.showErrorMessage(`Failed to connect: ${msg}`);
+    if (msg.includes("401") || msg.includes("403")) {
+      await context.secrets.delete("arena.bridgeToken");
+    }
   }
 }
 async function refreshAll() {
@@ -716,12 +877,10 @@ async function refreshAll() {
 }
 function startAutoRefresh() {
   stopAutoRefresh();
-  const interval = vscode7.workspace.getConfiguration("arena").get("refreshInterval", 30);
+  const interval = vscode8.workspace.getConfiguration("arena").get("refreshInterval", 30);
   if (interval > 0) {
-    refreshTimer = setInterval(() => {
-      refreshAll().catch(() => {
-      });
-    }, interval * 1e3);
+    refreshTimer = setInterval(() => refreshAll().catch(() => {
+    }), interval * 1e3);
   }
 }
 function stopAutoRefresh() {
@@ -730,57 +889,38 @@ function stopAutoRefresh() {
     refreshTimer = null;
   }
 }
-async function runTool(toolName) {
-  if (!client?.isConnected()) {
-    vscode7.window.showWarningMessage("Not connected to Arena Bridge");
-    return;
-  }
-  if (!toolName) {
-    toolName = await vscode7.window.showInputBox({
-      prompt: "Enter MCP tool name",
-      placeHolder: "ship.status"
-    });
-  }
-  if (!toolName) {
-    return;
-  }
-  try {
-    const result = await client.callTool(toolName);
-    const doc = await vscode7.workspace.openTextDocument({
-      content: JSON.stringify(result, null, 2),
-      language: "json"
-    });
-    await vscode7.window.showTextDocument(doc, { preview: true });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    vscode7.window.showErrorMessage(`Tool ${toolName} failed: ${msg}`);
-  }
-}
 async function takeScreenshot() {
   if (!client?.isConnected()) {
-    vscode7.window.showWarningMessage("Not connected to Arena Bridge");
+    vscode8.window.showWarningMessage("Not connected to Arena Bridge");
     return;
   }
-  try {
-    const imgData = await client.screenshot();
-    const uri = vscode7.Uri.parse(
-      `untitled:arena-screenshot-${Date.now()}.jpg`
-    );
-    const panel = vscode7.window.createWebviewPanel(
-      "arenaScreenshot",
-      "Arena Desktop Screenshot",
-      vscode7.ViewColumn.One,
-      {}
-    );
-    const base64 = imgData.toString("base64");
-    panel.webview.html = `<!DOCTYPE html>
-      <html><body style="margin:0;background:#1e1e1e;display:flex;justify-content:center;align-items:center;min-height:100vh">
-        <img src="data:image/jpeg;base64,${base64}" style="max-width:100%;max-height:100vh"/>
-      </body></html>`;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    vscode7.window.showErrorMessage(`Screenshot failed: ${msg}`);
-  }
+  await vscode8.window.withProgress(
+    { location: vscode8.ProgressLocation.Notification, title: "Taking screenshot..." },
+    async () => {
+      try {
+        const imgData = await client.screenshot();
+        const panel = vscode8.window.createWebviewPanel(
+          "arenaScreenshot",
+          "Arena Desktop Screenshot",
+          vscode8.ViewColumn.One,
+          { enableScripts: true }
+        );
+        const base64 = imgData.toString("base64");
+        panel.webview.html = `<!DOCTYPE html>
+<html><head><style>
+  body { margin:0; background:#1e1e1e; display:flex; flex-direction:column; align-items:center; min-height:100vh; }
+  img { max-width:100%; max-height:90vh; margin-top:16px; border:1px solid #333; }
+  .info { color:#808080; font-size:12px; margin:8px; font-family:monospace; }
+</style></head><body>
+  <img src="data:image/jpeg;base64,${base64}" />
+  <div class="info">Captured at ${(/* @__PURE__ */ new Date()).toISOString()}</div>
+</body></html>`;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        vscode8.window.showErrorMessage(`Screenshot failed: ${msg}`);
+      }
+    }
+  );
 }
 function activate(context) {
   statusBar = new StatusBar();
@@ -794,33 +934,45 @@ function activate(context) {
   gapsProvider = new GapsTreeProvider(client);
   toolsProvider = new ToolsTreeProvider(client);
   context.subscriptions.push(
-    vscode7.window.registerTreeDataProvider("arena.shipStatus", shipProvider),
-    vscode7.window.registerTreeDataProvider("arena.autopilotRuns", autopilotProvider),
-    vscode7.window.registerTreeDataProvider("arena.capabilityGaps", gapsProvider),
-    vscode7.window.registerTreeDataProvider("arena.mcpTools", toolsProvider)
+    vscode8.window.registerTreeDataProvider("arena.shipStatus", shipProvider),
+    vscode8.window.registerTreeDataProvider("arena.autopilotRuns", autopilotProvider),
+    vscode8.window.registerTreeDataProvider("arena.capabilityGaps", gapsProvider),
+    vscode8.window.registerTreeDataProvider("arena.mcpTools", toolsProvider)
   );
   context.subscriptions.push(
-    vscode7.commands.registerCommand("arena.connect", connectToBridge),
-    vscode7.commands.registerCommand("arena.disconnect", () => {
+    vscode8.commands.registerCommand("arena.connect", () => connectToBridge(context)),
+    vscode8.commands.registerCommand("arena.disconnect", async () => {
       client?.disconnect();
+      await context.secrets.delete("arena.bridgeToken");
       statusBar.updateDisconnected();
       stopAutoRefresh();
       refreshAll();
     }),
-    vscode7.commands.registerCommand("arena.refreshAll", refreshAll),
-    vscode7.commands.registerCommand("arena.runTool", runTool),
-    vscode7.commands.registerCommand("arena.screenshot", takeScreenshot),
-    vscode7.commands.registerCommand("arena.showDashboard", async () => {
+    vscode8.commands.registerCommand("arena.refreshAll", refreshAll),
+    vscode8.commands.registerCommand("arena.runTool", (toolName) => {
+      if (client) {
+        runToolInteractive(client, toolName);
+      }
+    }),
+    vscode8.commands.registerCommand("arena.screenshot", takeScreenshot),
+    vscode8.commands.registerCommand("arena.showDashboard", async () => {
       if (!client?.isConnected()) {
-        vscode7.window.showWarningMessage("Connect to bridge first (Arena: Connect to Bridge)");
+        vscode8.window.showWarningMessage("Connect to bridge first");
         return;
       }
       await dashboard.show(context);
+    }),
+    vscode8.commands.registerCommand("arena.autopilotStart", () => {
+      if (client) {
+        startAutopilotFromGoal(client);
+      }
     })
   );
-  const autoConnect = vscode7.workspace.getConfiguration("arena").get("autoConnect", true);
-  const bridgeUrl = vscode7.workspace.getConfiguration("arena").get("bridgeUrl", "");
+  const bridgeUrl = vscode8.workspace.getConfiguration("arena").get("bridgeUrl", "");
+  const autoConnect = vscode8.workspace.getConfiguration("arena").get("autoConnect", true);
   if (autoConnect && bridgeUrl) {
+    connectToBridge(context).catch(() => {
+    });
   }
 }
 function deactivate() {

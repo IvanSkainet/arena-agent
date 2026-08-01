@@ -2,7 +2,7 @@
   "name": "arena-bridge",
   "displayName": "Arena Unified Bridge",
   "description": "Mission Control for Arena Unified Bridge — ship status, autopilot, audit trail, MCP tools, and Serena code intelligence in your IDE.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "IvanSkainet",
   "license": "MIT",
   "engines": {
@@ -52,6 +52,10 @@
       {
         "command": "arena.screenshot",
         "title": "Arena: Take Desktop Screenshot"
+      },
+      {
+        "command": "arena.autopilotStart",
+        "title": "Arena: Start Autopilot from Goal"
       }
     ],
     "viewsContainers": {
