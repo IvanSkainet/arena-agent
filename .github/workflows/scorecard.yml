@@ -17,12 +17,12 @@ jobs:
     name: OSSF Scorecard supply-chain security
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
           persist-credentials: false
 
       - name: Run OSSF Scorecard
-        uses: ossf/scorecard-action@v2.4.1
+        uses: ossf/scorecard-action@f49aabe0b5af0936a0987cfb85d86b75731b0186  # v2.4.1
         continue-on-error: true  # Scorecard exits non-zero when score is low; SARIF still uploads
         with:
           results_file: scorecard-results.sarif
@@ -30,7 +30,7 @@ jobs:
           publish_results: true
 
       - name: Upload Scorecard SARIF
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@a2983b8bed1923f44751c5c43237f479442827b3  # v3
         if: always()
         with:
           sarif_file: scorecard-results.sarif

@@ -12,10 +12,10 @@ jobs:
     name: Dependency review (block new CVEs in PRs)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
 
       - name: Dependency Review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@ce3cf9537a52e8119d91fd484ab5b8a807627bf8  # v4.6.0
         with:
           fail-on-severity: high
           comment-summary-in-pr: always

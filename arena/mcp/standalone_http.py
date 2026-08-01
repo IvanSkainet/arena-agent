@@ -18,9 +18,12 @@ class H(BaseHTTPRequestHandler):
         return False
 
     def _cors(self):
-        origin = self.headers.get("Origin", "*")
-        # Sanitize Origin to prevent HTTP response splitting (CodeQL py/http-response-splitting)
-        origin = origin.split("\r")[0].split("\n")[0].strip() if origin else "*"
+        origin = self.headers.get("Origin") or "*"
+        # Validate Origin: must be a proper URL or "*", reject anything with CR/LF/control chars.
+        if origin != "*":
+            import re
+            if not re.match(r'^https?://[a-zA-Z0-9._:/-]+$', origin):
+                origin = "*"  # reject malformed/malicious Origin
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Mcp-Session-Id, Last-Event-ID, Authorization")
