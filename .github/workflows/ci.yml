@@ -403,20 +403,18 @@ jobs:
       - name: Architecture contracts (blocking)
         run: lint-imports --config pyproject.toml
 
-      - name: Type check with pyrefly (informational)
-        run: |
-          pyrefly check arena --output-format=json > pyrefly.json || true
-          python - <<'PY'
-          import json, collections
-          errs = json.load(open("pyrefly.json")).get("errors", [])
-          top = collections.Counter(e.get("name", "?") for e in errs).most_common(8)
-          print(f"pyrefly: {len(errs)} errors (informational baseline)")
-          for name, n in top:
-              print(f"  {name}: {n}")
-          PY
+      # Growth of pyrefly/vulture findings is BLOCKING (per-kind floor in
+      # scripts/quality_baseline.json); the absolute legacy volume stays
+      # visible in the step output on every run.
+      - name: Quality debt ratchet (blocking)
+        run: python scripts/quality_ratchet.py
 
-      - name: Dead code scan with vulture (informational)
-        run: vulture arena --min-confidence 80 || true
+      - name: Findings report (informational)
+        run: |
+          echo "== vulture (dead code, confidence>=80) =="
+          vulture arena --min-confidence 80 || true
+          echo "== pyrefly summary =="
+          pyrefly check arena 2>&1 | tail -2 || true
 
   # ----------------------------------------------------------------
   # v4.62.0: contract test that the MCP tool surface matches the

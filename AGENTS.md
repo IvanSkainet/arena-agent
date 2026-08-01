@@ -109,6 +109,9 @@ an observer sees the real thing work.
 - **Lint ratchet**: `python scripts/lint_ratchet.py` blocks growth of
   per-rule ruff counts vs `scripts/lint_baseline.json`; after cleanups,
   regenerate the floor with `--write-baseline` in the same commit.
+- **Quality ratchet**: `python scripts/quality_ratchet.py` does the
+  same for vulture/pyrefly per-kind counts vs
+  `scripts/quality_baseline.json`.
 - **import-linter contracts** (pyproject) are BLOCKING. Never declare a
   contract that does not already hold — verify with `lint-imports`
   locally first.

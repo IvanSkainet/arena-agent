@@ -197,6 +197,24 @@ warn_unused_ignores = true
 [tool.vulture]
 paths = ["arena"]
 min_confidence = 80
+# exc_type/exc_val/exc_tb: protocol-required __aexit__/__exit__ parameters.
+# install_timeout_s (mobile/audio_capture.capture_mic_audio): public kwarg
+# currently not wired into the adb install call — kept for API stability;
+# the wiring TODO is the honest state, deletion would silently shrink the
+# public signature.
+ignore_names = ["exc_*", "install_timeout_s"]
+# arena/runtime_deps is a re-export facade whose consumers (unified_bridge.py)
+# resolve names dynamically (_runtime_namespace[...] contracts checked by
+# tests/test_unified_bridge_compat_surface.py). Static "unused" verdicts are
+# false positives by construction there. Everything else stays scanned.
+exclude = ["*/runtime_deps/*"]
+
+[tool.ruff.lint.per-file-ignores]
+# arena/runtime_deps is a re-export facade: unified_bridge.py assembles its
+# compatibility surface via dynamic namespace lookups (_runtime_namespace[...]),
+# so its "unused" imports are the module's whole purpose. Tracked by tests
+# (compat_surface contract), not by static usage analysis.
+"arena/runtime_deps/**" = ["F401"]
 
 # ---------------------------------------------------------------------------
 # import-linter: architecture contracts. BLOCKING in CI — both contracts were

@@ -45,6 +45,13 @@ git add scripts/lint_baseline.json
 Ruff is version-pinned in CI (`ruff==0.16.1`) because violation counts
 are version-sensitive; bump it together with a regenerated baseline.
 
+The same ratchet pattern covers dead code (vulture) and type errors
+(pyrefly): `scripts/quality_ratchet.py` blocks growth against
+`scripts/quality_baseline.json` (`--write-baseline` after cleanups).
+Bulk F401 cleanups must go through the re-export-aware classifier
+`scripts/f401_reexport_clean.py` — never bulk ruff F401/F841 fixes
+(see AGENTS.md for why imports here are not plain dead code).
+
 Targeted checks for browser-extension work:
 
 ```bash
