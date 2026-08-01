@@ -39,26 +39,31 @@ def vulture_count() -> int:
     return sum(1 for ln in proc.stdout.splitlines() if ": (" in ln)
 
 
-def pyrefly_counts() -> Counter:
+def pyrefly_errors() -> list[dict]:
     # rc 0 = clean, 1 = errors found
     proc = run([sys.executable, "-m", "pyrefly", "check", "arena",
                 "--output-format=json"], {0, 1})
+    return json.loads(proc.stdout or "{}").get("errors", [])
+
+
+def pyrefly_counts(errors: list[dict]) -> Counter:
     counts: Counter = Counter()
-    for err in json.loads(proc.stdout or "{}").get("errors", []):
+    for err in errors:
         counts[err.get("name") or "unknown"] += 1
     return counts
 
 
-def collect() -> dict:
-    pf = pyrefly_counts()
-    return {
+def collect() -> tuple[dict, list[dict]]:
+    errors = pyrefly_errors()
+    pf = pyrefly_counts(errors)
+    return ({
         "vulture": {"TOTAL": vulture_count()},
         "pyrefly": {**dict(sorted(pf.items())), "TOTAL": sum(pf.values())},
-    }
+    }, errors)
 
 
 def main() -> int:
-    current = collect()
+    current, errors = collect()
     if "--write-baseline" in sys.argv[1:]:
         BASELINE.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
         print(f"quality baseline written: vulture={current['vulture']['TOTAL']}"
@@ -71,10 +76,21 @@ def main() -> int:
         for kind, now in current[tool].items():
             was = baseline[tool].get(kind, 0)
             if now > was:
-                growth.append(f"  {tool}/{kind}: {was} -> {now} (+{now - was})")
+                growth.append((f"  {tool}/{kind}: {was} -> {now} (+{now - was})",
+                               kind if tool == "pyrefly" else None))
     if growth:
         print("QUALITY DEBT GREW (ratchet blocks this):")
-        print("\n".join(growth))
+        print("\n".join(g[0] for g in growth))
+        # full details of grown-kinds errors — a gate that fails must say
+        # exactly WHAT it found, or nobody can reproduce/fix it
+        grown_kinds = {g[1] for g in growth if g[1]}
+        if grown_kinds:
+            print("\nDetails:")
+            for err in errors:
+                if (err.get("name") or "unknown") in grown_kinds:
+                    print(f"  {err.get('path')}:{err.get('line')} "
+                          f"[{err.get('name')}] "
+                          f"{(err.get('message') or '').strip()[:200]}")
         print("\nFix the new findings, or lower the floor after cleanup:"
               " python scripts/quality_ratchet.py --write-baseline")
         return 1
