@@ -1,3 +1,18 @@
+## v4.153.2 - Security dependency fixes + README.ru.md full sync
+
+### Security
+- **aiohttp >= 3.14.1**: pinned minimum version, closing 62 CVEs (2 critical).
+- **idna >= 3.15**: pinned minimum version, closing 2 CVEs (merged from CodeRabbit PR #2).
+
+### CI
+- **pip cache**: added `cache: pip` to all 17 `setup-python` steps across `ci.yml` and `security-scan.yml`, reducing CI install time by ~30s per job.
+
+### Docs
+- **README.ru.md**: full sync with README.md — added 3 missing sections (North Star, Mission: the flight computer, Current flight status v4.140.x), added 18 missing tool namespaces to the tool reference table, translated all section headers consistently, and updated table of contents.
+
+### Chore
+- Removed VSCodium extension from repo (thin JSON viewer with no standalone value; plan preserved in docs).
+
 ## v4.153.1 - 15-Scanner Security Stack + Serena 1.6.1
 
 ### Fixed
