@@ -1,3 +1,30 @@
+## v4.152.4 - 14-Scanner Security Stack + Socket Firewall
+
+### Added
+- **Socket Firewall**: behavioral malware detection for pip install — catches supply-chain attacks (typosquatting, credential stealers, download-exec chains) that CVE-based scanners miss entirely. Wraps `pip install` through `sfw` proxy.
+
+### Fixed
+- Removed unnecessary `security-events: write` permission from osv-scanner and sbom-and-grype jobs (Scorecard TokenPermissions alerts).
+- All code-scanning alerts verified at 0 open.
+
+### CI Security Stack (14 checks)
+| # | Check | Purpose |
+|---|-------|---------|
+| 1 | actionlint | Workflow YAML syntax |
+| 2 | Ruff | Python lint + format |
+| 3 | Bandit | Python SAST |
+| 4 | Semgrep | 9 rule packs (OWASP, CWE, secrets, XSS, injection) |
+| 5 | pip-audit | Python dependency CVEs |
+| 6 | CodeQL | Semantic taint analysis |
+| 7 | Trufflehog | Verified secrets in git history |
+| 8 | Gitleaks | Commit-level secrets |
+| 9 | OSSF Scorecard | Supply-chain security score |
+| 10 | Zizmor | GitHub Actions workflow security (38 rules) |
+| 11 | Dependency Review | PR-level CVE gate |
+| 12 | OSV-Scanner | Google OSV vulnerability database |
+| 13 | Syft + Grype | SBOM generation + vulnerability scan |
+| 14 | Socket Firewall | Supply-chain malware detection |
+
 ## v4.152.3 - Enterprise-Grade Security Stack
 
 ### Added
