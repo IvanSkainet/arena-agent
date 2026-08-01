@@ -105,7 +105,16 @@ def _build_fix_payload() -> dict:
 
 def _audit(repo_root: Path) -> tuple[int, list[dict]]:
     """Run the audit. Returns ``(missing_count, audit_records)``."""
-    # Make arena importable
+    # Do not accidentally audit an installed ``arena`` distribution when the
+    # requested root is not a checkout. This matters in editable environments:
+    # their import hook can otherwise resolve ``arena`` after this path lookup.
+    registry = repo_root / "arena" / "mcp" / "tool_registry.py"
+    if not registry.is_file():
+        message = f"MCP registry not found under requested repo root: {registry}"
+        print(f"[catalogue-harden] FATAL: cannot import MCP_TOOLS: {message}", file=sys.stderr)
+        return 2, [{"name": "?", "status": "error", "reason": message}]
+
+    # Make the requested checkout importable before resolving the registry.
     sys.path.insert(0, str(repo_root))
     try:
         from arena.mcp.tool_registry import MCP_TOOLS  # type: ignore[import-not-found]

@@ -537,8 +537,7 @@ The full surface is modular; see the dashboard, route tests, and [`docs/`](docs/
 ```bash
 git clone https://github.com/IvanSkainet/arena-agent.git arena-bridge
 cd arena-bridge
-python -m pip install -r requirements.txt
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[full,dev]"
 pytest
 ```
 
