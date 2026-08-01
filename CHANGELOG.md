@@ -1,3 +1,15 @@
+## v4.153.3 - Reproducible package installs and hash-locked CI
+
+### Security and CI
+- **Hash-locked CI environment**: added `requirements-ci.in` and generated `requirements-ci.lock`; every third-party test dependency is version- and SHA-256-pinned and CI installs it with `pip --require-hashes`.
+- **Safe local project installation in CI**: editable install is now `--no-deps --no-build-isolation`, so after the lock is installed it resolves no new network dependencies. This addresses Scorecard Pinned-Dependencies findings without suppressing them.
+- **Installable source distribution**: explicitly configured setuptools package discovery for `arena*` and the compatibility module `unified_bridge`; editable installs and wheels now build from the repository.
+- **Serena compatibility**: CI/dev constraints preserve `pathspec==0.12.1`, shared by Serena 1.6.1 and a compatible mypy release.
+
+### Quality
+- **Mobile mirror tests**: cancel and await test-created asyncio tasks before closing private event loops, eliminating leaked-coroutine warnings.
+- **Catalogue hardening**: the audit now verifies that its requested repo root contains the MCP registry, preventing an installed editable package from being audited by mistake.
+
 ## v4.153.2 - Security dependency fixes + README.ru.md full sync
 
 ### Security

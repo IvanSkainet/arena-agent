@@ -1,3 +1,15 @@
+## v4.153.3 - Воспроизводимая установка пакета и hash-locked CI
+
+### Безопасность и CI
+- **Hash-locked окружение CI**: добавлены `requirements-ci.in` и сгенерированный `requirements-ci.lock`; каждая внешняя зависимость тестов закреплена по версии и SHA-256, CI устанавливает их через `pip --require-hashes`.
+- **Безопасная локальная установка проекта в CI**: editable-установка выполняется с `--no-deps --no-build-isolation`; после установки lock-файла она не разрешает и не загружает новые зависимости. Это устраняет Scorecard Pinned-Dependencies без подавления alert.
+- **Устанавливаемый исходный пакет**: явно настроено setuptools-discovery для `arena*` и compatibility-модуля `unified_bridge`; editable install и wheel теперь собираются из репозитория.
+- **Совместимость Serena**: CI/dev constraints сохраняют `pathspec==0.12.1`, общую для Serena 1.6.1 и совместимой версии mypy.
+
+### Качество
+- **Mobile mirror tests**: тестовые asyncio-задачи отменяются и дожидаются завершения до закрытия private event loop; предупреждения о leaked coroutine устранены.
+- **Catalogue hardening**: audit теперь проверяет, что заданный repo root действительно содержит MCP registry, поэтому не может по ошибке проверять установленный editable-пакет.
+
 ## v4.153.2 - Фикс зависимостей безопасности + полная синхронизация README.ru.md
 
 ### Безопасность

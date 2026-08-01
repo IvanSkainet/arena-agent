@@ -6,7 +6,19 @@ can be tested without a phone or subprocesses: helper math, session
 registry lifecycle, and auth acceptance of `?token=` query."""
 from __future__ import annotations
 
+import asyncio
+
 import pytest
+
+
+def _close_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """Cancel test-created mirror tasks before closing their private loop."""
+    pending = asyncio.all_tasks(loop)
+    for task in pending:
+        task.cancel()
+    if pending:
+        loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+    loop.close()
 
 
 # ---------------------------------------------------------------------------
@@ -72,14 +84,13 @@ def test_mirror_get_or_start_returns_same_session_for_same_serial(monkeypatch):
         pass
     monkeypatch.setattr(_m, "_pump_pipeline", _no_pipeline)
     monkeypatch.setattr(_m, "find_adb", lambda: "/usr/bin/adb")
-    import asyncio
     loop = asyncio.new_event_loop()
     try:
         s1 = _m.get_or_start("dummy", loop=loop)
         s2 = _m.get_or_start("dummy", loop=loop)
         assert s1 is s2
     finally:
-        loop.close()
+        _close_loop(loop)
         _m._SESSIONS.clear()
 
 
@@ -90,7 +101,6 @@ def test_mirror_get_or_start_different_serials_get_different_sessions(monkeypatc
         pass
     monkeypatch.setattr(_m, "_pump_pipeline", _no_pipeline)
     monkeypatch.setattr(_m, "find_adb", lambda: "/usr/bin/adb")
-    import asyncio
     loop = asyncio.new_event_loop()
     try:
         s1 = _m.get_or_start("phone-a", loop=loop)
@@ -99,7 +109,7 @@ def test_mirror_get_or_start_different_serials_get_different_sessions(monkeypatc
         assert s1.serial == "phone-a"
         assert s2.serial == "phone-b"
     finally:
-        loop.close()
+        _close_loop(loop)
         _m._SESSIONS.clear()
 
 
@@ -110,7 +120,6 @@ def test_mirror_stats_reports_all_sessions(monkeypatch):
         pass
     monkeypatch.setattr(_m, "_pump_pipeline", _no_pipeline)
     monkeypatch.setattr(_m, "find_adb", lambda: "/usr/bin/adb")
-    import asyncio
     loop = asyncio.new_event_loop()
     try:
         _m.get_or_start("dummy-a", loop=loop, size="540x1200", bit_rate=1_000_000)
@@ -123,7 +132,7 @@ def test_mirror_stats_reports_all_sessions(monkeypatch):
         assert a["bit_rate"] == 1_000_000
         assert a["subscribers"] == 0
     finally:
-        loop.close()
+        _close_loop(loop)
         _m._SESSIONS.clear()
 
 
