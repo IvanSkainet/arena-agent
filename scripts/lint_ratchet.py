@@ -15,6 +15,7 @@ Exit codes: 0 = at or below baseline, 1 = growth detected.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -42,8 +43,43 @@ def current_counts() -> Counter:
     return counts
 
 
+def _write_step_summary(lines: list[str]) -> None:
+    """Append a markdown summary for the GitHub Actions job page when the
+    ``GITHUB_STEP_SUMMARY`` path is present (no-op locally)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 def main() -> int:
     counts = current_counts()
+    # Debt-visibility mode: the ratchet gates GROWTH; this mode exists for
+    # the non-blocking debt job and fails while ANY debt remains, so the
+    # residual legacy volume owns a red X instead of hiding behind the
+    # green growth-gate. Exit 1 intentionally until counts reach zero.
+    if "--fail-on-any" in sys.argv[1:]:
+        total = sum(counts.values())
+        lines = ["## Ruff lint debt (visibility, non-blocking)", ""]
+        if total:
+            lines.append(f"**Total: {total} violations across "
+                         f"{len(counts)} rules.**")
+            lines.append("")
+            lines.append("| Rule | Count |")
+            lines.append("|---|---|")
+            lines += [f"| {r} | {n} |" for r, n in counts.most_common()]
+            _write_step_summary(lines)
+            print(f"LINT DEBT PRESENT: {total} violations "
+                  f"across {len(counts)} rules (visibility gate, red by "
+                  f"design until zero):")
+            for rule, n in counts.most_common():
+                print(f"  {rule}: {n}")
+            return 1
+        lines.append("**Total: 0 — no lint debt.**")
+        _write_step_summary(lines)
+        print("LINT DEBT ZERO.")
+        return 0
     if "--write-baseline" in sys.argv[1:]:
         BASELINE.write_text(
             json.dumps(dict(sorted(counts.items())), indent=2) + "\n",

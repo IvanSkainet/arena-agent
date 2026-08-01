@@ -14,6 +14,7 @@ Fail closed: any tool/config error aborts loudly instead of reporting
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -62,8 +63,50 @@ def collect() -> tuple[dict, list[dict]]:
     }, errors)
 
 
+def _write_step_summary(lines: list[str]) -> None:
+    """Append a markdown summary for the GitHub Actions job page when the
+    ``GITHUB_STEP_SUMMARY`` path is present (no-op locally)."""
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if not path:
+        return
+    with open(path, "a", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+
+
 def main() -> int:
     current, errors = collect()
+    # Debt-visibility mode: fails while ANY vulture/pyrefly findings remain.
+    # The blocking ratchet gates GROWTH; this non-blocking mode owns the red
+    # X for the residual volume so it is visible at the checkmark level
+    # rather than buried in green job logs. Red by design until zero.
+    if "--fail-on-any" in sys.argv[1:]:
+        totals = {t: current[t]["TOTAL"] for t in ("vulture", "pyrefly")}
+        grand = sum(totals.values())
+        lines = ["## Quality debt (visibility, non-blocking)", ""]
+        if grand:
+            lines.append(f"**Total: {grand} findings** "
+                         f"(vulture={totals['vulture']}, "
+                         f"pyrefly={totals['pyrefly']}).")
+            lines.append("")
+            lines.append("| Kind | Count |")
+            lines.append("|---|---|")
+            for kind, n in sorted(current["pyrefly"].items()):
+                if kind != "TOTAL" and n:
+                    lines.append(f"| pyrefly/{kind} | {n} |")
+            if totals["vulture"]:
+                lines.append(f"| vulture/TOTAL | {totals['vulture']} |")
+            _write_step_summary(lines)
+            print(f"QUALITY DEBT PRESENT: vulture={totals['vulture']} "
+                  f"pyrefly={totals['pyrefly']} (visibility gate, red by "
+                  f"design until zero)")
+            for kind, n in sorted(current["pyrefly"].items()):
+                if kind != "TOTAL" and n:
+                    print(f"  pyrefly/{kind}: {n}")
+            return 1
+        lines.append("**Total: 0 — no quality debt.**")
+        _write_step_summary(lines)
+        print("QUALITY DEBT ZERO.")
+        return 0
     if "--write-baseline" in sys.argv[1:]:
         BASELINE.write_text(json.dumps(current, indent=2) + "\n", encoding="utf-8")
         print(f"quality baseline written: vulture={current['vulture']['TOTAL']}"

@@ -132,6 +132,32 @@ an observer sees the real thing work.
   (Tailscale Funnel / cloudflared / bore) and fail over; Tailscale is
   fast but flaky, re-probe periodically.
 
+### Debt visibility (v4.153.3+)
+
+The blocking ratchets gate *growth*, so their green checkmark can
+coexist with the full legacy backlog — and people/AI read checkmarks,
+not logs. Therefore the backlog owns a dedicated signal:
+
+- CI job **debt-visibility** (`continue-on-error: true`, NON-blocking)
+  runs `lint_ratchet.py --fail-on-any` and
+  `quality_ratchet.py --fail-on-any`. It is **red BY DESIGN while any
+  debt remains** and turns green only at zero. This is the sanctioned
+  noise route for the backlog: red there ≠ broken build; red in the
+  main pipeline = broken build. Never "fix" this job's redness by
+  deleting it — lower the actual debt.
+- A green main pipeline therefore never means "debt-free". Check the
+  debt-visibility job (or its step summary tables) for backlog numbers.
+
+### Tier-2 E2E (v4.153.3+)
+
+- `tests/e2e/test_bridge_live.py` spawns the REAL server process and
+  drives it over HTTP/MCP (auth, health, handshake, tool call, fs
+  write→read round-trip, jail refusal, abuse cases, graceful teardown).
+- CI job **e2e-installed** (BLOCKING) runs the same tests against the
+  built wheel installed in an isolated venv (`ARENA_E2E_SERVER_CMD`),
+  i.e. it exercises the shipped artifact, not the source tree. "Unit
+  tests green" is not evidence the server boots — this gate is.
+
 ## Where things live
 
 Core:

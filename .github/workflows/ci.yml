@@ -372,6 +372,110 @@ jobs:
           python -c "import arena, unified_bridge; from arena.constants import VERSION; import arena.admin.auto_update; print('wheel import OK', VERSION)"
 
   # ----------------------------------------------------------------
+  # Installed-artifact E2E (blocking), Tier-2. The packaging job above
+  # proves the wheel IMPORTS; this job proves the wheel WORKS: the
+  # installed artifact is spawned as a real server process and driven
+  # over real HTTP/MCP by tests/e2e/test_bridge_live.py (auth, health,
+  # MCP handshake, tool call, fs round-trip, jail refusal, teardown).
+  # The dot-combo nobody else catches: "unit tests green + wheel
+  # imports + server dead on startup".
+  # ----------------------------------------------------------------
+  e2e-installed:
+    name: Installed-artifact E2E (server boots and serves MCP)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Lock marker-coverage check
+        run: python scripts/check_ci_lock.py
+
+      - name: Install CI dependencies (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-ci.lock
+
+      - name: Install packaging tooling (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-packaging.lock
+
+      - name: Build wheel
+        run: python -m build --wheel . --outdir dist
+
+      - name: Install wheel into an isolated venv (hash-locked deps)
+        run: |
+          python -m venv "$RUNNER_TEMP/artifact-venv"
+          "$RUNNER_TEMP/artifact-venv/bin/python" -m pip install --quiet --require-hashes -r requirements-ci.lock
+          "$RUNNER_TEMP/artifact-venv/bin/python" -m pip install --quiet --no-deps dist/*.whl
+
+      - name: Run live E2E against the INSTALLED artifact
+        run: |
+          EXPECT=$(python -c "import sys; sys.path.insert(0, '.'); from arena.constants import VERSION; print(VERSION)")
+          {
+            echo "ARENA_E2E_EXPECT_VERSION=$EXPECT"
+            printf 'ARENA_E2E_SERVER_CMD=["%s", "-m", "unified_bridge"]\n' "$RUNNER_TEMP/artifact-venv/bin/python"
+          } >> "$GITHUB_ENV"
+          ARTIFACT_VERSION=$("$RUNNER_TEMP/artifact-venv/bin/python" -c "from arena.constants import VERSION; print(VERSION)" 2>/dev/null || echo MISSING)
+          {
+            echo "### Installed-artifact E2E"
+            echo "- expected version (repo): \`$EXPECT\`"
+            echo "- artifact version (wheel): \`$ARTIFACT_VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$ARTIFACT_VERSION" = "$EXPECT"
+          python -m pytest tests/e2e/ --no-cov -q --timeout=300
+
+  # ----------------------------------------------------------------
+  # Debt visibility gate (NON-blocking, red BY DESIGN while any legacy
+  # debt remains). Why this exists: the blocking ratchets above gate
+  # GROWTH, so their checkmark is green even with the full legacy
+  # backlog present — and an AI (or human) skimming the run sees only
+  # the checkmark, never the log. This job owns the red X for the
+  # residual volume: red = "debt exists", green = "debt zero". It must
+  # NOT block merges (continue-on-error) so it never dilutes the
+  # meaning of the main red. Doctrine: GREEN main pipeline != zero
+  # debt; this job is the noise route for the backlog.
+  # ----------------------------------------------------------------
+  debt-visibility:
+    name: Debt visibility (red while debt > 0; non-blocking)
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Lock marker-coverage check
+        run: python scripts/check_ci_lock.py
+
+      - name: Install project and CI dependencies (hash-locked)
+        run: |
+          python -m pip install --require-hashes -r requirements-ci.lock
+          python -m pip install --no-deps --no-build-isolation -e .
+
+      - name: Debt totals (exit 1 while any debt remains — intentional)
+        run: |
+          L=0; python scripts/lint_ratchet.py --fail-on-any || L=$?
+          Q=0; python scripts/quality_ratchet.py --fail-on-any || Q=$?
+          {
+            echo ""
+            echo "**This job is red by design while legacy debt exists.** It is"
+            echo "non-blocking on purpose: growth is blocked separately by the"
+            echo "lint/quality ratchet jobs; this one only makes the residual"
+            echo "backlog visible at the checkmark level and turns green at zero."
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$L" -ne 0 ] || [ "$Q" -ne 0 ]; then exit 1; fi
+
+  # ----------------------------------------------------------------
   # Quality scan. import-linter contracts are BLOCKING (both verified to
   # hold when declared — a contract that holds is a wall). pyrefly and
   # vulture are informational for now: their finding volume is legacy
@@ -409,12 +513,10 @@ jobs:
       - name: Quality debt ratchet (blocking)
         run: python scripts/quality_ratchet.py
 
-      - name: Findings report (informational)
-        run: |
-          echo "== vulture (dead code, confidence>=80) =="
-          vulture arena --min-confidence 80 || true
-          echo "== pyrefly summary =="
-          pyrefly check arena 2>&1 | tail -2 || true
+      # The residual finding VOLUME is intentionally not reported here:
+      # a green job's log output is invisible at the checkmark level.
+      # The dedicated `debt-visibility` job (non-blocking, red while any
+      # debt remains) owns the backlog signal, including step summaries.
 
   # ----------------------------------------------------------------
   # v4.62.0: contract test that the MCP tool surface matches the

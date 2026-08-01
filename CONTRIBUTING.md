@@ -52,6 +52,12 @@ Bulk F401 cleanups must go through the re-export-aware classifier
 `scripts/f401_reexport_clean.py` — never bulk ruff F401/F841 fixes
 (see AGENTS.md for why imports here are not plain dead code).
 
+Backlog visibility: the non-blocking `debt-visibility` CI job runs both
+ratchets with `--fail-on-any` and is red BY DESIGN while any legacy
+debt remains (it writes per-rule tables to the job summary). It is the
+noise route for the residual backlog — do not treat its redness as a
+broken build, and do not silence it; lower the debt instead.
+
 Targeted checks for browser-extension work:
 
 ```bash
