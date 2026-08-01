@@ -86,7 +86,7 @@ e2e-installed — естественное продолжение «продви
 
 | # | Что | Приоритет | Маршрут сигнала | Решение |
 |---|---|---|---|---|
-| 1 | StepSecurity Harden-Runner (audit) | P1 | их dashboard + insights, не наш красный | **добавить** в jobs с секретами |
+| 1 | StepSecurity Harden-Runner (audit) | P1 | их dashboard + insights, не наш красный | **ДОБАВЛЕН** 2026-08-02: 29 jobs (ci/version-badge/security-scan), SHA-pinned v2.20.0 |
 | 2 | pre-commit hooks (ruff/ratchets локально) | P2 | локальный | опционально, конфиг в репо |
 | 3 | Mutation testing sampled (cosmic-ray, nightly) | P2→Tier-3 | отдельный nightly workflow | позже |
 | 4 | Playwright dashboard E2E | P2→Tier-3 | blocking e2e job | позже |
@@ -95,5 +95,5 @@ e2e-installed — естественное продолжение «продви
 | 7 | SonarCloud/Codacy/Qodana/CodeScene | — | — | не добавлять (дубль ruff/pyrefly) |
 | 8 | Второй AI-review contour | — | — | не добавлять (FPS: DeepSource/Sourcery) |
 
-Следующий шаг по этому документу: P1 (Harden-Runner audit) — один коммит,
-ноль блокирующей нагрузки. Остальное ждёт явного решения пользователя.
+Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
+шаг 29 jobs). Остальное ждёт явного решения пользователя.

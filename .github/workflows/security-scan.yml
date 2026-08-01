@@ -23,6 +23,10 @@ jobs:
     name: bandit (must be 0 HIGH / 0 MEDIUM)
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
@@ -63,6 +67,10 @@ jobs:
     name: semgrep (9 rule packs, must be 0 findings)
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
@@ -112,6 +120,10 @@ jobs:
     name: trufflehog (0 secrets in git history)
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           fetch-depth: 0  # full history for secret scanning
@@ -127,6 +139,10 @@ jobs:
     name: gitleaks (0 secrets in commits)
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           fetch-depth: 0
@@ -144,6 +160,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
@@ -162,6 +182,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
@@ -193,6 +217,10 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
@@ -221,6 +249,10 @@ jobs:
       contents: read
       security-events: write
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false
@@ -243,6 +275,10 @@ jobs:
     name: pip-audit (0 CVE in runtime deps)
     runs-on: ubuntu-latest
     steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803  # v6
         with:
           persist-credentials: false

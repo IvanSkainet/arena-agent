@@ -29,6 +29,16 @@ jobs:
     name: Workflow lint (actionlint)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -81,6 +91,16 @@ jobs:
           - os: macos-latest
             python-version: "3.14"
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -171,6 +191,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: test
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -206,6 +236,16 @@ jobs:
     name: Version sync (4 sources in lockstep)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -232,6 +272,16 @@ jobs:
     name: CHANGELOG freshness (>= 90d old = fail)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -269,6 +319,16 @@ jobs:
     name: 'Catalogue hardening (every tool has additionalProperties: false)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -296,6 +356,16 @@ jobs:
     name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -338,6 +408,16 @@ jobs:
     name: Packaging E2E (wheel builds and installs clean)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -384,6 +464,16 @@ jobs:
     name: Installed-artifact E2E (server boots and serves MCP)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -444,6 +534,16 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -486,6 +586,16 @@ jobs:
     name: Quality scan (types/dead-code info, architecture contracts blocking)
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -543,6 +653,16 @@ jobs:
     name: 'Legacy bare-name guard (no new dispatch on ping/echo/exec/snapshot)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -571,6 +691,16 @@ jobs:
     name: 'Catalogue consistency (5 invariants in one audit)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -604,6 +734,16 @@ jobs:
     name: 'Dead-dispatch check (catalogue ↔ dispatcher in lockstep)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -633,6 +773,16 @@ jobs:
     name: 'JSON Schema structural check (Draft 7 metaschema)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -663,6 +813,16 @@ jobs:
     name: 'Handler signature (every handle_*_tool accepts *, ctx)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -688,6 +848,16 @@ jobs:
     name: 'Handler-namespace consistency (no shadow APIs)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -722,6 +892,16 @@ jobs:
     name: 'Namespace doc coverage (every namespace has a README example)'
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
@@ -745,6 +925,16 @@ jobs:
     name: MCP contract test
     runs-on: ubuntu-latest
     steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this workflow installs
+      # hundreds of PyPI packages, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
