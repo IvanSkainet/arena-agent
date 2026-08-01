@@ -306,11 +306,19 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # Pinned: ratchet counts are version-sensitive (new ruff releases
+      # add rules and change diagnostics). Bump deliberately together
+      # with scripts/lint_baseline.json.
       - name: Install ruff
-        run: pip install ruff
+        run: pip install ruff==0.16.1
 
       - name: Critical lint (blocking)
         run: ruff check . --select F821,F811
+
+      # Debt ratchet (blocking): legacy lint debt may shrink but never
+      # grow. Per-rule floor lives in scripts/lint_baseline.json.
+      - name: Lint debt ratchet (blocking)
+        run: python scripts/lint_ratchet.py
 
       - name: Full lint (informational)
         run: ruff check . --statistics || true

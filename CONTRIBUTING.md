@@ -30,6 +30,21 @@ Full test suite:
 pytest
 ```
 
+## Lint debt ratchet
+
+CI blocks *growth* of the legacy lint debt: `scripts/lint_ratchet.py`
+compares per-rule ruff counts against `scripts/lint_baseline.json` and
+fails if any rule count increased. Cleanups are welcome any time; when
+a change lowers the counts, regenerate the floor in the same commit:
+
+```bash
+python scripts/lint_ratchet.py --write-baseline
+git add scripts/lint_baseline.json
+```
+
+Ruff is version-pinned in CI (`ruff==0.16.1`) because violation counts
+are version-sensitive; bump it together with a regenerated baseline.
+
 Targeted checks for browser-extension work:
 
 ```bash
