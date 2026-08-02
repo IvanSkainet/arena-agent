@@ -1,3 +1,64 @@
+## v4.154.0 - Quality gates that fail closed, and coverage that finally reports
+
+### Verification doctrine
+- **AGENTS.md now states GREEN != WORKS explicitly.** A passing suite proves only
+  that the tests passed; confidence comes from executing the real artifact. Every
+  gate below was proven by making it fail on purpose before it was trusted.
+
+### New blocking gates
+- **Auth-surface guard** (`tests/test_auth_surface_guard.py`): builds the real app,
+  walks all 510 routes the router registered, calls each without credentials and
+  demands a refusal. Authentication is enforced inside each handler rather than by
+  middleware, so a forgotten `require_auth` in a new handler was previously
+  invisible; no SAST catches it, because it is a product invariant and not a code
+  pattern. Two routes answer openly by design (`/v1/version`, the dashboard asset
+  manifest) and are allow-listed with written reasons. Proven by injecting an
+  unguarded route: the guard fails and names it.
+- **Installed-artifact E2E** (`e2e-installed`): builds the wheel, installs it into
+  an isolated hash-locked venv, starts it as a live server and exercises health,
+  auth rejection, the full MCP handshake, an `fs.write` -> `fs.read` round trip and
+  the path jail from a neutral working directory.
+- **Packaging E2E**: `build` -> `twine check` -> `check-wheel-contents` -> clean
+  install -> import, guarding the class of failure where `pip install` is broken
+  while CI is green.
+- **Lock freshness** (`scripts/check_lock_freshness.py`): every requirement declared
+  in a `.in` must be pinned at the same version in its `.lock`, and every pin must
+  carry a hash. CI installs only from the locks and never reads the `.in`, so an
+  un-regenerated lock used to stay invisible until an ImportError in production.
+- **Import-linter contracts**: browser and desktop automation stay independent;
+  production code never imports the test suite.
+
+### Debt ratchets
+- **Lint debt ratchet**: per-rule counts are frozen in `scripts/lint_baseline.json`;
+  any growth turns CI red. Debt fell 3313 -> 1980 across three layers: mechanical
+  safe fixes, a re-export-aware F401 pass (274 imports removed, 90 kept with
+  written justification), F841 26 -> 0, and 189 E702 statements split by an
+  AST-proven tool that rejects any rewrite changing the parsed tree.
+- **Quality ratchet**: vulture (0) and pyrefly (1035, per error kind) are frozen the
+  same way, and print full diagnostics when a kind grows.
+- **Debt visibility job**: intentionally red while any debt remains, non-blocking.
+  A ratchet is green by construction at any backlog size, and a green check is what
+  an AI reads — so the backlog now owns a signal of its own.
+
+### Security and supply chain
+- **Harden-Runner** (audit mode) as the first step of all 29 CI jobs.
+- **requests 2.33.0** (CVE-2026-25645) and hash-locked lint/packaging environments.
+- **Code scanning**: fixed a genuine top-level `contents: write` grant in the badge
+  workflow; the accompanying path-injection reports were verified safe by hand
+  (resolve-then-contain, symlinks included) and dismissed with written reasons.
+- **Optional pre-commit hooks**: private-key detection, YAML/TOML validation and
+  ruff from the pinned environment. Convenience only; CI remains the source of truth.
+
+### Coverage
+- **Codecov reports again** at 52.6%. The CLI searches the whole tree for report
+  files and was bundling a committed test fixture named `coverage.xml` whose
+  timestamp was nine days old; the worker rejects reports older than 12 hours and
+  failed every upload because of it. The fixture was renamed, the artifact
+  untracked, and the upload made hermetic with `disable_search`.
+
+### Test suite
+- 4778 tests, running under randomized order with per-test timeouts.
+
 ## v4.153.3 - Reproducible package installs and hash-locked CI
 
 ### Security and CI
