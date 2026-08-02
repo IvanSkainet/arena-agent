@@ -223,6 +223,14 @@ exclude = ["*/runtime_deps/*"]
 # (compat_surface contract), not by static usage analysis.
 "arena/runtime_deps/**" = ["F401"]
 
+# _SENSOR_DUMP in this module is verbatim `adb shell dumpsys sensorservice`
+# output, and the device pads each "Recent Sensor events" row with a trailing
+# space. Stripping it was measured to leave both parsers' results identical,
+# so the whitespace is not load bearing -- but the fixture's value is being
+# byte-for-byte what a real phone printed. Tidying it to please a linter would
+# quietly weaken the only evidence that the parser survives real input.
+"tests/test_mobile_v83_3.py" = ["W291"]
+
 # ---------------------------------------------------------------------------
 # import-linter: architecture contracts. BLOCKING in CI — both contracts were
 # verified to hold before being declared. Additions must be verified against

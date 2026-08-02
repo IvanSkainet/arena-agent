@@ -183,8 +183,8 @@ def test_transports_tab_registered_between_audit_and_proposals(registry_text: st
 # JS module hygiene
 # ---------------------------------------------------------------------------
 def test_js_is_iife(js_text: str):
-    lines = [l.strip() for l in js_text.splitlines()
-             if l.strip() and not l.strip().startswith("//")]
+    lines = [line.strip() for line in js_text.splitlines()
+             if line.strip() and not line.strip().startswith("//")]
     assert lines[0].startswith("(function")
 
 

@@ -14,7 +14,7 @@ def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
     @authed(ctx)
     async def handle_v1_cdp_screenshot(request):
         """GET /v1/browser/cdp/screenshot — Take screenshot.
-    
+
         Query params:
             tab_id: string (optional)
             format: "png" | "base64" (default: "base64")
@@ -69,7 +69,7 @@ def make_cdp_capture_handlers(ctx: CdpPageHandlerContext):
     @authed(ctx)
     async def handle_v1_cdp_dom(request):
         """GET /v1/browser/cdp/dom — Dump page DOM.
-    
+
         Query params:
             tab_id: string (optional)
         """

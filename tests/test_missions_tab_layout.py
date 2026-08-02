@@ -98,8 +98,8 @@ def test_columns_have_width_classes(body_html: str):
 
 # ------ JS toolbar module hygiene ------
 def test_js_is_iife(js_text: str):
-    lines = [l.strip() for l in js_text.splitlines()
-             if l.strip() and not l.strip().startswith("//")]
+    lines = [line.strip() for line in js_text.splitlines()
+             if line.strip() and not line.strip().startswith("//")]
     assert lines[0].startswith("(function")
 
 

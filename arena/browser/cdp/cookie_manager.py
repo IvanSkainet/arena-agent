@@ -8,11 +8,11 @@ from arena.handler_context import CdpCookiesHandlerContext
 
 async def ensure_cookie_manager(ctx: CdpCookiesHandlerContext):
     """Lazily create and start a CDPCookieManager.
-    
+
     Tries the active tab first, then falls back to any connected tab.
     If no tab is connected, attempts to connect the first available tab.
     Includes proper error logging instead of silent None returns.
-    
+
     v2.5.0 fix: Falls back to direct CDP commands via tab if CDPCookieManager fails.
     """
     if ctx.cdp_state.get("cookie_mgr") and ctx.cdp_state["cookie_mgr"].active:
@@ -84,7 +84,7 @@ async def ensure_cookie_manager(ctx: CdpCookiesHandlerContext):
         # Create a thin wrapper that uses tab.send() instead of browser.send()
         class TabCookieManager:
             """Lightweight cookie manager that uses tab-level CDP commands.
-            
+
             v2.5.1: Fixed interface to match CDPCookieManager — set_cookie now
             accepts the same keyword arguments as CDPCookieManager.set_cookie,
             so the handler code doesn't need to know which implementation it's using.

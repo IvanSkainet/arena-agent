@@ -50,6 +50,14 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+from arena.admin.update_github import (
+    fetch_asset_size as _fetch_asset_size,
+    fetch_changelog_section as _fetch_changelog_section,
+    github_token as _github_token,
+    http_get_json as _http_get_json,
+    pick_asset as _pick_asset,
+    resolve_latest_via_redirect as _resolve_latest_via_redirect,
+)
 from arena.constants import VERSION as _CURRENT_VERSION
 
 # GitHub org/repo that hosts the release. Overridable via env for
@@ -145,15 +153,6 @@ def is_newer(candidate: str, baseline: str) -> bool:
 # private aliases are kept because existing tests + external callers
 # monkeypatch them by name.
 # ---------------------------------------------------------------------------
-
-from arena.admin.update_github import (
-    fetch_asset_size as _fetch_asset_size,
-    fetch_changelog_section as _fetch_changelog_section,
-    github_token as _github_token,
-    http_get_json as _http_get_json,
-    pick_asset as _pick_asset,
-    resolve_latest_via_redirect as _resolve_latest_via_redirect,
-)
 
 
 def check_updates(*, current_version: str | None = None) -> dict[str, Any]:
@@ -416,9 +415,12 @@ def _swap_unix(payload_root: Path, install_root: Path) -> dict[str, Any]:
     return {"ok": True, "swapped": swapped}
 
 
-# v4.60.4: _write_windows_installer moved to auto_update_windows.py
-# to keep this file under the 600-line runtime cap.
-from arena.admin.auto_update_windows import _write_windows_installer
+# v4.60.4: moved to auto_update_windows.py for the 600-line runtime cap.
+# The bottom placement is deliberate, not overlooked: that module imports
+# _REPLACE_TARGETS back from here, so hoisting this triggers a circular
+# import at init. Proven by tests/test_e402_deliberate.py, which performs
+# the hoist and asserts the ImportError.
+from arena.admin.auto_update_windows import _write_windows_installer  # noqa: E402
 
 __all_helpers = [_write_windows_installer]  # keep import visible to linters
 

@@ -84,7 +84,7 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
     @authed(ctx)
     async def handle_v1_cdp_type(request):
         """POST /v1/browser/cdp/type — Type text into element.
-    
+
         Body JSON:
             selector: string (required)
             text: string (required)

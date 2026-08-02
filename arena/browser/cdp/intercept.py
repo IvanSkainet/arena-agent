@@ -18,7 +18,7 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
     @authed(ctx)
     async def handle_v1_cdp_intercept_start(request):
         """POST /v1/browser/cdp/intercept/start — Start network interception.
-    
+
         Body JSON (optional):
             patterns: list of Fetch pattern dicts (default: intercept all)
         """
@@ -78,7 +78,7 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
         """POST /v1/browser/cdp/intercept/rule — Add interception rule.
         DELETE /v1/browser/cdp/intercept/rule — Remove interception rule.
         GET /v1/browser/cdp/intercept/rules — List interception rules.
-    
+
         POST Body JSON:
             name: string (required)
             url_pattern: string (optional)
@@ -88,7 +88,7 @@ def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpIntercept
             mock_status: int (for action="mock", default: 200)
             mock_body: string (for action="mock")
             mock_content_type: string (for action="mock", default: "text/plain")
-    
+
         DELETE Body JSON:
             name: string (required)
         """

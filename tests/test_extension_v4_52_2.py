@@ -138,7 +138,7 @@ def test_css_buttons_no_longer_turn_blue_on_hover():
     `.arena-btn-primary`."""
     css = _read(CHAT_EXT / "popup.css")
     # Global button:hover must NOT be blue.
-    hover_line = [l for l in css.split("\n") if l.strip().startswith("button:hover{")]
+    hover_line = [line for line in css.split("\n") if line.strip().startswith("button:hover{")]
     assert hover_line, "button:hover rule missing"
     assert "#2563eb" not in hover_line[0]
     # Primary-button class must exist for the blue accent.

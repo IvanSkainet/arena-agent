@@ -37,6 +37,7 @@ connected transport.
 """
 from __future__ import annotations
 
+import re as _re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -68,8 +69,6 @@ _OFFLINE_MARKERS = (
 # adb: device not found / etc.). We keep it separate so it can't
 # accidentally match an unrelated "activity not found" or "package not
 # found" message from am/pm.
-import re as _re
-
 _OFFLINE_DEVICE_NOT_FOUND = _re.compile(r"\bdevice\b[^\n]{0,64}\bnot found\b",
                                         _re.IGNORECASE)
 

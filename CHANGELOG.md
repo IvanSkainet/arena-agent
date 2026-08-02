@@ -123,6 +123,42 @@ the wrong reason; it now creates the file inside a fake home. And the symlink
 sabotage initially passed because `resolve()` happens in two places, so the
 escape had to be disabled in both before the test would fail -- it does now.
 
+### Small-rule lint debt cleared: W291, W293, I001, E402, E741 all at zero
+
+The baseline now names only two rules. 1770 -> 1721, and every one of the 49
+was decided rather than auto-fixed.
+
+- **W291 (5)** — not fixed, *justified*. All five sit inside `_SENSOR_DUMP`,
+  verbatim `adb shell dumpsys sensorservice` output where the device pads each
+  event row with a trailing space. Stripping it was measured to leave both
+  parsers' results identical, so it is not load bearing — but the fixture's
+  whole value is being byte-for-byte what a real phone printed. Recorded as a
+  per-file ignore with that reasoning, not silently reformatted.
+- **W293 (18)** — all inside docstrings. Proven by normalising every docstring
+  constant away and confirming the AST is otherwise identical in 9/9 files;
+  the diff removes exactly 18 whitespace-only lines and adds no code.
+- **E402 (6)** — five hoisted to the top after checking each for a cycle. The
+  sixth cannot move: `auto_update_windows` imports `_REPLACE_TARGETS` back out
+  of `auto_update`, so hoisting raises ImportError during initialisation.
+  Confirmed by performing the hoist and watching it fail.
+  `tests/test_e402_deliberate.py` re-performs that hoist in a scratch copy on
+  every run, so the `# noqa` is a checked claim rather than a comment — and if
+  someone later breaks the cycle, the test says the noqa is now removable.
+- **E741 (19)** — renamed via `scripts/e741_rename_ambiguous.py`, which drives
+  the rename from the AST (comprehension/loop bindings only, rewriting Name
+  nodes by their own position, refusing when the name is rebound in the same
+  owner or no free replacement exists). 16 automatic, 3 f-string generators by
+  hand. Proven by normalising the old and new names to one token: 10/10 files
+  identical modulo the rename.
+
+Two findings from doing it. The renamer first rejected a line rather than
+editing it, because `ast.col_offset` counts **UTF-8 bytes** while the tool was
+slicing `str` — they only diverge on non-ASCII lines, and exactly one exists
+here (a Russian word inside a regex). The guard caught it instead of dropping
+a rename into the middle of `re.I`. Separately, the reasoning comments pushed
+`auto_update.py` to 602 lines and tripped the 600-line mini-monolith gate —
+the very cap that caused the split this comment explains.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

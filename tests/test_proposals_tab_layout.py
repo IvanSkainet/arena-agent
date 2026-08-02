@@ -143,8 +143,8 @@ def test_proposals_tab_between_audit_and_settings(registry_text: str):
 # JS module hygiene
 # ---------------------------------------------------------------------------
 def test_js_is_iife(js_text: str):
-    lines = [l.strip() for l in js_text.splitlines()
-             if l.strip() and not l.strip().startswith("//")]
+    lines = [line.strip() for line in js_text.splitlines()
+             if line.strip() and not line.strip().startswith("//")]
     assert lines[0].startswith("(function")
 
 

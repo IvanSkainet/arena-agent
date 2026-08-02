@@ -124,5 +124,5 @@ def test_no_unescaped_parens_in_echo_inside_blocks():
         "install.bat has echo lines with unescaped '(' or ')' inside "
         "an enclosing (...) block. cmd will tear the enclosing block "
         "apart on the unescaped ')':\n"
-        + "\n".join(f"  L{ln} depth={depths[ln]}: {l.rstrip()[:120]}" for ln, l in offenders)
+        + "\n".join(f"  L{ln} depth={depths[ln]}: {text.rstrip()[:120]}" for ln, text in offenders)
     )

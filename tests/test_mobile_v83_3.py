@@ -202,6 +202,13 @@ def test_screenshot_max_size_takes_priority_over_max_width(monkeypatch):
 # ---------------------------------------------------------------------------
 # sensors — parse list + recent events from real dumpsys snippets
 # ---------------------------------------------------------------------------
+# The trailing whitespace inside this literal is W291 debt on paper and
+# verbatim device output in fact: `adb shell dumpsys sensorservice` pads each
+# "Recent Sensor events" row with a space after the final value. Stripping it
+# was measured to leave both parsers' output identical, so this is not load
+# bearing -- but the fixture's whole value is being byte-for-byte what a real
+# phone printed. A fixture quietly tidied to please a linter is a fixture that
+# no longer proves the parser handles real input.
 _SENSOR_DUMP = """\
 Sensor Device:
 Total 3 h/w sensors, 3 running 0 disabled clients:

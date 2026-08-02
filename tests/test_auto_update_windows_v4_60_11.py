@@ -57,7 +57,7 @@ def test_generated_mover_uses_no_if_paren_blocks(paren_install_root):
     assert not offenders, (
         "auto_update_windows mover still uses ``if ... (`` control-flow "
         "blocks; a ')' inside a path value will close them early:\n"
-        + "\n".join(f"  L{ln}: {l!r}" for ln, l in offenders)
+        + "\n".join(f"  L{ln}: {text!r}" for ln, text in offenders)
     )
 
 

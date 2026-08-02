@@ -58,7 +58,7 @@ def test_echo_lines_do_not_contain_unescaped_bang_literals():
     assert not offenders, (
         "install.bat has ``echo`` lines with unescaped literal '!' that "
         "would be silently eaten by delayed expansion:\n"
-        + "\n".join(f"  L{ln}: {l.rstrip()[:120]}" for ln, l in offenders)
+        + "\n".join(f"  L{ln}: {text.rstrip()[:120]}" for ln, text in offenders)
     )
 
 

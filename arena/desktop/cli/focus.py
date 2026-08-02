@@ -20,7 +20,7 @@ def _detect_wm():
 
 def _ensure_wm():
     """Auto-start a lightweight window manager if none is running.
-    
+
     Without a WM, keyboard events from xdotool/ydotool don't reach
     application windows because no window has EWMH focus.
     """
@@ -61,7 +61,7 @@ def _ensure_wm():
 
 def _focus_window_at(x, y):
     """Focus the window at screen coordinates (x, y) using xdotool.
-    
+
     This is critical for key events to reach the right application.
     On X11 without EWMH, xdotool key events go to the focused window,
     so we must focus the target window before sending keys.
@@ -79,7 +79,7 @@ def _focus_window_at(x, y):
 
 def _focus_active_window():
     """Focus the currently active window using xdotool.
-    
+
     This re-activates the focused window, which helps on some WMs
     where focus was lost.
     """

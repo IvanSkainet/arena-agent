@@ -91,8 +91,8 @@ def test_progress_bars_reuse_existing_shared_classes(body_html: str):
 # JS module hygiene
 # ---------------------------------------------------------------------------
 def test_js_is_iife_and_wraps_refreshOverview(js_text: str):
-    lines = [l.strip() for l in js_text.splitlines()
-             if l.strip() and not l.strip().startswith("//")]
+    lines = [line.strip() for line in js_text.splitlines()
+             if line.strip() and not line.strip().startswith("//")]
     assert lines[0].startswith("(function"), "module must be an IIFE"
     assert "window.refreshOverview" in js_text
     assert "_origRefresh" in js_text

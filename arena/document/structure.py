@@ -41,7 +41,7 @@ def assess_text_quality(text: str, source_quality: dict[str, Any] | None = None)
     OCR confidence) so downstream structuring tools can refuse false positives.
     """
     raw = text or ""
-    nonempty = [_norm_line(l) for l in raw.splitlines() if _norm_line(l)]
+    nonempty = [_norm_line(ln) for ln in raw.splitlines() if _norm_line(ln)]
     chars = [c for c in raw if not c.isspace()]
     alnum = [c for c in chars if c.isalnum()]
     noise = [c for c in chars if c in _NOISE_CHARS]
@@ -59,7 +59,7 @@ def assess_text_quality(text: str, source_quality: dict[str, Any] | None = None)
         if line_scores else 1.0
     )
     short_line_ratio = (
-        sum(1 for l in nonempty if len(_WORD_RE.findall(l)) <= 1) / len(nonempty)
+        sum(1 for ln in nonempty if len(_WORD_RE.findall(ln)) <= 1) / len(nonempty)
         if nonempty else 1.0
     )
     alnum_ratio = len(alnum) / max(1, len(chars))
@@ -184,10 +184,10 @@ def _extract_variables(block: str) -> list[dict[str, Any]]:
 def structure_physics_homework(text: str, *, language: str = "ru") -> dict[str, Any]:
     problems = []
     for number, block in _split_problems(text):
-        lines = [_norm_line(l) for l in block.splitlines() if _norm_line(l)]
+        lines = [_norm_line(line) for line in block.splitlines() if _norm_line(line)]
         formulas = [m.group(0).strip() for m in _FORMULA_RE.finditer(block or "")]
-        find_lines = [l for l in lines if re.search(r"\b(найти|find|\?)\b", l, re.I)]
-        answer_lines = [l for l in lines if re.search(r"\b(ответ|answer)\b", l, re.I)]
+        find_lines = [line for line in lines if re.search(r"\b(найти|find|\?)\b", line, re.I)]
+        answer_lines = [line for line in lines if re.search(r"\b(ответ|answer)\b", line, re.I)]
         problems.append({
             "number": number,
             "given": _extract_variables(block),

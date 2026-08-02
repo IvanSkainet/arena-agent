@@ -76,7 +76,7 @@ def make_cdp_network_handlers(ctx: CdpNetworkHandlerContext) -> CdpNetworkHandle
     @authed(ctx)
     async def handle_v1_cdp_network_requests(request):
         """GET /v1/browser/cdp/network/requests — Get captured network requests.
-    
+
         Query params:
             url_filter: string (optional)
             resource_type: string (optional)

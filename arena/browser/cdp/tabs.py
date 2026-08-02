@@ -20,7 +20,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     @authed(ctx)
     async def handle_v1_cdp_tabs(request):
         """GET /v1/browser/cdp/tabs — List all tracked tabs.
-    
+
         Auto-connects any disconnected tabs that have ws_url before listing.
         """
 
@@ -50,7 +50,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     @authed(ctx)
     async def handle_v1_cdp_tabs_new(request):
         """POST /v1/browser/cdp/tabs/new — Open new tab.
-    
+
         Body JSON:
             url: string (default: "about:blank")
             activate: bool (default: true)
@@ -82,7 +82,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     @authed(ctx)
     async def handle_v1_cdp_tabs_close(request):
         """POST /v1/browser/cdp/tabs/close — Close a tab.
-    
+
         Body JSON:
             tab_id: string (required)
         """
@@ -115,7 +115,7 @@ def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:
     @authed(ctx)
     async def handle_v1_cdp_tabs_activate(request):
         """POST /v1/browser/cdp/tabs/activate — Activate a tab.
-    
+
         Body JSON:
             tab_id: string (required)
         """

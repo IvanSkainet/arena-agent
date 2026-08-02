@@ -181,8 +181,8 @@ def test_toolbar_js_is_iife(toolbar_js: str):
     """Module must wrap in an IIFE so it doesn't leak locals."""
     assert toolbar_js.lstrip().startswith("// =====")
     # first non-comment line should be `(function...`
-    lines = [l.strip() for l in toolbar_js.splitlines()
-             if l.strip() and not l.strip().startswith("//")]
+    lines = [line.strip() for line in toolbar_js.splitlines()
+             if line.strip() and not line.strip().startswith("//")]
     assert lines, "toolbar JS is empty"
     assert lines[0].startswith("(function")
 

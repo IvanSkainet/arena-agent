@@ -72,8 +72,11 @@ Env variables
 from __future__ import annotations
 
 import hashlib
+import http.client
 import os
+import socket
 import ssl
+import urllib.request
 
 
 class TLSPinMismatchError(Exception):
@@ -244,9 +247,6 @@ def verify_peer_cert(der_bytes: bytes) -> None:
 # ---------------------------------------------------------------------------
 # urllib integration
 # ---------------------------------------------------------------------------
-import http.client
-import socket
-import urllib.request
 
 
 class _PinnedHTTPSConnection(http.client.HTTPSConnection):

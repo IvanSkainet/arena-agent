@@ -126,7 +126,7 @@ def test_git_log_limit(tmp_path):
     result = handle_git_tool("git.log", {"path": str(tmp_path), "limit": 2}, ctx=ctx)
     assert result is not None
     text = result["content"][0]["text"]
-    lines = [l for l in text.strip().split("\n") if l.strip()]
+    lines = [line for line in text.strip().split("\n") if line.strip()]
     assert len(lines) <= 2
 
 

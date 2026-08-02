@@ -75,7 +75,7 @@ def test_mover_writes_phase_log(paren_install_root):
         "mover missing on-disk phase log (.arena-update-apply.log)"
     )
     # Sanity: at least three phases logged (start, after-wait, done).
-    log_lines = [l for l in text.splitlines() if ".arena-update-apply.log" in l and "echo" in l]
+    log_lines = [line for line in text.splitlines() if ".arena-update-apply.log" in line and "echo" in line]
     assert len(log_lines) >= 4, (
         f"mover should log start / bridge-exited / copy-done / mover-done "
         f"(found only {len(log_lines)} log echo lines)"
@@ -102,7 +102,7 @@ def test_mover_log_path_uses_install_root(paren_install_root):
     expected_prefix = str(root).replace("/", "\\")
     assert expected_prefix in text
     # The .log path must contain the install root, not the payload dir
-    log_lines = [l for l in text.splitlines() if ".arena-update-apply.log" in l]
+    log_lines = [ln for ln in text.splitlines() if ".arena-update-apply.log" in ln]
     for line in log_lines:
         # payload path should not appear in a line that redirects to the log
         # (it's fine for the mover to *copy from* payload, but the log path

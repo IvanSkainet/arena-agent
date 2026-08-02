@@ -11,7 +11,7 @@ def make_cdp_session_check_handler(ctx: CdpAdvancedHandlerContext):
     @authed(ctx)
     async def handle_v1_cdp_session_check(request):
         """GET /v1/browser/cdp/session/check — Check session health.
-    
+
         Query params:
             domain: string (required)
             auth_cookie_names: string (comma-separated, optional)

@@ -122,11 +122,11 @@ def cmd_test(args):
         p = subprocess.run([srv["command"]] + srv.get("args", []),
                             input=msg, capture_output=True, text=True, timeout=30,
                             env={**os.environ, **srv.get("env", {})})
-        lines = [l for l in p.stdout.splitlines() if l.strip().startswith("{")]
+        lines = [line for line in p.stdout.splitlines() if line.strip().startswith("{")]
         results = []
-        for l in lines:
+        for line in lines:
             try:
-                results.append(json.loads(l))
+                results.append(json.loads(line))
             except Exception:
                 pass
         print(json.dumps({"ok": p.returncode == 0, "name": args.name,
