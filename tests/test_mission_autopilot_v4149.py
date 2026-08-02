@@ -124,14 +124,14 @@ def test_from_goal_mobile(monkeypatch, tmp_path):
     assert any(s["tool"] == "mobile.preflight" for s in out["planned_steps"])
 
 
-def test_from_goal_mumu(monkeypatch, tmp_path):
+def test_from_goal_emulator(monkeypatch, tmp_path):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
     monkeypatch.setattr(ap, "_mcp_call", _fake_call_ok)
-    out = ap.from_goal(goal="check mumu emulator",
+    out = ap.from_goal(goal="check the android emulator",
                        max_steps=12, timeout_per_step=10,
                        create_record=False, port=1, token="t")
     assert out["ok"] is True
-    assert any(s["tool"] == "mumu.info" for s in out["planned_steps"])
+    assert any(s["tool"] == "emulator.providers" for s in out["planned_steps"])
 
 
 def test_from_goal_fallback(monkeypatch, tmp_path):
@@ -167,10 +167,10 @@ def test_from_goal_multi_keyword(monkeypatch, tmp_path):
 # ---- plan_from_goal unit ----
 
 def test_plan_from_goal_unit():
-    steps = ap._plan_from_goal("check desktop and mumu emulator")
+    steps = ap._plan_from_goal("check desktop and android emulator")
     tools = [s["tool"] for s in steps]
     assert "desktop.windows" in tools
-    assert "mumu.info" in tools
+    assert "emulator.providers" in tools
     # No duplicates
     ids = [s["id"] for s in steps]
     assert len(ids) == len(set(ids))

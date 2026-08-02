@@ -32,7 +32,7 @@ _CATEGORY_MAP: list[tuple[list[str], str]] = [
       "tunnels.", "tailscale.", "cloudflared.", "ngrok.", "bore.",
       "zerotier."], "destructive"),
     # mobile / external device
-    (["mobile.", "mumu."], "external"),
+    (["mobile.", "emulator."], "external"),
     # desktop interaction
     (["desktop.click", "desktop.type", "desktop.key", "desktop.focus",
       "desktop_app.click", "desktop_app.type", "desktop_app.key",
@@ -87,7 +87,7 @@ _MEDIUM_RISK_PREFIXES = [
     "code.run", "code_matrix.", "code_session.", "code_project.",
     "sandbox.", "skill.run",
     "mobile.shell", "mobile.tap", "mobile.swipe", "mobile.type",
-    "mumu.shell", "mumu.launch", "mumu.shutdown",
+    "emulator.start", "emulator.stop",
     "net.http", "browser.",
     "desktop.click", "desktop.type", "desktop.key",
     "desktop_input.", "desktop_app.click", "desktop_app.type",
@@ -116,7 +116,7 @@ def score_risk(tool_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 _EXTERNAL_PREFIXES = [
-    "net.", "browser.", "mobile.", "mumu.", "mcp_ext.",
+    "net.", "browser.", "mobile.", "emulator.", "mcp_ext.",
     "tunnels.", "tailscale.", "cloudflared.", "ngrok.", "bore.", "zerotier.",
     "git.push",
 ]

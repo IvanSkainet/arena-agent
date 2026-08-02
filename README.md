@@ -625,7 +625,7 @@ source. The full catalogue is in `arena/mcp/tool_registry.py`.
 | `memory` | `memory.recall` — Find relevant facts/snapshots/sessions by query (TF score),  |
 | `mission` | `mission.autopilot_start` / `mission.autopilot_report` / `mission.run` — Execute bounded mission tool chains with persisted progress and flight records, or run persisted missions |
 | `mobile` | `mobile.preflight` / `mobile.devices` — Preflight Android/ADB readiness and list connected devices |
-| `mumu` | `mumu.launch` / `mumu.shell` / `mumu.adb` / `mumu.screenshot` — Control local MuMu Player Android VMs through MuMu's own CLI |
+| `emulator` | `emulator.providers` / `emulator.list` / `emulator.start` / `emulator.stop` / `emulator.attach` — Boot and stop Android emulators through whichever manager the host has (AVD, Genymotion, MuMu, Waydroid, or a host-declared one); post-boot control is plain ADB via `mobile.*`. See [docs/emulators.md](docs/emulators.md) |
 | `input_helper` | `input_helper.click` / `input_helper.key` / `input_helper.launch` / `input_helper.send_chat_command` — Route real hardware input through the Interactive Input Helper running in the user's desktop session (solves Session 0 limitation for Java Swing, LWJGL, and all GUI automation) |
 | `capability_gap` | `capability_gap.record` / `capability_gap.list` / `capability_gap.resolve` — Track missing bridge capabilities found during real scenarios |
 | `net` | `net.http` — Typed HTTP client. Only http/https to public hostnames (inhe |

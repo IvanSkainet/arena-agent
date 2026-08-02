@@ -188,6 +188,19 @@
     ]
   },
   {
+    "file": "arena/mcp/tool_emulator.py",
+    "handlers": [
+      "handle_emulator_tool"
+    ],
+    "tool_names": [
+      "emulator.attach",
+      "emulator.list",
+      "emulator.providers",
+      "emulator.start",
+      "emulator.stop"
+    ]
+  },
+  {
     "file": "arena/mcp/tool_exec.py",
     "handlers": [
       "handle_exec_tool"
@@ -436,22 +449,6 @@
       "mobile.push_file",
       "mobile.reconnect",
       "mobile.voice_record"
-    ]
-  },
-  {
-    "file": "arena/mcp/tool_mumu.py",
-    "handlers": [
-      "handle_mumu_tool"
-    ],
-    "tool_names": [
-      "mumu.adb",
-      "mumu.devices",
-      "mumu.info",
-      "mumu.launch",
-      "mumu.screenshot",
-      "mumu.shell",
-      "mumu.shutdown",
-      "mumu.version"
     ]
   },
   {

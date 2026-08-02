@@ -94,10 +94,10 @@ _GOAL_PATTERNS: list[tuple[list[str], list[dict[str, Any]]]] = [
         ],
     ),
     (
-        ["mumu", "emulator", "android"],
+        ["emulator", "android", "avd", "genymotion", "waydroid", "mumu"],
         [
-            {"id": "mumu_info", "tool": "mumu.info", "arguments": {}},
-            {"id": "mumu_screenshot", "tool": "mumu.screenshot", "arguments": {}},
+            {"id": "emulator_providers", "tool": "emulator.providers", "arguments": {}},
+            {"id": "emulator_attach", "tool": "emulator.attach", "arguments": {}},
         ],
     ),
     (

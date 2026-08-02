@@ -52,7 +52,7 @@ def test_classify_network():
 
 def test_classify_external():
     assert classify_action("mobile.tap") == "external"
-    assert classify_action("mumu.shell") == "external"
+    assert classify_action("emulator.start") == "external"
 
 
 def test_classify_destructive():
@@ -102,7 +102,7 @@ def test_external_true():
     assert is_external("net.http") is True
     assert is_external("browser.search") is True
     assert is_external("mobile.tap") is True
-    assert is_external("mumu.shell") is True
+    assert is_external("emulator.start") is True
     assert is_external("git.push") is True
     assert is_external("tunnels.start") is True
     assert is_external("tailscale.funnel") is True

@@ -1,3 +1,44 @@
+## Unreleased
+
+### `mumu.*` is gone: emulator control is provider-agnostic
+
+The bridge shipped eight MCP tools welded to one Android emulator (MuMu Player),
+on one OS (Windows), with an operator's home directory baked into a default
+argument — while the `core/build-capability` skill named that very namespace as
+its counter-example. The contradiction is now paid off rather than documented.
+
+- **New `emulator.*` namespace, five tools**: `emulator.providers` (which
+  managers this host can actually drive), `emulator.list`, `emulator.start`,
+  `emulator.stop`, `emulator.attach`. No vendor appears in any tool name.
+- **Providers are data, not code** (`arena/emulator/providers.py`): AVD,
+  Genymotion, MuMu and Waydroid are rows in a table of CLI locations and argv
+  templates. Adding a manager is a row; MuMu is now one row among four.
+- **Hosts can declare their own provider without touching this repo** via the
+  `ARENA_EMULATOR_PROVIDERS` JSON env var. An entry sharing an id replaces the
+  builtin, so a wrong well-known path is fixable without a release. Malformed
+  config is ignored rather than fatal.
+- **Scope discipline**: booting is provider-specific, everything after boot is
+  ADB. The old namespace re-implemented adb shell/screenshot/devices that
+  `mobile.*` already did portably; that duplication is deleted, and
+  `emulator.attach` exists purely to hand callers back to `mobile.*`.
+- **No shell anywhere**: every invocation is an argv list built from a static
+  template, so the vendor-CLI quoting surface is gone. A broken env pin is
+  *reported* (`broken_pin` + hint) instead of looking like "not installed".
+- **Providers without a stop verb say so.** The AOSP emulator has none;
+  `emulator.stop` returns `unsupported_operation` with the ADB route spelled
+  out rather than guessing at a process kill.
+- New `docs/emulators.md`; `core/build-capability` now teaches the pattern
+  (find the category, express the vendor as configuration, route the rest to
+  primitives you have) instead of merely confessing the sin.
+
+### Verification
+Fourteen new tests, four of them proven by deliberate sabotage before being
+trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,
+adding `shell=True` to the control layer, and thinning the provider table until
+an OS had a single manager — each was caught by its own gate, then reverted.
+Green still does not mean an emulator boots: no CI runner has one, and
+`docs/emulators.md` says so.
+
 ## v4.154.0 - Quality gates that fail closed, and coverage that finally reports
 
 ### Verification doctrine

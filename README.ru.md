@@ -663,7 +663,7 @@ Contributor notes: [CONTRIBUTING.md](CONTRIBUTING.md) · Release checklist: [REL
 | `memory` | `memory.recall` — Поиск релевантных фактов/снэпшотов/сессий по запросу (TF score) |
 | `mission` | `mission.autopilot_start` / `mission.autopilot_report` / `mission.run` — Выполнение ограниченных mission tool chains с persistent progress и flight records, или запуск сохранённых миссий |
 | `mobile` | `mobile.preflight` / `mobile.devices` — Preflight Android/ADB готовности и список подключённых устройств |
-| `mumu` | `mumu.launch` / `mumu.shell` / `mumu.adb` / `mumu.screenshot` — Управление локальными MuMu Player Android VM через CLI MuMu |
+| `emulator` | `emulator.providers` / `emulator.list` / `emulator.start` / `emulator.stop` / `emulator.attach` — Запуск и остановка Android-эмуляторов через тот менеджер, который есть на хосте (AVD, Genymotion, MuMu, Waydroid или объявленный самим хостом); после загрузки управление идёт обычным ADB через `mobile.*`. См. [docs/emulators.md](docs/emulators.md) |
 | `input_helper` | `input_helper.click` / `input_helper.key` / `input_helper.launch` / `input_helper.send_chat_command` — Маршрутизация реального hardware input через Interactive Input Helper в десктоп-сессии пользователя (решает ограничение Session 0 для Java Swing, LWJGL и всей GUI-автоматизации) |
 | `capability_gap` | `capability_gap.record` / `capability_gap.list` / `capability_gap.resolve` — Учёт отсутствующих возможностей bridge, обнаруженных в реальных сценариях |
 | `net` | `net.http` — Типизированный HTTP-клиент. Только http/https на публичные hostnames |

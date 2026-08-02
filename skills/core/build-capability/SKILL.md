@@ -138,9 +138,15 @@ The point of building your own tool is that it outlives the thing it automates.
   CLI, or a file format can be driven by primitives that already exist. Reach
   for screen and input control only when there is genuinely no other surface.
 
-The counter-example lives in this repo: the `mumu.*` namespace is eight tools
-welded to one Android emulator on one platform. It works, and it taught us the
-lesson — everything since is built as composition instead.
+This repo shipped the counter-example and then paid it off. `mumu.*` was eight
+tools welded to one Android emulator, on one OS, with an operator's home
+directory baked into a default argument. v4.155.0 replaced it with `emulator.*`:
+five tools over a *data table* of managers (AVD, Genymotion, MuMu, Waydroid,
+plus anything a host declares through `ARENA_EMULATOR_PROVIDERS`), while
+everything after boot went back to the cross-platform `mobile.*` ADB tools that
+already existed. The lesson generalises: when you feel the urge to wrap one
+product, ask what the *category* is, express the vendor as configuration, and
+route the rest to primitives you already have.
 
 ## Close the loop
 

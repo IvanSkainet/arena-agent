@@ -145,7 +145,7 @@ def test_cancel_sync_still_works(monkeypatch, tmp_path):
 
 def test_promote_gap(monkeypatch, tmp_path):
     monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
-    g = gaps.record(title="missing mumu.tap", severity="high")
+    g = gaps.record(title="missing emulator provider", severity="high")
     gap_id = g["gap"]["id"]
     result = gaps.promote(gap_id=gap_id, run_now=False)
     assert result["ok"] is True
