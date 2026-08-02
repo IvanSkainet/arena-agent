@@ -83,14 +83,34 @@ Manage them with `custom.list` and `custom.remove`.
 
 ## Building a capability with real logic: Tool Foundry
 
-When the work needs parsing, a protocol, or state, write it as a Code Workbench
-project with a `.arena-tool.json` manifest and tests, then:
+When the work needs parsing, a protocol, or state, a composition cannot express
+it. Write it as a Code Workbench project instead:
 
-- `tool_foundry.validate` — manifest and tests, without publishing;
-- `tool_foundry.publish` — publishes it as a callable `custom.<name>`.
+1. `code_project.create` with your script and a `.arena-tool.json` manifest;
+2. `tool_foundry.validate` — checks the manifest and runs the declared tests
+   without publishing;
+3. `tool_foundry.publish` — publishes it as a callable `custom.<name>` that
+   wraps `code_project.run`.
 
-Tests are part of the manifest on purpose: a capability nobody proved is a
-capability nobody should call.
+The manifest needs `name`, `description`, `input_schema`, a `run` block
+(`lang`, `entry`, `argv` — with `{placeholders}` filled from the caller's args)
+and a **non-empty `tests` array**. Tests are required by the schema, not by
+convention: publish refuses when they fail. Verified by running it — a project
+whose tests could not pass was rejected with `ok: false` and never entered the
+catalogue, while the same project published cleanly once tests were skipped
+explicitly with `run_tests: false`.
+
+Use `run_tests: false` only when you know why the tests cannot run in that
+environment, and never as a way past a genuine failure — it is the one door
+around the gate that makes the tests meaningful.
+
+**Project code runs inside a sandbox fence.** On POSIX hosts `code_project.run`
+executes under a systemd fence with the network, filesystem and memory confined.
+That fence needs a session bus, so inside a bare container the run fails with a
+D-Bus error before your code is even reached. If a project fails with
+`Failed to connect to user scope bus` while the same script runs fine by hand,
+the environment is the problem, not the logic — check `sandbox_action` in the
+result before touching the script.
 
 ## Keep it portable
 

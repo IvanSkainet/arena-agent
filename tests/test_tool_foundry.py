@@ -105,3 +105,54 @@ def test_runtime_tools_list_includes_published_custom(monkeypatch, tmp_path):
     listed = rt.handle_rpc({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     names = {t["name"] for t in listed["result"]["tools"]}
     assert "custom.hello_foundry" in names
+
+
+def test_publish_refuses_when_declared_tests_fail(monkeypatch, tmp_path):
+    """A capability nobody proved must not become callable.
+
+    Confirmed by dogfooding the core/build-capability skill against a live
+    server: a project whose tests could not pass came back ok=false and never
+    entered the catalogue. The happy path above proves publish CAN work; this
+    pins that it refuses -- the property that makes the required `tests` array
+    in the manifest mean anything.
+    """
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    import arena.mcp.custom_tools as C
+    C._reset_cache()
+    projects.create("fib", [{"path": F.DEFAULT_MANIFEST,
+                             "content": json.dumps(_manifest("fib_broken"))}],
+                    overwrite=True)
+    # The project runs, but produces output the declared test does not accept.
+    monkeypatch.setattr(F.projects, "run",
+                        lambda name, **kwargs: {"ok": True, "stdout": "FIB=999\n",
+                                                "artifacts": [{"path": "out/result.json",
+                                                               "text": "999"}]})
+
+    out = F.publish("fib")
+
+    assert out["ok"] is False
+    assert not any(t["name"] == "custom.fib_broken" for t in C.list_tools())
+
+
+def test_publish_run_tests_false_is_the_only_door_around_the_gate(monkeypatch, tmp_path):
+    """`run_tests=False` skips the gate deliberately -- and is the only way past.
+
+    Pinned so the escape hatch stays explicit: the same project publish rejects
+    with tests enabled goes through when the caller opts out. If publish ever
+    starts letting failing projects through by default, these two disagree and
+    the suite says so.
+    """
+    monkeypatch.setenv("ARENA_AGENT_HOME", str(tmp_path))
+    import arena.mcp.custom_tools as C
+    C._reset_cache()
+    projects.create("fib", [{"path": F.DEFAULT_MANIFEST,
+                             "content": json.dumps(_manifest("fib_skipped"))}],
+                    overwrite=True)
+    monkeypatch.setattr(F.projects, "run",
+                        lambda name, **kwargs: {"ok": True, "stdout": "FIB=999\n",
+                                                "artifacts": []})
+
+    assert F.publish("fib")["ok"] is False                      # gate holds
+    out = F.publish("fib", run_tests=False)                     # opt out
+    assert out["ok"] is True
+    assert any(t["name"] == "custom.fib_skipped" for t in C.list_tools())
