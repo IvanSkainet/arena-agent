@@ -125,8 +125,10 @@ def cmd_test(args):
         lines = [l for l in p.stdout.splitlines() if l.strip().startswith("{")]
         results = []
         for l in lines:
-            try: results.append(json.loads(l))
-            except Exception: pass
+            try:
+                results.append(json.loads(l))
+            except Exception:
+                pass
         print(json.dumps({"ok": p.returncode == 0, "name": args.name,
                           "responses_count": len(results),
                           "first_response": results[0] if results else None,

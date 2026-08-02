@@ -10,7 +10,8 @@ def agents_md_command(args):
     import pathlib as _pl
     state = _pl.Path.home() / "arena-bridge" / "current_project"
     cur = None
-    if state.exists(): cur = state.read_text().strip()
+    if state.exists():
+        cur = state.read_text().strip()
     if not cur:
         # пробуем найти через arena-bridge в текущем
         cur = _os.environ.get("ARENA_CURRENT_PROJECT", "")
@@ -20,7 +21,8 @@ def agents_md_command(args):
         if proj_root.exists():
             dirs = sorted([d for d in proj_root.iterdir() if d.is_dir()],
                           key=lambda p: p.stat().st_mtime, reverse=True)
-            if dirs: cur = str(dirs[0])
+            if dirs:
+                cur = str(dirs[0])
     if not cur:
         print("No current project. Use `agentctl proj use NAME` first.")
         return 1

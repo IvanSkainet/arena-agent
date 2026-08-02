@@ -34,7 +34,8 @@ def run_status(args=[]):
             r = urllib.request.urlopen(req, timeout=2)  # nosec B310 -- loopback bridge URL for local status check  # nosemgrep: dynamic-urllib-use-detected -- URL either loopback / fixed internal endpoint OR routed through arena.security_ssrf._validate_url (see bandit B310 nosec on the same line for the specific rationale)
             mcp_ok = r.status == 200
             print(f"  MCP Streamable HTTP: {'OK' if mcp_ok else 'FAIL'}")
-        except Exception: print("  MCP Streamable HTTP: FAIL")
+        except Exception:
+            print("  MCP Streamable HTTP: FAIL")
     else:
         print("  All sub-services: DOWN (bridge not running)")
 
@@ -68,10 +69,12 @@ def run_status(args=[]):
                 print(f"  OS:       {h_data['os']['name_pretty']} (Build {h_data['os']['build']}) {h_data['os']['architecture']}")
                 # Motherboard
                 m = h_data.get('motherboard', {})
-                if m: print(f"  Board:    {m.get('manufacturer', '')} {m.get('product', '')} (BIOS: {m.get('bios_name', '')})")
+                if m:
+                    print(f"  Board:    {m.get('manufacturer', '')} {m.get('product', '')} (BIOS: {m.get('bios_name', '')})")
                 # CPU
                 c = h_data.get('cpu', {})
-                if c: print(f"  CPU:      {c.get('name', '')} ({c.get('physical_cores', '')} Cores / {c.get('logical_processors', '')} Threads)")
+                if c:
+                    print(f"  CPU:      {c.get('name', '')} ({c.get('physical_cores', '')} Cores / {c.get('logical_processors', '')} Threads)")
                 # GPU
                 g = h_data.get('gpu', [])
                 if g and len(g) >= 3:
@@ -80,7 +83,8 @@ def run_status(args=[]):
                     print(f"  GPU:      {gpu_name} ({gpu_ram} MB VRAM)")
                 # RAM
                 r = h_data.get('ram', {})
-                if r: print(f"  RAM:      {r.get('used_gb', '')} GB used / {r.get('total_gb', '')} GB total ({r.get('used_pct', '')}% used)")
+                if r:
+                    print(f"  RAM:      {r.get('used_gb', '')} GB used / {r.get('total_gb', '')} GB total ({r.get('used_pct', '')}% used)")
                 # Disks
                 d = h_data.get('storage', {})
                 if d:
@@ -129,7 +133,8 @@ def run_status(args=[]):
                 r = subprocess.run(["schtasks", "/query", "/tn", svc_name, "/fo", "TABLE"], capture_output=True, text=True, timeout=5)
                 running = "Running" in r.stdout or "Выполняется" in r.stdout or "Running" in r.stdout
                 state = "running" if running and _check_port(8765) == "LISTEN" else "stopped"
-            except Exception: state = "unknown"
+            except Exception:
+                state = "unknown"
             print(f"  - {desc}: {state}")
         # Also check if bridge is reachable even without scheduled task
         if _check_port(8765) == "LISTEN":

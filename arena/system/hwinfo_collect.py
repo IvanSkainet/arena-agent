@@ -120,7 +120,8 @@ def _collect_full_inner():
             net_res = subprocess.run('powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -notmatch \'127.0.0.1\' | Select-Object IPAddress, InterfaceAlias | ConvertTo-Json"', capture_output=True, text=True, shell=True)
             if net_res.stdout.strip():
                 net_data = json.loads(net_res.stdout)
-                if not isinstance(net_data, list): net_data = [net_data]
+                if not isinstance(net_data, list):
+                    net_data = [net_data]
                 info["network"]["adapters"] = net_data
             info["network"]["adapters_config"] = get_cim_all_list("Win32_NetworkAdapterConfiguration where IPEnabled=True")
         except Exception:

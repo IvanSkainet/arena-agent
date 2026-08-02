@@ -34,12 +34,14 @@ def call_tool(name: str, args: dict) -> dict:
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
         if name == "fs.read":
             p = os.path.expanduser(args["path"])
-            with open(p, "rb") as f: data = f.read(args.get("max_bytes", 200000))
+            with open(p, "rb") as f:
+                data = f.read(args.get("max_bytes", 200000))
             return text_content(data.decode("utf-8", "replace"))
         if name == "fs.write":
             p = os.path.expanduser(args["path"])
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-            with open(p, "w", encoding="utf-8") as f: f.write(args["content"])
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(args["content"])
             return text_content(f"wrote {len(args['content'])} bytes to {p}")
         if name == "fs.list":
             p = os.path.expanduser(args["path"])
@@ -116,8 +118,10 @@ def call_tool(name: str, args: dict) -> dict:
             return text_content(out or err)
         if name == "subagent.spawn":
             cmd_args = [sys.executable, os.path.join(BIN, "subagent.py"), "spawn", args.get("cmd", "")]
-            if args.get("name"): cmd_args += ["--name", args["name"]]
-            if args.get("wait", True): cmd_args += ["--wait"]
+            if args.get("name"):
+                cmd_args += ["--name", args["name"]]
+            if args.get("wait", True):
+                cmd_args += ["--wait"]
             cmd_args += ["--timeout", str(args.get("timeout", 300))]
             rc, out, err = run_local(cmd_args, timeout=args.get("timeout", 300) + 30)
             return text_content(out or err)

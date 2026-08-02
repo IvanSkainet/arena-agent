@@ -15,13 +15,18 @@ def issue_list(args):
     p=project_path(args.name); rows=[]
     for state in ['open','closed']:
         for f in (p/'issues'/state).glob('*.json'):
-            try: obj=json.loads(f.read_text()); rows.append((state,obj))
-            except Exception: pass
-    for state,obj in sorted(rows, key=lambda x:x[1].get('created_at','')): print(f"{obj.get('id')}\t{state}\t{obj.get('title')}")
+            try:
+                obj=json.loads(f.read_text())
+                rows.append((state,obj))
+            except Exception:
+                pass
+    for state,obj in sorted(rows, key=lambda x:x[1].get('created_at','')):
+        print(f"{obj.get('id')}\t{state}\t{obj.get('title')}")
 
 def issue_close(args):
     p=project_path(args.name); src=p/'issues/open'/f'{args.id}.json'; srcmd=p/'issues/open'/f'{args.id}.md'
-    if not src.exists(): raise SystemExit('open issue not found')
+    if not src.exists():
+        raise SystemExit('open issue not found')
     obj=json.loads(src.read_text())
     obj['state']='closed'
     obj['closed_at']=now()
@@ -30,12 +35,14 @@ def issue_close(args):
     dst.parent.mkdir(parents=True, exist_ok=True)
     dst.write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
     src.unlink()
-    if srcmd.exists(): shutil.move(str(srcmd), str(p/'issues/closed'/srcmd.name))
+    if srcmd.exists():
+        shutil.move(str(srcmd), str(p/'issues/closed'/srcmd.name))
     print(args.id)
 
 def attach_report(args):
     p=project_path(args.name); src=Path(args.file).expanduser()
-    if not src.exists(): raise SystemExit('file not found')
+    if not src.exists():
+        raise SystemExit('file not found')
     dst=p/'reports'/src.name
     dst.parent.mkdir(parents=True,exist_ok=True)
     shutil.copy2(src,dst)

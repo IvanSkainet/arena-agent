@@ -49,9 +49,12 @@ def run_skill(name: str, args: list[str], *, skills_dir: Path, root_agent: Path,
         for candidate in [f"{skill_dir.name}.py", f"{skill_dir.name}.sh", "main.py", "app.py", "start.sh", "index.js", f"{skill_dir.name}"]:
             cp = skill_dir / candidate
             if cp.exists() and cp.is_file():
-                if candidate.endswith(".py"): runner_py = cp
-                elif candidate.endswith(".js"): runner_sh = cp # Will handle JS in exec
-                else: runner_sh = cp
+                if candidate.endswith(".py"):
+                    runner_py = cp
+                elif candidate.endswith(".js"):
+                    runner_sh = cp  # Will handle JS in exec
+                else:
+                    runner_sh = cp
                 break
 
     # --- Executable skills (run.sh / run.py) ---

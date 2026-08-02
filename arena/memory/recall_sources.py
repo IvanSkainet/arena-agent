@@ -9,7 +9,8 @@ from arena.memory.recall_score import score
 def recall_facts(q_tokens: list[str], top: int, profile: str | None = DEFAULT_MEMORY_PROFILE) -> list[dict]:
     """Возврат top фактов из facts.db с ненулевым score."""
     p = get_mem_dir() / "facts.db"
-    if not p.exists(): return []
+    if not p.exists():
+        return []
     items = []
     profile_filter = None if profile is None else normalize_memory_profile_filter(profile)
     try:
@@ -50,7 +51,8 @@ def recall_facts(q_tokens: list[str], top: int, profile: str | None = DEFAULT_ME
 
 def recall_snapshots(q_tokens: list[str], top: int) -> list[dict]:
     snap_dir = get_rpt_dir() / "snapshots"
-    if not snap_dir.exists(): return []
+    if not snap_dir.exists():
+        return []
     items = []
     for f in sorted(snap_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:30]:
         try:
@@ -59,17 +61,20 @@ def recall_snapshots(q_tokens: list[str], top: int) -> list[dict]:
             if sc > 0:
                 items.append({"score": sc, "file": f.name,
                               "preview": text[:300]})
-        except Exception: pass
+        except Exception:
+            pass
     items.sort(key=lambda x: x["score"], reverse=True)
     return items[:top]
 
 def recall_subagents(q_tokens: list[str], top: int) -> list[dict]:
     sub_dir = get_sub_dir()
-    if not sub_dir.exists(): return []
+    if not sub_dir.exists():
+        return []
     items = []
     for d in sub_dir.iterdir():
         s = d / "summary.json"
-        if not s.exists(): continue
+        if not s.exists():
+            continue
         try:
             data = json.loads(s.read_text())
             blob = json.dumps(data, ensure_ascii=False)
@@ -78,13 +83,15 @@ def recall_subagents(q_tokens: list[str], top: int) -> list[dict]:
                 items.append({"score": sc, "id": data.get("id"),
                               "name": data.get("name"), "status": data.get("status"),
                               "stdout_tail": (data.get("stdout_tail") or "")[:300]})
-        except Exception: pass
+        except Exception:
+            pass
     items.sort(key=lambda x: x["score"], reverse=True)
     return items[:top]
 
 def recall_sessions(q_tokens: list[str], top: int) -> list[dict]:
     sd = get_mem_dir() / "sessions"
-    if not sd.exists(): return []
+    if not sd.exists():
+        return []
     items = []
     for f in sorted(sd.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:50]:
         try:
@@ -92,6 +99,7 @@ def recall_sessions(q_tokens: list[str], top: int) -> list[dict]:
             sc = score(text, q_tokens)
             if sc > 0:
                 items.append({"score": sc, "file": f.name, "preview": text[:300]})
-        except Exception: pass
+        except Exception:
+            pass
     items.sort(key=lambda x: x["score"], reverse=True)
     return items[:top]

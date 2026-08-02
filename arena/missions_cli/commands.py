@@ -8,7 +8,8 @@ from arena.missions_cli.templates import *  # noqa: F401,F403
 def list_cmd(a):
     ensure()
     if a.missions:
-        for p in sorted(x for x in MISSIONS.iterdir() if x.is_dir() and not x.name.startswith('.')): print(p.name)
+        for p in sorted(x for x in MISSIONS.iterdir() if x.is_dir() and not x.name.startswith('.')):
+            print(p.name)
     else:
         for p in sorted(TEMPLATES.glob('*.json')):
             o=json.loads(p.read_text()); print(f"{o['id']}: {o.get('title','')}")
@@ -69,7 +70,8 @@ def _run_cmd_mission_orig(a):
     obj['started_at']=obj.get('started_at') or now()
     (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
     for i,c in enumerate(cmds,1):
-        if a.step and i!=a.step: continue
+        if a.step and i!=a.step:
+            continue
         r=run_cmd(c,a.timeout)
         results.append(r)
         (d/'logs'/f'step-{i:02d}.json').write_text(json.dumps(r,ensure_ascii=False,indent=2)+'\n')

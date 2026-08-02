@@ -38,7 +38,8 @@ def make_cdp_navigate_handler(ctx: CdpPageHandlerContext):
         wait = body.get("wait", True)
 
         tab, err = await ctx.cdp_active_tab(tab_id)
-        if err: return err
+        if err:
+            return err
         # Track navigation time so watcher skips probes during page loads
         ctx.cdp_state["last_navigation_time"] = time.time()
 

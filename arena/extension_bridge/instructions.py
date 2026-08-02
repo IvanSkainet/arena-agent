@@ -142,12 +142,17 @@ def json_schema_to_csn(schema: Any) -> str:
     constraints = []
     t = schema.get("type")
     if t == "string":
-        if "minLength" in schema: constraints.append(f"minLength={schema['minLength']}")
-        if "maxLength" in schema: constraints.append(f"maxLength={schema['maxLength']}")
-        if "pattern" in schema: constraints.append(f'pattern="{schema["pattern"]}"')
+        if "minLength" in schema:
+            constraints.append(f"minLength={schema['minLength']}")
+        if "maxLength" in schema:
+            constraints.append(f"maxLength={schema['maxLength']}")
+        if "pattern" in schema:
+            constraints.append(f'pattern="{schema["pattern"]}"')
     elif t in ("number", "integer"):
-        if "minimum" in schema: constraints.append(f"min={schema['minimum']}")
-        if "maximum" in schema: constraints.append(f"max={schema['maximum']}")
+        if "minimum" in schema:
+            constraints.append(f"min={schema['minimum']}")
+        if "maximum" in schema:
+            constraints.append(f"max={schema['maximum']}")
     c = f"({', '.join(constraints)})" if constraints else ""
     d = f" d={json.dumps(schema['default'])}" if "default" in schema else ""
     return f"{base}{c}{d}"

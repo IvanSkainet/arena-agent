@@ -188,7 +188,8 @@ def test_make_admin_handlers_returns_ngrok_tunnel():
     from arena.admin.handlers import make_admin_handlers
     from arena.handler_context import AdminHandlerContext
 
-    class _FakeResp: pass
+    class _FakeResp:
+        pass
 
     ctx = AdminHandlerContext(
         require_auth=lambda req: None,

@@ -52,7 +52,8 @@ def cmd_digest(args) -> int:
                     }
                     facts.append(json.dumps(fact_obj, ensure_ascii=False))
                 facts.reverse()
-                for f in facts: lines.append(f"- {f[:200]}")
+                for f in facts:
+                    lines.append(f"- {f[:200]}")
         except Exception as e:
             lines.append(f"Error reading facts: {e}")
         lines.append("")
@@ -61,7 +62,8 @@ def cmd_digest(args) -> int:
     if snap_dir.exists():
         snaps = sorted(snap_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)[:3]
         lines.append("## Recent snapshots")
-        for s in snaps: lines.append(f"- {s.name}")
+        for s in snaps:
+            lines.append(f"- {s.name}")
         lines.append("")
     # Последние 5 subagents
     sub_dir = get_sub_dir()
@@ -74,7 +76,8 @@ def cmd_digest(args) -> int:
                 try:
                     m = json.loads(mp.read_text())
                     lines.append(f"- {m.get('id')} [{m.get('status')}] {m.get('name')}: {m.get('cmd','')[:60]}")
-                except Exception: pass
+                except Exception:
+                    pass
         lines.append("")
     print("\n".join(lines))
     return 0

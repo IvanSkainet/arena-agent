@@ -69,8 +69,10 @@ def _stop_recording(rec):
     try:
         _os.killpg(_os.getpgid(rec["pid"]), _sig.SIGTERM)
     except Exception:
-        try: _os.kill(rec["pid"], _sig.SIGTERM)
-        except Exception: pass
+        try:
+            _os.kill(rec["pid"], _sig.SIGTERM)
+        except Exception:
+            pass
 
 def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 

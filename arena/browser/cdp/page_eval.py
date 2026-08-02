@@ -41,7 +41,8 @@ def make_cdp_eval_handler(ctx: CdpPageHandlerContext):
 
         tab_id = body.get("tab_id")
         tab, err = await ctx.cdp_active_tab(tab_id)
-        if err: return err
+        if err:
+            return err
 
         try:
             # v2.5.1: Use CDP Runtime.evaluate directly so we can distinguish

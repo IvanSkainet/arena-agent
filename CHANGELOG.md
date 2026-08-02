@@ -64,6 +64,38 @@ stdin; the 10 s pair went red twice and read as a flake both times.
   joining the list, or if the override starts lowering the floor. Proven by
   four sabotage runs.
 
+### E701 eliminated: 193 inline compound statements, proven at the bytecode level
+
+`if x: a; b` was the layer `scripts/e702_split_statements.py` deliberately
+refused: it is not a semicolon split but an indentation decision, and getting
+it wrong silently moves statements *out of* a branch. New
+`scripts/e701_split_compounds.py` does it mechanically across 35 files.
+
+- **Lint debt 1980 -> 1772.** E701 193 -> **0**, and E702 fell 127 -> 112 as a
+  side effect: inline suites had been blocking the semicolon splitter.
+- **The safety argument is not "the tests pass".** Every file is accepted only
+  if its AST is identical before and after. Then, separately, the compiled
+  bytecode of all **377 functions** was compared instruction by instruction --
+  0 real differences, after normalising three CPython artifacts each verified
+  on a minimal example first: `__firstlineno__` (3.13 class metadata that
+  tracks line position), NOP padding emitted for line tracking, and
+  superinstruction fusion (`STORE_FAST_LOAD_FAST` is exactly `STORE_FAST` +
+  `LOAD_FAST`, fused only when the pair is adjacent).
+- Rewritten formatters were then executed and their real output checked, since
+  bytecode equality still says nothing about whether the code was ever right.
+- New gate `tests/test_e701_splitter.py` pins the floor at **zero** E701 (the
+  ratchet only sees the 1772 total, so this rule could otherwise creep back one
+  line at a time) and covers the cases that bite: `else: a; b` keeping both
+  statements inside the branch, dict/slice colons, tab indentation, trailing
+  `# nosec` comments staying attached, and an unbracketed depth-0
+  `if lambda: 1: go()` — legal Python where the lambda's colon precedes the
+  header's.
+
+Two sabotage runs initially passed and were themselves the finding: one used a
+bracketed lambda (bracket depth already covered it) and one used a `-k`
+selector matching no test at all, so pytest reported success over zero tests.
+Both were rewritten; all seven sabotages now fail as intended.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

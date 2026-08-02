@@ -196,7 +196,10 @@ def test_asr_transcribe_happy_path_wav(tmp_path, monkeypatch):
                 {"text": " Second line.", "offsets": {"from": 1000, "to": 2500}},
             ],
         }))
-        class _R: returncode = 0; stdout = ""; stderr = ""
+        class _R:
+            returncode = 0
+            stdout = ""
+            stderr = ""
         return _R()
 
     with mock.patch("arena.mcp.tool_asr.subprocess.run", _fake_run):
@@ -231,7 +234,10 @@ def test_asr_transcribe_reports_whisper_nonzero(tmp_path, monkeypatch):
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
 
     def _fake_run(*a, **kw):
-        class _R: returncode = 2; stdout = ""; stderr = "unsupported audio format"
+        class _R:
+            returncode = 2
+            stdout = ""
+            stderr = "unsupported audio format"
         return _R()
     with mock.patch("arena.mcp.tool_asr.subprocess.run", _fake_run):
         out = _handle_asr_transcribe({"file": str(audio), "model": str(model)})

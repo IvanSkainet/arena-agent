@@ -50,7 +50,8 @@ def _notify_watcher():
                     pos = sz
                 for line in chunk.splitlines():
                     line = line.strip()
-                    if not line: continue
+                    if not line:
+                        continue
                     try:
                         msg = json.loads(line)
                         _broadcast(msg.get("topic", "default"), msg.get("data"))

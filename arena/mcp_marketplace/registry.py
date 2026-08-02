@@ -86,13 +86,17 @@ def _ensure():
 
 def _load_registry():
     _ensure()
-    try: return json.loads(REGISTRY.read_text())
-    except Exception: return dict(DEFAULT_REGISTRY)
+    try:
+        return json.loads(REGISTRY.read_text())
+    except Exception:
+        return dict(DEFAULT_REGISTRY)
 
 def _load_config():
     _ensure()
-    try: return json.loads(CONFIG.read_text())
-    except Exception: return {"mcpServers": {}}
+    try:
+        return json.loads(CONFIG.read_text())
+    except Exception:
+        return {"mcpServers": {}}
 
 def _save_config(cfg):
     CONFIG.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))

@@ -9,6 +9,7 @@ def tokenize(s: str) -> list[str]:
 
 def score(text: str, q_tokens: list[str]) -> int:
     """Простой TF-скор: сумма количества вхождений токенов запроса."""
-    if not text or not q_tokens: return 0
+    if not text or not q_tokens:
+        return 0
     counts = Counter(tokenize(text))
     return sum(counts.get(t, 0) for t in q_tokens)

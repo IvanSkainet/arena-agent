@@ -44,7 +44,8 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
 
         tab_id = body.get("tab_id")
         tab, err = await ctx.cdp_active_tab(tab_id)
-        if err: return err
+        if err:
+            return err
 
         try:
             if selector:
@@ -104,7 +105,8 @@ def make_cdp_input_handlers(ctx: CdpPageHandlerContext):
 
         tab_id = body.get("tab_id")
         tab, err = await ctx.cdp_active_tab(tab_id)
-        if err: return err
+        if err:
+            return err
 
         try:
             # v2.3.0: Hard timeout — 14s CDP, 15s asyncio

@@ -52,8 +52,10 @@ def cmd_do(args: list[str]) -> int:
                     print(task.get("stdout", ""))
                     if task.get("stderr"):
                         print(task.get("stderr"), file=sys.stderr)
-                    try: play_notification_sound()
-                    except Exception: pass
+                    try:
+                        play_notification_sound()
+                    except Exception:
+                        pass
                     return 0 if task.get("state") == "done" else 1
             except Exception:
                 pass
@@ -92,7 +94,8 @@ def cmd_find(args: list[str]) -> int:
     count = 0
     # Search in sessions, reports, skills
     for folder in [ROOT / "memory" / "sessions", ROOT / "reports"]:
-        if not folder.exists(): continue
+        if not folder.exists():
+            continue
         for fp in folder.glob("**/*"):
             if fp.is_file() and fp.suffix in [".json", ".jsonl", ".txt", ".md"]:
                 try:

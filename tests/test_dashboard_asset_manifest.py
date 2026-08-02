@@ -81,7 +81,8 @@ def test_manifest_sort_order_prefixes_first():
     # Verify known relative ordering.
     def idx(name):
         for i, n in enumerate(names):
-            if n == name: return i
+            if n == name:
+                return i
         return -1
     def assert_before(a, b):
         ia, ib = idx(a), idx(b)

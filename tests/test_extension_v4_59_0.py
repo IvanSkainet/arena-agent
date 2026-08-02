@@ -102,18 +102,21 @@ def test_browser_headed_classification():
 
 # --- Dispatch validation ---
 def test_desktop_input_dispatch_returns_none_for_non_matching():
-    class _Ctx: pass
+    class _Ctx:
+        pass
     assert handle_desktop_input_tool("fs.read", {}, ctx=_Ctx()) is None
 
 
 def test_mobile_ext_dispatch_returns_none_for_non_matching():
-    class _Ctx: pass
+    class _Ctx:
+        pass
     assert handle_mobile_ext_tool("mobile.tap", {"serial": "x"}, ctx=_Ctx()) is None
     assert handle_mobile_ext_tool("fs.read", {}, ctx=_Ctx()) is None
 
 
 def test_mobile_ext_requires_serial():
-    class _Ctx: pass
+    class _Ctx:
+        pass
     out = handle_mobile_ext_tool("mobile.launch_app", {}, ctx=_Ctx())
     assert out and out.get("isError")
 

@@ -152,7 +152,8 @@ def _fmt_gpu(d: dict) -> list[str]:
 
 
 def _fmt_disks(disks: list | dict) -> list[str]:
-    if not disks: return []
+    if not disks:
+        return []
     # Deduplicate btrfs subvolume noise
     by_dev: dict[str, tuple[dict, list]] = {}
     for d in (disks or []):
@@ -160,7 +161,8 @@ def _fmt_disks(disks: list | dict) -> list[str]:
         if key not in by_dev:
             by_dev[key] = (d, [d.get("mount")] if d.get("mount") else [])
         else:
-            if d.get("mount"): by_dev[key][1].append(d.get("mount"))
+            if d.get("mount"):
+                by_dev[key][1].append(d.get("mount"))
     lines = []
     for dev, (d, mounts) in by_dev.items():
         extra = f" (+{len(mounts) - 1} more mounts)" if len(mounts) > 1 else ""
@@ -174,7 +176,8 @@ def _fmt_disks(disks: list | dict) -> list[str]:
 
 
 def _fmt_thermal_detail(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     by_class: dict[str, list] = {}
     for s in d.get("sensors", []):
@@ -184,26 +187,31 @@ def _fmt_thermal_detail(d: dict) -> list[str]:
             extra = ""
             crit = s.get("critical_c")
             hi = s.get("high_c")
-            if crit and crit < 200: extra = f" (crit {crit}°C)"
-            elif hi and hi < 200: extra = f" (high {hi}°C)"
+            if crit and crit < 200:
+                extra = f" (crit {crit}°C)"
+            elif hi and hi < 200:
+                extra = f" (high {hi}°C)"
             lines.append(f"  [{cls}] {s.get('label')}: {s.get('celsius')}°C{extra}")
     return lines
 
 
 def _fmt_thermal(d: dict) -> list[str]:
-    if not d or not d.get("temperatures"): return []
+    if not d or not d.get("temperatures"):
+        return []
     return [f"  {t.get('type') or t.get('source')}: {t.get('celsius')}°C"
             for t in d.get("temperatures", [])[:12]]
 
 
 def _fmt_fans(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     return [f"  {f.get('label')}: {f.get('rpm')} RPM"
             for f in d.get("fans", [])]
 
 
 def _fmt_battery(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     if d.get("percent") is not None:
         lines.append(f"  Charge    : {d['percent']}% "
@@ -211,7 +219,8 @@ def _fmt_battery(d: dict) -> list[str]:
     for bat in d.get("batteries", []):
         parts = [x for x in (bat.get("manufacturer"), bat.get("model_name"),
                               bat.get("technology")) if x]
-        if parts: lines.append(f"  Device    : {' / '.join(parts)}")
+        if parts:
+            lines.append(f"  Device    : {' / '.join(parts)}")
         if bat.get("health_pct") is not None:
             lines.append(f"  Health    : {bat['health_pct']}%")
         if bat.get("cycle_count") is not None:
@@ -220,7 +229,8 @@ def _fmt_battery(d: dict) -> list[str]:
 
 
 def _fmt_disk_smart(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for x in d.get("devices", []):
         status = "PASS" if x.get("passed") else "FAIL" if x.get("passed") is False else "?"
@@ -229,14 +239,18 @@ def _fmt_disk_smart(d: dict) -> list[str]:
         for k, label in (("temperature_c", "°C"), ("power_on_hours", "h"),
                            ("percent_used", "% used"), ("available_spare_pct", "% spare"),
                            ("reallocated_sectors", " reallocated")):
-            if x.get(k) is not None: details.append(f"{x[k]}{label}")
-        if details: lines.append(f"    {' · '.join(details)}")
-        if x.get("hint"): lines.append(f"    hint: {x['hint']}")
+            if x.get(k) is not None:
+                details.append(f"{x[k]}{label}")
+        if details:
+            lines.append(f"    {' · '.join(details)}")
+        if x.get("hint"):
+            lines.append(f"    hint: {x['hint']}")
     return lines
 
 
 def _fmt_audio(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for s in d.get("sinks", [])[:10]:
         lines.append(f"  out: {s.get('name', '')}")
@@ -246,7 +260,8 @@ def _fmt_audio(d: dict) -> list[str]:
 
 
 def _fmt_top_processes(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for p in d.get("by_cpu", [])[:5]:
         lines.append(f"  cpu {p['cpu_pct']:>5.1f}% · {p['rss_mb']:>7.1f} MB · "
@@ -258,99 +273,124 @@ def _fmt_top_processes(d: dict) -> list[str]:
 
 
 def _fmt_listening_ports(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     return [f"  tcp/{p['port']:<6} {p.get('process', ''):<20} "
             f"pid {p.get('pid', '?')}  {p.get('addr', '')}"
             for p in d.get("tcp", [])[:25]]
 
 
 def _fmt_systemd_failed(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     failed = (d.get("system_failed") or []) + (d.get("user_failed") or [])
-    if not failed: return ["  (none — clean state)"]
+    if not failed:
+        return ["  (none — clean state)"]
     return [f"  {u['unit']} — {u.get('description', '')}" for u in failed[:20]]
 
 
 def _fmt_kernel_modules(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     modules = d.get("modules", [])
     return [f"  {m['name']:<28} {m['size_bytes']:>10} B  used by {m['used_count']}"
             for m in modules[:15]]
 
 
 def _fmt_containers(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for x in d.get("containers", [])[:15]:
         lines.append(f"  {(x.get('name') or '?'):<30} {x.get('status', '')}")
-        if x.get("image"): lines.append(f"    image : {x['image']}")
-        if x.get("ports"): lines.append(f"    ports : {x['ports'][:100]}")
+        if x.get("image"):
+            lines.append(f"    image : {x['image']}")
+        if x.get("ports"):
+            lines.append(f"    ports : {x['ports'][:100]}")
     return lines or ["  (no containers)"]
 
 
 def _fmt_systemd_timers(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     return [f"  {(t.get('unit') or '?'):<40} next: {t.get('next') or '—'}"
             for t in d.get("timers", [])[:15]]
 
 
 def _fmt_network_io(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for i in d.get("interfaces", []):
         def _b(n):
             for unit, div in (("TB", 1099511627776), ("GB", 1073741824),
                                ("MB", 1048576), ("KB", 1024)):
-                if n >= div: return f"{n / div:.2f} {unit}"
+                if n >= div:
+                    return f"{n / div:.2f} {unit}"
             return f"{n} B"
         extra = ""
-        if i["errin"] + i["errout"]: extra += f"  err {i['errin']+i['errout']}"
-        if i["dropin"] + i["dropout"]: extra += f"  drop {i['dropin']+i['dropout']}"
+        if i["errin"] + i["errout"]:
+            extra += f"  err {i['errin']+i['errout']}"
+        if i["dropin"] + i["dropout"]:
+            extra += f"  drop {i['dropin']+i['dropout']}"
         lines.append(f"  {i['name']:<20} ↓ {_b(i['bytes_recv']):<12} "
                      f"↑ {_b(i['bytes_sent'])}{extra}")
     return lines
 
 
 def _fmt_updates(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     pc = d.get("pending_count")
     lines = [f"  Manager  : {d.get('manager', '?')}",
              f"  Pending  : {pc if pc is not None else '?'}"]
-    if d.get("checked_at"): lines.append(f"  Checked  : {d['checked_at']}")
+    if d.get("checked_at"):
+        lines.append(f"  Checked  : {d['checked_at']}")
     for p in d.get("sample", [])[:8]:
-        if p.get("new_version"): lines.append(f"    {p['name']:<28} -> {p['new_version']}")
-        else: lines.append(f"    {p['name']}")
+        if p.get("new_version"):
+            lines.append(f"    {p['name']:<28} -> {p['new_version']}")
+        else:
+            lines.append(f"    {p['name']}")
     return lines
 
 
 def _fmt_logged_users(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for u in d.get("users", []):
         parts = [u.get("terminal") or ""]
-        if u.get("host"): parts.append(f"from {u['host']}")
-        if u.get("started"): parts.append(u["started"])
+        if u.get("host"):
+            parts.append(f"from {u['host']}")
+        if u.get("started"):
+            parts.append(u["started"])
         lines.append(f"  {(u.get('name') or '?'):<12} {'  '.join(p for p in parts if p)}")
     return lines or ["  (no active sessions)"]
 
 
 def _fmt_cpu_vulns(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     return [f"  {name:<22} {str(status).split(';')[0].strip()}"
             for name, status in (d.get("mitigations") or {}).items()]
 
 
 def _fmt_virt(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = [f"  Type       : {d.get('type', 'unknown')}"]
-    if d.get("hypervisor"): lines.append(f"  Hypervisor : {d['hypervisor']}")
-    if d.get("container"):  lines.append(f"  Container  : {d['container']}")
-    if d.get("model"):      lines.append(f"  Model      : {d['model']}")
+    if d.get("hypervisor"):
+        lines.append(f"  Hypervisor : {d['hypervisor']}")
+    if d.get("container"):
+        lines.append(f"  Container  : {d['container']}")
+    if d.get("model"):
+        lines.append(f"  Model      : {d['model']}")
     return lines
 
 
 def _fmt_time_sync(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     interesting = ("NTPSynchronized", "ntp_synchronized", "server",
                    "reference_time", "offset", "stratum", "leap_status",
                    "Timezone", "poll_interval")
@@ -358,7 +398,8 @@ def _fmt_time_sync(d: dict) -> list[str]:
 
 
 def _fmt_firewall(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = [f"  Backend  : {d.get('backend', '?')}",
              f"  Active   : {'yes' if d.get('active') else 'no'}"]
     for p in d.get("profiles", []):
@@ -369,16 +410,19 @@ def _fmt_firewall(d: dict) -> list[str]:
 
 
 def _fmt_dns(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = [f"  ns{i+1}       : {ns}" for i, ns in enumerate(d.get("nameservers", []))]
-    if d.get("search"): lines.append(f"  search    : {' '.join(d['search'])}")
+    if d.get("search"):
+        lines.append(f"  search    : {' '.join(d['search'])}")
     if d.get("hosts_entry_count") is not None:
         lines.append(f"  hosts     : {d['hosts_entry_count']} entries")
     return lines
 
 
 def _fmt_env_secrets(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = ["  (values are NEVER exposed -- only variable names)"]
     for name in d.get("names", []):
         lines.append(f"  cred: {name}")
@@ -388,39 +432,48 @@ def _fmt_env_secrets(d: dict) -> list[str]:
 
 
 def _fmt_python_venvs(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     return [f"  [{(env.get('python_version') or '?').split()[0]:<10}] "
             f"{env.get('path', '?')} · {env.get('package_count', 0)} pkgs"
             for env in d.get("venvs", [])]
 
 
 def _fmt_git_repos(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
     for r in d.get("repos", []):
         parts = [f"branch={r.get('branch', '?')}"]
-        if r.get("dirty_files") is not None: parts.append(f"dirty={r['dirty_files']}")
+        if r.get("dirty_files") is not None:
+            parts.append(f"dirty={r['dirty_files']}")
         if r.get("ahead") is not None and r.get("behind") is not None:
             parts.append(f"↑{r['ahead']} ↓{r['behind']}")
         lines.append(f"  {r.get('path', '?')}")
         lines.append(f"    {' · '.join(parts)}")
-        if r.get("last_commit"): lines.append(f"    last: {r['last_commit']}")
+        if r.get("last_commit"):
+            lines.append(f"    last: {r['last_commit']}")
     return lines
 
 
 def _fmt_crontab(d: dict) -> list[str]:
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     lines = []
-    for e in d.get("user_entries") or []: lines.append(f"  [user] {e}")
-    for e in (d.get("system_entries") or [])[:15]: lines.append(f"  [sys]  {e}")
+    for e in d.get("user_entries") or []:
+        lines.append(f"  [user] {e}")
+    for e in (d.get("system_entries") or [])[:15]:
+        lines.append(f"  [sys]  {e}")
     return lines
 
 
 def _fmt_error_list(d: dict) -> list[str]:
     """Shared formatter for dmesg_errors + journal_errors."""
-    if not d.get("available"): return []
+    if not d.get("available"):
+        return []
     errs = d.get("errors", [])
-    if not errs: return ["  (clean)"]
+    if not errs:
+        return ["  (clean)"]
     return [f"  {e}" for e in errs[:15]]
 
 
@@ -448,7 +501,8 @@ def _fmt_recent_activity(d: dict) -> list[str]:
 
 
 def _fmt_network(d: dict) -> list[str]:
-    if not d: return []
+    if not d:
+        return []
     lines = [f"  hostname: {d.get('hostname')}  fqdn: {d.get('fqdn', '')}"]
     for iface in d.get("interfaces", []):
         lines.append(f"  {iface.get('name', '?'):<20} {iface.get('ipv4', '')}")
@@ -457,15 +511,18 @@ def _fmt_network(d: dict) -> list[str]:
 
 def _fmt_kv_dict(d: dict) -> list[str]:
     """Generic {k: v} formatter used for runtimes / package_managers / browsers."""
-    if not d: return []
+    if not d:
+        return []
     return [f"  {k:<12} {v}" for k, v in sorted(d.items())]
 
 
 def _fmt_displays(d: dict) -> list[str]:
-    if not d: return []
+    if not d:
+        return []
     lines = []
     for k, v in d.items():
-        if k != "screens": lines.append(f"  {k:<22} {v}")
+        if k != "screens":
+            lines.append(f"  {k:<22} {v}")
     for s in d.get("screens", []) or []:
         if isinstance(s, dict):
             parts = [s.get(k) for k in ("output", "geometry", "resolution", "name") if s.get(k)]
@@ -476,19 +533,22 @@ def _fmt_displays(d: dict) -> list[str]:
 
 
 def _fmt_services(d: dict) -> list[str]:
-    if not d: return []
+    if not d:
+        return []
     lines = []
     for k, v in d.items():
         if isinstance(v, list):
             lines.append(f"  {k} ({len(v)}):")
-            for item in v: lines.append(f"      - {item}")
+            for item in v:
+                lines.append(f"      - {item}")
         else:
             lines.append(f"  {k}: {v}")
     return lines
 
 
 def _fmt_python_env(d: dict) -> list[str]:
-    if not d: return []
+    if not d:
+        return []
     lines = [f"  Executable: {d.get('executable')}",
              f"  Version   : {d.get('version')} ({d.get('implementation')})",
              f"  In venv   : {d.get('is_venv')}"]
@@ -500,10 +560,12 @@ def _fmt_python_env(d: dict) -> list[str]:
 
 
 def _fmt_env(d: dict) -> list[str]:
-    if not d: return []
+    if not d:
+        return []
     lines = []
     for k, v in sorted(d.items()):
-        if k == "PATH_dirs": continue  # too noisy
+        if k == "PATH_dirs":
+            continue  # too noisy
         if k == "PATH":
             lines.append(f"  PATH                   ({d.get('PATH_entries', '?')} entries; "
                          "expand with 'env' section JSON)")

@@ -34,12 +34,15 @@ def _client_loop(sock: socket.socket, addr):
                                                        "result":{"unsubscribed":True}}, ensure_ascii=False))
                         continue
                     resp = handle_rpc(msg)
-                    if resp is not None: _send_text(sock, json.dumps(resp, ensure_ascii=False))
+                    if resp is not None:
+                        _send_text(sock, json.dumps(resp, ensure_ascii=False))
                 except Exception as e:
                     _send_text(sock, json.dumps({"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}}))
     except (ConnectionError, OSError) as e:
         sys.stderr.write(f"WS client {addr} disconnected: {e}\n")
     finally:
         _unsubscribe_all(sock)
-        try: sock.close()
-        except Exception: pass
+        try:
+            sock.close()
+        except Exception:
+            pass

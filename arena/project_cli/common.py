@@ -38,15 +38,18 @@ def now(): return dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds')
 
 def safe(name):
     s=''.join(c if c.isalnum() or c in '-_.' else '-' for c in name.strip())
-    if not s or s.startswith('.'): raise SystemExit('bad project name')
+    if not s or s.startswith('.'):
+        raise SystemExit('bad project name')
     return s
 
 def project_path(name=None):
     if not name:
-        if not CURRENT.exists(): raise SystemExit('no current project; run project-use NAME')
+        if not CURRENT.exists():
+            raise SystemExit('no current project; run project-use NAME')
         name=CURRENT.read_text().strip()
     p=PROJECTS/safe(name)
-    if not p.exists(): raise SystemExit(f'project not found: {name}')
+    if not p.exists():
+        raise SystemExit(f'project not found: {name}')
     return p
 
 def run(cmd, cwd, check=False):

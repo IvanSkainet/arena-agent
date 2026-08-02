@@ -137,8 +137,10 @@ def test_every_selector_scoped_to_tab_transports(body_html: str):
                     break
                 depth, j = 1, open_b + 1
                 while j < len(css) and depth > 0:
-                    if css[j] == "{": depth += 1
-                    elif css[j] == "}": depth -= 1
+                    if css[j] == "{":
+                        depth += 1
+                    elif css[j] == "}":
+                        depth -= 1
                     j += 1
                 i = j
                 continue

@@ -64,15 +64,19 @@ def cmd_beep(args: list[str]) -> int:
         if "--frequency" in args:
             idx = args.index("--frequency")
             if idx + 1 < len(args):
-                try: custom_freq = int(args[idx+1])
-                except Exception: pass
+                try:
+                    custom_freq = int(args[idx+1])
+                except Exception:
+                    pass
 
         custom_dur = None
         if "--duration" in args:
             idx = args.index("--duration")
             if idx + 1 < len(args):
-                try: custom_dur = int(args[idx+1])
-                except Exception: pass
+                try:
+                    custom_dur = int(args[idx+1])
+                except Exception:
+                    pass
 
         if platform.system() == "Windows":
             import winsound
