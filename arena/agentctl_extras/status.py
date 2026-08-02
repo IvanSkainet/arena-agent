@@ -54,9 +54,9 @@ def run_status(args=[]):
     if shutil.which("tailscale"):
         try:
             if platform.system() == "Windows":
-                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True)
+                subprocess.run("tailscale funnel status 2>nul || tailscale serve status 2>nul", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
             else:
-                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True)
+                subprocess.run("tailscale funnel status 2>/dev/null || tailscale serve status 2>/dev/null || true", shell=True)  # nosec B604 -- fixed literal command string, no interpolation of any kind, so there is nothing for a shell to inject; `shell=True` is needed only for the `||` fallback / redirection.
         except Exception as e:
             print(f"Failed to check Tailscale: {e}")
     else:

@@ -20,8 +20,11 @@ def ensure_ydotool():
         return False
     if run('pgrep -x ydotoold').returncode!=0 and have('ydotoold'):
         sock=os.environ.get('XDG_RUNTIME_DIR','/run/user/1000')+'/.ydotool_socket'
-        subprocess.Popen(f'ydotoold --socket-path={shq(sock)} >/tmp/ydotoold.log 2>&1',shell=True)
-        time.sleep(.5)  # nosec B602 # nosemgrep: subprocess-shell-true,dangerous-subprocess-use-tainted-env-args -- shq() escapes the socket path; redirection to log requires shell; XDG_RUNTIME_DIR is a system-managed env var not attacker-writable in a legit desktop session
+        # The suppression below used to sit on the `time.sleep` line, one row
+        # past the call it was meant to cover -- so it silenced nothing and
+        # bandit kept flagging the Popen. Moved onto the actual call.
+        subprocess.Popen(f'ydotoold --socket-path={shq(sock)} >/tmp/ydotoold.log 2>&1',shell=True)  # nosec B602,B604 -- shq() escapes the socket path; redirection to a log requires a shell; XDG_RUNTIME_DIR is system-managed, not attacker-writable in a legitimate desktop session.  # nosemgrep: subprocess-shell-true,dangerous-subprocess-use-tainted-env-args -- same rationale as the bandit nosec on this line
+        time.sleep(.5)
     return True
 
 def move(args):

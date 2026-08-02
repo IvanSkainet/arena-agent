@@ -247,6 +247,35 @@ each an explicit re-export facade with a written reason, and the F405 floor is
 pinned at 35. The gate also fails if the count *drops* without the floor being
 lowered -- which is how the floor got from 58 to 35 in this commit.
 
+### The scanners could finally see the code, and had things to say
+
+Removing star imports made three CI scanners newly able to resolve
+`subprocess`, `CDPBrowser` and friends. Everything they reported had been true
+for years; the analyser simply could not follow a name through `import *`.
+
+* **bandit: 9 MEDIUM (B604).** Seven predate this work -- the job had been red
+  and the findings unreachable. Five are fixed literal command strings with
+  nothing interpolated; the rest already carried a reasoned `# nosec B602` and
+  needed the sibling rule id. One was a genuine mistake: in
+  `arena/desktop/cli/input.py` the suppression sat on the `time.sleep` line,
+  one row past the `Popen` it was meant to cover, so it silenced nothing.
+  Moved onto the call. **Now 0 MEDIUM/HIGH.**
+* **semgrep: 2 findings**, both the same misplaced annotation.
+* **pyrefly: `missing-attribute` +1 net, 34 new in one file.** Not bugs -- an
+  undeclared interface. `CDPTabConnectionMixin` reads `target_id`, `ws_url`,
+  `_browser` and calls `get_title` / `get_current_url`, all supplied by the
+  class that mixes it in. Declared under `TYPE_CHECKING` so the contract is
+  written down and runtime is untouched. The first stub was wrong (sync, no
+  timeout arg) and the checker said so immediately with two `not-async` and two
+  `inconsistent-inheritance` errors; the signatures now match `tab_ops.py`
+  verbatim.
+
+Net effect on the type debt: **pyrefly 905 -> 843**, with `unknown-name` going
+36 -> 0 because names now have a resolvable origin. The quality baseline was
+regenerated against a locally installed pyrefly -- the previous "0" recorded in
+this sandbox was an artifact of the tool being absent, and is now a real
+measurement.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

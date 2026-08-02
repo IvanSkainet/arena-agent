@@ -1,6 +1,8 @@
 """Single CDP tab component."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 # CDPBrowser is instantiated at runtime here (not just annotated), so this
 # is a plain import. Checked for an import cycle before adding it.
 from arena.browser.cdp_client.browser import CDPBrowser
@@ -21,6 +23,32 @@ from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
 
 class CDPTabConnectionMixin:
+    """Connection half of :class:`CDPTab`.
+
+    The attributes below are provided by the concrete class that mixes this
+    in (``CDPTab``); declaring them here is the mixin's contract. Before
+    v4.155.0 the star import hid ``CDPBrowser``'s type from the checker, so
+    these accesses were simply unanalysable -- the explicit import made them
+    visible, and 34 "missing attribute" findings appeared at once. They are
+    not bugs; they are an undeclared interface, now declared. Annotations only:
+    nothing is assigned, so runtime behaviour is unchanged.
+    """
+
+    if TYPE_CHECKING:  # pragma: no cover - typing only
+        target_id: str
+        ws_url: str
+        port: int
+        timeout: float
+        _connected: bool
+        _browser: CDPBrowser | None
+
+        # Supplied by the sibling mixin (CDPTabOpsMixin). Signatures copied
+        # from tab_ops.py verbatim -- an approximate stub here produced two
+        # `not-async` and two `inconsistent-inheritance` errors, i.e. the
+        # checker caught the stub being wrong before it could mislead anyone.
+        async def get_title(self, timeout: Optional[float] = None) -> Optional[str]: ...
+        async def get_current_url(self, timeout: Optional[float] = None) -> Optional[str]: ...
+
     async def connect(self) -> None:
         """Establish a CDP WebSocket connection to this tab.
 

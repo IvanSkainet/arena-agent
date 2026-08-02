@@ -12,15 +12,14 @@
     "invalid-annotation": 1,
     "invalid-argument": 3,
     "missing-argument": 1,
-    "missing-attribute": 570,
+    "missing-attribute": 547,
     "no-matching-overload": 14,
     "not-async": 5,
     "not-callable": 8,
     "not-iterable": 6,
     "redefinition": 3,
     "unexpected-keyword": 11,
-    "unknown-name": 169,
     "unsupported-operation": 24,
-    "TOTAL": 1035
+    "TOTAL": 843
   }
 }

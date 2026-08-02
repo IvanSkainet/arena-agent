@@ -84,7 +84,7 @@ def _collect_full_inner():
         # 4. RAM Full Details
         try:
             ram_os = {}
-            res = subprocess.run("powershell -NoProfile -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory | ConvertTo-Json -Compress\"", capture_output=True, text=True, shell=True)
+            res = subprocess.run("powershell -NoProfile -Command \"Get-CimInstance Win32_OperatingSystem | Select-Object TotalVisibleMemorySize, FreePhysicalMemory, TotalVirtualMemorySize, FreeVirtualMemory | ConvertTo-Json -Compress\"", capture_output=True, text=True, shell=True)  # nosec B604 -- fixed literal PowerShell command; nothing is interpolated, so there is no injection surface. shell=True is how the Windows branch reaches powershell.exe.
             if res.stdout.strip():
                 ram_os = json.loads(res.stdout)
 
@@ -125,7 +125,7 @@ def _collect_full_inner():
 
         # 6. Network details
         try:
-            net_res = subprocess.run('powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -notmatch \'127.0.0.1\' | Select-Object IPAddress, InterfaceAlias | ConvertTo-Json"', capture_output=True, text=True, shell=True)
+            net_res = subprocess.run('powershell -NoProfile -Command "Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -notmatch \'127.0.0.1\' | Select-Object IPAddress, InterfaceAlias | ConvertTo-Json"', capture_output=True, text=True, shell=True)  # nosec B604 -- fixed literal PowerShell command; nothing is interpolated, so there is no injection surface. shell=True is how the Windows branch reaches powershell.exe.
             if net_res.stdout.strip():
                 net_data = json.loads(net_res.stdout)
                 if not isinstance(net_data, list):
@@ -137,7 +137,7 @@ def _collect_full_inner():
 
         # 7. Processes summary
         try:
-            p_count = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_Process).Count\"", capture_output=True, text=True, shell=True)
+            p_count = subprocess.run("powershell -NoProfile -Command \"(Get-CimInstance Win32_Process).Count\"", capture_output=True, text=True, shell=True)  # nosec B604 -- fixed literal PowerShell command; nothing is interpolated, so there is no injection surface. shell=True is how the Windows branch reaches powershell.exe.
             if p_count.stdout.strip().isdigit():
                 info["processes"]["count"] = int(p_count.stdout.strip())
         except Exception:
