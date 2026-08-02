@@ -9,7 +9,9 @@ def ensure_ydotool():
     if not have('ydotool'):
         return False
     if run('pgrep -x ydotoold').returncode!=0 and have('ydotoold'):
-        sock=os.environ.get('XDG_RUNTIME_DIR','/run/user/1000')+'/.ydotool_socket'; subprocess.Popen(f'ydotoold --socket-path={shq(sock)} >/tmp/ydotoold.log 2>&1',shell=True); time.sleep(.5)  # nosec B602 # nosemgrep: subprocess-shell-true,dangerous-subprocess-use-tainted-env-args -- shq() escapes the socket path; redirection to log requires shell; XDG_RUNTIME_DIR is a system-managed env var not attacker-writable in a legit desktop session
+        sock=os.environ.get('XDG_RUNTIME_DIR','/run/user/1000')+'/.ydotool_socket'
+        subprocess.Popen(f'ydotoold --socket-path={shq(sock)} >/tmp/ydotoold.log 2>&1',shell=True)
+        time.sleep(.5)  # nosec B602 # nosemgrep: subprocess-shell-true,dangerous-subprocess-use-tainted-env-args -- shq() escapes the socket path; redirection to log requires shell; XDG_RUNTIME_DIR is a system-managed env var not attacker-writable in a legit desktop session
     return True
 
 def move(args):
@@ -21,7 +23,12 @@ def move(args):
     sx=max(0,x-random.randint(150,350))
     sy=max(0,y+random.randint(80,240))
     for i in range(1,steps+1):
-        t=i/steps; e=1-(1-t)**3; cx=int(sx+(x-sx)*e); cy=int(sy+(y-sy)*e); run(f'ydotool mousemove -a -x {cx} -y {cy}',timeout=2); time.sleep(float(args.delay))
+        t=i/steps
+        e=1-(1-t)**3
+        cx=int(sx+(x-sx)*e)
+        cy=int(sy+(y-sy)*e)
+        run(f'ydotool mousemove -a -x {cx} -y {cy}',timeout=2)
+        time.sleep(float(args.delay))
     j({'ok':True,'x':x,'y':y,'steps':steps})
 
 def click(args):
@@ -71,7 +78,9 @@ def type_text(args):
     _focus_active_window()
 
     if have('wl-copy') and ensure_ydotool():
-        subprocess.run(['wl-copy'],input=text,text=True); time.sleep(.1); p=run('ydotool key 29:1 47:1 47:0 29:0',timeout=5)
+        subprocess.run(['wl-copy'],input=text,text=True)
+        time.sleep(.1)
+        p=run('ydotool key 29:1 47:1 47:0 29:0',timeout=5)
     elif have('wtype'):
         p=subprocess.run(['wtype',text],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
     else:

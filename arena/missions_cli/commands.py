@@ -12,12 +12,14 @@ def list_cmd(a):
             print(p.name)
     else:
         for p in sorted(TEMPLATES.glob('*.json')):
-            o=json.loads(p.read_text()); print(f"{o['id']}: {o.get('title','')}")
+            o=json.loads(p.read_text())
+            print(f"{o['id']}: {o.get('title','')}")
 
 def show_cmd(a): print(json.dumps(load_template(a.name),ensure_ascii=False,indent=2))
 
 def new_cmd(a):
-    t=load_template(a.template); mid=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+slug(a.name or t['id'])+'-'+uuid.uuid4().hex[:6]
+    t=load_template(a.template)
+    mid=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+slug(a.name or t['id'])+'-'+uuid.uuid4().hex[:6]
     d=MISSIONS/mid
     (d/'artifacts').mkdir(parents=True)
     (d/'logs').mkdir()
@@ -30,7 +32,9 @@ def new_cmd(a):
 def check_cmd(a): print('\n'.join(commands_for(a.name)))
 
 def status_cmd(a):
-    d=find_mission(a.id); obj=json.loads((d/'mission.json').read_text()); print(json.dumps({'ok':True,'path':str(d),'mission':obj},ensure_ascii=False,indent=2))
+    d=find_mission(a.id)
+    obj=json.loads((d/'mission.json').read_text())
+    print(json.dumps({'ok':True,'path':str(d),'mission':obj},ensure_ascii=False,indent=2))
 
 def run_cmd_mission(a):
     _mission_id = getattr(a, "id", getattr(a, "name", "unknown"))
@@ -47,7 +51,8 @@ def run_cmd_mission(a):
     return _rc
 
 def _run_cmd_mission_orig(a):
-    d=find_mission(a.id); obj=json.loads((d/'mission.json').read_text())
+    d=find_mission(a.id)
+    obj=json.loads((d/'mission.json').read_text())
     # v4.55.0: scenario-typed missions run through the in-process
     # scenarios runtime because their steps are Arena TOOL CALLS,
     # not shell commands. mission_manager is a subprocess and
@@ -84,21 +89,28 @@ def _run_cmd_mission_orig(a):
     print(json.dumps({'ok':ok,'mission':d.name,'state':obj['state'],'steps':len(results)},ensure_ascii=False,indent=2))
 
 def report_cmd(a):
-    d=find_mission(a.id); obj=json.loads((d/'mission.json').read_text()); out=d/'REPORT.md'; lines=[f'# Mission report: {obj["title"]}','',f'ID: `{obj["id"]}`',f'State: `{obj.get("state")}`',f'Generated: {now()}','','## Step logs']
+    d=find_mission(a.id)
+    obj=json.loads((d/'mission.json').read_text())
+    out=d/'REPORT.md'
+    lines=[f'# Mission report: {obj["title"]}','',f'ID: `{obj["id"]}`',f'State: `{obj.get("state")}`',f'Generated: {now()}','','## Step logs']
     for f in sorted((d/'logs').glob('step-*.json')):
-        r=json.loads(f.read_text()); lines += [f'### {f.stem}: `{r["cmd"]}`',f'Exit: `{r["exit_code"]}`','','```text',(r.get('stdout','')+r.get('stderr',''))[:6000],'```','']
+        r=json.loads(f.read_text())
+        lines += [f'### {f.stem}: `{r["cmd"]}`',f'Exit: `{r["exit_code"]}`','','```text',(r.get('stdout','')+r.get('stderr',''))[:6000],'```','']
     out.write_text('\n'.join(lines))
     print(str(out))
 
 def stress_cmd(a):
-    tmp=MISSIONS/'stress-current'; tmp.mkdir(parents=True,exist_ok=True); mid='stress-current'
+    tmp=MISSIONS/'stress-current'
+    tmp.mkdir(parents=True,exist_ok=True)
+    mid='stress-current'
     obj={'id':mid,'template':'cli-agent-core','title':'Core stress','state':'planned','created_at':now(),'runs':[]}
     (tmp/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2))
     (tmp/'logs').mkdir(exist_ok=True)
     run_cmd_mission(argparse.Namespace(id=mid,step=None,timeout=180))
 
 def roadmap_cmd(a):
-    out=ROOT/'ROADMAP.md'; out.write_text(textwrap.dedent('''# Arena Agent Roadmap
+    out=ROOT/'ROADMAP.md'
+    out.write_text(textwrap.dedent('''# Arena Agent Roadmap
 
 ## Core
 - Bridge as control plane, heavy tasks via transient services.
@@ -117,4 +129,5 @@ def roadmap_cmd(a):
 - Client/UPS test-all.
 - BrowserAct adapter.
 - Real MCP server practical tests.
-''').strip()+'\n'); print(out)
+''').strip()+'\n')
+    print(out)

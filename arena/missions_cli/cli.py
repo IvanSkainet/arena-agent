@@ -6,7 +6,8 @@ from arena.missions_cli.common import *  # noqa: F401,F403
 
 
 def main():
-    ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='cmd',required=True)
+    ap=argparse.ArgumentParser()
+    sub=ap.add_subparsers(dest='cmd',required=True)
     s=sub.add_parser('list')
     s.add_argument('--missions',action='store_true')
     s.set_defaults(func=list_cmd)

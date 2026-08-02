@@ -370,7 +370,8 @@ def _handle_admin_run(args: dict[str, Any], *, ctx) -> dict[str, Any]:
         for line in reversed((proc.stdout or "").splitlines()):
             line = line.strip()
             if line.lstrip("-").isdigit():
-                elevated_exit = int(line); break
+                elevated_exit = int(line)
+                break
         return {
             "ok": elevated_exit == 0,
             "exit": elevated_exit if elevated_exit is not None else proc.returncode,

@@ -20,7 +20,8 @@ def test_rate_limit_config_update_and_stats():
         assert stats["ok"] is True
         assert "active_users" in stats["stats"]
     finally:
-        rl._rl_v2_config.clear(); rl._rl_v2_config.update(old)
+        rl._rl_v2_config.clear()
+        rl._rl_v2_config.update(old)
 
 
 def test_unified_bridge_rate_limit_reexports():

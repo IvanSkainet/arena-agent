@@ -93,7 +93,8 @@ def cmd_install(args):
 def cmd_remove(args):
     cfg = _load_config()
     if args.name not in cfg.get("mcpServers", {}):
-        print(f"not installed: {args.name}", file=sys.stderr); return 1
+        print(f"not installed: {args.name}", file=sys.stderr)
+        return 1
     del cfg["mcpServers"][args.name]
     _save_config(cfg)
     print(f"removed: {args.name}")
@@ -107,9 +108,11 @@ def cmd_test(args):
     cfg = _load_config()
     srv = cfg.get("mcpServers", {}).get(args.name)
     if not srv:
-        print(f"not installed: {args.name}", file=sys.stderr); return 1
+        print(f"not installed: {args.name}", file=sys.stderr)
+        return 1
     if srv["command"] not in ("npx", "uvx", "python", "python3", "node", "echo"):
-        print(f"refusing unknown command: {srv['command']}", file=sys.stderr); return 2
+        print(f"refusing unknown command: {srv['command']}", file=sys.stderr)
+        return 2
 
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": {"protocolVersion": "2025-03-26", "capabilities": {},

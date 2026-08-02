@@ -86,7 +86,8 @@ def _http_handshake(sock: socket.socket) -> bool:
         if not line:
             break
         if b":" in line:
-            k, v = line.split(b":", 1); headers[k.strip().lower()] = v.strip()
+            k, v = line.split(b":", 1)
+            headers[k.strip().lower()] = v.strip()
     key = headers.get(b"sec-websocket-key", b"").decode()
     if not key:
         return False

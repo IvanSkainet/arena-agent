@@ -8,14 +8,17 @@ from arena.mcp.ws_push import _subscribe, _unsubscribe_all
 def _client_loop(sock: socket.socket, addr):
     try:
         if not _http_handshake(sock):
-            sock.close(); return
+            sock.close()
+            return
         sys.stderr.write(f"WS client connected: {addr}\n")
         while True:
             op, data = _recv_frame(sock)
             if op == 0x8:  # close
-                _send_frame(sock, 0x8, b""); break
+                _send_frame(sock, 0x8, b"")
+                break
             if op == 0x9:  # ping
-                _send_frame(sock, 0xA, data); continue
+                _send_frame(sock, 0xA, data)
+                continue
             if op == 0xA:  # pong
                 continue
             if op in (0x1, 0x2):

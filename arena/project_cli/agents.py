@@ -34,9 +34,11 @@ def agents_md_command(args):
     if sub == "init":
         tmpl = _pl.Path.home() / "arena-bridge" / "docs" / "AGENTS.md.template"
         if not tmpl.exists():
-            print("template missing:", tmpl); return 1
+            print("template missing:", tmpl)
+            return 1
         if target.exists():
-            print("already exists:", target); return 1
+            print("already exists:", target)
+            return 1
         text = tmpl.read_text().replace("{name}", proj_dir.name)
         target.write_text(text)
         print("created:", target)

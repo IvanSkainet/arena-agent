@@ -214,7 +214,8 @@ def test_asr_transcribe_happy_path_wav(tmp_path, monkeypatch):
 
 
 def test_asr_transcribe_reports_whisper_timeout(tmp_path, monkeypatch):
-    audio = tmp_path / "a.wav"; audio.write_bytes(b"RIFF")
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"RIFF")
     model = tmp_path / "ggml-test.bin"
     model.write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
@@ -228,7 +229,8 @@ def test_asr_transcribe_reports_whisper_timeout(tmp_path, monkeypatch):
 
 
 def test_asr_transcribe_reports_whisper_nonzero(tmp_path, monkeypatch):
-    audio = tmp_path / "a.wav"; audio.write_bytes(b"RIFF")
+    audio = tmp_path / "a.wav"
+    audio.write_bytes(b"RIFF")
     model = tmp_path / "ggml-test.bin"
     model.write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")

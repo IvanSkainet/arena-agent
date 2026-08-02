@@ -51,7 +51,13 @@ def semicolon_rows(src: str) -> dict[int, list[int]]:
     return {r: sorted(cols) for r, cols in rows.items()}
 
 
-def unsafe_rows(tree: ast.AST) -> set[int]:
+_SUITE_KEYWORDS = frozenset({
+    "if", "elif", "else", "for", "while", "with", "try", "except", "finally",
+    "def", "class", "async", "case", "match",
+})
+
+
+def unsafe_rows(tree: ast.AST, source_lines: list[str] | None = None) -> set[int]:
     """Rows we refuse to touch.
 
     A row is only safe when every statement sitting on it belongs to the SAME
@@ -68,34 +74,58 @@ def unsafe_rows(tree: ast.AST) -> set[int]:
     it while the suite's *own* statements do not span the row exclusively.
     """
     bad: set[int] = set()
+    source_lines = source_lines or []
 
-    def mark_inline_suite(stmts: list[ast.stmt]) -> None:
-        """A suite laid out inline starts and ends on one row -> unsafe row."""
+    def mark_inline_suite(stmts: list[ast.stmt], header_row: int | None) -> None:
+        """Mark rows where a suite is laid out inline with its header.
+
+        v4.155.0 narrowing. The original test -- "two statements of one suite
+        share a row" -- also matched the ordinary case of two simple statements
+        on their own line inside a function body:
+
+            def f(tmp_path):
+                home = tmp_path / "home"; home.mkdir()   # perfectly splittable
+
+        That refused all 112 remaining rows. What is actually dangerous is a
+        suite sharing the row with its *header* (`if c: a; b`, `else: a; b`),
+        because splitting there moves statements out of the branch. So the row
+        is only unsafe when it equals the header's row; E701 has since removed
+        every such case from this tree, but the guard stays because a new one
+        could appear.
+        """
         if not stmts:
             return
         first_row = getattr(stmts[0], "lineno", None)
         if first_row is None:
             return
-        # Any suite whose first statement shares its row with another
-        # statement of the same suite is an inline suite (`x: a; b`).
-        if len(stmts) > 1 and getattr(stmts[1], "lineno", None) == first_row:
+        # A suite inline with its header is unsafe. `orelse`/`finalbody`/
+        # `except` keywords have no lineno of their own, so "same row as the
+        # owner" misses `else: a; b` entirely -- verified by watching the
+        # narrowed guard hoist a statement out of an else branch. Fall back to
+        # the physical line: if it starts with a suite keyword, the suite is
+        # inline with its header regardless of what the AST reports.
+        if header_row is not None and first_row == header_row:
             bad.add(first_row)
+            return
+        if len(stmts) > 1 and getattr(stmts[1], "lineno", None) == first_row:
+            text = source_lines[first_row - 1].lstrip() if first_row <= len(source_lines) else ""
+            keyword = text.split(":", 1)[0].split("(", 1)[0].strip()
+            if keyword.split(" ")[0] in _SUITE_KEYWORDS:
+                bad.add(first_row)
 
     for node in ast.walk(tree):
         for attr in ("body", "orelse", "finalbody"):
             suite = getattr(node, attr, None)
             if isinstance(suite, list) and suite and isinstance(suite[0], ast.stmt):
-                mark_inline_suite(suite)
-                # Inline suite attached to a compound header (`if c: a; b`)
-                header = getattr(node, "lineno", None)
-                if header is not None and getattr(suite[0], "lineno", None) == header:
-                    bad.add(header)
+                # `orelse`/`finalbody` have no lineno of their own; the header
+                # row for those is the keyword line, which the AST does not
+                # expose. Using the owner's lineno is conservative: it can only
+                # over-refuse, never under-refuse.
+                mark_inline_suite(suite, getattr(node, "lineno", None))
         for handler in getattr(node, "handlers", []) or []:
             hbody = getattr(handler, "body", None)
             if isinstance(hbody, list) and hbody:
-                mark_inline_suite(hbody)
-                if getattr(hbody[0], "lineno", None) == getattr(handler, "lineno", None):
-                    bad.add(handler.lineno)
+                mark_inline_suite(hbody, getattr(handler, "lineno", None))
 
         # Only SIMPLE statements matter here. Compound ones (def/if/for/try…)
         # legitimately span rows; using their range would blacklist the whole
@@ -123,7 +153,7 @@ def rewrite(src: str) -> tuple[str, int, int]:
     if not rows:
         return src, 0, 0
 
-    blocked = unsafe_rows(tree)
+    blocked = unsafe_rows(tree, src.splitlines())
     lines = src.splitlines(keepends=True)
     split_count = 0
     skipped = 0

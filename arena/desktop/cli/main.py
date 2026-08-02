@@ -7,7 +7,8 @@ from arena.desktop.cli.screens import info, ocr, shot, windows
 
 
 def main():
-    ap=argparse.ArgumentParser(); sub=ap.add_subparsers(dest='cmd',required=True)
+    ap=argparse.ArgumentParser()
+    sub=ap.add_subparsers(dest='cmd',required=True)
     sub.add_parser('info').set_defaults(func=info)
     s=sub.add_parser('shot')
     s.add_argument('path',nargs='?')

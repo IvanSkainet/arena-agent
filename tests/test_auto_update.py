@@ -231,7 +231,8 @@ def test_download_release_detects_sha_mismatch(monkeypatch, tmp_path):
     class _FakeResp:
         def __init__(self, data): self._data = data
         def read(self, n=-1):
-            d = self._data; self._data = b""
+            d = self._data
+            self._data = b""
             return d
         def __enter__(self): return self
         def __exit__(self, *a): pass

@@ -190,7 +190,9 @@ def test_best_picks_fastest_from_client_vantage():
     try:
         proc = _run_cli(["bridge", "best"], boot.url())
     finally:
-        boot.stop(); slow.stop(); fast.stop()
+        boot.stop()
+        slow.stop()
+        fast.stop()
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == fast.url()
 
@@ -203,7 +205,8 @@ def test_best_json_reports_provider_and_latency():
     try:
         proc = _run_cli(["bridge", "best", "--json"], boot.url())
     finally:
-        boot.stop(); fast.stop()
+        boot.stop()
+        fast.stop()
     assert proc.returncode == 0, proc.stderr
     payload = json.loads(proc.stdout)
     assert payload["ok"] is True
@@ -239,7 +242,9 @@ def test_best_skips_broken_url_and_returns_working_one():
     try:
         proc = _run_cli(["bridge", "best"], boot.url())
     finally:
-        boot.stop(); broken.stop(); good.stop()
+        boot.stop()
+        broken.stop()
+        good.stop()
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout.strip() == good.url()
 
@@ -256,7 +261,8 @@ def test_test_verb_prints_table_for_every_candidate():
     try:
         proc = _run_cli(["bridge", "test", "--timeout", "0.5"], boot.url())
     finally:
-        boot.stop(); good.stop()
+        boot.stop()
+        good.stop()
     # Exit 0 because at least one candidate answered.
     assert proc.returncode == 0, proc.stderr
     assert "good" in proc.stdout
@@ -273,7 +279,8 @@ def test_test_verb_json_shape():
     try:
         proc = _run_cli(["bridge", "test", "--json"], boot.url())
     finally:
-        boot.stop(); good.stop()
+        boot.stop()
+        good.stop()
     payload = json.loads(proc.stdout)
     assert payload["ok"] is True
     assert len(payload["results"]) == 1

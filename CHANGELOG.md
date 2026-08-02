@@ -159,6 +159,31 @@ a rename into the middle of `re.I`. Separately, the reasoning comments pushed
 `auto_update.py` to 602 lines and tripped the 600-line mini-monolith gate —
 the very cap that caused the split this comment explains.
 
+### E702 cleared: the guard was refusing everything it should have allowed
+
+The semicolon splitter had been stuck at 112 rows for two releases, reporting
+all of them "unsafe". The guard was wrong, not the code: it treated *any* two
+statements of one suite sharing a row as an inline suite, which also matches an
+ordinary `home = tmp_path / "h"; home.mkdir()` in a function body. Narrowing it
+to what is genuinely dangerous -- a suite sharing the row with its **header** --
+released 110; the last two were a multi-line string literal, split by hand.
+
+Debt **1721 -> 1609. The baseline now names a single rule, F405.**
+
+The narrowing immediately introduced a real hole, and finding it is the point:
+`else` / `except` / `finally` carry no `lineno` of their own, so "same row as
+the owner" silently missed `else: a; b`, and the tool hoisted a statement out
+of an else branch. Caught by writing the sabotage test before trusting the
+change; the guard now falls back to the physical line's leading keyword.
+
+Verified the same way as E701: AST identical in 28/28 files, then compiled
+bytecode compared across **384 functions** -- 0 differences once NOP padding,
+superinstruction fusion and jump renumbering are normalised away. The
+normaliser itself needed a fix mid-flight: it resolved jump targets to an
+instruction *name*, which changes when a fused pair splits, so targets are now
+resolved to an index in the fully expanded stream. Then the rewritten CLI
+modules were executed for real.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

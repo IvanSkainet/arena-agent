@@ -25,7 +25,8 @@ def get_runtimes() -> dict:
                 info = _run([_which(name) or name, "--info"], timeout=5, capture_stderr=True)
                 for ln in info.splitlines():
                     if ln.strip().lower().startswith((".net sdk", ".net runtimes", "host:")):
-                        v = ln.strip(); break
+                        v = ln.strip()
+                        break
         else:
             v = _ver(name)
         if v:

@@ -42,7 +42,9 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self.send_response(204); self._cors(); self.end_headers()
+        self.send_response(204)
+        self._cors()
+        self.end_headers()
 
     def do_GET(self):
         if self.path == "/health":

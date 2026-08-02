@@ -144,10 +144,12 @@ def _max_risk_over(names: list[str], seen: set[str]) -> str:
             continue
         if t.startswith(PREFIX):
             if t in seen:           # cycle guard (should not happen post-create)
-                mx = max(mx, _RISK_ORDER["medium"]); continue
+                mx = max(mx, _RISK_ORDER["medium"])
+                continue
             sub = _load()["tools"].get(t)
             if not sub:             # dangling reference -> treat as medium
-                mx = max(mx, _RISK_ORDER["medium"]); continue
+                mx = max(mx, _RISK_ORDER["medium"])
+                continue
             rlabel = _max_risk_over(_body_tool_names(sub), seen | {t})
             mx = max(mx, _RISK_ORDER.get(rlabel, 1))
         else:

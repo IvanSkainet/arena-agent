@@ -10,7 +10,10 @@ from arena.tasks.queue import clean_tasks, list_tasks, submit_task  # noqa: E402
 
 
 def test_submit_and_list_tasks(tmp_path):
-    inbox = tmp_path / "inbox"; running = tmp_path / "running"; done = tmp_path / "done"; failed = tmp_path / "failed"
+    inbox = tmp_path / "inbox"
+    running = tmp_path / "running"
+    done = tmp_path / "done"
+    failed = tmp_path / "failed"
     for d in [inbox, running, done, failed]:
         d.mkdir(parents=True)
     submitted = submit_task({"cmd": "echo hi", "title": "hello"}, inbox=inbox, default_cwd=str(tmp_path), now_fn=lambda: "now")
@@ -22,7 +25,8 @@ def test_submit_and_list_tasks(tmp_path):
 
 
 def test_clean_tasks_removes_old_done_failed(tmp_path):
-    done = tmp_path / "done"; failed = tmp_path / "failed"
+    done = tmp_path / "done"
+    failed = tmp_path / "failed"
     done.mkdir()
     failed.mkdir()
     (done / "a.json").write_text(json.dumps({"id": "a"}), encoding="utf-8")

@@ -5,7 +5,9 @@ from arena.project_cli.common import *  # noqa: F401,F403
 
 
 def new_project(args):
-    name=safe(args.name); p=PROJECTS/name; p.mkdir(parents=True, exist_ok=True)
+    name=safe(args.name)
+    p=PROJECTS/name
+    p.mkdir(parents=True, exist_ok=True)
     for d in ['data','src','reports','notes','tmp','issues/open','issues/closed','merge-requests/open','merge-requests/closed']:
         (p/d).mkdir(parents=True, exist_ok=True)
     (p/'.gitignore').write_text('.env\n.env.*\nsecrets/\ntmp/\n*.log\n.DS_Store\nnode_modules/\n.venv/\n', encoding='utf-8') if not (p/'.gitignore').exists() else None
@@ -19,7 +21,10 @@ def new_project(args):
     print(str(p))
 
 def use(args):
-    p=project_path(args.name); CURRENT.parent.mkdir(parents=True, exist_ok=True); CURRENT.write_text(p.name); print(p.name)
+    p=project_path(args.name)
+    CURRENT.parent.mkdir(parents=True, exist_ok=True)
+    CURRENT.write_text(p.name)
+    print(p.name)
 
 def current(args): print(CURRENT.read_text().strip() if CURRENT.exists() else '')
 
@@ -44,9 +49,12 @@ def git_init(args):
     print(c.stdout+c.stderr)
 
 def status(args):
-    p=project_path(args.name); out={'ok':True,'project':p.name,'path':str(p),'git':(p/'.git').exists()}
+    p=project_path(args.name)
+    out={'ok':True,'project':p.name,'path':str(p),'git':(p/'.git').exists()}
     if out['git']:
-        out['branch']=run('git branch --show-current',p).stdout.strip(); out['status']=run('git status --short',p).stdout.splitlines(); out['last_commit']=run('git log -1 --oneline',p).stdout.strip()
+        out['branch']=run('git branch --show-current',p).stdout.strip()
+        out['status']=run('git status --short',p).stdout.splitlines()
+        out['last_commit']=run('git log -1 --oneline',p).stdout.strip()
     files=[]
     for x in sorted(p.rglob('*')):
         if '.git' in x.parts:

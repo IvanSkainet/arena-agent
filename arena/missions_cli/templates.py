@@ -14,20 +14,24 @@ TEMPLATES_DATA={
 }
 
 def ensure():
-    TEMPLATES.mkdir(parents=True,exist_ok=True); MISSIONS.mkdir(parents=True,exist_ok=True); REPORTS.mkdir(exist_ok=True)
+    TEMPLATES.mkdir(parents=True,exist_ok=True)
+    MISSIONS.mkdir(parents=True,exist_ok=True)
+    REPORTS.mkdir(exist_ok=True)
     for k,v in TEMPLATES_DATA.items():
         p=TEMPLATES/f'{k}.json'
         if not p.exists():
             p.write_text(json.dumps({'id':k,**v},ensure_ascii=False,indent=2)+'\n')
 
 def load_template(name):
-    ensure(); p=TEMPLATES/f'{slug(name)}.json'
+    ensure()
+    p=TEMPLATES/f'{slug(name)}.json'
     if not p.exists():
         raise SystemExit(f'unknown template: {name}')
     return json.loads(p.read_text())
 
 def find_mission(mid):
-    ensure(); matches=[p for p in MISSIONS.iterdir() if p.is_dir() and (p.name==mid or p.name.startswith(mid))]
+    ensure()
+    matches=[p for p in MISSIONS.iterdir() if p.is_dir() and (p.name==mid or p.name.startswith(mid))]
     if not matches:
         raise SystemExit(f'mission not found: {mid}')
     return sorted(matches)[-1]

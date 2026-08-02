@@ -199,7 +199,8 @@ def test_validate_edit_target_blocks_sensitive_files(tmp_path):
     bridge = home / "bridge.py"
     bridge.write_text("x")
     for blocked_name in ["token.txt", ".env", "id_rsa", "users.json"]:
-        f = home / blocked_name; f.write_text("secret")
+        f = home / blocked_name
+        f.write_text("secret")
         path, err, status = validate_edit_target(blocked_name, root=home, home=home, bridge_py=bridge)
         assert err is not None and status == 403, f"expected block for {blocked_name}, got: {err}"
         assert "not allowed" in err

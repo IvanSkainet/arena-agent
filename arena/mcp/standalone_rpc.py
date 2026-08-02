@@ -6,7 +6,8 @@ from arena.mcp.standalone_tools import TOOLS, call_tool
 
 
 def handle_rpc(msg: dict) -> dict | None:
-    m = msg.get("method", ""); rid = msg.get("id")
+    m = msg.get("method", "")
+    rid = msg.get("id")
     if m == "initialize":
         return rpc_result(rid, {"protocolVersion": "2025-03-26",
                                  "serverInfo": {"name": "arena-local-mcp-stream", "version": VERSION},

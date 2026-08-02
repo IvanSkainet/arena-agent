@@ -79,7 +79,8 @@ def _mock_request(method, path, body: dict, token="t"):
 # ============================================================
 
 def test_validate_view_target_success(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     f = home / "file.py"
     f.write_text("x")
     path, err, status = validate_view_target("file.py", root=home, home=home)
@@ -87,28 +88,33 @@ def test_validate_view_target_success(tmp_path):
 
 
 def test_validate_view_target_blocks_traversal(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     path, err, status = validate_view_target("../x", root=home, home=home)
     assert err == "path traversal not allowed" and status == 400
 
 
 def test_validate_view_target_blocks_sensitive_files(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     for blocked_name in ["token.txt", ".env", "id_rsa", "users.json"]:
-        f = home / blocked_name; f.write_text("secret")
+        f = home / blocked_name
+        f.write_text("secret")
         path, err, status = validate_view_target(blocked_name, root=home, home=home)
         assert err is not None and status == 403, f"expected block for {blocked_name}"
         assert "not allowed" in err
 
 
 def test_validate_view_target_file_not_found(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     path, err, status = validate_view_target("missing.py", root=home, home=home)
     assert err == "file not found" and status == 404
 
 
 def test_validate_view_target_missing_path(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     path, err, status = validate_view_target("", root=home, home=home)
     assert err == "missing path" and status == 400
 
@@ -118,7 +124,8 @@ def test_validate_view_target_missing_path(tmp_path):
 # ============================================================
 
 def test_validate_create_target_success(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     bridge = home / "bridge.py"
     bridge.write_text("x")
     path, err, status = validate_create_target("new.py", root=home, home=home, bridge_py=bridge)
@@ -126,7 +133,8 @@ def test_validate_create_target_success(tmp_path):
 
 
 def test_validate_create_target_blocks_traversal(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     bridge = home / "bridge.py"
     bridge.write_text("x")
     path, err, status = validate_create_target("../x", root=home, home=home, bridge_py=bridge)
@@ -134,7 +142,8 @@ def test_validate_create_target_blocks_traversal(tmp_path):
 
 
 def test_validate_create_target_blocks_sensitive_files(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     bridge = home / "bridge.py"
     bridge.write_text("x")
     for blocked_name in ["token.txt", ".env", "id_rsa", "users.json"]:
@@ -144,7 +153,8 @@ def test_validate_create_target_blocks_sensitive_files(tmp_path):
 
 
 def test_validate_create_target_blocks_bridge_itself(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     bridge = home / "unified_bridge.py"
     bridge.write_text("x")
     path, err, status = validate_create_target("unified_bridge.py", root=home, home=home, bridge_py=bridge)
@@ -152,7 +162,8 @@ def test_validate_create_target_blocks_bridge_itself(tmp_path):
 
 
 def test_validate_create_target_already_exists(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     bridge = home / "bridge.py"
     bridge.write_text("x")
     existing = home / "exists.py"
@@ -163,7 +174,8 @@ def test_validate_create_target_already_exists(tmp_path):
 
 
 def test_validate_create_target_missing_path(tmp_path):
-    home = tmp_path / "home"; home.mkdir()
+    home = tmp_path / "home"
+    home.mkdir()
     bridge = home / "bridge.py"
     bridge.write_text("x")
     path, err, status = validate_create_target("", root=home, home=home, bridge_py=bridge)
@@ -175,7 +187,8 @@ def test_validate_create_target_missing_path(tmp_path):
 # ============================================================
 
 def test_handler_fs_view_full_file(tmp_path):
-    f = tmp_path / "test.py"; f.write_text("line1\nline2\nline3\n")
+    f = tmp_path / "test.py"
+    f.write_text("line1\nline2\nline3\n")
     ctx, audit = _make_ctx(tmp_path)
     handlers = make_fs_view_create_handlers(ctx)
     resp = asyncio.run(handlers.view(_mock_request("POST", "/v1/fs/view", {"path": str(f)})))
@@ -188,7 +201,8 @@ def test_handler_fs_view_full_file(tmp_path):
 
 
 def test_handler_fs_view_with_range(tmp_path):
-    f = tmp_path / "test.py"; f.write_text("l1\nl2\nl3\nl4\nl5\n")
+    f = tmp_path / "test.py"
+    f.write_text("l1\nl2\nl3\nl4\nl5\n")
     ctx, _ = _make_ctx(tmp_path)
     handlers = make_fs_view_create_handlers(ctx)
     resp = asyncio.run(handlers.view(_mock_request("POST", "/v1/fs/view", {"path": str(f), "view_range": [2, 4]})))
@@ -198,7 +212,8 @@ def test_handler_fs_view_with_range(tmp_path):
 
 
 def test_handler_fs_view_invalid_range(tmp_path):
-    f = tmp_path / "test.py"; f.write_text("l1\nl2\n")
+    f = tmp_path / "test.py"
+    f.write_text("l1\nl2\n")
     ctx, _ = _make_ctx(tmp_path)
     handlers = make_fs_view_create_handlers(ctx)
     resp = asyncio.run(handlers.view(_mock_request("POST", "/v1/fs/view", {"path": str(f), "view_range": [5, 1]})))
@@ -207,7 +222,8 @@ def test_handler_fs_view_invalid_range(tmp_path):
 
 
 def test_handler_fs_view_blocked_sensitive(tmp_path):
-    f = tmp_path / "token.txt"; f.write_text("secret\n")
+    f = tmp_path / "token.txt"
+    f.write_text("secret\n")
     ctx, _ = _make_ctx(tmp_path)
     handlers = make_fs_view_create_handlers(ctx)
     resp = asyncio.run(handlers.view(_mock_request("POST", "/v1/fs/view", {"path": str(f)})))
@@ -224,7 +240,8 @@ def test_handler_fs_view_not_found(tmp_path):
 
 
 def test_handler_fs_view_requires_auth(tmp_path):
-    f = tmp_path / "test.py"; f.write_text("x")
+    f = tmp_path / "test.py"
+    f.write_text("x")
     ctx, _ = _make_ctx(tmp_path)
     handlers = make_fs_view_create_handlers(ctx)
     resp = asyncio.run(handlers.view(_mock_request("POST", "/v1/fs/view", {"path": str(f)}, token=None)))
@@ -253,7 +270,8 @@ def test_handler_fs_create_creates_parent_dirs(tmp_path):
 
 
 def test_handler_fs_create_already_exists(tmp_path):
-    f = tmp_path / "existing.py"; f.write_text("original\n")
+    f = tmp_path / "existing.py"
+    f.write_text("original\n")
     ctx, _ = _make_ctx(tmp_path)
     handlers = make_fs_view_create_handlers(ctx)
     resp = asyncio.run(handlers.create(_mock_request("POST", "/v1/fs/create", {"path": str(f), "content": "new\n"})))
