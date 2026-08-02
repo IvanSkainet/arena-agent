@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -13,29 +15,29 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class ResourceHandlers:
-    missions: object
-    reports: object
-    hooks: object
-    agents: object
-    subagents: object
-    mission_show: object
-    mission_status: object
-    mission_report: object
-    mission_history: object
-    mission_lineage: object
-    mission_catalog: object
-    mission_templates: object
-    mission_compose: object
-    mission_propose: object
-    mission_create: object
-    mission_run: object
-    mission_rerun: object
-    mission_recover: object
-    mission_followup: object
-    mission_iterate: object
-    subagents_spawn: object
-    code_run_info: object
-    code_artifact_download: object
+    missions: Callable[..., Any]
+    reports: Callable[..., Any]
+    hooks: Callable[..., Any]
+    agents: Callable[..., Any]
+    subagents: Callable[..., Any]
+    mission_show: Callable[..., Any]
+    mission_status: Callable[..., Any]
+    mission_report: Callable[..., Any]
+    mission_history: Callable[..., Any]
+    mission_lineage: Callable[..., Any]
+    mission_catalog: Callable[..., Any]
+    mission_templates: Callable[..., Any]
+    mission_compose: Callable[..., Any]
+    mission_propose: Callable[..., Any]
+    mission_create: Callable[..., Any]
+    mission_run: Callable[..., Any]
+    mission_rerun: Callable[..., Any]
+    mission_recover: Callable[..., Any]
+    mission_followup: Callable[..., Any]
+    mission_iterate: Callable[..., Any]
+    subagents_spawn: Callable[..., Any]
+    code_run_info: Callable[..., Any]
+    code_artifact_download: Callable[..., Any]
 
 
 def _query_bool(value: str) -> bool | None:

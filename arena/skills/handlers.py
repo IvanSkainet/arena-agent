@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -13,11 +15,11 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class SkillHandlers:
-    skills: object
-    install: object
-    uninstall: object
-    run: object
-    reload: object
+    skills: Callable[..., Any]
+    install: Callable[..., Any]
+    uninstall: Callable[..., Any]
+    run: Callable[..., Any]
+    reload: Callable[..., Any]
 
 
 def make_skill_handlers(ctx: SkillHandlerContext) -> SkillHandlers:

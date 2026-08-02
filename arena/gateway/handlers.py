@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -14,10 +16,10 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class GatewayHandlers:
-    index: object
-    tools: object
-    run: object
-    tool: object
+    index: Callable[..., Any]
+    tools: Callable[..., Any]
+    run: Callable[..., Any]
+    tool: Callable[..., Any]
 
 
 def make_gateway_handlers(ctx: GatewayHandlerContext) -> GatewayHandlers:

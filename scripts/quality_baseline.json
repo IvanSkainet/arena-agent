@@ -5,7 +5,7 @@
   "pyrefly": {
     "bad-argument-count": 11,
     "bad-argument-type": 71,
-    "bad-assignment": 125,
+    "bad-assignment": 51,
     "bad-function-definition": 6,
     "bad-index": 1,
     "bad-return": 6,
@@ -20,6 +20,6 @@
     "redefinition": 3,
     "unexpected-keyword": 11,
     "unsupported-operation": 24,
-    "TOTAL": 843
+    "TOTAL": 769
   }
 }

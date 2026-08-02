@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -14,10 +16,10 @@ from arena.handler_helpers import authed, err_json  # noqa: F401  # kept: re-exp
 
 @dataclass(frozen=True)
 class ServiceHandlers:
-    service_info: object
-    sys_svc: object
-    capabilities: object
-    restart: object
+    service_info: Callable[..., Any]
+    sys_svc: Callable[..., Any]
+    capabilities: Callable[..., Any]
+    restart: Callable[..., Any]
 
 
 def make_service_handlers(ctx: ServiceHandlerContext) -> ServiceHandlers:

@@ -1,7 +1,9 @@
 """CDP network monitoring handlers."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from arena.handler_context import CdpNetworkHandlerContext
@@ -10,10 +12,10 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class CdpNetworkHandlers:
-    start: object
-    stop: object
-    requests: object
-    har: object
+    start: Callable[..., Any]
+    stop: Callable[..., Any]
+    requests: Callable[..., Any]
+    har: Callable[..., Any]
 
 
 def make_cdp_network_handlers(ctx: CdpNetworkHandlerContext) -> CdpNetworkHandlers:

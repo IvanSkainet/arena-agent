@@ -1,7 +1,9 @@
 """CDP session lifecycle handler factory facade."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.browser.cdp.session_connect import make_cdp_connect_handler
 from arena.browser.cdp.session_disconnect import make_cdp_disconnect_handler
@@ -10,8 +12,8 @@ from arena.handler_context import CdpSessionHandlerContext
 
 @dataclass(frozen=True)
 class CdpSessionHandlers:
-    connect: object
-    disconnect: object
+    connect: Callable[..., Any]
+    disconnect: Callable[..., Any]
 
 
 def make_cdp_session_handlers(ctx: CdpSessionHandlerContext) -> CdpSessionHandlers:

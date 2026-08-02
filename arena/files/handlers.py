@@ -8,7 +8,9 @@ catches stray exceptions with proper error accounting.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -25,11 +27,11 @@ from arena.handler_helpers import authed, err_json, parse_json_body
 
 @dataclass(frozen=True)
 class FileHandlers:
-    upload: object
-    download: object
-    fs_edit: object
-    fs_edit_apply: object
-    fs_edit_rollback: object
+    upload: Callable[..., Any]
+    download: Callable[..., Any]
+    fs_edit: Callable[..., Any]
+    fs_edit_apply: Callable[..., Any]
+    fs_edit_rollback: Callable[..., Any]
 
 
 def _json_error(ctx: FileHandlerContext, message: str, status: int) -> web.Response:

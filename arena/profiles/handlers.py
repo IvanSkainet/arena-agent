@@ -1,7 +1,9 @@
 """Handlers for browser session profile save/load endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -14,8 +16,8 @@ from arena.profiles.save_handler import make_profiles_save_handler
 
 @dataclass(frozen=True)
 class ProfileHandlers:
-    profiles: object
-    load: object
+    profiles: Callable[..., Any]
+    load: Callable[..., Any]
 
 
 def make_profile_handlers(ctx: ProfileHandlerContext) -> ProfileHandlers:

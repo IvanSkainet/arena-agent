@@ -1,7 +1,9 @@
 """Handlers for rate-limit configuration/statistics endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -11,7 +13,7 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class RateLimitHandlers:
-    ratelimit: object
+    ratelimit: Callable[..., Any]
 
 
 def make_rate_limit_handlers(ctx: RateLimitHandlerContext) -> RateLimitHandlers:

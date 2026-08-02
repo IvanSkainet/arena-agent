@@ -23,6 +23,7 @@ generic "add GITHUB_TOKEN" instructions block.
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -145,8 +146,12 @@ def test_two_new_routes_are_registered():
     assert "/v1/admin/update/token-clear" in core
     assert "handle_v1_admin_update_token_set" in plat
     assert "handle_v1_admin_update_token_clear" in plat
-    assert "update_token_set: object" in hdlrs
-    assert "update_token_clear: object" in hdlrs
+    # The point is that the dataclass CARRIES these fields, not how they are
+    # annotated. v4.155.0 typed handler fields as Callable[..., Any] instead of
+    # the placeholder `object`, and pinning the annotation text here would have
+    # made this test a guard against improving the types.
+    assert re.search(r"^\s+update_token_set:\s+\S", hdlrs, re.M)
+    assert re.search(r"^\s+update_token_clear:\s+\S", hdlrs, re.M)
     assert "update_token_set=_upd" in hdlrs
     assert "update_token_clear=_upd" in hdlrs
     assert "handle_update_token_set" in hup

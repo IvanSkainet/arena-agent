@@ -1,7 +1,9 @@
 """Handlers for desktop automation endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.desktop.display_handler import make_desktop_display_handler
 from arena.desktop.input_handlers import make_desktop_input_handlers
@@ -16,21 +18,21 @@ from arena.handler_context import DesktopHandlerContext
 
 @dataclass(frozen=True)
 class DesktopHandlers:
-    screenshot: object
-    displays: object
-    click: object
-    type: object
-    key: object
-    mouse: object
-    windows: object
-    active_window: object
-    focus: object
-    window_action: object
-    resolve_text_target: object
-    text_action: object
-    ocr: object
-    find_text: object
-    click_text: object
+    screenshot: Callable[..., Any]
+    displays: Callable[..., Any]
+    click: Callable[..., Any]
+    type: Callable[..., Any]
+    key: Callable[..., Any]
+    mouse: Callable[..., Any]
+    windows: Callable[..., Any]
+    active_window: Callable[..., Any]
+    focus: Callable[..., Any]
+    window_action: Callable[..., Any]
+    resolve_text_target: Callable[..., Any]
+    text_action: Callable[..., Any]
+    ocr: Callable[..., Any]
+    find_text: Callable[..., Any]
+    click_text: Callable[..., Any]
 
 
 

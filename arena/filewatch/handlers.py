@@ -1,8 +1,10 @@
 """REST handlers for file watcher management."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from aiohttp import web
 
@@ -13,7 +15,7 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class FileWatchHandlers:
-    watch_files: object
+    watch_files: Callable[..., Any]
 
 
 

@@ -1,7 +1,9 @@
 """Advanced CDP handlers: session check, stealth helpers, and health dashboard."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.browser.cdp.advanced_common import get_active_browser  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from arena.browser.cdp.advanced_health import make_cdp_health_handler
@@ -13,10 +15,10 @@ from arena.handler_context import CdpAdvancedHandlerContext
 
 @dataclass(frozen=True)
 class CdpAdvancedHandlers:
-    session_check: object
-    stealth_extract: object
-    stealth_shot: object
-    health: object
+    session_check: Callable[..., Any]
+    stealth_extract: Callable[..., Any]
+    stealth_shot: Callable[..., Any]
+    health: Callable[..., Any]
 
 
 def _as_facade_handler(handler):

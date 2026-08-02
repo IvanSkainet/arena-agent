@@ -4,8 +4,10 @@ from __future__ import annotations
 import hmac
 import os
 import socket
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from aiohttp import web
 
@@ -16,11 +18,11 @@ from arena.handler_context import GuiHandlerContext
 
 @dataclass(frozen=True)
 class GuiHandlers:
-    gui: object
-    gui_v2: object
-    gui_asset: object
-    gui_asset_manifest: object
-    gui_docs: object
+    gui: Callable[..., Any]
+    gui_v2: Callable[..., Any]
+    gui_asset: Callable[..., Any]
+    gui_asset_manifest: Callable[..., Any]
+    gui_docs: Callable[..., Any]
 
 
 def make_gui_handlers(ctx: GuiHandlerContext) -> GuiHandlers:

@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.handler_context import CdpTabsHandlerContext
 from arena.handler_helpers import authed
@@ -10,10 +12,10 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class CdpTabsHandlers:
-    tabs: object
-    new: object
-    close: object
-    activate: object
+    tabs: Callable[..., Any]
+    new: Callable[..., Any]
+    close: Callable[..., Any]
+    activate: Callable[..., Any]
 
 
 def make_cdp_tabs_handlers(ctx: CdpTabsHandlerContext) -> CdpTabsHandlers:

@@ -29,8 +29,10 @@ import shutil
 import signal
 import tempfile
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from aiohttp import web
 
@@ -67,13 +69,13 @@ _DEFAULT_INTERPRETER_WIN = "powershell"
 
 @dataclass(frozen=True)
 class ExecHandlers:
-    ps: object
-    exec: object
-    kill: object
+    ps: Callable[..., Any]
+    exec: Callable[..., Any]
+    kill: Callable[..., Any]
     # v4.2.0: raw-script endpoint.
-    script: object
+    script: Callable[..., Any]
     # v4.3.0: NDJSON streaming endpoint.
-    stream: object
+    stream: Callable[..., Any]
 
 
 def _resolve_interpreter(name: str) -> tuple[str, dict[str, object]] | None:

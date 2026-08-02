@@ -1,7 +1,9 @@
 """Handlers for bounded ReAct loops and reflection."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -11,8 +13,8 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class AgenticHandlers:
-    react: object
-    reflect: object
+    react: Callable[..., Any]
+    reflect: Callable[..., Any]
 
 
 

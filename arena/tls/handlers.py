@@ -4,6 +4,7 @@ from __future__ import annotations
 import shutil
 import socket
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,7 +27,7 @@ TLS_CONFIG: dict[str, Any] = {
 
 @dataclass(frozen=True)
 class TlsHandlers:
-    tls: object
+    tls: Callable[..., Any]
 
 
 def generate_self_signed_cert(*, log_info: Any = None, log_warning: Any = None) -> tuple[str, str]:

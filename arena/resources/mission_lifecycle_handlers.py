@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -13,10 +15,10 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class MissionLifecycleHandlers:
-    mission_family: object
-    mission_schedules: object
-    mission_schedules_state: object
-    mission_schedules_tick: object
+    mission_family: Callable[..., Any]
+    mission_schedules: Callable[..., Any]
+    mission_schedules_state: Callable[..., Any]
+    mission_schedules_tick: Callable[..., Any]
 
 
 

@@ -1,7 +1,9 @@
 """Handlers for runtime metrics, Prometheus export and bridge log tailing."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.handler_context import RuntimeObservabilityHandlerContext
 from arena.observability.live_metrics_handler import make_live_metrics_handlers
@@ -13,12 +15,12 @@ from arena.observability.runtime_common import cluster_role_value as _cluster_ro
 
 @dataclass(frozen=True)
 class RuntimeObservabilityHandlers:
-    metrics: object
-    prometheus_metrics: object
-    logs: object
+    metrics: Callable[..., Any]
+    prometheus_metrics: Callable[..., Any]
+    logs: Callable[..., Any]
     # v3.95.0 -- live-metrics for Dashboard sparkline charts.
-    live_metrics: object
-    live_metrics_stream: object
+    live_metrics: Callable[..., Any]
+    live_metrics_stream: Callable[..., Any]
 
 
 def _as_runtime_handler(handler):

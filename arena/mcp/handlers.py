@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import aiohttp
 from aiohttp import web
@@ -16,13 +18,13 @@ from arena.mcp.runtime import now_ms, sid
 
 @dataclass(frozen=True)
 class McpHandlers:
-    mcp_post: object
-    mcp_delete: object
-    sse: object
-    sse_messages: object
-    ws: object
-    mcp_servers: object
-    mcp_custom_remove: object
+    mcp_post: Callable[..., Any]
+    mcp_delete: Callable[..., Any]
+    sse: Callable[..., Any]
+    sse_messages: Callable[..., Any]
+    ws: Callable[..., Any]
+    mcp_servers: Callable[..., Any]
+    mcp_custom_remove: Callable[..., Any]
 
 
 def make_mcp_handlers(ctx: McpHandlerContext) -> McpHandlers:

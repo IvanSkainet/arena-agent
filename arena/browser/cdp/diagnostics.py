@@ -1,7 +1,9 @@
 """CDP diagnostic handlers for launch/raw HTTP/WebSocket probes."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.browser.cdp.raw_info import make_cdp_raw_info_handler
 from arena.browser.cdp.test_launch import make_cdp_test_launch_handler
@@ -11,9 +13,9 @@ from arena.handler_context import CdpDiagnosticHandlerContext
 
 @dataclass(frozen=True)
 class CdpDiagnosticHandlers:
-    raw_info: object
-    test_launch: object
-    test_ws: object
+    raw_info: Callable[..., Any]
+    test_launch: Callable[..., Any]
+    test_ws: Callable[..., Any]
 
 
 def _as_facade_handler(handler):

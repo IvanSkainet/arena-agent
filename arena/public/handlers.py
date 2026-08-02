@@ -1,7 +1,9 @@
 """Public bridge endpoints: index, health and OpenAPI docs."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,9 +14,9 @@ from arena.public.openapi import build_openapi_spec
 
 @dataclass(frozen=True)
 class PublicHandlers:
-    index: object
-    health: object
-    api_docs: object
+    index: Callable[..., Any]
+    health: Callable[..., Any]
+    api_docs: Callable[..., Any]
 
 
 def make_public_handlers(ctx: PublicHandlerContext) -> PublicHandlers:

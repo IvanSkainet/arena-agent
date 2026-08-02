@@ -1,6 +1,7 @@
 """Prometheus-style alert configuration and status handler."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -21,7 +22,7 @@ ALERTS_CONFIG: dict[str, dict[str, Any]] = {
 
 @dataclass(frozen=True)
 class AlertHandlers:
-    alerts: object
+    alerts: Callable[..., Any]
 
 
 def make_alert_handlers(ctx: AlertsHandlerContext) -> AlertHandlers:

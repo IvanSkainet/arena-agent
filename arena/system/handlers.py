@@ -5,7 +5,9 @@ import asyncio
 import platform
 import socket
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -16,16 +18,16 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class SystemHandlers:
-    version: object
-    info: object
-    status: object
-    config: object
-    doctor: object
-    sysinfo: object
-    beep: object
-    notify: object
-    autonomy_posture_get: object
-    autonomy_posture_set: object
+    version: Callable[..., Any]
+    info: Callable[..., Any]
+    status: Callable[..., Any]
+    config: Callable[..., Any]
+    doctor: Callable[..., Any]
+    sysinfo: Callable[..., Any]
+    beep: Callable[..., Any]
+    notify: Callable[..., Any]
+    autonomy_posture_get: Callable[..., Any]
+    autonomy_posture_set: Callable[..., Any]
 
 
 def make_system_handlers(ctx: SystemHandlerContext) -> SystemHandlers:

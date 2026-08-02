@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,9 +14,9 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class TaskHandlers:
-    tasks_get: object
-    tasks_post: object
-    tasks_clean: object
+    tasks_get: Callable[..., Any]
+    tasks_post: Callable[..., Any]
+    tasks_clean: Callable[..., Any]
 
 
 def make_task_handlers(ctx: TaskHandlerContext) -> TaskHandlers:

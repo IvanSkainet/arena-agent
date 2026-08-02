@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,7 +16,7 @@ from arena.handler_context import EventHandlerContext
 
 @dataclass(frozen=True)
 class EventHandlers:
-    events: object
+    events: Callable[..., Any]
 
 
 def make_event_handlers(ctx: EventHandlerContext) -> EventHandlers:

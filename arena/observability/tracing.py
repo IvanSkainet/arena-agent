@@ -1,7 +1,9 @@
 """OpenTelemetry-style in-memory tracing helper and handler facade."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.handler_context import TracingHandlerContext
 from arena.observability.tracing_config_handler import make_tracing_config_handler
@@ -12,8 +14,8 @@ from arena.observability.tracing_state import _otel_config, _otel_lock, _otel_tr
 
 @dataclass(frozen=True)
 class TracingHandlers:
-    tracing: object
-    traces_export: object
+    tracing: Callable[..., Any]
+    traces_export: Callable[..., Any]
 
 
 def make_tracing_handlers(ctx: TracingHandlerContext) -> TracingHandlers:

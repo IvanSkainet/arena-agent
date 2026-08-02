@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -19,11 +21,11 @@ from arena.memory.profiles import (
 
 @dataclass(frozen=True)
 class MemoryHandlers:
-    memory_get: object
-    memory_set: object
-    memory_delete: object
-    recall: object
-    recall_digest: object
+    memory_get: Callable[..., Any]
+    memory_set: Callable[..., Any]
+    memory_delete: Callable[..., Any]
+    recall: Callable[..., Any]
+    recall_digest: Callable[..., Any]
 
 
 def _retitle_digest(text: str, title: str) -> str:

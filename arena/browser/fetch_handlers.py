@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -13,11 +15,11 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class BrowserFetchHandlers:
-    search: object
-    read: object
-    dump: object
-    fetch: object
-    head: object
+    search: Callable[..., Any]
+    read: Callable[..., Any]
+    dump: Callable[..., Any]
+    fetch: Callable[..., Any]
+    head: Callable[..., Any]
 
 
 def make_browser_fetch_handlers(ctx: BrowserFetchHandlerContext) -> BrowserFetchHandlers:

@@ -13,7 +13,9 @@ import asyncio
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 from urllib.parse import parse_qs
 
 from aiohttp import web
@@ -25,13 +27,13 @@ from arena.web_utils import CORS_HEADERS
 
 @dataclass(frozen=True)
 class ObservabilityHandlers:
-    audit: object
-    audit_stats: object
-    audit_log: object
-    webhooks_get: object
-    webhooks_set: object
+    audit: Callable[..., Any]
+    audit_stats: Callable[..., Any]
+    audit_log: Callable[..., Any]
+    webhooks_get: Callable[..., Any]
+    webhooks_set: Callable[..., Any]
     # v4.9.0: chunked NDJSON tail of audit.jsonl.
-    audit_stream: object
+    audit_stream: Callable[..., Any]
 
 
 # v4.9.0 tunables. Deliberately conservative: 300s is long enough

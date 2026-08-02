@@ -1,7 +1,9 @@
 """Handlers for watchdog status/configuration."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,7 +14,7 @@ from arena.watchdog.runtime import WATCHDOG_STATE
 
 @dataclass(frozen=True)
 class WatchdogHandlers:
-    watchdog: object
+    watchdog: Callable[..., Any]
 
 
 def make_watchdog_handlers(ctx: WatchdogHandlerContext) -> WatchdogHandlers:

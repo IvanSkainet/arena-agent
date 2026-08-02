@@ -1,7 +1,9 @@
 """Handlers for sandbox execution/configuration endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,7 +14,7 @@ from arena.sandbox.runtime import SANDBOX_CONFIG
 
 @dataclass(frozen=True)
 class SandboxHandlers:
-    sandbox: object
+    sandbox: Callable[..., Any]
 
 
 def make_sandbox_handlers(ctx: SandboxHandlerContext) -> SandboxHandlers:

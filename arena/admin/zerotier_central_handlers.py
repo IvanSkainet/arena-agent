@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -41,14 +43,14 @@ from arena.handler_helpers import authed, err_json, parse_json_body
 
 @dataclass(frozen=True)
 class ZerotierCentralHandlers:
-    status: object
-    networks_list: object
-    networks_create: object
-    network_get: object
-    network_delete: object
-    members_list: object
-    member_update: object
-    member_delete: object
+    status: Callable[..., Any]
+    networks_list: Callable[..., Any]
+    networks_create: Callable[..., Any]
+    network_get: Callable[..., Any]
+    network_delete: Callable[..., Any]
+    members_list: Callable[..., Any]
+    member_update: Callable[..., Any]
+    member_delete: Callable[..., Any]
 
 
 async def _run(ctx, fn, *args, **kwargs):

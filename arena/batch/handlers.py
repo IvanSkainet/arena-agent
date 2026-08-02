@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import aiohttp
 from aiohttp import web
@@ -14,7 +16,7 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class BatchHandlers:
-    batch: object
+    batch: Callable[..., Any]
 
 
 def make_batch_handlers(ctx: BatchHandlerContext) -> BatchHandlers:

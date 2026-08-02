@@ -1,7 +1,9 @@
 """CDP network interception handlers."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.handler_context import CdpInterceptHandlerContext
 from arena.handler_helpers import authed
@@ -9,9 +11,9 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class CdpInterceptHandlers:
-    start: object
-    stop: object
-    rule: object
+    start: Callable[..., Any]
+    stop: Callable[..., Any]
+    rule: Callable[..., Any]
 
 
 def make_cdp_intercept_handlers(ctx: CdpInterceptHandlerContext) -> CdpInterceptHandlers:

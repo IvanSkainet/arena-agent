@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -36,51 +38,51 @@ from arena.handler_helpers import authed, safe_float
 
 @dataclass(frozen=True)
 class AdminHandlers:
-    sys_funnel: object
-    token_regenerate: object
-    tailscale_funnel: object
-    cloudflared_tunnel: object
+    sys_funnel: Callable[..., Any]
+    token_regenerate: Callable[..., Any]
+    tailscale_funnel: Callable[..., Any]
+    cloudflared_tunnel: Callable[..., Any]
     # v4.33.0: ngrok as fourth transport (POST /v1/ngrok/tunnel/{action}).
-    ngrok_tunnel: object
+    ngrok_tunnel: Callable[..., Any]
     # v4.47.0: bore as fifth transport (POST /v1/bore/tunnel/{action}).
-    bore_tunnel: object
-    zerotier_status: object
-    zerotier_network: object
+    bore_tunnel: Callable[..., Any]
+    zerotier_status: Callable[..., Any]
+    zerotier_network: Callable[..., Any]
     # v4.4.0: per-peer classification (direct / relay / root / tunneled).
-    zerotier_peers: object
-    tunnels_status: object
-    tunnels_active: object
-    tunnels_start: object
-    tunnels_stop: object
+    zerotier_peers: Callable[..., Any]
+    tunnels_status: Callable[..., Any]
+    tunnels_active: Callable[..., Any]
+    tunnels_start: Callable[..., Any]
+    tunnels_stop: Callable[..., Any]
     # v4.1.0: reachability probe for the active transport.
-    tunnels_probe: object
+    tunnels_probe: Callable[..., Any]
     # v4.14.0: manual reset of the circuit-breaker records.
-    tunnels_probe_reset: object
+    tunnels_probe_reset: Callable[..., Any]
     # v4.1.0: agent-facing "which URL should I use" endpoint.
-    agent_config: object
+    agent_config: Callable[..., Any]
     # v3.85.0: cross-platform auto-update.
-    update_status: object
-    update_check: object
-    update_apply: object
-    update_restart: object
-    update_token_set: object
-    update_token_clear: object
+    update_status: Callable[..., Any]
+    update_check: Callable[..., Any]
+    update_apply: Callable[..., Any]
+    update_restart: Callable[..., Any]
+    update_token_set: Callable[..., Any]
+    update_token_clear: Callable[..., Any]
     # v3.96.0: ZeroTier Central management surface.
-    zt_central_status: object
-    zt_central_networks_list: object
-    zt_central_networks_create: object
-    zt_central_network_get: object
-    zt_central_network_delete: object
-    zt_central_members_list: object
-    zt_central_member_update: object
-    zt_central_member_delete: object
+    zt_central_status: Callable[..., Any]
+    zt_central_networks_list: Callable[..., Any]
+    zt_central_networks_create: Callable[..., Any]
+    zt_central_network_get: Callable[..., Any]
+    zt_central_network_delete: Callable[..., Any]
+    zt_central_members_list: Callable[..., Any]
+    zt_central_member_update: Callable[..., Any]
+    zt_central_member_delete: Callable[..., Any]
     # v4.19.0: agent-driven change proposals.
-    proposal_submit: object
-    proposal_status: object
-    proposal_list: object
+    proposal_submit: Callable[..., Any]
+    proposal_status: Callable[..., Any]
+    proposal_list: Callable[..., Any]
     # v4.38.0: unified autostart control (all transports).
-    autostart_get: object
-    autostart_set: object
+    autostart_get: Callable[..., Any]
+    autostart_set: Callable[..., Any]
 
 
 def make_admin_handlers(ctx: AdminHandlerContext) -> AdminHandlers:

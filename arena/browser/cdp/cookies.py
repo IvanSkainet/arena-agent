@@ -1,7 +1,9 @@
 """CDP cookie handler factory facade."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.browser.cdp.cookie_crud import (
     make_cdp_cookies_clear_handler,
@@ -16,11 +18,11 @@ from arena.handler_context import CdpCookiesHandlerContext
 
 @dataclass(frozen=True)
 class CdpCookiesHandlers:
-    get: object
-    set: object
-    delete: object
-    clear: object
-    profiles: object
+    get: Callable[..., Any]
+    set: Callable[..., Any]
+    delete: Callable[..., Any]
+    clear: Callable[..., Any]
+    profiles: Callable[..., Any]
 
 
 def make_cdp_cookies_handlers(ctx: CdpCookiesHandlerContext) -> CdpCookiesHandlers:

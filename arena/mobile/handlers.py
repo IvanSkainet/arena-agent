@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -38,27 +40,27 @@ from arena.mobile import (
 
 @dataclass(frozen=True)
 class MobileHandlers:
-    list_devices: object
-    device_info: object
-    screenshot: object
-    tap: object
-    swipe: object
-    type_text: object
-    key_event: object
-    shell: object
-    packages: object
-    gesture: object
-    ui_dump: object
-    tap_by: object
-    helpers_status: object
-    helpers_install: object
-    ime_status: object
-    ime_set: object
-    ime_reset: object
-    paste: object
-    sensors: object
-    scroll: object
-    key_combo: object
+    list_devices: Callable[..., Any]
+    device_info: Callable[..., Any]
+    screenshot: Callable[..., Any]
+    tap: Callable[..., Any]
+    swipe: Callable[..., Any]
+    type_text: Callable[..., Any]
+    key_event: Callable[..., Any]
+    shell: Callable[..., Any]
+    packages: Callable[..., Any]
+    gesture: Callable[..., Any]
+    ui_dump: Callable[..., Any]
+    tap_by: Callable[..., Any]
+    helpers_status: Callable[..., Any]
+    helpers_install: Callable[..., Any]
+    ime_status: Callable[..., Any]
+    ime_set: Callable[..., Any]
+    ime_reset: Callable[..., Any]
+    paste: Callable[..., Any]
+    sensors: Callable[..., Any]
+    scroll: Callable[..., Any]
+    key_combo: Callable[..., Any]
     # v3.83.5 additions.
     pair: object
     connect: object
@@ -66,7 +68,7 @@ class MobileHandlers:
     apk_prepare: object
     apk_install: object
     # v3.84.0 additions.
-    batch: object
+    batch: Callable[..., Any]
     # v3.84.1: camera & media
     camera_launch: object
     camera_shutter: object

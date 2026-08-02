@@ -6,7 +6,9 @@ import shutil
 import socket
 import subprocess
 import tempfile
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -16,8 +18,8 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class CdpBasicHandlers:
-    status: object
-    diag: object
+    status: Callable[..., Any]
+    diag: Callable[..., Any]
 
 
 def make_cdp_basic_handlers(ctx: CdpBasicHandlerContext) -> CdpBasicHandlers:

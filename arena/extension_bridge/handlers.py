@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,10 +14,10 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class ExtensionBridgeHandlers:
-    policies: object
-    preview: object
-    execute: object
-    instructions: object
+    policies: Callable[..., Any]
+    preview: Callable[..., Any]
+    execute: Callable[..., Any]
+    instructions: Callable[..., Any]
 
 
 

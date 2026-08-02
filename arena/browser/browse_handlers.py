@@ -1,7 +1,9 @@
 """High-level /v1/browser/browse route handler."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -13,7 +15,7 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class BrowserBrowseHandlers:
-    browse: object
+    browse: Callable[..., Any]
 
 
 def make_browser_browse_handlers(ctx: BrowserBrowseHandlerContext) -> BrowserBrowseHandlers:

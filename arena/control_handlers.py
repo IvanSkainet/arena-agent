@@ -1,7 +1,9 @@
 """Handlers for desktop control-lease endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,14 +14,14 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class ControlLeaseHandlers:
-    status: object
-    pause: object
-    resume: object
-    revoke: object
-    halt: object
-    unhalt: object
-    yolo_get: object
-    yolo_set: object
+    status: Callable[..., Any]
+    pause: Callable[..., Any]
+    resume: Callable[..., Any]
+    revoke: Callable[..., Any]
+    halt: Callable[..., Any]
+    unhalt: Callable[..., Any]
+    yolo_get: Callable[..., Any]
+    yolo_set: Callable[..., Any]
 
 
 def _snapshot(state: dict) -> dict:

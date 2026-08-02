@@ -1,7 +1,9 @@
 """Handlers for the v2 compatibility API endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.api_v2.common import cfg_get_max_timeout, tls_ready as _tls_ready
 from arena.api_v2.constants import DEPRECATED_ENDPOINTS
@@ -18,12 +20,12 @@ from arena.handler_context import ApiV2HandlerContext
 
 @dataclass(frozen=True)
 class V2Handlers:
-    index: object
-    status: object
-    health: object
-    browser_status: object
-    exec: object
-    deprecations: object
+    index: Callable[..., Any]
+    status: Callable[..., Any]
+    health: Callable[..., Any]
+    browser_status: Callable[..., Any]
+    exec: Callable[..., Any]
+    deprecations: Callable[..., Any]
 
 
 def make_v2_handlers(ctx: ApiV2HandlerContext) -> V2Handlers:

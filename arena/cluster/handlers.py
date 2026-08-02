@@ -1,7 +1,9 @@
 """Handlers for cluster/high-availability configuration endpoints."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -12,7 +14,7 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class ClusterHandlers:
-    cluster: object
+    cluster: Callable[..., Any]
 
 
 def make_cluster_handlers(ctx: ClusterHandlerContext) -> ClusterHandlers:

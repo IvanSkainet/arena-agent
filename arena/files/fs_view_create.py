@@ -13,7 +13,9 @@ handler does happy-path accounting.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -25,8 +27,8 @@ from arena.handler_helpers import authed, err_json, parse_json_body
 
 @dataclass(frozen=True)
 class FsViewCreateHandlers:
-    view: object
-    create: object
+    view: Callable[..., Any]
+    create: Callable[..., Any]
 
 
 def _err(ctx, msg: str, status: int) -> web.Response:

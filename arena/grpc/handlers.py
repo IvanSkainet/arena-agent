@@ -1,7 +1,9 @@
 """Handlers for managing the gRPC-style secondary interface."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -13,7 +15,7 @@ from arena.handler_helpers import authed
 
 @dataclass(frozen=True)
 class GrpcHandlers:
-    grpc: object
+    grpc: Callable[..., Any]
 
 
 def make_grpc_handlers(ctx: GrpcHandlerContext) -> GrpcHandlers:

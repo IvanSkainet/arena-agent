@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from aiohttp import web
 
@@ -39,10 +41,10 @@ def _cache_store(cache: dict, key, result, now_fn) -> None:
 
 @dataclass(frozen=True)
 class HardwareHandlers:
-    inventory: object
-    hardware: object
-    hwinfo: object
-    registry: object
+    inventory: Callable[..., Any]
+    hardware: Callable[..., Any]
+    hwinfo: Callable[..., Any]
+    registry: Callable[..., Any]
 
 
 def make_hardware_handlers(ctx: HandlerContext) -> HardwareHandlers:

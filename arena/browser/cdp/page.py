@@ -1,7 +1,9 @@
 """CDP page action handlers."""
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 from arena.browser.cdp.page_capture import make_cdp_capture_handlers
 from arena.browser.cdp.page_eval import make_cdp_eval_handler
@@ -12,12 +14,12 @@ from arena.handler_context import CdpPageHandlerContext
 
 @dataclass(frozen=True)
 class CdpPageHandlers:
-    navigate: object
-    screenshot: object
-    dom: object
-    eval: object
-    click: object
-    type: object
+    navigate: Callable[..., Any]
+    screenshot: Callable[..., Any]
+    dom: Callable[..., Any]
+    eval: Callable[..., Any]
+    click: Callable[..., Any]
+    type: Callable[..., Any]
 
 
 def _as_facade_handler(handler):
