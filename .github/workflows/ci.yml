@@ -463,6 +463,9 @@ jobs:
       - name: Lock marker-coverage check
         run: python scripts/check_ci_lock.py
 
+      - name: Lock freshness (.in declares == .lock pins)
+        run: python scripts/check_lock_freshness.py
+
       - name: Install packaging + project dependencies (hash-locked)
         run: |
           python -m pip install --require-hashes -r requirements-packaging.lock
@@ -518,6 +521,9 @@ jobs:
 
       - name: Lock marker-coverage check
         run: python scripts/check_ci_lock.py
+
+      - name: Lock freshness (.in declares == .lock pins)
+        run: python scripts/check_lock_freshness.py
 
       - name: Install CI dependencies (hash-locked)
         run: python -m pip install --require-hashes -r requirements-ci.lock
@@ -589,6 +595,9 @@ jobs:
       - name: Lock marker-coverage check
         run: python scripts/check_ci_lock.py
 
+      - name: Lock freshness (.in declares == .lock pins)
+        run: python scripts/check_lock_freshness.py
+
       - name: Install project and CI dependencies (hash-locked)
         run: |
           python -m pip install --require-hashes -r requirements-ci.lock
@@ -640,6 +649,9 @@ jobs:
 
       - name: Lock marker-coverage check
         run: python scripts/check_ci_lock.py
+
+      - name: Lock freshness (.in declares == .lock pins)
+        run: python scripts/check_lock_freshness.py
 
       - name: Install project and CI dependencies (hash-locked)
         run: |
