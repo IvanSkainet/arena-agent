@@ -104,13 +104,21 @@ Use `run_tests: false` only when you know why the tests cannot run in that
 environment, and never as a way past a genuine failure — it is the one door
 around the gate that makes the tests meaningful.
 
-**Project code runs inside a sandbox fence.** On POSIX hosts `code_project.run`
-executes under a systemd fence with the network, filesystem and memory confined.
-That fence needs a session bus, so inside a bare container the run fails with a
-D-Bus error before your code is even reached. If a project fails with
-`Failed to connect to user scope bus` while the same script runs fine by hand,
-the environment is the problem, not the logic — check `sandbox_action` in the
-result before touching the script.
+**Project code runs inside a sandbox fence, and the fence differs per host.**
+On POSIX the run is wrapped in a systemd fence that confines network,
+filesystem and memory; that fence needs a session bus, so inside a bare
+container every run dies with `Failed to connect to user scope bus` before your
+code is reached. On Windows the same call reports `sandbox_action: "off"` and
+executes directly. The result always carries `sandbox_action` — read it before
+suspecting your own script, and confirm by running the script by hand: if it
+works there and not through the tool, the environment is the problem.
+
+Verified on both: in a container the fence blocked every run, while on a
+Windows host the identical project executed, all three declared tests passed,
+publish went through, and the published `custom.parse_size` answered correctly
+for `2 TiB`, `750 kb` and garbage input. The reverse was verified too — a
+manifest whose test demanded output the code cannot produce was rejected with
+`validation failed; tool not published`, and never entered the catalogue.
 
 ## Keep it portable
 
