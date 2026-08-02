@@ -1,8 +1,25 @@
 """Desktop manager screenshot/OCR/window listing commands."""
 from __future__ import annotations
 
-from arena.desktop.cli.common import *  # noqa: F401,F403
+from arena.desktop.cli.common import (
+    REPORTS,
+    Path,
+    argparse,
+    have,
+    j,
+    os,
+    re,
+    run,
+    shutil,
+    stamp,
+    sys,
+)
 from arena.desktop.cli.focus import _detect_wm
+
+# Explicit: shq is NOT provided by the star import above -- it lives in
+# arena.project_cli.common. Until v4.155.0 this module referenced it unbound, so the code path
+# below raised NameError at runtime. Found while replacing star imports.
+from arena.project_cli.common import shq
 
 
 def info(_):

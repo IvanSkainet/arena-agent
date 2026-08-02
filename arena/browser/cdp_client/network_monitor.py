@@ -1,7 +1,15 @@
 """High-level CDP network monitor."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import Dict, List, Optional, logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # CDPBrowser is referenced solely in annotations here, and
+    # `from __future__ import annotations` keeps those as strings,
+    # so a runtime import would only add an import cycle for nothing.
+    from arena.browser.cdp_client.browser import CDPBrowser
 from arena.browser.cdp_client.network_har import CDPNetworkHarMixin
 from arena.browser.cdp_client.network_request import NetworkRequest
 

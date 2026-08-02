@@ -97,18 +97,21 @@ class _FakeSock:
 
 
 def test_broadcast_sends_to_all_subscribers():
-    # ``from arena.mcp.ws_frames import *`` does NOT re-export names
-    # starting with ``_`` (Python's default star-import rule), so
-    # ``_send_text`` is missing from ws_push's module globals. We
-    # inject it directly for the duration of the test.
+    # Historical note: ws_push used to rely on `from ws_frames import *` for
+    # `_send_text`, which never provided it (star imports skip underscore
+    # names) -- so broadcasts silently sent nothing. Fixed in v4.155.0 by an
+    # explicit import; see tests/test_ws_push_star_import_regression.py.
     sent: list[str] = []
 
     def fake_send_text(sock, msg):
         sent.append(msg)
 
-    had = hasattr(ws_push, "_send_text")
-    if not had:
-        ws_push._send_text = fake_send_text
+    # v4.155.0: ws_push now imports _send_text explicitly, so it IS present.
+    # Patch unconditionally -- the old `only inject if missing` dance quietly
+    # became a no-op the moment the real bug was fixed, and the assertions
+    # below then measured nothing.
+    real = ws_push._send_text
+    ws_push._send_text = fake_send_text
     try:
         s1, s2 = _FakeSock(), _FakeSock()
         ws_push._subscribe(s1, "alpha")
@@ -122,8 +125,7 @@ def test_broadcast_sends_to_all_subscribers():
             assert parsed["params"]["topic"] == "alpha"
             assert parsed["params"]["data"] == {"hello": "world"}
     finally:
-        if not had and hasattr(ws_push, "_send_text"):
-            del ws_push._send_text
+        ws_push._send_text = real
 
 
 def test_broadcast_skips_unknown_topic():
@@ -141,9 +143,12 @@ def test_broadcast_drops_dead_sockets():
             raise RuntimeError("connection reset")
         sent.append((sock, msg))
 
-    had = hasattr(ws_push, "_send_text")
-    if not had:
-        ws_push._send_text = fake_send_text
+    # v4.155.0: ws_push now imports _send_text explicitly, so it IS present.
+    # Patch unconditionally -- the old `only inject if missing` dance quietly
+    # became a no-op the moment the real bug was fixed, and the assertions
+    # below then measured nothing.
+    real = ws_push._send_text
+    ws_push._send_text = fake_send_text
     try:
         ws_push._subscribe(dead, "alpha")
         ws_push._subscribe(alive, "alpha")
@@ -156,8 +161,7 @@ def test_broadcast_drops_dead_sockets():
         with ws_push.SUBS_LOCK:
             assert dead not in ws_push.SUBS.get("alpha", set())
     finally:
-        if not had and hasattr(ws_push, "_send_text"):
-            del ws_push._send_text
+        ws_push._send_text = real
 
 
 def test_broadcast_payload_is_json_safe_with_unicode():
@@ -166,9 +170,12 @@ def test_broadcast_payload_is_json_safe_with_unicode():
     def fake_send_text(sock, msg):
         sent.append(msg)
 
-    had = hasattr(ws_push, "_send_text")
-    if not had:
-        ws_push._send_text = fake_send_text
+    # v4.155.0: ws_push now imports _send_text explicitly, so it IS present.
+    # Patch unconditionally -- the old `only inject if missing` dance quietly
+    # became a no-op the moment the real bug was fixed, and the assertions
+    # below then measured nothing.
+    real = ws_push._send_text
+    ws_push._send_text = fake_send_text
     try:
         s = _FakeSock()
         ws_push._subscribe(s, "i18n")
@@ -176,5 +183,4 @@ def test_broadcast_payload_is_json_safe_with_unicode():
         parsed = json.loads(sent[0])
         assert parsed["params"]["data"]["greeting"] == "привет"
     finally:
-        if not had and hasattr(ws_push, "_send_text"):
-            del ws_push._send_text
+        ws_push._send_text = real

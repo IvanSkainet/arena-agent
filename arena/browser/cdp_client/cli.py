@@ -2,9 +2,21 @@
 from __future__ import annotations
 
 from arena.browser.cdp_client.cli_demo import _multitab_demo
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import (
+    DEFAULT_PORT,
+    HAS_AIOHTTP,
+    asyncio,
+    logging,
+    os,
+    sys,
+    urllib,
+)
 from arena.browser.cdp_client.sync_browser import SyncCDPBrowser
-from arena.browser.cdp_client.tabs_http import list_tabs
+
+# Explicit: get_new_tab_url is NOT provided by the star import above -- it lives in
+# arena.browser.cdp_client.tabs_http. Until v4.155.0 this module referenced it unbound, so the code path
+# below raised NameError at runtime. Found while replacing star imports.
+from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, list_tabs
 
 
 def main():

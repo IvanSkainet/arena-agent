@@ -1,7 +1,19 @@
 """Single CDP tab abstraction."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import (
+    DEFAULT_PORT,
+    DEFAULT_TIMEOUT,
+    Optional,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # CDPBrowser is referenced solely in annotations here, and
+    # `from __future__ import annotations` keeps those as strings,
+    # so a runtime import would only add an import cycle for nothing.
+    from arena.browser.cdp_client.browser import CDPBrowser
 from arena.browser.cdp_client.tab_connection import CDPTabConnectionMixin
 from arena.browser.cdp_client.tab_ops import CDPTabOpsMixin
 

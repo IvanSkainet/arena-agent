@@ -1,7 +1,21 @@
 """Client loop for standalone MCP WebSocket server."""
 from __future__ import annotations
 
-from arena.mcp.ws_frames import *  # noqa: F401,F403
+# Explicit: these are underscore-prefixed, so `import *` never provided
+# them. Until v4.155.0 this module called _send_text/_http_handshake that
+# were simply not bound -- the resulting NameError was swallowed by a
+# per-subscriber `except Exception`, silently marking every WebSocket
+# subscriber dead. Confirmed by execution, not by reading.
+from arena.mcp.ws_frames import (
+    _http_handshake,
+    _recv_frame,
+    _send_frame,
+    _send_text,
+    handle_rpc,
+    json,
+    socket,
+    sys,
+)
 from arena.mcp.ws_push import _subscribe, _unsubscribe_all
 
 

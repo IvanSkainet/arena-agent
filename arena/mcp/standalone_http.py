@@ -1,8 +1,25 @@
 """Standalone MCP HTTP handler."""
 from __future__ import annotations
 
-from arena.mcp.standalone_common import *  # noqa: F401,F403
+from arena.mcp.standalone_common import (
+    SESSIONS,
+    SLOCK,
+    VERSION,
+    BaseHTTPRequestHandler,
+    json,
+    now_ms,
+    os,
+    rpc_error,
+    sid,
+    sys,
+    time,
+)
 from arena.mcp.standalone_rpc import handle_rpc
+
+# Explicit: TOOLS is NOT provided by the star import above -- it lives in
+# arena.mcp.standalone_tools. Until v4.155.0 this module referenced it unbound, so the code path
+# below raised AttributeError at runtime. Found while replacing star imports.
+from arena.mcp.standalone_tools import TOOLS
 
 ALLOWED_ORIGINS = {"http://localhost", "http://127.0.0.1", os.getenv("ARENA_BRIDGE_URL", ""), "null", ""}
 

@@ -184,6 +184,38 @@ instruction *name*, which changes when a fused pair splits, so targets are now
 resolved to an index in the fully expanded stream. Then the rewritten CLI
 modules were executed for real.
 
+### Four silent runtime bugs, found by removing star imports (F405 433 -> 270)
+
+Replacing `import *` with explicit names stopped being lint work partway
+through. A star import **never binds underscore-prefixed names**, and it does
+not bind names the bundle module never had -- so several call sites had been
+referencing nothing for years, in code paths whose failures were swallowed.
+
+* **WebSocket push delivered nothing.** `ws_push._broadcast` called
+  `_send_text`, unbound. The NameError was caught by the per-subscriber
+  `except Exception`, so every client was appended to `dead` and silently
+  unsubscribed on the first notification. The feature reported success and
+  sent zero bytes. Proven by executing `_broadcast` against a fake socket:
+  0 bytes and the subscriber dropped before, 1 frame and the subscriber alive
+  after.
+* **The WebSocket server could not accept a connection.** `ws_client
+  ._client_loop` called `_http_handshake`, `_recv_frame` and `_send_frame`,
+  all unbound -- the loop raised on its first line.
+* **The notify watcher was a busy loop.** `_time.sleep(0.5)` / `_time.sleep(2)`
+  -- a typo for `time` -- raised NameError inside the retry handler, so the
+  backoff never ran and the thread spun.
+* **`desktop shot` and `cdp close` were dead commands.** `shq` (used to escape
+  the screenshot path) and `close_tab` were never bound; both raised NameError
+  on use. `standalone_http`'s `/health` did `len(TOOLS)` with `TOOLS` unbound.
+
+An existing test had *documented* the first bug in a comment and worked around
+it -- injecting `_send_text` only if missing -- rather than reporting it. That
+workaround silently became a no-op once the import was fixed, so the test
+measured nothing; it now patches unconditionally.
+`tests/test_ws_push_star_import_regression.py` asserts on delivery (bytes on
+the socket, subscriber still registered) rather than on absence of exceptions,
+because an exception-free run was precisely the broken behaviour.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

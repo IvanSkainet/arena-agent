@@ -1,7 +1,15 @@
 """High-level CDP cookie manager."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import Dict, List, logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # CDPBrowser is referenced solely in annotations here, and
+    # `from __future__ import annotations` keeps those as strings,
+    # so a runtime import would only add an import cycle for nothing.
+    from arena.browser.cdp_client.browser import CDPBrowser
 from arena.browser.cdp_client.cookie_crud import CDPCookieCrudMixin
 from arena.browser.cdp_client.cookie_profiles import CDPCookieProfileMixin
 
