@@ -162,33 +162,42 @@ def test_mcp_fs_edit_schema_has_required_fields():
 
 def test_validate_edit_target_success(tmp_path):
     """validate_edit_target returns path for a valid existing file."""
-    home = tmp_path / "home"; home.mkdir()
-    f = home / "file.py"; f.write_text("x")
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    home = tmp_path / "home"
+    home.mkdir()
+    f = home / "file.py"
+    f.write_text("x")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_edit_target("file.py", root=home, home=home, bridge_py=bridge)
     assert err is None and status == 200 and path == f
 
 
 def test_validate_edit_target_blocks_traversal(tmp_path):
     """validate_edit_target blocks path traversal."""
-    home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    home = tmp_path / "home"
+    home.mkdir()
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_edit_target("../x", root=home, home=home, bridge_py=bridge)
     assert err == "path traversal not allowed" and status == 400
 
 
 def test_validate_edit_target_blocks_bridge_itself(tmp_path):
     """validate_edit_target blocks editing the bridge binary itself."""
-    home = tmp_path / "home"; home.mkdir()
-    bridge = home / "unified_bridge.py"; bridge.write_text("x")
+    home = tmp_path / "home"
+    home.mkdir()
+    bridge = home / "unified_bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_edit_target("unified_bridge.py", root=home, home=home, bridge_py=bridge)
     assert err == "cannot edit the bridge itself" and status == 403
 
 
 def test_validate_edit_target_blocks_sensitive_files(tmp_path):
     """validate_edit_target blocks token.txt, .env, SSH keys, etc."""
-    home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    home = tmp_path / "home"
+    home.mkdir()
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     for blocked_name in ["token.txt", ".env", "id_rsa", "users.json"]:
         f = home / blocked_name; f.write_text("secret")
         path, err, status = validate_edit_target(blocked_name, root=home, home=home, bridge_py=bridge)
@@ -198,8 +207,10 @@ def test_validate_edit_target_blocks_sensitive_files(tmp_path):
 
 def test_validate_edit_target_file_not_found(tmp_path):
     """validate_edit_target returns 404 for non-existent file."""
-    home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    home = tmp_path / "home"
+    home.mkdir()
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_edit_target("missing.py", root=home, home=home, bridge_py=bridge)
     assert err == "file not found" and status == 404
 

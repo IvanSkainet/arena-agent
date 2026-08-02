@@ -31,11 +31,13 @@ class H(BaseHTTPRequestHandler):
 
     def _json(self, obj, code=200, extra=None):
         body = json.dumps(obj, ensure_ascii=False).encode()
-        self.send_response(code); self._cors()
+        self.send_response(code)
+        self._cors()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         for k, v in (extra or {}).items(): self.send_header(k, v)
-        self.end_headers(); self.wfile.write(body)
+        self.end_headers()
+        self.wfile.write(body)
 
     def do_OPTIONS(self):
         self.send_response(204); self._cors(); self.end_headers()
@@ -49,7 +51,8 @@ class H(BaseHTTPRequestHandler):
             # SSE legacy: открыть стрим
             session = sid()
             with SLOCK: SESSIONS[session] = {"created": now_ms(), "queue": []}
-            self.send_response(200); self._cors()
+            self.send_response(200)
+            self._cors()
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
@@ -60,11 +63,13 @@ class H(BaseHTTPRequestHandler):
                 # держим открытым до DELETE/close
                 while True:
                     time.sleep(15)
-                    self.wfile.write(b": keepalive\n\n"); self.wfile.flush()
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
             except (BrokenPipeError, ConnectionResetError): pass
             with SLOCK: SESSIONS.pop(session, None)
             return
-        self.send_response(404); self.end_headers()
+        self.send_response(404)
+        self.end_headers()
 
     def do_POST(self):
         if not self._origin_ok():
@@ -92,14 +97,21 @@ class H(BaseHTTPRequestHandler):
             session = (q.get("session_id") or [""])[0]
             resp = handle_rpc(msg)
             # для SSE мы должны просто принять; ответ дойдёт через SSE стрим (упрощённо: возвращаем сразу)
-            self.send_response(202); self._cors(); self.end_headers()
+            self.send_response(202)
+            self._cors()
+            self.end_headers()
             return
 
-        self.send_response(404); self.end_headers()
+        self.send_response(404)
+        self.end_headers()
 
     def do_DELETE(self):
         if self.path.startswith("/mcp"):
             sess = self.headers.get("Mcp-Session-Id", "")
             with SLOCK: SESSIONS.pop(sess, None)
-            self.send_response(204); self._cors(); self.end_headers(); return
-        self.send_response(404); self.end_headers()
+            self.send_response(204)
+            self._cors()
+            self.end_headers()
+            return
+        self.send_response(404)
+        self.end_headers()

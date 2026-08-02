@@ -118,6 +118,16 @@ an observer sees the real thing work.
 - **Never bulk-apply ruff `F401`/`F841` auto-fixes**: imports here
   double as re-exports and monkeypatch-by-name targets. Analyze the
   importers of a name before deleting it.
+- **Debt layers are cleared with AST-proven tools, never by hand or by
+  blind regex.** `scripts/e702_split_statements.py` is the reference
+  shape: it rewrites mechanically, then accepts a file ONLY when
+  `ast.dump()` is byte-identical before/after — the proof that behaviour
+  cannot have drifted. Its dry run rejected two files on the first pass
+  and caught real damage: rows like `else: j(...); sys.exit(1)` (inline
+  suite — splitting moves `sys.exit` OUT of the branch) and rows that
+  close a multi-line statement (`''').strip()); print(out)`). Rows that
+  cannot be proven safe are LEFT AS DEBT, not forced. Write the tool,
+  let it reject you, fix the tool.
 - **Hash-locked CI installs only**: `requirements-ci.lock` (tests +
   tools), `requirements-lint.lock` (ruff), `requirements-packaging.lock`
   (build/twine/check-wheel-contents). Regenerate with the

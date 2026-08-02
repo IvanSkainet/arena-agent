@@ -80,7 +80,8 @@ def _mock_request(method, path, body: dict, token="t"):
 
 def test_validate_view_target_success(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    f = home / "file.py"; f.write_text("x")
+    f = home / "file.py"
+    f.write_text("x")
     path, err, status = validate_view_target("file.py", root=home, home=home)
     assert err is None and status == 200 and path == f
 
@@ -118,21 +119,24 @@ def test_validate_view_target_missing_path(tmp_path):
 
 def test_validate_create_target_success(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_create_target("new.py", root=home, home=home, bridge_py=bridge)
     assert err is None and status == 200 and path == home / "new.py"
 
 
 def test_validate_create_target_blocks_traversal(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_create_target("../x", root=home, home=home, bridge_py=bridge)
     assert err == "path traversal not allowed" and status == 400
 
 
 def test_validate_create_target_blocks_sensitive_files(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     for blocked_name in ["token.txt", ".env", "id_rsa", "users.json"]:
         path, err, status = validate_create_target(blocked_name, root=home, home=home, bridge_py=bridge)
         assert err is not None and status == 403, f"expected block for {blocked_name}"
@@ -141,15 +145,18 @@ def test_validate_create_target_blocks_sensitive_files(tmp_path):
 
 def test_validate_create_target_blocks_bridge_itself(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "unified_bridge.py"; bridge.write_text("x")
+    bridge = home / "unified_bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_create_target("unified_bridge.py", root=home, home=home, bridge_py=bridge)
     assert err == "cannot overwrite the bridge itself" and status == 403
 
 
 def test_validate_create_target_already_exists(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
-    existing = home / "exists.py"; existing.write_text("y")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
+    existing = home / "exists.py"
+    existing.write_text("y")
     path, err, status = validate_create_target("exists.py", root=home, home=home, bridge_py=bridge)
     assert err is not None and status == 409
     assert "already exists" in err
@@ -157,7 +164,8 @@ def test_validate_create_target_already_exists(tmp_path):
 
 def test_validate_create_target_missing_path(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_create_target("", root=home, home=home, bridge_py=bridge)
     assert err == "missing path" and status == 400
 

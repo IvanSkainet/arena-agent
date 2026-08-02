@@ -17,10 +17,14 @@ def show_cmd(a): print(json.dumps(load_template(a.name),ensure_ascii=False,inden
 
 def new_cmd(a):
     t=load_template(a.template); mid=dt.datetime.now(dt.timezone.utc).strftime('%Y%m%dT%H%M%SZ')+'-'+slug(a.name or t['id'])+'-'+uuid.uuid4().hex[:6]
-    d=MISSIONS/mid; (d/'artifacts').mkdir(parents=True); (d/'logs').mkdir(); obj={'id':mid,'template':t['id'],'title':a.name or t['title'],'created_at':now(),'state':'planned','template_data':t,'runs':[]}
+    d=MISSIONS/mid
+    (d/'artifacts').mkdir(parents=True)
+    (d/'logs').mkdir()
+    obj={'id':mid,'template':t['id'],'title':a.name or t['title'],'created_at':now(),'state':'planned','template_data':t,'runs':[]}
     (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
     lines=['# Mission: '+obj['title'],'',f'ID: `{mid}`','',f'Template: `{t["id"]}`','','## Goal',t['goal'],'','## Steps']+[f'- [ ] {x}' for x in t.get('steps',[])]+['']
-    (d/'PLAN.md').write_text('\n'.join(lines)); print(str(d))
+    (d/'PLAN.md').write_text('\n'.join(lines))
+    print(str(d))
 
 def check_cmd(a): print('\n'.join(commands_for(a.name)))
 
@@ -59,22 +63,37 @@ def _run_cmd_mission_orig(a):
         )
         print(json.dumps({'ok':False,'mission':d.name,'state':obj.get('state','planned'),'error':'scenario mission — use scenario.run','hint':msg},ensure_ascii=False,indent=2))
         raise SystemExit(2)
-    cmds=commands_for(obj['template']); results=[]; obj['state']='running'; obj['started_at']=obj.get('started_at') or now(); (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
+    cmds=commands_for(obj['template'])
+    results=[]
+    obj['state']='running'
+    obj['started_at']=obj.get('started_at') or now()
+    (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
     for i,c in enumerate(cmds,1):
         if a.step and i!=a.step: continue
-        r=run_cmd(c,a.timeout); results.append(r); (d/'logs'/f'step-{i:02d}.json').write_text(json.dumps(r,ensure_ascii=False,indent=2)+'\n')
-    ok=all(r['exit_code']==0 for r in results); obj['state']='done' if ok else 'failed'; obj['finished_at']=now(); obj.setdefault('runs',[]).append({'ts':now(),'ok':ok,'results':[{'cmd':r['cmd'],'exit_code':r['exit_code']} for r in results]}); (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
-    report_cmd(argparse.Namespace(id=d.name)); print(json.dumps({'ok':ok,'mission':d.name,'state':obj['state'],'steps':len(results)},ensure_ascii=False,indent=2))
+        r=run_cmd(c,a.timeout)
+        results.append(r)
+        (d/'logs'/f'step-{i:02d}.json').write_text(json.dumps(r,ensure_ascii=False,indent=2)+'\n')
+    ok=all(r['exit_code']==0 for r in results)
+    obj['state']='done' if ok else 'failed'
+    obj['finished_at']=now()
+    obj.setdefault('runs',[]).append({'ts':now(),'ok':ok,'results':[{'cmd':r['cmd'],'exit_code':r['exit_code']} for r in results]})
+    (d/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)+'\n')
+    report_cmd(argparse.Namespace(id=d.name))
+    print(json.dumps({'ok':ok,'mission':d.name,'state':obj['state'],'steps':len(results)},ensure_ascii=False,indent=2))
 
 def report_cmd(a):
     d=find_mission(a.id); obj=json.loads((d/'mission.json').read_text()); out=d/'REPORT.md'; lines=[f'# Mission report: {obj["title"]}','',f'ID: `{obj["id"]}`',f'State: `{obj.get("state")}`',f'Generated: {now()}','','## Step logs']
     for f in sorted((d/'logs').glob('step-*.json')):
         r=json.loads(f.read_text()); lines += [f'### {f.stem}: `{r["cmd"]}`',f'Exit: `{r["exit_code"]}`','','```text',(r.get('stdout','')+r.get('stderr',''))[:6000],'```','']
-    out.write_text('\n'.join(lines)); print(str(out))
+    out.write_text('\n'.join(lines))
+    print(str(out))
 
 def stress_cmd(a):
     tmp=MISSIONS/'stress-current'; tmp.mkdir(parents=True,exist_ok=True); mid='stress-current'
-    obj={'id':mid,'template':'cli-agent-core','title':'Core stress','state':'planned','created_at':now(),'runs':[]}; (tmp/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2)); (tmp/'logs').mkdir(exist_ok=True); run_cmd_mission(argparse.Namespace(id=mid,step=None,timeout=180))
+    obj={'id':mid,'template':'cli-agent-core','title':'Core stress','state':'planned','created_at':now(),'runs':[]}
+    (tmp/'mission.json').write_text(json.dumps(obj,ensure_ascii=False,indent=2))
+    (tmp/'logs').mkdir(exist_ok=True)
+    run_cmd_mission(argparse.Namespace(id=mid,step=None,timeout=180))
 
 def roadmap_cmd(a):
     out=ROOT/'ROADMAP.md'; out.write_text(textwrap.dedent('''# Arena Agent Roadmap

@@ -110,7 +110,8 @@ def test_no_unescaped_parens_in_echo_inside_blocks():
             continue
         # Count unescaped ( and ) in the echo argument
         prev = ""
-        unesc_open = 0; unesc_close = 0
+        unesc_open = 0
+        unesc_close = 0
         for c in line:
             if c == "(" and prev != "^":
                 unesc_open += 1

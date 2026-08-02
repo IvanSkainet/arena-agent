@@ -90,7 +90,8 @@ def test_note_request_and_audit_recording_are_per_agent():
     ag.note_request(b.agent_id)
     ag.record_audit(a.agent_id, {"type": "shell", "cmd": "ls"})
     ag.record_audit(b.agent_id, {"type": "shell", "cmd": "pwd"})
-    ra = ag.get(a.agent_id); rb = ag.get(b.agent_id)
+    ra = ag.get(a.agent_id)
+    rb = ag.get(b.agent_id)
     assert ra.request_count == 2
     assert rb.request_count == 1
     assert len(ra.audit_ring) == 1 and ra.audit_ring[0]["cmd"] == "ls"

@@ -82,7 +82,13 @@ def cmd_digest(args) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser(prog="memory_recall")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    r = sub.add_parser("recall"); r.add_argument("query"); r.add_argument("--top", type=int, default=5); r.add_argument("--profile", default="default"); r.set_defaults(func=cmd_recall)
-    d = sub.add_parser("digest"); d.add_argument("--profile", default="default"); d.set_defaults(func=cmd_digest)
+    r = sub.add_parser("recall")
+    r.add_argument("query")
+    r.add_argument("--top", type=int, default=5)
+    r.add_argument("--profile", default="default")
+    r.set_defaults(func=cmd_recall)
+    d = sub.add_parser("digest")
+    d.add_argument("--profile", default="default")
+    d.set_defaults(func=cmd_digest)
     args = ap.parse_args()
     return args.func(args) or 0

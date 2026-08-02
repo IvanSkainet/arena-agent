@@ -23,7 +23,8 @@ def test_submit_and_list_tasks(tmp_path):
 
 def test_clean_tasks_removes_old_done_failed(tmp_path):
     done = tmp_path / "done"; failed = tmp_path / "failed"
-    done.mkdir(); failed.mkdir()
+    done.mkdir()
+    failed.mkdir()
     (done / "a.json").write_text(json.dumps({"id": "a"}), encoding="utf-8")
     (failed / "b.json").write_text(json.dumps({"id": "b"}), encoding="utf-8")
     res = clean_tasks(done=done, failed=failed, older_than_seconds=-1)

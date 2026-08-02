@@ -13,7 +13,10 @@ def ensure_ydotool():
 
 def move(args):
     if not ensure_ydotool(): j({'ok':False,'error':'ydotool missing'}); sys.exit(1)
-    x,y=int(args.x),int(args.y); steps=max(1,int(args.steps)); sx=max(0,x-random.randint(150,350)); sy=max(0,y+random.randint(80,240))
+    x,y=int(args.x),int(args.y)
+    steps=max(1,int(args.steps))
+    sx=max(0,x-random.randint(150,350))
+    sy=max(0,y+random.randint(80,240))
     for i in range(1,steps+1):
         t=i/steps; e=1-(1-t)**3; cx=int(sx+(x-sx)*e); cy=int(sy+(y-sy)*e); run(f'ydotool mousemove -a -x {cx} -y {cy}',timeout=2); time.sleep(float(args.delay))
     j({'ok':True,'x':x,'y':y,'steps':steps})

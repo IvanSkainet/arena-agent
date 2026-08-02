@@ -70,7 +70,9 @@ def _fmt_os(d: dict) -> list[str]:
         lines.append(f"  distro: {d['distro']['pretty']}")
     if d.get("uptime_seconds"):
         u = d["uptime_seconds"]
-        days, r = divmod(u, 86400); h, r = divmod(r, 3600); m, _ = divmod(r, 60)
+        days, r = divmod(u, 86400)
+        h, r = divmod(r, 3600)
+        m, _ = divmod(r, 60)
         lines.append(f"  uptime: {days}d {h}h {m}m")
     lines.append(f"  python: {d.get('python_version')}")
     return lines
@@ -80,7 +82,9 @@ def _fmt_boot(d: dict) -> list[str]:
     if not d.get("available"):
         return []
     up = d.get("uptime_seconds", 0)
-    days, r = divmod(up, 86400); h, r = divmod(r, 3600); m, _ = divmod(r, 60)
+    days, r = divmod(up, 86400)
+    h, r = divmod(r, 3600)
+    m, _ = divmod(r, 60)
     return [f"  Booted   : {d.get('boot_time_iso', '')}",
             f"  Uptime   : {days}d {h}h {m}m"]
 

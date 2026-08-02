@@ -51,7 +51,8 @@ def test_find_tessdata_next_to_binary(tmp_path):
 
 def test_ocr_health_ok(tmp_path, monkeypatch):
     exe = tmp_path / "tesseract.exe"; exe.write_bytes(b"exe")
-    tess = tmp_path / "tessdata"; tess.mkdir()
+    tess = tmp_path / "tessdata"
+    tess.mkdir()
     (tess / "rus.traineddata").write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_ocr._find_tesseract", lambda: str(exe))
     monkeypatch.setattr("arena.mcp.tool_ocr._find_tessdata_dir", lambda binary=None: str(tess))
@@ -82,8 +83,10 @@ def test_ocr_extract_missing_file(tmp_path):
 
 def test_ocr_extract_happy_path(tmp_path, monkeypatch):
     img = tmp_path / "doc.png"; img.write_bytes(b"PNG")
-    exe = tmp_path / "tesseract.exe"; exe.write_bytes(b"exe")
-    tess = tmp_path / "tessdata"; tess.mkdir()
+    exe = tmp_path / "tesseract.exe"
+    exe.write_bytes(b"exe")
+    tess = tmp_path / "tessdata"
+    tess.mkdir()
     monkeypatch.setattr("arena.mcp.tool_ocr._find_tesseract", lambda: str(exe))
     monkeypatch.setattr("arena.mcp.tool_ocr._find_tessdata_dir", lambda binary=None: str(tess))
 
@@ -141,7 +144,8 @@ def test_handle_ocr_tool_none_for_other():
 
 def test_ocr_extract_with_preprocess_uses_output(tmp_path, monkeypatch):
     img = tmp_path / "doc.png"; img.write_bytes(b"PNG")
-    pre = tmp_path / "doc.pre.png"; pre.write_bytes(b"PNG2")
+    pre = tmp_path / "doc.pre.png"
+    pre.write_bytes(b"PNG2")
     monkeypatch.setattr("arena.mcp.tool_ocr._find_tesseract", lambda: "/bin/tesseract")
     monkeypatch.setattr("arena.mcp.tool_ocr._find_tessdata_dir", lambda binary=None: None)
     monkeypatch.setattr("arena.mcp.tool_ocr.preprocess_for_ocr", lambda *a, **kw: {"ok": True, "output": str(pre), "steps": ["grayscale"]})
@@ -182,7 +186,8 @@ def test_ocr_score_penalises_garbage():
 def test_ocr_extract_best_selects_highest_scoring_variant(tmp_path, monkeypatch):
     from arena.mcp import tool_ocr as mod
 
-    img = tmp_path / "doc.png"; img.write_bytes(b"PNG")
+    img = tmp_path / "doc.png"
+    img.write_bytes(b"PNG")
     calls = []
 
     def fake_extract(args):

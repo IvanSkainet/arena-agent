@@ -119,9 +119,12 @@ def test_find_model_fallback_to_home_whisper_dir(tmp_path, monkeypatch):
 
 def test_find_model_prefers_small_over_base(tmp_path, monkeypatch):
     home = tmp_path
-    d = home / ".whisper"; d.mkdir()
-    base = d / "ggml-base.bin"; base.write_bytes(b"x" * 10)
-    small = d / "ggml-small.bin"; small.write_bytes(b"x" * 10)
+    d = home / ".whisper"
+    d.mkdir()
+    base = d / "ggml-base.bin"
+    base.write_bytes(b"x" * 10)
+    small = d / "ggml-small.bin"
+    small.write_bytes(b"x" * 10)
     monkeypatch.setitem(__import__("arena.mcp.tool_asr", fromlist=["_KNOWN_MODEL_MIN_BYTES"])._KNOWN_MODEL_MIN_BYTES, "ggml-base.bin", 1)
     monkeypatch.setitem(__import__("arena.mcp.tool_asr", fromlist=["_KNOWN_MODEL_MIN_BYTES"])._KNOWN_MODEL_MIN_BYTES, "ggml-small.bin", 1)
     monkeypatch.delenv("ARENA_WHISPER_MODEL", raising=False)
@@ -132,8 +135,10 @@ def test_find_model_prefers_small_over_base(tmp_path, monkeypatch):
 
 def test_find_model_rejects_known_partial_model(tmp_path, monkeypatch):
     home = tmp_path
-    d = home / ".whisper"; d.mkdir()
-    partial = d / "ggml-base.bin"; partial.write_bytes(b"x" * 1024)
+    d = home / ".whisper"
+    d.mkdir()
+    partial = d / "ggml-base.bin"
+    partial.write_bytes(b"x" * 1024)
     monkeypatch.delenv("ARENA_WHISPER_MODEL", raising=False)
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     path, err = _find_model(None)
@@ -207,7 +212,8 @@ def test_asr_transcribe_happy_path_wav(tmp_path, monkeypatch):
 
 def test_asr_transcribe_reports_whisper_timeout(tmp_path, monkeypatch):
     audio = tmp_path / "a.wav"; audio.write_bytes(b"RIFF")
-    model = tmp_path / "ggml-test.bin"; model.write_bytes(b"x")
+    model = tmp_path / "ggml-test.bin"
+    model.write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
 
     def _fake_run(*a, **kw):
@@ -220,7 +226,8 @@ def test_asr_transcribe_reports_whisper_timeout(tmp_path, monkeypatch):
 
 def test_asr_transcribe_reports_whisper_nonzero(tmp_path, monkeypatch):
     audio = tmp_path / "a.wav"; audio.write_bytes(b"RIFF")
-    model = tmp_path / "ggml-test.bin"; model.write_bytes(b"x")
+    model = tmp_path / "ggml-test.bin"
+    model.write_bytes(b"x")
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/usr/bin/whisper-cli")
 
     def _fake_run(*a, **kw):
@@ -253,8 +260,10 @@ def test_asr_models_lists_home_whisper(tmp_path, monkeypatch):
 # --------- Full dispatch through handle_asr_tool ---------
 def test_asr_health_reports_runtime(tmp_path, monkeypatch):
     home = tmp_path
-    d = home / ".whisper"; d.mkdir()
-    m = d / "ggml-custom.bin"; m.write_bytes(b"model")
+    d = home / ".whisper"
+    d.mkdir()
+    m = d / "ggml-custom.bin"
+    m.write_bytes(b"model")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr("arena.mcp.tool_asr._find_whisper_binary", lambda: "/bin/whisper-cli")
     monkeypatch.setattr("arena.mcp.tool_asr.shutil.which", lambda n: "/bin/ffmpeg" if n == "ffmpeg" else None)

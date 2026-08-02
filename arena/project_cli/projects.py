@@ -48,7 +48,9 @@ def status(args):
 def commit(args):
     p=project_path(args.name)
     if not (p/'.git').exists(): git_init(argparse.Namespace(name=p.name,message='Initial commit'))
-    ensure_git_identity(p); run('git add -A',p,check=True); c=run(f'git commit -m {json.dumps(args.message)}',p)
+    ensure_git_identity(p)
+    run('git add -A',p,check=True)
+    c=run(f'git commit -m {json.dumps(args.message)}',p)
     if c.returncode!=0 and 'nothing to commit' not in (c.stdout+c.stderr).lower(): sys.stdout.write(c.stdout); sys.stderr.write(c.stderr); raise SystemExit(c.returncode)
     print(c.stdout+c.stderr)
 

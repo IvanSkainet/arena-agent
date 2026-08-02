@@ -15,7 +15,8 @@ def main() -> None:
     threading.Thread(target=_notify_watcher, daemon=True).start()
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    srv.bind((a.host, a.port)); srv.listen(8)
+    srv.bind((a.host, a.port))
+    srv.listen(8)
     print(f"Arena MCP WS server v{VERSION} ws://{a.host}:{a.port} (tools={len(TOOLS)})", flush=True)
     try:
         while True:

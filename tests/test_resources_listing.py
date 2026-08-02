@@ -41,7 +41,9 @@ def test_list_reports(tmp_path):
 
 def test_list_hooks_agents_subagents(tmp_path):
     hooks = tmp_path / "hooks"; agents = tmp_path / "agents"; subs = tmp_path / "subagents"
-    hooks.mkdir(); agents.mkdir(); subs.mkdir()
+    hooks.mkdir()
+    agents.mkdir()
+    subs.mkdir()
     (hooks / "h.json").write_text(json.dumps({"event": "x", "description": "desc"}), encoding="utf-8")
     (agents / "a.json").write_text(json.dumps({"description": "agent", "model": "m"}), encoding="utf-8")
     (subs / "s.json").write_text(json.dumps({"status": "ok", "cmd": "run"}), encoding="utf-8")

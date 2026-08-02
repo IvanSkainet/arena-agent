@@ -25,7 +25,8 @@ def shot(args):
         if shutil.which(cmd.split()[0]):
             p=run(cmd,timeout=30); methods.append({'cmd':cmd,'exit':p.returncode,'stderr':p.stderr[-500:]})
             if p.returncode==0 and path.exists() and path.stat().st_size>0: j({'ok':True,'path':str(path),'bytes':path.stat().st_size,'method':cmd,'attempts':methods}); return
-    j({'ok':False,'path':str(path),'attempts':methods}); sys.exit(1)
+    j({'ok':False,'path':str(path),'attempts':methods})
+    sys.exit(1)
 
 def ocr(args):
     img=Path(args.image).expanduser() if args.image else None
@@ -33,7 +34,8 @@ def ocr(args):
         tmp=REPORTS/f'ocr-shot-{stamp()}.png'; shot(argparse.Namespace(path=str(tmp))); img=tmp
     if not have('tesseract'): j({'ok':False,'error':'tesseract missing'}); sys.exit(1)
     p=run(f'tesseract {shq(str(img))} stdout -l {shq(args.lang)}',timeout=60)
-    out=REPORTS/f'ocr-{stamp()}.txt'; out.write_text(p.stdout,encoding='utf-8')
+    out=REPORTS/f'ocr-{stamp()}.txt'
+    out.write_text(p.stdout,encoding='utf-8')
     j({'ok':p.returncode==0,'image':str(img),'text_path':str(out),'text_preview':p.stdout[:4000],'stderr':p.stderr[-1000:]})
 
 def windows(_):

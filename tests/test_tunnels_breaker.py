@@ -143,8 +143,10 @@ def test_breaker_reset_clears_state():
     assert b.allow("a") is False
     b.reset("a")
     assert b.allow("a") is True
-    b.record_failure("a", error="x"); b.record_failure("a", error="x")
-    b.record_failure("b", error="y"); b.record_failure("b", error="y")
+    b.record_failure("a", error="x")
+    b.record_failure("a", error="x")
+    b.record_failure("b", error="y")
+    b.record_failure("b", error="y")
     b.reset()
     assert b.snapshot() == {}
 

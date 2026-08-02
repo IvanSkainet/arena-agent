@@ -10,7 +10,8 @@ from arena.files.sandbox import validate_download_target, validate_upload_target
 
 def test_validate_upload_target_blocks_traversal_and_bridge(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    bridge = home / "bridge.py"; bridge.write_text("x")
+    bridge = home / "bridge.py"
+    bridge.write_text("x")
     path, err, status = validate_upload_target("../x", root=home, home=home, bridge_py=bridge)
     assert err == "path traversal not allowed" and status == 400
     path, err, status = validate_upload_target(str(bridge), root=home, home=home, bridge_py=bridge)
@@ -19,7 +20,8 @@ def test_validate_upload_target_blocks_traversal_and_bridge(tmp_path):
 
 def test_validate_download_target(tmp_path):
     home = tmp_path / "home"; home.mkdir()
-    f = home / "file.txt"; f.write_text("hello")
+    f = home / "file.txt"
+    f.write_text("hello")
     path, err, status = validate_download_target("file.txt", root=home, home=home)
     assert err is None and path == f
     path, err, status = validate_download_target("missing.txt", root=home, home=home)
