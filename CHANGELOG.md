@@ -31,6 +31,23 @@ its counter-example. The contradiction is now paid off rather than documented.
   (find the category, express the vendor as configuration, route the rest to
   primitives you have) instead of merely confessing the sin.
 
+### hwinfo: an inner worst case that exceeded its outer budget
+
+`hwinfo.py --full` fires ~10 PowerShell `Get-CimInstance` queries, each with a
+30 s timeout, while its caller budgeted 30 s for the whole process. An outer
+budget below the inner worst case does not fail loudly -- it fails on whichever
+runner is contended, and reads like a flake. It went red twice on
+windows-latest before being traced.
+
+- Per-call PowerShell timeout 30 s -> 8 s (`PS_TIMEOUT_S`).
+- New pass-wide wall-clock budget (`PS_PASS_BUDGET_S`, 20 s): once spent,
+  remaining queries return empty immediately instead of stacking timeouts, so a
+  wedged WMI service yields a partial-but-fast answer rather than a hang.
+- New gate `tests/test_hwinfo_timeout_budget.py` pins the *relationship*, not
+  the constants: it fails if the pass budget ever grows past a caller's budget,
+  if the declared caller table drifts from that caller's real source, or if a
+  call site hardcodes an oversized timeout. Five sabotage runs confirmed each.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

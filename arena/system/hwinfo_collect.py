@@ -1,10 +1,23 @@
 """hwinfo collect/normalize helpers."""
 from __future__ import annotations
 
+# Explicit: the star import below is legacy debt (F405). New names are
+# imported by hand so they do not add to it.
 from arena.system.hwinfo_cim import *  # noqa: F401,F403
+from arena.system.hwinfo_cim import begin_pass, end_pass  # noqa: E402
 
 
 def collect_full():
+    # Bound the whole pass, not just each query: see PS_TIMEOUT_S /
+    # PS_PASS_BUDGET_S in arena.system.hwinfo_cim.
+    begin_pass()
+    try:
+        return _collect_full_inner()
+    finally:
+        end_pass()
+
+
+def _collect_full_inner():
     info = {
         "os": {
             "name": platform.system(),

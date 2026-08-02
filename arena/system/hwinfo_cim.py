@@ -41,6 +41,7 @@ import platform  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 import re
 import subprocess
 import sys  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+import time
 
 # Whitelist for CIM/WMI class names: letters, digits, underscore.
 # Real class names are ``Win32_<Something>`` or ``CIM_<Something>``;
@@ -79,16 +80,75 @@ def _sanitise_filter(clause: str) -> str | None:
     return f"{m.group(1)}={m.group(2)}"
 
 
-def _run_powershell(script: str, timeout: int = 30) -> subprocess.CompletedProcess:
+# Per-command PowerShell budget.
+#
+# ``collect_full()`` issues ~10 Get-CimInstance calls back to back. With the
+# original 30 s per call the theoretical worst case was ~5 minutes, while
+# callers (notably tests/test_project_modularity.py) budget 30 s for the whole
+# process -- an outer budget smaller than the inner worst case, which shows up
+# as an intermittent TimeoutExpired on slow/contended CI runners rather than as
+# an obvious bug. A cold CIM query answers in well under 8 s; anything slower is
+# a stuck WMI service, and waiting 30 s on it helps nobody.
+#
+# tests/test_hwinfo_timeout_budget.py enforces that the inner worst case stays
+# below every outer budget. Raising this without raising those fails that gate.
+PS_TIMEOUT_S = 8
+
+# Wall-clock budget for one whole collection pass. Per-call timeouts alone are
+# not enough: ten calls x 8 s still exceeds a 30 s outer budget. Once the pass
+# budget is spent, remaining queries return immediately with empty output, so a
+# degraded WMI service yields a partial-but-fast answer instead of a hang. The
+# ratio (not just the constants) is what tests/test_hwinfo_timeout_budget.py
+# pins.
+PS_PASS_BUDGET_S = 20
+
+# Monotonic deadline for the current pass, or None when no pass is active.
+_pass_deadline: float | None = None
+
+
+def begin_pass(budget_s: float = PS_PASS_BUDGET_S) -> None:
+    """Open a collection pass with a shared wall-clock budget."""
+    global _pass_deadline
+    _pass_deadline = time.monotonic() + max(0.0, float(budget_s))
+
+
+def end_pass() -> None:
+    """Close the current pass; subsequent calls are unbudgeted again."""
+    global _pass_deadline
+    _pass_deadline = None
+
+
+def _remaining(timeout: int) -> float | None:
+    """Seconds this call may take, or None when the pass budget is spent."""
+    if _pass_deadline is None:
+        return float(timeout)
+    left = _pass_deadline - time.monotonic()
+    if left <= 0:
+        return None
+    return min(float(timeout), left)
+
+
+def _run_powershell(script: str, timeout: int = PS_TIMEOUT_S) -> subprocess.CompletedProcess:
     """Argv-form PowerShell runner. No shell involved -- Windows
     launches powershell.exe directly, so metacharacters in
     ``script`` reach only PowerShell's own parser (never cmd.exe
     interpolation). ``script`` still has to be a valid PowerShell
     fragment; callers assemble it from whitelisted components.
+
+    The default timeout is deliberately per-call and small: see
+    ``PS_TIMEOUT_S``.
     """
+    budget = _remaining(timeout)
+    if budget is None:
+        # Pass budget exhausted -- fail fast and empty. Callers already treat
+        # empty stdout as "no data", so no call site needs to change.
+        return subprocess.CompletedProcess(
+            args=["powershell.exe", "-NoProfile", "-Command", script],
+            returncode=1, stdout="", stderr="hwinfo pass budget exhausted",
+        )
     return subprocess.run(  # nosec B603 -- argv form, no shell
         ["powershell.exe", "-NoProfile", "-Command", script],
-        capture_output=True, text=True, timeout=timeout,
+        capture_output=True, text=True, timeout=budget,
     )
 
 
