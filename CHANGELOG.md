@@ -96,6 +96,33 @@ bracketed lambda (bracket depth already covered it) and one used a `-k`
 selector matching no test at all, so pytest reported success over zero tests.
 Both were rewritten; all seven sabotages now fail as intended.
 
+### Path-injection in the standalone MCP dispatcher (found by the E701 cleanup)
+
+`arena/mcp/standalone_tools.py` backs the standalone HTTP and WebSocket MCP
+servers. It never routes through `arena/mcp/tool_fs.py`, so it never inherited
+that module's path jail: `fs.read` / `fs.write` / `fs.list` took a
+caller-supplied path, ran `expanduser` on it, and opened it. Reading
+`/etc/hostname` was a one-liner, and `~/../../etc/hostname` worked too.
+
+**This was a real hole, not a scanner artifact -- confirmed by executing it.**
+It was also years old and silent. CodeQL raised py/path-injection only after
+the E701 split moved `open()` off a shared inline line and the dataflow became
+visible. A scanner's silence had never been evidence of safety; it was evidence
+of a line it could not read.
+
+- `_jail()` now mirrors the main dispatcher: sensitive basenames refused, path
+  resolved before the check (so `..` and symlinks cannot escape), anything
+  outside `$HOME` rejected with `PathJailError` and a fail-closed `isError`.
+- `tests/test_standalone_path_jail.py` (29 tests) executes the dispatcher
+  against hostile paths rather than inspecting it, and asserts the secret's
+  contents never appear -- not merely that an error was returned.
+
+Two findings came out of writing the gate itself. The sensitive-basename test
+first used a file that did not exist, so `FileNotFoundError` satisfied it for
+the wrong reason; it now creates the file inside a fake home. And the symlink
+sabotage initially passed because `resolve()` happens in two places, so the
+escape had to be disabled in both before the test would fail -- it does now.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

@@ -1,8 +1,45 @@
 """Standalone MCP tool dispatcher."""
 from __future__ import annotations
 
+from pathlib import Path as _Path
+
+from arena.files.sandbox import SENSITIVE_FILE_BASENAMES as _BLOCKED_BASENAMES
 from arena.mcp.standalone_common import *  # noqa: F401,F403
 from arena.mcp.tool_registry import MCP_TOOLS as TOOLS  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
+from arena.util import under_root as _under_root
+
+# The three imports above that are NOT the star import are deliberate: the path
+# jail must not depend on names a `import *` might silently stop providing.
+
+
+class PathJailError(Exception):
+    """Raised when a tool argument points outside the user's home."""
+
+
+def _jail(raw: str) -> str:
+    """Resolve a caller-supplied path, refusing anything outside $HOME.
+
+    This dispatcher backs the standalone HTTP/WebSocket MCP servers, which do
+    not go through ``arena/mcp/tool_fs.py`` and therefore never inherited its
+    jail. Until v4.155.0 fs.read/fs.write/fs.list here accepted absolute paths
+    and ``../`` traversal outright -- reading /etc/hostname was a one-liner.
+    CodeQL only surfaced it (py/path-injection) once E701 splitting put the
+    open() on its own line, which is a fair reminder that a scanner's silence
+    is not evidence.
+
+    Mirrors the main dispatcher's rules: sensitive basenames are refused
+    outright, and the resolved path must sit under the real home directory
+    (resolve() first, so symlinks and ``..`` cannot escape).
+    """
+    if not raw:
+        raise PathJailError("missing 'path' argument")
+    expanded = os.path.expanduser(raw)
+    if _Path(expanded).name in _BLOCKED_BASENAMES:
+        raise PathJailError(f"accessing {_Path(expanded).name} is not allowed")
+    resolved = _Path(expanded).resolve()
+    if not _under_root(resolved, _Path.home()):
+        raise PathJailError("path outside home directory")
+    return str(resolved)
 
 # v4.75.0: bare-name warnings removed. The v4.69.0
 # deprecation window has expired; the bare names
@@ -33,18 +70,18 @@ def call_tool(name: str, args: dict) -> dict:
             rc, out, err = run_sd(["bash", "-lc", args["cmd"]], timeout=args.get("timeout", 60))
             return text_content(json.dumps({"exit": rc, "stdout": out[-15000:], "stderr": err[-5000:]}, ensure_ascii=False))
         if name == "fs.read":
-            p = os.path.expanduser(args["path"])
+            p = _jail(args["path"])
             with open(p, "rb") as f:
                 data = f.read(args.get("max_bytes", 200000))
             return text_content(data.decode("utf-8", "replace"))
         if name == "fs.write":
-            p = os.path.expanduser(args["path"])
+            p = _jail(args["path"])
             os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
             with open(p, "w", encoding="utf-8") as f:
                 f.write(args["content"])
             return text_content(f"wrote {len(args['content'])} bytes to {p}")
         if name == "fs.list":
-            p = os.path.expanduser(args["path"])
+            p = _jail(args["path"])
             return text_content(json.dumps(sorted(os.listdir(p))))
         if name == "browser.search":
             rc, out, err = run_local([sys.executable, os.path.join(BIN, "py_browser.py"),
