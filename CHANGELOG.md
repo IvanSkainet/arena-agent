@@ -48,6 +48,22 @@ windows-latest before being traced.
   if the declared caller table drifts from that caller's real source, or if a
   call site hardcodes an oversized timeout. Five sabotage runs confirmed each.
 
+### `node -e` budgets: one number instead of five
+
+The same failure shape as hwinfo, in the test suite. Five modules each
+hardcoded their own Node subprocess timeout (10 s or 15 s, by copy-paste),
+sized on a warm Linux runner. On a cold windows-latest agent Node's first start
+pays for process creation, Defender inspection and a multi-kilobyte script on
+stdin; the 10 s pair went red twice and read as a flake both times.
+
+- New `tests/_node_budget.py`: one budget (60 s on Windows, 30 s elsewhere),
+  overridable via `ARENA_TEST_NODE_TIMEOUT` — an override can only *raise* it,
+  since a too-small budget is the bug being removed.
+- New gate `tests/test_node_budget.py` fails if any Node module reacquires a
+  literal timeout, if a newly added module shells out to `node -e` without
+  joining the list, or if the override starts lowering the floor. Proven by
+  four sabotage runs.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

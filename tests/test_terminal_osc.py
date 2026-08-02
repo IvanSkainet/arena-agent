@@ -24,6 +24,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._node_budget import node_timeout
+
 _REPO = Path(__file__).resolve().parents[1]
 _JS_ANSI = _REPO / "dashboard" / "assets" / "05b-terminal-ansi.js"
 
@@ -101,7 +103,7 @@ def _run_js(body: str) -> str:
     )
     proc = subprocess.run(
         ["node", "-e", prelude + js + "\n" + body],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=node_timeout(),
     )
     if proc.returncode != 0:
         raise RuntimeError(f"node exited {proc.returncode}\n"

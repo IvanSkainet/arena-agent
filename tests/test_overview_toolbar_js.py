@@ -25,6 +25,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._node_budget import node_timeout
+
 _REPO = Path(__file__).resolve().parents[1]
 _JS = _REPO / "dashboard" / "assets" / "04d-overview-toolbar.js"
 
@@ -36,7 +38,7 @@ def _run_node(harness: str) -> dict:
     """Execute ``harness`` under Node and return JSON printed to stdout."""
     proc = subprocess.run(
         ["node", "-e", harness],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True, text=True, timeout=node_timeout(),
         cwd=str(_REPO),
     )
     assert proc.returncode == 0, (

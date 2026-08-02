@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from tests._node_budget import node_timeout
+
 _REPO = Path(__file__).resolve().parents[1]
 _BODY = _REPO / "dashboard" / "assets" / "body-02-terminal.html"
 _JS_ANSI = _REPO / "dashboard" / "assets" / "05b-terminal-ansi.js"
@@ -137,7 +139,7 @@ def _run_ansi_js(script_body: str) -> str:
     )
     proc = subprocess.run(
         ["node", "-e", prelude + js + "\n" + script_body],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=node_timeout(),
     )
     if proc.returncode != 0:
         raise RuntimeError(
