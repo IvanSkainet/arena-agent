@@ -40,20 +40,44 @@ Single call — a named alias with a narrower interface:
   "call": {"tool": "fs.read", "args": {"path": "{path}"}} }
 ```
 
-Composition — data flows between steps via `{input}` and `{steps.<id>.<field>}`:
+Composition — data flows between steps by placeholder:
 
 ```json
-{ "name": "fetch_and_store",
-  "input_schema": {"properties": {"url": {"type": "string"}}, "required": ["url"]},
+{ "name": "copy_verified",
+  "description": "Copy a text file and read the copy back to prove it landed",
+  "input_schema": {"properties": {"src": {"type": "string"},
+                                  "dst": {"type": "string"}},
+                   "required": ["src", "dst"]},
   "steps": [
-    {"id": "get",  "tool": "net.http", "args": {"url": "{url}"}},
-    {"id": "save", "tool": "fs.write", "args": {"path": "out.json",
-                                                "content": "{steps.get.body}"}}
+    {"id": "src",  "tool": "fs.read",  "args": {"path": "{src}"}},
+    {"id": "put",  "tool": "fs.write", "args": {"path": "{dst}",
+                                                "content": "{steps.src}"}},
+    {"id": "back", "tool": "fs.read",  "args": {"path": "{dst}"}}
   ] }
 ```
 
-A step may target another authored tool (`custom.<name>`), so capabilities stack
-into a library. References must be acyclic and built bottom-up.
+**Match the placeholder to what the step actually returns.** `{steps.<id>}` is
+that step's whole output; `{steps.<id>.<field>}` only resolves when the step
+returned a JSON object with that field. Most text-returning tools (`fs.read`
+among them) hand back a plain string, so `{steps.src.content}` silently
+resolves to nothing. Call the tool once on its own and look at the shape before
+wiring it into a composition.
+
+**Steps are continue-on-error, by design.** A failing step does not abort the
+run: later steps still execute, `ok` comes back `false`, and `step_ok` reports
+each hop individually. That is safe because every hop passes through the tool
+chokepoint, so a HALT blocks each mutating step on its own rather than relying
+on the loop to stop. It also means a broken placeholder can leave real side
+effects behind — in the example above, a bad `content` placeholder made
+`fs.write` create an *empty file* while the run carried on. So:
+
+- read `step_ok`, not just `ok`, to find which hop broke;
+- put the verifying read *after* the write, as `back` does above, and check its
+  content rather than trusting that the write reported success;
+- assume partial effects on failure and make steps safe to re-run.
+
+A step may target another authored tool (`custom.<name>`), so capabilities
+stack into a library. References must be acyclic and built bottom-up.
 
 Manage them with `custom.list` and `custom.remove`.
 

@@ -299,3 +299,68 @@ def test_recursion_depth_guard(home, monkeypatch):
     out = ct.handle_custom_tool("custom.t3", {}, ctx=ctx)
     text = out["content"][0]["text"]
     assert "recursion depth" in text  # depth cap tripped inside the tree
+
+
+def test_unresolved_placeholder_leaves_side_effects_behind():
+    """A bad placeholder does not stop the run — later steps still fire.
+
+    Found by dogfooding the core/build-capability skill: a composition wired
+    ``{steps.src.content}`` at a step whose tool returns a plain string, so the
+    placeholder resolved to nothing, ``fs.write`` was still called, and it
+    created an EMPTY file. The run reported ``ok: false`` afterwards, but the
+    side effect was already on disk.
+
+    Continue-on-error is deliberate (see the HALT test above: every hop is
+    blocked at the chokepoint, so the loop does not need to stop). This test
+    pins the consequence so nobody "fixes" the empty write by making the loop
+    abort, and so the behaviour authors must design around stays documented.
+    """
+    spec = {"steps": [
+        {"id": "src", "tool": "fs.read", "args": {"path": "/note.txt"}},
+        # .content does not exist on a plain-string step result
+        {"id": "put", "tool": "fs.write", "args": {"path": "/copy.txt",
+                                                   "content": "{steps.src.content}"}},
+        {"id": "after", "tool": "sys.status", "args": {}},
+    ]}
+    calls = []
+
+    def call_tool(name, args):
+        calls.append((name, args))
+        if name == "fs.read":
+            return _mcp("plain text, not an object")
+        if name == "fs.write":
+            # mirrors the real handler: a None content is a type error
+            if args.get("content") in (None, "", "{steps.src.content}"):
+                return _mcp("ERROR: TypeError: write() argument must be str, not None",
+                            is_error=True)
+            return _mcp(json.dumps({"ok": True}))
+        return _mcp(json.dumps({"ok": True}))
+
+    out = json.loads(ct.run_steps(spec, {}, call_tool)["content"][0]["text"])
+
+    assert out["ok"] is False
+    assert out["step_ok"]["src"] is True
+    assert out["step_ok"]["put"] is False
+    # the step AFTER the failure still ran — that is the property to remember
+    assert out["step_ok"]["after"] is True
+    assert [c[0] for c in calls] == ["fs.read", "fs.write", "sys.status"]
+
+
+def test_whole_step_placeholder_carries_plain_string_output():
+    """`{steps.<id>}` is the working form for tools that return plain text."""
+    spec = {"steps": [
+        {"id": "src", "tool": "fs.read", "args": {"path": "/note.txt"}},
+        {"id": "put", "tool": "fs.write", "args": {"path": "/copy.txt",
+                                                   "content": "{steps.src}"}},
+    ]}
+    written = {}
+
+    def call_tool(name, args):
+        if name == "fs.read":
+            return _mcp("capability built at runtime\n")
+        written.update(args)
+        return _mcp(json.dumps({"ok": True}))
+
+    out = json.loads(ct.run_steps(spec, {}, call_tool)["content"][0]["text"])
+    assert out["ok"] is True
+    assert written["content"] == "capability built at runtime\n"
