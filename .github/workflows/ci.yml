@@ -193,13 +193,19 @@ jobs:
       # report can never turn our pipeline red — its signal route is the
       # PR comment/dashboard, not our checkmark. fail_ci_if_error:false
       # keeps an external SaaS off our red. Auth: repo upload token in
-      # secrets.CODECOV_TOKEN (OIDC was tried first — uploads queued but
-      # Codecov's processor errored all of them in ~5s, no message).
+      # secrets.CODECOV_TOKEN (OIDC was tried first and works equally;
+      # token chosen to not depend on id-token exchange).
+      # disable_search:true is LOAD-BEARING: with search enabled the
+      # Codecov CLI also hoovered up scripts/_testdata/coverage.xml (a
+      # legit committed fixture with a days-old timestamp) and Codecov
+      # rejected EVERY upload as "exceeds max age of 12h". Never let the
+      # uploader scavenge the repo — upload only the fresh pytest report.
       - name: Upload coverage to Codecov
         if: always()
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./coverage.xml
+          disable_search: true
           flags: ${{ runner.os }}-py${{ matrix.python-version }}
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false

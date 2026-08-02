@@ -117,4 +117,5 @@ reports/arena_kwin_windows_*.js
 # v4.92.0: never commit coverage artifacts or spec-kit scaffolding
 .coverage
 .coverage.*
+coverage.xml
 .specify/

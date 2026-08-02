@@ -162,12 +162,16 @@ def test_malformed_coverage_xml_crashes(tmp_path: Path) -> None:
 
 def test_real_coverage_xml_passes_against_baseline(tmp_path: Path) -> None:
     """The shipped baseline (53.6%) was captured from the real coverage.xml
-    at v4.65.0 release time. Running the script against the same coverage.xml
-    (copied into tmp) must pass — i.e. no false positive on the released state.
+    at v4.65.0 release time. Running the script against that same report
+    (fixture copied into tmp) must pass — i.e. no false positive on the
+    released state. NOTE: the fixture must NOT be named coverage.xml /
+    coverage*.xml — the Codecov CLI default search pattern greedily picks
+    up any such file as a report, and this fixture's old timestamp once
+    got every Codecov upload rejected by the >12h max_report_age check.
     """
-    real_xml = REPO_ROOT / "scripts" / "_testdata" / "coverage.xml"
+    real_xml = REPO_ROOT / "scripts" / "_testdata" / "diff_report_fixture.xml"
     if not real_xml.exists():
-        pytest.skip("real coverage.xml not present in testdata")
+        pytest.skip("coverage-diff fixture not present in testdata")
     target = tmp_path / "cov.xml"
     target.write_bytes(real_xml.read_bytes())
     base = tmp_path / "base.json"
