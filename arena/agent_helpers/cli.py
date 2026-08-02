@@ -1,17 +1,13 @@
 """CLI for scripts/agent_helpers.py."""
 from __future__ import annotations
 
-from arena.agent_helpers.runtime import (
-    ROOT,
-    argparse,
-    load_facts,
-    os,
-    put_fact,
-    shutil,
-    subprocess,
-    verify_bash,
-    verify_python,
-)
+import argparse
+import os
+import shutil
+import subprocess
+
+from arena.agent_helpers.files import ROOT, verify_bash, verify_python
+from arena.agent_helpers.runtime import load_facts, put_fact
 
 
 def cli_self_check(_args) -> int:

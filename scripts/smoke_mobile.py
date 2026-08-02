@@ -386,6 +386,7 @@ def _smoke_mirror_via_websockets() -> None:
     So we only assert the pipeline STARTS here — not that a full
     frame arrives."""
     import asyncio
+
     import websockets
 
     ws_url = (BASE.replace("http://", "ws://").replace("https://", "wss://")

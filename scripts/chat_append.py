@@ -5,6 +5,7 @@ Usage: chat_append.py <role> <content>
   role: agent | user | system | tool
 """
 from __future__ import annotations
+
 import datetime as dt
 import fcntl
 import json

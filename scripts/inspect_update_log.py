@@ -30,7 +30,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 
-
 # Lines emitted by arena/admin/auto_update_windows.py:_write_windows_installer.
 # The phase ordering is part of the protocol -- if a phase is missing the
 # mover either died or got edited. We surface that explicitly in the report.

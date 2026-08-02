@@ -216,6 +216,37 @@ measured nothing; it now patches unconditionally.
 the socket, subscriber still registered) rather than on absence of exceptions,
 because an exception-free run was precisely the broken behaviour.
 
+### Star imports retired: F405 1609 -> 35, and a fifth dead code path
+
+The remaining bundle imports were untangled by hand where the tool refused,
+each refusal being a real finding rather than a tool limitation:
+
+* **`skill run` was broken outright.** `arena/skills/cli_run.py` called
+  `_fire_hook` on the *first line* of `run_skill()`, reaching for it through
+  `from cli_common import *` -- which never binds underscore names. Every
+  invocation raised NameError before doing anything. Confirmed by calling it
+  (NameError), then by calling it again after the fix (exit code 2, "skill not
+  found", i.e. it now reaches the lookup).
+* **Stdlib laundered through siblings.** `recall_cli`, `agent_helpers/cli` and
+  `missions_cli/commands` imported `argparse`, `os`, `json`, `textwrap` and
+  friends *from a neighbouring arena module* rather than from the stdlib, which
+  is what made those neighbours look like they had a re-export contract. Fixed
+  at the consumer; the "contract" then evaporated.
+* **Annotation-only imports** (`CDPBrowser`, `CDPTab` in five files) moved to
+  `TYPE_CHECKING`, except `tab_connection.py` which genuinely instantiates
+  `CDPBrowser` at runtime -- checked for an import cycle before making that one
+  a plain import.
+
+The tool grew two guards from its own mistakes: it counted function-local
+bindings as module-level ones (dropping a needed import, caught by running ruff
+on its own output), and it treated names bound *only* inside functions as
+needing a module import (trading F405 for F401, caught three files in a row).
+
+`tests/test_star_import_policy.py` closes the door: four star imports remain,
+each an explicit re-export facade with a written reason, and the F405 floor is
+pinned at 35. The gate also fails if the count *drops* without the floor being
+lowered -- which is how the floor got from 58 to 35 in this commit.
+
 ### Verification
 Fourteen new tests, four of them proven by deliberate sabotage before being
 trusted: reintroducing a `mumu.*` tool name, hardcoding an operator home,

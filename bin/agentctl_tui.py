@@ -9,12 +9,16 @@
 Выход:   /quit  или  Ctrl-D
 """
 from __future__ import annotations
-import os, subprocess, sys, time
+
+import os
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 try:
     from prompt_toolkit import PromptSession
-    from prompt_toolkit.completion import WordCompleter, Completer, Completion
+    from prompt_toolkit.completion import Completer, Completion, WordCompleter
     from prompt_toolkit.formatted_text import HTML
     from prompt_toolkit.history import FileHistory
     from prompt_toolkit.key_binding import KeyBindings

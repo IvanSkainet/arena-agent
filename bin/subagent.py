@@ -17,7 +17,16 @@
   prune  [--keep N]                     — оставить последние N
 """
 from __future__ import annotations
-import argparse, datetime as dt, json, os, shlex, subprocess, sys, time, uuid
+
+import argparse
+import datetime as dt
+import json
+import os
+import shlex
+import subprocess
+import sys
+import time
+import uuid
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

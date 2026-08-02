@@ -1,7 +1,28 @@
 """High-level CDP tab manager facade."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from typing import TYPE_CHECKING
+
+from arena.browser.cdp_client.common import (
+    DEFAULT_PORT,
+    DEFAULT_TIMEOUT,
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    aiohttp,
+    asyncio,
+    itertools,
+    logger,
+    subprocess,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    # CDPTab appears only in annotations, and `from __future__ import
+    # annotations` keeps those as strings, so a runtime import would buy
+    # nothing but an import cycle.
+    from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tab_manager_browser_ws import CDPTabManagerBrowserWsMixin
 from arena.browser.cdp_client.tab_manager_callbacks import CDPTabManagerCallbackMixin
 from arena.browser.cdp_client.tab_manager_connect import CDPTabManagerConnectMixin

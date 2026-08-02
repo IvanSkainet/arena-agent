@@ -1,7 +1,7 @@
 import os
+import subprocess
 import sys
 import time
-import subprocess
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", os.path.expanduser("~/arena-bridge")))

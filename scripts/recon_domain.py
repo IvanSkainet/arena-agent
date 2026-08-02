@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, socket, ssl, subprocess, time
+
+import argparse
+import json
+import socket
+import ssl
+import subprocess
+import time
 from datetime import datetime, timezone
-import dns.resolver, httpx
+
+import dns.resolver
+import httpx
+
+
 def dns_records(domain, rtype):
     try: return [r.to_text() for r in dns.resolver.resolve(domain, rtype, lifetime=5)]
     except Exception as e: return {'error': repr(e)}

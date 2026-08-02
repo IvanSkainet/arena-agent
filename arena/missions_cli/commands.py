@@ -1,23 +1,28 @@
 """Mission manager commands."""
 from __future__ import annotations
 
-from arena.missions_cli.common import _fire_mission_hook, _start_recording, _stop_recording  # noqa: F401
-from arena.missions_cli.templates import (
-    MISSIONS,
+import argparse
+import datetime as dt
+import json
+import textwrap
+import uuid
+
+from arena.missions_cli.common import (  # noqa: F401
     ROOT,
-    TEMPLATES,
-    argparse,
-    commands_for,
-    dt,
-    ensure,
-    find_mission,
-    json,
-    load_template,
+    _fire_mission_hook,
+    _start_recording,
+    _stop_recording,
     now,
     run_cmd,
+)
+from arena.missions_cli.templates import (
+    MISSIONS,
+    TEMPLATES,
+    commands_for,
+    ensure,
+    find_mission,
+    load_template,
     slug,
-    textwrap,
-    uuid,
 )
 
 

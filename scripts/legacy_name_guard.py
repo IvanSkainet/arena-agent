@@ -62,7 +62,6 @@ import sys
 from pathlib import Path
 from typing import Iterable
 
-
 # v4.67.0: the only dispatch sites that ever accepted both bare
 # and namespaced forms. Any new file/function that adds a bare
 # name reference will be flagged by the guard. The test

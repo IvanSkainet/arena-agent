@@ -77,7 +77,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # v4.69.0: bare names are in the catalogue and in the
 # dispatcher. They are exempt from the per-namespace
 # check (they live in the v4.67.0 dispatch sites that

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json
+
+import argparse
+import json
+
 GROUPS={
  'sys':[('status','health/services/funnel/memory'),('doctor','diagnostics'),('svc','systemd status'),('funnel','tailscale funnel')],
  'mcp':[('stream-health','health 8767'),('stream-init','initialize'),('stream-tools','list stream tools'),('stream-call ping','call test tool'),('list','stdio config'),('tools NAME','stdio tools')],

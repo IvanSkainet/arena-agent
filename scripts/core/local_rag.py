@@ -5,7 +5,12 @@ A lightweight wrapper that allows querying codebase or text via fast FTS5 SQLite
 If no index exists, it creates one by scanning text files.
 """
 from __future__ import annotations
-import os, sys, sqlite3, glob, re
+
+import glob
+import os
+import re
+import sqlite3
+import sys
 from pathlib import Path
 
 DB_PATH = os.path.expanduser("~/.arena-snapshots/rag_index.db")

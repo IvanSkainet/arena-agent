@@ -60,7 +60,6 @@ import sys
 from pathlib import Path
 from typing import Optional, Union, get_args, get_origin
 
-
 # Whitelisted keyword-only parameter suffixes. A function
 # may have zero or more of these (in addition to ``ctx``)
 # but no other keyword-only parameters.

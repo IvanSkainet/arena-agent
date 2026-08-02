@@ -71,7 +71,6 @@ import re
 import sys
 from pathlib import Path
 
-
 _TOOL_NAME_RE = re.compile(r"\b([a-z][a-z0-9_]*\.[a-z][a-z0-9_]*)\b")
 
 

@@ -1,13 +1,14 @@
 """CLI dispatcher for bin/memory_recall.py."""
 from __future__ import annotations
 
+import argparse
+import json
+
 from arena.memory.recall_score import tokenize
 from arena.memory.recall_sources import (
-    argparse,
     get_mem_dir,
     get_rpt_dir,
     get_sub_dir,
-    json,
     recall_facts,
     recall_sessions,
     recall_snapshots,

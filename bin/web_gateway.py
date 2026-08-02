@@ -19,7 +19,13 @@ Whitelist команд (если задан) ограничивает /run то�
 Запуск: python3 web_gateway.py --host 127.0.0.1 --port 8769
 """
 from __future__ import annotations
-import argparse, json, os, subprocess, sys, urllib.request
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 

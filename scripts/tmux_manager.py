@@ -1,4 +1,6 @@
-import sys, subprocess
+import subprocess
+import sys
+
 cmd = sys.argv[1] if len(sys.argv)>1 else "list"
 
 try:

@@ -27,7 +27,14 @@
   hooks_runner.py rm  <event> <name>
 """
 from __future__ import annotations
-import argparse, json, os, stat, subprocess, sys, time
+
+import argparse
+import json
+import os
+import stat
+import subprocess
+import sys
+import time
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

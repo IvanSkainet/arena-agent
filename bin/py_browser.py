@@ -13,7 +13,12 @@
 Хорошо подходит как failover в нашем "ИБП" пути.
 """
 from __future__ import annotations
-import argparse, json, sys, html
+
+import argparse
+import html
+import json
+import sys
+
 import requests
 from bs4 import BeautifulSoup, FeatureNotFound
 

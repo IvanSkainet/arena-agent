@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, time
+
+import argparse
+import json
+import time
+
 import httpx
+
 
 def main():
     ap=argparse.ArgumentParser()

@@ -7,7 +7,9 @@ Usage:
   agents_md ls               — список AGENTS.md по всем проектам
 """
 from __future__ import annotations
-import sys, pathlib
+
+import pathlib
+import sys
 
 ROOT = pathlib.Path.home() / "arena-bridge"
 PROJ = ROOT / "projects"

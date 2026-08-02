@@ -1,7 +1,14 @@
 """Mission template helpers."""
 from __future__ import annotations
 
-from arena.missions_cli.common import *  # noqa: F401,F403
+from arena.missions_cli.common import (
+    AGENT,
+    MISSIONS,
+    REPORTS,
+    TEMPLATES,
+    json,
+    slug,
+)
 
 TEMPLATES_DATA={
  'tabs-game':{'title':'Play/operate TABS game','goal':'Launch TABS, verify graphics/input, navigate campaign, use screenshots/OCR/web research, play levels with smooth input.','steps':['desktop info','desktop screenshot','window/process detection','input calibration','web research units/strategy','play one level','write report']},

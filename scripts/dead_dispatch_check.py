@@ -70,7 +70,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # v4.69.0: bare names are in the catalogue and in the
 # dispatcher. They are exempt from the dead-reference check.
 _BARE_NAMES: frozenset[str] = frozenset({"ping", "echo", "exec", "snapshot"})

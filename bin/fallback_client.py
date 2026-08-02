@@ -4,7 +4,13 @@ Usage: fallback_client.py [URL] [TOKEN] <cmd...>
 Env: AURL/ATOK or ARENA_BRIDGE_URL/ARENA_BRIDGE_TOKEN.
 """
 from __future__ import annotations
-import json, os, subprocess, sys, urllib.request
+
+import json
+import os
+import subprocess
+import sys
+import urllib.request
+
 
 def payload(cmd): return json.dumps({'cmd':cmd,'timeout':90,'max_output':30000}, ensure_ascii=False).encode()
 def parse(b):

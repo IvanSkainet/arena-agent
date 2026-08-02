@@ -1,7 +1,25 @@
 """Skill runner execution command."""
 from __future__ import annotations
 
-from arena.skills.cli_common import *  # noqa: F401,F403
+# `_fire_hook` is underscore-prefixed. This module used to reach it through
+# `from cli_common import *`, which never binds underscore names -- and it is
+# called on the very first line of run_skill(), so every `skill run` raised
+# NameError before v4.155.0. Confirmed by calling it, then fixed by importing
+# it by name along with everything else.
+from arena.skills.cli_common import (
+    LOG_FILE,
+    LOGS,
+    ROOT,
+    SK,
+    _fire_hook,
+    find_skill_dir,
+    json,
+    now_iso,
+    os,
+    subprocess,
+    sys,
+    time,
+)
 
 
 def run_skill(args) -> int:

@@ -3,7 +3,11 @@
 Snapshot & Rollback System (Time Machine)
 Creates lightweight backups of the current directory.
 """
-import sys, os, tarfile, datetime, glob
+import datetime
+import glob
+import os
+import sys
+import tarfile
 
 CACHE_DIR = os.path.expanduser("~/.arena-snapshots")
 

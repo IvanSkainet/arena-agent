@@ -25,22 +25,22 @@ CLI (backward-compatible):
   python3 cdp_browser.py multitab          # Interactive multi-tab demo
 """
 
-import sys
-import os
+import asyncio
 import base64
+import itertools
 import json
-import urllib.request
-import subprocess
-import time
+import logging
+import os
 import platform
 import shutil
-import traceback
+import subprocess
+import sys
 import tempfile
-import asyncio
-import itertools
-import logging
+import time
+import traceback
+import urllib.request
 from pathlib import Path
-from typing import Optional, Callable, Any, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 # ---------------------------------------------------------------------------
 # Optional aiohttp import — graceful degradation for environments without it
@@ -71,21 +71,27 @@ DEFAULT_TIMEOUT = 30  # seconds
 RECONNECT_ATTEMPTS = 3
 RECONNECT_DELAY = 1  # seconds
 
-from arena.browser.cdp_client.process import (
-    find_browser_exe, _resolve_browser_binary, _build_session_env, _build_chromium_cmd,
-    _ts, _drain_stderr, _kill_port_processes, _write_diag_file, launch_browser,
-)
-from arena.browser.cdp_client.tabs_http import list_tabs, get_websocket_url, get_new_tab_url, close_tab
-from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter, _WSMessage
-from arena.browser.cdp_client.sync_browser import SyncCDPBrowser
-from arena.browser.cdp_client.network_monitor import NetworkRequest, CDPNetworkMonitor
-from arena.browser.cdp_client.interceptor import InterceptRule, CDPNetworkInterceptor
-from arena.browser.cdp_client.cookies import CDPCookieManager
 from arena.browser.cdp_client.browser import CDPBrowser
+from arena.browser.cdp_client.cli import main
+from arena.browser.cdp_client.cookies import CDPCookieManager
+from arena.browser.cdp_client.interceptor import CDPNetworkInterceptor, InterceptRule
+from arena.browser.cdp_client.network_monitor import CDPNetworkMonitor, NetworkRequest
+from arena.browser.cdp_client.process import (
+    _build_chromium_cmd,
+    _build_session_env,
+    _drain_stderr,
+    _kill_port_processes,
+    _resolve_browser_binary,
+    _ts,
+    _write_diag_file,
+    find_browser_exe,
+    launch_browser,
+)
+from arena.browser.cdp_client.sync_browser import SyncCDPBrowser
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tab_manager import CDPTabManager
-from arena.browser.cdp_client.cli import main
-
+from arena.browser.cdp_client.tabs_http import close_tab, get_new_tab_url, get_websocket_url, list_tabs
+from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter, _WSMessage
 
 # ---------------------------------------------------------------------------
 # Browser process management

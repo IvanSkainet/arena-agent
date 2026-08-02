@@ -16,14 +16,14 @@ Usage:
     recon_ip.py --quiet     # only the most likely IP, one line
 """
 from __future__ import annotations
-import sys
-import json
-import argparse
-import urllib.request
-import urllib.error
-import socket
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import argparse
+import json
+import socket
+import sys
+import urllib.error
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 PROBES = [
     ("ipify", "https://api.ipify.org", "text"),

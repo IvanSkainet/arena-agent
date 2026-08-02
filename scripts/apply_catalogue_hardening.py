@@ -32,7 +32,6 @@ import re
 import sys
 from pathlib import Path
 
-
 # Files that contain *_MCP_TOOLS = [...] blocks.
 REGISTRY_FILES = [
     "arena/mcp/tool_registry.py",

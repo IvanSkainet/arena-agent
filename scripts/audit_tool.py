@@ -1,7 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, collections, datetime as dt, json, os, shutil
+
+import argparse
+import collections
+import datetime as dt
+import json
+import os
+import shutil
 from pathlib import Path
+
 AUDIT = Path.home() / 'arena-bridge' / 'audit.jsonl'
 
 def read_events(limit: int | None = None):

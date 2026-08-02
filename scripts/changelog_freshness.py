@@ -39,7 +39,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-
 # Match a date literal in the form we use in CHANGELOG entries:
 #   "captured_at": "2026-07-24T00:00:00Z"
 #   "released this / 23 Jul 20:43"  (GitHub release UI text)

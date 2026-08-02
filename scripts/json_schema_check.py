@@ -55,7 +55,6 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 # Draft 7 keywords we recognise. Anything outside this set
 # is a typo. ``$ref`` / ``$id`` / ``$schema`` are
 # deliberately listed; the walker is permissive about them

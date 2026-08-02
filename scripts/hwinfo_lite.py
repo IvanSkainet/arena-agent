@@ -1,8 +1,9 @@
+import json
 import os
-import sys
 import platform
 import subprocess
-import json
+import sys
+
 
 def get_cim_data(class_name, properties):
     try:

@@ -7,7 +7,11 @@ Automates the TDD cycle:
 3. Stubs implementation
 4. Prompts agent (simulated here for framework) to fix it.
 """
-import sys, os, subprocess, time
+import os
+import subprocess
+import sys
+import time
+
 
 def run_tdd(goal: str):
     print(f"🚀 Starting TDD Loop for goal: '{goal}'")

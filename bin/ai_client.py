@@ -14,7 +14,13 @@ Env:
   AURL/ARENA_BRIDGE_URL, ATOK/ARENA_BRIDGE_TOKEN
 """
 from __future__ import annotations
-import json, os, subprocess, sys, urllib.request, base64
+
+import base64
+import json
+import os
+import subprocess
+import sys
+import urllib.request
 
 DEF_URL = os.getenv('AURL') or os.getenv('ARENA_BRIDGE_URL') or 'http://127.0.0.1:8765'
 DEF_TOK = os.getenv('ATOK') or os.getenv('ARENA_BRIDGE_TOKEN') or ''

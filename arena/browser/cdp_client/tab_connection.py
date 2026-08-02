@@ -1,7 +1,22 @@
 """Single CDP tab component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+# CDPBrowser is instantiated at runtime here (not just annotated), so this
+# is a plain import. Checked for an import cycle before adding it.
+from arena.browser.cdp_client.browser import CDPBrowser
+from arena.browser.cdp_client.common import (
+    HAS_AIOHTTP,
+    HAS_WEBSOCKETS,
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    _websockets_mod,
+    aiohttp,
+    asyncio,
+    logger,
+    traceback,
+)
 from arena.browser.cdp_client.websocket_adapter import WebsocketsCDPAdapter
 
 

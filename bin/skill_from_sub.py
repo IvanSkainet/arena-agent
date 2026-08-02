@@ -11,7 +11,11 @@ Usage:
 Skill ляжет в ~/arena-bridge/skills/auto/<skill_name>/ — SKILL.md, manifest.json, run.sh.
 """
 from __future__ import annotations
-import argparse, json, os, sys
+
+import argparse
+import json
+import os
+import sys
 from pathlib import Path
 
 ROOT = Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()

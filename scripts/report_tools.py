@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, datetime as dt, json, mimetypes, os
+
+import argparse
+import datetime as dt
+import json
+import mimetypes
+import os
 from pathlib import Path
+
 ROOT=Path(os.environ.get('ARENA_AGENT_HOME', str(Path.home() / 'arena-bridge'))).expanduser(); REPORTS=ROOT/'reports'
 def items(limit=None):
     REPORTS.mkdir(parents=True, exist_ok=True)

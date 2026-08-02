@@ -41,7 +41,6 @@ import sys
 import urllib.error
 import urllib.request
 
-
 DEFAULT_REPO = "IvanSkainet/arena-agent"
 _TIMEOUT = 8
 

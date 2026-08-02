@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, json, re, socket, ssl, time
+
+import argparse
+import json
+import re
+import socket
+import ssl
+import time
 from urllib.parse import urljoin, urlparse
-import dns.resolver, httpx
+
+import dns.resolver
+import httpx
+
 
 def j(x): print(json.dumps(x, ensure_ascii=False, indent=2))
 def dns_lookup(domain, types):

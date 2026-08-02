@@ -158,3 +158,21 @@ def test_no_module_calls_an_unbound_underscore_helper():
         for name in sorted(called - defined - imported):
             offenders.append(f"{path.name}: calls {name}, neither defined nor imported")
     assert offenders == [], offenders
+
+
+def test_skill_runner_can_fire_its_hooks():
+    """Fifth instance of the same blind spot.
+
+    arena/skills/cli_run.py called `_fire_hook` on the FIRST line of
+    run_skill(), relying on `from cli_common import *` -- which never provides
+    underscore names. Every `skill run` therefore raised NameError before it
+    did anything. Asserting the call path, not just the binding.
+    """
+    import types
+
+    from arena.skills import cli_run
+
+    assert hasattr(cli_run, "_fire_hook"), "the hook helper is unbound again"
+    rc = cli_run.run_skill(types.SimpleNamespace(name="definitely-not-a-skill",
+                                                 skill_args=[]))
+    assert rc == 2, f"expected the not-found exit code, got {rc}"

@@ -186,6 +186,56 @@ def _module_name(path: Path) -> str:
     return path.relative_to(ROOT).with_suffix("").as_posix().replace("/", ".")
 
 
+def _names_only_bound_locally(tree: ast.AST) -> set[str]:
+    """Names every one of whose uses sits in a scope that binds them itself.
+
+    `p = ROOT / "x"` inside a function, or a function-local `import platform`,
+    means the name never came from the star import. Importing it at module
+    level would only swap F405 for F401 -- which is exactly what the ruff guard
+    kept rejecting, three files in a row, until this was added.
+    """
+    scopes: list[ast.AST] = [
+        n for n in ast.walk(tree)
+        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda))
+    ]
+    local_only: set[str] = set()
+    for scope in scopes:
+        bound: set[str] = set()
+        for node in ast.walk(scope):
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+                bound.add(node.id)
+            elif isinstance(node, ast.alias) and node.name != "*":
+                bound.add((node.asname or node.name).split(".")[0])
+            elif isinstance(node, ast.arg):
+                bound.add(node.arg)
+        local_only |= bound
+
+    # Keep any name that is also used somewhere no scope binds it.
+    module_level_uses: set[str] = set()
+
+    def scan(node: ast.AST, inside: bool) -> None:
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                scan(child, True)
+                continue
+            if not inside and isinstance(child, ast.Name) and isinstance(child.ctx, ast.Load):
+                module_level_uses.add(child.id)
+            scan(child, inside)
+
+    scan(tree, False)
+    needed_anyway: set[str] = set()
+    for scope in scopes:
+        bound = {n.id for n in ast.walk(scope)
+                 if isinstance(n, ast.Name) and isinstance(n.ctx, (ast.Store, ast.Del))}
+        bound |= {(a.asname or a.name).split(".")[0] for a in ast.walk(scope)
+                  if isinstance(a, ast.alias) and a.name != "*"}
+        bound |= {a.arg for a in ast.walk(scope) if isinstance(a, ast.arg)}
+        for n in ast.walk(scope):
+            if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id not in bound:
+                needed_anyway.add(n.id)
+    return (local_only - module_level_uses) - needed_anyway
+
+
 def plan(path: Path) -> tuple[str | None, list[str], str]:
     """Return (starred module, names to import explicitly, note)."""
     src = path.read_text(encoding="utf-8")
@@ -201,7 +251,14 @@ def plan(path: Path) -> tuple[str | None, list[str], str]:
     if exports is None:
         return None, [], f"skipped (cannot import {target})"
 
+    # A name bound anywhere -- including inside a function -- may still need
+    # the module-level import, because another function can use it unbound.
+    # But a name that is *only ever* bound locally (a loop variable `p`, a
+    # function-local `import platform`) never came from the star, and importing
+    # it at module level just trades F405 for F401. So: start from names used
+    # at module scope or in functions that do not bind them themselves.
     used = _loaded_names(tree) - _bound_names(tree)
+    used -= _names_only_bound_locally(tree)
     needed = sorted(used & exports)
     if not needed:
         return target, [], "no names used from the star (import becomes removable)"

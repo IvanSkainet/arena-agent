@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import asyncio, json, os, sys, urllib.request
+
+import asyncio
+import json
+import os
+import sys
+import urllib.request
 from pathlib import Path
+
 ROOT = Path(os.environ.get('ARENA_AGENT_HOME', Path.home() / 'arena-bridge'))
 MCP_DIR = ROOT / 'mcp'; CONFIG = MCP_DIR / 'mcp.json'
 STREAM = os.environ.get('ARENA_MCP_STREAM_URL','http://127.0.0.1:8767')
@@ -17,8 +23,9 @@ def http_json(path, payload=None, headers=None, timeout=20):
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, dict(r.headers), r.read().decode('utf-8','replace')
 async def run_mcp_client(server_name, action, tool_name=None, tool_args=None):
-    from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
+
+    from mcp import ClientSession, StdioServerParameters
     cfg=load_config()
     if server_name not in cfg['mcpServers']: raise SystemExit(f"Error: MCP Server '{server_name}' not found.")
     srv=cfg['mcpServers'][server_name]; env=os.environ.copy(); env.update(srv.get('env', {}))

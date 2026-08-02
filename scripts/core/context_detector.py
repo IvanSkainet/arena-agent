@@ -4,9 +4,11 @@ Context-Aware Adapter System (SiteAdapters / Context Detectors)
 Analyzes CWD to intelligently load specific tools/extensions.
 """
 from __future__ import annotations
-import os
+
 import json
+import os
 from pathlib import Path
+
 
 class ContextDetector:
     @staticmethod
