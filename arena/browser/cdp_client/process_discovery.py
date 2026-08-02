@@ -1,7 +1,7 @@
 """Extracted module from scripts/cdp_browser.py."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import logger, os, platform, shutil
 
 
 def find_browser_exe() -> str:

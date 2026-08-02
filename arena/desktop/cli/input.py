@@ -1,7 +1,17 @@
 """Desktop manager input commands."""
 from __future__ import annotations
 
-from arena.desktop.cli.common import *  # noqa: F401,F403
+from arena.desktop.cli.common import (
+    argparse,
+    have,
+    j,
+    os,
+    random,
+    run,
+    subprocess,
+    sys,
+    time,
+)
 from arena.desktop.cli.focus import _ensure_wm, _focus_active_window
 
 

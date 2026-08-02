@@ -2,7 +2,23 @@
 from __future__ import annotations
 
 from arena.missions_cli.common import _fire_mission_hook, _start_recording, _stop_recording  # noqa: F401
-from arena.missions_cli.templates import *  # noqa: F401,F403
+from arena.missions_cli.templates import (
+    MISSIONS,
+    ROOT,
+    TEMPLATES,
+    argparse,
+    commands_for,
+    dt,
+    ensure,
+    find_mission,
+    json,
+    load_template,
+    now,
+    run_cmd,
+    slug,
+    textwrap,
+    uuid,
+)
 
 
 def list_cmd(a):

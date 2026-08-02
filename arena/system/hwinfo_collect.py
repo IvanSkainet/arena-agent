@@ -3,8 +3,16 @@ from __future__ import annotations
 
 # Explicit: the star import below is legacy debt (F405). New names are
 # imported by hand so they do not add to it.
-from arena.system.hwinfo_cim import *  # noqa: F401,F403
-from arena.system.hwinfo_cim import begin_pass, end_pass  # noqa: E402
+from arena.system.hwinfo_cim import (  # noqa: E402
+    begin_pass,
+    end_pass,
+    get_cim_all_list,
+    get_uptime,
+    json,
+    os,
+    platform,
+    subprocess,
+)
 
 
 def collect_full():

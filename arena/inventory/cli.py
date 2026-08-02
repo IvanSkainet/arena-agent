@@ -1,7 +1,7 @@
 """CLI for cross-platform system inventory."""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
+from arena.inventory.probe_common import argparse, json, platform, sys
 from arena.inventory.report import collect, format_text
 
 

@@ -1,7 +1,7 @@
 """Memory CLI storage helpers."""
 from __future__ import annotations
 
-from arena.memory.cli_paths import *  # noqa: F401,F403
+from arena.memory.cli_paths import get_db_path, get_mem_dir, json, os, sqlite3
 
 
 def append(obj: dict) -> None:

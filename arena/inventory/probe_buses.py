@@ -1,7 +1,15 @@
 """Inventory probe group."""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
+from arena.inventory.probe_common import (
+    Any,
+    _powershell_utf8_command,
+    _run,
+    _which,
+    json,
+    platform,
+    re,
+)
 
 
 def _classify_pci(text: str) -> str:

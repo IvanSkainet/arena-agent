@@ -1,7 +1,7 @@
 """CLI dispatcher for scripts/desktop_manager.py."""
 from __future__ import annotations
 
-from arena.desktop.cli.common import *  # noqa: F401,F403
+from arena.desktop.cli.common import argparse
 from arena.desktop.cli.input import click, key, move, type_text
 from arena.desktop.cli.screens import info, ocr, shot, windows
 

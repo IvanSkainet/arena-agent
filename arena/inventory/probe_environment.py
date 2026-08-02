@@ -1,7 +1,19 @@
 """Inventory probe group."""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
+from arena.inventory.probe_common import (
+    Any,
+    Path,
+    _get_cim_json,
+    _powershell_utf8_command,
+    _run,
+    _which,
+    json,
+    os,
+    platform,
+    re,
+    socket,
+)
 
 
 def get_thermal() -> dict:

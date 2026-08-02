@@ -1,7 +1,23 @@
 """Inventory probe group extracted from scripts/inventory.py."""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
+from arena.inventory.probe_common import (
+    BROWSERS,
+    ENV_KEYS_OF_INTEREST,
+    MACOS_BROWSER_APPS,
+    PACKAGE_MANAGERS,
+    RUNTIMES,
+    WINDOWS_BROWSER_PATHS,
+    Any,
+    Path,
+    _powershell_utf8_command,
+    _run,
+    _ver,
+    _which,
+    os,
+    platform,
+    sys,
+)
 
 
 def get_runtimes() -> dict:

@@ -1,7 +1,7 @@
 """Memory recall tokenization/scoring."""
 from __future__ import annotations
 
-from arena.memory.recall_paths import *  # noqa: F401,F403
+from arena.memory.recall_paths import Counter, re
 
 
 def tokenize(s: str) -> list[str]:

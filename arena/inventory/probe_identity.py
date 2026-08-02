@@ -1,7 +1,17 @@
 """Inventory probe group extracted from scripts/inventory.py."""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
+from arena.inventory.probe_common import (
+    Any,
+    Path,
+    _cim_dt,
+    _get_cim_json,
+    _run,
+    getpass,
+    os,
+    platform,
+    socket,
+)
 
 
 def get_identity() -> dict:

@@ -1,7 +1,7 @@
 """Skill scaffolding command."""
 from __future__ import annotations
 
-from arena.skills.cli_common import *  # noqa: F401,F403
+from arena.skills.cli_common import SK, json, sys
 
 SKILL_TEMPLATE_MD = """# {name}
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from arena.memory.cli_parser import _split_remember_rest
-from arena.memory.cli_paths import *  # noqa: F401,F403
+from arena.memory.cli_paths import argparse, get_db_path, json, now, sqlite3, sys
 from arena.memory.cli_store import append
 
 

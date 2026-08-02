@@ -1,7 +1,7 @@
 """CDP tab manager component."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import Dict, Optional, asyncio, logger
 from arena.browser.cdp_client.tab import CDPTab
 from arena.browser.cdp_client.tabs_http import list_tabs
 

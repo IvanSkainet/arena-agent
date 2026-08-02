@@ -1,7 +1,7 @@
 """Standalone MCP JSON-RPC dispatcher."""
 from __future__ import annotations
 
-from arena.mcp.standalone_common import *  # noqa: F401,F403
+from arena.mcp.standalone_common import VERSION, rpc_error, rpc_result
 from arena.mcp.standalone_tools import TOOLS, call_tool
 
 

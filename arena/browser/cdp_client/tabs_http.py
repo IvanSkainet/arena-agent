@@ -1,7 +1,15 @@
 """Extracted module from scripts/cdp_browser.py."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import (
+    DEFAULT_PORT,
+    Any,
+    Dict,
+    List,
+    Optional,
+    json,
+    urllib,
+)
 
 
 def list_tabs(port: int = DEFAULT_PORT) -> List[Dict[str, Any]]:

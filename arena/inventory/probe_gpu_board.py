@@ -1,7 +1,16 @@
 """Inventory probe group."""
 from __future__ import annotations
 
-from arena.inventory.probe_common import *  # noqa: F401,F403
+from arena.inventory.probe_common import (
+    Any,
+    Path,
+    _cim_dt,
+    _get_cim_json,
+    _run,
+    _which,
+    platform,
+    re,
+)
 
 
 def get_gpu() -> dict:

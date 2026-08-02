@@ -1,7 +1,7 @@
 """Top-level CDPTabManager.connect() orchestration."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import HAS_AIOHTTP, asyncio, logger, time
 from arena.browser.cdp_client.tab_manager_connect_active import CDPTabManagerActiveConnectMixin
 from arena.browser.cdp_client.tab_manager_connect_launch import CDPTabManagerConnectLaunchMixin
 

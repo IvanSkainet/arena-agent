@@ -1,8 +1,6 @@
 """Project AGENTS.md helper command."""
 from __future__ import annotations
 
-from arena.project_cli.common import *  # noqa: F401,F403
-
 
 def agents_md_command(args):
     """CLI: project_git.py agents [init|show] — управление AGENTS.md в текущем проекте."""

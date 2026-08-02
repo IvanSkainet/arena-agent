@@ -1,7 +1,14 @@
 """Extracted module from scripts/cdp_browser.py."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import (
+    HAS_AIOHTTP,
+    Any,
+    _websockets_mod,
+    aiohttp,
+    asyncio,
+    json,
+)
 
 
 class WebsocketsCDPAdapter:

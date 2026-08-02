@@ -1,7 +1,14 @@
 """Extracted module from scripts/cdp_browser.py."""
 from __future__ import annotations
 
-from arena.browser.cdp_client.common import *  # noqa: F401,F403
+from arena.browser.cdp_client.common import (
+    DEFAULT_PORT,
+    logger,
+    os,
+    subprocess,
+    tempfile,
+    time,
+)
 from arena.browser.cdp_client.process_discovery import _build_chromium_cmd, _build_session_env, _resolve_browser_binary
 from arena.browser.cdp_client.process_helpers import _drain_stderr, _kill_port_processes, _ts, _write_diag_file
 
