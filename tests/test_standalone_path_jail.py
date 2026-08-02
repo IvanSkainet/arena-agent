@@ -35,6 +35,23 @@ def _text(res: dict) -> str:
     return res["content"][0]["text"]
 
 
+def _fake_home(monkeypatch, home: Path) -> None:
+    """Point BOTH Path.home() and os.path.expanduser("~") at `home`.
+
+    Patching HOME alone is not portable: on Windows ntpath.expanduser reads
+    USERPROFILE first and ignores HOME entirely (see CPython's ntpath source),
+    so _jail()'s expanduser and the patched Path.home() would disagree and a
+    legitimate ~ path would be refused. That desync turned all five
+    windows-latest jobs red while Linux and macOS stayed green.
+    """
+    home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))
+    monkeypatch.delenv("HOMEDRIVE", raising=False)
+    monkeypatch.delenv("HOMEPATH", raising=False)
+
+
 def _is_refusal(res: dict) -> bool:
     return bool(res.get("isError")) and "PathJailError" in _text(res)
 
@@ -82,8 +99,7 @@ def test_a_real_file_outside_home_is_not_read(tmp_path, monkeypatch):
     secret_file = outside / "secret.txt"
     secret_file.write_text("TOP-SECRET-CONTENTS", encoding="utf-8")
 
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    monkeypatch.setenv("HOME", str(home))
+    _fake_home(monkeypatch, home)
 
     res = st.call_tool("fs.read", {"path": str(secret_file)})
     assert _is_refusal(res), _text(res)[:120]
@@ -96,8 +112,7 @@ def test_write_outside_home_creates_nothing(tmp_path, monkeypatch):
     home.mkdir()
     outside = tmp_path / "outside"
     outside.mkdir()
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    monkeypatch.setenv("HOME", str(home))
+    _fake_home(monkeypatch, home)
 
     target = outside / "should_not_exist.txt"
     res = st.call_tool("fs.write", {"path": str(target), "content": "pwned"})
@@ -118,8 +133,7 @@ def test_sensitive_basenames_are_refused_even_inside_home(name, tmp_path, monkey
     (home / ".ssh").mkdir(parents=True)
     target = home / ".ssh" / name
     target.write_text("SUPER-SECRET-VALUE", encoding="utf-8")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    monkeypatch.setenv("HOME", str(home))
+    _fake_home(monkeypatch, home)
 
     res = st.call_tool("fs.read", {"path": str(target)})
     assert res.get("isError"), f"{name} was readable: {_text(res)[:80]}"
@@ -140,7 +154,7 @@ def test_symlink_out_of_home_cannot_escape(tmp_path, monkeypatch):
     except (OSError, NotImplementedError):
         pytest.skip("symlinks unavailable on this host")
 
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    _fake_home(monkeypatch, home)
     res = st.call_tool("fs.read", {"path": str(link / "loot.txt")})
     assert _is_refusal(res)
     assert "classified" not in _text(res)
@@ -153,8 +167,7 @@ def test_symlink_out_of_home_cannot_escape(tmp_path, monkeypatch):
 def test_reading_and_writing_inside_home_still_works(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    monkeypatch.setenv("HOME", str(home))
+    _fake_home(monkeypatch, home)
 
     target = home / "notes.txt"
     w = st.call_tool("fs.write", {"path": str(target), "content": "hello"})
@@ -174,8 +187,7 @@ def test_tilde_expansion_still_works(tmp_path, monkeypatch):
     home = tmp_path / "home"
     home.mkdir()
     (home / "f.txt").write_text("via tilde", encoding="utf-8")
-    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
-    monkeypatch.setenv("HOME", str(home))
+    _fake_home(monkeypatch, home)
     res = st.call_tool("fs.read", {"path": "~/f.txt"})
     assert not res.get("isError"), _text(res)
     assert _text(res) == "via tilde"
