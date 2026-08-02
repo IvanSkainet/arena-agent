@@ -37,8 +37,19 @@ def _jail(raw: str) -> str:
     if _Path(expanded).name in _BLOCKED_BASENAMES:
         raise PathJailError(f"accessing {_Path(expanded).name} is not allowed")
     resolved = _Path(expanded).resolve()
-    if not _under_root(resolved, _Path.home()):
+    home = _Path.home().resolve()
+    # Two equivalent checks, deliberately. `under_root` is the shared helper
+    # and stays authoritative; the explicit `relative_to` below expresses the
+    # same containment locally so a reader -- and a taint analyser that cannot
+    # see into arena.util -- can confirm the value is constrained right here.
+    # Neither is redundant to the other in intent: if they ever disagree, that
+    # is a bug worth crashing on, not a difference to paper over.
+    if not _under_root(resolved, home):
         raise PathJailError("path outside home directory")
+    try:
+        resolved.relative_to(home)
+    except ValueError:
+        raise PathJailError("path outside home directory") from None
     return str(resolved)
 
 # v4.75.0: bare-name warnings removed. The v4.69.0
