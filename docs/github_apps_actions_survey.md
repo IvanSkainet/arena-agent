@@ -145,3 +145,94 @@ URL не тащим в репозиторий, даже когда сервис 
 Рекомендация сканера («избегайте `shell=True`») уже выполнена — конструкции с
 `shell=True` в этих файлах никогда не было. Правило репозитория остаётся прежним:
 дочерние процессы запускаются только списком аргументов, без шелла.
+
+## Ревизия каталога GitHub (2026-08-02): 78 security-workflow + Marketplace
+
+Пользователь прислал полный каталог security-workflows и подборку Marketplace.
+Прошёл весь список против нашего инвентаря. Итог: **из 78 предложенных workflow
+для нас релевантны единицы, и главная находка — не инструмент, а дыра в проверках.**
+
+### Что уже стоит (не рассматривать повторно)
+
+CodeQL, Semgrep, Bandit, DevSkim, TruffleHog, Gitleaks, OSV-Scanner, Anchore
+Syft+Grype (SBOM), Socket Firewall, pip-audit, Dependency Review, OSSF Scorecard,
+zizmor, actionlint, harden-runner, Codecov. Плюс собственные ratchet-ворота
+(ruff/pyrefly/vulture), import-linter contracts, packaging-e2e и e2e-installed.
+
+### Отсечено сразу — не наш стек
+
+Gosec (Go), Brakeman/RuboCop (Ruby), PHPMD/Psalm/njsscan (PHP/JS), Detekt (Kotlin),
+Credo (Elixir), Flawfinder (C/C++), rust-clippy, lintr (R), PSScriptAnalyzer,
+puppet-lint, clj-holmes/clj-watson (Clojure), Sobelow (Phoenix), pmd, ESLint,
+SecurityCodeScan (.NET), Jscrambler, mobsf/Appknox/NowSecure/zScan (мобильные
+бинарники — у нас Python-обвязка ADB, не APK), Datree/Kubesec/tfsec/Trivy/
+Prisma/Zscaler/cloudrail/Policy Validator (K8s/Terraform/контейнеры — у нас их нет),
+Haskell Dockerfile Linter (нет Dockerfile).
+
+### Отсечено по стоимости шума или коммерции
+
+Fortify, Checkmarx (CxSAST/One), Veracode, Black Duck, Synopsys, Endor Labs,
+JFrog SAST/Frogbot, Snyk (Code/Container/IaC), Xanitizer, CodeScan, Contrast,
+Debricked, Sysdig, StackHawk, APIsec/EthicalCheck, NeuraLegion, Mayhem, SOOS DAST,
+Codacy, Microsoft Defender for DevOps, OSSAR (обёртка над тем, что уже стоит).
+Причина одна и та же: платно либо дублирует существующий слой, добавляя третий
+поток false positives. Сегодняшний улов DeepSource — 1 реальная находка на 4
+ложных — показывает цену лишнего сканера.
+
+### SonarQube / SonarCloud — НЕ добавлять
+
+Community Edition (self-hosted, LGPLv3) не умеет ни branch analysis, ни
+PR-декорацию, плюс требует сервер и PostgreSQL. SonarQube Cloud бесплатен для
+публичных репозиториев и умеет PR-декорацию, но его детекторы дублируют
+ruff + pyrefly + vulture + CodeQL + Semgrep + Bandit. Новой сигнальности ноль,
+шум +1 источник.
+
+### Pyre / Pysa (Meta) — НЕ добавлять, но по интересной причине
+
+Pysa делает taint-анализ (source → sink), которого у pyrefly нет. Формально это
+единственный кандидат с новым классом сигнала. Но: у нас уже есть CodeQL с
+inter-procedural dataflow на тех же путях, а Pysa требует своих `taint.config` и
+`.pysa`-моделей и даёт ложные срабатывания на непокрытых зависимостях (по их же
+документации: если taint уходит в функцию без исходников, возвращаемое значение
+считается заражённым). Ценность появится только если писать модели под наши
+sink'и — это отдельный проект, не «включить action».
+
+### AI-slop детекторы (anti-slop и родня) — НЕ добавлять
+
+Заманчиво по профилю («репозиторий пишут ИИ-агенты»), но проверка показала:
+`kjmagnan1s/anti-slop` — про текст, а не код, 3 коммита; `peakoss/anti-slop`
+закрывает низкокачественные PR (у нас PR-потока от посторонних нет); остальные
+(AI-SLOP-Detector, sloppylint, deslop) ищут ровно то, что у нас уже под
+блокирующими воротами: мёртвый код (vulture=0), пустые заглушки, неиспользуемые
+импорты (F401=0), bare except, star-imports (F405 — в ratchet), god-функции
+(architecture guard 600/700 строк). Дублирование при нулевой зрелости проектов.
+
+### Проверка attack surface: дыры нет, но нет и гарантии
+
+Пока смотрел каталог, решил проверить не сканером, а исполнением: подняты живой
+сервер и опрошены ВСЕ незашаблонённые маршруты без токена (по одному запросу на
+путь, с переживанием per-path rate limit — первый заход дал ложные 429, потому
+что лимитер срабатывает ДО аутентификации).
+
+Результат: **107 маршрутов корректно отвечают 401/403**, 11 отвечают без токена.
+Проверил каждый из 11 по содержимому ответа — **утечки нет**: Prometheus-метрики,
+`/v2/health`, OpenAPI-спека (`/openapi.json`, `/api-docs`), HTML-страница логина
+`/gui/v2`, корневой индекс, а `/sse` без токена просто висит и событий не отдаёт.
+Всё это осознанно публичные поверхности.
+
+Важная поправка к первому впечатлению: `arena/public/endpoints.py` —
+это **каталог API для документации**, а НЕ список «доступных без токена»
+(там значится `POST /v1/exec`). Использовать его как источник истины для
+auth-проверок нельзя.
+
+Чего у нас при этом действительно нет: **автоматической гарантии**. Аутентификация
+вызывается внутри каждого handler'а (`require_auth`), а не middleware — забытый
+вызов в новом обработчике ничего видимо не сломает, и ни один из 78 сканеров
+каталога этого не поймает: это инвариант продукта, а не паттерн кода.
+237 маршрутов, 272 handler-функции, а живой E2E проверяет auth на трёх точках.
+
+**Кандидат в Tier-2.5 (ценнее любого нового сканера):** guard-тест, который
+поднимает сервер, перебирает все зарегистрированные маршруты и требует 401/403
+без токена для каждого, кроме явного allowlist публичных (новый файл — не
+переиспользовать `PUBLIC_ENDPOINTS`). Fail-closed: новый маршрут без auth и без
+записи в allowlist = красный CI. Стоимость: один тест, ~20 секунд прогона.
