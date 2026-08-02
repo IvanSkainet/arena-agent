@@ -43,13 +43,16 @@ def _is_refusal(res: dict) -> bool:
 # Escapes must be refused
 # ---------------------------------------------------------------------------
 
+# Paths that must be refused regardless of whether they exist on this host --
+# the jail decides on location, not on existence. Kept portable: Windows has no
+# /etc, and asserting on POSIX system paths is what turned macOS/Windows red.
 ESCAPES = [
     "/etc/hostname",
     "/etc/passwd",
     "~/../../etc/hostname",
     "~/../../../etc/passwd",
     "/",
-    "/tmp",
+    os.path.abspath(os.sep),
 ]
 
 
@@ -63,21 +66,42 @@ def test_paths_outside_home_are_refused(tool, path):
     assert _is_refusal(res), f"{tool} accepted {path!r}: {_text(res)[:120]}"
 
 
-def test_a_real_file_outside_home_is_not_read():
-    """Not just 'an error' -- the file's contents must never appear."""
-    assert os.path.exists("/etc/hostname")
-    secret = Path("/etc/hostname").read_text(encoding="utf-8").strip()
-    res = st.call_tool("fs.read", {"path": "/etc/hostname"})
-    assert _is_refusal(res)
-    assert secret not in _text(res)
+def test_a_real_file_outside_home_is_not_read(tmp_path, monkeypatch):
+    """Not just 'an error' -- the file's contents must never appear.
+
+    Uses a file this test creates outside a fake home rather than a
+    system path. The first version asserted on /etc/hostname, which does not
+    exist on macOS or Windows and turned every non-Linux CI job red: the same
+    host-specific coupling this repo keeps paying for. The invariant is
+    "outside home is unreadable", and that is expressible portably.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    secret_file = outside / "secret.txt"
+    secret_file.write_text("TOP-SECRET-CONTENTS", encoding="utf-8")
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("HOME", str(home))
+
+    res = st.call_tool("fs.read", {"path": str(secret_file)})
+    assert _is_refusal(res), _text(res)[:120]
+    assert "TOP-SECRET-CONTENTS" not in _text(res)
 
 
-def test_write_outside_home_creates_nothing(tmp_path):
-    target = Path("/tmp") / "arena_jail_probe_should_not_exist.txt"
-    if target.exists():
-        target.unlink()
+def test_write_outside_home_creates_nothing(tmp_path, monkeypatch):
+    """A refusal that still creates the file is not a refusal."""
+    home = tmp_path / "home"
+    home.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setenv("HOME", str(home))
+
+    target = outside / "should_not_exist.txt"
     res = st.call_tool("fs.write", {"path": str(target), "content": "pwned"})
-    assert _is_refusal(res)
+    assert _is_refusal(res), _text(res)[:120]
     assert not target.exists(), "jail refused but the file was created anyway"
 
 
