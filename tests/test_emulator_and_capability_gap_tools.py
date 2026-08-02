@@ -225,7 +225,10 @@ def test_missing_cli_refuses_with_a_docs_hint(monkeypatch):
     out = control.list_instances(provider="mumu")
     assert out["ok"] is False
     assert out["error"] == "provider_cli_not_found"
-    assert "mumuplayer.com" in out["hint"]
+    # Compare against the provider table's own docs value rather than a URL
+    # substring: substring checks on URLs are ambiguous by nature (and CodeQL
+    # rightly flags them), and this way the assertion follows the table.
+    assert out["hint"].endswith(providers.find_provider("mumu").docs)
 
 
 def test_provider_without_a_stop_verb_says_so_instead_of_guessing(monkeypatch, tmp_path):
