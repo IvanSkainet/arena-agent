@@ -90,10 +90,36 @@ e2e-installed — естественное продолжение «продви
 | 2 | pre-commit hooks (ruff/ratchets локально) | P2 | локальный | опционально, конфиг в репо |
 | 3 | Mutation testing sampled (cosmic-ray, nightly) | P2→Tier-3 | отдельный nightly workflow | позже |
 | 4 | Playwright dashboard E2E | P2→Tier-3 | blocking e2e job | позже |
-| 5 | Codecov | P3 | PR comment | **ДОБАВЛЕН** 2026-08-02: codecov-action v7.0.0 SHA-pinned, OIDC (без секретов), 15 legs upload, statuses informational-only в codecov.yml |
+| 5 | Codecov | P3 | PR comment | **РАБОТАЕТ** 2026-08-02: codecov-action v7.0.0 SHA-pinned, token-auth, 15 legs upload, statuses informational-only. Первое покрытие: **52.75%** (20185/38261). Badge в обоих README |
 | 6 | Renovate | P3 | PR queue | после автоматизации regen-lock |
 | 7 | SonarCloud/Codacy/Qodana/CodeScene | — | — | не добавлять (дубль ruff/pyrefly) |
 | 8 | Второй AI-review contour | — | — | не добавлять (FPS: DeepSource/Sourcery) |
 
 Статус: P1 выполнен (harden-runner@bf7454d egress-policy: audit как первый
 шаг 29 jobs). Остальное ждёт явного решения пользователя.
+
+## Codecov: разбор инцидента (2026-08-02)
+
+Подключение прошло не с первой попытки, и причина стоит того, чтобы её помнить.
+
+**Симптом**: все uploads (OIDC, token, даже ручной 4-строчный XML) → `state: error`
+за ~5 секунд, `errors: null`. Диагностика по кругу исключила auth, пути,
+схему XML, валидность `codecov.yml` и статус их сервиса.
+
+**Причина**: Codecov CLI по умолчанию **ищет файлы отчётов по всему дереву** и
+находил два: свежий `coverage.xml` из корня и `scripts/_testdata/coverage.xml` —
+закоммиченную тестовую фикстуру для `coverage_diff.py` с timestamp девятидневной
+давности. Их воркер отбраковывает отчёты старше 12 часов и валил **весь upload
+целиком** из-за протухшей фикстуры. Это же объясняло провал ручной загрузки:
+CLI, запущенный из корня репо, подхватывал ту же фикстуру.
+
+Найдено скачиванием реального payload из их storage и распаковкой zstd — в нём
+оказалось два `<coverage>`-корня с разными timestamp.
+
+**Урок для репозитория**: любой файл с именем, попадающим под glob-паттерны
+Codecov (`coverage*.xml`, `cobertura*.xml`, `jacoco*.xml`, `*.lcov`), отравляет
+upload независимо от того, где он лежит. Фикстуры отчётов держим под
+нейтральными именами (`diff_report_fixture.xml`), артефакты покрытия — в
+`.gitignore`, а сам upload сделан герметичным: `disable_search: true` в связке с
+`files:` (по их `action.yml` параметр `files` только ДОБАВЛЯЕТ к найденному
+поиском, поэтому одного его недостаточно).
