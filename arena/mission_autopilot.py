@@ -21,41 +21,26 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-import re
 import threading
 import urllib.request
 import uuid
-from pathlib import Path
 from typing import Any
+
+# Persistence lives in a sibling module; re-exported here so existing callers
+# and tests that patch these names keep working unchanged.
+from arena.mission_autopilot_store import (
+    _load,
+    _missing_run,
+    _now,
+    _run_path,
+    _runs_dir,
+    _save,
+    _slug,
+)
 
 # Background run registry: run_id → threading.Event (set = cancel requested)
 _background_cancel: dict[str, threading.Event] = {}
 _background_lock = threading.Lock()
-_file_lock = threading.Lock()  # guards concurrent read/write of run JSON files
-
-
-def _now() -> str:
-    return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
-
-
-def _slug(value: str, fallback: str = "autopilot") -> str:
-    s = re.sub(r"[^a-zA-Z0-9._-]+", "-", str(value or "").strip()).strip("-").lower()
-    return s[:70] or fallback
-
-
-def _home() -> Path:
-    import os
-    return Path(os.environ.get("ARENA_AGENT_HOME", str(Path.home() / "arena-bridge"))).expanduser()
-
-
-def _runs_dir() -> Path:
-    p = _home() / "autopilot" / "runs"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def _run_path(run_id: str) -> Path:
-    return _runs_dir() / f"{_slug(run_id)}.json"
 
 
 def _default_steps() -> list[dict[str, Any]]:
@@ -174,21 +159,6 @@ def _mcp_call(port: int, token: str, tool: str, arguments: dict[str, Any], timeo
     return parsed
 
 
-def _save(run: dict[str, Any]) -> None:
-    """Persist a run file, guarded by a lock to prevent concurrent-write races."""
-    with _file_lock:
-        _run_path(run["run_id"]).write_text(json.dumps(run, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-
-
-def _load(run_id: str) -> dict[str, Any]:
-    """Load a run file, guarded by a lock to prevent reading mid-write."""
-    with _file_lock:
-        p = _run_path(run_id)
-        if not p.exists():
-            raise FileNotFoundError(run_id)
-        return json.loads(p.read_text(encoding="utf-8"))
-
-
 def list_runs(limit: int = 20) -> dict[str, Any]:
     runs = []
     for p in sorted(_runs_dir().glob("*.json"), key=lambda x: x.stat().st_mtime, reverse=True)[: max(1, int(limit or 20))]:
@@ -201,12 +171,18 @@ def list_runs(limit: int = 20) -> dict[str, Any]:
 
 
 def status(run_id: str) -> dict[str, Any]:
-    run = _load(run_id)
+    try:
+        run = _load(run_id)
+    except FileNotFoundError:
+        return _missing_run(run_id)
     return {"ok": True, **{k: run.get(k) for k in ("run_id", "goal", "status", "outcome", "created_at", "finished_at", "scenario")}, "step_count": len(run.get("steps") or []), "path": str(_run_path(run_id))}
 
 
 def report(run_id: str) -> dict[str, Any]:
-    run = _load(run_id)
+    try:
+        run = _load(run_id)
+    except FileNotFoundError:
+        return _missing_run(run_id)
     lines = [f"# Autopilot run {run_id}", "", f"Goal: {run.get('goal')}", f"Status: `{run.get('status')}`", f"Outcome: {run.get('outcome','')}", "", "## Steps"]
     for idx, step in enumerate(run.get("steps") or [], start=1):
         lines.append(f"{idx}. `{step.get('tool')}` ok={step.get('ok')} id={step.get('id')}")
@@ -226,7 +202,10 @@ def cancel(run_id: str) -> dict[str, Any]:
     If the run is executing in a background thread (start_async), signals
     the thread to stop after the current step completes.
     """
-    run = _load(run_id)
+    try:
+        run = _load(run_id)
+    except FileNotFoundError:
+        return _missing_run(run_id)
     if run.get("status") not in ("running", "paused"):
         return {"ok": False, "error": f"run is already {run.get('status')}, cannot cancel", "run_id": run_id}
 
@@ -264,7 +243,10 @@ def step(
     The run does not need to be in 'running' state — this also works for
     completed/partial runs, effectively appending a follow-up step.
     """
-    run = _load(run_id)
+    try:
+        run = _load(run_id)
+    except FileNotFoundError:
+        return _missing_run(run_id)
     sid = step_id or f"step{len(run.get('steps', [])) + 1}"
     if not tool:
         return {"ok": False, "error": "tool is required", "run_id": run_id}
@@ -289,7 +271,10 @@ def step(
 
 def artifacts(run_id: str) -> dict[str, Any]:
     """Collect all artifacts (results, paths, screenshots) from a run."""
-    run = _load(run_id)
+    try:
+        run = _load(run_id)
+    except FileNotFoundError:
+        return _missing_run(run_id)
     arts: list[dict[str, Any]] = []
     for s in run.get("steps") or []:
         entry: dict[str, Any] = {"step_id": s.get("id"), "tool": s.get("tool"), "ok": s.get("ok")}

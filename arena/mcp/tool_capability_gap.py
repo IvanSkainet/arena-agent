@@ -31,7 +31,10 @@ def handle_capability_gap_tool(name: str, args: dict[str, Any], *, ctx=None) -> 
             status=str(args.get("status") or "resolved"),
         ), ensure_ascii=False))
     if name == "capability_gap.promote":
-        cfg = (ctx.app_config() if ctx and hasattr(ctx, "app_config") else lambda: {})() if ctx else {}
+        # The call parens belong to app_config, not to the conditional: an
+        # earlier `(... else lambda: {})()` called the *result* of
+        # app_config(), so every promote raised "dict object is not callable".
+        cfg = ctx.app_config() if (ctx is not None and hasattr(ctx, "app_config")) else {}
         return text_content(json.dumps(capability_gaps.promote(
             gap_id=str(args.get("id") or args.get("gap_id") or ""),
             goal=str(args.get("goal") or ""),

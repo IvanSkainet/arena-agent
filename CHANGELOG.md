@@ -1,3 +1,62 @@
+## Unreleased
+
+### Two live bugs from calling all 234 MCP tools for the first time
+
+The MCP surface had two contract tests and neither one ever called a tool.
+`test_mcp_tool_contracts.py` scans the AST for tool-name literals;
+`test_mcp_input_schema_validation.py` validates the JSON Schema of each
+declaration. Both pass on a tool whose handler raises on every invocation.
+
+So the tools were called -- all 234 of them, through the real `call_tool`
+dispatcher built by `make_mcp_tool_runtime`, with empty arguments. The
+question was not "does it succeed" (with no arguments almost nothing can)
+but "does it answer in words". Two did not.
+
+**`capability_gap.promote` had never worked.** One stray pair of parens:
+
+    cfg = (ctx.app_config() if ctx and hasattr(ctx, "app_config") else lambda: {})() if ctx else {}
+
+The trailing `()` applies to the whole conditional, so on the branch that is
+actually taken it calls the *result* of `app_config()` -- a dict. Every
+invocation raised `TypeError: 'dict' object is not callable`, was swallowed
+by the dispatcher's catch-all, and came back to the model as an error string.
+The tool was declared, advertised in `tools/list`, risk-classified, and dead
+100% of the time. No test called it; the ratchets cannot see it, because it
+is valid Python that only fails when run.
+
+**Five `mission.autopilot_*` tools refused with an empty sentence.** `_load`
+raises `FileNotFoundError(run_id)`, and when run_id is empty that exception
+carries no message at all, so the dispatcher rendered the literal text
+`ERROR: FileNotFoundError:` -- which tells a caller nothing: not which run,
+not that an argument was missing, not that retrying is pointless. `status`,
+`report`, `cancel`, `step` and `artifacts` now answer with the structured
+`{"ok": false, "error": ...}` every other tool in the surface uses.
+
+### The gate
+
+`tests/test_mcp_tool_dispatch_contract.py` invokes every declared tool and
+asserts three properties: no tool answers `Unknown tool:` (declared but
+unreachable -- what a one-sided rename produces), no refusal is an empty
+message, and no `TypeError`/`AttributeError`/`NameError` escapes a handler
+on a well-formed call. It also asserts the probe itself can still fail, so a
+gate that silently starts reporting zero is not mistaken for a passing one.
+
+Sabotage-checked three ways: restoring the paren bug fails
+`capability_gap.promote`, restoring the bare `_load` fails
+`mission.autopilot_status`, and deleting one handler branch from the
+dispatch chain fails all four `git.*` tools.
+
+### Also
+
+`arena/mission_autopilot.py` crossed the 600-line mini-monolith threshold
+while being fixed. Rather than widen the limit, the persistence layer moved
+to `arena/mission_autopilot_store.py` (615 -> 568 lines), re-exported so no
+caller or monkeypatching test changes.
+
+Repository metadata: the project had no `description` and zero topics, so it
+was absent from every GitHub topic hub -- not deprioritised, absent. Sixteen
+topics and a description now published.
+
 ## v4.158.0 — 2026-08-03
 
 Five live defects, all found by asking a tool a question and then checking the
