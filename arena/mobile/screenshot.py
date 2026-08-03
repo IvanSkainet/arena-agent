@@ -330,10 +330,14 @@ def _postprocess(
 
 
 # Lazy import so the module still imports on hosts without Pillow.
+# `Image: Any` (not the inferred `Module | None`): the fallback below otherwise
+# makes every later `Image.X` read as an attribute on None, even where Pillow is
+# installed. Call sites check `Image is not None` first.
+Image: Any
 try:
-    from PIL import Image  # type: ignore  # noqa: E402
+    from PIL import Image  # type: ignore[no-redef]  # noqa: E402
 except Exception:
-    Image = None  # type: ignore
+    Image = None
 
 
 def _png_dimensions(png: bytes) -> tuple[int, int]:

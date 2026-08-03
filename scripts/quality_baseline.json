@@ -12,7 +12,7 @@
     "invalid-annotation": 1,
     "invalid-argument": 3,
     "missing-argument": 1,
-    "missing-attribute": 547,
+    "missing-attribute": 520,
     "no-matching-overload": 14,
     "not-async": 5,
     "not-callable": 8,
@@ -20,6 +20,6 @@
     "redefinition": 3,
     "unexpected-keyword": 11,
     "unsupported-operation": 24,
-    "TOTAL": 769
+    "TOTAL": 742
   }
 }

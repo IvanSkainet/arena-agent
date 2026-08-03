@@ -20,15 +20,26 @@ import urllib.request  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from pathlib import Path  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 from typing import Any, Callable, Dict, List, Optional  # noqa: F401  # kept: re-export/dynamic (AGENTS.md)
 
+# `aiohttp: Any` (not the inferred `Module | None`) is deliberate: the fallback
+# assignment below makes every later `aiohttp.X` read as an attribute on None,
+# even on hosts where the package IS installed. Guarded by HAS_AIOHTTP at every
+# call site, so the checker gains nothing by tracking the None arm -- it only
+# produces noise that hides real findings.
+aiohttp: Any
 try:
-    import aiohttp
+    import aiohttp  # type: ignore[no-redef]
     HAS_AIOHTTP = True
 except ImportError:
     aiohttp = None
     HAS_AIOHTTP = False
 
+# `_websockets_mod: Any` (not the inferred `Module | None`): the fallback below
+# otherwise makes every later `_websockets_mod.X` read as an attribute on None,
+# even where the package is installed. Guarded by HAS_WEBSOCKETS at the call
+# sites, so tracking the None arm only produces noise.
+_websockets_mod: Any
 try:
-    import websockets as _websockets_mod
+    import websockets as _websockets_mod  # type: ignore[no-redef]
     HAS_WEBSOCKETS = True
 except ImportError:
     _websockets_mod = None

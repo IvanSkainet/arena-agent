@@ -231,12 +231,26 @@ def ok_json(ctx: Any, payload: dict | None = None, **extra: Any) -> web.Response
 async def parse_json_body(
     request: web.Request,
     ctx: Any,
-) -> tuple[dict | None, web.Response | None]:
+) -> tuple[dict, None] | tuple[None, web.Response]:
     """Parse a JSON request body, returning ``(data, err_response)``.
 
     When the body isn't valid JSON, ``data`` is ``None`` and the
     caller should return the error response as-is. Otherwise
     ``data`` holds the parsed dict and ``err_response`` is ``None``.
+
+    The return type is a union of two tuples rather than
+    ``tuple[dict | None, Response | None]``: the two states are mutually
+    exclusive, so a caller that has checked the error holds a real dict.
+
+    Honest caveat, measured rather than assumed: pyrefly 1.2.0 does *not*
+    yet benefit from this. It reads the signature correctly, but the moment
+    the result is unpacked (``data, err = await ...``) it collapses the union
+    to ``dict | None`` and loses the correlation between the two elements --
+    confirmed with ``reveal_type``. Indexing the tuple instead of unpacking
+    preserves it, but rewriting 49 handlers into a less readable style to
+    please a checker is the wrong trade. The signature stays because it
+    describes the function accurately; the ~90 ``.get`` findings it should
+    have removed remain in the debt count until the checker catches up.
 
     Usage::
 
