@@ -160,7 +160,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
 
     async def on_cleanup(app: web.Application):
         """Stop background task runner and clean up resources."""
-        tr = app.get(APP_TASK_RUNNER)
+        tr: asyncio.Task | None = app.get(APP_TASK_RUNNER)
         if tr:
             tr.cancel()
             try:
@@ -168,7 +168,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             except asyncio.CancelledError:
                 pass
 
-        lc = app.get(APP_LOG_CLEANUP)
+        lc: asyncio.Task | None = app.get(APP_LOG_CLEANUP)
         if lc:
             lc.cancel()
             try:
@@ -176,7 +176,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             except asyncio.CancelledError:
                 pass
 
-        fw = app.get(APP_FILE_WATCH_LOOP)
+        fw: asyncio.Task | None = app.get(APP_FILE_WATCH_LOOP)
         if fw:
             fw.cancel()
             try:
@@ -184,7 +184,7 @@ def make_lifecycle(ctx: LifecycleContext) -> LifecycleRuntime:
             except asyncio.CancelledError:
                 pass
 
-        ms = app.get(APP_MISSION_SCHEDULE_LOOP)
+        ms: asyncio.Task | None = app.get(APP_MISSION_SCHEDULE_LOOP)
         if ms:
             ms.cancel()
             try:

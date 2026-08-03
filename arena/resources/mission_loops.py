@@ -44,6 +44,27 @@ def followup_mission_bundle(
     create_sync: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     run_sync: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    # These five are typed Optional so callers can build the kwargs
+    # incrementally, but every one of them is invoked unconditionally below.
+    # Omitting one used to surface as a bare
+    # ``TypeError: 'NoneType' object is not callable`` from somewhere deep in
+    # the loop -- fail-open in the sense that matters: the caller cannot tell
+    # which dependency it forgot. Name it instead.
+    _required = {
+        "react_sync": react_sync,
+        "reflect_sync": reflect_sync,
+        "compose_sync": compose_sync,
+        "create_sync": create_sync,
+        "run_sync": run_sync,
+    }
+    _missing = sorted(name for name, fn in _required.items() if fn is None)
+    if _missing:
+        return {
+            "ok": False,
+            "status": 500,
+            "error": f"followup_mission_bundle requires: {', '.join(_missing)}",
+        }
+
     if recovery is None:
         recovery = recover_mission_bundle(missions_dir=missions_dir, mission_id=mission_id, notes=notes, reflect_sync=reflect_sync)
     if not recovery.get("ok"):

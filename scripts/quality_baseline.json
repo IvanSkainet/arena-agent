@@ -3,19 +3,18 @@
     "TOTAL": 0
   },
   "pyrefly": {
-    "bad-argument-type": 69,
+    "bad-argument-type": 66,
     "bad-assignment": 20,
     "bad-function-definition": 6,
     "bad-override": 1,
     "bad-return": 4,
     "invalid-argument": 3,
-    "missing-attribute": 110,
-    "no-matching-overload": 11,
-    "not-async": 4,
+    "missing-attribute": 106,
+    "no-matching-overload": 8,
     "not-callable": 6,
     "not-iterable": 4,
     "redefinition": 3,
     "unsupported-operation": 22,
-    "TOTAL": 263
+    "TOTAL": 249
   }
 }

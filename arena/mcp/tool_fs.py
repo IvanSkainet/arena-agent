@@ -71,6 +71,7 @@ def handle_fs_tool(name: str, args: dict[str, Any], *, ctx) -> dict[str, Any] | 
         if name == "fs.edit" and p and Path(p).name in _MCP_BLOCKED_FILES:
             return {"isError": True, "content": [{"type": "text", "text": f"BLOCKED: editing {Path(p).name} is not allowed"}]}
         return err
+    assert path is not None  # the guard above already proved this
 
     try:
         if name == "fs.read":
