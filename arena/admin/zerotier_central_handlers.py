@@ -80,6 +80,7 @@ def make_zerotier_central_handlers(ctx: AdminHandlerContext) -> ZerotierCentralH
         data, jerr = await parse_json_body(request, ctx)
         if jerr is not None:
             return jerr
+        assert data is not None  # the guard above already proved this
         name = str(data.get("name") or "").strip()
         if not name:
             return err_json(ctx, "name required", status=400)
@@ -140,6 +141,7 @@ def make_zerotier_central_handlers(ctx: AdminHandlerContext) -> ZerotierCentralH
         data, jerr = await parse_json_body(request, ctx)
         if jerr is not None:
             return jerr
+        assert data is not None  # the guard above already proved this
         kwargs = {}
         if "authorized" in data:
             kwargs["authorized"] = bool(data["authorized"])

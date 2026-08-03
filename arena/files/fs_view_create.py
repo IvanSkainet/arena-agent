@@ -47,6 +47,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
         target = str(data.get("path", ""))
         view_range = data.get("view_range")
         target_path, err, status = validate_view_target(
@@ -115,6 +116,7 @@ def make_fs_view_create_handlers(ctx: FileHandlerContext) -> FsViewCreateHandler
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
         target = str(data.get("path", ""))
         content = data.get("content", "")
         if not content:

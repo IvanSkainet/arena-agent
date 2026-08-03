@@ -111,6 +111,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
         target = str(data.get("path", ""))
         old_text = str(data.get("old_text", ""))
         new_text = str(data.get("new_text", ""))
@@ -165,6 +166,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
         preview_id = str(data.get("preview_id", "")).strip()
         if not preview_id:
             return _json_error(ctx, "missing preview_id", 400)
@@ -186,6 +188,7 @@ def make_file_handlers(ctx: FileHandlerContext) -> FileHandlers:
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
         rollback_id = str(data.get("rollback_id", "")).strip()
         if not rollback_id:
             return _json_error(ctx, "missing rollback_id", 400)

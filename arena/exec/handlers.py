@@ -111,6 +111,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
 
         request_id = str(data.get("request_id") or uuid.uuid4())
         cmd = str(data.get("cmd", "")).strip()
@@ -412,6 +413,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
 
         request_id = str(data.get("request_id") or uuid.uuid4())
         cmd = str(data.get("cmd", "")).strip()
@@ -572,6 +574,7 @@ def make_exec_handlers(ctx: ExecHandlerContext) -> ExecHandlers:
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert data is not None  # the guard above already proved this
         target_id = data.get("request_id")
         if not target_id or target_id not in ctx.active_processes:
             ctx.record_request(is_error=True, count_request=False)

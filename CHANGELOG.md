@@ -1,5 +1,24 @@
 ## Unreleased
 
+### `assert` where the guard already proved it
+
+pyrefly cannot narrow a union of tuples through unpacking, so after
+
+    body, jerr = await parse_json_body(request, ctx)
+    if jerr is not None:
+        return jerr
+
+every later `body.get(...)` reads as an attribute access on None. Earlier in
+this cycle that was documented and left alone, because the alternative on the
+table was rewriting ~50 handlers to index the tuple instead of unpacking it.
+
+There is a third option that costs one line and no readability: `assert body is
+not None`, stating what the guard above already guarantees. Applied to the 12
+sites whose shape is unambiguous. Not run with `-O` anywhere -- and even under
+`-O` the behaviour is identical, since the guard returns first.
+
+pyrefly **380 -> 311**.
+
 ### Platform and optional-dependency stubs stop poisoning their callers
 
 Same root cause as the aiohttp fix, three more places. `user32 = None` in the

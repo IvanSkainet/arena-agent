@@ -176,6 +176,7 @@ def make_proposal_handlers(ctx, bridge_dir: Path):
         data, jerr = await parse_json_body(request, ctx)
         if jerr is not None:
             return jerr
+        assert data is not None  # the guard above already proved this
 
         title = str(data.get("title") or "").strip()
         rationale = str(data.get("rationale") or "").strip()

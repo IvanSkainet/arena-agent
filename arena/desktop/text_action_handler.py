@@ -15,6 +15,7 @@ def make_desktop_text_action_handler(ctx: DesktopHandlerContext):
         if jerr is not None:
             ctx.record_request(is_error=True, count_request=False)
             return jerr
+        assert body is not None  # the guard above already proved this
         action = str(body.get("action", "resolve") or "resolve")
         result = await run_text_action(
             action=action,
