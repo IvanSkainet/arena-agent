@@ -54,8 +54,15 @@ def check_rate_limit_v2(
         remaining = limit - len(ep_store)
         reset_at = now + window if ep_store else now + window
         if remaining <= 0:
-            ep_store.append(now)
-            retry_after = round(window - (now - ep_store[0]), 1)
+            # Do NOT record the rejected request. Appending it here makes the
+            # window self-sustaining: a client retrying faster than `window`
+            # keeps pushing ep_store[0] forward, so the oldest entry never
+            # ages out and the limiter never lets it back in -- a permanent
+            # ban for the ordinary behaviour of retrying. Measured: a client
+            # polling every 5s against a 60s window stayed blocked for the
+            # full 1000s of the probe; one polling every 70s recovered.
+            # check_rate_limit (v1, below) already gets this right.
+            retry_after = round(window - (now - ep_store[0]), 1) if ep_store else round(window, 1)
             resp = cors_json_response_fn(
                 {"ok": False, "error": "rate limit exceeded", "retry_after_s": retry_after, "limit": limit, "window_s": window},
                 status=429,

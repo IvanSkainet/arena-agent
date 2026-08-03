@@ -1,5 +1,52 @@
 ## Unreleased
 
+### Live bug: the rate limiter permanently banned any client that retried
+
+Measuring bridge latency needed the limiter out of the way, which is how it
+got read closely. `check_rate_limit_v2` appended the *rejected* request's
+timestamp to the same sliding window it consults to decide rejection:
+
+    if remaining <= 0:
+        ep_store.append(now)      # <-- the bug
+        return 429
+
+The window is pruned with `now - t < window`, so a client knocking more
+often than `window` keeps refreshing the store and the oldest entry never
+ages out. That is not throttling, it is a permanent ban, and the trigger is
+the most ordinary client behaviour there is. Measured, limit=10, window=60s:
+
+    knock every 70s  -> recovered after 70s
+    knock every  5s  -> still blocked after 1000s
+    knock every  1s  -> still blocked after 600s
+
+Only a client polite enough to back off past the entire window recovered --
+exactly backwards, since the dashboard polls every second and any agent
+retry loop is faster than that. `check_rate_limit` (v1, stacked on the same
+request) never had the bug, so the two limiters disagreed about what a
+window means.
+
+Pinned by `tests/test_rate_limit_recovery.py`, which injects the clock
+rather than sleeping: five retry intervals, a check that the limiter still
+rejects at all, and the v1 limiter as a control. Sabotage-checked -- putting
+the append back fails exactly the intervals shorter than the window.
+
+### Bridge performance: measured, no leaks found
+
+First latency numbers for the bridge (loopback, single worker, warm):
+
+    GET /health          p50 0.56ms  p95 0.67ms  p99 0.73ms
+    MCP tools/list       p50 1.64ms  p95 1.79ms  p99 2.04ms
+    MCP sys.status       p50 0.87ms  p95 1.09ms  p99 1.34ms
+    MCP fs.list          p50 0.95ms  p95 1.03ms  p99 1.11ms
+    MCP memory.recall    p50 1.18ms  p95 1.27ms  p99 1.49ms
+    MCP exec.exec(echo)  p50 1.21ms  p95 1.33ms  p99 1.42ms
+    GET /health   x32    p50 9.99ms  p95 11.41ms max 12.03ms
+    MCP tools/list x16   p50 23.40ms p95 25.82ms max 26.73ms
+
+Resource behaviour under 40 forced tool timeouts (`sleep 30` killed at 1s):
+file descriptors +0, threads +0, RSS +0, and no orphaned child processes.
+The timeout path does not leak.
+
 ### Two live bugs from calling all 234 MCP tools for the first time
 
 The MCP surface had two contract tests and neither one ever called a tool.
