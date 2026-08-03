@@ -1,0 +1,133 @@
+# .github/workflows/relock-dependabot.yml
+#
+# v4.158.0: regenerate the hash-locked .lock files on Dependabot PRs.
+#
+# Why this exists
+# ---------------
+# Dependabot edits `requirements-*.in` but has no idea our real inputs are the
+# `.lock` files next to them -- CI installs with `--require-hashes -r *.lock`
+# and never reads the `.in`. So every grouped bump arrives stale, and
+# scripts/check_lock_freshness.py fails the PR. That guard is correct and must
+# stay: a lock that silently disagrees with its `.in` is how a dependency
+# reaches production without ever being resolved (see the v4.157.0 entry about
+# the cold-cache marker-drop). But leaving the maintainer to regenerate seven
+# pins by hand on every weekly PR is how the guard turns into a nuisance and
+# then into a habit of merging red.
+#
+# The obvious answer was Renovate, whose `postUpgradeTasks` exist for exactly
+# this. Measured before adopting: that option is **self-hosted only** -- the
+# hosted Mend app silently ignores it, because `allowedPostUpgradeCommands` is
+# a bot-admin setting (renovatebot/renovate#16555, #11206). Self-hosting a bot
+# to regenerate one file is a bigger surface than the file. So we do the
+# regeneration ourselves, in a workflow we can read.
+#
+# Safety shape
+# ------------
+# * `pull_request` (not `pull_request_target`): this runs the PR's own code
+#   with a read-only default token, so a malicious dependency in a fork PR
+#   cannot reach our credentials.
+# * The write scope is granted to one job and used for exactly one thing:
+#   pushing the regenerated lock back onto the Dependabot branch.
+# * gated on `github.event.pull_request.user.login`, not `github.actor`:
+#   the actor context reflects whoever triggered the run and is spoofable
+#   (zizmor's bot-conditions audit), while the PR author is a property of the
+#   pull request object. A human PR with a stale lock stays red on purpose.
+# * If the regenerated lock fails our own freshness/marker checks, the job
+#   fails instead of pushing -- fail closed, never "fix" a lock into a state
+#   the guards reject.
+name: relock dependabot
+
+on:
+  pull_request:
+    paths:
+      - "requirements-*.in"
+
+permissions: {}
+
+concurrency:
+  group: relock-${{ github.head_ref }}
+  cancel-in-progress: true
+
+jobs:
+  relock:
+    name: Regenerate hash-locked requirements
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    permissions:
+      contents: write  # push the regenerated lock onto the dependabot branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Checkout the PR branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 1
+          persist-credentials: true  # needed for the push below
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      # Pinned: the resolver decides what every later job installs, so a
+      # floating uv would make the lock non-reproducible.
+      - name: Install uv (pinned)
+        run: python -m pip install "uv==0.12.1"
+
+      # --python-version 3.10 is REQUIRED, not cosmetic: without it uv resolves
+      # for the interpreter it happens to run on and every marker-guarded pin
+      # (async-timeout, exceptiongroup, tomli) vanishes from the lock. That is
+      # the "cold-cache marker-drop" scripts/check_ci_lock.py exists to catch.
+      - name: Regenerate every .in/.lock pair
+        run: |
+          set -euo pipefail
+          for in_file in requirements-*.in; do
+            lock_file="${in_file%.in}.lock"
+            echo "::group::$in_file -> $lock_file"
+            uv pip compile --universal --generate-hashes --strip-extras \
+              --python-version 3.10 \
+              --output-file="$lock_file" "$in_file"
+            echo "::endgroup::"
+          done
+
+      # Fail closed: if the regenerated locks do not satisfy our own guards,
+      # push nothing. A wrong lock committed by a bot is worse than a red PR.
+      - name: Verify the regenerated locks
+        run: |
+          python scripts/check_ci_lock.py
+          python scripts/check_lock_freshness.py
+
+      - name: Commit and push if anything changed
+        env:
+          # Through the environment, never interpolated into the script: a
+          # branch name is attacker-controllable text.
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- 'requirements-*.lock'; then
+            echo "locks already in sync with the .in files; nothing to push"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add requirements-*.lock
+          git commit -m "deps: regenerate hash-locked requirements for this bump
+
+          Dependabot edits the .in files; CI installs from the .lock files.
+          Regenerated by .github/workflows/relock-dependabot.yml so
+          check_lock_freshness.py has something truthful to check."
+          git push origin "HEAD:$HEAD_REF"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Dependabot lock regeneration"
+            echo
+            git --no-pager diff --stat HEAD~1 -- 'requirements-*.lock' 2>/dev/null \
+              || echo "- no lock changes were needed"
+          } >> "$GITHUB_STEP_SUMMARY"

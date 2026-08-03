@@ -1,5 +1,59 @@
 ## Unreleased
 
+### Dependabot PRs now regenerate their own lock files
+
+Dependabot opened its first grouped bump (7 runtime deps) and CI failed it on
+four jobs. The failure was correct: Dependabot edits `requirements-*.in`, but
+CI installs with `--require-hashes -r requirements-*.lock` and never reads the
+`.in`, so every bump arrived with a stale lock and `check_lock_freshness.py`
+said so. Without that guard the PR would have looked merged while the machine
+kept the old versions.
+
+The obvious fix was Renovate, whose `postUpgradeTasks` exist precisely to run
+`uv pip compile` after a bump. Measured before adopting: **that option is
+self-hosted only**. The hosted Mend app ignores it, because
+`allowedPostUpgradeCommands` is a bot-admin setting unavailable from repo
+config (renovatebot/renovate#16555, #11206). The real choice was therefore
+"Dependabot plus fifteen lines of our own YAML" versus "run and maintain a bot
+for one command" — so `.github/workflows/relock-dependabot.yml` now does it.
+
+Its shape matters more than its existence:
+
+* `pull_request`, not `pull_request_target` — PR code runs with a read-only
+  default token;
+* the write scope belongs to one job and is spent on one push;
+* gated on `github.event.pull_request.user.login`, **not** `github.actor`,
+  which zizmor correctly flags as spoofable;
+* `github.head_ref` reaches the script through the environment rather than
+  string interpolation — a branch name is attacker-controlled text;
+* **fail closed**: if the regenerated locks do not satisfy `check_ci_lock.py`
+  and `check_lock_freshness.py`, the job fails and pushes nothing.
+  Sabotage-checked with an unhashed pin.
+
+The bump itself was verified by execution rather than trusted: hash-locked
+install into a clean venv, the full suite on the new dependencies (5022
+passed), and a live server from that venv answering `/health` 4.157.0,
+refusing `/v1/exec` without a token, and serving 234 MCP tools. `pathspec`
+crossed a major boundary (0.12 → 1.1) and is transitive-only.
+
+### master is protected against force-push and deletion
+
+The repository had no rulesets at all. Added one covering `refs/heads/master`
+with `non_fast_forward` and `deletion`, and verified it by trying both: each
+push came back `remote rejected ... repository rule violations`.
+
+Deliberately *not* requiring pull requests or status checks on master: both
+the badge workflow and the maintainer push directly, and a rule that blocks
+the release process would be turned off the first time it hurt. The two rules
+added are the ones that prevent irreversible damage without changing how work
+gets done.
+
+### Fixed: dependabot.yml referenced labels that did not exist
+
+Every Dependabot PR carried the note "The following labels could not be found:
+`automated-pr`, `dependencies`". The configuration had been asking for labels
+nobody created, so automated PRs were never actually marked. Created.
+
 ### Live bug: the SSRF validator and the HTTP client disagreed on macOS
 
 The bypass corpus added above did exactly what an adversarial suite is for --
