@@ -70,6 +70,11 @@ def test_tool_cache_directories_never_ship():
         ".ruff_cache/0.16.1/15276370199070142989",
         "arena/.ruff_cache/nested",
         ".pyrefly_cache/anything",       # not yet emitted here; must not regress
+        ".hypothesis/unicode_data/x",    # v4.158.0: 600 files rode along once
+        ".hypothesis/examples/abc123",
+        "arena/.hypothesis/nested",
+        ".tox/py312/lib/x.py",
+        ".nox/session/x.py",
         ".hypothesis-cache/x",
         ".mypy_cache/x",
         "__pycache__/x.pyc",
@@ -85,5 +90,6 @@ def test_real_sources_are_not_mistaken_for_caches():
         "docs/cache_notes.md",
         "arena/my_cache/data.json",      # no dot prefix -> a real package dir
         "arena/cache_manager.py",
+        "arena/hypothesis_helper.py",    # 'hypothesis' in the name is not a cache
     ):
         assert _mod.should_exclude(path) is False, path

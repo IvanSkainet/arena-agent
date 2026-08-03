@@ -63,9 +63,29 @@ def detect_version() -> str:
     return m.group(1)
 
 
+# Dot-directories that are tool state rather than shipped content. The
+# suffix rule alone was not enough: `.hypothesis` (600 files of generated
+# example databases) matches neither `_cache` nor `-cache`, and rode along in
+# the v4.158.0 build until the file count jumped from 1027 to 1629. Named
+# entries cover the ones whose authors did not use a `cache` suffix.
+CACHE_DIR_NAMES = frozenset({
+    ".hypothesis",     # property-test example database
+    ".tox", ".nox",    # environment matrices
+    ".coverage",       # coverage data dir on some layouts
+    ".benchmarks",     # pytest-benchmark
+})
+
+
 def _is_cache_dir(name: str) -> bool:
-    """True for dot-prefixed tool caches (.ruff_cache, .pyrefly_cache, ...)."""
-    return name.startswith(".") and name.endswith(CACHE_DIR_SUFFIXES)
+    """True for a dot-prefixed directory that holds tool state, not content.
+
+    Two rules rather than one: a suffix test catches the `*_cache` family
+    (.ruff_cache, .mypy_cache, .pyrefly_cache -- including tools not written
+    yet), and an explicit set catches the ones named otherwise.
+    """
+    if not name.startswith("."):
+        return False
+    return name.endswith(CACHE_DIR_SUFFIXES) or name in CACHE_DIR_NAMES
 
 
 def should_exclude(rel_path: str) -> bool:
