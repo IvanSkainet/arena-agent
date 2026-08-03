@@ -51,7 +51,49 @@ jobs:
           echo "bare=${bare}" >> "${GITHUB_OUTPUT}"
           echo "Resolved tag: ${tag}"
 
+      # v4.158.0: the badge could go BACKWARDS. Cutting a release fires this
+      # workflow twice -- once for the tag (which knows its own name) and once
+      # for the push to master (which asks the API for releases/latest). Those
+      # race: measured on v4.158.0, the tag run wrote 4.158.0 at 22:00:14 and
+      # the push run overwrote it with 4.157.0 at 22:01:13, because the release
+      # only became "latest" at 22:01:22. Both runs were green; the badge just
+      # lied. Refusing to move the version down makes the race harmless
+      # whichever order the two runs finish in.
+      - name: Refuse to move the badge backwards
+        id: monotonic
+        env:
+          VERSION_BARE: ${{ steps.resolve.outputs.bare }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PYEOF' >> "${GITHUB_OUTPUT}"
+          import json, os, pathlib
+
+          incoming = os.environ["VERSION_BARE"]
+
+          def parts(v):
+              try:
+                  return tuple(int(x) for x in v.split("."))
+              except ValueError:
+                  return ()
+
+          current = ""
+          path = pathlib.Path("docs/version.json")
+          if path.exists():
+              try:
+                  current = json.loads(path.read_text()).get("semver", "")
+              except (json.JSONDecodeError, OSError):
+                  current = ""
+
+          new, old = parts(incoming), parts(current)
+          skip = bool(new and old and new < old)
+          print(f"skip={'true' if skip else 'false'}")
+          if skip:
+              print(f"::warning::badge stayed at {current}; {incoming} is older "
+                    "(releases/latest lagging behind a tag run)")
+          PYEOF
+
       - name: Write docs/version.json
+        if: steps.monotonic.outputs.skip != 'true'
         env:
           # Pass step outputs through env vars to avoid template injection
           VERSION_TAG: ${{ steps.resolve.outputs.tag }}
@@ -73,6 +115,7 @@ jobs:
           "
 
       - name: Commit if changed
+        if: steps.monotonic.outputs.skip != 'true'
         env:
           VERSION_TAG: ${{ steps.resolve.outputs.tag }}
         run: |

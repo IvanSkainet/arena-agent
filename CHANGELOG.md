@@ -11,6 +11,32 @@ quality gate that had never actually run.
 Dependency PRs now regenerate their own hash-locked requirements, and `master`
 is protected against force-push and deletion.
 
+### Live bug: the version badge could move backwards
+
+Cutting v4.158.0 exposed a race that had been latent in `version-badge.yml`
+since it was written. A release fires the workflow twice -- once for the tag,
+which knows its own name, and once for the push to master, which asks the API
+for `releases/latest`. On this release the second run asked nine seconds too
+early:
+
+    22:00:14  tag run   -> wrote 4.158.0
+    22:01:13  push run  -> overwrote it with 4.157.0
+    22:01:22  the release actually became "latest"
+
+Both runs were green. Nothing was broken except the fact the badge published:
+readers were told the project had gone back a version, and the only way to
+notice was to read the file.
+
+Timing cannot be the fix -- the order two workflow runs finish in is not ours
+to control. The workflow now refuses to write a semver older than the one on
+disk, which makes the race harmless either way round, and warns instead of
+failing (a lagging API is not an error). Both the write and the commit step
+are gated, because guarding only one would have left the same hole.
+
+Pinned by `tests/test_version_badge_monotonic.py`, including `4.9.0 -> 4.10.0`
+-- the case a string comparison calls backwards -- and a check that the badge
+never lags behind `arena.constants.VERSION`.
+
 ### Three live bugs from a one-off MegaLinter evaluation
 
 MegaLinter was proposed as a replacement for ruff. It cannot be one: it
