@@ -47,7 +47,7 @@
   function pushSample(name, value) {
     let buf = buffers.get(name);
     if (!buf) {
-      buf = new Array(BUFFER_SIZE).fill(null);
+      buf = Array.from({length: BUFFER_SIZE}, () => null);
       buffers.set(name, buf);
     }
     buf.push(value);

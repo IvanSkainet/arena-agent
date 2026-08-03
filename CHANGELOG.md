@@ -1,5 +1,43 @@
 ## Unreleased
 
+### The last debt gate reaches zero: JS 15 -> 0
+
+Every static gate in the repo now reports nothing: ruff 0, pyrefly 0,
+vulture 0, oxlint 0. The JS floor was the only one left above zero, and
+clearing it was worth doing by hand -- three of the fifteen were statements
+about the code that deserved an answer rather than a fix.
+
+* **`refreshSettings` was patched twice by name.** Two modules did
+  `const orig = refreshSettings; refreshSettings = async () => { await orig();
+  ... }`. Executed in a real browser, both layers do run -- the tab registry
+  calls `refreshSettings()` by name, so the reassignment is seen. But it works
+  by luck: any caller holding a reference, or a third patch written in the
+  same style, breaks it silently. Replaced with an explicit
+  `registerSettingsRefreshHook()` list whose runner isolates each hook, and
+  verified in Chromium that both refreshes still fire on one tab activation.
+
+* **`[...map.entries()]` in `pruneMountedControls` is load-bearing.** The
+  linter called the spread useless; the loop calls `mountedControls.delete()`
+  and the extension re-mounts controls, so a live Map iterator would also
+  visit entries added during iteration. Measured: with a re-entrant `set()`
+  the live iterator keeps going (`a,gen1,gen2,...`) while the snapshot stops.
+  Annotated with that measurement instead of "fixed".
+
+* **`20-section.js` was two comment lines and no code.** The manifest is built
+  by scanning the directory, so every dashboard load fetched and parsed it.
+  Deleted, with a new guard (`test_no_asset_is_only_a_comment_header`) so an
+  empty asset cannot come back.
+
+The rest were genuine simplifications, each proven equivalent before applying:
+`{...(x || {})}` -> `{...x}` (spreading any falsy value yields `{}` -- checked
+for null/undefined/false/0/""), `new Array(n).fill(null)` ->
+`Array.from({length: n}, () => null)`, `/^\/agent\//.test(p)` ->
+`p.startsWith('/agent/')` (14 paths incl. edge cases, zero behaviour change),
+and `x && x.close()` as a statement -> a plain `if`.
+
+The dashboard browser E2E added earlier in this cycle is what made this safe
+to do: it re-ran green after every edit, against a real Chromium.
+
 ### Browser E2E for /gui: the dashboard is finally executed, not just read
 
 The dashboard is 60 JavaScript files and 17k lines. Before this release,

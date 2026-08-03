@@ -528,7 +528,7 @@ function _sidepanelModesFromForm() {
   return modes;
 }
 function _sidepanelApplyModesToForm(modes) {
-  const m = {...ARENA_SETTINGS_DEFAULTS, ...(modes || {})};
+  const m = {...ARENA_SETTINGS_DEFAULTS, ...modes};
   ARENA_TOGGLE_FIELDS.forEach(([elId, modeKey]) => {
     document.getElementById(elId).checked = !!m[modeKey];
   });

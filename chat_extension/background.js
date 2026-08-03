@@ -547,7 +547,7 @@ async function replayHistory(index, mode = 'execute') {
   const item = itemResult.item;
   if (!item.payload) return {ok: false, error: 'history item has no payload'};
   if (mode === 'preview') return bridgeFetch('/v1/extension/preview', {method: 'POST', body: item.payload});
-  return bridgeFetch('/v1/extension/execute', {method: 'POST', body: {...item.payload, mode: {...(item.payload.mode || {}), approve: true}}});
+  return bridgeFetch('/v1/extension/execute', {method: 'POST', body: {...item.payload, mode: {...item.payload.mode, approve: true}}});
 }
 chrome.runtime.onInstalled.addListener(async () => {
   const cfg = await getConfig();

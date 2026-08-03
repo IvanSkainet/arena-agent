@@ -378,6 +378,13 @@ function cleanupStaleControls() {
 }
 
 function pruneMountedControls() {
+  // The spread is load-bearing, not decoration: this loop calls
+  // `mountedControls.delete()` on entries it visits, and a live Map iterator
+  // also visits entries ADDED during iteration. Measured: with a re-entrant
+  // `set()` the live iterator keeps going (a,gen1,gen2,...) while the copy
+  // stops after the original entries. Iterating a snapshot is what makes the
+  // prune terminate.
+  // oxlint-disable-next-line unicorn/no-useless-spread
   for (const [fingerprint, info] of [...mountedControls.entries()]) {
     if (info?.bar?.isConnected && info?.host?.isConnected) continue;
     // v0.14.27 (v4.50.17): T3 chat root-cause fix. When React
@@ -947,7 +954,7 @@ function mountControls(host, payload, adapter) {
     } else {
       ok = genericInsertIntoActiveField(insertText, strategy);
     }
-    const timing = {ok, ...(window.__arenaLastInsertTiming || {})};
+    const timing = {ok, ...window.__arenaLastInsertTiming};
     await arenaRecordInsertEvent('insert', request, adapter, timing, 'manual');
     status.textContent = ok
       ? `Inserted ${timingSummary(timing)}.`
@@ -1075,7 +1082,7 @@ async function runAutoModes(request, adapter, status, semanticFingerprint, setRe
     state = await arenaInsertAndSubmit(insertText, adapter, strategy);
   } else if (typeof arenaInsertResult === 'function') {
     const ok = await arenaInsertResult(insertText, adapter, strategy);
-    state = {ok, ...(window.__arenaLastInsertTiming || {})};
+    state = {ok, ...window.__arenaLastInsertTiming};
   } else {
     state = {ok: genericInsertIntoActiveField(insertText, strategy)};
   }

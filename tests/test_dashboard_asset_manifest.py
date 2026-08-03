@@ -134,3 +134,31 @@ def test_excluded_assets_not_in_manifest():
     assert not leaked, (
         f"Explicitly excluded assets leaked into manifest: {leaked}"
     )
+
+
+def test_no_asset_is_only_a_comment_header():
+    """v4.157.0 — an asset with no code is a wasted round-trip.
+
+    ``20-section.js`` was two comment lines and nothing else, yet the manifest
+    is built by scanning the directory, so every dashboard load fetched and
+    parsed it. oxlint flagged it as `unicorn(no-empty-file)`; the file was
+    deleted rather than annotated because there was nothing to keep.
+
+    This guard is about the shipped surface, not style: a file that survives
+    here must contribute at least one statement.
+    """
+    import re
+
+    offenders = []
+    for path in sorted(ASSETS.glob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        # Strip line comments, block comments and blank lines.
+        stripped = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
+        stripped = "\n".join(
+            ln for ln in stripped.splitlines()
+            if ln.strip() and not ln.strip().startswith("//")
+        ).strip()
+        if not stripped:
+            offenders.append(path.name)
+    assert offenders == [], (
+        f"these assets contain no code and are fetched on every load: {offenders}")

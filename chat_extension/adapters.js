@@ -459,9 +459,9 @@ function arenaDiagnosticSnapshot(node) {
   let arenaaiHint = null;
   try {
     if (typeof location !== 'undefined' && /(^|\.)arena\.ai$/i.test(location.hostname || '')) {
-      const surface = /^\/agent\//.test(location.pathname) ? 'agent'
-                    : /^\/c\//.test(location.pathname) ? 'chat'
-                    : /^\/battle/.test(location.pathname) ? 'battle'
+      const surface = location.pathname.startsWith('/agent/') ? 'agent'
+                    : location.pathname.startsWith('/c/') ? 'chat'
+                    : location.pathname.startsWith('/battle') ? 'battle'
                     : 'other';
       const wrappers = [];
       let cur = node.parentElement;

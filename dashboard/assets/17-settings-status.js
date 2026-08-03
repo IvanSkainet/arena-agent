@@ -1,4 +1,18 @@
 // ===== SETTINGS =====
+
+// Extra work to run whenever the Settings tab is shown. Two modules used to
+// reassign `refreshSettings` itself (`const orig = refreshSettings;
+// refreshSettings = async () => { await orig(); ... }`), which worked but only
+// by luck: it depends on every caller resolving the name at call time rather
+// than holding a reference, and a third patch written in the same style would
+// silently swallow the second. A list is what the code actually meant.
+const _settingsRefreshHooks = [];
+
+/** Register extra work for the Settings tab. Failures never block the rest. */
+function registerSettingsRefreshHook(fn) {
+  if (typeof fn === "function") _settingsRefreshHooks.push(fn);
+}
+
 async function refreshSettings() {
   // Service mode badge
   try {
@@ -54,6 +68,16 @@ async function refreshSettings() {
     }
   } catch(e) {
     // Silent fail
+  }
+
+  // Run registered extras last, each isolated: one failing hook must not
+  // stop the others or the base refresh that already succeeded.
+  for (const hook of _settingsRefreshHooks) {
+    try {
+      await hook();
+    } catch (e) {
+      console.warn("[settings] refresh hook failed", e);
+    }
   }
 }
 
@@ -141,13 +165,8 @@ async function yoloSet(enable) {
                ((r && (r.error || r.message)) || "unknown")); }
 }
 
-// Refresh YOLO state every time the Settings tab opens, by piggy-backing on
-// the existing onShow (refreshSettings) without editing its body.
-const _origRefreshSettingsForYolo = refreshSettings;
-refreshSettings = async function () {
-  try { await _origRefreshSettingsForYolo(); } catch (e) {}
-  await yoloRefresh();
-};
+// Refresh YOLO state every time the Settings tab opens.
+registerSettingsRefreshHook(() => yoloRefresh());
 
 // ===== EXECUTION POSTURE ("cubes") for code.run (v4.102.0) =====
 // The risk scoring below MIRRORS arena/autonomy/posture.py risk_level(); it is
@@ -265,8 +284,4 @@ async function postureApply() {
                (r && r.required_ack ? " (ack: " + r.required_ack + ")" : "")); }
 }
 
-const _origRefreshSettingsForPosture = refreshSettings;
-refreshSettings = async function () {
-  try { await _origRefreshSettingsForPosture(); } catch (e) {}
-  await postureRefresh();
-};
+registerSettingsRefreshHook(() => postureRefresh());

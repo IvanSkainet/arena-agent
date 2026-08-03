@@ -40,7 +40,7 @@ function mobileScreenSettingsLoad() {
 }
 
 function mobileScreenSettingsSave(patch) {
-  const merged = {...mobileScreenSettingsLoad(), ...(patch || {})};
+  const merged = {...mobileScreenSettingsLoad(), ...patch};
   try { localStorage.setItem(_MOBILE_LS_KEY, JSON.stringify(merged)); }
   catch (_) { /* private-mode / quota — non-fatal */ }
   return merged;

@@ -401,7 +401,7 @@ function _mobileMirrorHandleMediaError() {
   // Real teardown -- no timer, no retry.
   const wasWs = _mobileMirrorWs;
   _mobileMirrorWs = null;
-  try { wasWs && wasWs.close(1000, "media error"); } catch (_) {}
+  try { if (wasWs) wasWs.close(1000, "media error"); } catch (_) {}
   _mobileMirrorTeardown();
 }
 
@@ -434,7 +434,7 @@ async function mobileMirrorStop() {
   }
   const wasWs = _mobileMirrorWs;
   _mobileMirrorWs = null;
-  try { wasWs && wasWs.close(1000, "user stop"); } catch (_) {}
+  try { if (wasWs) wasWs.close(1000, "user stop"); } catch (_) {}
   _mobileMirrorTeardown();
   try {
     await api(
