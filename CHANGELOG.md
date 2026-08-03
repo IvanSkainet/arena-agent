@@ -1,5 +1,28 @@
 ## Unreleased
 
+### Live bug: the SSRF validator and the HTTP client disagreed on macOS
+
+The bypass corpus added above did exactly what an adversarial suite is for --
+it failed on the five macOS cells while passing on Linux, and the difference
+turned out to be a real defect rather than a test artefact.
+
+`socket.inet_aton` handles integer overflow differently per C library: glibc
+rejects a value above 2**32, BSD/macOS silently **truncates** it to the low 32
+bits. `_coerce_ip` bailed out of its own numeric branch on `n > 0xFFFFFFFF`
+and then fell through to `inet_aton`, so on macOS `http://99999999999999/`
+decoded to `16.122.63.255`, was not "private", and **passed validation** --
+after which the HTTP client, sharing that same libc, would connect to
+16.122.63.255. The validator and the socket saw different hosts. That the
+truncation happened to land on a public address instead of loopback is luck:
+`6425673729` is `127.0.0.1 + 2**32`.
+
+Fixed by refusing to let libc decide. `_coerce_ip` now range-checks every
+dotted component itself (the bound depends on how many parts there are, since
+`inet_aton` reads the last one as the remaining bytes), and `_validate_url`
+refuses an all-numeric host that failed to decode — such a string is always an
+attempted address, never a resolvable name. Verified under a simulated
+truncating libc so the guard is tested on the platform CI reaches least.
+
 ### The vulture gate had never actually run
 
 `quality_ratchet.py` filtered vulture's output with `": (" in ln`. Vulture

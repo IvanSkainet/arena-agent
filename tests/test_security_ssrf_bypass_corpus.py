@@ -37,8 +37,6 @@ docs/github_apps_actions_survey.md).
 """
 from __future__ import annotations
 
-import socket
-
 import pytest
 
 from arena.security_ssrf import _coerce_ip, _ip_is_blocked, _validate_url
@@ -102,48 +100,78 @@ def test_integer_forms_decode_to_the_same_address():
         assert _ip_is_blocked(addr) is True
 
 
-# 6425673729 == 127.0.0.1 + 2**32: an attacker's best shot at the truncation
-# path, since its low 32 bits ARE loopback.
-@pytest.mark.parametrize("overflow", [str(2**32), "99999999999999", "6425673729"])
-def test_out_of_range_integers_cannot_reach_an_internal_host(overflow):
-    """An integer too large for IPv4 must never end up talking to localhost.
+# The truncation corpus. 6425673729 is 127.0.0.1 + 2**32 (low 32 bits are
+# loopback) and 99999999999999 truncates to the routable 16.122.63.255 -- the
+# two shapes of the parser differential fixed in v4.157.0.
+@pytest.mark.parametrize(
+    "overflow", [str(2**32), "99999999999999", "6425673729", "256.1.1.1", "1.2.3.256"])
+def test_out_of_range_numeric_hosts_are_refused_on_every_platform(overflow):
+    """Overflow must not be left for libc to interpret.
 
-    The first version of this test asserted `_coerce_ip(...) is None`, and CI
-    proved that wrong on five macOS cells: the fallback runs through
-    `socket.inet_aton`, whose overflow behaviour is libc-specific. glibc
-    rejects `4294967296`; macOS truncates it to `0.0.0.0`.
+    Found by this suite failing on macOS while passing on Linux.
+    `socket.inet_aton` rejects a value above 2**32 under glibc but TRUNCATES
+    it to the low 32 bits under BSD, so `http://99999999999999/` passed
+    validation on macOS and then had the HTTP client connect to
+    16.122.63.255 -- the reviewer and the socket saw different hosts. That is
+    a parser differential, and the fact that it happened to land on a public
+    address rather than loopback is luck, not design.
 
-    Both outcomes are safe, but for different reasons, so the assertion has to
-    be about safety rather than about which branch fired:
-
-      * if the value decodes at all, the address must be blocked -- macOS
-        yields `0.0.0.0`, which is `is_unspecified`, so it is;
-      * if it does not decode, the same resolver the HTTP client will use must
-        also fail to resolve it -- glibc's `getaddrinfo` returns NXDOMAIN, so
-        the request cannot leave the machine.
-
-    The validator and the client share a libc, which is what makes the second
-    branch sound. Should the bridge ever fetch through a resolver of its own,
-    this test is the place that stops being true.
+    `_coerce_ip` now range-checks every component itself, and `_validate_url`
+    refuses an all-numeric host that failed to decode, so the verdict is the
+    same on every C library.
     """
-    addr = _coerce_ip(overflow)
-    if addr is not None:
-        # Decoded (BSD/macOS truncation). Whatever it decoded to, the
-        # validator must refuse the URL -- 0.0.0.0 is is_unspecified, and a
-        # truncation that lands on a public address is reported here loudly
-        # rather than passing quietly, because "we truncated your integer
-        # into some unrelated host" is not a safe thing to allow either.
-        assert _ip_is_blocked(addr), (
-            f"{overflow} truncated to {addr}, a routable address the "
-            f"validator would allow -- this platform's inet_aton wraps "
-            f"overflow instead of rejecting it")
-        assert _validate_url(f"http://{overflow}/") is not None
-        return
+    assert _coerce_ip(overflow) is None, (
+        f"{overflow} decoded to {_coerce_ip(overflow)}; overflow must not be "
+        "silently wrapped")
+    assert _validate_url(f"http://{overflow}/") is not None
 
-    # Did not decode (glibc). Then the resolver the HTTP client will use must
-    # also refuse it, so the request cannot leave the machine.
-    with pytest.raises((socket.gaierror, UnicodeError)):
-        socket.getaddrinfo(overflow, None)
+
+def test_range_check_holds_under_a_truncating_libc(monkeypatch):
+    """The fix must work on BSD, which CI only reaches for macOS.
+
+    On glibc the range check is belt-and-braces: `inet_aton` already refuses
+    an overflow, so removing the check changes nothing locally and a
+    Linux-only suite would call the sabotage "not caught". Simulating the BSD
+    behaviour makes the check the only thing standing between an overflowing
+    integer and a connection to an unrelated host.
+    """
+    import socket as _socket
+
+    real = _socket.inet_aton
+
+    def truncating_inet_aton(value: str) -> bytes:
+        try:
+            return real(value)
+        except OSError:
+            # What BSD/macOS does: keep the low 32 bits.
+            return (int(value) & 0xFFFFFFFF).to_bytes(4, "big")
+
+    monkeypatch.setattr("arena.security_ssrf.socket.inet_aton", truncating_inet_aton)
+
+    for overflow in ("99999999999999", "6425673729", str(2**32)):
+        assert _coerce_ip(overflow) is None, (
+            f"under a truncating libc, {overflow} decoded to "
+            f"{_coerce_ip(overflow)} -- the range check is not holding")
+        assert _validate_url(f"http://{overflow}/") is not None
+
+    # And the legitimate spellings must survive the same environment.
+    assert str(_coerce_ip("127.1")) == "127.0.0.1"
+    assert str(_coerce_ip("1.1.1.1")) == "1.1.1.1"
+
+
+@pytest.mark.parametrize(("spelling", "expected"), [
+    ("127.1", "127.0.0.1"),
+    ("2130706433", "127.0.0.1"),
+    ("0x7f000001", "127.0.0.1"),
+    ("017700000001", "127.0.0.1"),
+    ("1.1.1.1", "1.1.1.1"),
+    ("255.255.255.255", "255.255.255.255"),
+    ("0.0.0.0", "0.0.0.0"),
+])
+def test_in_range_spellings_still_decode(spelling, expected):
+    """The overflow fix must not cost us any legitimate address form."""
+    addr = _coerce_ip(spelling)
+    assert addr is not None and str(addr) == expected
 
 
 def test_public_addresses_are_not_blocked_by_ip_rules():
