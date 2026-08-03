@@ -31,7 +31,9 @@ BACKGROUND = ROOT / "chat_extension" / "background.js"
 
 
 def _source() -> str:
-    return BACKGROUND.read_text(encoding="utf-8")
+    # Newline-normalised: Windows runners check the tree out with CRLF, and
+    # every assertion here is about content, never about line terminators.
+    return BACKGROUND.read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
 def test_fetch_call_is_guarded_against_get_with_body():
@@ -64,9 +66,11 @@ def test_get_with_body_does_not_throw_and_post_still_sends(tmp_path):
           }}
           return {{ ok: true, status: 200, text: async () => '{{"ok":true}}' }};
         }};
-        const src = readFileSync({json.dumps(str(BACKGROUND))}, 'utf8');
+        // Normalise line endings first: Windows runners check the tree out
+        // with CRLF, so a `\\n}}\\n` terminator would never match there.
+        const src = readFileSync({json.dumps(str(BACKGROUND))}, 'utf8').replace(/\\r\\n/g, '\\n');
         const m = src.match(/async function bridgeFetchOnce[\\s\\S]*?\\n}}\\n/);
-        if (!m) {{ console.log(JSON.stringify({{error: 'bridgeFetchOnce not found'}})); process.exit(1); }}
+        if (!m) {{ console.error('bridgeFetchOnce not found in source'); process.exit(2); }}
         const bridgeFetchOnce = new Function('return ' + m[0].trim())();
         await bridgeFetchOnce('http://x', '/p', {{}}, 'GET', {{a: 1}});
         await bridgeFetchOnce('http://x', '/p', {{}}, 'HEAD', {{a: 1}});
@@ -76,6 +80,9 @@ def test_get_with_body_does_not_throw_and_post_still_sends(tmp_path):
     proc = subprocess.run(
         ["node", str(harness)], cwd=ROOT, capture_output=True, text=True, timeout=60,
     )
+    assert proc.returncode != 2, (
+        "the harness could not locate bridgeFetchOnce -- it was renamed or "
+        f"reshaped:\n{proc.stderr}")
     assert proc.returncode == 0, f"harness failed:\n{proc.stdout}\n{proc.stderr}"
     bodies = json.loads(proc.stdout.strip().splitlines()[-1])
     assert bodies[0] is None, "GET must not carry a body"
