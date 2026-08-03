@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """core/health — fast platform health check (cross-platform)."""
 from __future__ import annotations
+
 import os
 import shutil
 import subprocess

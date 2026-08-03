@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """core/snapshot — comprehensive platform archive with manifest."""
 from __future__ import annotations
+
 import argparse
 import datetime as dt
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import tarfile
 from pathlib import Path
@@ -127,4 +127,5 @@ def main() -> int:
     return 0
 
 
-if __name__ == "__main__":    sys.exit(main())
+if __name__ == "__main__":
+    sys.exit(main())

@@ -30,7 +30,6 @@ import sys
 import time
 from pathlib import Path
 
-
 HOME = Path.home()
 DEFAULT_REPORTS = Path(os.environ.get("ARENA_AGENT_HOME") or (HOME / "arena-bridge")) / "reports"
 SESSION = os.environ.get("BACT_SESSION", "arena")
@@ -134,7 +133,8 @@ def cmd_doctor() -> int:
 
 def cmd_extract(args: list[str]) -> int:
     if not args:
-        sys.stderr.write("usage: extract <url> [browser-act args...]\n"); return 2
+        sys.stderr.write("usage: extract <url> [browser-act args...]\n")
+        return 2
     url, *rest = args
     reports = _ensure_reports()
     out = reports / f"bact-extract-{_slug(url)}-{_stamp()}.md"
@@ -158,7 +158,8 @@ def cmd_extract(args: list[str]) -> int:
 
 def cmd_shot(args: list[str]) -> int:
     if not args:
-        sys.stderr.write("usage: shot <url>\n"); return 2
+        sys.stderr.write("usage: shot <url>\n")
+        return 2
     url = args[0]
     reports = _ensure_reports()
     out = reports / f"bact-shot-{_slug(url)}-{_stamp()}.png"
@@ -177,7 +178,8 @@ def cmd_shot(args: list[str]) -> int:
 
 def cmd_open(args: list[str]) -> int:
     if not args:
-        sys.stderr.write("usage: open <url>\n"); return 2
+        sys.stderr.write("usage: open <url>\n")
+        return 2
     _run("--format", "json", "--session", SESSION, "navigate", args[0])
     return 0
 
@@ -189,28 +191,32 @@ def cmd_state(_args: list[str]) -> int:
 
 def cmd_click(args: list[str]) -> int:
     if not args:
-        sys.stderr.write("usage: click <index>\n"); return 2
+        sys.stderr.write("usage: click <index>\n")
+        return 2
     _run("--format", "json", "--session", SESSION, "click", args[0])
     return 0
 
 
 def cmd_type(args: list[str]) -> int:
     if not args:
-        sys.stderr.write("usage: type <text>\n"); return 2
+        sys.stderr.write("usage: type <text>\n")
+        return 2
     _run("--format", "json", "--session", SESSION, "type", args[0])
     return 0
 
 
 def cmd_input(args: list[str]) -> int:
     if len(args) < 2:
-        sys.stderr.write("usage: input <index> <text>\n"); return 2
+        sys.stderr.write("usage: input <index> <text>\n")
+        return 2
     _run("--format", "json", "--session", SESSION, "input", args[0], " ".join(args[1:]))
     return 0
 
 
 def cmd_eval(args: list[str]) -> int:
     if not args:
-        sys.stderr.write("usage: eval <js>\n"); return 2
+        sys.stderr.write("usage: eval <js>\n")
+        return 2
     _run("--format", "json", "--session", SESSION, "eval", args[0])
     return 0
 
@@ -225,7 +231,8 @@ def cmd_auth(args: list[str]) -> int:
     rest = args[1:]
     if sub == "set":
         if not rest:
-            sys.stderr.write("usage: auth set <KEY>\n"); return 2
+            sys.stderr.write("usage: auth set <KEY>\n")
+            return 2
         _run("auth", "set", rest[0])
         return 0
     if sub == "clear":

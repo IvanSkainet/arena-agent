@@ -1,5 +1,35 @@
 ## Unreleased
 
+### The gate now covers the whole tree, and pre-commit knows about it
+
+Widening the ruff ratchet to `scripts/` and `bin/` earlier in this cycle left
+an obvious question unasked: what else is outside it? The answer was 19
+findings in 7 files, and the list is embarrassing in the right way --
+`unified_bridge.py` itself, `_arena_helper.py`, four `skills/*/run.py`, and a
+dev script. A gate that excludes the main entry point is a preference, not a
+gate.
+
+`TARGETS` is now `(".",)` rather than a list of directories, so a new
+top-level file is inside the gate by default instead of silently outside it.
+
+One of the 19 was not debt: `import resource` in `unified_bridge.py` looks
+unused, but it materialises the Windows mock in `sys.modules` before any
+dependency imports the real thing. Deleting it would have moved the failure to
+whichever module imports `resource` first, on the platform least likely to be
+tested. It is annotated now, with the reason.
+
+The rest were mechanical (7x `I001`, 8x `E702`, 1x `E701` via the AST-proven
+splitters, 2 genuinely dead imports removed with an AST diff). Verified by
+starting the server: `/health` still answers.
+
+**pre-commit** was already configured but predated three of the four gates. It
+now runs the lint, quality and JS ratchets in addition to `ruff check`, with
+the JS one keyed on `types: [javascript]` so Python-only commits pay nothing.
+Its header comment also stopped being true -- it justified disabling the
+whitespace fixers by pointing at W291/W293 debt that no longer exists. The
+hooks stay disabled anyway, for the better reason: a hook that silently
+rewrites files produces a commit nobody reviewed.
+
 ### The last debt gate reaches zero: JS 15 -> 0
 
 Every static gate in the repo now reports nothing: ruff 0, pyrefly 0,

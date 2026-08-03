@@ -6,8 +6,8 @@ Can be called from install.bat / install.sh via:
     python _arena_helper.py version   — print the bridge version
     python _arena_helper.py token     — generate a new auth token
 """
-import sys
 import secrets
+import sys
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent

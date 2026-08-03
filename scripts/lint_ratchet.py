@@ -23,10 +23,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "scripts" / "lint_baseline.json"
-# v4.157.0: scripts/ and bin/ joined the gate once their 433 findings were
-# cleared. They are not "build helpers" -- make_release_zip.py ships both
-# directories, so this is code the user actually executes.
-TARGETS = ("arena", "tests", "scripts", "bin")
+# v4.157.0: the gate covers the WHOLE tree. It grew in two steps -- first
+# scripts/ and bin/ (433 findings; they are shipped by make_release_zip.py, so
+# the user executes them), then the last stragglers outside any package:
+# unified_bridge.py itself, _arena_helper.py, skills/*/run.py and dev/. A
+# scope that excludes the main entry point is not a gate, it is a preference.
+# "." rather than a list: a new top-level file is then inside the gate by
+# default instead of silently outside it.
+TARGETS = (".",)
 
 
 def current_counts() -> Counter:

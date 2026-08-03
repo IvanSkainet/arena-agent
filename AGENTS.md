@@ -114,17 +114,21 @@ Before completing any task that creates or modifies files, run the checks
 that apply to what you touched:
 
 ```bash
-ruff check arena tests                  # must print "All checks passed!"
+ruff check .                            # must print "All checks passed!"
 python scripts/lint_ratchet.py --fail-on-any     # must print LINT DEBT ZERO
 python scripts/quality_ratchet.py --fail-on-any  # must print QUALITY DEBT ZERO
 python scripts/js_lint_ratchet.py       # only if you touched .js
 ```
 
-Scope as of v4.157.0: the ruff ratchet covers `arena`, `tests`, `scripts` and
-`bin`; pyrefly covers `arena`, `scripts`, `bin`. All of them are at zero.
-`scripts/` and `bin/` joined the gate once their 433 ruff + 67 pyrefly
-findings were cleared — they are not build helpers, `make_release_zip.py`
-ships both directories and the user executes them.
+Scope as of v4.157.0: **ruff covers the whole tree** (`TARGETS = (".",)`),
+pyrefly covers `arena`, `scripts`, `bin`, and oxlint covers `dashboard/assets`
+plus `chat_extension`. Every one of them is at zero.
+
+The scope grew in two steps and the reason is worth keeping: `scripts/` and
+`bin/` are shipped by `make_release_zip.py`, and `unified_bridge.py` is the
+main entry point — a gate that excludes those is a preference, not a gate.
+`"."` rather than a list so a new top-level file lands inside the gate by
+default instead of silently outside it.
 
 If anything is reported, fix ALL of it and run again to confirm zero. Do not
 finish the task on a non-zero count, and do not buy the number with

@@ -12,8 +12,8 @@ New code should be added to focused ``arena/<domain>/`` modules, not here.
 """
 from __future__ import annotations
 
-import sys
 import os
+import sys
 
 # --- Windows pythonw.exe stdout/stderr fix ---
 if sys.stdout is None:
@@ -28,12 +28,15 @@ if sys.platform == "win32":
         def getrlimit(self, *a, **kw): return (1024, 1024)
         def setrlimit(self, *a, **kw): pass
     sys.modules["resource"] = MockResource()
-    import resource  # noqa: E402
+    # Not unused: importing it here proves the mock resolves through the
+    # module cache before any dependency does `import resource` on a platform
+    # that has no such module. Deleting it would move the failure to import
+    # time of whatever imports it first.
+    import resource  # noqa: E402,F401
 
 import arena.runtime_deps as _runtime_deps  # noqa: E402
 from arena.runtime.namespace import apply_compat_exports, build_runtime_namespace  # noqa: E402
 from arena.wiring.bridge_runtime import build_bridge_runtime  # noqa: E402
-
 
 _runtime_namespace = build_runtime_namespace(_runtime_deps)
 _bridge_runtime = build_bridge_runtime(_runtime_namespace)

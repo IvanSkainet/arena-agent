@@ -4,10 +4,18 @@
 # CI remains the source of truth: nothing here REPLACES the blocking
 # gates (lint/quality ratchets, import contracts, packaging+e2e). This
 # only keeps obvious debt/credentials from ever reaching a commit.
-# Fixer hooks that rewrite files (trailing-whitespace, end-of-file) are
-# deliberately NOT enabled: the legacy tree still carries W291/W293
-# debt tracked by the lint ratchet, and silent mass-rewrites are worse
-# than visible debt (green-checkmark fallacy — see AGENTS.md).
+#
+# v4.157.0: every static gate is now at zero (ruff, pyrefly, vulture,
+# oxlint), which changes what these hooks are for. They used to be a
+# nice-to-have on a tree that carried thousands of findings; now a single
+# new finding turns the Debt visibility job red, so catching it before the
+# push is worth the few seconds it costs.
+#
+# Fixer hooks that rewrite files (trailing-whitespace, end-of-file) stay
+# disabled on purpose. The W291/W293 debt that originally justified that
+# choice is gone, but the reason survives it: a hook that silently edits
+# files makes a commit that nobody reviewed, and "the hook did it" is the
+# green-checkmark fallacy in another costume (AGENTS.md).
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -30,4 +38,35 @@ repos:
         entry: python -m ruff check
         language: system
         types: [python]
+        require_serial: true
+
+      # The ratchets are what actually guard the zero. They read the whole
+      # tree rather than the staged subset -- a file can only leave the
+      # gate green by being clean in context, not in isolation -- so they
+      # run once per commit with pass_filenames: false.
+      - id: lint-ratchet
+        name: lint ratchet (ruff floor, must not grow)
+        entry: python scripts/lint_ratchet.py
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      - id: quality-ratchet
+        name: quality ratchet (pyrefly + vulture floor)
+        entry: python scripts/quality_ratchet.py
+        language: system
+        types: [python]
+        pass_filenames: false
+        require_serial: true
+
+      # JS gate. `types: [javascript]` means this only runs when a .js file
+      # is staged, so Python-only commits pay nothing. Skipped silently when
+      # oxlint is not installed -- the CI job is the blocking copy.
+      - id: js-lint-ratchet
+        name: oxlint ratchet (dashboard + extension)
+        entry: python scripts/js_lint_ratchet.py
+        language: system
+        types: [javascript]
+        pass_filenames: false
         require_serial: true
