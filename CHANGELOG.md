@@ -57,6 +57,17 @@ layers deep (`ip_address` → `inet_aton` → DNS), and a corpus that only asser
 outcomes would let a silent removal of layer one through. Each layer now has
 its own unit test.
 
+CI then taught the same lesson back. One case asserted
+`_coerce_ip("4294967296") is None` and failed on all five macOS cells: overflow
+behaviour in `inet_aton` is libc-specific — glibc rejects the value, BSD
+truncates it to `0.0.0.0`. Both are safe, for different reasons, so the
+assertion was about a platform detail rather than about safety. Rewritten as
+the property that actually matters: either the value does not decode and the
+resolver the HTTP client shares refuses it too, or it decodes and the address
+must be blocked. The corpus gained `6425673729` — `127.0.0.1 + 2**32`, whose
+low 32 bits are loopback — which is the attacker's best shot at the truncation
+path; it is refused on both platforms.
+
 ## v4.157.0 — 2026-08-03
 
 Every static gate in this repository now reports zero, and the dashboard is

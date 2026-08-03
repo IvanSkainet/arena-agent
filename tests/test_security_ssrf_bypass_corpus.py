@@ -37,6 +37,8 @@ docs/github_apps_actions_survey.md).
 """
 from __future__ import annotations
 
+import socket
+
 import pytest
 
 from arena.security_ssrf import _coerce_ip, _ip_is_blocked, _validate_url
@@ -100,17 +102,48 @@ def test_integer_forms_decode_to_the_same_address():
         assert _ip_is_blocked(addr) is True
 
 
-def test_out_of_range_integers_are_not_treated_as_addresses():
-    """A number too large for IPv4 must not silently wrap into a valid host."""
-    assert _coerce_ip(str(2**32)) is None
-    assert _coerce_ip("99999999999999") is None
+# 6425673729 == 127.0.0.1 + 2**32: an attacker's best shot at the truncation
+# path, since its low 32 bits ARE loopback.
+@pytest.mark.parametrize("overflow", [str(2**32), "99999999999999", "6425673729"])
+def test_out_of_range_integers_cannot_reach_an_internal_host(overflow):
+    """An integer too large for IPv4 must never end up talking to localhost.
 
+    The first version of this test asserted `_coerce_ip(...) is None`, and CI
+    proved that wrong on five macOS cells: the fallback runs through
+    `socket.inet_aton`, whose overflow behaviour is libc-specific. glibc
+    rejects `4294967296`; macOS truncates it to `0.0.0.0`.
 
-def test_short_form_addresses_decode_via_inet_aton():
-    """Layer 2: `127.1` is a valid address spelling that the regex misses."""
-    addr = _coerce_ip("127.1")
-    assert addr is not None and str(addr) == "127.0.0.1"
-    assert _ip_is_blocked(addr) is True
+    Both outcomes are safe, but for different reasons, so the assertion has to
+    be about safety rather than about which branch fired:
+
+      * if the value decodes at all, the address must be blocked -- macOS
+        yields `0.0.0.0`, which is `is_unspecified`, so it is;
+      * if it does not decode, the same resolver the HTTP client will use must
+        also fail to resolve it -- glibc's `getaddrinfo` returns NXDOMAIN, so
+        the request cannot leave the machine.
+
+    The validator and the client share a libc, which is what makes the second
+    branch sound. Should the bridge ever fetch through a resolver of its own,
+    this test is the place that stops being true.
+    """
+    addr = _coerce_ip(overflow)
+    if addr is not None:
+        # Decoded (BSD/macOS truncation). Whatever it decoded to, the
+        # validator must refuse the URL -- 0.0.0.0 is is_unspecified, and a
+        # truncation that lands on a public address is reported here loudly
+        # rather than passing quietly, because "we truncated your integer
+        # into some unrelated host" is not a safe thing to allow either.
+        assert _ip_is_blocked(addr), (
+            f"{overflow} truncated to {addr}, a routable address the "
+            f"validator would allow -- this platform's inet_aton wraps "
+            f"overflow instead of rejecting it")
+        assert _validate_url(f"http://{overflow}/") is not None
+        return
+
+    # Did not decode (glibc). Then the resolver the HTTP client will use must
+    # also refuse it, so the request cannot leave the machine.
+    with pytest.raises((socket.gaierror, UnicodeError)):
+        socket.getaddrinfo(overflow, None)
 
 
 def test_public_addresses_are_not_blocked_by_ip_rules():
