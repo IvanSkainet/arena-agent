@@ -1,5 +1,56 @@
 ## Unreleased
 
+### Browser E2E for /gui: the dashboard is finally executed, not just read
+
+The dashboard is 60 JavaScript files and 17k lines. Before this release,
+exactly **two** of them were ever executed by a test (the Node harnesses in
+`tests/test_overview_*_js.py`). Everything else was verified by reading source
+text: does the file exist, is `.main` balanced in the concatenated HTML, does
+the manifest list what the loader expects. All useful, and none of it can tell
+you the page renders.
+
+That gap has a history. v4.96.0 shipped a stray `</div>` that pushed six tabs
+outside `.main` — the "content shifted right with an empty middle" bug. The
+guard written afterwards parses HTML, so a CSS-only or JS-only repeat of the
+same symptom would sail straight through it.
+
+`tests/e2e/test_dashboard_browser.py` runs a real Chromium against the real
+server (reusing the `bridge` fixture from the existing live E2E, so there is
+one startup contract rather than two) and asserts observable behaviour:
+
+* boot produces zero console errors, zero page errors, zero failed requests,
+  and loads the full asset set rather than the five-script fallback;
+* each of the 22 sidebar links switches to **exactly one** visible panel;
+* touring every tab — which fires each tab's `onShow` and its API calls —
+  yields no 4xx/5xx and no uncaught exception (185 requests, all 200);
+* without a token the page is a login screen that reaches no API at all;
+* a reload does not duplicate the sidebar;
+* the documented fail-soft is executed in all four failure modes
+  (HTTP 500 / empty scripts / invalid JSON / aborted request): the shell must
+  still render **and** say so on screen, not only in `console.warn`.
+
+Each assertion was checked by deliberate sabotage before being trusted:
+removing the CSS that collapses hidden panels, typoing the `active` class in
+the tab switcher, and blanking the fallback banner each turned the suite red
+in the expected place.
+
+Verdict on the dashboard itself: healthy. Nothing was found to fix — the value
+here is that "healthy" is now a measured fact re-checked on every push,
+instead of an assumption resting on 58 files no test had ever run.
+
+### The lock recipe was incomplete, and it cost a debugging round
+
+Adding `playwright` to `requirements-ci.in` and regenerating with the command
+printed in that file's own header produced a lock with **zero** marker-guarded
+pins — `async-timeout`, `exceptiongroup` and `tomli` all silently vanished,
+which is precisely the "cold-cache marker-drop" `scripts/check_ci_lock.py`
+exists to catch. It caught it.
+
+The cause is that `uv pip compile` resolves for the interpreter it happens to
+be running on unless told otherwise; `--python-version 3.10` is required, not
+cosmetic. The header now says so, with the measurement (0 marker lines vs 6)
+next to it.
+
 ### scripts/ and bin/ join the gate: 433 ruff + 67 pyrefly findings to zero
 
 These two directories were never in scope for any checker, on the assumption

@@ -3,7 +3,15 @@
 # that only exist on other Python versions (e.g. async-timeout <3.11) are
 # silently dropped and hash-mode installs fail on those matrix cells:
 #   uv pip compile --universal --generate-hashes --strip-extras \
+#     --python-version 3.10 \
 #     --output-file=requirements-ci.lock requirements-ci.in
+#
+# --python-version 3.10 is REQUIRED, not cosmetic: without it uv resolves for
+# the interpreter it happens to be running on, and every marker-guarded pin
+# (async-timeout, exceptiongroup, tomli) silently vanishes from the lock --
+# which is exactly the "cold-cache marker-drop" scripts/check_ci_lock.py
+# exists to catch. Verified by reproducing it while adding playwright in
+# v4.157.0: the bare command produced 0 marker lines, the flagged one 6.
 aiohttp==3.14.1
 psutil==7.2.2
 websockets==16.0
@@ -31,6 +39,11 @@ import-linter==2.13
 build==1.5.0
 twine==7.0.0
 check-wheel-contents==0.6.3
+
+# Browser E2E for the /gui dashboard (v4.157.0). Pinning the Python package
+# also pins which browser build `playwright install chromium` fetches, so the
+# binary is version-controlled even though it is not hash-locked here.
+playwright==1.62.0
 
 # Windows-only pytest dependency; include explicitly so hash mode works on every CI OS.
 colorama==0.4.6

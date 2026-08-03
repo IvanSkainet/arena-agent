@@ -487,6 +487,62 @@ jobs:
           python -c "import arena, unified_bridge; from arena.constants import VERSION; import arena.admin.auto_update; print('wheel import OK', VERSION)"
 
   # ----------------------------------------------------------------
+  # v4.157.0: browser E2E for /gui. The dashboard is 60 JS files and 17k
+  # lines, of which exactly two were ever executed by a test before this
+  # job existed -- everything else was checked by reading source text.
+  # That cannot see a rendering regression: v4.96.0 shipped a stray
+  # </div> that pushed six tabs out of .main, and the guard written
+  # afterwards parses HTML, so a CSS-only repeat would sail through.
+  # Blocking, because a dashboard that does not render is a broken
+  # product, not a warning. ~75s including the browser download.
+  # ----------------------------------------------------------------
+  dashboard-browser-e2e:
+    name: Dashboard browser E2E (real Chromium against a live server)
+    runs-on: ubuntu-latest
+    steps:
+      # StepSecurity Harden-Runner in AUDIT mode (non-blocking):
+      # records network egress / file integrity / processes to the
+      # StepSecurity dashboard. Chosen as P1 from
+      # docs/github_apps_actions_survey.md: this job downloads a browser
+      # build, so egress visibility matters.
+      # Signal route: their dashboard, NOT our red — by design.
+      - name: Harden Runner (audit mode, egress visibility)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install runtime + test deps (hash-locked)
+        run: python -m pip install --require-hashes -r requirements-ci.lock
+
+      # Not hash-locked like the rest: the browser is a binary blob fetched
+      # by Playwright's own downloader, not a PyPI wheel. The python package
+      # itself IS pinned in requirements-ci.lock, and that pin decides which
+      # browser build is fetched, so the version is still controlled.
+      - name: Install Chromium for Playwright
+        run: python -m playwright install --with-deps chromium
+
+      - name: Browser E2E against the live dashboard
+        run: python -m pytest tests/e2e/test_dashboard_browser.py -v --no-cov --timeout=300
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: dashboard-e2e-artifacts
+          path: |
+            /tmp/pytest-of-runner/**/*.png
+          if-no-files-found: ignore
+
+  # ----------------------------------------------------------------
   # Installed-artifact E2E (blocking), Tier-2. The packaging job above
   # proves the wheel IMPORTS; this job proves the wheel WORKS: the
   # installed artifact is spawned as a real server process and driven
